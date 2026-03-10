@@ -1583,6 +1583,18 @@ export class APIService {
         return this.request(`/cohorts/${cohortId}${query ? '?' + query : ''}`)
     }
 
+    static async getFeederCompetitions() {
+        return this.request('/feeder/competitions')
+    }
+
+    static async getFeederTeams(leagueApiId, season) {
+        return this.request(`/feeder/competitions/${leagueApiId}/teams?season=${season}`)
+    }
+
+    static async getSquadOrigins(teamApiId, { league, season }) {
+        return this.request(`/feeder/teams/${teamApiId}/origins?league=${league}&season=${season}`)
+    }
+
     static async getCohortTeams() {
         return this.request('/cohorts/teams')
     }

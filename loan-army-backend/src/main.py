@@ -21,6 +21,7 @@ from src.routes.cohort import cohort_bp
 from src.routes.gol import gol_bp
 from src.routes.formation import formation_bp
 from src.routes.teams import teams_bp
+from src.routes.feeder import feeder_bp
 import logging
 from sqlalchemy.engine.url import make_url, URL
 from flask_migrate import Migrate
@@ -95,6 +96,7 @@ app.register_blueprint(cohort_bp, url_prefix='/api')
 app.register_blueprint(gol_bp, url_prefix='/api')
 app.register_blueprint(formation_bp, url_prefix='/api')
 app.register_blueprint(teams_bp, url_prefix='/api')
+app.register_blueprint(feeder_bp, url_prefix='/api')
 
 csp = {
     'default-src': ["'self'"],
