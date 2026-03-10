@@ -97,6 +97,7 @@ import { AdminTools } from '@/pages/admin/AdminTools'
 import { AdminSandbox } from '@/pages/admin/AdminSandbox'
 import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
+import { SquadOrigins } from '@/pages/SquadOrigins'
 import { CohortBrowser } from '@/pages/CohortBrowser'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
@@ -7148,6 +7149,7 @@ function Navigation() {
       { path: '/teams', label: 'Teams', icon: Users },
       { path: '/dream-team', label: 'Dream XI', icon: Trophy },
       { path: '/newsletters', label: 'Newsletters', icon: FileText },
+      { path: '/squad-origins', label: 'Squad Origins', icon: Globe },
       { path: '/journalists', label: 'Journalists', icon: UserPlus },
     ]
     if (isJournalist) {
@@ -10838,6 +10840,7 @@ function AppRoutes() {
       <Route path="/verify" element={<VerifyPage />} />
       <Route path="/claim-account" element={<ClaimAccount />} />
       <Route path="/submit-take" element={<SubmitTake />} />
+      <Route path="/squad-origins" element={<SquadOrigins />} />
       <Route path="/academy" element={<CohortBrowser />} />
       <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
       <Route path="/academy/analytics" element={<CohortAnalytics />} />
