@@ -14486,6 +14486,12 @@ def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=
                 teams = Team.query.filter_by(is_tracked=True, is_active=True).all()
             empty_teams = [t for t in teams
                            if TrackedPlayer.query.filter_by(team_id=t.id, is_active=True).count() == 0]
+            if not empty_teams:
+                update_job(job_id, status='completed', progress=0, total=0,
+                           results={'teams': {}, 'errors': []},
+                           completed_at=datetime.now(timezone.utc).isoformat())
+                return
+
             update_job(job_id, status='running', progress=0, total=len(empty_teams))
 
             # Phase 1: Cohort discovery for all empty teams
