@@ -14115,6 +14115,13 @@ def admin_recompute_academy_ids():
         unchanged = 0
         total = len(journeys)
 
+        # Use a savepoint so dry-run can roll back all mutations
+        # (_apply_development_classification mutates entry_type,
+        # _compute_academy_club_ids writes academy_club_ids and
+        # calls _upsert_tracked_players).
+        if dry_run:
+            savepoint = db.session.begin_nested()
+
         for journey in journeys:
             old_ids = set(journey.academy_club_ids or [])
 
@@ -14141,30 +14148,11 @@ def admin_recompute_academy_ids():
                 birth_date=journey.birth_date,
             )
 
-            # Re-run academy computation
-            if not dry_run:
-                service._compute_academy_club_ids(journey, entries, transfers=transfers)
-                new_ids = set(journey.academy_club_ids or [])
-            else:
-                # Simulate without writing
-                youth_entries = [
-                    e for e in entries
-                    if e.is_youth and not e.is_international
-                    and e.entry_type in ('academy', 'development')
-                ]
-                club_apps = {}
-                for e in youth_entries:
-                    base = strip_youth_suffix(e.club_name)
-                    club_apps[base] = club_apps.get(base, 0) + (e.appearances or 0)
-
-                new_ids = set()
-                senior_map = {}
-                for e in entries:
-                    if not e.is_youth and not e.is_international:
-                        senior_map[e.club_name] = e.club_api_id
-                for base, apps in club_apps.items():
-                    if apps >= 3 and base in senior_map:
-                        new_ids.add(senior_map[base])
+            # Re-run academy computation using the real method to ensure
+            # dry-run and live results match (including all name-resolution
+            # fallbacks: TeamProfile, Team table, substring matching).
+            service._compute_academy_club_ids(journey, entries, transfers=transfers)
+            new_ids = set(journey.academy_club_ids or [])
 
             removed = old_ids - new_ids
             added = new_ids - old_ids
@@ -14181,22 +14169,13 @@ def admin_recompute_academy_ids():
             else:
                 unchanged += 1
 
-        if not dry_run:
-            deactivated = 0
-            for change in changes:
-                for removed_id in change['removed']:
-                    team_rec = Team.query.filter_by(team_id=removed_id).first()
-                    if team_rec:
-                        tp = TrackedPlayer.query.filter_by(
-                            player_api_id=change['player_api_id'],
-                            team_id=team_rec.id,
-                            is_active=True,
-                        ).first()
-                        if tp:
-                            tp.is_active = False
-                            deactivated += 1
-            db.session.commit()
+        if dry_run:
+            # Roll back all mutations — entry_type changes, academy_club_ids,
+            # and any TrackedPlayer deactivations from _upsert_tracked_players
+            savepoint.rollback()
+            deactivated = sum(len(c['removed']) for c in changes)
         else:
+            db.session.commit()
             deactivated = sum(len(c['removed']) for c in changes)
 
         return jsonify({

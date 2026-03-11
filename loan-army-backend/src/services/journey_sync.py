@@ -801,6 +801,8 @@ class JourneySyncService:
         ]
         if not youth_entries:
             journey.academy_club_ids = []
+            # Deactivate any stale tracked-player rows from prior runs
+            self._upsert_tracked_players(journey, set(), transfers=transfers)
             return
 
         # ── Minimum youth appearances threshold ──
@@ -818,6 +820,8 @@ class JourneySyncService:
         ]
         if not youth_entries:
             journey.academy_club_ids = []
+            # Deactivate any stale tracked-player rows from prior runs
+            self._upsert_tracked_players(journey, set(), transfers=transfers)
             return
 
         # Build lookup: base_name -> api_id from non-youth, non-international entries
