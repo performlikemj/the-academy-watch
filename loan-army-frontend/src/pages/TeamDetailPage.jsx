@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,9 +9,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Loader2, ArrowLeft, ChevronRight, User, TrendingUp, Share2, Users, FileText, Search, X, Star, ArrowRightLeft, GraduationCap, UserMinus, BadgeDollarSign } from 'lucide-react'
+import { Loader2, ArrowLeft, ChevronRight, User, TrendingUp, Share2, Users, FileText, Search, X, Star, ArrowRightLeft, GraduationCap, UserMinus, BadgeDollarSign, Globe } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { AcademyConstellation } from '@/components/constellation/AcademyConstellation'
+import { SquadOriginsView } from '@/components/origins/SquadOriginsView'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { getStatusLabel } from '@/components/constellation/constellation-utils'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
@@ -49,6 +51,7 @@ function StatusIndicator({ status, teamName }) {
 export function TeamDetailPage() {
     const { teamSlug: teamId } = useParams()
     const navigate = useNavigate()
+    const location = useLocation()
     const [searchParams] = useSearchParams()
 
     const [team, setTeam] = useState(null)
@@ -58,6 +61,12 @@ export function TeamDetailPage() {
     // Tab state — allow deep-linking via ?tab=
     const initialTab = searchParams.get('tab') || 'squad'
     const [activeTab, setActiveTab] = useState(initialTab)
+
+    // Academy Network subtab: 'outbound' (constellation) or 'origins' (squad origins)
+    const initialView = searchParams.get('view') || 'outbound'
+    const [academyView, setAcademyView] = useState(initialView)
+    const urlLeague = searchParams.get('league') ? parseInt(searchParams.get('league')) : undefined
+    const urlSeason = searchParams.get('season') ? parseInt(searchParams.get('season')) : undefined
 
     // Squad tab state
     const [players, setPlayers] = useState([])
@@ -85,7 +94,19 @@ export function TeamDetailPage() {
                 setTeam(data)
             } catch (err) {
                 console.error('Failed to load team:', err)
-                setError('Failed to load team data.')
+                const navState = location.state
+                if (navState?.teamName) {
+                    setTeam({
+                        name: navState.teamName,
+                        logo: navState.teamLogo,
+                        team_id: parseInt(teamId),
+                        _isExternalTeam: true,
+                    })
+                    setActiveTab('alumni')
+                    setAcademyView('origins')
+                } else {
+                    setError('Failed to load team data.')
+                }
             } finally {
                 setLoading(false)
             }
@@ -276,18 +297,22 @@ export function TeamDetailPage() {
             <div className="max-w-6xl mx-auto px-4 py-6">
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
                     <TabsList>
-                        <TabsTrigger value="squad">
-                            <Users className="h-4 w-4 mr-1.5" />
-                            Squad
-                        </TabsTrigger>
+                        {!team?._isExternalTeam && (
+                            <TabsTrigger value="squad">
+                                <Users className="h-4 w-4 mr-1.5" />
+                                Squad
+                            </TabsTrigger>
+                        )}
                         <TabsTrigger value="alumni">
                             <Share2 className="h-4 w-4 mr-1.5" />
                             Academy Network
                         </TabsTrigger>
-                        <TabsTrigger value="newsletters">
-                            <FileText className="h-4 w-4 mr-1.5" />
-                            Newsletters
-                        </TabsTrigger>
+                        {!team?._isExternalTeam && (
+                            <TabsTrigger value="newsletters">
+                                <FileText className="h-4 w-4 mr-1.5" />
+                                Newsletters
+                            </TabsTrigger>
+                        )}
                     </TabsList>
 
                     {/* Squad Tab */}
@@ -423,7 +448,34 @@ export function TeamDetailPage() {
 
                     {/* Academy Network Tab */}
                     <TabsContent value="alumni" className="mt-4">
-                        <AcademyConstellation teamApiId={teamId} />
+                        <div className="space-y-4">
+                            <ToggleGroup
+                                type="single"
+                                value={academyView}
+                                onValueChange={(v) => v && setAcademyView(v)}
+                                variant="outline"
+                                size="sm"
+                            >
+                                <ToggleGroupItem value="outbound">
+                                    <Share2 className="h-3.5 w-3.5 mr-1.5" />
+                                    Where They Play
+                                </ToggleGroupItem>
+                                <ToggleGroupItem value="origins">
+                                    <Globe className="h-3.5 w-3.5 mr-1.5" />
+                                    Where They Trained
+                                </ToggleGroupItem>
+                            </ToggleGroup>
+
+                            {academyView === 'outbound' ? (
+                                <AcademyConstellation teamApiId={teamId} />
+                            ) : (
+                                <SquadOriginsView
+                                    teamApiId={team?.team_id || teamId}
+                                    initialLeague={urlLeague}
+                                    initialSeason={urlSeason}
+                                />
+                            )}
+                        </div>
                     </TabsContent>
 
                     {/* Newsletters Tab */}
