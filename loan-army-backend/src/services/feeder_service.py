@@ -9,10 +9,11 @@ import logging
 from collections import defaultdict
 from typing import Optional, Dict, Any, List
 
-from src.models.league import db, TeamProfile
+from src.models.league import db, Team, TeamProfile
 from src.models.journey import PlayerJourney
 from src.api_football_client import APIFootballClient
 from src.services.journey_sync import JourneySyncService
+from src.utils.academy_classifier import strip_youth_suffix, is_national_team
 
 logger = logging.getLogger(__name__)
 
@@ -38,24 +39,37 @@ class FeederService:
         return SUPPORTED_COMPETITIONS
 
     def get_competition_teams(self, league_api_id: int, season: int) -> List[Dict[str, Any]]:
-        """Fetch all teams in a competition for a given season."""
-        response = self.api._make_request('teams', {
+        """Fetch teams from competition standings (excludes qualifier-only teams)."""
+        response = self.api._make_request('standings', {
             'league': league_api_id,
             'season': season,
         })
 
         teams = []
-        for item in response.get('response', []):
-            team = item.get('team', {})
-            venue = item.get('venue', {})
-            teams.append({
-                'team_api_id': team.get('id'),
-                'name': team.get('name'),
-                'logo': team.get('logo'),
-                'country': team.get('country'),
-                'venue': venue.get('name'),
-                'city': venue.get('city'),
-            })
+        seen = set()
+        for league_data in response.get('response', []):
+            for standings_group in league_data.get('league', {}).get('standings', []):
+                for entry in standings_group:
+                    team = entry.get('team', {})
+                    tid = team.get('id')
+                    if tid and tid not in seen:
+                        seen.add(tid)
+                        teams.append({
+                            'team_api_id': tid,
+                            'name': team.get('name'),
+                            'logo': team.get('logo'),
+                            'country': None,
+                        })
+
+        # Backfill country from TeamProfile
+        if teams:
+            profiles = {tp.team_id: tp for tp in TeamProfile.query.filter(
+                TeamProfile.team_id.in_([t['team_api_id'] for t in teams])
+            ).all()}
+            for t in teams:
+                profile = profiles.get(t['team_api_id'])
+                if profile:
+                    t['country'] = profile.country
 
         teams.sort(key=lambda t: (t.get('name') or ''))
         return teams
@@ -127,6 +141,44 @@ class FeederService:
             else:
                 unknown_origin.append(player)
 
+        # Filter out national team origins (e.g. "Norway U17")
+        national_keys = [k for k, players in academy_groups.items()
+                         if is_national_team(players[0]['academy_club_name'])]
+        for k in national_keys:
+            unknown_origin.extend(academy_groups.pop(k))
+
+        # Merge youth/reserve team groups into their parent club group
+        # e.g. "Brann II" and "Brann U19" merge into "Brann"
+        for academy_id in list(academy_groups.keys()):
+            if academy_id not in academy_groups:
+                continue  # already merged
+            players = academy_groups[academy_id]
+            name = players[0]['academy_club_name']
+            base = strip_youth_suffix(name)
+            if base == name:
+                continue  # not a youth team name
+
+            # Resolve parent club API ID
+            canonical_id = self._resolve_parent_id(base)
+            if not canonical_id:
+                # Can't resolve — just update the display name
+                for p in players:
+                    p['academy_club_name'] = base
+                continue
+
+            if canonical_id == academy_id:
+                continue  # already correct
+
+            # Merge into existing parent group or re-key
+            for p in players:
+                p['academy_club_name'] = base
+                p['academy_club_id'] = canonical_id
+            if canonical_id in academy_groups:
+                academy_groups[canonical_id].extend(players)
+            else:
+                academy_groups[canonical_id] = players
+            del academy_groups[academy_id]
+
         # Build breakdown with academy logos
         breakdown = []
         for academy_id, players in academy_groups.items():
@@ -141,7 +193,9 @@ class FeederService:
                 },
                 'players': sorted(players, key=lambda p: p.get('player_name', '')),
                 'count': len(players),
-                'is_homegrown': academy_id == team_api_id,
+                'is_homegrown': academy_id == team_api_id or any(
+                    team_api_id in (p.get('academy_club_ids') or []) for p in players
+                ),
             })
 
         breakdown.sort(key=lambda g: (-g['count'], g['academy']['name']))
@@ -228,6 +282,16 @@ class FeederService:
             page += 1
 
         return players
+
+    def _resolve_parent_id(self, base_name: str) -> Optional[int]:
+        """Resolve a youth team base name to the parent club's API ID."""
+        profile = TeamProfile.query.filter(TeamProfile.name == base_name).first()
+        if profile:
+            return profile.team_id
+        team = Team.query.filter(Team.name == base_name).first()
+        if team:
+            return team.team_id
+        return None
 
     def _get_team_logo(self, team_api_id: int) -> Optional[str]:
         """Get team logo from TeamProfile cache."""
