@@ -31,7 +31,8 @@ import {
   Wand2,
   LayoutGrid,
   MoreVertical,
-  ChevronsUpDown
+  ChevronsUpDown,
+  Sprout
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -81,6 +82,9 @@ export function AdminTeams() {
   const [bulkFixDryRun, setBulkFixDryRun] = useState(true)
   const [propagating, setPropagating] = useState(false)
   const [propagateDryRun, setPropagateDryRun] = useState(true)
+
+  // Seed all tracked state
+  const [seedingAll, setSeedingAll] = useState(false)
 
   // Sync fixtures state
   const [syncingTeamId, setSyncingTeamId] = useState(null)
@@ -266,6 +270,26 @@ export function AdminTeams() {
       }
       return next
     })
+  }
+
+  const handleSeedUnseeded = async () => {
+    setSeedingAll(true)
+    setMessage(null)
+    try {
+      const res = await APIService.adminSeedAllTrackedPlayers()
+      if (res.empty_teams === 0) {
+        setMessage({ type: 'info', text: 'All tracked teams already have players seeded.' })
+      } else {
+        setMessage({
+          type: 'success',
+          text: `Seeding started for ${res.teams_to_seed} team(s). Job ID: ${res.job_id}`,
+        })
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: `Seed failed: ${err.message}` })
+    } finally {
+      setSeedingAll(false)
+    }
   }
 
   const selectAllTracked = () => {
@@ -715,6 +739,14 @@ export function AdminTeams() {
               </CardDescription>
               <CardAction>
                 <div className="flex items-center gap-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleSeedUnseeded} disabled={seedingAll} aria-label="Seed unseeded teams">
+                        {seedingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sprout className="h-4 w-4" />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Seed Unseeded Teams</TooltipContent>
+                  </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={selectAllTracked} aria-label="Select all">

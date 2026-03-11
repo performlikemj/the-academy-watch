@@ -10066,18 +10066,35 @@ def admin_bulk_update_team_tracking():
                 return jsonify({'error': 'team_ids or all=true required'}), 400
             teams = Team.query.filter(Team.id.in_(team_ids)).all()
         
+        # Capture previous tracking state before updating
+        was_tracked = {t.id: t.is_tracked for t in teams}
+
         updated_count = 0
         for team in teams:
             if team.id not in exclude_ids:
                 team.is_tracked = is_tracked
                 updated_count += 1
-        
+
         db.session.commit()
-        return jsonify({
+
+        # Auto-seed newly tracked teams in background
+        seed_job_ids = []
+        if is_tracked:
+            newly_tracked = [t for t in teams
+                             if t.id not in exclude_ids and not was_tracked.get(t.id, False)]
+            for team in newly_tracked:
+                job_id = _start_background_seed(team.id)
+                seed_job_ids.append({'team': team.name, 'job_id': job_id})
+
+        response = {
             'message': f'Updated {updated_count} teams',
             'is_tracked': is_tracked,
-            'updated_count': updated_count
-        })
+            'updated_count': updated_count,
+        }
+        if seed_job_ids:
+            response['seed_jobs'] = seed_job_ids
+            response['message'] += f' (seeding {len(seed_job_ids)} newly tracked teams)'
+        return jsonify(response)
     except Exception as e:
         logger.exception('admin_bulk_update_team_tracking failed')
         db.session.rollback()
@@ -14392,7 +14409,20 @@ def _run_seed_team_process(job_id, team_id, max_age=30, sync_journeys=True, year
                            completed_at=datetime.now(timezone.utc).isoformat())
                 return
             update_job(job_id, status='running', progress=0, total=1,
-                       current_player=f'Seeding {team.name}...')
+                       current_player=f'Discovering cohorts for {team.name}...')
+
+            # Phase 1: Cohort discovery (youth league data)
+            try:
+                from src.services.big6_seeding_service import run_big6_seed
+                now = datetime.now()
+                current_season = now.year if now.month >= 8 else now.year - 1
+                run_big6_seed(job_id, seasons=[current_season], team_ids=[team.team_id])
+            except Exception as cohort_err:
+                logger.warning('Cohort discovery for %s failed (continuing with squad seed): %s',
+                               team.name, cohort_err)
+
+            # Phase 2: TrackedPlayer seeding from cohorts + squads
+            update_job(job_id, current_player=f'Seeding {team.name}...')
             result = _seed_single_team(team, max_age=max_age,
                                        sync_journeys=sync_journeys, years=years)
             update_job(job_id, status='completed', progress=1, total=1,
@@ -14435,6 +14465,20 @@ def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=
             empty_teams = [t for t in teams
                            if TrackedPlayer.query.filter_by(team_id=t.id, is_active=True).count() == 0]
             update_job(job_id, status='running', progress=0, total=len(empty_teams))
+
+            # Phase 1: Cohort discovery for all empty teams
+            try:
+                from src.services.big6_seeding_service import run_big6_seed
+                now = datetime.now()
+                current_season = now.year if now.month >= 8 else now.year - 1
+                team_api_ids = [t.team_id for t in empty_teams]
+                update_job(job_id, current_player='Discovering cohorts for all teams...')
+                run_big6_seed(job_id, seasons=[current_season], team_ids=team_api_ids)
+            except Exception as cohort_err:
+                logger.warning('Bulk cohort discovery failed (continuing with squad seed): %s',
+                               cohort_err)
+
+            # Phase 2: TrackedPlayer seeding per team
             results = {'teams': {}, 'errors': []}
             for i, team in enumerate(empty_teams):
                 if is_job_cancelled(job_id):
