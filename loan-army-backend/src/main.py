@@ -22,6 +22,7 @@ from src.routes.gol import gol_bp
 from src.routes.formation import formation_bp
 from src.routes.teams import teams_bp
 from src.routes.feeder import feeder_bp
+from src.routes.curator import curator_bp
 import logging
 from sqlalchemy.engine.url import make_url, URL
 from flask_migrate import Migrate
@@ -97,6 +98,7 @@ app.register_blueprint(gol_bp, url_prefix='/api')
 app.register_blueprint(formation_bp, url_prefix='/api')
 app.register_blueprint(teams_bp, url_prefix='/api')
 app.register_blueprint(feeder_bp, url_prefix='/api')
+app.register_blueprint(curator_bp, url_prefix='/api')
 
 csp = {
     'default-src': ["'self'"],
@@ -119,6 +121,14 @@ Talisman(
 )
 
 limiter.init_app(app)
+
+# Load curator API key from Azure Key Vault (falls back to env var)
+from src.utils.keyvault import load_secret
+curator_key = load_secret('CURATOR_API_KEY')
+if curator_key:
+    app.config['CURATOR_API_KEY'] = curator_key
+else:
+    logger.warning("CURATOR_API_KEY not configured; curator endpoints will be unavailable")
 
 # Initialize email service for background job support
 from src.services.email_service import email_service

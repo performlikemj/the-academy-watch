@@ -11,6 +11,8 @@ export class APIService {
     static userToken = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_user_token')) || null
     static isAdminFlag = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_is_admin') === 'true') || false
     static isJournalistFlag = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_is_journalist') === 'true') || false
+    static isCuratorFlag = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_is_curator') === 'true') || false
+    static curatorKey = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_curator_key')) || null
     static displayName = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_display_name')) || null
     static displayNameConfirmedFlag = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_display_name_confirmed') === 'true') || false
     static authEventName = 'loan_auth_changed'
@@ -21,7 +23,9 @@ export class APIService {
             token: this.userToken,
             isAdmin: this.isAdmin(),
             isJournalist: this.isJournalist(),
+            isCurator: this.isCurator(),
             hasApiKey: !!this.adminKey,
+            hasCuratorKey: !!this.curatorKey,
             displayName: this.displayName,
             displayNameConfirmed: this.displayNameConfirmed(),
             ...extra,
@@ -91,6 +95,7 @@ export class APIService {
             this.setDisplayName(null)
             this.setIsAdmin(false)
             this.setIsJournalist(false)
+            this.setIsCurator(false)
         } else {
             this._emitAuthChanged()
         }
@@ -138,6 +143,42 @@ export class APIService {
         }
     }
 
+    static setIsCurator(isCurator) {
+        this.isCuratorFlag = !!isCurator
+        try {
+            localStorage.setItem('academy_watch_is_curator', this.isCuratorFlag ? 'true' : 'false')
+        } catch (err) {
+            console.warn('Failed to persist curator flag', err)
+        }
+        this._emitAuthChanged()
+    }
+
+    static isCurator() {
+        if (this.isCuratorFlag) return true
+        if (typeof localStorage === 'undefined') return false
+        try {
+            return localStorage.getItem('academy_watch_is_curator') === 'true'
+        } catch (err) {
+            console.warn('Failed to read curator flag', err)
+            return false
+        }
+    }
+
+    static setCuratorKey(key) {
+        const trimmed = (key || '').trim()
+        this.curatorKey = trimmed || null
+        try {
+            if (trimmed) {
+                localStorage.setItem('academy_watch_curator_key', trimmed)
+            } else {
+                localStorage.removeItem('academy_watch_curator_key')
+            }
+        } catch (err) {
+            console.warn('Failed to persist curator key', err)
+        }
+        this._emitAuthChanged()
+    }
+
     static setDisplayName(name) {
         this.displayName = name || null
         try {
@@ -179,6 +220,9 @@ export class APIService {
         if (typeof res?.is_journalist !== 'undefined') {
             this.setIsJournalist(res.is_journalist)
         }
+        if (typeof res?.is_curator !== 'undefined') {
+            this.setIsCurator(res.is_curator)
+        }
         return res
     }
 
@@ -199,6 +243,7 @@ export class APIService {
     static async request(endpoint, options = {}, extra = {}) {
         try {
             const admin = extra && extra.admin
+            const curator = extra && extra.curator
             const headers = {
                 'Content-Type': 'application/json',
                 ...options.headers,
@@ -217,6 +262,19 @@ export class APIService {
                 headers['Authorization'] = `Bearer ${this.userToken}`
                 headers['X-API-Key'] = this.adminKey
                 headers['X-Admin-Key'] = this.adminKey
+            } else if (curator) {
+                if (!this.userToken) {
+                    const err = new Error('Login required. Please sign in.')
+                    err.status = 401
+                    throw err
+                }
+                if (!this.curatorKey) {
+                    const err = new Error('Curator key required. Save your key under Curator Settings.')
+                    err.status = 401
+                    throw err
+                }
+                headers['Authorization'] = `Bearer ${this.userToken}`
+                headers['X-Curator-Key'] = this.curatorKey
             } else if (this.userToken) {
                 headers['Authorization'] = `Bearer ${this.userToken}`
             }
@@ -1024,6 +1082,81 @@ export class APIService {
 
     static async getPlayerStats(playerId) {
         return this.request(`/journalists/players/${playerId}/stats`)
+    }
+
+    // Curator API methods
+    static async getCuratorTeams() {
+        return this.request('/curator/teams', {}, { curator: true })
+    }
+
+    static async getCuratorNewsletters(params = {}) {
+        const search = new URLSearchParams()
+        for (const [key, value] of Object.entries(params)) {
+            if (value === undefined || value === null || value === '') continue
+            search.append(key, String(value))
+        }
+        const query = search.toString()
+        return this.request(`/curator/newsletters${query ? `?${query}` : ''}`, {}, { curator: true })
+    }
+
+    static async generateCuratorNewsletter(data) {
+        return this.request('/curator/newsletters/generate', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }, { curator: true })
+    }
+
+    static async getCuratorTweets(params = {}) {
+        const search = new URLSearchParams()
+        for (const [key, value] of Object.entries(params)) {
+            if (value === undefined || value === null || value === '') continue
+            search.append(key, String(value))
+        }
+        const query = search.toString()
+        return this.request(`/curator/tweets${query ? `?${query}` : ''}`, {}, { curator: true })
+    }
+
+    static async createCuratorTweet(data) {
+        return this.request('/curator/tweets', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }, { curator: true })
+    }
+
+    static async updateCuratorTweet(id, data) {
+        return this.request(`/curator/tweets/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        }, { curator: true })
+    }
+
+    static async deleteCuratorTweet(id) {
+        return this.request(`/curator/tweets/${id}`, {
+            method: 'DELETE',
+        }, { curator: true })
+    }
+
+    static async attachCuratorTweet(tweetId, newsletterId) {
+        return this.request(`/curator/tweets/${tweetId}/attach`, {
+            method: 'POST',
+            body: JSON.stringify({ newsletter_id: newsletterId }),
+        }, { curator: true })
+    }
+
+    static async detachCuratorTweet(tweetId) {
+        return this.request(`/curator/tweets/${tweetId}/detach`, {
+            method: 'POST',
+        }, { curator: true })
+    }
+
+    static async getCuratorPlayers(params = {}) {
+        const search = new URLSearchParams()
+        for (const [key, value] of Object.entries(params)) {
+            if (value === undefined || value === null || value === '') continue
+            search.append(key, String(value))
+        }
+        const query = search.toString()
+        return this.request(`/curator/players${query ? `?${query}` : ''}`, {}, { curator: true })
     }
 
     // Admin Journalist Management API methods

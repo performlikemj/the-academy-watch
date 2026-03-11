@@ -228,6 +228,70 @@ def require_api_key(f):
     return decorated_function
 
 
+def require_curator_auth(f):
+    """Decorator to require curator authentication (dual-factor).
+
+    Implements:
+    1. Valid Bearer token (sets g.user)
+    2. User must have is_curator=True
+    3. Correct X-Curator-Key header matching CURATOR_API_KEY from config
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if request.method == 'OPTIONS':
+            return make_response('', 204)
+
+        # Step 1: Validate Bearer token
+        auth = request.headers.get('Authorization', '')
+        if auth.startswith('Bearer '):
+            token = auth.split(' ', 1)[1]
+        else:
+            return jsonify({'error': 'missing auth token'}), 401
+
+        s = _user_serializer()
+        try:
+            data = s.loads(token, max_age=60 * 60 * 24 * 30)
+            email = data.get('email')
+            g.user_email = email
+            if email:
+                user = UserAccount.query.filter_by(email=email).first()
+                if user:
+                    g.user = user
+                    g.user_id = user.id
+                else:
+                    return jsonify({'error': 'user not found'}), 401
+            else:
+                return jsonify({'error': 'invalid token payload'}), 401
+        except SignatureExpired:
+            return jsonify({'error': 'auth token expired'}), 401
+        except BadSignature:
+            return jsonify({'error': 'invalid auth token'}), 401
+
+        # Step 2: Check curator role
+        if not getattr(g.user, 'is_curator', False):
+            logger.warning("Curator access denied for user %s (not a curator)", g.user_email)
+            return jsonify({'error': 'Curator access required'}), 403
+
+        # Step 3: Validate X-Curator-Key
+        required_key = current_app.config.get('CURATOR_API_KEY')
+        if not required_key:
+            logger.warning("CURATOR_API_KEY not configured")
+            return jsonify({'error': 'Curator authentication not configured'}), 500
+
+        provided_key = (request.headers.get('X-Curator-Key') or '').strip()
+        if not provided_key:
+            return jsonify({'error': 'X-Curator-Key header required'}), 401
+
+        if provided_key != required_key:
+            logger.warning("Invalid curator key from user %s", g.user_email)
+            return jsonify({'error': 'Invalid curator credential'}), 403
+
+        logger.info("Curator auth granted for user %s", g.user_email)
+        return f(*args, **kwargs)
+
+    return decorated
+
+
 def require_user_auth(f):
     """Decorator to require user authentication via Bearer token.
 
