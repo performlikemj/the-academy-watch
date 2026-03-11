@@ -16,6 +16,7 @@ from sqlalchemy import func
 from src.models.league import db
 from src.models.tracked_player import TrackedPlayer
 from src.services.gol_dataframes import DataFrameCache
+from src.services.gol_guardrails import validate_input, validate_output
 from src.services.gol_sandbox import execute_analysis
 
 logger = logging.getLogger(__name__)
@@ -358,6 +359,13 @@ class GolService:
             Dict events: {event: str, data: dict}
         """
         try:
+            # --- Input Guard: block jailbreaks and off-topic abuse ---
+            is_safe, rejection = validate_input(message)
+            if not is_safe:
+                yield {"event": "token", "data": {"content": rejection}}
+                yield {"event": "done", "data": {}}
+                return
+
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
             # Add history (cap at 20 messages = 10 turns)
@@ -470,6 +478,11 @@ class GolService:
                 return
 
             if finish_reason == "stop":
+                # --- Output Guard: sanitize toxic content / PII ---
+                if content_buffer:
+                    cleaned = validate_output(content_buffer)
+                    if cleaned != content_buffer:
+                        yield {"event": "replace", "data": {"content": cleaned}}
                 yield {"event": "done", "data": {}}
                 return
 

@@ -1610,6 +1610,13 @@ export class APIService {
         }, { admin: true })
     }
 
+    static async adminSeedAllTrackedPlayers(data = {}) {
+        return this.request('/admin/tracked-players/seed-all-tracked', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }, { admin: true })
+    }
+
     static async adminSeedBig6(data = {}) {
         return this.request('/admin/cohorts/seed-big6', {
             method: 'POST',
