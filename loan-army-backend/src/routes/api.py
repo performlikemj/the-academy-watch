@@ -10081,7 +10081,9 @@ def admin_bulk_update_team_tracking():
         seed_info = None
         if is_tracked:
             newly_tracked = [t for t in teams
-                             if t.id not in exclude_ids and not was_tracked.get(t.id, False)]
+                             if t.id not in exclude_ids
+                             and t.is_active
+                             and not was_tracked.get(t.id, False)]
             if newly_tracked:
                 import multiprocessing
                 job_id = _create_background_job('seed_bulk_tracked')
