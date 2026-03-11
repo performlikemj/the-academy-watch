@@ -97,7 +97,6 @@ import { AdminTools } from '@/pages/admin/AdminTools'
 import { AdminSandbox } from '@/pages/admin/AdminSandbox'
 import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
-import { SquadOriginsDetail } from '@/pages/SquadOriginsDetail'
 import { CohortBrowser } from '@/pages/CohortBrowser'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
@@ -8026,7 +8025,8 @@ function TeamsPage() {
   const renderClTeamCard = (team) => (
     <Link
       key={team.team_api_id}
-      to={`/teams/${team.team_api_id}/origins?league=2&season=${clSeason}`}
+      to={`/teams/${team.team_api_id}?tab=alumni&view=origins&league=2&season=${clSeason}`}
+      state={{ teamName: team.name, teamLogo: team.logo }}
       className="flex items-center gap-3 p-3 rounded-lg border bg-card text-left transition-all w-full border-border hover:border-border hover:shadow-sm"
     >
       <Avatar className="h-9 w-9 shrink-0">
@@ -10933,7 +10933,6 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/teams" element={<TeamsPage />} />
-      <Route path="/teams/:teamApiId/origins" element={<SquadOriginsDetail />} />
       <Route path="/teams/:teamSlug" element={<TeamDetailPage />} />
       <Route path="/dream-team" element={<PublicFormationBuilder />} />
       <Route path="/newsletters" element={<NewslettersPage />} />
