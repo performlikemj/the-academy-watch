@@ -97,7 +97,7 @@ import { AdminTools } from '@/pages/admin/AdminTools'
 import { AdminSandbox } from '@/pages/admin/AdminSandbox'
 import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
-import { SquadOrigins } from '@/pages/SquadOrigins'
+import { SquadOriginsDetail } from '@/pages/SquadOriginsDetail'
 import { CohortBrowser } from '@/pages/CohortBrowser'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
@@ -168,7 +168,8 @@ const LEAGUE_COLORS = {
   'La Liga': '#ff6b35',
   'Serie A': '#0066cc',
   'Bundesliga': '#d20515',
-  'Ligue 1': '#dae025'
+  'Ligue 1': '#dae025',
+  'Champions League': '#081c3b'
 }
 
 const NEWSLETTER_PAGE_SIZE = 5
@@ -7149,7 +7150,6 @@ function Navigation() {
       { path: '/teams', label: 'Teams', icon: Users },
       { path: '/dream-team', label: 'Dream XI', icon: Trophy },
       { path: '/newsletters', label: 'Newsletters', icon: FileText },
-      { path: '/squad-origins', label: 'Squad Origins', icon: Globe },
       { path: '/journalists', label: 'Journalists', icon: UserPlus },
     ]
     if (isJournalist) {
@@ -7868,18 +7868,40 @@ function SubscribePage() {
 }
 
 // Teams page component
+const COMPETITION_TABS = [
+  { key: 'all', label: 'All', color: '#6b7280' },
+  { key: 'Premier League', label: 'Premier League', color: LEAGUE_COLORS['Premier League'] },
+  { key: 'La Liga', label: 'La Liga', color: LEAGUE_COLORS['La Liga'] },
+  { key: 'Serie A', label: 'Serie A', color: LEAGUE_COLORS['Serie A'] },
+  { key: 'Bundesliga', label: 'Bundesliga', color: LEAGUE_COLORS['Bundesliga'] },
+  { key: 'Ligue 1', label: 'Ligue 1', color: LEAGUE_COLORS['Ligue 1'] },
+  { key: 'champions-league', label: 'Champions League', color: LEAGUE_COLORS['Champions League'] },
+]
+
+const CL_CURRENT_SEASON = new Date().getFullYear() - (new Date().getMonth() < 7 ? 1 : 0)
+const CL_SEASONS = Array.from({ length: 4 }, (_, i) => CL_CURRENT_SEASON - i)
+const formatClSeason = (s) => `${s}/${(s + 1).toString().slice(-2)}`
+
 function TeamsPage() {
   const [teams, setTeams] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [message, setMessage] = useState(null)
   const [teamSearch, setTeamSearch] = useState('')
+  const [activeTab, setActiveTab] = useState('all')
+
+  // Champions League state
+  const [clTeams, setClTeams] = useState([])
+  const [clLoading, setClLoading] = useState(false)
+  const [clSeason, setClSeason] = useState(CL_CURRENT_SEASON)
 
   // Subscribe dialog state
   const [subscribeOpen, setSubscribeOpen] = useState(false)
   const [selectedTeams, setSelectedTeams] = useState([])
   const [email, setEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const isCL = activeTab === 'champions-league'
 
   useEffect(() => {
     const loadTeams = async () => {
@@ -7901,6 +7923,24 @@ function TeamsPage() {
 
     loadTeams()
   }, [filter])
+
+  // Load CL teams when CL tab is active
+  useEffect(() => {
+    if (!isCL) return
+    const loadCLTeams = async () => {
+      setClLoading(true)
+      try {
+        const data = await APIService.getFeederTeams(2, clSeason)
+        setClTeams(data?.teams || [])
+      } catch (err) {
+        console.error('Failed to load CL teams', err)
+        setClTeams([])
+      } finally {
+        setClLoading(false)
+      }
+    }
+    loadCLTeams()
+  }, [isCL, clSeason])
 
   const handleBulkSubscribe = async () => {
     if (!email.trim() || selectedTeams.length === 0) {
@@ -7924,26 +7964,35 @@ function TeamsPage() {
 
   // Filter teams by search query
   const searchQuery = teamSearch.trim().toLowerCase()
+
+  // For domestic tabs, filter base set by active tab
+  const domesticBaseTeams = useMemo(() => {
+    if (isCL) return []
+    if (activeTab === 'all') return teams
+    return teams.filter(t => t.league_name === activeTab)
+  }, [teams, activeTab, isCL])
+
   const filteredTeams = useMemo(() => {
+    const source = isCL ? clTeams : domesticBaseTeams
     if (!searchQuery) return null
-    return teams
+    return source
       .filter(team => team.name.toLowerCase().includes(searchQuery))
       .sort((a, b) => {
         const aStarts = a.name.toLowerCase().startsWith(searchQuery) ? 0 : 1
         const bStarts = b.name.toLowerCase().startsWith(searchQuery) ? 0 : 1
         return aStarts - bStarts || a.name.localeCompare(b.name)
       })
-  }, [teams, searchQuery])
+  }, [domesticBaseTeams, clTeams, isCL, searchQuery])
 
   const isSearching = searchQuery.length > 0
 
-  // Group teams by league (used when not searching)
-  const teamsByLeague = useMemo(() => teams.reduce((acc, team) => {
+  // Group teams by league (used when not searching, domestic tabs only)
+  const teamsByLeague = useMemo(() => domesticBaseTeams.reduce((acc, team) => {
     const league = team.league_name || 'Other'
     if (!acc[league]) acc[league] = []
     acc[league].push(team)
     return acc
-  }, {}), [teams])
+  }, {}), [domesticBaseTeams])
 
   // Compact team card renderer
   const renderTeamCard = (team) => (
@@ -7974,6 +8023,26 @@ function TeamsPage() {
     </Link>
   )
 
+  const renderClTeamCard = (team) => (
+    <Link
+      key={team.team_api_id}
+      to={`/teams/${team.team_api_id}/origins?league=2&season=${clSeason}`}
+      className="flex items-center gap-3 p-3 rounded-lg border bg-card text-left transition-all w-full border-border hover:border-border hover:shadow-sm"
+    >
+      <Avatar className="h-9 w-9 shrink-0">
+        {team.logo ? <AvatarImage src={team.logo} alt={team.name} /> : null}
+        <AvatarFallback className="text-xs bg-secondary">
+          {team.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-foreground truncate">{team.name}</p>
+        <p className="text-xs text-muted-foreground/70 truncate">{team.country}</p>
+      </div>
+      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+    </Link>
+  )
+
   return (
     <div className="max-w-[1400px] mx-auto py-6 sm:px-6 lg:px-8">
       <div className="flex flex-col lg:flex-row gap-6">
@@ -7999,6 +8068,41 @@ function TeamsPage() {
                 </Select>
               </div>
             </div>
+            {/* Competition tabs */}
+            <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1 -mx-1 px-1 mb-3">
+              {COMPETITION_TABS.map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => { setActiveTab(tab.key); setTeamSearch('') }}
+                  className={[
+                    "shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                    activeTab === tab.key
+                      ? "text-white shadow-sm"
+                      : "text-foreground/70 hover:bg-secondary"
+                  ].join(' ')}
+                  style={activeTab === tab.key ? { backgroundColor: tab.color } : undefined}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            {/* Season selector for CL */}
+            {isCL && (
+              <div className="mb-3">
+                <Select value={String(clSeason)} onValueChange={(v) => setClSeason(Number(v))}>
+                  <SelectTrigger className="w-[140px] h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CL_SEASONS.map((s) => (
+                      <SelectItem key={s} value={String(s)}>
+                        {formatClSeason(s)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70" />
               <Input
@@ -8026,7 +8130,7 @@ function TeamsPage() {
             </Alert>
           )}
 
-          {loading ? (
+          {(isCL ? clLoading : loading) ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
             </div>
@@ -8044,7 +8148,18 @@ function TeamsPage() {
                 </Button>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                {filteredTeams.map((team) => renderTeamCard(team))}
+                {filteredTeams.map((team) => isCL ? renderClTeamCard(team) : renderTeamCard(team))}
+              </div>
+            </div>
+          ) : isCL ? (
+            <div>
+              <div className="flex items-center gap-3 mb-3 pl-1">
+                <div className="w-1 h-5 rounded-full" style={{ backgroundColor: LEAGUE_COLORS['Champions League'] }} />
+                <h2 className="text-sm font-semibold text-foreground">Champions League {formatClSeason(clSeason)}</h2>
+                <span className="text-xs text-muted-foreground/70">{clTeams.length} teams</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                {clTeams.map((team) => renderClTeamCard(team))}
               </div>
             </div>
           ) : (
@@ -10818,6 +10933,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/teams" element={<TeamsPage />} />
+      <Route path="/teams/:teamApiId/origins" element={<SquadOriginsDetail />} />
       <Route path="/teams/:teamSlug" element={<TeamDetailPage />} />
       <Route path="/dream-team" element={<PublicFormationBuilder />} />
       <Route path="/newsletters" element={<NewslettersPage />} />
@@ -10840,7 +10956,6 @@ function AppRoutes() {
       <Route path="/verify" element={<VerifyPage />} />
       <Route path="/claim-account" element={<ClaimAccount />} />
       <Route path="/submit-take" element={<SubmitTake />} />
-      <Route path="/squad-origins" element={<SquadOrigins />} />
       <Route path="/academy" element={<CohortBrowser />} />
       <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
       <Route path="/academy/analytics" element={<CohortAnalytics />} />
