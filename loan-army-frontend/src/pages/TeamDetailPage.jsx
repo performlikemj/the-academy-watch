@@ -454,13 +454,13 @@ export function TeamDetailPage() {
                                 value={academyView}
                                 onValueChange={(v) => v && setAcademyView(v)}
                                 variant="outline"
-                                size="sm"
+                                className="gap-1"
                             >
-                                <ToggleGroupItem value="outbound">
+                                <ToggleGroupItem value="outbound" className="px-3">
                                     <Share2 className="h-3.5 w-3.5 mr-1.5" />
                                     Where They Play
                                 </ToggleGroupItem>
-                                <ToggleGroupItem value="origins">
+                                <ToggleGroupItem value="origins" className="px-3">
                                     <Globe className="h-3.5 w-3.5 mr-1.5" />
                                     Where They Trained
                                 </ToggleGroupItem>

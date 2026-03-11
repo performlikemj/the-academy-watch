@@ -107,6 +107,7 @@ import { WriterLogin } from '@/pages/writer/WriterLogin'
 import { WriterDashboard } from '@/pages/writer/WriterDashboard'
 import { WriteupEditor } from '@/pages/writer/WriteupEditor'
 import { ContributorManager } from '@/pages/writer/ContributorManager'
+import { CuratorDashboard } from '@/pages/curator/CuratorDashboard'
 import { WriteupPage } from '@/pages/WriteupPage'
 import { PlayerPage } from '@/pages/PlayerPage'
 import { TeamDetailPage } from '@/pages/TeamDetailPage'
@@ -7137,7 +7138,7 @@ function AdminSandboxPage() {
 function Navigation() {
   const location = useLocation()
   const isMobile = useIsMobile()
-  const { token, isAdmin, hasApiKey, isJournalist } = useAuth()
+  const { token, isAdmin, hasApiKey, isJournalist, isCurator } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const { open: openSearch } = useGlobalSearchContext()
 
@@ -7154,6 +7155,9 @@ function Navigation() {
     if (isJournalist) {
       items.push({ path: '/writer/dashboard', label: 'Writer Dashboard', icon: FileText })
     }
+    if (isCurator) {
+      items.push({ path: '/curator/dashboard', label: 'Curator', icon: FileText })
+    }
     if (token) {
       items.push({ path: '/settings', label: 'Settings', icon: UserCog })
     }
@@ -7161,7 +7165,7 @@ function Navigation() {
       items.push({ path: '/admin', label: 'Admin', icon: Settings })
     }
     return items
-  }, [adminUnlocked, isJournalist, token])
+  }, [adminUnlocked, isJournalist, isCurator, token])
 
   const linkClasses = (isActive) => (
     `inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors sm:px-3 whitespace-nowrap no-underline hover:no-underline ` +
@@ -11024,6 +11028,16 @@ function AppRoutes() {
         element={
           <RequireAuth>
             <ContributorManager />
+          </RequireAuth>
+        }
+      />
+
+      {/* Curator Routes */}
+      <Route
+        path="/curator/dashboard"
+        element={
+          <RequireAuth>
+            <CuratorDashboard />
           </RequireAuth>
         }
       />
