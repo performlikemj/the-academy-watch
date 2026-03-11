@@ -59,6 +59,15 @@ export function useGolChat() {
                   updated[updated.length - 1] = last
                   return updated
                 })
+              } else if (eventType === 'replace') {
+                // Output guard corrected the response — swap content
+                setMessages(prev => {
+                  const updated = [...prev]
+                  const last = { ...updated[updated.length - 1] }
+                  last.content = data.content || ''
+                  updated[updated.length - 1] = last
+                  return updated
+                })
               } else if (eventType === 'data_card') {
                 setMessages(prev => {
                   const updated = [...prev]

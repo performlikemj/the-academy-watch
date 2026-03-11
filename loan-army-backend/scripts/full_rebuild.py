@@ -104,7 +104,13 @@ def stage_0_preflight(team_ids, seasons, dry_run):
         print('  [SKIP] Could not check API usage (table may not exist)')
 
     # Print plan
-    team_names = [BIG_6.get(t, str(t)) for t in team_ids]
+    team_names = []
+    for t in team_ids:
+        name = BIG_6.get(t)
+        if not name:
+            team_row = Team.query.filter_by(team_id=t).order_by(Team.season.desc()).first()
+            name = team_row.name if team_row else str(t)
+        team_names.append(name)
     combos = len(team_ids) * 6 * len(seasons)  # 6 youth leagues
     print(f'\n  Teams: {", ".join(team_names)}')
     print(f'  Seasons: {seasons}')
@@ -248,7 +254,10 @@ def stage_4_tracked_players(team_ids, seasons, dry_run):
     current_season = max(seasons)
 
     for api_team_id in team_ids:
-        team_name = BIG_6.get(api_team_id, str(api_team_id))
+        team_name = BIG_6.get(api_team_id)
+        if not team_name:
+            _team_row = Team.query.filter_by(team_id=api_team_id).order_by(Team.season.desc()).first()
+            team_name = _team_row.name if _team_row else str(api_team_id)
         print(f'\n  Processing {team_name} (api_id={api_team_id})...')
 
         # Find the Team row (most recent season)
@@ -586,6 +595,10 @@ def main():
                         help='Comma-separated API team IDs (default: all Big 6)')
     parser.add_argument('--seasons', type=str, default=None,
                         help='Comma-separated seasons (default: 2020,2021,2022,2023,2024)')
+    parser.add_argument('--league', type=int, default=None,
+                        help='API league ID to auto-discover teams (e.g. 39 for Premier League)')
+    parser.add_argument('--exclude-teams', type=str, default=None,
+                        help='Comma-separated API team IDs to exclude (use with --league)')
     parser.add_argument('--skip-clean', action='store_true',
                         help='Skip stage 1 (keep existing data)')
     parser.add_argument('--skip-cohorts', action='store_true',
@@ -597,19 +610,42 @@ def main():
 
     args = parser.parse_args()
 
+    # Parse seasons (needed before --league resolution)
+    if args.seasons:
+        seasons = [int(s.strip()) for s in args.seasons.split(',')]
+    else:
+        seasons = DEFAULT_SEASONS
+
+    # Parse exclude set
+    exclude_ids = set()
+    if args.exclude_teams:
+        exclude_ids = {int(t.strip()) for t in args.exclude_teams.split(',')}
+
     # Parse team IDs
     if args.teams:
         team_ids = [int(t.strip()) for t in args.teams.split(',')]
     else:
         team_ids = list(BIG_6.keys())
 
-    # Parse seasons
-    if args.seasons:
-        seasons = [int(s.strip()) for s in args.seasons.split(',')]
-    else:
-        seasons = DEFAULT_SEASONS
-
     with app.app_context():
+        # --league: auto-discover teams from DB for the given league
+        if args.league:
+            from src.models.league import League
+            season_for_lookup = max(seasons)
+            league_row = League.query.filter_by(league_id=args.league).first()
+            if not league_row:
+                print(f'\n  [FAIL] League {args.league} not found in DB. Run sync-teams first.')
+                sys.exit(1)
+            league_teams = Team.query.filter_by(
+                league_id=league_row.id, season=season_for_lookup
+            ).all()
+            if not league_teams:
+                print(f'\n  [FAIL] No teams found for league {args.league} season {season_for_lookup}.')
+                print(f'  Run: POST /api/sync-teams/{season_for_lookup}')
+                sys.exit(1)
+            team_ids = [t.team_id for t in league_teams if t.team_id not in exclude_ids]
+            print(f'\n  Discovered {len(team_ids)} teams from league {league_row.name} '
+                  f'(season {season_for_lookup}, excluded {len(exclude_ids)})')
         print('\n' + '='*60)
         print('  FULL ACADEMY REBUILD')
         print('='*60)

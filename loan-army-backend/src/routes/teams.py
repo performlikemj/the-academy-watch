@@ -141,9 +141,9 @@ def get_teams():
         # Handle has_loans filter
         has_loans = request.args.get('has_loans', '').lower() == 'true'
         if has_loans:
-            logger.info("Filtering for teams with active loans")
-            query = query.join(LoanedPlayer, Team.id == LoanedPlayer.primary_team_id)\
-                        .filter(LoanedPlayer.is_active == True)\
+            logger.info("Filtering for teams with active tracked players")
+            query = query.join(TrackedPlayer, Team.id == TrackedPlayer.team_id)\
+                        .filter(TrackedPlayer.is_active.is_(True))\
                         .distinct()
 
         # Handle search filter (for global search)
