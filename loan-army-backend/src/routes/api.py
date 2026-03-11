@@ -10084,12 +10084,11 @@ def admin_bulk_update_team_tracking():
                              if t.id not in exclude_ids and not was_tracked.get(t.id, False)]
             if newly_tracked:
                 import multiprocessing
-                job_id = _create_background_job('seed_all_tracked')
+                job_id = _create_background_job('seed_bulk_tracked')
                 team_db_ids = [t.id for t in newly_tracked]
                 p = multiprocessing.Process(
-                    target=_run_seed_all_tracked_process,
-                    args=(job_id,),
-                    kwargs={'team_db_ids': team_db_ids},
+                    target=_run_seed_teams_process,
+                    args=(job_id, team_db_ids),
                     daemon=False,
                 )
                 p.start()
@@ -14444,6 +14443,96 @@ def _run_seed_team_process(job_id, team_id, max_age=30, sync_journeys=True, year
                        completed_at=datetime.now(timezone.utc).isoformat())
         except Exception as e:
             logger.exception('Background seed for team %s failed', team_id)
+            db.session.rollback()
+            update_job(job_id, status='failed', error=str(e),
+                       completed_at=datetime.now(timezone.utc).isoformat())
+
+
+def _run_seed_teams_process(job_id, team_db_ids, max_age=30, sync_journeys=True, years=4):
+    """Background worker: seed a specific list of teams (cohort discovery + TrackedPlayers).
+
+    Unlike _run_seed_all_tracked_process, this processes ALL specified teams
+    regardless of existing TrackedPlayer rows — suitable for bulk-tracking
+    where re-enabled teams need cohort refresh and player status updates.
+    """
+    import signal
+    import sys
+    logging.basicConfig(
+        stream=sys.stderr, level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', force=True,
+    )
+    from src.main import app
+
+    def _sigterm_handler(signum, frame):
+        try:
+            with app.app_context():
+                from src.utils.background_jobs import update_job as _upd
+                _upd(job_id, status='failed',
+                     error='Process terminated (SIGTERM)',
+                     completed_at=datetime.now(timezone.utc).isoformat())
+        except Exception:
+            pass
+        sys.exit(1)
+
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+
+    with app.app_context():
+        from src.utils.background_jobs import update_job, is_job_cancelled
+        try:
+            if not team_db_ids:
+                update_job(job_id, status='completed', progress=0, total=0,
+                           results={'teams': {}, 'errors': []},
+                           completed_at=datetime.now(timezone.utc).isoformat())
+                return
+
+            target_teams = Team.query.filter(Team.id.in_(team_db_ids)).all()
+            if not target_teams:
+                update_job(job_id, status='completed', progress=0, total=0,
+                           results={'teams': {}, 'errors': []},
+                           completed_at=datetime.now(timezone.utc).isoformat())
+                return
+
+            update_job(job_id, status='running', progress=0, total=len(target_teams))
+
+            # Phase 1: Cohort discovery for all target teams
+            try:
+                from src.services.big6_seeding_service import run_big6_seed
+                now = datetime.now()
+                current_season = now.year if now.month >= 8 else now.year - 1
+                team_api_ids = [t.team_id for t in target_teams]
+                update_job(job_id, current_player='Discovering cohorts...')
+                run_big6_seed(job_id, seasons=[current_season], team_ids=team_api_ids)
+            except Exception as cohort_err:
+                logger.warning('Bulk cohort discovery failed (continuing with squad seed): %s',
+                               cohort_err)
+
+            # Phase 2: TrackedPlayer seeding per team
+            results = {'teams': {}, 'errors': []}
+            for i, team in enumerate(target_teams):
+                if is_job_cancelled(job_id):
+                    update_job(job_id, status='cancelled',
+                               error=f'Cancelled after {i}/{len(target_teams)} teams',
+                               results=results,
+                               completed_at=datetime.now(timezone.utc).isoformat())
+                    return
+                update_job(job_id, progress=i, total=len(target_teams),
+                           current_player=f'Seeding {team.name}...')
+                try:
+                    team_result = _seed_single_team(team, max_age=max_age,
+                                                     sync_journeys=sync_journeys, years=years)
+                    results['teams'][team.name] = {
+                        'created': team_result.get('created', 0),
+                        'skipped': team_result.get('skipped', 0),
+                        'candidates': team_result.get('candidates_found', 0),
+                    }
+                except Exception as team_err:
+                    logger.warning('seed_teams: failed for %s: %s', team.name, team_err)
+                    results['errors'].append(f'{team.name}: {team_err}')
+            update_job(job_id, status='completed', progress=len(target_teams),
+                       total=len(target_teams), results=results,
+                       completed_at=datetime.now(timezone.utc).isoformat())
+        except Exception as e:
+            logger.exception('Background seed-teams failed')
             db.session.rollback()
             update_job(job_id, status='failed', error=str(e),
                        completed_at=datetime.now(timezone.utc).isoformat())
