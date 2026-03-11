@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,27 +21,30 @@ export function SquadOrigins() {
     const [expandedAcademy, setExpandedAcademy] = useState(null)
 
     const CL_LEAGUE_ID = 2
+    const latestTeamRef = useRef(null)
 
-    const loadTeams = useCallback(async (s) => {
+    useEffect(() => {
+        let cancelled = false
         setTeamsLoading(true)
         setSelectedTeam(null)
         setOrigins(null)
-        try {
-            const data = await APIService.getFeederTeams(CL_LEAGUE_ID, s)
-            setTeams(data?.teams || [])
-        } catch (err) {
-            console.error('Failed to load competition teams', err)
-            setTeams([])
-        } finally {
-            setTeamsLoading(false)
+        async function load() {
+            try {
+                const data = await APIService.getFeederTeams(CL_LEAGUE_ID, season)
+                if (!cancelled) setTeams(data?.teams || [])
+            } catch (err) {
+                console.error('Failed to load competition teams', err)
+                if (!cancelled) setTeams([])
+            } finally {
+                if (!cancelled) setTeamsLoading(false)
+            }
         }
-    }, [])
-
-    useEffect(() => {
-        loadTeams(season)
-    }, [season, loadTeams])
+        load()
+        return () => { cancelled = true }
+    }, [season])
 
     const handleTeamSelect = useCallback(async (team) => {
+        latestTeamRef.current = team.team_api_id
         setSelectedTeam(team)
         setOriginsLoading(true)
         setExpandedAcademy(null)
@@ -50,12 +53,18 @@ export function SquadOrigins() {
                 league: CL_LEAGUE_ID,
                 season,
             })
-            setOrigins(data)
+            if (latestTeamRef.current === team.team_api_id) {
+                setOrigins(data)
+            }
         } catch (err) {
             console.error('Failed to load squad origins', err)
-            setOrigins(null)
+            if (latestTeamRef.current === team.team_api_id) {
+                setOrigins(null)
+            }
         } finally {
-            setOriginsLoading(false)
+            if (latestTeamRef.current === team.team_api_id) {
+                setOriginsLoading(false)
+            }
         }
     }, [season])
 
