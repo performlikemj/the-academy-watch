@@ -835,6 +835,7 @@ class JourneySyncService:
             e for e in entries
             if e.is_youth and not e.is_international
             and e.entry_type in ('academy', 'development')
+            and not is_national_team(e.club_name)
         ]
         if not youth_entries:
             journey.academy_club_ids = []
