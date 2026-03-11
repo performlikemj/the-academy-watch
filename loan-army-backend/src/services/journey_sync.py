@@ -40,7 +40,8 @@ class JourneySyncService:
         'U18': ['u18', 'under 18', 'under-18', 'youth cup'],
         'U19': ['u19', 'under 19', 'under-19', 'youth league'],
         'U21': ['u21', 'under 21', 'under-21'],
-        'U23': ['u23', 'under 23', 'under-23', 'premier league 2', 'pl2', 'development'],
+        'U23': ['u23', 'under 23', 'under-23', 'premier league 2', 'pl2',
+                'development squad', 'development league', 'efl development'],
         'Reserve': ['reserve', 'b team', ' ii', ' b ', 'second team'],
     }
     
@@ -160,9 +161,12 @@ class JourneySyncService:
             # don't already have one (ensures current-club tiebreaker works)
             self._apply_permanent_transfer_dates(all_entries, transfers)
 
-            # Reclassify youth entries as 'development' where the player
-            # already had first-team appearances at the same parent club
-            self._apply_development_classification(all_entries)
+            # Reclassify youth entries as 'development' or 'integration'
+            # based on first-team history, transfer records, and age
+            self._apply_development_classification(
+                all_entries, transfers=transfers,
+                birth_date=(player_info or {}).get('birth', {}).get('date'),
+            )
 
             # Update player info
             if player_info:
@@ -569,7 +573,8 @@ class JourneySyncService:
                     f"season {entry.season} (from permanent transfer)"
                 )
 
-    def _apply_development_classification(self, entries: list):
+    def _apply_development_classification(self, entries: list, transfers=None,
+                                          birth_date=None):
         """
         Reclassify youth 'academy' entries based on the player's career context.
 
@@ -582,6 +587,11 @@ class JourneySyncService:
         - 'integration': player had first-team apps at a DIFFERENT club
           before this youth entry — bought player being integrated
           (e.g. Diallo playing Man Utd U23 after Atalanta first team).
+
+        Enhanced detection uses three signals:
+        1. Journey entries (original): first-team at another club in data
+        2. Transfer records: permanent transfer TO this club = not academy
+        3. Age at entry: first appearance at club aged 21+ = not academy
         """
         # Build lookup: parent_base_name -> earliest first-team season
         first_team_debut_by_club = {}
@@ -592,35 +602,104 @@ class JourneySyncService:
                 if existing is None or entry.season < existing:
                     first_team_debut_by_club[base_name] = entry.season
 
-        if not first_team_debut_by_club:
-            return
+        # Build set of clubs the player was permanently transferred TO.
+        # A permanent transfer TO a club means the player is NOT an academy
+        # product of that club — academy products don't need to be transferred in.
+        permanent_transfer_dest_ids = set()
+        if transfers:
+            for transfer in transfers:
+                transfer_type = (transfer.get('type') or '').strip().lower()
+                # Skip loans — loan moves don't disqualify academy status
+                if not transfer_type or is_new_loan_transfer(transfer_type):
+                    continue
+                if transfer_type in LOAN_RETURN_TYPES:
+                    continue
+                # This is a permanent transfer (bought, free agent, swap, etc.)
+                teams = transfer.get('teams', {})
+                dest = teams.get('in', {})
+                dest_id = dest.get('id')
+                if dest_id:
+                    permanent_transfer_dest_ids.add(dest_id)
 
+        # Parse birth year for age-at-entry validation
+        birth_year = None
+        if birth_date:
+            try:
+                birth_year = int(str(birth_date)[:4])
+            except (ValueError, TypeError):
+                pass
+
+        # Track earliest season per club for age-based checks
+        earliest_season_at_club = {}
         for entry in entries:
-            if entry.entry_type != 'academy' or entry.is_international:
-                continue
+            if entry.is_youth and not entry.is_international:
+                base = self._strip_youth_suffix(entry.club_name)
+                existing = earliest_season_at_club.get(base)
+                if existing is None or entry.season < existing:
+                    earliest_season_at_club[base] = entry.season
 
-            parent_name = self._strip_youth_suffix(entry.club_name)
-            same_club_debut = first_team_debut_by_club.get(parent_name)
+        # Pass 1: journey-entry-based classification (original logic)
+        if first_team_debut_by_club:
+            for entry in entries:
+                if entry.entry_type != 'academy' or entry.is_international:
+                    continue
 
-            # Development: same parent club had first-team in a prior season
-            if same_club_debut is not None and entry.season > same_club_debut:
-                entry.entry_type = 'development'
-                logger.debug(
-                    f"Reclassified {entry.club_name} season {entry.season} as "
-                    f"development (first-team debut at {parent_name} in {same_club_debut})"
-                )
-                continue
+                parent_name = self._strip_youth_suffix(entry.club_name)
+                same_club_debut = first_team_debut_by_club.get(parent_name)
 
-            # Integration: first-team at a DIFFERENT club before or during
-            # this youth season (player was bought with senior experience)
-            for club_name, debut in first_team_debut_by_club.items():
-                if club_name != parent_name and debut <= entry.season:
+                # Development: same parent club had first-team in a prior season
+                if same_club_debut is not None and entry.season > same_club_debut:
+                    entry.entry_type = 'development'
+                    logger.debug(
+                        f"Reclassified {entry.club_name} season {entry.season} as "
+                        f"development (first-team debut at {parent_name} in {same_club_debut})"
+                    )
+                    continue
+
+                # Integration: first-team at a DIFFERENT club before or during
+                # this youth season (player was bought with senior experience)
+                for club_name, debut in first_team_debut_by_club.items():
+                    if club_name != parent_name and debut <= entry.season:
+                        entry.entry_type = 'integration'
+                        logger.debug(
+                            f"Reclassified {entry.club_name} season {entry.season} as "
+                            f"integration (first-team at {club_name} in {debut})"
+                        )
+                        break
+
+        # Pass 2: transfer-based integration detection
+        # If a player was permanently transferred TO a club, any youth entries
+        # at that club are integration, not academy.
+        if permanent_transfer_dest_ids:
+            for entry in entries:
+                if entry.entry_type != 'academy' or entry.is_international:
+                    continue
+                if entry.club_api_id in permanent_transfer_dest_ids:
                     entry.entry_type = 'integration'
                     logger.debug(
                         f"Reclassified {entry.club_name} season {entry.season} as "
-                        f"integration (first-team at {club_name} in {debut})"
+                        f"integration (permanent transfer destination)"
                     )
-                    break
+
+        # Pass 3: age-at-entry validation
+        # If a player's FIRST appearance at a club's youth system was at age 21+,
+        # they are not an academy product — they were bought as a senior player.
+        # Players who joined younger and continue playing U23 at 21-22 are fine.
+        if birth_year:
+            for entry in entries:
+                if entry.entry_type != 'academy' or entry.is_international:
+                    continue
+                parent_name = self._strip_youth_suffix(entry.club_name)
+                first_season = earliest_season_at_club.get(parent_name)
+                if first_season is not None:
+                    age_at_first = first_season - birth_year
+                    if age_at_first >= 21:
+                        entry.entry_type = 'integration'
+                        logger.debug(
+                            f"Reclassified {entry.club_name} season {entry.season} as "
+                            f"integration (age {age_at_first} at first youth appearance, "
+                            f"season {first_season})"
+                        )
 
     def _update_journey_aggregates(self, journey: PlayerJourney, transfers=None):
         """Update aggregate stats on the journey record"""
@@ -718,7 +797,24 @@ class JourneySyncService:
         youth_entries = [
             e for e in entries
             if e.is_youth and not e.is_international
-            and e.entry_type in ('academy', 'development', 'integration')
+            and e.entry_type in ('academy', 'development')
+        ]
+        if not youth_entries:
+            journey.academy_club_ids = []
+            return
+
+        # ── Minimum youth appearances threshold ──
+        # Clubs below threshold are excluded to filter noise / data errors.
+        MIN_ACADEMY_APPEARANCES = 3
+        club_youth_apps = {}
+        for e in youth_entries:
+            base = self._strip_youth_suffix(e.club_name)
+            club_youth_apps[base] = club_youth_apps.get(base, 0) + (e.appearances or 0)
+
+        youth_entries = [
+            e for e in youth_entries
+            if club_youth_apps.get(self._strip_youth_suffix(e.club_name), 0)
+            >= MIN_ACADEMY_APPEARANCES
         ]
         if not youth_entries:
             journey.academy_club_ids = []
@@ -730,18 +826,26 @@ class JourneySyncService:
             if not e.is_youth and not e.is_international:
                 senior_name_to_id[e.club_name] = e.club_api_id
 
+        # Collect league_country per base_name for country-aware fallback matching
+        club_country = {}
+        for e in youth_entries:
+            base = self._strip_youth_suffix(e.club_name)
+            if e.league_country and base not in club_country:
+                club_country[base] = e.league_country
+
         academy_ids = set()
         unresolved = []
 
         for entry in youth_entries:
             base_name = self._strip_youth_suffix(entry.club_name)
+            entry_country = club_country.get(base_name)
 
             # Try matching a senior entry first
             if base_name in senior_name_to_id:
                 academy_ids.add(senior_name_to_id[base_name])
                 continue
 
-            # Fallback 1: query TeamProfile
+            # Fallback 1: query TeamProfile (exact name)
             profile = TeamProfile.query.filter(
                 TeamProfile.name == base_name
             ).first()
@@ -749,7 +853,7 @@ class JourneySyncService:
                 academy_ids.add(profile.team_id)
                 continue
 
-            # Fallback 2: query Team table (broader coverage)
+            # Fallback 2: query Team table (exact name, broader coverage)
             team = Team.query.filter(Team.name == base_name).first()
             if team:
                 academy_ids.add(team.team_id)
@@ -757,19 +861,31 @@ class JourneySyncService:
 
             # Fallback 3: TeamProfile name is a substring of base_name
             # Handles "Tottenham Hotspur" containing "Tottenham", etc.
-            profile = TeamProfile.query.filter(
+            # Country filter prevents cross-contamination between similarly
+            # named clubs in different countries.
+            fb3_query = TeamProfile.query.filter(
                 db.func.strpos(base_name, TeamProfile.name) > 0,
-                db.func.length(TeamProfile.name) >= 4,
-            ).order_by(db.func.length(TeamProfile.name).desc()).first()
+                db.func.length(TeamProfile.name) >= 5,
+            )
+            if entry_country:
+                fb3_query = fb3_query.filter(TeamProfile.country == entry_country)
+            profile = fb3_query.order_by(
+                db.func.length(TeamProfile.name).desc()
+            ).first()
             if profile:
                 academy_ids.add(profile.team_id)
                 continue
 
             # Fallback 4: Team name is a substring of base_name
-            team = Team.query.filter(
+            fb4_query = Team.query.filter(
                 db.func.strpos(base_name, Team.name) > 0,
-                db.func.length(Team.name) >= 4,
-            ).order_by(db.func.length(Team.name).desc()).first()
+                db.func.length(Team.name) >= 5,
+            )
+            if entry_country:
+                fb4_query = fb4_query.filter(Team.country == entry_country)
+            team = fb4_query.order_by(
+                db.func.length(Team.name).desc()
+            ).first()
             if team:
                 academy_ids.add(team.team_id)
                 continue

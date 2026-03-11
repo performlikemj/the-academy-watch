@@ -13839,6 +13839,381 @@ def admin_test_classify():
         return jsonify(_safe_error_payload(e, 'Classification failed')), 500
 
 
+@api_bp.route('/admin/players/explain-academy', methods=['POST'])
+@require_api_key
+def admin_explain_academy():
+    """Explain why a player is (or isn't) classified as an academy product.
+
+    Shows the full evidence chain: youth entries, entry_type classification
+    reasoning, name resolution, academy_club_ids, and TrackedPlayer rows.
+
+    Body: { player_api_id: int, team_api_id?: int, force_sync?: bool }
+    """
+    data = request.get_json() or {}
+    player_api_id = data.get('player_api_id')
+    if not player_api_id:
+        return jsonify({'error': 'player_api_id is required'}), 400
+    try:
+        player_api_id = int(player_api_id)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'player_api_id must be an integer'}), 400
+
+    team_api_id = data.get('team_api_id')
+    if team_api_id:
+        team_api_id = int(team_api_id)
+    force_sync = data.get('force_sync', False)
+
+    try:
+        from src.models.journey import PlayerJourney, PlayerJourneyEntry
+        from src.services.journey_sync import JourneySyncService
+        from src.api_football_client import APIFootballClient, is_new_loan_transfer, LOAN_RETURN_TYPES
+        from src.utils.academy_classifier import strip_youth_suffix
+
+        api = APIFootballClient()
+        service = JourneySyncService(api)
+
+        journey = PlayerJourney.query.filter_by(player_api_id=player_api_id).first()
+        if not journey or force_sync:
+            journey = service.sync_player(player_api_id, force_full=force_sync)
+        if not journey:
+            return jsonify({'error': f'No journey data for player {player_api_id}'}), 404
+
+        entries = PlayerJourneyEntry.query.filter_by(
+            journey_id=journey.id
+        ).order_by(PlayerJourneyEntry.season, PlayerJourneyEntry.sort_priority).all()
+
+        # Replay _apply_development_classification reasoning
+        first_team_debut_by_club = {}
+        for e in entries:
+            if e.level == 'First Team' and not e.is_international:
+                base = strip_youth_suffix(e.club_name)
+                if base not in first_team_debut_by_club or e.season < first_team_debut_by_club[base]:
+                    first_team_debut_by_club[base] = e.season
+
+        # Detect permanent transfer destinations
+        raw_transfers = api.get_player_transfers(player_api_id)
+        transfers = flatten_transfers(raw_transfers)
+        permanent_dest_ids = set()
+        permanent_dest_info = []
+        for t in (transfers or []):
+            ttype = (t.get('type') or '').strip().lower()
+            if not ttype or is_new_loan_transfer(ttype) or ttype in LOAN_RETURN_TYPES:
+                continue
+            teams = t.get('teams', {})
+            dest = teams.get('in', {})
+            dest_id = dest.get('id')
+            if dest_id:
+                permanent_dest_ids.add(dest_id)
+                permanent_dest_info.append({
+                    'date': t.get('date'),
+                    'type': t.get('type'),
+                    'from': teams.get('out', {}).get('name'),
+                    'to': dest.get('name'),
+                    'to_id': dest_id,
+                })
+
+        # Parse birth year
+        birth_year = None
+        if journey.birth_date:
+            try:
+                birth_year = int(str(journey.birth_date)[:4])
+            except (ValueError, TypeError):
+                pass
+
+        # Track earliest youth season per club
+        earliest_youth = {}
+        for e in entries:
+            if e.is_youth and not e.is_international:
+                base = strip_youth_suffix(e.club_name)
+                if base not in earliest_youth or e.season < earliest_youth[base]:
+                    earliest_youth[base] = e.season
+
+        # Build detailed entry analysis
+        entry_analysis = []
+        for e in entries:
+            analysis = {
+                'season': e.season,
+                'club_name': e.club_name,
+                'club_api_id': e.club_api_id,
+                'league_name': e.league_name,
+                'league_country': getattr(e, 'league_country', None),
+                'level': e.level,
+                'entry_type': e.entry_type,
+                'is_youth': e.is_youth,
+                'is_international': e.is_international,
+                'appearances': e.appearances,
+            }
+            if e.is_youth and not e.is_international:
+                base = strip_youth_suffix(e.club_name)
+                reasons = []
+                if e.entry_type == 'integration':
+                    for club, debut in first_team_debut_by_club.items():
+                        if club != base and debut <= e.season:
+                            reasons.append(f'first-team at {club} in season {debut}')
+                            break
+                    if e.club_api_id in permanent_dest_ids:
+                        reasons.append('permanent transfer destination')
+                    if birth_year:
+                        first_s = earliest_youth.get(base)
+                        if first_s and (first_s - birth_year) >= 21:
+                            reasons.append(f'age {first_s - birth_year} at first youth appearance')
+                    if not reasons:
+                        reasons.append('classified by journey sync')
+                elif e.entry_type == 'development':
+                    same_debut = first_team_debut_by_club.get(base)
+                    if same_debut is not None:
+                        reasons.append(f'first-team debut at same club in season {same_debut}')
+                elif e.entry_type == 'academy':
+                    reasons.append('genuine academy entry')
+                analysis['classification_reasons'] = reasons
+                analysis['included_in_academy_computation'] = (
+                    e.entry_type in ('academy', 'development')
+                )
+            entry_analysis.append(analysis)
+
+        # Academy club IDs computation trace
+        academy_entries = [
+            e for e in entries
+            if e.is_youth and not e.is_international
+            and e.entry_type in ('academy', 'development')
+        ]
+        club_apps = {}
+        for e in academy_entries:
+            base = strip_youth_suffix(e.club_name)
+            club_apps[base] = club_apps.get(base, 0) + (e.appearances or 0)
+
+        academy_computation = []
+        senior_name_to_id = {}
+        for e in entries:
+            if not e.is_youth and not e.is_international:
+                senior_name_to_id[e.club_name] = e.club_api_id
+
+        for base_name, apps in club_apps.items():
+            passed = apps >= 3
+            entry_country = None
+            for e in academy_entries:
+                if strip_youth_suffix(e.club_name) == base_name and getattr(e, 'league_country', None):
+                    entry_country = e.league_country
+                    break
+            comp = {
+                'base_name': base_name,
+                'total_youth_appearances': apps,
+                'passed_min_threshold': passed,
+                'league_country': entry_country,
+            }
+            if passed:
+                if base_name in senior_name_to_id:
+                    comp['resolution_method'] = 'senior_entry_match'
+                    comp['resolved_api_id'] = senior_name_to_id[base_name]
+                else:
+                    profile = TeamProfile.query.filter(TeamProfile.name == base_name).first()
+                    if profile:
+                        comp['resolution_method'] = 'team_profile_exact'
+                        comp['resolved_api_id'] = profile.team_id
+                    else:
+                        team_match = Team.query.filter(Team.name == base_name).first()
+                        if team_match:
+                            comp['resolution_method'] = 'team_table_exact'
+                            comp['resolved_api_id'] = team_match.team_id
+                        else:
+                            comp['resolution_method'] = 'substring_fallback_or_unresolved'
+                            comp['resolved_api_id'] = None
+            academy_computation.append(comp)
+
+        # Team-specific result
+        team_result = None
+        if team_api_id:
+            is_in = team_api_id in (journey.academy_club_ids or [])
+            team_result = {'team_api_id': team_api_id, 'is_academy_for_team': is_in}
+            if not is_in:
+                reasons = []
+                has_youth = any(
+                    e.is_youth and not e.is_international and e.club_api_id == team_api_id
+                    for e in entries
+                )
+                if not has_youth:
+                    reasons.append('No youth entries found for this team')
+                else:
+                    excluded = [
+                        e for e in entries
+                        if e.is_youth and not e.is_international
+                        and e.club_api_id == team_api_id
+                        and e.entry_type == 'integration'
+                    ]
+                    if excluded:
+                        reasons.append(f'{len(excluded)} youth entries classified as integration')
+                    below = [
+                        e for e in entries
+                        if e.is_youth and not e.is_international
+                        and e.club_api_id == team_api_id
+                        and e.entry_type in ('academy', 'development')
+                    ]
+                    if below:
+                        total = sum(e.appearances or 0 for e in below)
+                        if total < 3:
+                            reasons.append(f'Only {total} youth appearances (minimum 3 required)')
+                team_result['exclusion_reasons'] = reasons
+
+        # Existing TrackedPlayer rows
+        existing = TrackedPlayer.query.filter_by(player_api_id=player_api_id).all()
+        tracked_info = [{
+            'team_name': tp.team.name if tp.team else None,
+            'team_api_id': tp.team.team_id if tp.team else None,
+            'status': tp.status,
+            'is_active': tp.is_active,
+            'data_source': tp.data_source,
+        } for tp in existing]
+
+        return jsonify({
+            'player': {
+                'api_id': player_api_id,
+                'name': journey.player_name,
+                'birth_date': journey.birth_date,
+                'birth_year': birth_year,
+                'nationality': journey.nationality,
+            },
+            'academy_club_ids': journey.academy_club_ids or [],
+            'team_result': team_result,
+            'first_team_history': first_team_debut_by_club,
+            'permanent_transfers_in': permanent_dest_info,
+            'entries': entry_analysis,
+            'academy_computation': academy_computation,
+            'existing_tracked_players': tracked_info,
+        })
+    except Exception as e:
+        logger.exception('admin_explain_academy failed')
+        return jsonify(_safe_error_payload(e, 'Explain academy failed')), 500
+
+
+@api_bp.route('/admin/tracked-players/recompute-academy-ids', methods=['POST'])
+@require_api_key
+def admin_recompute_academy_ids():
+    """Batch recompute academy_club_ids for all journeys using updated logic.
+
+    Replays _compute_academy_club_ids() with current classification rules.
+    Players whose academy_club_ids shrinks will have orphaned TrackedPlayer
+    rows deactivated.
+
+    Body (optional): { dry_run?: bool (default true) }
+    """
+    data = request.get_json(force=True) if request.data else {}
+    dry_run = data.get('dry_run', True)
+
+    try:
+        from src.models.journey import PlayerJourney, PlayerJourneyEntry
+        from src.services.journey_sync import JourneySyncService
+        from src.utils.academy_classifier import strip_youth_suffix
+
+        service = JourneySyncService()
+
+        journeys = PlayerJourney.query.filter(
+            PlayerJourney.academy_club_ids.isnot(None),
+            db.func.jsonb_array_length(PlayerJourney.academy_club_ids) > 0,
+        ).all()
+
+        changes = []
+        unchanged = 0
+        total = len(journeys)
+
+        for journey in journeys:
+            old_ids = set(journey.academy_club_ids or [])
+
+            entries = PlayerJourneyEntry.query.filter_by(
+                journey_id=journey.id
+            ).order_by(PlayerJourneyEntry.season).all()
+
+            if not entries:
+                continue
+
+            # Fetch transfers for enhanced integration detection
+            transfers = []
+            try:
+                from src.api_football_client import APIFootballClient
+                api_client = APIFootballClient()
+                raw = api_client.get_player_transfers(journey.player_api_id)
+                transfers = flatten_transfers(raw)
+            except Exception:
+                pass
+
+            # Re-run development classification on entries
+            service._apply_development_classification(
+                entries, transfers=transfers,
+                birth_date=journey.birth_date,
+            )
+
+            # Re-run academy computation
+            if not dry_run:
+                service._compute_academy_club_ids(journey, entries, transfers=transfers)
+                new_ids = set(journey.academy_club_ids or [])
+            else:
+                # Simulate without writing
+                youth_entries = [
+                    e for e in entries
+                    if e.is_youth and not e.is_international
+                    and e.entry_type in ('academy', 'development')
+                ]
+                club_apps = {}
+                for e in youth_entries:
+                    base = strip_youth_suffix(e.club_name)
+                    club_apps[base] = club_apps.get(base, 0) + (e.appearances or 0)
+
+                new_ids = set()
+                senior_map = {}
+                for e in entries:
+                    if not e.is_youth and not e.is_international:
+                        senior_map[e.club_name] = e.club_api_id
+                for base, apps in club_apps.items():
+                    if apps >= 3 and base in senior_map:
+                        new_ids.add(senior_map[base])
+
+            removed = old_ids - new_ids
+            added = new_ids - old_ids
+
+            if removed or added:
+                changes.append({
+                    'player_api_id': journey.player_api_id,
+                    'player_name': journey.player_name,
+                    'old_academy_ids': sorted(old_ids),
+                    'new_academy_ids': sorted(new_ids),
+                    'removed': sorted(removed),
+                    'added': sorted(added),
+                })
+            else:
+                unchanged += 1
+
+        if not dry_run:
+            deactivated = 0
+            for change in changes:
+                for removed_id in change['removed']:
+                    team_rec = Team.query.filter_by(team_id=removed_id).first()
+                    if team_rec:
+                        tp = TrackedPlayer.query.filter_by(
+                            player_api_id=change['player_api_id'],
+                            team_id=team_rec.id,
+                            is_active=True,
+                        ).first()
+                        if tp:
+                            tp.is_active = False
+                            deactivated += 1
+            db.session.commit()
+        else:
+            deactivated = sum(len(c['removed']) for c in changes)
+
+        return jsonify({
+            'dry_run': dry_run,
+            'total_journeys': total,
+            'unchanged': unchanged,
+            'changed': len(changes),
+            'would_deactivate' if dry_run else 'deactivated': deactivated,
+            'changes': changes[:100],
+            'truncated': len(changes) > 100,
+        })
+    except Exception as e:
+        logger.exception('admin_recompute_academy_ids failed')
+        db.session.rollback()
+        return jsonify(_safe_error_payload(e, 'Recompute failed')), 500
+
+
 @api_bp.route('/admin/api-football/status', methods=['GET'])
 @require_api_key
 def admin_api_football_status():
