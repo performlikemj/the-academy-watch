@@ -10077,23 +10077,37 @@ def admin_bulk_update_team_tracking():
 
         db.session.commit()
 
-        # Auto-seed newly tracked teams in background
-        seed_job_ids = []
+        # Auto-seed newly tracked teams in a single background process
+        seed_info = None
         if is_tracked:
             newly_tracked = [t for t in teams
                              if t.id not in exclude_ids and not was_tracked.get(t.id, False)]
-            for team in newly_tracked:
-                job_id = _start_background_seed(team.id)
-                seed_job_ids.append({'team': team.name, 'job_id': job_id})
+            if newly_tracked:
+                import multiprocessing
+                job_id = _create_background_job('seed_all_tracked')
+                team_db_ids = [t.id for t in newly_tracked]
+                p = multiprocessing.Process(
+                    target=_run_seed_all_tracked_process,
+                    args=(job_id,),
+                    kwargs={'team_db_ids': team_db_ids},
+                    daemon=False,
+                )
+                p.start()
+                multiprocessing.process._children.discard(p)
+                seed_info = {
+                    'job_id': job_id,
+                    'teams_to_seed': len(newly_tracked),
+                    'team_names': [t.name for t in newly_tracked],
+                }
 
         response = {
             'message': f'Updated {updated_count} teams',
             'is_tracked': is_tracked,
             'updated_count': updated_count,
         }
-        if seed_job_ids:
-            response['seed_jobs'] = seed_job_ids
-            response['message'] += f' (seeding {len(seed_job_ids)} newly tracked teams)'
+        if seed_info:
+            response['seed_job'] = seed_info
+            response['message'] += f' (seeding {seed_info["teams_to_seed"]} newly tracked teams)'
         return jsonify(response)
     except Exception as e:
         logger.exception('admin_bulk_update_team_tracking failed')
@@ -14435,8 +14449,13 @@ def _run_seed_team_process(job_id, team_id, max_age=30, sync_journeys=True, year
                        completed_at=datetime.now(timezone.utc).isoformat())
 
 
-def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=4):
-    """Background worker: seed all tracked teams that have no TrackedPlayers."""
+def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=4,
+                                   team_db_ids=None):
+    """Background worker: seed tracked teams that have no TrackedPlayers.
+
+    If team_db_ids is provided, only those teams are considered (used by
+    bulk-tracking auto-seed).  Otherwise all tracked+active teams are used.
+    """
     import signal
     import sys
     logging.basicConfig(
@@ -14461,7 +14480,10 @@ def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=
     with app.app_context():
         from src.utils.background_jobs import update_job, is_job_cancelled
         try:
-            teams = Team.query.filter_by(is_tracked=True, is_active=True).all()
+            if team_db_ids:
+                teams = Team.query.filter(Team.id.in_(team_db_ids)).all()
+            else:
+                teams = Team.query.filter_by(is_tracked=True, is_active=True).all()
             empty_teams = [t for t in teams
                            if TrackedPlayer.query.filter_by(team_id=t.id, is_active=True).count() == 0]
             update_job(job_id, status='running', progress=0, total=len(empty_teams))
