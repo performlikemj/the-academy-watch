@@ -680,6 +680,9 @@ class UserAccount(db.Model):
     # Editor role - can manage external writers
     is_editor = db.Column(db.Boolean, default=False, nullable=False)
 
+    # Curator role - can add tweets/attributions to newsletters for approved teams
+    is_curator = db.Column(db.Boolean, default=False, nullable=False)
+
     # Placeholder account fields - for external writers managed by editors
     managed_by_user_id = db.Column(db.Integer, db.ForeignKey('user_accounts.id'), nullable=True)
     claimed_at = db.Column(db.DateTime, nullable=True)  # null = unclaimed placeholder
@@ -731,6 +734,7 @@ class UserAccount(db.Model):
             'attribution_name': self.attribution_name,
             'email_delivery_preference': self.email_delivery_preference or 'individual',
             'is_editor': self.is_editor,
+            'is_curator': self.is_curator,
             'is_placeholder': self.is_placeholder(),
             'is_claimed': self.is_claimed(),
             'managed_by_user_id': self.managed_by_user_id,

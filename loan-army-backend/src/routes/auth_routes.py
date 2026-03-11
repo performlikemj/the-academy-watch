@@ -249,6 +249,7 @@ def auth_me():
             'display_name': user.display_name if user else None,
             'display_name_confirmed': bool(user.display_name_confirmed) if user else False,
             'is_journalist': bool(user.is_journalist) if user else False,
+            'is_curator': bool(user.is_curator) if user else False,
         })
     except Exception as e:
         return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500

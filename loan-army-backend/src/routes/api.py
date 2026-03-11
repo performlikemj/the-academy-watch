@@ -310,6 +310,68 @@ def admin_toggle_editor_role(user_id):
         return jsonify(_safe_error_payload(e, 'Failed to update editor role')), 500
 
 
+@api_bp.route('/admin/users/<int:user_id>/curator-role', methods=['POST'])
+@require_api_key
+def admin_toggle_curator_role(user_id):
+    """Toggle user's curator status (can add tweets/attributions to newsletters)."""
+    try:
+        data = request.get_json() or {}
+        is_curator = data.get('is_curator')
+
+        if is_curator is None:
+            return jsonify({'error': 'is_curator boolean is required'}), 400
+
+        user = UserAccount.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        user.is_curator = bool(is_curator)
+        user.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+
+        return jsonify({
+            'message': f"Curator status {'granted' if is_curator else 'revoked'}",
+            'user': user.to_dict()
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify(_safe_error_payload(e, 'Failed to update curator role')), 500
+
+
+@api_bp.route('/admin/curator-token', methods=['POST'])
+@require_api_key
+def admin_issue_curator_token():
+    """Issue a Bearer token for a curator user (admin convenience endpoint).
+
+    Creates/looks up the user account and ensures is_curator=True,
+    then returns a signed 30-day token the curator can use with the API.
+
+    Body:
+    - email: Required. Curator's email address.
+    """
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({'error': 'email is required'}), 400
+
+    try:
+        user = _ensure_user_account(email)
+        user.is_curator = True
+        db.session.commit()
+
+        token_data = issue_user_token(email, role='user')
+        logger.info("Admin issued curator token for %s (user_id=%d)", email, user.id)
+        return jsonify({
+            'token': token_data['token'],
+            'expires_in': token_data['expires_in'],
+            'email': email,
+            'user_id': user.id,
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify(_safe_error_payload(e, 'Failed to issue curator token')), 500
+
+
 # Auth utilities (_user_serializer, _ensure_user_account, issue_user_token, require_user_auth,
 # _get_authorized_email, _is_production, _safe_error_payload, display name helpers) are imported from src.auth
 # _send_login_code is now in auth_routes.py
@@ -4719,6 +4781,7 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
         'player_commentary_map': player_commentary_map,
         'bmc_button_url': bmc_button_url,
         'community_takes': community_takes,
+        'twitter_takes': [t for t in community_takes if t.get('source_type') == 'twitter'],
         'submit_take_url': submit_take_url,
         'academy_appearances': academy_appearances,
     }

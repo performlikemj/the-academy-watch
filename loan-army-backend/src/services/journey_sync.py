@@ -708,15 +708,7 @@ class JourneySyncService:
         if not entries:
             return
         
-        # Find origin (earliest entry)
-        earliest = min(entries, key=lambda e: (e.season, -e.sort_priority))
-        journey.origin_club_api_id = earliest.club_api_id
-        journey.origin_club_name = earliest.club_name
-        journey.origin_year = earliest.season
-        
-        # Find current club: latest season, highest priority, most recent transfer
-        # Exclude international entries — call-ups are not club moves
-        # Use multi-signal filter: flag, entry_type, level text, and club name
+        # Helper: exclude international entries (call-ups are not club moves)
         def _is_domestic(e):
             if e.is_international:
                 return False
@@ -728,7 +720,27 @@ class JourneySyncService:
                 return False
             return True
 
+        # Find origin (earliest domestic entry)
         domestic_entries = [e for e in entries if _is_domestic(e)]
+        origin_entries = domestic_entries if domestic_entries else entries
+        earliest = min(origin_entries, key=lambda e: (e.season, -e.sort_priority))
+
+        if earliest.is_youth:
+            # Resolve youth/reserve team to parent club
+            base_name = self._strip_youth_suffix(earliest.club_name)
+            resolved_id = self._resolve_parent_club_id(base_name, entries)
+            if resolved_id:
+                journey.origin_club_api_id = resolved_id
+                journey.origin_club_name = base_name
+            else:
+                journey.origin_club_api_id = earliest.club_api_id
+                journey.origin_club_name = base_name  # still strip suffix for display
+        else:
+            journey.origin_club_api_id = earliest.club_api_id
+            journey.origin_club_name = earliest.club_name
+        journey.origin_year = earliest.season
+
+        # Find current club: latest season, highest priority, most recent transfer
         if domestic_entries:
             latest_season = max(e.season for e in domestic_entries)
             latest_entries = [e for e in domestic_entries if e.season == latest_season]
@@ -778,6 +790,31 @@ class JourneySyncService:
     def _strip_youth_suffix(self, club_name: str) -> str:
         """Strip youth team suffix to get parent club base name."""
         return strip_youth_suffix(club_name)
+
+    def _resolve_parent_club_id(self, base_name: str, entries: list) -> int | None:
+        """Resolve a youth/reserve team base name to the parent club's API ID.
+
+        Resolution order:
+        1. Senior entries in the same journey with matching club name
+        2. TeamProfile exact name match
+        3. Team table exact name match
+        """
+        # Check senior entries in the same journey
+        for e in entries:
+            if not e.is_youth and not e.is_international and e.club_name == base_name:
+                return e.club_api_id
+
+        # Fallback: TeamProfile exact name
+        profile = TeamProfile.query.filter(TeamProfile.name == base_name).first()
+        if profile:
+            return profile.team_id
+
+        # Fallback: Team table exact name
+        team = Team.query.filter(Team.name == base_name).first()
+        if team:
+            return team.team_id
+
+        return None
 
     def _compute_academy_club_ids(self, journey: PlayerJourney, entries: list | None = None, transfers=None):
         """
