@@ -281,6 +281,57 @@ def upgrade_status_from_transfers(
     return 'sold'
 
 
+def check_loan_return(transfers: list, parent_api_id: int) -> bool:
+    """Return True if the player has been recalled/returned from loan to *parent_api_id*.
+
+    Searches the transfer history for the latest loan OUT from the parent club,
+    then checks whether any subsequent transfer has a ``LOAN_RETURN_TYPES`` type
+    with ``team_in.id == parent_api_id``.
+
+    Used by ``classify_tracked_player()`` as step 1.5 to override stale
+    ``on_loan`` status when the journey entries haven't caught up yet.
+    """
+    if not transfers:
+        return False
+
+    from src.api_football_client import LOAN_RETURN_TYPES, is_new_loan_transfer
+
+    # Find the latest loan OUT from parent (most recent loan start date)
+    loan_out: Optional[dict] = None
+    for t in transfers:
+        teams = t.get('teams', {})
+        team_out = teams.get('out', {})
+        if team_out.get('id') != parent_api_id:
+            continue
+        transfer_type = (t.get('type') or '').strip().lower()
+        if not is_new_loan_transfer(transfer_type):
+            continue
+        t_date = t.get('date') or ''
+        if loan_out is None or t_date > (loan_out.get('date') or ''):
+            loan_out = t
+
+    if loan_out is None:
+        return False  # No outgoing loan found
+
+    loan_start_date = loan_out.get('date') or ''
+
+    # Check for a loan return TO parent AFTER the loan started
+    for t in transfers:
+        teams = t.get('teams', {})
+        team_in = teams.get('in', {})
+        transfer_type = (t.get('type') or '').strip().lower()
+        return_date = t.get('date') or ''
+
+        if (
+            team_in.get('id') == parent_api_id
+            and transfer_type in LOAN_RETURN_TYPES
+            and return_date > loan_start_date
+        ):
+            return True
+
+    return False
+
+
 # ─── unified classification entry point ───────────────────────────────
 
 logger = logging.getLogger(__name__)
@@ -452,7 +503,7 @@ def classify_tracked_player(
         )
         reasoning: List[Dict] = []
 
-    # ── Step 2: transfer-based upgrade ────────────────────────────────
+    # ── Step 2: transfer-based checks ─────────────────────────────────
     if status == 'on_loan' and config.get('use_transfers_for_status', True):
         effective_transfers = transfers
         if effective_transfers is None and player_api_id and api_client:
@@ -464,20 +515,47 @@ def classify_tracked_player(
                 effective_transfers = []
 
         if effective_transfers:
-            upgraded = upgrade_status_from_transfers(
-                status, effective_transfers, parent_api_id,
-            )
-            if upgraded != status:
+            # ── Step 1.5: loan return check ───────────────────────────
+            # Before checking for permanent departures, see if the player
+            # has already been recalled/returned from the loan.  This
+            # handles cases where journey entries haven't been re-synced
+            # yet (e.g. Wheatley recalled from Northampton mid-season but
+            # still shows on_loan because no new parent-club entry exists).
+            returned = check_loan_return(effective_transfers, parent_api_id)
+            if returned:
                 if with_reasoning:
                     reasoning.append({
-                        'rule': 'transfer_upgrade',
+                        'rule': 'loan_return_check',
                         'result': 'match',
-                        'check': f'upgrade_status_from_transfers("{status}")',
-                        'detail': f'Upgraded from {status} to {upgraded}',
+                        'check': (
+                            f'check_loan_return(transfers, parent_api_id={parent_api_id})'
+                        ),
+                        'detail': (
+                            'Found a loan-return transfer to parent club after '
+                            f'most recent loan start — overriding on_loan → '
+                            f'{_base_status(current_level)}'
+                        ),
                     })
-                status = upgraded
+                status = _base_status(current_level)
                 loan_id = None
                 loan_name = None
+
+            # ── Step 2: permanent-departure upgrade ───────────────────
+            if status == 'on_loan':
+                upgraded = upgrade_status_from_transfers(
+                    status, effective_transfers, parent_api_id,
+                )
+                if upgraded != status:
+                    if with_reasoning:
+                        reasoning.append({
+                            'rule': 'transfer_upgrade',
+                            'result': 'match',
+                            'check': f'upgrade_status_from_transfers("{status}")',
+                            'detail': f'Upgraded from {status} to {upgraded}',
+                        })
+                    status = upgraded
+                    loan_id = None
+                    loan_name = None
 
     # ── Step 2.5: squad cross-reference ────────────────────────────────
     if (status == 'on_loan' and config.get('use_squad_check')

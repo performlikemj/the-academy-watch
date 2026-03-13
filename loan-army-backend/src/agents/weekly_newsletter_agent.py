@@ -949,6 +949,12 @@ PLAYER_SUMMARY_SYSTEM_PROMPT = (
     "- A player registered as midfielder may play forward in some matches—use the per-match position\n"
     "- When describing goals/assists, reference the position they played IN THAT MATCH\n"
     "- Example: If position='F' and they scored, say 'found the net from his advanced role', not 'scored from midfield'\n\n"
+    "STATS SCOPE (critical — never mix these up):\n"
+    "- 'this_week': stats for THIS REPORT PERIOD ONLY (the specific week being reported)\n"
+    "- 'season_to_date': cumulative stats over the ENTIRE season up to now\n"
+    "- NEVER cite season_to_date numbers (e.g. 846 minutes, 12 appearances) as if they are weekly figures\n"
+    "- When using season_to_date stats, always frame as 'this season', 'season to date', or 'over the course of the season'\n"
+    "- Example WRONG: 'Mainoo played 846 minutes this week' — Example RIGHT: 'Mainoo has clocked 846 minutes this season'\n\n"
     "STRICT RULES (never break these):\n"
     "- ONLY use facts from the provided data—never invent goals, assists, or events\n"
     "- Keep ALL numbers exactly as given (minutes, goals, assists, cards, ratings)\n"
@@ -1002,8 +1008,12 @@ def _summarize_player_with_groq(
             "pathway_status": loanee.get("pathway_status", "on_loan"),
         },
         "matches": matches_data,  # Per-match breakdown with positions
-        "week": stats,
-        "season": (season_context or {}).get("season_stats"),
+        # CRITICAL LABEL DISTINCTION:
+        # "this_week" = stats for THIS REPORT PERIOD ONLY (from summarize_loanee_week)
+        # "season_to_date" = cumulative stats across the full season (from get_player_season_context)
+        # Never cite season_to_date numbers as if they are weekly numbers.
+        "this_week": stats,
+        "season_to_date": (season_context or {}).get("season_stats"),
         "trends": (season_context or {}).get("trends"),
         "recent_form": (season_context or {}).get("recent_form"),
         "media_links": links or [],
@@ -1299,10 +1309,19 @@ def _build_player_report_item(loanee: dict, hits: list[dict[str, Any]], *, week_
         "loan_team_id": loanee.get("loan_team_id"),
         "loan_team_country": loanee.get("loan_team_country"),
         "can_fetch_stats": can_track,
+        # ── Weekly stats (this report period only) ─────────────────────────
+        # IMPORTANT: `stats` comes exclusively from loanee["totals"] which is
+        # the output of summarize_loanee_week().  It must NEVER be mixed with
+        # season_context / season_stats to avoid "846 minutes this week" bugs.
         "stats": stats,
+        "stats_period": "weekly",  # Explicit label so templates/LLMs can distinguish
+        # ── Season-to-date stats (accumulated over full season) ─────────────
         "season_stats": season_context.get("season_stats"),
+        "season_stats_period": "season_to_date",
         "season_trends": season_context.get("trends"),
         "recent_form": season_context.get("recent_form"),
+        # ── Stats source (for zero-minute explanations) ─────────────────────
+        "stats_source": loanee.get("stats_source", "team_fixtures"),
         "week_summary": week_summary,
         "links": links,
         "source": loanee.get("source"),

@@ -665,6 +665,31 @@ class JourneySyncService:
             journey.current_club_api_id = current.club_api_id
             journey.current_club_name = current.club_name
             journey.current_level = current.level
+
+        # ── Transfer cross-reference ──────────────────────────────────────
+        # A player recalled mid-season may have no new entry at the parent
+        # club yet (they haven't appeared in a match).  The most-recent
+        # transfer record is more authoritative than journey entries in
+        # that case.  If the most-recent transfer destination differs from
+        # the entry-derived current club, override.
+        override = self._get_transfer_current_club_override(
+            journey.current_club_api_id, transfers
+        )
+        if override is not None:
+            new_id, new_name = override
+            logger.info(
+                'journey_sync: overriding current club for player %s '
+                'from %s (%s) → %s (%s) based on most-recent transfer',
+                journey.player_api_id,
+                journey.current_club_name,
+                journey.current_club_api_id,
+                new_name,
+                new_id,
+            )
+            journey.current_club_api_id = new_id
+            journey.current_club_name = new_name
+            # Keep current_level from the last entry — we don't have
+            # level info from transfers alone.
         
         # Find first team debut
         first_team_entries = [e for e in entries if e.level == 'First Team' and not e.is_international]
@@ -852,6 +877,40 @@ class JourneySyncService:
                 existing.status = status
                 existing.loan_club_api_id = loan_club_api_id
                 existing.loan_club_name = loan_club_name
+
+    @staticmethod
+    def _get_transfer_current_club_override(
+        current_club_api_id: Optional[int],
+        transfers: Optional[list],
+    ) -> Optional[tuple]:
+        """Return (team_in_id, team_in_name) from the most-recent transfer if it
+        differs from *current_club_api_id*, otherwise return ``None``.
+
+        Used by ``_update_journey_aggregates`` to override stale journey-entry
+        data when a player has been recalled or transferred but hasn't yet
+        featured in a match at the new club (so no new journey entry exists).
+
+        Pure function — no DB access — so it's easy to unit-test.
+        """
+        if not transfers:
+            return None
+
+        valid_transfers = [
+            t for t in transfers
+            if t.get('date') and t.get('teams', {}).get('in', {}).get('id')
+        ]
+        if not valid_transfers:
+            return None
+
+        most_recent = max(valid_transfers, key=lambda t: t.get('date', ''))
+        mr_team_in = most_recent.get('teams', {}).get('in', {})
+        mr_team_in_id = mr_team_in.get('id')
+        mr_team_in_name = mr_team_in.get('name')
+
+        if mr_team_in_id and mr_team_in_id != current_club_api_id:
+            return (mr_team_in_id, mr_team_in_name)
+
+        return None
 
     @staticmethod
     def _get_latest_departure_type(transfers, parent_api_id):

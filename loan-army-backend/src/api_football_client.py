@@ -2556,6 +2556,131 @@ class APIFootballClient:
         has_limited_stats = len(limited_matches) > 0
         limited_competitions = list(set(m.get('competition') for m in limited_matches if m.get('competition')))
         
+        # ------------------------------------------------------------------
+        # 🔍 Zero-minute fallback for on-loan players
+        # If no fixtures were found via the team route (common for lower
+        # leagues or un-cached teams), try two alternative data sources.
+        # We distinguish them with a stats_source flag so the newsletter
+        # can handle each case appropriately.
+        # ------------------------------------------------------------------
+        stats_source: str = 'team_fixtures'  # default – normal path succeeded
+        fallback_season_totals: Optional[Dict[str, Any]] = None
+
+        if totals['games_played'] == 0 and player_id:
+            # --- Fallback 1: query FixturePlayerStats directly by date range ---
+            # This succeeds when fixtures weren't cached for the team but the
+            # player's stats were stored via another code path (e.g. the
+            # parent-team weekly job that collects individual player stats).
+            if db_session:
+                try:
+                    from src.models.weekly import Fixture as _Fixture, FixturePlayerStats as _FPS
+                    from sqlalchemy import or_ as _or
+                    from datetime import datetime as _dt
+
+                    start_dt = _dt.strptime(start_str, '%Y-%m-%d')
+                    end_dt = _dt.strptime(end_str + ' 23:59:59', '%Y-%m-%d %H:%M:%S')
+
+                    fps_rows = (
+                        db_session.query(_FPS)
+                        .join(_Fixture, _Fixture.id == _FPS.fixture_id)
+                        .filter(
+                            _FPS.player_api_id == player_id,
+                            _Fixture.date_utc >= start_dt,
+                            _Fixture.date_utc <= end_dt,
+                        )
+                        .all()
+                    )
+
+                    if fps_rows:
+                        stats_source = 'fixture_fallback'
+                        logger.info(
+                            'summarize_loanee_week: fixture_fallback found %d rows for '
+                            'player=%s in %s..%s',
+                            len(fps_rows), player_id, start_str, end_str,
+                        )
+                        for fps_row in fps_rows:
+                            played_row = (
+                                (fps_row.minutes or 0) > 0
+                                or (fps_row.goals or 0) > 0
+                                or (fps_row.assists or 0) > 0
+                            )
+                            if not played_row:
+                                continue
+                            totals['games_played'] += 1
+                            totals['minutes'] += fps_row.minutes or 0
+                            totals['goals'] += fps_row.goals or 0
+                            totals['assists'] += fps_row.assists or 0
+                            totals['yellows'] += fps_row.yellows or 0
+                            totals['reds'] += fps_row.reds or 0
+                            totals['saves'] += fps_row.saves or 0
+                            totals['goals_conceded'] += fps_row.goals_conceded or 0
+                            totals['shots_total'] += fps_row.shots_total or 0
+                            totals['shots_on'] += fps_row.shots_on or 0
+                            totals['passes_total'] += fps_row.passes_total or 0
+                            totals['passes_key'] += fps_row.passes_key or 0
+                            totals['tackles_total'] += fps_row.tackles_total or 0
+                            totals['tackles_interceptions'] += fps_row.tackles_interceptions or 0
+                            totals['duels_total'] += fps_row.duels_total or 0
+                            totals['duels_won'] += fps_row.duels_won or 0
+                            totals['dribbles_attempts'] += fps_row.dribbles_attempts or 0
+                            totals['dribbles_success'] += fps_row.dribbles_success or 0
+                            totals['fouls_drawn'] += fps_row.fouls_drawn or 0
+                            totals['fouls_committed'] += fps_row.fouls_committed or 0
+                            totals['offsides'] += fps_row.offsides or 0
+                            if fps_row.position:
+                                totals['position'] = fps_row.position
+                            if fps_row.rating:
+                                try:
+                                    rating_sum += float(fps_row.rating)
+                                    rating_count += 1
+                                except (TypeError, ValueError):
+                                    pass
+                        # Recompute average rating after fallback rows
+                        if rating_count > 0:
+                            totals['rating'] = round(rating_sum / rating_count, 2)
+                except Exception as _fb_exc:
+                    logger.warning(
+                        'summarize_loanee_week: fixture_fallback query failed for player=%s: %s',
+                        player_id, _fb_exc,
+                    )
+
+            # --- Fallback 2: API season totals (context only, NOT in weekly totals) ---
+            # If we still have zero games after the DB fallback, fetch season
+            # totals from the API for narrative context.  These are season-wide
+            # numbers and must NEVER be added to `totals` (which is weekly).
+            if totals['games_played'] == 0:
+                try:
+                    api_season = self._fetch_player_team_season_totals_api(
+                        player_id=player_id,
+                        team_id=loan_team_id,
+                        season=season,
+                    )
+                    if api_season and api_season.get('games_played', 0) > 0:
+                        stats_source = 'api_season_only'
+                        fallback_season_totals = api_season
+                        logger.info(
+                            'summarize_loanee_week: api_season_only fallback for '
+                            'player=%s — season games=%s minutes=%s',
+                            player_id,
+                            api_season.get('games_played'),
+                            api_season.get('minutes'),
+                        )
+                except Exception as _api_exc:
+                    logger.warning(
+                        'summarize_loanee_week: api season-totals fallback failed '
+                        'for player=%s: %s',
+                        player_id, _api_exc,
+                    )
+                else:
+                    if stats_source == 'api_season_only':
+                        # Add a note so the newsletter template can explain why
+                        # weekly totals are zero even though the player is active.
+                        logger.debug(
+                            'summarize_loanee_week: player=%s has season stats but '
+                            'no data for %s..%s — weekly totals remain zero',
+                            player_id, start_str, end_str,
+                        )
+
         return {
             'player_id': player_id,
             'player_api_id': player_id,
@@ -2568,6 +2693,8 @@ class APIFootballClient:
             'upcoming_fixtures': upcoming_fixtures,
             'has_limited_stats': has_limited_stats,  # True if any match lacked detailed stats
             'limited_competitions': limited_competitions,  # e.g., ['FA Cup', 'EFL Trophy']
+            'stats_source': stats_source,  # 'team_fixtures' | 'fixture_fallback' | 'api_season_only'
+            'fallback_season_totals': fallback_season_totals,  # Only set when stats_source='api_season_only'
         }
 
     # ------------------------------------------------------------------
