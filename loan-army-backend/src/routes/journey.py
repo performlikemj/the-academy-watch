@@ -36,11 +36,17 @@ def get_player_journey(player_id):
     # Try PlayerJourney first (the new, richer data source)
     journey = PlayerJourney.query.filter_by(player_api_id=player_id).first()
 
-    if not journey and should_sync:
+    # Re-sync if journey is missing, has a sync error, or has no entries
+    needs_sync = (
+        not journey
+        or journey.sync_error is not None
+        or not journey.entries.first()
+    )
+    if needs_sync and should_sync:
         try:
             from src.services.journey_sync import JourneySyncService
             service = JourneySyncService()
-            journey = service.sync_player(player_id)
+            journey = service.sync_player(player_id, force_full=bool(journey))
         except Exception as e:
             logger.warning(f"Journey sync failed for player {player_id}: {e}")
 
