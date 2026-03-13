@@ -117,22 +117,24 @@ class TestJourneyEntryCreation:
         assert entry.level == 'First Team'
         assert entry.is_youth == False
     
-    def test_create_entry_skips_zero_appearances(self):
-        """Entries with zero appearances should be skipped"""
+    def test_create_entry_keeps_zero_appearances(self):
+        """Entries with zero appearances should be kept (squad registration)"""
         from src.services.journey_sync import JourneySyncService
-        
+
         service = JourneySyncService(api_client=Mock())
-        
+
         stat = {
             'team': {'id': 33, 'name': 'Manchester United', 'logo': 'https://...'},
             'league': {'id': 39, 'name': 'Premier League', 'country': 'England'},
             'games': {'appearences': 0, 'minutes': 0},
             'goals': {'total': 0, 'assists': 0}
         }
-        
+
         entry = service._create_entry_from_stat(journey_id=1, season=2024, stat=stat)
-        
-        assert entry is None
+
+        assert entry is not None
+        assert entry.appearances == 0
+        assert entry.club_name == 'Manchester United'
     
     def test_create_entry_youth_flag(self):
         """Youth entries should have is_youth=True"""

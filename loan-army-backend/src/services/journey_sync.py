@@ -257,11 +257,8 @@ class JourneySyncService:
         if not team_id:
             return None
         
-        # Skip entries with no appearances
         appearances = games.get('appearences') or games.get('appearances') or 0
-        if appearances == 0:
-            return None
-        
+
         team_name = team.get('name', '')
         league_name = league.get('name', '')
         
@@ -844,7 +841,7 @@ class JourneySyncService:
 
         # ── Minimum youth appearances threshold ──
         # Clubs below threshold are excluded to filter noise / data errors.
-        MIN_ACADEMY_APPEARANCES = 3
+        MIN_ACADEMY_APPEARANCES = 1
         club_youth_apps = {}
         for e in youth_entries:
             base = self._strip_youth_suffix(e.club_name)

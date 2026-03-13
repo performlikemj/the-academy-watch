@@ -13424,10 +13424,16 @@ def get_player_journey_map(player_id: int):
 
         journey = PlayerJourney.query.filter_by(player_api_id=player_id).first()
 
-        if not journey and should_sync:
+        # Re-sync if journey is missing, has a sync error, or has no entries
+        needs_sync = (
+            not journey
+            or journey.sync_error is not None
+            or not journey.entries.first()
+        )
+        if needs_sync and should_sync:
             from src.services.journey_sync import JourneySyncService
             service = JourneySyncService()
-            journey = service.sync_player(player_id)
+            journey = service.sync_player(player_id, force_full=bool(journey))
 
         if not journey:
             # Fallback: build a minimal journey from TrackedPlayer if available
@@ -13582,6 +13588,146 @@ def admin_bulk_sync_journeys():
     except Exception as e:
         logger.exception('Failed to bulk sync journeys')
         return jsonify(_safe_error_payload(e, 'Failed to bulk sync journeys')), 500
+
+
+@api_bp.route('/admin/journey/diagnostics', methods=['GET'])
+@require_api_key
+def admin_journey_diagnostics():
+    """Report journey data health for all tracked players."""
+    try:
+        from src.models.journey import PlayerJourney, PlayerJourneyEntry
+        from sqlalchemy import func
+
+        total_active = TrackedPlayer.query.filter(
+            TrackedPlayer.is_active == True,
+        ).count()
+
+        with_journey = TrackedPlayer.query.filter(
+            TrackedPlayer.is_active == True,
+            TrackedPlayer.journey_id.isnot(None),
+        ).count()
+
+        missing_journey_link = total_active - with_journey
+
+        with_errors = db.session.query(func.count(PlayerJourney.id)).filter(
+            PlayerJourney.sync_error.isnot(None)
+        ).scalar()
+
+        # Journeys with 0 entries
+        journeys_with_entries = db.session.query(
+            PlayerJourneyEntry.journey_id
+        ).distinct().subquery()
+        empty_journeys = db.session.query(func.count(PlayerJourney.id)).filter(
+            ~PlayerJourney.id.in_(
+                db.session.query(journeys_with_entries.c.journey_id)
+            )
+        ).scalar()
+
+        # Sample of error messages for debugging
+        error_samples = db.session.query(
+            PlayerJourney.player_api_id,
+            PlayerJourney.player_name,
+            PlayerJourney.sync_error,
+        ).filter(
+            PlayerJourney.sync_error.isnot(None)
+        ).limit(10).all()
+
+        return jsonify({
+            'total_active_tracked': total_active,
+            'with_journey': with_journey,
+            'missing_journey_link': missing_journey_link,
+            'journeys_with_sync_error': with_errors,
+            'journeys_with_zero_entries': empty_journeys,
+            'coverage_pct': round(with_journey / total_active * 100, 1) if total_active else 0,
+            'error_samples': [
+                {'player_api_id': e[0], 'player_name': e[1], 'sync_error': e[2]}
+                for e in error_samples
+            ],
+        })
+    except Exception as e:
+        logger.exception('Failed to get journey diagnostics')
+        return jsonify(_safe_error_payload(e, 'Failed to get journey diagnostics')), 500
+
+
+@api_bp.route('/admin/journey/repair', methods=['POST'])
+@require_api_key
+def admin_repair_journeys():
+    """Re-sync broken journeys: those with sync_error or 0 entries.
+
+    Body: { limit?: int (default 20), category?: 'error'|'empty'|'unlinked'|'all' }
+    """
+    try:
+        from src.models.journey import PlayerJourney, PlayerJourneyEntry
+        from src.services.journey_sync import JourneySyncService
+        from sqlalchemy import func
+
+        data = request.get_json(silent=True) or {}
+        limit = min(int(data.get('limit', 20)), 100)
+        category = data.get('category', 'all')
+
+        service = JourneySyncService()
+        player_ids_to_sync = []
+
+        if category in ('error', 'all'):
+            error_journeys = db.session.query(PlayerJourney.player_api_id).filter(
+                PlayerJourney.sync_error.isnot(None)
+            ).limit(limit).all()
+            player_ids_to_sync.extend([j[0] for j in error_journeys])
+
+        if category in ('empty', 'all') and len(player_ids_to_sync) < limit:
+            journeys_with_entries = db.session.query(
+                PlayerJourneyEntry.journey_id
+            ).distinct().subquery()
+            empty_journeys = db.session.query(PlayerJourney.player_api_id).filter(
+                ~PlayerJourney.id.in_(
+                    db.session.query(journeys_with_entries.c.journey_id)
+                )
+            ).limit(limit - len(player_ids_to_sync)).all()
+            player_ids_to_sync.extend([j[0] for j in empty_journeys])
+
+        if category in ('unlinked', 'all') and len(player_ids_to_sync) < limit:
+            unlinked = TrackedPlayer.query.filter(
+                TrackedPlayer.is_active == True,
+                TrackedPlayer.journey_id.is_(None),
+            ).limit(limit - len(player_ids_to_sync)).all()
+            player_ids_to_sync.extend([tp.player_api_id for tp in unlinked])
+
+        # Deduplicate
+        player_ids_to_sync = list(dict.fromkeys(player_ids_to_sync))[:limit]
+
+        results = []
+        for pid in player_ids_to_sync:
+            try:
+                journey = service.sync_player(pid, force_full=True)
+                if journey:
+                    # Link any unlinked TrackedPlayers
+                    unlinked_tps = TrackedPlayer.query.filter(
+                        TrackedPlayer.player_api_id == pid,
+                        TrackedPlayer.journey_id.is_(None),
+                    ).all()
+                    for tp in unlinked_tps:
+                        tp.journey_id = journey.id
+                    results.append({'player_api_id': pid, 'status': 'repaired',
+                                    'entries': len(journey.entries.all())})
+                else:
+                    results.append({'player_api_id': pid, 'status': 'sync_returned_none'})
+            except Exception as sync_err:
+                results.append({'player_api_id': pid, 'status': 'error',
+                                'error': str(sync_err)})
+
+        db.session.commit()
+
+        repaired = sum(1 for r in results if r['status'] == 'repaired')
+        return jsonify({
+            'total_attempted': len(results),
+            'repaired': repaired,
+            'failed': len(results) - repaired,
+            'details': results,
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.exception('Failed to repair journeys')
+        return jsonify(_safe_error_payload(e, 'Failed to repair journeys')), 500
 
 
 @api_bp.route('/admin/journey/seed-locations', methods=['POST'])
@@ -14151,9 +14297,10 @@ def admin_explain_academy():
 @api_bp.route('/admin/tracked-players/recompute-academy-ids', methods=['POST'])
 @require_api_key
 def admin_recompute_academy_ids():
-    """Batch recompute academy_club_ids for all journeys using updated logic.
+    """Batch recompute origins and academy_club_ids for all journeys.
 
-    Replays _compute_academy_club_ids() with current classification rules.
+    Replays _update_journey_aggregates() which resolves youth-team origins
+    to parent clubs and recomputes academy_club_ids with current rules.
     Players whose academy_club_ids shrinks will have orphaned TrackedPlayer
     rows deactivated.
 
@@ -14187,6 +14334,8 @@ def admin_recompute_academy_ids():
 
         for journey in journeys:
             old_ids = set(journey.academy_club_ids or [])
+            old_origin_id = journey.origin_club_api_id
+            old_origin_name = journey.origin_club_name
 
             entries = PlayerJourneyEntry.query.filter_by(
                 journey_id=journey.id
@@ -14211,24 +14360,36 @@ def admin_recompute_academy_ids():
                 birth_date=journey.birth_date,
             )
 
-            # Re-run academy computation using the real method to ensure
-            # dry-run and live results match (including all name-resolution
-            # fallbacks: TeamProfile, Team table, substring matching).
-            service._compute_academy_club_ids(journey, entries, transfers=transfers)
+            # Re-run journey aggregates (origin resolution + academy computation).
+            # _update_journey_aggregates resolves youth origins to parent clubs
+            # and internally calls _compute_academy_club_ids.
+            service._update_journey_aggregates(journey, transfers=transfers)
             new_ids = set(journey.academy_club_ids or [])
 
             removed = old_ids - new_ids
             added = new_ids - old_ids
+            origin_changed = (journey.origin_club_api_id != old_origin_id
+                              or journey.origin_club_name != old_origin_name)
 
-            if removed or added:
-                changes.append({
+            if removed or added or origin_changed:
+                change = {
                     'player_api_id': journey.player_api_id,
                     'player_name': journey.player_name,
                     'old_academy_ids': sorted(old_ids),
                     'new_academy_ids': sorted(new_ids),
                     'removed': sorted(removed),
                     'added': sorted(added),
-                })
+                }
+                if origin_changed:
+                    change['old_origin'] = {
+                        'api_id': old_origin_id,
+                        'name': old_origin_name,
+                    }
+                    change['new_origin'] = {
+                        'api_id': journey.origin_club_api_id,
+                        'name': journey.origin_club_name,
+                    }
+                changes.append(change)
             else:
                 unchanged += 1
 
@@ -15154,18 +15315,19 @@ def admin_seed_all_tracked():
 @api_bp.route('/admin/tracked-players/sync-journeys', methods=['POST'])
 @require_api_key
 def admin_sync_tracked_player_journeys():
-    """Batch-sync PlayerJourney records for all TrackedPlayers missing journey data.
+    """Batch-sync PlayerJourney records for TrackedPlayers missing or broken journey data.
 
-    Two passes:
+    Three passes:
       1. Link pass — if a PlayerJourney already exists for the player_api_id,
          just set TrackedPlayer.journey_id (no API call needed).
-      2. Sync pass — for remaining players, call JourneySyncService.sync_player()
+      2. Sync pass — for remaining unlinked players, call JourneySyncService.sync_player()
          to fetch career data from API-Football.
+      3. Repair pass — re-sync players whose linked journey has sync_error or 0 entries.
 
     Returns a summary of what was done.
     """
     try:
-        from src.models.journey import PlayerJourney
+        from src.models.journey import PlayerJourney, PlayerJourneyEntry
         from src.services.journey_sync import JourneySyncService
 
         unlinked = TrackedPlayer.query.filter(
@@ -15175,6 +15337,7 @@ def admin_sync_tracked_player_journeys():
 
         linked = 0
         synced = 0
+        repaired = 0
         failed = 0
         details = []
 
@@ -15206,11 +15369,46 @@ def admin_sync_tracked_player_journeys():
                 details.append({'player': tp.player_name, 'api_id': tp.player_api_id, 'action': 'error', 'error': str(sync_err)})
                 logger.warning('sync-journeys: failed for %s (%d): %s', tp.player_name, tp.player_api_id, sync_err)
 
+        db.session.flush()
+
+        # Pass 3: repair broken journeys (sync_error or 0 entries)
+        journeys_with_entries = db.session.query(
+            PlayerJourneyEntry.journey_id
+        ).distinct().subquery()
+
+        broken_linked = TrackedPlayer.query.filter(
+            TrackedPlayer.is_active == True,
+            TrackedPlayer.journey_id.isnot(None),
+        ).join(PlayerJourney, TrackedPlayer.journey_id == PlayerJourney.id).filter(
+            db.or_(
+                PlayerJourney.sync_error.isnot(None),
+                ~PlayerJourney.id.in_(
+                    db.session.query(journeys_with_entries.c.journey_id)
+                ),
+            )
+        ).all()
+
+        for tp in broken_linked:
+            try:
+                journey = service.sync_player(tp.player_api_id, force_full=True)
+                if journey:
+                    repaired += 1
+                    details.append({'player': tp.player_name, 'api_id': tp.player_api_id, 'action': 'repaired'})
+                else:
+                    failed += 1
+                    details.append({'player': tp.player_name, 'api_id': tp.player_api_id, 'action': 'repair_returned_none'})
+            except Exception as sync_err:
+                failed += 1
+                details.append({'player': tp.player_name, 'api_id': tp.player_api_id, 'action': 'repair_error', 'error': str(sync_err)})
+                logger.warning('sync-journeys: repair failed for %s (%d): %s', tp.player_name, tp.player_api_id, sync_err)
+
         db.session.commit()
         return jsonify({
             'total_unlinked': len(unlinked),
+            'total_broken': len(broken_linked),
             'linked': linked,
             'synced': synced,
+            'repaired': repaired,
             'failed': failed,
             'details': details,
         })
