@@ -28,7 +28,7 @@ from src.models.league import (
     SupplementalLoan,
     _dedupe_players,
 )
-from src.models.journey import PlayerJourney, PlayerJourneyEntry
+from src.models.journey import PlayerJourney, PlayerJourneyEntry, ClubLocation
 from src.models.tracked_player import TrackedPlayer
 from src.utils.academy_classifier import classify_tracked_player, is_same_club, _get_latest_season
 from src.utils.slug import resolve_team_by_identifier
@@ -968,12 +968,23 @@ def get_academy_network(team_identifier):
                     j = pid_to_journey.get(pid)
                     link_map[link_key]['players'][pid] = j.player_name if j else f'Player {pid}'
 
-        # Serialize nodes — convert sets to lists
+        # Enrich nodes with geographic coordinates from ClubLocation
+        all_club_ids = [n['club_api_id'] for n in club_nodes.values()]
+        locations = ClubLocation.query.filter(ClubLocation.club_api_id.in_(all_club_ids)).all()
+        loc_map = {loc.club_api_id: loc for loc in locations}
+
+        # Serialize nodes — convert sets to lists, add lat/lng
         nodes = []
         for node in club_nodes.values():
             n = {**node}
             if 'link_types' in n:
                 n['link_types'] = sorted(n['link_types'])
+            loc = loc_map.get(n['club_api_id'])
+            if loc:
+                n['lat'] = loc.latitude
+                n['lng'] = loc.longitude
+                n['city'] = loc.city
+                n['country'] = loc.country
             nodes.append(n)
 
         links = []

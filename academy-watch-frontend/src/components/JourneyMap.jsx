@@ -10,37 +10,9 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Loader2, MapPin, Calendar } from 'lucide-react'
 import { useJourney } from '@/contexts/JourneyContext'
 import { LEVEL_COLORS } from '@/lib/journey-utils'
+import { calculateView } from '@/lib/map-utils'
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
-
-/**
- * Calculate zoom center and level from an array of stops.
- * react-simple-maps coordinates are [lng, lat].
- */
-function calculateView(stops) {
-    const valid = stops.filter(s => s.lat && s.lng)
-    if (valid.length === 0) return { center: [0, 30], zoom: 1 }
-
-    const lats = valid.map(s => s.lat)
-    const lngs = valid.map(s => s.lng)
-
-    const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2
-    const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2
-
-    const span = Math.max(
-        Math.max(...lats) - Math.min(...lats),
-        Math.max(...lngs) - Math.min(...lngs),
-        5,
-    )
-
-    let zoom = 1
-    if (span < 5) zoom = 6
-    else if (span < 15) zoom = 4
-    else if (span < 30) zoom = 3
-    else if (span < 60) zoom = 2
-
-    return { center: [centerLng, centerLat], zoom }
-}
 
 export function JourneyMap({ journeyData, loading, error }) {
     const [drawerStop, setDrawerStop] = useState(null)

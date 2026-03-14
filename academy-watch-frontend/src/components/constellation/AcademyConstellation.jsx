@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Loader2, TrendingUp } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
 import { APIService } from '@/lib/api'
-import { ConstellationGraph } from './ConstellationGraph'
-import { ConstellationSummary } from './ConstellationSummary'
-import { NodeDetailPanel } from './NodeDetailPanel'
+import { NetworkMap } from './NetworkMap'
+import { NetworkMapHeader } from './NetworkMapHeader'
+import { NetworkStatusBar } from './NetworkStatusBar'
+import { NetworkDetailSheet } from './NetworkDetailSheet'
 
 export function AcademyConstellation({ teamApiId }) {
     const [data, setData] = useState(null)
@@ -12,6 +12,7 @@ export function AcademyConstellation({ teamApiId }) {
     const [loaded, setLoaded] = useState(false)
     const [error, setError] = useState(null)
     const [selectedNode, setSelectedNode] = useState(null)
+    const [statusFilter, setStatusFilter] = useState(null)
 
     const loadNetwork = useCallback(async () => {
         if (loaded || loading || !teamApiId) return
@@ -36,60 +37,45 @@ export function AcademyConstellation({ teamApiId }) {
     if (loading) {
         return (
             <div className="flex items-center justify-center py-16">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70 mr-2" />
-                <span className="text-sm text-muted-foreground">Loading academy network...</span>
+                <Loader2 className="h-6 w-6 animate-spin text-amber-400/70 mr-2" />
+                <span className="text-sm text-slate-400">Loading academy network...</span>
             </div>
         )
     }
 
     if (error) {
         return (
-            <Card>
-                <CardContent className="py-12 text-center">
-                    <p className="text-red-500 text-sm">{error}</p>
-                </CardContent>
-            </Card>
+            <div className="py-12 text-center rounded-xl bg-slate-800/50 border border-slate-700/50">
+                <p className="text-red-400 text-sm">{error}</p>
+            </div>
         )
     }
 
     if (loaded && (!data || data.total_academy_players === 0)) {
         return (
-            <Card>
-                <CardContent className="py-12 text-center">
-                    <TrendingUp className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-                    <p className="text-muted-foreground">No academy network data available yet</p>
-                    <p className="text-sm text-muted-foreground/70 mt-1">
-                        Journey data needs to be synced for this team's academy players.
-                    </p>
-                </CardContent>
-            </Card>
+            <div className="py-12 text-center rounded-xl bg-slate-800/50 border border-slate-700/50">
+                <TrendingUp className="h-12 w-12 mx-auto text-slate-600 mb-4" />
+                <p className="text-slate-400">No academy network data available yet</p>
+                <p className="text-sm text-slate-500 mt-1">
+                    Journey data needs to be synced for this team's academy players.
+                </p>
+            </div>
         )
     }
 
     if (!data) return null
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h3 className="text-base font-semibold text-foreground">
-                        Academy Network
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                        {data.total_academy_players} academy player{data.total_academy_players !== 1 ? 's' : ''} tracked
-                        {data.season_range && (
-                            <span> · {data.season_range[0]}/{String(data.season_range[0] + 1).slice(-2)} – {data.season_range[1]}/{String(data.season_range[1] + 1).slice(-2)}</span>
-                        )}
-                    </p>
-                </div>
-            </div>
+        <div className="space-y-4">
+            {/* Stats header */}
+            <NetworkMapHeader data={data} />
 
-            {/* Constellation graph */}
+            {/* Geographic network map */}
             {data.nodes?.length > 1 && (
-                <ConstellationGraph
+                <NetworkMap
                     data={data}
                     selectedNode={selectedNode}
+                    statusFilter={statusFilter}
                     onNodeClick={(node) => {
                         setSelectedNode(prev =>
                             prev?.club_api_id === node.club_api_id ? null : node
@@ -98,17 +84,21 @@ export function AcademyConstellation({ teamApiId }) {
                 />
             )}
 
-            {/* Node detail panel */}
-            {selectedNode && (
-                <NodeDetailPanel
-                    node={selectedNode}
-                    allPlayers={data.all_players || []}
-                    onClose={() => setSelectedNode(null)}
-                />
-            )}
+            {/* Status filter bar */}
+            <NetworkStatusBar
+                summary={data.summary || {}}
+                activeFilter={statusFilter}
+                onFilterChange={setStatusFilter}
+                parentTeamName={data.team_name}
+            />
 
-            {/* Player summary by status */}
-            <ConstellationSummary data={data} parentTeamName={data.team_name} />
+            {/* Club detail sheet */}
+            <NetworkDetailSheet
+                node={selectedNode}
+                allPlayers={data.all_players || []}
+                open={!!selectedNode}
+                onClose={() => setSelectedNode(null)}
+            />
         </div>
     )
 }

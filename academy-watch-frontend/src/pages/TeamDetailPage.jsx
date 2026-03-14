@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Loader2, ArrowLeft, ChevronRight, User, TrendingUp, Share2, Users, FileText, Search, X, Star, ArrowRightLeft, GraduationCap, UserMinus, BadgeDollarSign, Globe } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion' // eslint-disable-line no-unused-vars
 import { APIService } from '@/lib/api'
 import { AcademyConstellation } from '@/components/constellation/AcademyConstellation'
 import { SquadOriginsView } from '@/components/origins/SquadOriginsView'
@@ -65,7 +66,6 @@ export function TeamDetailPage() {
     // Academy Network subtab: 'outbound' (constellation) or 'origins' (squad origins)
     const initialView = searchParams.get('view') || 'outbound'
     const [academyView, setAcademyView] = useState(initialView)
-    const urlLeague = searchParams.get('league') ? parseInt(searchParams.get('league')) : undefined
     const urlSeason = searchParams.get('season') ? parseInt(searchParams.get('season')) : undefined
 
     // Squad tab state
@@ -448,7 +448,7 @@ export function TeamDetailPage() {
 
                     {/* Academy Network Tab */}
                     <TabsContent value="alumni" className="mt-4">
-                        <div className="space-y-4">
+                        <div className="bg-slate-950 rounded-xl p-4 sm:p-6 space-y-5">
                             <ToggleGroup
                                 type="single"
                                 value={academyView}
@@ -456,24 +456,44 @@ export function TeamDetailPage() {
                                 variant="outline"
                                 className="gap-1"
                             >
-                                <ToggleGroupItem value="outbound" className="px-3">
+                                <ToggleGroupItem value="outbound" className="px-3 data-[state=on]:bg-slate-700 data-[state=on]:text-white text-slate-400 border-slate-700 hover:bg-slate-800 hover:text-slate-200">
                                     <Share2 className="h-3.5 w-3.5 mr-1.5" />
                                     Where They Play
                                 </ToggleGroupItem>
-                                <ToggleGroupItem value="origins" className="px-3">
+                                <ToggleGroupItem value="origins" className="px-3 data-[state=on]:bg-slate-700 data-[state=on]:text-white text-slate-400 border-slate-700 hover:bg-slate-800 hover:text-slate-200">
                                     <Globe className="h-3.5 w-3.5 mr-1.5" />
                                     Where They Trained
                                 </ToggleGroupItem>
                             </ToggleGroup>
 
-                            {academyView === 'outbound' ? (
-                                <AcademyConstellation teamApiId={teamId} />
-                            ) : (
-                                <SquadOriginsView
-                                    teamApiId={team?.team_id || teamId}
-                                    initialSeason={urlSeason}
-                                />
-                            )}
+                            <AnimatePresence mode="wait">
+                                {academyView === 'outbound' ? (
+                                    <motion.div
+                                        key="outbound"
+                                        initial={{ opacity: 0, x: -30 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: -30 }}
+                                        transition={{ duration: 0.2, ease: 'easeInOut' }}
+                                    >
+                                        <AcademyConstellation teamApiId={teamId} />
+                                    </motion.div>
+                                ) : (
+                                    <motion.div
+                                        key="origins"
+                                        initial={{ opacity: 0, x: 30 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: 30 }}
+                                        transition={{ duration: 0.2, ease: 'easeInOut' }}
+                                    >
+                                        <SquadOriginsView
+                                            teamApiId={team?.team_id || teamId}
+                                            teamLogo={team?.logo}
+                                            teamName={team?.name}
+                                            initialSeason={urlSeason}
+                                        />
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
                     </TabsContent>
 
