@@ -922,7 +922,8 @@ PLAYER_SUMMARY_SYSTEM_PROMPT = (
     "The player may be on loan at another club, in the parent club's first team, or in the academy. "
     "Adapt your language to their pathway_status:\n"
     "- 'on_loan': Frame as a loan report—mention the loan club, how they performed away from the parent club\n"
-    "- 'first_team': Frame as a first-team graduate update—they've made it to the senior squad\n"
+    "- 'first_team': Frame as an established first-team player—they've cemented their place in the senior squad\n"
+    "- 'first_team_debut': Frame as an exciting debut/cameo—they've broken through but are still establishing themselves\n"
     "- 'academy': Frame as an academy prospect update—focus on development and season progress\n\n"
     "Write in a warm, narrative style—like a knowledgeable fan updating friends at the pub. "
     "You receive stats and a 'draft_summary' with the raw facts. Transform this into compelling prose that:\n"
@@ -962,7 +963,7 @@ PLAYER_SUMMARY_SYSTEM_PROMPT = (
 
 TEAM_SUMMARY_SYSTEM_PROMPT = (
     "You are a football journalist writing the opening hook for a weekly academy pipeline newsletter. "
-    "The newsletter covers three categories of players: first-team graduates, players out on loan, and academy prospects. "
+    "The newsletter covers four categories of players: established first-team players, first-team debutants, players out on loan, and academy prospects. "
     "Capture the week's story in 2–3 punchy sentences that make readers want to dive into the player details. "
     "Use the provided player summaries to highlight standout performers, surprising results, or emerging themes. "
     "Keep every stat and fact accurate—do not invent or embellish. "
@@ -2864,10 +2865,27 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
             groups_map.setdefault(label, []).append(item)
         return [{"label": label, "items": sub_items} for label, sub_items in groups_map.items()]
 
+    # ── Split first-team into "established" vs "debut" tiers ──
+    # Established: 500+ season minutes OR 10+ season appearances
+    # First Team Debut: made the senior squad but not yet established
+    ESTABLISHED_MIN_MINUTES = 500
+    ESTABLISHED_MIN_APPEARANCES = 10
+    established_items: list[dict[str, Any]] = []
+    debut_items: list[dict[str, Any]] = []
+    for item in first_team_items:
+        season_mins = (item.get('totals') or item.get('stats') or {}).get('minutes', 0)
+        season_apps = len([m for m in (item.get('matches') or []) if m.get('played')])
+        if season_mins >= ESTABLISHED_MIN_MINUTES or season_apps >= ESTABLISHED_MIN_APPEARANCES:
+            established_items.append(item)
+        else:
+            item['pathway_status'] = 'first_team_debut'
+            debut_items.append(item)
+
     sections: list[dict[str, Any]] = []
-    if first_team_items:
-        # First team is typically small, keep flat
-        sections.append({"title": "First Team Graduates", "items": first_team_items})
+    if established_items:
+        sections.append({"title": "First Team", "items": established_items})
+    if debut_items:
+        sections.append({"title": "First Team Debut", "items": debut_items})
     if on_loan_items:
         subsections = _group_items_by(on_loan_items, "loan_league_name", fallback="Other")
         if len(subsections) > 1:
