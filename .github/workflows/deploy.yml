@@ -114,8 +114,8 @@ jobs:
           az acr build \
             --registry "${{ env.ACR_NAME }}" \
             --image "loanarmy/backend:${{ env.TAG }}" \
-            --file loan-army-backend/Dockerfile \
-            loan-army-backend
+            --file academy-watch-backend/Dockerfile \
+            academy-watch-backend
 
       - name: Get ACR server
         id: acr
@@ -213,14 +213,14 @@ jobs:
         with:
           node-version: '20'
           cache: 'pnpm'
-          cache-dependency-path: loan-army-frontend/pnpm-lock.yaml
+          cache-dependency-path: academy-watch-frontend/pnpm-lock.yaml
 
       - name: Install dependencies
-        working-directory: loan-army-frontend
+        working-directory: academy-watch-frontend
         run: pnpm install --frozen-lockfile
 
       - name: Build frontend
-        working-directory: loan-army-frontend
+        working-directory: academy-watch-frontend
         env:
           VITE_API_BASE: https://${{ needs.deploy-backend.outputs.backend_fqdn }}/api
         run: |
@@ -233,7 +233,7 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: 'upload'
-          app_location: 'loan-army-frontend/dist'
+          app_location: 'academy-watch-frontend/dist'
           skip_app_build: true
           skip_api_build: true
 

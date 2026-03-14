@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Backend (Flask)
 ```bash
-cd loan-army-backend
+cd academy-watch-backend
 
 # Run development server (port 5001)
 python src/main.py
@@ -26,7 +26,7 @@ flask db downgrade                  # Rollback one migration
 
 ### Frontend (React/Vite)
 ```bash
-cd loan-army-frontend
+cd academy-watch-frontend
 
 pnpm install          # Install dependencies
 pnpm dev              # Dev server (port 5173, proxies /api to :5001)
@@ -36,7 +36,7 @@ pnpm lint             # ESLint
 
 ### Testing
 ```bash
-cd loan-army-frontend
+cd academy-watch-frontend
 
 # Run all Playwright E2E tests
 pnpm test:e2e
@@ -64,7 +64,7 @@ pnpm exec playwright test --ui
 
 ### Directory Structure
 ```
-loan-army-backend/src/
+academy-watch-backend/src/
 ├── main.py                 # Flask app initialization
 ├── routes/
 │   ├── api.py              # Main API endpoints (50+)
@@ -77,7 +77,7 @@ loan-army-backend/src/
 ├── agents/                 # AI newsletter generation
 └── utils/                  # Team resolution, markdown, sanitization
 
-loan-army-frontend/src/
+academy-watch-frontend/src/
 ├── pages/admin/            # Admin dashboard (14 pages)
 ├── pages/writer/           # Writer interface
 ├── components/ui/          # Radix-based UI components
@@ -85,7 +85,7 @@ loan-army-frontend/src/
 ```
 
 ### Key Data Flow
-1. **Loan Detection**: API-Football → `LoanedPlayer` records
+1. **Player Tracking**: API-Football → `AcademyPlayer` records
 2. **Stats Sync**: Fixtures → `FixturePlayerStats` → aggregated player stats
 3. **Newsletters**: Admin creates → Writers add commentaries → Email delivery via Mailgun
 4. **Payments**: Stripe Connect for writer monetization (10% platform fee)
@@ -96,8 +96,8 @@ Frontend dev server proxies `/api/*` requests to `http://localhost:5001` (see `v
 ## Important Patterns
 
 ### Database Models
-Core models in `loan-army-backend/src/models/league.py`:
-- `Team`, `LoanedPlayer`, `Newsletter` - core domain
+Core models in `academy-watch-backend/src/models/league.py`:
+- `Team`, `AcademyPlayer`, `TrackedPlayer`, `Newsletter` - core domain
 - `UserAccount`, `UserSubscription` - users and email subscriptions
 - `JournalistTeamAssignment` - writer assignments to teams
 - `StripeConnectedAccount`, `StripeSubscription` - payments
@@ -110,11 +110,12 @@ Weekly models in `models/weekly.py`:
 
 ### Player Stats
 - **Full coverage** (top leagues): Aggregated from `FixturePlayerStats`
-- **Limited coverage** (lower leagues): Denormalized columns on `LoanedPlayer`
+- **Limited coverage** (lower leagues): Denormalized columns on `AcademyPlayer`
+
 
 ## Environment Variables
 
-Key variables (see `loan-army-backend/env.template` for full list):
+Key variables (see `academy-watch-backend/env.template` for full list):
 - `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` - PostgreSQL
 - `API_FOOTBALL_KEY`, `API_FOOTBALL_MODE` - Football data API
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` - Payments

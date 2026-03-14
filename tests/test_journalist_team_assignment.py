@@ -13,7 +13,7 @@ def app_client(monkeypatch, tmp_path):
     """
     # Ensure backend package is importable
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    backend_root = os.path.join(repo_root, "loan-army-backend")
+    backend_root = os.path.join(repo_root, "academy-watch-backend")
     if backend_root not in sys.path:
         sys.path.insert(0, backend_root)
 

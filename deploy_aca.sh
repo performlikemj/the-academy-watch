@@ -33,8 +33,8 @@ JOB_WEEKLY_NAME="${JOB_WEEKLY_NAME:-job-weekly-newsletters}"
 VITE_API_BASE="${VITE_API_BASE:-}"
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BACKEND_DIR="$ROOT_DIR/loan-army-backend"
-FRONTEND_DIR="$ROOT_DIR/loan-army-frontend"
+BACKEND_DIR="$ROOT_DIR/academy-watch-backend"
+FRONTEND_DIR="$ROOT_DIR/academy-watch-frontend"
 
 # Load .env file if it exists (for SUPA_DB_PASSWORD and other secrets)
 if [[ -f "$ROOT_DIR/.env" ]]; then
