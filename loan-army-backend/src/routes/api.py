@@ -14621,7 +14621,8 @@ def admin_update_tracked_player(player_id):
 
         data = request.get_json(force=True)
         allowed = ['status', 'current_level', 'loan_club_api_id', 'loan_club_name',
-                    'notes', 'position', 'is_active', 'photo_url']
+                    'notes', 'position', 'is_active', 'photo_url', 'team_id',
+                    'pinned_parent']
         for field in allowed:
             if field in data:
                 setattr(player, field, data[field])
