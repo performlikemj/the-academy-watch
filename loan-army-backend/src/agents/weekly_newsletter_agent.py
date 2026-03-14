@@ -1845,8 +1845,8 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             totals['minutes'] += row.minutes or 0
             totals['goals'] += row.goals or 0
             totals['assists'] += row.assists or 0
-            totals['yellows'] += row.yellow_cards or 0
-            totals['reds'] += row.red_cards or 0
+            totals['yellows'] += row.yellows or 0
+            totals['reds'] += row.reds or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
             if fixture:
                 is_home = fixture.home_team_api_id == tp.loan_club_api_id
@@ -1910,8 +1910,8 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
             totals['minutes'] += row.minutes or 0
             totals['goals'] += row.goals or 0
             totals['assists'] += row.assists or 0
-            totals['yellows'] += row.yellow_cards or 0
-            totals['reds'] += row.red_cards or 0
+            totals['yellows'] += row.yellows or 0
+            totals['reds'] += row.reds or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
             if fixture:
                 is_home = fixture.home_team_api_id == team.team_id
