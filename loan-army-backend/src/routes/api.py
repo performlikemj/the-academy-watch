@@ -14616,124 +14616,21 @@ def admin_refresh_tracked_player_statuses():
         team_id = data.get('team_id')
         resync_journeys = data.get('resync_journeys', False)
 
-        from src.models.journey import PlayerJourney
+        from src.services.transfer_heal_service import refresh_and_heal
+        result = refresh_and_heal(
+            team_id=team_id,
+            resync_journeys=resync_journeys,
+            cascade_fixtures=False,
+        )
 
-        query = TrackedPlayer.query.filter_by(is_active=True)
-        if team_id:
-            query = query.filter_by(team_id=team_id)
-
-        players = query.all()
-        updated = 0
-        journeys_resynced = 0
-
-        # Optionally re-sync journeys first to refresh current_club data
-        journey_svc = None
-        if resync_journeys:
-            from src.services.journey_sync import JourneySyncService
-            journey_svc = JourneySyncService()
-
-        # Batch pre-fetch transfers for all players to avoid per-player API calls
-        from src.api_football_client import APIFootballClient
-        api_client = APIFootballClient()
-        player_api_ids = [tp.player_api_id for tp in players if tp.player_api_id]
-        raw_transfers_map = api_client.batch_get_player_transfers(player_api_ids)
-        transfers_map = {
-            pid: flatten_transfers(raw)
-            for pid, raw in raw_transfers_map.items()
-        }
-
-        # Batch pre-fetch squads for loan clubs + parent clubs
-        squad_members_by_club = {}
-        loan_club_ids = {tp.loan_club_api_id for tp in players if tp.loan_club_api_id}
-        parent_club_ids = set()
-        _team_cache = {}
-        for tp in players:
-            if tp.team_id not in _team_cache:
-                _team_cache[tp.team_id] = Team.query.get(tp.team_id)
-            pt = _team_cache[tp.team_id]
-            if pt:
-                parent_club_ids.add(pt.team_id)
-        for club_id in (loan_club_ids | parent_club_ids):
-            try:
-                squad = api_client.get_team_players(club_id)
-                squad_members_by_club[club_id] = {
-                    int(e['player']['id']) for e in squad
-                    if e and e.get('player', {}).get('id')
-                }
-            except Exception as exc:
-                logger.warning('Squad fetch failed for club %d: %s', club_id, exc)
-
-        for tp in players:
-            journey = None
-
-            # Re-sync the journey from API-Football if requested
-            if resync_journeys and journey_svc and tp.player_api_id:
-                try:
-                    journey = journey_svc.sync_player(tp.player_api_id, force_full=True)
-                    if journey:
-                        journeys_resynced += 1
-                        # Link journey if not already linked
-                        if not tp.journey_id and journey:
-                            tp.journey_id = journey.id
-                except Exception as sync_err:
-                    logger.warning(
-                        'refresh-statuses: journey resync failed for player %d: %s',
-                        tp.player_api_id, sync_err,
-                    )
-
-            if not journey:
-                if tp.journey_id:
-                    journey = db.session.get(PlayerJourney, tp.journey_id)
-                if not journey:
-                    journey = PlayerJourney.query.filter_by(
-                        player_api_id=tp.player_api_id
-                    ).first()
-
-            if not journey:
-                continue
-
-            # Look up the parent club name from the team row
-            parent_team = Team.query.get(tp.team_id)
-            if not parent_team:
-                continue
-
-            new_status, new_loan_id, new_loan_name = classify_tracked_player(
-                current_club_api_id=journey.current_club_api_id,
-                current_club_name=journey.current_club_name,
-                current_level=journey.current_level,
-                parent_api_id=parent_team.team_id,
-                parent_club_name=parent_team.name,
-                transfers=transfers_map.get(tp.player_api_id),
-                player_api_id=tp.player_api_id,
-                api_client=api_client,
-                latest_season=_get_latest_season(journey.id, parent_api_id=parent_team.team_id, parent_club_name=parent_team.name),
-                squad_members_by_club=squad_members_by_club,
-            )
-
-            changed = False
-            if tp.status != new_status:
-                tp.status = new_status
-                changed = True
-            if tp.loan_club_api_id != new_loan_id:
-                tp.loan_club_api_id = new_loan_id
-                changed = True
-            if tp.loan_club_name != new_loan_name:
-                tp.loan_club_name = new_loan_name
-                changed = True
-            if journey.current_level and tp.current_level != journey.current_level:
-                tp.current_level = journey.current_level
-                changed = True
-            if changed:
-                updated += 1
-
-        db.session.commit()
-        result = {
-            'total': len(players),
-            'updated': updated,
+        # Return the same shape as before for backwards compatibility
+        response = {
+            'total': result['total'],
+            'updated': result['updated'],
         }
         if resync_journeys:
-            result['journeys_resynced'] = journeys_resynced
-        return jsonify(result)
+            response['journeys_resynced'] = result['journeys_resynced']
+        return jsonify(response)
     except Exception as e:
         db.session.rollback()
         logger.exception('admin_refresh_tracked_player_statuses failed')
