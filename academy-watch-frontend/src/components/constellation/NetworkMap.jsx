@@ -112,22 +112,52 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
         [onNodeClick],
     )
 
+    // Build lookup: which club_api_ids have players with each status
+    const statusClubMap = useMemo(() => {
+        if (!data?.all_players) return {}
+        const map = {} // status -> Set of club_api_ids
+        for (const player of data.all_players) {
+            if (!player.status) continue
+            if (!map[player.status]) map[player.status] = new Set()
+            // Add all clubs in the player's journey path
+            for (const stop of (player.journey_path || [])) {
+                map[player.status].add(stop.club_api_id)
+            }
+        }
+        return map
+    }, [data?.all_players])
+
+    // Build lookup: which player_api_ids have each status
+    const statusPlayerMap = useMemo(() => {
+        if (!data?.all_players) return {}
+        const map = {}
+        for (const player of data.all_players) {
+            if (!player.status) continue
+            if (!map[player.status]) map[player.status] = new Set()
+            map[player.status].add(player.player_api_id)
+        }
+        return map
+    }, [data?.all_players])
+
     // Check if a node matches the current status filter
     const nodeMatchesFilter = useCallback(
         (node) => {
             if (!statusFilter) return true
-            const types = node.link_types || []
-            return types.includes(statusFilter)
+            const clubSet = statusClubMap[statusFilter]
+            return clubSet ? clubSet.has(node.club_api_id) : false
         },
-        [statusFilter],
+        [statusFilter, statusClubMap],
     )
 
     const linkMatchesFilter = useCallback(
         (link) => {
             if (!statusFilter) return true
-            return link.link_type === statusFilter
+            const playerSet = statusPlayerMap[statusFilter]
+            if (!playerSet) return false
+            // Check if any player on this link has the matching status
+            return link.players?.some(p => playerSet.has(p.player_api_id)) ?? false
         },
-        [statusFilter],
+        [statusFilter, statusPlayerMap],
     )
 
     if (!data?.nodes?.length) return null
