@@ -13,7 +13,7 @@ import { OriginsList } from './OriginsList'
 
 const CURRENT_SEASON = new Date().getFullYear() - (new Date().getMonth() < 7 ? 1 : 0)
 
-export function SquadOriginsView({ teamApiId, teamLogo, teamName, initialLeague = 2, initialSeason }) {
+export function SquadOriginsView({ teamApiId, teamLogo, teamName, initialSeason }) {
     const [season, setSeason] = useState(initialSeason || CURRENT_SEASON)
     const [origins, setOrigins] = useState(null)
     const [loading, setLoading] = useState(true)
@@ -34,7 +34,7 @@ export function SquadOriginsView({ teamApiId, teamLogo, teamName, initialLeague 
         const id = ++fetchRef.current
         setLoading(true)
         setSelectedAcademy(null)
-        APIService.getSquadOrigins(teamApiId, { league: initialLeague, season })
+        APIService.getSquadOrigins(teamApiId, { season })
             .then(data => { if (fetchRef.current === id) setOrigins(data) })
             .catch(err => {
                 console.error('Failed to load squad origins', err)

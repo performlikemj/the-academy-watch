@@ -32,6 +32,7 @@ from src.models.journey import PlayerJourney, PlayerJourneyEntry, ClubLocation
 from src.models.tracked_player import TrackedPlayer
 from src.utils.academy_classifier import classify_tracked_player, is_same_club, _get_latest_season
 from src.utils.slug import resolve_team_by_identifier
+from src.utils.geocoding import get_team_coordinates
 
 logger = logging.getLogger(__name__)
 
@@ -972,6 +973,35 @@ def get_academy_network(team_identifier):
         all_club_ids = [n['club_api_id'] for n in club_nodes.values()]
         locations = ClubLocation.query.filter(ClubLocation.club_api_id.in_(all_club_ids)).all()
         loc_map = {loc.club_api_id: loc for loc in locations}
+
+        # Auto-geocode missing clubs from TeamProfile venue data
+        missing_ids = set(all_club_ids) - set(loc_map.keys())
+        if missing_ids:
+            geocoded = 0
+            for cid in missing_ids:
+                profile = TeamProfile.query.filter_by(team_id=cid).first()
+                if not profile or not profile.venue_city:
+                    continue
+                coords = get_team_coordinates(profile.venue_city, profile.country)
+                if not coords:
+                    continue
+                club_node = club_nodes.get(cid, {})
+                loc = ClubLocation(
+                    club_api_id=cid,
+                    club_name=club_node.get('club_name', profile.name or ''),
+                    city=profile.venue_city,
+                    country=profile.country,
+                    latitude=coords[0],
+                    longitude=coords[1],
+                    geocode_source='auto',
+                    geocode_confidence=0.7,
+                )
+                db.session.add(loc)
+                loc_map[cid] = loc
+                geocoded += 1
+            if geocoded:
+                db.session.commit()
+                logger.info(f"Auto-geocoded {geocoded} club locations for academy network")
 
         # Serialize nodes — convert sets to lists, add lat/lng
         nodes = []
