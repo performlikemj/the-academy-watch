@@ -1831,8 +1831,8 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             Fixture, FixturePlayerStats.fixture_id == Fixture.id
         ).filter(
             FixturePlayerStats.player_api_id == tp.player_api_id,
-            Fixture.date >= start,
-            Fixture.date <= end,
+            db.func.date(Fixture.date_utc) >= start,
+            db.func.date(Fixture.date_utc) <= end,
         ).all()
 
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
@@ -1853,7 +1853,7 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
                     'opponent': opp_name,
                     'opponent_id': opp_id,
                     'competition': getattr(fixture, 'league_name', None),
-                    'date': fixture.date.isoformat() if fixture.date else None,
+                    'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
                     'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
                     'played': (row.minutes or 0) > 0,
@@ -1887,8 +1887,8 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
             Fixture, FixturePlayerStats.fixture_id == Fixture.id
         ).filter(
             FixturePlayerStats.player_api_id == tp.player_api_id,
-            Fixture.date >= start,
-            Fixture.date <= end,
+            db.func.date(Fixture.date_utc) >= start,
+            db.func.date(Fixture.date_utc) <= end,
             db.or_(
                 Fixture.home_team_api_id == team.team_id,
                 Fixture.away_team_api_id == team.team_id,
@@ -1913,7 +1913,7 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
                     'opponent': opp_name,
                     'opponent_id': opp_id,
                     'competition': getattr(fixture, 'league_name', None),
-                    'date': fixture.date.isoformat() if fixture.date else None,
+                    'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
                     'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
                     'played': (row.minutes or 0) > 0,
