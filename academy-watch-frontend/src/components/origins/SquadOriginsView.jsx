@@ -41,7 +41,7 @@ export function SquadOriginsView({ teamApiId, teamLogo, teamName, initialLeague 
                 if (fetchRef.current === id) setOrigins(null)
             })
             .finally(() => { if (fetchRef.current === id) setLoading(false) })
-    }, [teamApiId, initialLeague, season])
+    }, [teamApiId, season])
 
     const handleAcademyClick = (group) => {
         setSelectedAcademy(prev =>
