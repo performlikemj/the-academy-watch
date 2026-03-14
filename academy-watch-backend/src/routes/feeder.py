@@ -42,16 +42,18 @@ def get_competition_teams(league_api_id):
 
 @feeder_bp.route('/feeder/teams/<int:team_api_id>/origins', methods=['GET'])
 def get_squad_origins(team_api_id):
-    """Return academy breakdown for a team's squad."""
+    """Return academy breakdown for a team's squad.
+
+    Query params:
+        season (optional): defaults to current season
+        league (optional): filter to a specific competition
+    """
     league = request.args.get('league', type=int)
     season = request.args.get('season', type=int)
 
-    if not league or not season:
-        return jsonify({'error': 'league and season parameters are required'}), 400
-
     service = _get_feeder_service()
     try:
-        result = service.get_squad_origins(team_api_id, league, season)
+        result = service.get_squad_origins(team_api_id, league_api_id=league, season=season)
         return jsonify(result)
     except Exception as e:
         logger.error(f"Failed to fetch squad origins for team {team_api_id}: {e}", exc_info=True)
