@@ -1827,6 +1827,9 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
     from src.models.weekly import Fixture, FixturePlayerStats
 
     try:
+        import logging
+        _enrich_logger = logging.getLogger('newsletter.enrich')
+        _enrich_logger.info(f"[ENRICH-LOAN] player={tp.player_api_id} ({tp.player_name}) range={start}..{end}")
         stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
             Fixture, FixturePlayerStats.fixture_id == Fixture.id
         ).filter(
@@ -1834,6 +1837,7 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             db.func.date(Fixture.date_utc) >= start,
             db.func.date(Fixture.date_utc) <= end,
         ).all()
+        _enrich_logger.info(f"[ENRICH-LOAN] player={tp.player_api_id} found {len(stats_rows)} rows")
 
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
@@ -1874,7 +1878,8 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             from collections import Counter
             player_dict['loan_league_name'] = Counter(league_names).most_common(1)[0][0]
     except Exception as e:
-        _nl_dbg('_enrich_on_loan_stats error:', str(e))
+        import logging, traceback
+        logging.getLogger('newsletter.enrich').error(f"[ENRICH-LOAN] ERROR player={tp.player_api_id}: {e}\n{traceback.format_exc()}")
         player_dict['totals'] = {}
         player_dict['matches'] = []
 
@@ -1884,6 +1889,9 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
     from src.models.weekly import Fixture, FixturePlayerStats
 
     try:
+        import logging
+        _enrich_logger = logging.getLogger('newsletter.enrich')
+        _enrich_logger.info(f"[ENRICH-FT] player={tp.player_api_id} ({tp.player_name}) team_api={team.team_id} range={start}..{end}")
         stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
             Fixture, FixturePlayerStats.fixture_id == Fixture.id
         ).filter(
