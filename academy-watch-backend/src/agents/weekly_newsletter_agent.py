@@ -922,7 +922,8 @@ PLAYER_SUMMARY_SYSTEM_PROMPT = (
     "The player may be on loan at another club, in the parent club's first team, or in the academy. "
     "Adapt your language to their pathway_status:\n"
     "- 'on_loan': Frame as a loan report—mention the loan club, how they performed away from the parent club\n"
-    "- 'first_team': Frame as a first-team graduate update—they've made it to the senior squad\n"
+    "- 'first_team': Frame as an established first-team player—they've cemented their place in the senior squad\n"
+    "- 'first_team_debut': Frame as an exciting debut/cameo—they've broken through but are still establishing themselves\n"
     "- 'academy': Frame as an academy prospect update—focus on development and season progress\n\n"
     "Write in a warm, narrative style—like a knowledgeable fan updating friends at the pub. "
     "You receive stats and a 'draft_summary' with the raw facts. Transform this into compelling prose that:\n"
@@ -962,7 +963,7 @@ PLAYER_SUMMARY_SYSTEM_PROMPT = (
 
 TEAM_SUMMARY_SYSTEM_PROMPT = (
     "You are a football journalist writing the opening hook for a weekly academy pipeline newsletter. "
-    "The newsletter covers three categories of players: first-team graduates, players out on loan, and academy prospects. "
+    "The newsletter covers four categories of players: established first-team players, first-team debutants, players out on loan, and academy prospects. "
     "Capture the week's story in 2–3 punchy sentences that make readers want to dive into the player details. "
     "Use the provided player summaries to highlight standout performers, surprising results, or emerging themes. "
     "Keep every stat and fact accurate—do not invent or embellish. "
@@ -1826,33 +1827,38 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
     from src.models.weekly import Fixture, FixturePlayerStats
 
     try:
-        stats_rows = db.session.query(FixturePlayerStats).join(
+        import logging
+        _enrich_logger = logging.getLogger('newsletter.enrich')
+        _enrich_logger.info(f"[ENRICH-LOAN] player={tp.player_api_id} ({tp.player_name}) range={start}..{end}")
+        stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
             Fixture, FixturePlayerStats.fixture_id == Fixture.id
         ).filter(
             FixturePlayerStats.player_api_id == tp.player_api_id,
-            Fixture.date >= start,
-            Fixture.date <= end,
+            db.func.date(Fixture.date_utc) >= start,
+            db.func.date(Fixture.date_utc) <= end,
         ).all()
+        _enrich_logger.info(f"[ENRICH-LOAN] player={tp.player_api_id} found {len(stats_rows)} rows")
 
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
-        for row in stats_rows:
+        for row, fixture in stats_rows:
             totals['minutes'] += row.minutes or 0
             totals['goals'] += row.goals or 0
             totals['assists'] += row.assists or 0
-            totals['yellows'] += row.yellow_cards or 0
-            totals['reds'] += row.red_cards or 0
+            totals['yellows'] += row.yellows or 0
+            totals['reds'] += row.reds or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
-            fixture = row.fixture
             if fixture:
                 is_home = fixture.home_team_api_id == tp.loan_club_api_id
-                opp_name = fixture.away_team_name if is_home else fixture.home_team_name
-                opp_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
+                opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
+                # Resolve team name from Team table (Fixture model has no name columns)
+                opp_team_row = Team.query.filter_by(team_id=opp_api_id).first()
+                opp_name = opp_team_row.name if opp_team_row else str(opp_api_id)
                 matches.append({
                     'opponent': opp_name,
-                    'opponent_id': opp_id,
-                    'competition': getattr(fixture, 'league_name', None),
-                    'date': fixture.date.isoformat() if fixture.date else None,
+                    'opponent_id': opp_api_id,
+                    'competition': getattr(fixture, 'competition_name', None),
+                    'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
                     'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
                     'played': (row.minutes or 0) > 0,
@@ -1872,7 +1878,8 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             from collections import Counter
             player_dict['loan_league_name'] = Counter(league_names).most_common(1)[0][0]
     except Exception as e:
-        _nl_dbg('_enrich_on_loan_stats error:', str(e))
+        import logging, traceback
+        logging.getLogger('newsletter.enrich').error(f"[ENRICH-LOAN] ERROR player={tp.player_api_id}: {e}\n{traceback.format_exc()}")
         player_dict['totals'] = {}
         player_dict['matches'] = []
 
@@ -1882,12 +1889,15 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
     from src.models.weekly import Fixture, FixturePlayerStats
 
     try:
-        stats_rows = db.session.query(FixturePlayerStats).join(
+        import logging
+        _enrich_logger = logging.getLogger('newsletter.enrich')
+        _enrich_logger.info(f"[ENRICH-FT] player={tp.player_api_id} ({tp.player_name}) team_api={team.team_id} range={start}..{end}")
+        stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
             Fixture, FixturePlayerStats.fixture_id == Fixture.id
         ).filter(
             FixturePlayerStats.player_api_id == tp.player_api_id,
-            Fixture.date >= start,
-            Fixture.date <= end,
+            db.func.date(Fixture.date_utc) >= start,
+            db.func.date(Fixture.date_utc) <= end,
             db.or_(
                 Fixture.home_team_api_id == team.team_id,
                 Fixture.away_team_api_id == team.team_id,
@@ -1896,23 +1906,23 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
 
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
-        for row in stats_rows:
+        for row, fixture in stats_rows:
             totals['minutes'] += row.minutes or 0
             totals['goals'] += row.goals or 0
             totals['assists'] += row.assists or 0
-            totals['yellows'] += row.yellow_cards or 0
-            totals['reds'] += row.red_cards or 0
+            totals['yellows'] += row.yellows or 0
+            totals['reds'] += row.reds or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
-            fixture = row.fixture
             if fixture:
                 is_home = fixture.home_team_api_id == team.team_id
-                opp_name = fixture.away_team_name if is_home else fixture.home_team_name
-                opp_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
+                opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
+                opp_team_row = Team.query.filter_by(team_id=opp_api_id).first()
+                opp_name = opp_team_row.name if opp_team_row else str(opp_api_id)
                 matches.append({
                     'opponent': opp_name,
-                    'opponent_id': opp_id,
-                    'competition': getattr(fixture, 'league_name', None),
-                    'date': fixture.date.isoformat() if fixture.date else None,
+                    'opponent_id': opp_api_id,
+                    'competition': getattr(fixture, 'competition_name', None),
+                    'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
                     'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
                     'played': (row.minutes or 0) > 0,
@@ -1931,8 +1941,8 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
         player_dict['totals'] = {}
         player_dict['matches'] = []
 
-    # Fallback: season-level stats from journey entries
-    if not player_dict.get('totals', {}).get('minutes') and tp.journey_id:
+    # Season-level stats from journey entries — stored separately, never overwrites weekly totals
+    if tp.journey_id:
         try:
             entries = PlayerJourneyEntry.query.filter(
                 PlayerJourneyEntry.journey_id == tp.journey_id,
@@ -1940,24 +1950,25 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
                 PlayerJourneyEntry.entry_type == 'first_team',
             ).all()
             if entries:
-                player_dict['totals'] = {
+                player_dict['season_totals'] = {
                     'minutes': sum(e.minutes or 0 for e in entries),
                     'goals': sum(e.goals or 0 for e in entries),
                     'assists': sum(e.assists or 0 for e in entries),
-                    'yellows': 0,
-                    'reds': 0,
-                    'saves': 0,
+                    'appearances': sum(1 for e in entries if (e.minutes or 0) > 0),
                 }
-                player_dict['_stats_source'] = 'journey_season'
         except Exception:
             pass
 
 
 def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -> None:
-    """Enrich an academy player dict with season-level stats from journey entries."""
+    """Enrich an academy player dict with season-level stats from journey entries.
+    
+    Academy players don't have fixture-level tracking, so all stats are season totals.
+    These go into season_totals (not totals) to keep the weekly/season distinction clear.
+    """
     player_dict['totals'] = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
     player_dict['matches'] = []
-    player_dict['_stats_source'] = 'journey_season'
+    player_dict['_stats_source'] = 'academy_season'
 
     if not tp.journey_id:
         return
@@ -1969,13 +1980,11 @@ def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -
             PlayerJourneyEntry.is_youth.is_(True),
         ).all()
         if entries:
-            player_dict['totals'] = {
+            player_dict['season_totals'] = {
                 'minutes': sum(e.minutes or 0 for e in entries),
                 'goals': sum(e.goals or 0 for e in entries),
                 'assists': sum(e.assists or 0 for e in entries),
-                'yellows': 0,
-                'reds': 0,
-                'saves': 0,
+                'appearances': sum(1 for e in entries if (e.minutes or 0) > 0),
             }
     except Exception as e:
         _nl_dbg('_enrich_academy_stats error:', str(e))
@@ -2019,7 +2028,23 @@ def _build_first_team_report_item(player: dict, hits: list[dict[str, Any]], *, w
     elif minutes == 0 and match_count > 0:
         paragraphs.append(_ensure_period(f"{display_name} was in the matchday squad for {parent_team} but did not feature"))
     else:
-        paragraphs.append(_ensure_period(f"{display_name} is part of the {parent_team} first team squad"))
+        paragraphs.append(_ensure_period(f"{display_name} did not feature for {parent_team} this week"))
+
+    # Add season context from season_totals if available
+    season_totals = player.get("season_totals")
+    if season_totals and season_totals.get("minutes", 0) > 0:
+        st_mins = season_totals['minutes']
+        st_goals = season_totals.get('goals', 0)
+        st_assists = season_totals.get('assists', 0)
+        st_apps = season_totals.get('appearances', 0)
+        season_parts = [f"{st_mins} minutes"]
+        if st_apps:
+            season_parts[0] = f"{st_apps} appearances ({st_mins} minutes)"
+        if st_goals:
+            season_parts.append(f"{st_goals} {_pluralize(st_goals, 'goal')}")
+        if st_assists:
+            season_parts.append(f"{st_assists} {_pluralize(st_assists, 'assist')}")
+        paragraphs.append(_ensure_period(f"Season to date: {', '.join(season_parts)}"))
 
     journey_ctx = player.get("journey_context")
     if journey_ctx:
@@ -2040,6 +2065,7 @@ def _build_first_team_report_item(player: dict, hits: list[dict[str, Any]], *, w
         "can_fetch_stats": player.get("can_fetch_stats", True),
         "pathway_status": "first_team",
         "stats": stats,
+        "season_totals": player.get("season_totals"),
         "week_summary": week_summary,
         "links": links,
         "matches": _format_matches_for_item(matches),
@@ -2063,13 +2089,15 @@ def _build_academy_report_item(player: dict, hits: list[dict[str, Any]], *, week
         "reds": _to_int(stats_src.get("reds")),
     }
 
-    appearances = _to_int(stats.get("minutes")) // 90 if stats.get("minutes") else 0
+    # Academy stats are season-level — use season_totals for context
+    season_totals = player.get("season_totals") or {}
     paragraphs: list[str] = []
 
-    if stats.get("minutes"):
-        sentence = f"{display_name} ({level}) — {stats['minutes']} minutes this season at {parent_team}"
-        goals = _to_int(stats.get("goals"))
-        assists = _to_int(stats.get("assists"))
+    st_mins = _to_int(season_totals.get("minutes"))
+    if st_mins > 0:
+        sentence = f"{display_name} ({level}) — {st_mins} minutes this season at {parent_team}"
+        goals = _to_int(season_totals.get("goals"))
+        assists = _to_int(season_totals.get("assists"))
         if goals or assists:
             sentence += f" with {goals}G {assists}A"
         paragraphs.append(_ensure_period(sentence))
@@ -2864,10 +2892,27 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
             groups_map.setdefault(label, []).append(item)
         return [{"label": label, "items": sub_items} for label, sub_items in groups_map.items()]
 
+    # ── Split first-team into "established" vs "debut" tiers ──
+    # Established: 500+ season minutes OR 10+ season appearances
+    # First Team Debut: made the senior squad but not yet established
+    ESTABLISHED_MIN_MINUTES = 500
+    ESTABLISHED_MIN_APPEARANCES = 10
+    established_items: list[dict[str, Any]] = []
+    debut_items: list[dict[str, Any]] = []
+    for item in first_team_items:
+        season_mins = (item.get('totals') or item.get('stats') or {}).get('minutes', 0)
+        season_apps = len([m for m in (item.get('matches') or []) if m.get('played')])
+        if season_mins >= ESTABLISHED_MIN_MINUTES or season_apps >= ESTABLISHED_MIN_APPEARANCES:
+            established_items.append(item)
+        else:
+            item['pathway_status'] = 'first_team_debut'
+            debut_items.append(item)
+
     sections: list[dict[str, Any]] = []
-    if first_team_items:
-        # First team is typically small, keep flat
-        sections.append({"title": "First Team Graduates", "items": first_team_items})
+    if established_items:
+        sections.append({"title": "First Team", "items": established_items})
+    if debut_items:
+        sections.append({"title": "First Team Debut", "items": debut_items})
     if on_loan_items:
         subsections = _group_items_by(on_loan_items, "loan_league_name", fallback="Other")
         if len(subsections) > 1:

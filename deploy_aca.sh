@@ -29,6 +29,8 @@ SWA_NAME="${SWA_NAME:-swa-goonloan}"
 TAG="${TAG:-prod}"
 # Optional: weekly job name to keep in sync with backend image tag
 JOB_WEEKLY_NAME="${JOB_WEEKLY_NAME:-job-weekly-newsletters}"
+# Optional: transfer heal job name to keep in sync with backend image tag
+JOB_TRANSFER_HEAL_NAME="${JOB_TRANSFER_HEAL_NAME:-job-transfer-heal}"
 # Optional explicit API base for frontend build. If empty, derived from backend FQDN
 VITE_API_BASE="${VITE_API_BASE:-}"
 
@@ -215,6 +217,14 @@ if az containerapp job show -g "$RG" -n "$JOB_WEEKLY_NAME" >/dev/null 2>&1; then
     --image "$ACR_SERVER/loanarmy/backend:$TAG" >/dev/null
 else
   log "Skipping job update (job '$JOB_WEEKLY_NAME' not found)"
+fi
+
+if az containerapp job show -g "$RG" -n "$JOB_TRANSFER_HEAL_NAME" >/dev/null 2>&1; then
+  log "Updating scheduled job '$JOB_TRANSFER_HEAL_NAME' image to $ACR_SERVER/loanarmy/backend:$TAG"
+  az containerapp job update -g "$RG" -n "$JOB_TRANSFER_HEAL_NAME" \
+    --image "$ACR_SERVER/loanarmy/backend:$TAG" >/dev/null
+else
+  log "Skipping job update (job '$JOB_TRANSFER_HEAL_NAME' not found)"
 fi
 
 # ---------------------------

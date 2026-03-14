@@ -46,6 +46,10 @@ class TrackedPlayer(db.Model):
     # Link to active AcademyPlayer row (if on loan)
     loaned_player_id = db.Column(db.Integer, db.ForeignKey('loaned_players.id'), nullable=True)
 
+    # When True, refresh-statuses will never change team_id — prevents
+    # the classifier from reassigning parent club based on stale API data.
+    pinned_parent = db.Column(db.Boolean, default=False, server_default='false')
+
     notes = db.Column(db.Text)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
@@ -85,6 +89,7 @@ class TrackedPlayer(db.Model):
             'data_depth': self.data_depth,
             'journey_id': self.journey_id,
             'loaned_player_id': self.loaned_player_id,
+            'pinned_parent': self.pinned_parent,
             'notes': self.notes,
             'is_active': self.is_active,
             'created_at': self.created_at.isoformat() if self.created_at else None,

@@ -163,6 +163,42 @@ def is_job_cancelled(job_id: str) -> bool:
     return False
 
 
+def has_running_job(job_type: str) -> bool:
+    """Check if a job of the given type is already running (not stale).
+
+    Auto-fails any stale jobs that exceed STALE_JOB_TIMEOUT.
+
+    Args:
+        job_type: The job_type string to check (e.g. 'transfer_heal').
+
+    Returns:
+        True if a non-stale running job of this type exists.
+    """
+    try:
+        job = (
+            BackgroundJob.query
+            .filter_by(job_type=job_type, status='running')
+            .first()
+        )
+        if not job:
+            return False
+        last_active = job.updated_at or job.started_at or job.created_at
+        elapsed = datetime.now(timezone.utc) - last_active.replace(tzinfo=timezone.utc)
+        if elapsed > STALE_JOB_TIMEOUT:
+            logger.warning(
+                'Job type %s stale (%s), auto-marking failed.', job_type, elapsed,
+            )
+            job.status = 'failed'
+            job.error = f'Stale job auto-failed after {elapsed}'
+            job.completed_at = datetime.now(timezone.utc)
+            db.session.commit()
+            return False
+        return True
+    except Exception as e:
+        logger.error('Failed to check running job for type %s: %s', job_type, e)
+        return False
+
+
 # Aliases for backward compatibility with api.py internal naming
 _create_background_job = create_background_job
 _update_job = update_job
