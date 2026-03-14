@@ -8938,7 +8938,7 @@ def admin_sync_player_fixtures(player_id: int):
     """
     Sync/backfill all fixtures for a player from API-Football.
     Uses TrackedPlayer to determine current team (loan club or parent club).
-    Falls back to LoanedPlayer for backwards compatibility.
+    Falls back to AcademyPlayer for backwards compatibility.
     """
     try:
         from src.api_football_client import APIFootballClient
@@ -8975,11 +8975,11 @@ def admin_sync_player_fixtures(player_id: int):
                     team_api_id = parent_team.team_id
                     team_name = parent_team.name
         
-        # Fallback to LoanedPlayer if TrackedPlayer didn't resolve
+        # Fallback to AcademyPlayer if TrackedPlayer didn't resolve
         if not team_api_id:
-            loaned = LoanedPlayer.query.filter_by(player_id=player_id, is_active=True).order_by(LoanedPlayer.updated_at.desc()).first()
+            loaned = AcademyPlayer.query.filter_by(player_id=player_id, is_active=True).order_by(AcademyPlayer.updated_at.desc()).first()
             if not loaned:
-                loaned = LoanedPlayer.query.filter_by(player_id=player_id).order_by(LoanedPlayer.updated_at.desc()).first()
+                loaned = AcademyPlayer.query.filter_by(player_id=player_id).order_by(AcademyPlayer.updated_at.desc()).first()
             if loaned and loaned.loan_team_id:
                 loan_team = Team.query.get(loaned.loan_team_id)
                 if loan_team:
@@ -8988,7 +8988,7 @@ def admin_sync_player_fixtures(player_id: int):
                     player_name = player_name or loaned.player_name
         
         if not team_api_id:
-            return jsonify({'error': 'No team found for this player (checked TrackedPlayer and LoanedPlayer)'}), 404
+            return jsonify({'error': 'No team found for this player (checked TrackedPlayer and AcademyPlayer)'}), 404
         
         api_client = APIFootballClient()
         
@@ -9123,8 +9123,8 @@ def admin_sync_player_fixtures(player_id: int):
         if not dry_run:
             db.session.commit()
             
-            # Sync denormalized stats if LoanedPlayer record exists
-            loaned = LoanedPlayer.query.filter_by(player_id=player_id, is_active=True).first()
+            # Sync denormalized stats if AcademyPlayer record exists
+            loaned = AcademyPlayer.query.filter_by(player_id=player_id, is_active=True).first()
             if loaned:
                 _sync_denormalized_stats_for_player(loaned)
         
@@ -9296,7 +9296,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
     """Run the team fixture sync logic, optionally with progress updates.
     
     Uses TrackedPlayer (newer model) to find all active players for a team,
-    including both on_loan and first_team players. Falls back to LoanedPlayer
+    including both on_loan and first_team players. Falls back to AcademyPlayer
     for any players not found in TrackedPlayer.
     """
     from src.api_football_client import APIFootballClient
@@ -9338,9 +9338,9 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                     team.team_id, team.name,
                 ))
         
-        # Fallback: also include LoanedPlayer records not in TrackedPlayer
+        # Fallback: also include AcademyPlayer records not in TrackedPlayer
         tracked_api_ids = {p[0] for p in players_to_sync}
-        loaned_fallback = LoanedPlayer.query.filter_by(
+        loaned_fallback = AcademyPlayer.query.filter_by(
             primary_team_id=team_id, is_active=True,
         ).all()
         for lp in loaned_fallback:
