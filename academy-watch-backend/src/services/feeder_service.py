@@ -184,6 +184,47 @@ class FeederService:
                 academy_groups[canonical_id] = players
             del academy_groups[academy_id]
 
+        # Second merge pass: consolidate groups with identical display names.
+        # Catches cases where origin_club_name was pre-stripped during journey
+        # sync but different API IDs were assigned (youth team vs first team).
+        name_to_canonical: Dict[str, int] = {}
+        for academy_id in list(academy_groups.keys()):
+            if academy_id not in academy_groups:
+                continue
+            display_name = strip_youth_suffix(
+                academy_groups[academy_id][0]['academy_club_name']
+            )
+            if display_name in name_to_canonical:
+                canonical_id = name_to_canonical[display_name]
+                for p in academy_groups[academy_id]:
+                    p['academy_club_name'] = display_name
+                    p['academy_club_id'] = canonical_id
+                academy_groups[canonical_id].extend(academy_groups[academy_id])
+                del academy_groups[academy_id]
+            else:
+                # Prefer the viewed team's ID, then DB lookup, then keep as-is
+                if academy_id == team_api_id:
+                    canonical = academy_id
+                else:
+                    resolved = self._resolve_parent_id(display_name)
+                    canonical = resolved if resolved else academy_id
+
+                if canonical != academy_id and canonical in academy_groups:
+                    for p in academy_groups[academy_id]:
+                        p['academy_club_name'] = display_name
+                        p['academy_club_id'] = canonical
+                    academy_groups[canonical].extend(academy_groups[academy_id])
+                    del academy_groups[academy_id]
+                    name_to_canonical[display_name] = canonical
+                elif canonical != academy_id:
+                    for p in academy_groups[academy_id]:
+                        p['academy_club_name'] = display_name
+                        p['academy_club_id'] = canonical
+                    academy_groups[canonical] = academy_groups.pop(academy_id)
+                    name_to_canonical[display_name] = canonical
+                else:
+                    name_to_canonical[display_name] = academy_id
+
         # Build breakdown with academy logos
         breakdown = []
         for academy_id, players in academy_groups.items():
@@ -198,15 +239,12 @@ class FeederService:
                 },
                 'players': sorted(players, key=lambda p: p.get('player_name', '')),
                 'count': len(players),
-                'is_homegrown': academy_id == team_api_id or any(
-                    team_api_id in (p.get('academy_club_ids') or []) for p in players
-                ),
+                'is_homegrown': academy_id == team_api_id,
             })
 
         breakdown.sort(key=lambda g: (-g['count'], g['academy']['name']))
 
-        homegrown = next((g for g in breakdown if g['is_homegrown']), None)
-        homegrown_count = homegrown['count'] if homegrown else 0
+        homegrown_count = sum(g['count'] for g in breakdown if g['is_homegrown'])
         total = len(squad_players)
 
         # Get team info from first player's data
