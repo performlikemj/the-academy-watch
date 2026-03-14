@@ -1941,8 +1941,8 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
         player_dict['totals'] = {}
         player_dict['matches'] = []
 
-    # Fallback: season-level stats from journey entries
-    if not player_dict.get('totals', {}).get('minutes') and tp.journey_id:
+    # Season-level stats from journey entries — stored separately, never overwrites weekly totals
+    if tp.journey_id:
         try:
             entries = PlayerJourneyEntry.query.filter(
                 PlayerJourneyEntry.journey_id == tp.journey_id,
@@ -1950,24 +1950,25 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
                 PlayerJourneyEntry.entry_type == 'first_team',
             ).all()
             if entries:
-                player_dict['totals'] = {
+                player_dict['season_totals'] = {
                     'minutes': sum(e.minutes or 0 for e in entries),
                     'goals': sum(e.goals or 0 for e in entries),
                     'assists': sum(e.assists or 0 for e in entries),
-                    'yellows': 0,
-                    'reds': 0,
-                    'saves': 0,
+                    'appearances': sum(1 for e in entries if (e.minutes or 0) > 0),
                 }
-                player_dict['_stats_source'] = 'journey_season'
         except Exception:
             pass
 
 
 def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -> None:
-    """Enrich an academy player dict with season-level stats from journey entries."""
+    """Enrich an academy player dict with season-level stats from journey entries.
+    
+    Academy players don't have fixture-level tracking, so all stats are season totals.
+    These go into season_totals (not totals) to keep the weekly/season distinction clear.
+    """
     player_dict['totals'] = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
     player_dict['matches'] = []
-    player_dict['_stats_source'] = 'journey_season'
+    player_dict['_stats_source'] = 'academy_season'
 
     if not tp.journey_id:
         return
@@ -1979,13 +1980,11 @@ def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -
             PlayerJourneyEntry.is_youth.is_(True),
         ).all()
         if entries:
-            player_dict['totals'] = {
+            player_dict['season_totals'] = {
                 'minutes': sum(e.minutes or 0 for e in entries),
                 'goals': sum(e.goals or 0 for e in entries),
                 'assists': sum(e.assists or 0 for e in entries),
-                'yellows': 0,
-                'reds': 0,
-                'saves': 0,
+                'appearances': sum(1 for e in entries if (e.minutes or 0) > 0),
             }
     except Exception as e:
         _nl_dbg('_enrich_academy_stats error:', str(e))
@@ -2029,7 +2028,23 @@ def _build_first_team_report_item(player: dict, hits: list[dict[str, Any]], *, w
     elif minutes == 0 and match_count > 0:
         paragraphs.append(_ensure_period(f"{display_name} was in the matchday squad for {parent_team} but did not feature"))
     else:
-        paragraphs.append(_ensure_period(f"{display_name} is part of the {parent_team} first team squad"))
+        paragraphs.append(_ensure_period(f"{display_name} did not feature for {parent_team} this week"))
+
+    # Add season context from season_totals if available
+    season_totals = player.get("season_totals")
+    if season_totals and season_totals.get("minutes", 0) > 0:
+        st_mins = season_totals['minutes']
+        st_goals = season_totals.get('goals', 0)
+        st_assists = season_totals.get('assists', 0)
+        st_apps = season_totals.get('appearances', 0)
+        season_parts = [f"{st_mins} minutes"]
+        if st_apps:
+            season_parts[0] = f"{st_apps} appearances ({st_mins} minutes)"
+        if st_goals:
+            season_parts.append(f"{st_goals} {_pluralize(st_goals, 'goal')}")
+        if st_assists:
+            season_parts.append(f"{st_assists} {_pluralize(st_assists, 'assist')}")
+        paragraphs.append(_ensure_period(f"Season to date: {', '.join(season_parts)}"))
 
     journey_ctx = player.get("journey_context")
     if journey_ctx:
@@ -2050,6 +2065,7 @@ def _build_first_team_report_item(player: dict, hits: list[dict[str, Any]], *, w
         "can_fetch_stats": player.get("can_fetch_stats", True),
         "pathway_status": "first_team",
         "stats": stats,
+        "season_totals": player.get("season_totals"),
         "week_summary": week_summary,
         "links": links,
         "matches": _format_matches_for_item(matches),
@@ -2073,13 +2089,15 @@ def _build_academy_report_item(player: dict, hits: list[dict[str, Any]], *, week
         "reds": _to_int(stats_src.get("reds")),
     }
 
-    appearances = _to_int(stats.get("minutes")) // 90 if stats.get("minutes") else 0
+    # Academy stats are season-level — use season_totals for context
+    season_totals = player.get("season_totals") or {}
     paragraphs: list[str] = []
 
-    if stats.get("minutes"):
-        sentence = f"{display_name} ({level}) — {stats['minutes']} minutes this season at {parent_team}"
-        goals = _to_int(stats.get("goals"))
-        assists = _to_int(stats.get("assists"))
+    st_mins = _to_int(season_totals.get("minutes"))
+    if st_mins > 0:
+        sentence = f"{display_name} ({level}) — {st_mins} minutes this season at {parent_team}"
+        goals = _to_int(season_totals.get("goals"))
+        assists = _to_int(season_totals.get("assists"))
         if goals or assists:
             sentence += f" with {goals}G {assists}A"
         paragraphs.append(_ensure_period(sentence))
