@@ -8937,13 +8937,14 @@ def admin_backfill_team_leagues_all():
 def admin_sync_player_fixtures(player_id: int):
     """
     Sync/backfill all fixtures for a player from API-Football.
-    Fetches the player's fixtures for their loan team in the current season
-    and stores any missing fixture stats in the database.
+    Uses TrackedPlayer to determine current team (loan club or parent club).
+    Falls back to LoanedPlayer for backwards compatibility.
     """
     try:
         from src.api_football_client import APIFootballClient
         from src.models.weekly import Fixture, FixturePlayerStats
         from src.models.league import LoanedPlayer
+        from src.models.tracked_player import TrackedPlayer
         
         data = request.get_json() or {}
         dry_run = data.get('dry_run', False)
@@ -8954,19 +8955,40 @@ def admin_sync_player_fixtures(player_id: int):
         current_month = now_utc.month
         season = data.get('season', current_year if current_month >= 8 else current_year - 1)
         
-        # Find the player's MOST RECENT loan team (order by updated_at to get current loan)
-        loaned = LoanedPlayer.query.filter_by(player_id=player_id, is_active=True).order_by(LoanedPlayer.updated_at.desc()).first()
-        if not loaned:
-            loaned = LoanedPlayer.query.filter_by(player_id=player_id).order_by(LoanedPlayer.updated_at.desc()).first()
+        # Try TrackedPlayer first (newer model)
+        tp = TrackedPlayer.query.filter_by(
+            player_api_id=player_id, is_active=True,
+        ).first()
         
-        if not loaned or not loaned.loan_team_id:
-            return jsonify({'error': 'No loan record found for this player'}), 404
+        player_name = None
+        team_api_id = None
+        team_name = None
         
-        loan_team = Team.query.get(loaned.loan_team_id)
-        if not loan_team:
-            return jsonify({'error': 'Loan team not found'}), 404
+        if tp:
+            player_name = tp.player_name
+            if tp.status == 'on_loan' and tp.loan_club_api_id:
+                team_api_id = tp.loan_club_api_id
+                team_name = tp.loan_club_name or f'Team {tp.loan_club_api_id}'
+            elif tp.status == 'first_team':
+                parent_team = Team.query.get(tp.team_id)
+                if parent_team:
+                    team_api_id = parent_team.team_id
+                    team_name = parent_team.name
         
-        loan_team_api_id = loan_team.team_id
+        # Fallback to LoanedPlayer if TrackedPlayer didn't resolve
+        if not team_api_id:
+            loaned = LoanedPlayer.query.filter_by(player_id=player_id, is_active=True).order_by(LoanedPlayer.updated_at.desc()).first()
+            if not loaned:
+                loaned = LoanedPlayer.query.filter_by(player_id=player_id).order_by(LoanedPlayer.updated_at.desc()).first()
+            if loaned and loaned.loan_team_id:
+                loan_team = Team.query.get(loaned.loan_team_id)
+                if loan_team:
+                    team_api_id = loan_team.team_id
+                    team_name = loan_team.name
+                    player_name = player_name or loaned.player_name
+        
+        if not team_api_id:
+            return jsonify({'error': 'No team found for this player (checked TrackedPlayer and LoanedPlayer)'}), 404
         
         api_client = APIFootballClient()
         
@@ -8974,10 +8996,10 @@ def admin_sync_player_fixtures(player_id: int):
         season_start = f"{season}-08-01"
         season_end = f"{season + 1}-06-30"
         
-        logger.info(f"Syncing fixtures for player {player_id} ({loaned.player_name}) at team {loan_team_api_id} ({loan_team.name})")
+        logger.info(f"Syncing fixtures for player {player_id} ({player_name}) at team {team_api_id} ({team_name})")
         
         fixtures = api_client.get_fixtures_for_team_cached(
-            loan_team_api_id,
+            team_api_id,
             season,
             season_start,
             season_end
@@ -9062,7 +9084,7 @@ def admin_sync_player_fixtures(player_id: int):
                         fps = FixturePlayerStats(
                             fixture_id=existing_fixture.id,
                             player_api_id=player_id,
-                            team_api_id=loan_team_api_id,
+                            team_api_id=team_api_id,
                             minutes=minutes,
                             position=games.get('position'),
                             rating=games.get('rating'),
@@ -9101,13 +9123,15 @@ def admin_sync_player_fixtures(player_id: int):
         if not dry_run:
             db.session.commit()
             
-            # Sync denormalized stats for this player
-            _sync_denormalized_stats_for_player(loaned)
+            # Sync denormalized stats if LoanedPlayer record exists
+            loaned = LoanedPlayer.query.filter_by(player_id=player_id, is_active=True).first()
+            if loaned:
+                _sync_denormalized_stats_for_player(loaned)
         
         return jsonify({
             'player_id': player_id,
-            'player_name': loaned.player_name,
-            'loan_team': loan_team.name,
+            'player_name': player_name,
+            'team': team_name,
             'season': season,
             'dry_run': dry_run,
             'fixtures_found': len(fixtures),
@@ -9269,9 +9293,15 @@ def admin_backfill_fixture_raw_json():
 
 
 def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dict:
-    """Run the team fixture sync logic, optionally with progress updates."""
+    """Run the team fixture sync logic, optionally with progress updates.
+    
+    Uses TrackedPlayer (newer model) to find all active players for a team,
+    including both on_loan and first_team players. Falls back to LoanedPlayer
+    for any players not found in TrackedPlayer.
+    """
     from src.api_football_client import APIFootballClient
     from src.models.weekly import Fixture, FixturePlayerStats
+    from src.models.tracked_player import TrackedPlayer
     
     try:
         dry_run = data.get('dry_run', False)
@@ -9287,13 +9317,42 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
             result = {'error': f'Team {team_id} not found'}
             return result
         
-        # Get all active players loaned FROM this team
-        players = LoanedPlayer.query.filter_by(
-            primary_team_id=team_id, 
-            is_active=True
+        # Get all active tracked players for this team (on_loan + first_team)
+        tracked_players = TrackedPlayer.query.filter(
+            TrackedPlayer.team_id == team_id,
+            TrackedPlayer.is_active.is_(True),
+            TrackedPlayer.status.in_(['on_loan', 'first_team', 'academy']),
         ).all()
         
-        total_players = len(players)
+        # Build a unified list of (player_api_id, player_name, team_api_id, team_name)
+        players_to_sync = []
+        for tp in tracked_players:
+            if tp.status == 'on_loan' and tp.loan_club_api_id:
+                players_to_sync.append((
+                    tp.player_api_id, tp.player_name,
+                    tp.loan_club_api_id, tp.loan_club_name or f'Team {tp.loan_club_api_id}',
+                ))
+            elif tp.status in ('first_team', 'academy'):
+                players_to_sync.append((
+                    tp.player_api_id, tp.player_name,
+                    team.team_id, team.name,
+                ))
+        
+        # Fallback: also include LoanedPlayer records not in TrackedPlayer
+        tracked_api_ids = {p[0] for p in players_to_sync}
+        loaned_fallback = LoanedPlayer.query.filter_by(
+            primary_team_id=team_id, is_active=True,
+        ).all()
+        for lp in loaned_fallback:
+            if lp.player_id not in tracked_api_ids:
+                loan_team = Team.query.get(lp.loan_team_id) if lp.loan_team_id else None
+                if loan_team:
+                    players_to_sync.append((
+                        lp.player_id, lp.player_name,
+                        loan_team.team_id, loan_team.name,
+                    ))
+        
+        total_players = len(players_to_sync)
         if job_id:
             _update_job(job_id, total=total_players, progress=0, current_player=f'Syncing {total_players} players from {team.name}...')
         
@@ -9304,32 +9363,23 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
         total_skipped = 0
         total_errors = 0
         
-        for idx, loaned in enumerate(players):
+        for idx, (p_api_id, p_name, p_team_api_id, p_team_name) in enumerate(players_to_sync):
             player_result = {
-                'player_id': loaned.player_id,
-                'player_name': loaned.player_name,
-                'loan_team': loaned.loan_team_name,
+                'player_id': p_api_id,
+                'player_name': p_name,
+                'team': p_team_name,
                 'synced': 0,
                 'skipped': 0,
                 'errors': []
             }
             
             try:
-                loan_team = Team.query.get(loaned.loan_team_id)
-                if not loan_team:
-                    player_result['errors'].append('Loan team not found')
-                    results.append(player_result)
-                    total_errors += 1
-                    continue
-                
-                loan_team_api_id = loan_team.team_id
-                
-                # Fetch all fixtures for the loan team this season
+                # Fetch all fixtures for this player's team this season
                 season_start = f"{season}-08-01"
                 season_end = f"{season + 1}-06-30"
                 
                 fixtures = api_client.get_fixtures_for_team(
-                    loan_team_api_id, 
+                    p_team_api_id, 
                     season, 
                     season_start, 
                     season_end
@@ -9372,7 +9422,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                     if existing_fixture:
                         existing_stats = FixturePlayerStats.query.filter_by(
                             fixture_id=existing_fixture.id,
-                            player_api_id=loaned.player_id
+                            player_api_id=p_api_id
                         ).first()
                         
                         if existing_stats:
@@ -9381,7 +9431,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                     
                     # Fetch player stats for this fixture
                     try:
-                        player_stats = api_client.get_player_stats_for_fixture(loaned.player_id, season, fixture_id_api)
+                        player_stats = api_client.get_player_stats_for_fixture(p_api_id, season, fixture_id_api)
                         
                         if player_stats and player_stats.get('statistics'):
                             stat_list = player_stats['statistics']
@@ -9407,9 +9457,9 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                             if minutes and minutes > 0 and not dry_run and existing_fixture:
                                 fps = FixturePlayerStats(
                                     fixture_id=existing_fixture.id,
-                                    player_api_id=loaned.player_id,
-                                    player_name=loaned.player_name,
-                                    team_api_id=loan_team_api_id,
+                                    player_api_id=p_api_id,
+                                    player_name=p_name,
+                                    team_api_id=p_team_api_id,
                                     minutes=minutes,
                                     position=games.get('position'),
                                     rating=games.get('rating'),
