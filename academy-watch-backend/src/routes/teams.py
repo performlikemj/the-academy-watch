@@ -719,6 +719,12 @@ def get_academy_network(team_identifier):
                 PlayerJourneyEntry.is_international.is_(False),
             ).all()
 
+        # Capture league_country hints for geocoding fallback
+        club_country_hint = {}  # club_api_id → league_country
+        for entry in entries:
+            if entry.club_api_id not in club_country_hint and entry.league_country:
+                club_country_hint[entry.club_api_id] = entry.league_country
+
         # Aggregate: group entries by player and destination club
         # player_clubs[player_api_id][club_api_id] = {stats}
         player_clubs = {}
@@ -974,23 +980,43 @@ def get_academy_network(team_identifier):
         locations = ClubLocation.query.filter(ClubLocation.club_api_id.in_(all_club_ids)).all()
         loc_map = {loc.club_api_id: loc for loc in locations}
 
-        # Auto-geocode missing clubs from TeamProfile venue data
+        # Auto-geocode missing clubs using TeamProfile → Team → league_country fallback
         missing_ids = set(all_club_ids) - set(loc_map.keys())
         if missing_ids:
             geocoded = 0
             for cid in missing_ids:
+                city = None
+                country = None
+
+                # 1. Try TeamProfile
                 profile = TeamProfile.query.filter_by(team_id=cid).first()
-                if not profile or not profile.venue_city:
+                if profile and profile.venue_city:
+                    city = profile.venue_city
+                    country = profile.country
+
+                # 2. Fallback: Team model (has venue data from fixtures sync)
+                if not city:
+                    team_rec = Team.query.filter_by(team_id=cid).order_by(Team.season.desc()).first()
+                    if team_rec and team_rec.venue_city:
+                        city = team_rec.venue_city
+                        country = team_rec.country
+
+                # 3. Fallback: use league_country from entries as country hint
+                if not country:
+                    country = club_country_hint.get(cid)
+
+                if not city:
                     continue
-                coords = get_team_coordinates(profile.venue_city, profile.country)
+
+                coords = get_team_coordinates(city, country)
                 if not coords:
                     continue
                 club_node = club_nodes.get(cid, {})
                 loc = ClubLocation(
                     club_api_id=cid,
-                    club_name=club_node.get('club_name', profile.name or ''),
-                    city=profile.venue_city,
-                    country=profile.country,
+                    club_name=club_node.get('club_name', ''),
+                    city=city,
+                    country=country,
                     latitude=coords[0],
                     longitude=coords[1],
                     geocode_source='auto',
