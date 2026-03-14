@@ -79,7 +79,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ### Next
 - Run migration: `flask db upgrade`
-- Install frontend deps: `cd loan-army-frontend && pnpm install`
+- Install frontend deps: `cd academy-watch-frontend && pnpm install`
 - Seed club locations: `POST /api/admin/journey/seed-locations`
 - Test journey sync: `POST /api/admin/journey/sync/284324` (Garnacho)
 - Run E2E tests: `pnpm test:e2e`
@@ -123,13 +123,13 @@ CONTINUITY.md
 **Useful commands:**
 ```bash
 # Backend
-cd loan-army-backend && python src/main.py
+cd academy-watch-backend && python src/main.py
 
 # Frontend
-cd loan-army-frontend && pnpm dev
+cd academy-watch-frontend && pnpm dev
 
 # Tests
-cd loan-army-frontend && pnpm test:e2e
+cd academy-watch-frontend && pnpm test:e2e
 
 # Ralph autonomous mode
 ./scripts/ralph/ralph.sh 25

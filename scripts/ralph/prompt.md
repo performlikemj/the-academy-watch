@@ -30,8 +30,8 @@ scripts/ralph/progress.txt   → Learnings from previous iterations
 ## 4. Verify
 
 ```bash
-cd loan-army-frontend && pnpm lint
-cd loan-army-frontend && pnpm test:e2e  # if tests exist for the change
+cd academy-watch-frontend && pnpm lint
+cd academy-watch-frontend && pnpm test:e2e  # if tests exist for the change
 ```
 
 ## 5. On Success
