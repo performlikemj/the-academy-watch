@@ -13668,21 +13668,29 @@ def admin_repair_journeys():
         service = JourneySyncService()
         player_ids_to_sync = []
 
+        # error category — only journeys linked to active tracked players
         if category in ('error', 'all'):
-            error_journeys = db.session.query(PlayerJourney.player_api_id).filter(
-                PlayerJourney.sync_error.isnot(None)
-            ).limit(limit).all()
+            error_journeys = db.session.query(PlayerJourney.player_api_id).join(
+                TrackedPlayer, TrackedPlayer.journey_id == PlayerJourney.id
+            ).filter(
+                TrackedPlayer.is_active == True,
+                PlayerJourney.sync_error.isnot(None),
+            ).distinct().limit(limit).all()
             player_ids_to_sync.extend([j[0] for j in error_journeys])
 
+        # empty category — same scoping
         if category in ('empty', 'all') and len(player_ids_to_sync) < limit:
             journeys_with_entries = db.session.query(
                 PlayerJourneyEntry.journey_id
             ).distinct().subquery()
-            empty_journeys = db.session.query(PlayerJourney.player_api_id).filter(
+            empty_journeys = db.session.query(PlayerJourney.player_api_id).join(
+                TrackedPlayer, TrackedPlayer.journey_id == PlayerJourney.id
+            ).filter(
+                TrackedPlayer.is_active == True,
                 ~PlayerJourney.id.in_(
                     db.session.query(journeys_with_entries.c.journey_id)
-                )
-            ).limit(limit - len(player_ids_to_sync)).all()
+                ),
+            ).distinct().limit(limit - len(player_ids_to_sync)).all()
             player_ids_to_sync.extend([j[0] for j in empty_journeys])
 
         if category in ('unlinked', 'all') and len(player_ids_to_sync) < limit:
@@ -15388,7 +15396,15 @@ def admin_sync_tracked_player_journeys():
             )
         ).all()
 
+        # Deduplicate by player_api_id to avoid redundant API calls
+        seen_pids = set()
+        unique_broken = []
         for tp in broken_linked:
+            if tp.player_api_id not in seen_pids:
+                seen_pids.add(tp.player_api_id)
+                unique_broken.append(tp)
+
+        for tp in unique_broken:
             try:
                 journey = service.sync_player(tp.player_api_id, force_full=True)
                 if journey:
@@ -15405,7 +15421,7 @@ def admin_sync_tracked_player_journeys():
         db.session.commit()
         return jsonify({
             'total_unlinked': len(unlinked),
-            'total_broken': len(broken_linked),
+            'total_broken': len(unique_broken),
             'linked': linked,
             'synced': synced,
             'repaired': repaired,
