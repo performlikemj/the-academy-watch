@@ -1827,7 +1827,7 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
     from src.models.weekly import Fixture, FixturePlayerStats
 
     try:
-        stats_rows = db.session.query(FixturePlayerStats).join(
+        stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
             Fixture, FixturePlayerStats.fixture_id == Fixture.id
         ).filter(
             FixturePlayerStats.player_api_id == tp.player_api_id,
@@ -1837,14 +1837,13 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
 
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
-        for row in stats_rows:
+        for row, fixture in stats_rows:
             totals['minutes'] += row.minutes or 0
             totals['goals'] += row.goals or 0
             totals['assists'] += row.assists or 0
             totals['yellows'] += row.yellow_cards or 0
             totals['reds'] += row.red_cards or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
-            fixture = row.fixture
             if fixture:
                 is_home = fixture.home_team_api_id == tp.loan_club_api_id
                 opp_name = fixture.away_team_name if is_home else fixture.home_team_name
@@ -1883,7 +1882,7 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
     from src.models.weekly import Fixture, FixturePlayerStats
 
     try:
-        stats_rows = db.session.query(FixturePlayerStats).join(
+        stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
             Fixture, FixturePlayerStats.fixture_id == Fixture.id
         ).filter(
             FixturePlayerStats.player_api_id == tp.player_api_id,
@@ -1897,14 +1896,13 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
 
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
-        for row in stats_rows:
+        for row, fixture in stats_rows:
             totals['minutes'] += row.minutes or 0
             totals['goals'] += row.goals or 0
             totals['assists'] += row.assists or 0
             totals['yellows'] += row.yellow_cards or 0
             totals['reds'] += row.red_cards or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
-            fixture = row.fixture
             if fixture:
                 is_home = fixture.home_team_api_id == team.team_id
                 opp_name = fixture.away_team_name if is_home else fixture.home_team_name
