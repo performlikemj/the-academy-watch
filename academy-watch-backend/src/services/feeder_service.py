@@ -184,46 +184,55 @@ class FeederService:
                 academy_groups[canonical_id] = players
             del academy_groups[academy_id]
 
-        # Second merge pass: consolidate groups with identical display names.
-        # Catches cases where origin_club_name was pre-stripped during journey
-        # sync but different API IDs were assigned (youth team vs first team).
-        name_to_canonical: Dict[str, int] = {}
+        # Second merge pass: resolve every group to a canonical API ID and
+        # merge duplicates. Handles name variants (e.g. "Manchester Utd" vs
+        # "Manchester United") that the suffix-strip pass can't catch, plus
+        # youth teams whose names were pre-stripped during journey sync.
+        canonical_map: Dict[int, int] = {}  # academy_id -> canonical_id
         for academy_id in list(academy_groups.keys()):
             if academy_id not in academy_groups:
                 continue
             display_name = strip_youth_suffix(
                 academy_groups[academy_id][0]['academy_club_name']
             )
-            if display_name in name_to_canonical:
-                canonical_id = name_to_canonical[display_name]
-                for p in academy_groups[academy_id]:
-                    p['academy_club_name'] = display_name
-                    p['academy_club_id'] = canonical_id
-                academy_groups[canonical_id].extend(academy_groups[academy_id])
-                del academy_groups[academy_id]
+            # Resolve canonical ID: prefer viewed team, then DB lookup
+            if academy_id == team_api_id:
+                canonical = academy_id
             else:
-                # Prefer the viewed team's ID, then DB lookup, then keep as-is
-                if academy_id == team_api_id:
-                    canonical = academy_id
-                else:
-                    resolved = self._resolve_parent_id(display_name)
-                    canonical = resolved if resolved else academy_id
+                resolved = self._resolve_parent_id(display_name)
+                canonical = resolved if resolved else academy_id
+            canonical_map[academy_id] = canonical
 
-                if canonical != academy_id and canonical in academy_groups:
-                    for p in academy_groups[academy_id]:
-                        p['academy_club_name'] = display_name
-                        p['academy_club_id'] = canonical
-                    academy_groups[canonical].extend(academy_groups[academy_id])
-                    del academy_groups[academy_id]
-                    name_to_canonical[display_name] = canonical
-                elif canonical != academy_id:
-                    for p in academy_groups[academy_id]:
-                        p['academy_club_name'] = display_name
-                        p['academy_club_id'] = canonical
-                    academy_groups[canonical] = academy_groups.pop(academy_id)
-                    name_to_canonical[display_name] = canonical
-                else:
-                    name_to_canonical[display_name] = academy_id
+        # Merge groups that resolved to the same canonical ID
+        merged: Dict[int, list] = {}
+        canonical_names: Dict[int, str] = {}
+        for academy_id in list(academy_groups.keys()):
+            canonical = canonical_map.get(academy_id, academy_id)
+            display_name = strip_youth_suffix(
+                academy_groups[academy_id][0]['academy_club_name']
+            )
+            for p in academy_groups[academy_id]:
+                p['academy_club_id'] = canonical
+                p['academy_club_name'] = display_name
+            if canonical in merged:
+                merged[canonical].extend(academy_groups[academy_id])
+            else:
+                merged[canonical] = list(academy_groups[academy_id])
+                canonical_names[canonical] = display_name
+        academy_groups = merged
+
+        # Normalize display names: prefer the name from TeamProfile/Team
+        for canonical_id in academy_groups:
+            profile = TeamProfile.query.filter_by(team_id=canonical_id).first()
+            if profile:
+                for p in academy_groups[canonical_id]:
+                    p['academy_club_name'] = profile.name
+            elif canonical_id == team_api_id:
+                # Use the viewed team's known name
+                team_row = Team.query.filter_by(team_id=team_api_id).first()
+                if team_row:
+                    for p in academy_groups[canonical_id]:
+                        p['academy_club_name'] = team_row.name
 
         # Build breakdown with academy logos
         breakdown = []
