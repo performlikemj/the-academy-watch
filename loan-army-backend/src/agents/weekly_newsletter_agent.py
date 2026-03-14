@@ -1846,12 +1846,14 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             totals['saves'] += getattr(row, 'saves', 0) or 0
             if fixture:
                 is_home = fixture.home_team_api_id == tp.loan_club_api_id
-                opp_name = fixture.away_team_name if is_home else fixture.home_team_name
-                opp_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
+                opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
+                # Resolve team name from Team table (Fixture model has no name columns)
+                opp_team_row = Team.query.filter_by(team_id=opp_api_id).first()
+                opp_name = opp_team_row.name if opp_team_row else str(opp_api_id)
                 matches.append({
                     'opponent': opp_name,
-                    'opponent_id': opp_id,
-                    'competition': getattr(fixture, 'league_name', None),
+                    'opponent_id': opp_api_id,
+                    'competition': getattr(fixture, 'competition_name', None),
                     'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
                     'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
@@ -1905,12 +1907,13 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
             totals['saves'] += getattr(row, 'saves', 0) or 0
             if fixture:
                 is_home = fixture.home_team_api_id == team.team_id
-                opp_name = fixture.away_team_name if is_home else fixture.home_team_name
-                opp_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
+                opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
+                opp_team_row = Team.query.filter_by(team_id=opp_api_id).first()
+                opp_name = opp_team_row.name if opp_team_row else str(opp_api_id)
                 matches.append({
                     'opponent': opp_name,
-                    'opponent_id': opp_id,
-                    'competition': getattr(fixture, 'league_name', None),
+                    'opponent_id': opp_api_id,
+                    'competition': getattr(fixture, 'competition_name', None),
                     'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
                     'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
