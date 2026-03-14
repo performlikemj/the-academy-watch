@@ -9458,7 +9458,6 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                                 fps = FixturePlayerStats(
                                     fixture_id=existing_fixture.id,
                                     player_api_id=p_api_id,
-                                    player_name=p_name,
                                     team_api_id=p_team_api_id,
                                     minutes=minutes,
                                     position=games.get('position'),

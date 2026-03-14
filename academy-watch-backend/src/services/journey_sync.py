@@ -937,6 +937,29 @@ class JourneySyncService:
                 f"{journey.player_api_id}: {set(unresolved)}"
             )
 
+        # ── Transfer gate: remove clubs the player was permanently transferred TO ──
+        # Defense-in-depth — _apply_development_classification should have already
+        # reclassified entries as 'integration', but if it missed a case this catches it.
+        if transfers and academy_ids:
+            permanent_dest_ids = set()
+            for t in transfers:
+                transfer_type = (t.get('type') or '').strip().lower()
+                if not transfer_type or is_new_loan_transfer(transfer_type):
+                    continue
+                if transfer_type in LOAN_RETURN_TYPES:
+                    continue
+                dest_id = t.get('teams', {}).get('in', {}).get('id')
+                if dest_id:
+                    permanent_dest_ids.add(dest_id)
+
+            removed = academy_ids & permanent_dest_ids
+            if removed:
+                logger.info(
+                    f"Transfer gate: removing {removed} from academy_club_ids "
+                    f"for player {journey.player_api_id} (permanent transfer destinations)"
+                )
+                academy_ids -= permanent_dest_ids
+
         journey.academy_club_ids = sorted(academy_ids)
 
         # Auto-upsert TrackedPlayer rows for each academy connection
@@ -952,12 +975,15 @@ class JourneySyncService:
         from src.utils.academy_classifier import classify_tracked_player, _get_latest_season
 
         # Deactivate journey-sync rows whose academy connection no longer holds
+        # Skip pinned rows — manual corrections must persist.
         stale_rows = TrackedPlayer.query.filter_by(
             player_api_id=journey.player_api_id,
             data_source='journey-sync',
             is_active=True,
         ).all()
         for tp in stale_rows:
+            if tp.pinned_parent:
+                continue
             if tp.team and tp.team.team_id not in academy_ids:
                 tp.is_active = False
 
@@ -1002,8 +1028,15 @@ class JourneySyncService:
                 )
                 db.session.add(tp)
             else:
-                # Update status and journey link if stale
+                # Always keep journey link fresh
                 existing.journey_id = journey.id
+                # Skip status/loan updates for pinned players — manual corrections persist
+                if existing.pinned_parent:
+                    logger.debug(
+                        f"Skipping status update for pinned player "
+                        f"{journey.player_api_id} at team {team.name}"
+                    )
+                    continue
                 existing.status = status
                 existing.loan_club_api_id = loan_club_api_id
                 existing.loan_club_name = loan_club_name

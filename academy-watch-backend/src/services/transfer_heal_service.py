@@ -138,6 +138,16 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
             squad_members_by_club=squad_members_by_club,
         )
 
+        # Pinned players: skip all automated field changes.
+        # Journey data was already resynced above, but status/loan/level
+        # fields are frozen until explicitly unpinned.
+        if tp.pinned_parent:
+            logger.info(
+                'transfer-heal: skipping status update for pinned player %d (%s)',
+                tp.player_api_id, tp.player_name,
+            )
+            continue
+
         changed = False
         old_loan_id = tp.loan_club_api_id
 
