@@ -1724,8 +1724,12 @@ export class APIService {
         return this.request(`/feeder/competitions/${leagueApiId}/teams?season=${season}`)
     }
 
-    static async getSquadOrigins(teamApiId, { league, season }) {
-        return this.request(`/feeder/teams/${teamApiId}/origins?league=${league}&season=${season}`)
+    static async getSquadOrigins(teamApiId, { league, season } = {}) {
+        const params = new URLSearchParams()
+        if (league) params.set('league', league)
+        if (season) params.set('season', season)
+        const qs = params.toString()
+        return this.request(`/feeder/teams/${teamApiId}/origins${qs ? `?${qs}` : ''}`)
     }
 
     static async getCohortTeams() {

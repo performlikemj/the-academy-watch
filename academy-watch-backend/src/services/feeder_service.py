@@ -77,18 +77,23 @@ class FeederService:
     def get_squad_origins(
         self,
         team_api_id: int,
-        league_api_id: int,
-        season: int,
+        league_api_id: Optional[int] = None,
+        season: Optional[int] = None,
         auto_sync: bool = True,
     ) -> Dict[str, Any]:
         """
-        Get the academy breakdown for a team's squad in a competition/season.
+        Get the academy breakdown for a team's current squad.
 
         Returns players grouped by their academy origin club.
         If auto_sync is True, syncs journeys for players without journey data.
+        league_api_id is optional — when omitted, fetches the full squad
+        regardless of competition.
         """
+        if season is None:
+            season = self.api.current_season_start_year
+
         # Fetch squad from API-Football (paginated)
-        squad_players = self._fetch_squad(team_api_id, league_api_id, season)
+        squad_players = self._fetch_squad(team_api_id, season, league_api_id=league_api_id)
 
         if not squad_players:
             return {
@@ -221,19 +226,27 @@ class FeederService:
             'resolved_count': total - len(unknown_origin),
         }
 
-    def _fetch_squad(self, team_api_id: int, league_api_id: int, season: int) -> List[Dict[str, Any]]:
-        """Fetch all squad players for a team in a league/season from API-Football."""
+    def _fetch_squad(self, team_api_id: int, season: int,
+                     league_api_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Fetch all squad players for a team from API-Football.
+
+        When league_api_id is provided, filters to that competition.
+        When omitted, returns the full registered squad for the season.
+        """
         players = []
         page = 1
         total_pages = 1
 
         while page <= total_pages:
-            response = self.api._make_request('players', {
+            params = {
                 'team': team_api_id,
-                'league': league_api_id,
                 'season': season,
                 'page': page,
-            })
+            }
+            if league_api_id:
+                params['league'] = league_api_id
+
+            response = self.api._make_request('players', params)
 
             paging = response.get('paging', {})
             total_pages = paging.get('total', 1)
@@ -246,24 +259,25 @@ class FeederService:
                 if not player_api_id:
                     continue
 
-                # Extract stats from first statistics entry
+                # Aggregate stats across all competitions
                 appearances = 0
                 goals = 0
                 assists = 0
                 position = None
                 team_name = None
                 team_logo = None
-                if stats_list:
-                    stat = stats_list[0]
+                for stat in (stats_list or []):
                     games = stat.get('games', {})
                     goals_data = stat.get('goals', {})
-                    appearances = games.get('appearences') or games.get('appearances') or 0
-                    goals = goals_data.get('total') or 0
-                    assists = goals_data.get('assists') or 0
-                    position = games.get('position')
-                    team_info = stat.get('team', {})
-                    team_name = team_info.get('name')
-                    team_logo = team_info.get('logo')
+                    appearances += (games.get('appearences') or games.get('appearances') or 0)
+                    goals += (goals_data.get('total') or 0)
+                    assists += (goals_data.get('assists') or 0)
+                    if not position:
+                        position = games.get('position')
+                    if not team_name:
+                        team_info = stat.get('team', {})
+                        team_name = team_info.get('name')
+                        team_logo = team_info.get('logo')
 
                 players.append({
                     'player_api_id': player_api_id,

@@ -11,7 +11,7 @@ const CURRENT_SEASON = new Date().getFullYear() - (new Date().getMonth() < 7 ? 1
 const SEASONS = Array.from({ length: 4 }, (_, i) => CURRENT_SEASON - i)
 const formatSeason = (s) => `${s}/${(s + 1).toString().slice(-2)}`
 
-export function SquadOriginsView({ teamApiId, initialLeague = 2, initialSeason }) {
+export function SquadOriginsView({ teamApiId, initialSeason }) {
     const [season, setSeason] = useState(initialSeason || CURRENT_SEASON)
     const [origins, setOrigins] = useState(null)
     const [loading, setLoading] = useState(true)
@@ -23,14 +23,14 @@ export function SquadOriginsView({ teamApiId, initialLeague = 2, initialSeason }
         const id = ++fetchRef.current
         setLoading(true)
         setExpandedAcademy(null)
-        APIService.getSquadOrigins(teamApiId, { league: initialLeague, season })
+        APIService.getSquadOrigins(teamApiId, { season })
             .then(data => { if (fetchRef.current === id) setOrigins(data) })
             .catch(err => {
                 console.error('Failed to load squad origins', err)
                 if (fetchRef.current === id) setOrigins(null)
             })
             .finally(() => { if (fetchRef.current === id) setLoading(false) })
-    }, [teamApiId, initialLeague, season])
+    }, [teamApiId, season])
 
     if (loading) {
         return (

@@ -471,7 +471,6 @@ export function TeamDetailPage() {
                             ) : (
                                 <SquadOriginsView
                                     teamApiId={team?.team_id || teamId}
-                                    initialLeague={urlLeague}
                                     initialSeason={urlSeason}
                                 />
                             )}
