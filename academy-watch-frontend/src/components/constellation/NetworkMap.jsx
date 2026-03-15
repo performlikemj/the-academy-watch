@@ -3,40 +3,28 @@ import {
     ComposableMap, Geographies, Geography, Marker, Line, ZoomableGroup,
 } from 'react-simple-maps'
 import { calculateView } from '@/lib/map-utils'
-import { LINK_COLORS } from './constellation-utils'
 import { ChevronRight } from 'lucide-react'
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
 
-// Dot colors by dominant link type
-const DOT_COLORS = {
-    loan: '#f59e0b',       // amber-500
-    permanent: '#94a3b8',  // slate-400
-    return: '#34d399',     // emerald-400
-}
-
-const ARC_COLORS = {
-    loan: 'rgba(251,191,36,0.45)',
-    permanent: 'rgba(148,163,184,0.35)',
-    return: 'rgba(74,222,128,0.35)',
-}
+const ARC_COLOR = 'rgba(251,191,36,0.35)'
 
 function getDotColor(node) {
     const types = node.link_types || []
-    if (types.includes('loan')) return DOT_COLORS.loan
-    if (types.includes('return')) return DOT_COLORS.return
-    if (types.includes('permanent')) return DOT_COLORS.permanent
-    return DOT_COLORS.loan
+    if (types.includes('loan')) return '#f59e0b'
+    if (types.includes('return')) return '#34d399'
+    if (types.includes('permanent')) return '#94a3b8'
+    return '#f59e0b'
 }
 
 /**
- * "Mission Control" geographic network map.
- * Small radar-blip markers on a dark tactical map with faint arc trails.
+ * Geographic network map with country-level markers.
+ * One dot per country, clickable to browse clubs within that country.
  */
-export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
+export function NetworkMap({ data, onNodeClick, selectedNode }) {
     const containerRef = useRef(null)
     const [dimensions, setDimensions] = useState({ width: 800, height: 500 })
-    const [hoveredNode, setHoveredNode] = useState(null)
+    const [hoveredCountry, setHoveredCountry] = useState(null)
     const [tooltipPos, setTooltipPos] = useState(null)
     const [selectedCountry, setSelectedCountry] = useState(null)
 
@@ -52,116 +40,49 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
         return () => observer.disconnect()
     }, [])
 
-    // Split nodes into mappable (have coordinates) and unmapped
-    const mappedNodes = useMemo(() => {
-        if (!data?.nodes?.length) return []
-        return data.nodes.filter(n => n.lat && n.lng)
+    // Parent node
+    const parentNode = useMemo(() => {
+        if (!data?.nodes) return null
+        return data.nodes.find(n => n.is_parent && n.lat && n.lng) || null
     }, [data])
 
-    const view = useMemo(() => calculateView(mappedNodes), [mappedNodes])
-
-    // Build lookup from node index to mapped node
-    const nodeByIndex = useMemo(() => {
-        if (!data?.nodes) return new Map()
-        const map = new Map()
-        data.nodes.forEach((node, i) => {
-            if (node.lat && node.lng) map.set(i, node)
-        })
-        return map
-    }, [data])
-
-    // Build renderable arcs
-    const arcs = useMemo(() => {
-        if (!data?.links?.length) return []
-        return data.links
-            .map((link) => {
-                const sourceNode = nodeByIndex.get(link.source)
-                const targetNode = nodeByIndex.get(link.target)
-                if (!sourceNode || !targetNode) return null
-                return {
-                    ...link,
-                    from: [sourceNode.lng, sourceNode.lat],
-                    to: [targetNode.lng, targetNode.lat],
-                }
-            })
-            .filter(Boolean)
-    }, [data, nodeByIndex])
-
-    const parentNode = useMemo(() => mappedNodes.find(n => n.is_parent) || null, [mappedNodes])
-    const destNodes = useMemo(() => mappedNodes.filter(n => !n.is_parent), [mappedNodes])
-
-    const handleMarkerClick = useCallback((node) => {
-        if (onNodeClick) onNodeClick(node)
-    }, [onNodeClick])
-
-    // Tooltip positioning via mouse event
-    const handleMouseEnter = useCallback((node, e) => {
-        setHoveredNode(node)
-        const rect = containerRef.current?.getBoundingClientRect()
-        if (rect) {
-            setTooltipPos({
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top,
-            })
-        }
-    }, [])
-
-    const handleMouseLeave = useCallback(() => {
-        setHoveredNode(null)
-        setTooltipPos(null)
-    }, [])
-
-    // Status filter lookups
-    const statusClubMap = useMemo(() => {
-        if (!data?.all_players) return {}
-        const map = {}
-        for (const player of data.all_players) {
-            if (!player.status) continue
-            if (!map[player.status]) map[player.status] = new Set()
-            for (const stop of (player.journey_path || [])) {
-                map[player.status].add(stop.club_api_id)
-            }
-        }
-        return map
-    }, [data?.all_players])
-
-    const statusPlayerMap = useMemo(() => {
-        if (!data?.all_players) return {}
-        const map = {}
-        for (const player of data.all_players) {
-            if (!player.status) continue
-            if (!map[player.status]) map[player.status] = new Set()
-            map[player.status].add(player.player_api_id)
-        }
-        return map
-    }, [data?.all_players])
-
-    const nodeMatchesFilter = useCallback((node) => {
-        if (!statusFilter) return true
-        const clubSet = statusClubMap[statusFilter]
-        return clubSet ? clubSet.has(node.club_api_id) : false
-    }, [statusFilter, statusClubMap])
-
-    const linkMatchesFilter = useCallback((link) => {
-        if (!statusFilter) return true
-        const playerSet = statusPlayerMap[statusFilter]
-        if (!playerSet) return false
-        return link.players?.some(p => playerSet.has(p.player_api_id)) ?? false
-    }, [statusFilter, statusPlayerMap])
-
-    // Group ALL non-parent nodes by country for the country browser
+    // Group ALL non-parent nodes by country
     const countryGroups = useMemo(() => {
         if (!data?.nodes) return []
         const groups = {}
         for (const node of data.nodes) {
             if (node.is_parent) continue
             const country = node.country || 'Unknown'
-            if (!groups[country]) groups[country] = { country, clubs: [], totalPlayers: 0 }
+            if (!groups[country]) groups[country] = { country, clubs: [], totalPlayers: 0, lats: [], lngs: [] }
             groups[country].clubs.push(node)
             groups[country].totalPlayers += node.player_count || 0
+            if (node.lat && node.lng) {
+                groups[country].lats.push(node.lat)
+                groups[country].lngs.push(node.lng)
+            }
         }
         return Object.values(groups).sort((a, b) => b.totalPlayers - a.totalPlayers)
     }, [data?.nodes])
+
+    // Country markers for the map (only those with at least one geocoded club)
+    const countryMapMarkers = useMemo(() => {
+        return countryGroups
+            .filter(g => g.lats.length > 0)
+            .map(g => ({
+                country: g.country,
+                clubs: g.clubs.length,
+                players: g.totalPlayers,
+                lat: g.lats.reduce((a, b) => a + b, 0) / g.lats.length,
+                lng: g.lngs.reduce((a, b) => a + b, 0) / g.lngs.length,
+            }))
+    }, [countryGroups])
+
+    // View to fit all country centroids + parent
+    const view = useMemo(() => {
+        const points = countryMapMarkers.map(c => ({ lat: c.lat, lng: c.lng }))
+        if (parentNode) points.push({ lat: parentNode.lat, lng: parentNode.lng })
+        return calculateView(points)
+    }, [countryMapMarkers, parentNode])
 
     // Clubs for the selected country
     const selectedCountryClubs = useMemo(() => {
@@ -170,11 +91,28 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
         return (group?.clubs || []).sort((a, b) => (b.player_count || 0) - (a.player_count || 0))
     }, [selectedCountry, countryGroups])
 
+    const handleMarkerClick = useCallback((node) => {
+        if (onNodeClick) onNodeClick(node)
+    }, [onNodeClick])
+
+    const handleCountryHover = useCallback((cd, e) => {
+        setHoveredCountry(cd)
+        const rect = containerRef.current?.getBoundingClientRect()
+        if (rect) {
+            setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+        }
+    }, [])
+
+    const handleCountryLeave = useCallback(() => {
+        setHoveredCountry(null)
+        setTooltipPos(null)
+    }, [])
+
     if (!data?.nodes?.length) return null
 
     return (
         <div className="space-y-0">
-            {/* Map container */}
+            {/* Map */}
             <div
                 ref={containerRef}
                 className="relative w-full bg-slate-900 rounded-xl overflow-hidden h-[300px] sm:h-[450px] lg:h-[550px]"
@@ -205,54 +143,57 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
                             }
                         </Geographies>
 
-                        {/* Arc lines — thin, faint trails */}
-                        {arcs.map((arc, i) => {
-                            const matches = linkMatchesFilter(arc)
-                            return (
-                                <Line
-                                    key={`line-${i}`}
-                                    from={arc.from}
-                                    to={arc.to}
-                                    stroke={ARC_COLORS[arc.link_type] || ARC_COLORS.loan}
-                                    strokeWidth={Math.max(0.5, Math.min(2, arc.player_count * 0.5))}
-                                    strokeLinecap="round"
-                                    strokeDasharray={arc.link_type === 'loan' ? '4 2' : undefined}
-                                    strokeOpacity={statusFilter ? (matches ? 0.7 : 0.06) : 0.7}
-                                    style={{ transition: 'stroke-opacity 0.3s ease' }}
-                                />
-                            )
-                        })}
+                        {/* Arc lines — one per country, from parent to country centroid */}
+                        {parentNode && countryMapMarkers.map((cd) => (
+                            <Line
+                                key={`arc-${cd.country}`}
+                                from={[parentNode.lng, parentNode.lat]}
+                                to={[cd.lng, cd.lat]}
+                                stroke={ARC_COLOR}
+                                strokeWidth={Math.max(0.5, Math.min(2, Math.sqrt(cd.players) * 0.4))}
+                                strokeLinecap="round"
+                                strokeDasharray="4 2"
+                                strokeOpacity={selectedCountry ? (selectedCountry === cd.country ? 0.7 : 0.08) : 0.5}
+                                style={{ transition: 'stroke-opacity 0.3s ease' }}
+                            />
+                        ))}
 
-                        {/* Destination markers — small colored dots */}
-                        {destNodes.map((node) => {
-                            const r = Math.max(3, Math.min(6, Math.sqrt(node.player_count || 1) * 2))
-                            const isSelected = selectedNode?.club_api_id === node.club_api_id
-                            const matches = nodeMatchesFilter(node)
-                            const color = getDotColor(node)
+                        {/* Country markers */}
+                        {countryMapMarkers.map((cd) => {
+                            const r = Math.max(4, Math.min(8, Math.sqrt(cd.clubs) * 1.2))
+                            const isActive = selectedCountry === cd.country
 
                             return (
-                                <Marker
-                                    key={`dest-${node.club_api_id}`}
-                                    coordinates={[node.lng, node.lat]}
-                                >
+                                <Marker key={`country-${cd.country}`} coordinates={[cd.lng, cd.lat]}>
                                     <g
-                                        onClick={() => handleMarkerClick(node)}
-                                        onMouseEnter={(e) => handleMouseEnter(node, e.nativeEvent)}
-                                        onMouseLeave={handleMouseLeave}
+                                        onClick={() => setSelectedCountry(prev => prev === cd.country ? null : cd.country)}
+                                        onMouseEnter={(e) => handleCountryHover(cd, e.nativeEvent)}
+                                        onMouseLeave={handleCountryLeave}
                                         style={{
                                             cursor: 'pointer',
-                                            opacity: statusFilter ? (matches ? 1 : 0.12) : 1,
+                                            opacity: selectedCountry ? (isActive ? 1 : 0.25) : 1,
                                             transition: 'opacity 0.3s ease',
                                         }}
                                     >
-                                        {/* Selected ring */}
-                                        {isSelected && (
+                                        {/* Active ring */}
+                                        {isActive && (
                                             <circle r={r + 3} fill="none" stroke="#fbbf24" strokeWidth={1.5} />
                                         )}
                                         {/* Glow */}
-                                        <circle r={r + 1.5} fill={color} opacity={0.2} />
+                                        <circle r={r + 1.5} fill="#f59e0b" opacity={0.15} />
                                         {/* Dot */}
-                                        <circle r={r} fill={color} />
+                                        <circle r={r} fill="#f59e0b" opacity={0.85} />
+                                        {/* Country label */}
+                                        <text
+                                            y={r + 10}
+                                            textAnchor="middle"
+                                            fill="#94a3b8"
+                                            fontSize={7}
+                                            fontWeight="500"
+                                            pointerEvents="none"
+                                        >
+                                            {cd.country}
+                                        </text>
                                     </g>
                                 </Marker>
                             )
@@ -263,23 +204,21 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
                             <Marker coordinates={[parentNode.lng, parentNode.lat]}>
                                 <g
                                     onClick={() => handleMarkerClick(parentNode)}
-                                    onMouseEnter={(e) => handleMouseEnter(parentNode, e.nativeEvent)}
-                                    onMouseLeave={handleMouseLeave}
                                     style={{ cursor: 'pointer' }}
                                 >
-                                    {/* Double radar pulse — pointer-events none so clicks pass through to hub dot */}
+                                    {/* Double radar pulse */}
                                     <circle fill="none" stroke="#eab308" strokeWidth={1} pointerEvents="none">
-                                        <animate attributeName="r" from="8" to="20" dur="2.5s" repeatCount="indefinite" />
+                                        <animate attributeName="r" from="8" to="18" dur="2.5s" repeatCount="indefinite" />
                                         <animate attributeName="opacity" from="0.4" to="0" dur="2.5s" repeatCount="indefinite" />
                                     </circle>
                                     <circle fill="none" stroke="#eab308" strokeWidth={0.8} pointerEvents="none">
-                                        <animate attributeName="r" from="8" to="20" dur="2.5s" begin="1.25s" repeatCount="indefinite" />
+                                        <animate attributeName="r" from="8" to="18" dur="2.5s" begin="1.25s" repeatCount="indefinite" />
                                         <animate attributeName="opacity" from="0.3" to="0" dur="2.5s" begin="1.25s" repeatCount="indefinite" />
                                     </circle>
                                     {/* Glow */}
                                     <circle r={7} fill="rgba(234,179,8,0.15)" />
                                     {/* Hub dot */}
-                                    <circle r={6} fill="#eab308" />
+                                    <circle r={5} fill="#eab308" />
                                 </g>
                             </Marker>
                         )}
@@ -287,7 +226,7 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
                 </ComposableMap>
 
                 {/* Hover tooltip */}
-                {hoveredNode && tooltipPos && (
+                {hoveredCountry && tooltipPos && (
                     <div
                         className="absolute pointer-events-none z-20 bg-slate-800 border border-slate-600 text-white text-xs rounded-lg px-3 py-2 shadow-xl"
                         style={{
@@ -296,29 +235,14 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
                             transform: 'translateX(-50%)',
                         }}
                     >
-                        <div className="font-semibold text-slate-100">{hoveredNode.club_name}</div>
+                        <div className="font-semibold text-slate-100">{hoveredCountry.country}</div>
                         <div className="text-slate-400">
-                            {hoveredNode.player_count} player{hoveredNode.player_count !== 1 ? 's' : ''}
-                            {hoveredNode.city && ` · ${hoveredNode.city}`}
+                            {hoveredCountry.clubs} club{hoveredCountry.clubs !== 1 ? 's' : ''}
+                            {' · '}
+                            {hoveredCountry.players} player{hoveredCountry.players !== 1 ? 's' : ''}
                         </div>
                     </div>
                 )}
-
-                {/* Legend */}
-                <div className="absolute bottom-2 right-2 flex gap-3 text-[10px] text-slate-400 bg-slate-900/80 rounded px-2 py-1">
-                    <span className="flex items-center gap-1">
-                        <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: DOT_COLORS.loan }} />
-                        Loan
-                    </span>
-                    <span className="flex items-center gap-1">
-                        <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: DOT_COLORS.permanent }} />
-                        Permanent
-                    </span>
-                    <span className="flex items-center gap-1">
-                        <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: DOT_COLORS.return }} />
-                        Return
-                    </span>
-                </div>
             </div>
 
             {/* Country browser */}
@@ -347,14 +271,14 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
                     {selectedCountry && selectedCountryClubs.length > 0 && (
                         <div className="bg-slate-800/30 rounded-lg border border-slate-700/50 max-h-[240px] overflow-y-auto">
                             {selectedCountryClubs.map(node => {
-                                const isSelected = selectedNode?.club_api_id === node.club_api_id
+                                const isNodeSelected = selectedNode?.club_api_id === node.club_api_id
                                 return (
                                     <button
                                         key={node.club_api_id}
                                         type="button"
                                         onClick={() => handleMarkerClick(node)}
                                         className={`flex items-center gap-2.5 w-full px-3 py-2 text-left text-xs transition-colors border-b border-slate-700/30 last:border-b-0 ${
-                                            isSelected
+                                            isNodeSelected
                                                 ? 'bg-slate-700/50 text-white'
                                                 : 'hover:bg-slate-700/30 text-slate-300'
                                         }`}

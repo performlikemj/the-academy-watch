@@ -75,7 +75,6 @@ export function AcademyConstellation({ teamApiId }) {
                 <NetworkMap
                     data={data}
                     selectedNode={selectedNode}
-                    statusFilter={statusFilter}
                     onNodeClick={(node) => {
                         setSelectedNode(prev =>
                             prev?.club_api_id === node.club_api_id ? null : node
