@@ -1041,6 +1041,9 @@ def get_academy_network(team_identifier):
                 n['lng'] = loc.longitude
                 n['city'] = loc.city
                 n['country'] = loc.country
+            else:
+                # Add country hint for unmapped nodes so frontend can group by country
+                n['country'] = club_country_hint.get(n['club_api_id'])
             nodes.append(n)
 
         links = []
