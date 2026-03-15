@@ -1766,9 +1766,12 @@ def get_public_player_stats(player_id: int):
                     season=season,
                 )
                 api_appearances = api_totals.get('games_played', 0)
-                
-                # Sync if API has more games OR force_sync is requested
-                if api_appearances > local_count or force_sync:
+                api_totals_failed = not api_totals  # empty dict = API call failed
+
+                # Sync if API has more games, force_sync requested, or
+                # we have zero local data and the API totals call failed
+                # (don't silently skip — give the fixture sync a chance)
+                if api_appearances > local_count or force_sync or (local_count == 0 and api_totals_failed):
                     logger.info(f"Player {player_id} at team {loan_team_api_id}: API={api_appearances}, local={local_count}, force={force_sync}. Syncing...")
                     _sync_player_club_fixtures(player_id, loan_team_api_id, season, player_name=player_name_for_sync)
             except Exception as e:
@@ -1966,9 +1969,11 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                 dribbles = st.get('dribbles', {}) or {}
                 
                 minutes = games.get('minutes', 0) or 0
-                
-                # Only add if player actually played
-                if minutes and minutes > 0:
+
+                # Record if player played (minutes > 0) or was listed as substitute
+                # API-Football returns null minutes for some leagues, so we also
+                # check the substitute flag to avoid dropping valid appearances
+                if minutes > 0 or games.get('substitute') is not None:
                     # Fouls and penalties for more complete stats
                     fouls = st.get('fouls', {}) or {}
                     penalty = st.get('penalty', {}) or {}
@@ -9078,9 +9083,9 @@ def admin_sync_player_fixtures(player_id: int):
                     penalty = st.get('penalty', {}) or {}
                     
                     minutes = games.get('minutes', 0) or 0
-                    
-                    # Only add if player actually played
-                    if minutes and minutes > 0 and not dry_run and existing_fixture:
+
+                    # Record if player played or was listed as substitute
+                    if (minutes > 0 or games.get('substitute') is not None) and not dry_run and existing_fixture:
                         fps = FixturePlayerStats(
                             fixture_id=existing_fixture.id,
                             player_api_id=player_id,
@@ -9110,19 +9115,19 @@ def admin_sync_player_fixtures(player_id: int):
                         )
                         db.session.add(fps)
                         synced += 1
-                    elif minutes and minutes > 0:
+                    elif minutes > 0 or games.get('substitute') is not None:
                         synced += 1  # Dry run counts this as would-sync
                     else:
                         skipped += 1
                 else:
                     skipped += 1
-                    
+
             except Exception as e:
                 errors.append(f"Fixture {fixture_id_api}: {str(e)}")
-        
+
         if not dry_run:
             db.session.commit()
-            
+
             # Sync denormalized stats if AcademyPlayer record exists
             loaned = AcademyPlayer.query.filter_by(player_id=player_id, is_active=True).first()
             if loaned:
@@ -9454,7 +9459,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                             
                             minutes = games.get('minutes', 0) or 0
                             
-                            if minutes and minutes > 0 and not dry_run and existing_fixture:
+                            if (minutes > 0 or games.get('substitute') is not None) and not dry_run and existing_fixture:
                                 fps = FixturePlayerStats(
                                     fixture_id=existing_fixture.id,
                                     player_api_id=p_api_id,
@@ -9482,7 +9487,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                                 )
                                 db.session.add(fps)
                                 player_result['synced'] += 1
-                            elif minutes and minutes > 0:
+                            elif minutes > 0 or games.get('substitute') is not None:
                                 player_result['synced'] += 1  # Dry run counts this
                             else:
                                 player_result['skipped'] += 1
@@ -15468,6 +15473,25 @@ def get_team_players(team_identifier):
             for row in pos_rows:
                 fps_position_map.setdefault(row.player_api_id, row.position)
 
+        # Batch-compute parent club minutes for first-team tier split (1 query)
+        ESTABLISHED_MIN_MINUTES = 500
+        ESTABLISHED_MIN_APPEARANCES = 10
+        first_team_player_ids = [tp.player_api_id for tp in players if tp.status == 'first_team']
+        parent_minutes_map = {}
+        if first_team_player_ids:
+            mins_rows = db.session.query(
+                FixturePlayerStats.player_api_id,
+                sa_func.count().label('apps'),
+                sa_func.coalesce(sa_func.sum(FixturePlayerStats.minutes), 0).label('mins'),
+            ).filter(
+                FixturePlayerStats.player_api_id.in_(first_team_player_ids),
+                FixturePlayerStats.team_api_id == team.team_id,
+            ).group_by(FixturePlayerStats.player_api_id).all()
+            for row in mins_rows:
+                parent_minutes_map[row.player_api_id] = {
+                    'apps': row.apps, 'mins': int(row.mins or 0)
+                }
+
         # Batch-fetch loan team logos (1 query)
         loan_club_api_ids = list({tp.loan_club_api_id for tp in players if tp.loan_club_api_id})
         loan_team_logos = {}
@@ -15480,6 +15504,14 @@ def get_team_players(team_identifier):
         for tp in players:
             d = tp.to_public_dict()
             d['parent_club_appearances'] = parent_club_apps.get(tp.journey_id, 0)
+
+            # First-team tier split: debut vs established
+            if tp.status == 'first_team':
+                pm = parent_minutes_map.get(tp.player_api_id, {})
+                if (pm.get('mins', 0) < ESTABLISHED_MIN_MINUTES
+                        and pm.get('apps', 0) < ESTABLISHED_MIN_APPEARANCES):
+                    d['status'] = 'first_team_debut'
+                    d['pathway_status'] = 'first_team_debut'
 
             # Enrich stats from batch query
             if tp.player_api_id in player_stats_map:

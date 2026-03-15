@@ -10,11 +10,12 @@
 /* ------------------------------------------------------------------ */
 
 export const STATUS_BADGE_CLASSES = {
-  first_team: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  on_loan:    'bg-amber-50 text-amber-800 border-amber-200',
-  academy:    'bg-orange-50 text-orange-800 border-orange-200',
-  released:   'bg-stone-100 text-stone-700 border-stone-200',
-  sold:       'bg-rose-50 text-rose-800 border-rose-200',
+  first_team:       'bg-emerald-50 text-emerald-800 border-emerald-200',
+  first_team_debut: 'bg-teal-50 text-teal-800 border-teal-200',
+  on_loan:          'bg-amber-50 text-amber-800 border-amber-200',
+  academy:          'bg-orange-50 text-orange-800 border-orange-200',
+  released:         'bg-stone-100 text-stone-700 border-stone-200',
+  sold:             'bg-rose-50 text-rose-800 border-rose-200',
 }
 
 /* ------------------------------------------------------------------ */
@@ -62,11 +63,12 @@ export const CHART_POSITION_COLORS = {
 /* ------------------------------------------------------------------ */
 
 export const CONSTELLATION_STATUS_COLORS = {
-  first_team: '#059669', // emerald-600
-  on_loan:    '#d97706', // amber-600
-  academy:    '#ea580c', // orange-600
-  released:   '#78716c', // stone-500
-  sold:       '#e11d48', // rose-600
+  first_team:       '#059669', // emerald-600
+  first_team_debut: '#0d9488', // teal-600
+  on_loan:          '#d97706', // amber-600
+  academy:          '#ea580c', // orange-600
+  released:         '#78716c', // stone-500
+  sold:             '#e11d48', // rose-600
 }
 
 /* ------------------------------------------------------------------ */

@@ -10,6 +10,7 @@ export const STATUS_COLORS = CONSTELLATION_STATUS_COLORS
 
 export const STATUS_LABELS = {
     first_team: 'First Team',
+    first_team_debut: 'First Team Debut',
     on_loan: 'On Loan',
     academy: 'Academy',
     released: 'Released',

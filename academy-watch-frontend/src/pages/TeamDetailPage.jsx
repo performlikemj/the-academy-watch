@@ -21,6 +21,7 @@ import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
 
 const STATUS_ICONS = {
     first_team: Star,
+    first_team_debut: TrendingUp,
     on_loan: ArrowRightLeft,
     academy: GraduationCap,
     released: UserMinus,
