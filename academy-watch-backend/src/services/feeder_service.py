@@ -345,13 +345,29 @@ class FeederService:
         return players
 
     def _resolve_parent_id(self, base_name: str) -> Optional[int]:
-        """Resolve a youth team base name to the parent club's API ID."""
+        """Resolve a club name to the canonical parent club API ID.
+
+        Uses exact match first, then substring matching to handle
+        abbreviations like 'Manchester Utd' vs 'Manchester United'.
+        """
+        # Exact match: TeamProfile
         profile = TeamProfile.query.filter(TeamProfile.name == base_name).first()
         if profile:
             return profile.team_id
+        # Exact match: Team
         team = Team.query.filter(Team.name == base_name).first()
         if team:
             return team.team_id
+        # Substring match: base_name contains profile name or vice versa
+        profile = TeamProfile.query.filter(
+            db.or_(
+                db.func.strpos(base_name, TeamProfile.name) > 0,
+                db.func.strpos(TeamProfile.name, base_name) > 0,
+            ),
+            db.func.length(TeamProfile.name) >= 5,
+        ).order_by(db.func.length(TeamProfile.name).desc()).first()
+        if profile:
+            return profile.team_id
         return None
 
     def _get_team_logo(self, team_api_id: int) -> Optional[str]:

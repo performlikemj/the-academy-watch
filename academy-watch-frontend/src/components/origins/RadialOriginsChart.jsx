@@ -8,7 +8,7 @@ const CENTER_R = 40
 const MIN_NODE_R = 14
 const MAX_NODE_R = 30
 const BADGE_R = 8
-const MAX_LABEL_LEN = 15
+const MAX_LABEL_LEN = 20
 
 function truncate(str, max) {
     if (!str) return ''
@@ -94,7 +94,7 @@ export function RadialOriginsChart({
     return (
         <div className="w-full aspect-square max-w-[360px] sm:max-w-[500px] mx-auto">
             <svg
-                viewBox="0 0 500 500"
+                viewBox="-50 0 600 500"
                 className="w-full h-full"
                 role="img"
                 aria-label="Radial chart of squad player origins"
