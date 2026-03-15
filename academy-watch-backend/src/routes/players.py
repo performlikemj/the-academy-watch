@@ -125,9 +125,11 @@ def get_public_player_stats(player_id: int):
                     season=season,
                 )
                 api_appearances = api_totals.get('games_played', 0)
+                api_totals_failed = not api_totals  # empty dict = API call failed
 
-                if api_appearances > local_count or force_sync:
+                if api_appearances > local_count or force_sync or (local_count == 0 and api_totals_failed):
                     logger.info(f"Player {player_id} at team {loan_team_api_id}: API={api_appearances}, local={local_count}, force={force_sync}. Syncing...")
+                    from src.routes.api import _sync_player_club_fixtures
                     _sync_player_club_fixtures(player_id, loan_team_api_id, season, player_name=player_name_for_sync)
             except Exception as e:
                 logger.warning(f"Failed to sync for player {player_id} at team {loan_team_api_id}: {e}")
@@ -184,122 +186,8 @@ def get_public_player_stats(player_id: int):
         return jsonify(_safe_error_payload(e, 'Failed to fetch player stats')), 500
 
 
-def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: int, player_name: str = None) -> int:
-    """Sync all fixtures for a player at their loan club from API-Football."""
-    from src.api_football_client import APIFootballClient
-    from src.models.weekly import Fixture, FixturePlayerStats
-
-    api_client = APIFootballClient()
-    season_start = f"{season}-08-01"
-    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-
-    fixtures = api_client.get_fixtures_for_team(
-        loan_team_api_id,
-        season,
-        season_start,
-        today
-    )
-
-    logger.info(f"Found {len(fixtures)} fixtures for team {loan_team_api_id} in season {season}")
-
-    # Verify ID via fixtures if we have a player name
-    corrected_id = None
-    if player_name and len(fixtures) > 0:
-        verified_id, method = api_client.verify_player_id_via_fixtures(
-            candidate_player_id=player_id,
-            player_name=player_name,
-            loan_team_id=loan_team_api_id,
-            season=season,
-            max_fixtures=3
-        )
-        if verified_id != player_id:
-            logger.warning(
-                f"ID correction for '{player_name}': {player_id} -> {verified_id}"
-            )
-            corrected_id = verified_id
-            # Update loan records
-            loans_updated = AcademyPlayer.query.filter_by(player_id=player_id).update({
-                'player_id': verified_id,
-                'reviewer_notes': AcademyPlayer.reviewer_notes + f' | ID corrected: {player_id} -> {verified_id}',
-                'updated_at': datetime.now(timezone.utc)
-            })
-            db.session.commit()
-            # Delete ghost stats
-            FixturePlayerStats.query.filter(
-                FixturePlayerStats.player_api_id == player_id,
-                FixturePlayerStats.team_api_id == loan_team_api_id,
-                FixturePlayerStats.minutes == 0
-            ).delete()
-            db.session.commit()
-
-    player_id_to_use = corrected_id or player_id
-    synced = 0
-
-    for fix_data in fixtures:
-        try:
-            fixture_api_id = fix_data.get('fixture', {}).get('id')
-            if not fixture_api_id:
-                continue
-
-            # Check if we already have this fixture
-            existing = Fixture.query.filter_by(fixture_id_api=fixture_api_id).first()
-            if not existing:
-                # Create fixture record
-                fix_info = fix_data.get('fixture', {})
-                league_info = fix_data.get('league', {})
-                teams_info = fix_data.get('teams', {})
-                goals_info = fix_data.get('goals', {})
-
-                existing = Fixture(
-                    fixture_id_api=fixture_api_id,
-                    date_utc=datetime.fromisoformat(fix_info.get('date', '').replace('Z', '+00:00')) if fix_info.get('date') else None,
-                    season=season,
-                    competition_name=league_info.get('name'),
-                    home_team_api_id=teams_info.get('home', {}).get('id'),
-                    away_team_api_id=teams_info.get('away', {}).get('id'),
-                    home_goals=goals_info.get('home', 0),
-                    away_goals=goals_info.get('away', 0),
-                )
-                db.session.add(existing)
-                db.session.flush()
-
-            # Check if we already have player stats for this fixture
-            existing_stats = FixturePlayerStats.query.filter_by(
-                fixture_id=existing.id,
-                player_api_id=player_id_to_use,
-                team_api_id=loan_team_api_id
-            ).first()
-
-            if not existing_stats:
-                # Fetch player stats for this fixture
-                player_stats = api_client.get_fixture_player_stats(fixture_api_id, player_id_to_use)
-                if player_stats:
-                    new_stats = FixturePlayerStats(
-                        fixture_id=existing.id,
-                        player_api_id=player_id_to_use,
-                        team_api_id=loan_team_api_id,
-                        minutes=player_stats.get('minutes', 0),
-                        goals=player_stats.get('goals', 0),
-                        assists=player_stats.get('assists', 0),
-                        rating=player_stats.get('rating'),
-                        shots_total=player_stats.get('shots_total', 0),
-                        shots_on=player_stats.get('shots_on', 0),
-                        passes_total=player_stats.get('passes_total', 0),
-                        passes_key=player_stats.get('passes_key', 0),
-                        tackles_total=player_stats.get('tackles_total', 0),
-                        saves=player_stats.get('saves', 0),
-                        goals_conceded=player_stats.get('goals_conceded', 0),
-                        yellows=player_stats.get('yellows', 0),
-                        reds=player_stats.get('reds', 0),
-                    )
-                    db.session.add(new_stats)
-                    synced += 1
-
-        except Exception as e:
-            logger.warning(f"Failed to sync fixture {fix_data}: {e}")
-
-    db.session.commit()
-    return synced
+# _sync_player_club_fixtures is imported from src.routes.api (canonical copy)
+# to avoid maintaining two divergent implementations.
 
 
 # ---------------------------------------------------------------------------

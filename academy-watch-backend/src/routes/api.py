@@ -9195,12 +9195,312 @@ def admin_sync_team_fixtures(team_id: int):
         return jsonify(_safe_error_payload(e, 'Failed to sync team fixtures')), 500
 
 
+@api_bp.route('/admin/sync-all-player-fixtures', methods=['POST'])
+@require_api_key
+def admin_sync_all_player_fixtures():
+    """
+    Batch sync fixture stats for ALL active tracked players.
+
+    Groups players by their current team to minimize API calls:
+    - Fetches fixtures per team once (shared across all players at that club)
+    - Fetches per-fixture player stats once per fixture (extracts data for all
+      tracked players from a single /fixtures/players response)
+
+    Body:
+    - dry_run: true/false (default: false)
+    - season: int (default: current season)
+    - delay: float seconds between fixture API calls (default: 0.1)
+    """
+    try:
+        from src.models.tracked_player import TrackedPlayer
+
+        data = request.get_json() or {}
+        dry_run = bool(data.get('dry_run', False))
+
+        job_id = _create_background_job('batch_fixture_sync')
+
+        def _run_batch_sync():
+            try:
+                result = _run_batch_fixture_sync(data, job_id)
+                _update_job(job_id, status='completed', results=result,
+                            completed_at=datetime.now(timezone.utc).isoformat())
+            except Exception as e:
+                logger.exception(f'Batch fixture sync job {job_id} failed')
+                _update_job(job_id, status='failed', error=str(e),
+                            completed_at=datetime.now(timezone.utc).isoformat())
+
+        thread = threading.Thread(target=_run_batch_sync)
+        thread.start()
+        return jsonify({
+            'message': 'Batch fixture sync started in background',
+            'job_id': job_id,
+            'dry_run': dry_run,
+        }), 202
+
+    except Exception as e:
+        logger.exception('admin_sync_all_player_fixtures failed')
+        return jsonify(_safe_error_payload(e, 'Failed to start batch fixture sync')), 500
+
+
+def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
+    """
+    Core logic for batch fixture sync.
+
+    Groups players by loan club, then for each club:
+    1. Fetch fixtures once via get_fixtures_for_team_cached()
+    2. For each finished fixture, fetch /fixtures/players once
+    3. Extract stats for every tracked player at that club
+    """
+    from src.api_football_client import APIFootballClient
+    from src.models.weekly import Fixture, FixturePlayerStats
+    from src.models.tracked_player import TrackedPlayer
+    from collections import defaultdict
+    import time
+
+    dry_run = bool(data.get('dry_run', False))
+    delay = float(data.get('delay', 0.1))
+
+    now_utc = datetime.now(timezone.utc)
+    current_year = now_utc.year
+    current_month = now_utc.month
+    season = data.get('season', current_year if current_month >= 8 else current_year - 1)
+
+    # ── 1. Gather all players grouped by current team API ID ──
+    team_players = defaultdict(list)  # {team_api_id: [(player_api_id, player_name), ...]}
+
+    # TrackedPlayer (primary source)
+    tracked = TrackedPlayer.query.filter(
+        TrackedPlayer.is_active.is_(True),
+        TrackedPlayer.status.in_(['on_loan', 'first_team', 'academy']),
+    ).all()
+
+    tracked_api_ids = set()
+    for tp in tracked:
+        if tp.status == 'on_loan' and tp.loan_club_api_id:
+            team_players[tp.loan_club_api_id].append((tp.player_api_id, tp.player_name))
+            tracked_api_ids.add(tp.player_api_id)
+        elif tp.status in ('first_team', 'academy') and tp.team_id:
+            parent_team = Team.query.get(tp.team_id)
+            if parent_team and parent_team.team_id:
+                team_players[parent_team.team_id].append((tp.player_api_id, tp.player_name))
+                tracked_api_ids.add(tp.player_api_id)
+
+    # AcademyPlayer fallback for players not in TrackedPlayer
+    academy_fallback = AcademyPlayer.query.filter_by(is_active=True).all()
+    for lp in academy_fallback:
+        if lp.player_id in tracked_api_ids:
+            continue
+        if lp.loan_team_id:
+            loan_team = Team.query.get(lp.loan_team_id)
+            if loan_team and loan_team.team_id:
+                team_players[loan_team.team_id].append((lp.player_id, lp.player_name))
+                tracked_api_ids.add(lp.player_id)
+
+    total_teams = len(team_players)
+    total_players = sum(len(v) for v in team_players.values())
+    logger.info(f"Batch sync: {total_players} players across {total_teams} teams, season={season}, dry_run={dry_run}")
+
+    if job_id:
+        _update_job(job_id, total=total_players, progress=0,
+                    current_player=f'Starting: {total_players} players across {total_teams} teams')
+
+    api_client = APIFootballClient()
+    season_start = f"{season}-08-01"
+    today = now_utc.strftime('%Y-%m-%d')
+
+    summary = {
+        'season': season,
+        'dry_run': dry_run,
+        'total_teams': total_teams,
+        'total_players': total_players,
+        'total_fixtures_checked': 0,
+        'total_synced': 0,
+        'total_skipped': 0,
+        'total_errors': 0,
+        'teams': [],
+    }
+    players_processed = 0
+
+    # ── 2. Process each team group ──
+    for team_api_id, players in team_players.items():
+        team_result = {
+            'team_api_id': team_api_id,
+            'players': len(players),
+            'fixtures': 0,
+            'synced': 0,
+            'skipped': 0,
+            'errors': [],
+        }
+
+        try:
+            fixtures = api_client.get_fixtures_for_team_cached(
+                team_api_id, season, season_start, today
+            )
+
+            # Filter to finished games only
+            finished = [
+                fx for fx in fixtures
+                if (fx.get('fixture', {}).get('status', {}).get('short', '')) in ('FT', 'AET', 'PEN')
+            ]
+            team_result['fixtures'] = len(finished)
+            summary['total_fixtures_checked'] += len(finished)
+
+            # Build set of player API IDs we care about for this team
+            player_ids_at_team = {pid for pid, _ in players}
+
+            for fx in finished:
+                fixture_info = fx.get('fixture', {})
+                fixture_id_api = fixture_info.get('id')
+                if not fixture_id_api:
+                    continue
+
+                # Get or create Fixture record
+                existing_fixture = Fixture.query.filter_by(fixture_id_api=fixture_id_api).first()
+                if not existing_fixture:
+                    teams_data = fx.get('teams', {})
+                    goals_data = fx.get('goals', {})
+                    league_data = fx.get('league', {})
+                    existing_fixture = Fixture(
+                        fixture_id_api=fixture_id_api,
+                        date_utc=datetime.fromisoformat(
+                            fixture_info.get('date', '').replace('Z', '+00:00')
+                        ) if fixture_info.get('date') else None,
+                        season=season,
+                        competition_name=league_data.get('name'),
+                        home_team_api_id=teams_data.get('home', {}).get('id'),
+                        away_team_api_id=teams_data.get('away', {}).get('id'),
+                        home_goals=goals_data.get('home'),
+                        away_goals=goals_data.get('away'),
+                    )
+                    if not dry_run:
+                        db.session.add(existing_fixture)
+                        db.session.flush()
+
+                if dry_run and not existing_fixture.id:
+                    # Can't check existing stats in dry_run for new fixtures
+                    team_result['synced'] += len(player_ids_at_team)
+                    continue
+
+                # Check which players already have stats for this fixture
+                existing_player_ids = set()
+                if existing_fixture.id:
+                    existing_stats = FixturePlayerStats.query.filter(
+                        FixturePlayerStats.fixture_id == existing_fixture.id,
+                        FixturePlayerStats.player_api_id.in_(player_ids_at_team),
+                    ).all()
+                    existing_player_ids = {s.player_api_id for s in existing_stats}
+
+                missing_player_ids = player_ids_at_team - existing_player_ids
+                if not missing_player_ids:
+                    team_result['skipped'] += len(player_ids_at_team)
+                    continue
+
+                # Fetch /fixtures/players ONCE for this fixture (all players)
+                try:
+                    team_blocks = api_client.get_fixture_players(fixture_id_api)
+                except Exception as e:
+                    team_result['errors'].append(f"Fixture {fixture_id_api}: {e}")
+                    continue
+
+                if not team_blocks:
+                    team_result['skipped'] += len(missing_player_ids)
+                    continue
+
+                # Extract stats for each missing tracked player
+                for team_block in team_blocks:
+                    for p in team_block.get('players', []):
+                        pinfo = p.get('player') or {}
+                        pid = pinfo.get('id')
+                        if pid not in missing_player_ids:
+                            continue
+
+                        statistics = p.get('statistics') or []
+                        if not statistics:
+                            continue
+                        st = statistics[0]
+
+                        games = st.get('games', {}) or {}
+                        goals_obj = st.get('goals', {}) or {}
+                        cards = st.get('cards', {}) or {}
+                        shots = st.get('shots', {}) or {}
+                        passes = st.get('passes', {}) or {}
+                        tackles = st.get('tackles', {}) or {}
+                        duels = st.get('duels', {}) or {}
+                        dribbles = st.get('dribbles', {}) or {}
+                        fouls = st.get('fouls', {}) or {}
+                        penalty = st.get('penalty', {}) or {}
+
+                        minutes = games.get('minutes', 0) or 0
+
+                        if minutes > 0 or games.get('substitute') is not None:
+                            if not dry_run:
+                                fps = FixturePlayerStats(
+                                    fixture_id=existing_fixture.id,
+                                    player_api_id=pid,
+                                    team_api_id=team_api_id,
+                                    minutes=minutes,
+                                    position=games.get('position'),
+                                    rating=games.get('rating'),
+                                    goals=goals_obj.get('total', 0) or 0,
+                                    assists=goals_obj.get('assists', 0) or 0,
+                                    yellows=cards.get('yellow', 0) or 0,
+                                    reds=cards.get('red', 0) or 0,
+                                    shots_total=shots.get('total'),
+                                    shots_on=shots.get('on'),
+                                    passes_total=passes.get('total'),
+                                    passes_key=passes.get('key'),
+                                    tackles_total=tackles.get('total'),
+                                    duels_won=duels.get('won'),
+                                    duels_total=duels.get('total'),
+                                    dribbles_success=dribbles.get('success'),
+                                    saves=goals_obj.get('saves'),
+                                    goals_conceded=goals_obj.get('conceded'),
+                                    fouls_drawn=fouls.get('drawn'),
+                                    fouls_committed=fouls.get('committed'),
+                                    penalty_saved=penalty.get('saved'),
+                                )
+                                db.session.add(fps)
+                            team_result['synced'] += 1
+                        else:
+                            team_result['skipped'] += 1
+
+                        # Remove from missing set so we don't double-count
+                        missing_player_ids.discard(pid)
+
+                if delay > 0:
+                    time.sleep(delay)
+
+            if not dry_run:
+                db.session.commit()
+
+        except Exception as e:
+            logger.warning(f"Batch sync error for team {team_api_id}: {e}")
+            team_result['errors'].append(str(e))
+            db.session.rollback()
+
+        summary['total_synced'] += team_result['synced']
+        summary['total_skipped'] += team_result['skipped']
+        summary['total_errors'] += len(team_result['errors'])
+        summary['teams'].append(team_result)
+
+        players_processed += len(players)
+        if job_id:
+            _update_job(job_id, progress=players_processed,
+                        current_player=f'Processed team {team_api_id} ({len(players)} players)')
+
+    logger.info(
+        f"Batch sync complete: synced={summary['total_synced']}, "
+        f"skipped={summary['total_skipped']}, errors={summary['total_errors']}"
+    )
+    return summary
+
+
 @api_bp.route('/admin/fixtures/backfill-raw-json', methods=['POST'])
 @require_api_key
 def admin_backfill_fixture_raw_json():
     """
     Backfill raw_json for fixtures that are missing it.
-    
+
     This fetches the full fixture data from API-Football and stores it,
     which enables team name extraction for older fixtures.
     
