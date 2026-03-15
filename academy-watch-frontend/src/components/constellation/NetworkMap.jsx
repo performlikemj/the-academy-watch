@@ -4,7 +4,7 @@ import {
 } from 'react-simple-maps'
 import { calculateView } from '@/lib/map-utils'
 import { LINK_COLORS } from './constellation-utils'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
 
@@ -38,7 +38,7 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
     const [dimensions, setDimensions] = useState({ width: 800, height: 500 })
     const [hoveredNode, setHoveredNode] = useState(null)
     const [tooltipPos, setTooltipPos] = useState(null)
-    const [showUnmapped, setShowUnmapped] = useState(false)
+    const [selectedCountry, setSelectedCountry] = useState(null)
 
     // Responsive sizing
     useEffect(() => {
@@ -52,19 +52,10 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
         return () => observer.disconnect()
     }, [])
 
-    // Split nodes into mappable and unmapped
-    const { mappedNodes, unmappedNodes } = useMemo(() => {
-        if (!data?.nodes?.length) return { mappedNodes: [], unmappedNodes: [] }
-        const mapped = []
-        const unmapped = []
-        for (const node of data.nodes) {
-            if (node.lat && node.lng) {
-                mapped.push(node)
-            } else {
-                unmapped.push(node)
-            }
-        }
-        return { mappedNodes: mapped, unmappedNodes: unmapped }
+    // Split nodes into mappable (have coordinates) and unmapped
+    const mappedNodes = useMemo(() => {
+        if (!data?.nodes?.length) return []
+        return data.nodes.filter(n => n.lat && n.lng)
     }, [data])
 
     const view = useMemo(() => calculateView(mappedNodes), [mappedNodes])
@@ -157,6 +148,27 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
         if (!playerSet) return false
         return link.players?.some(p => playerSet.has(p.player_api_id)) ?? false
     }, [statusFilter, statusPlayerMap])
+
+    // Group ALL non-parent nodes by country for the country browser
+    const countryGroups = useMemo(() => {
+        if (!data?.nodes) return []
+        const groups = {}
+        for (const node of data.nodes) {
+            if (node.is_parent) continue
+            const country = node.country || 'Unknown'
+            if (!groups[country]) groups[country] = { country, clubs: [], totalPlayers: 0 }
+            groups[country].clubs.push(node)
+            groups[country].totalPlayers += node.player_count || 0
+        }
+        return Object.values(groups).sort((a, b) => b.totalPlayers - a.totalPlayers)
+    }, [data?.nodes])
+
+    // Clubs for the selected country
+    const selectedCountryClubs = useMemo(() => {
+        if (!selectedCountry) return []
+        const group = countryGroups.find(g => g.country === selectedCountry)
+        return (group?.clubs || []).sort((a, b) => (b.player_count || 0) - (a.player_count || 0))
+    }, [selectedCountry, countryGroups])
 
     if (!data?.nodes?.length) return null
 
@@ -255,12 +267,12 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
                                     onMouseLeave={handleMouseLeave}
                                     style={{ cursor: 'pointer' }}
                                 >
-                                    {/* Double radar pulse */}
-                                    <circle fill="none" stroke="#eab308" strokeWidth={1}>
+                                    {/* Double radar pulse — pointer-events none so clicks pass through to hub dot */}
+                                    <circle fill="none" stroke="#eab308" strokeWidth={1} pointerEvents="none">
                                         <animate attributeName="r" from="8" to="20" dur="2.5s" repeatCount="indefinite" />
                                         <animate attributeName="opacity" from="0.4" to="0" dur="2.5s" repeatCount="indefinite" />
                                     </circle>
-                                    <circle fill="none" stroke="#eab308" strokeWidth={0.8}>
+                                    <circle fill="none" stroke="#eab308" strokeWidth={0.8} pointerEvents="none">
                                         <animate attributeName="r" from="8" to="20" dur="2.5s" begin="1.25s" repeatCount="indefinite" />
                                         <animate attributeName="opacity" from="0.3" to="0" dur="2.5s" begin="1.25s" repeatCount="indefinite" />
                                     </circle>
@@ -309,46 +321,58 @@ export function NetworkMap({ data, onNodeClick, selectedNode, statusFilter }) {
                 </div>
             </div>
 
-            {/* Unmapped clubs section */}
-            {unmappedNodes.length > 0 && (
-                <div className="mt-2">
-                    <button
-                        type="button"
-                        onClick={() => setShowUnmapped(prev => !prev)}
-                        className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                    >
-                        {showUnmapped ? (
-                            <ChevronDown className="h-3 w-3" />
-                        ) : (
-                            <ChevronRight className="h-3 w-3" />
-                        )}
-                        {unmappedNodes.length} club{unmappedNodes.length !== 1 ? 's' : ''} without map data
-                    </button>
-                    {showUnmapped && (
-                        <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1">
-                            {unmappedNodes
-                                .filter(n => !n.is_parent)
-                                .sort((a, b) => (b.player_count || 0) - (a.player_count || 0))
-                                .map(node => (
+            {/* Country browser */}
+            {countryGroups.length > 0 && (
+                <div className="mt-3 space-y-2">
+                    {/* Country chips */}
+                    <div className="flex gap-1.5 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                        {countryGroups.map(group => (
+                            <button
+                                key={group.country}
+                                type="button"
+                                onClick={() => setSelectedCountry(prev => prev === group.country ? null : group.country)}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${
+                                    selectedCountry === group.country
+                                        ? 'bg-slate-700 text-white border-slate-500'
+                                        : 'bg-slate-800/50 text-slate-400 border-slate-700/50 hover:bg-slate-700/50'
+                                }`}
+                            >
+                                {group.country}
+                                <span className="opacity-60">({group.clubs.length})</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Clubs list for selected country */}
+                    {selectedCountry && selectedCountryClubs.length > 0 && (
+                        <div className="bg-slate-800/30 rounded-lg border border-slate-700/50 max-h-[240px] overflow-y-auto">
+                            {selectedCountryClubs.map(node => {
+                                const isSelected = selectedNode?.club_api_id === node.club_api_id
+                                return (
                                     <button
                                         key={node.club_api_id}
                                         type="button"
                                         onClick={() => handleMarkerClick(node)}
-                                        className="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-slate-800/50 transition-colors group"
+                                        className={`flex items-center gap-2.5 w-full px-3 py-2 text-left text-xs transition-colors border-b border-slate-700/30 last:border-b-0 ${
+                                            isSelected
+                                                ? 'bg-slate-700/50 text-white'
+                                                : 'hover:bg-slate-700/30 text-slate-300'
+                                        }`}
                                     >
                                         <span
                                             className="w-2 h-2 rounded-full shrink-0"
                                             style={{ backgroundColor: getDotColor(node) }}
                                         />
-                                        <span className="truncate text-slate-400 group-hover:text-slate-200">
+                                        <span className="flex-1 truncate">
                                             {node.club_name}
                                         </span>
-                                        <span className="text-slate-600 shrink-0">
-                                            {node.player_count}
+                                        <span className="text-slate-500 shrink-0 tabular-nums">
+                                            {node.player_count} {node.player_count === 1 ? 'player' : 'players'}
                                         </span>
+                                        <ChevronRight className="h-3 w-3 text-slate-600 shrink-0" />
                                     </button>
-                                ))
-                            }
+                                )
+                            })}
                         </div>
                     )}
                 </div>
