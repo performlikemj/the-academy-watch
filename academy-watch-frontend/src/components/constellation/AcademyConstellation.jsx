@@ -3,7 +3,6 @@ import { Loader2, TrendingUp } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { NetworkMap } from './NetworkMap'
 import { NetworkMapHeader } from './NetworkMapHeader'
-import { NetworkStatusBar } from './NetworkStatusBar'
 import { NetworkDetailSheet } from './NetworkDetailSheet'
 
 export function AcademyConstellation({ teamApiId }) {
@@ -12,7 +11,6 @@ export function AcademyConstellation({ teamApiId }) {
     const [loaded, setLoaded] = useState(false)
     const [error, setError] = useState(null)
     const [selectedNode, setSelectedNode] = useState(null)
-    const [statusFilter, setStatusFilter] = useState(null)
 
     const loadNetwork = useCallback(async () => {
         if (loaded || loading || !teamApiId) return
@@ -70,7 +68,7 @@ export function AcademyConstellation({ teamApiId }) {
             {/* Stats header */}
             <NetworkMapHeader data={data} />
 
-            {/* Geographic network map */}
+            {/* Geographic network map + country browser */}
             {data.nodes?.length > 1 && (
                 <NetworkMap
                     data={data}
@@ -82,14 +80,6 @@ export function AcademyConstellation({ teamApiId }) {
                     }}
                 />
             )}
-
-            {/* Status filter bar */}
-            <NetworkStatusBar
-                summary={data.summary || {}}
-                activeFilter={statusFilter}
-                onFilterChange={setStatusFilter}
-                parentTeamName={data.team_name}
-            />
 
             {/* Club detail sheet */}
             <NetworkDetailSheet
