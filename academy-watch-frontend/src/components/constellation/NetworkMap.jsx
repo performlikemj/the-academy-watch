@@ -160,7 +160,7 @@ export function NetworkMap({ data, onNodeClick, selectedNode }) {
 
                         {/* Country markers — small clean dots, no glow */}
                         {countryMapMarkers.map((cd) => {
-                            const r = Math.max(2, Math.min(3.5, Math.sqrt(cd.clubs) * 0.5))
+                            const r = 2
                             const isActive = selectedCountry === cd.country
 
                             return (
