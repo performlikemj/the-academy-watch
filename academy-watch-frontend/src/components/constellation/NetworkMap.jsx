@@ -158,9 +158,9 @@ export function NetworkMap({ data, onNodeClick, selectedNode }) {
                             />
                         ))}
 
-                        {/* Country markers */}
+                        {/* Country markers — small clean dots, no glow */}
                         {countryMapMarkers.map((cd) => {
-                            const r = Math.max(3, Math.min(5, Math.sqrt(cd.clubs) * 0.8))
+                            const r = Math.max(2, Math.min(3.5, Math.sqrt(cd.clubs) * 0.5))
                             const isActive = selectedCountry === cd.country
 
                             return (
@@ -171,39 +171,31 @@ export function NetworkMap({ data, onNodeClick, selectedNode }) {
                                         onMouseLeave={handleCountryLeave}
                                         style={{
                                             cursor: 'pointer',
-                                            opacity: selectedCountry ? (isActive ? 1 : 0.25) : 1,
+                                            opacity: selectedCountry ? (isActive ? 1 : 0.2) : 0.9,
                                             transition: 'opacity 0.3s ease',
                                         }}
                                     >
-                                        {/* Active ring */}
                                         {isActive && (
-                                            <circle r={r + 2} fill="none" stroke="#fbbf24" strokeWidth={1} />
+                                            <circle r={r + 2} fill="none" stroke="#fbbf24" strokeWidth={0.8} />
                                         )}
-                                        {/* Glow */}
-                                        <circle r={r + 1} fill="#f59e0b" opacity={0.15} />
-                                        {/* Dot */}
-                                        <circle r={r} fill="#f59e0b" opacity={0.85} />
+                                        <circle r={r} fill="#f59e0b" />
                                     </g>
                                 </Marker>
                             )
                         })}
 
-                        {/* Parent marker — golden radar hub */}
+                        {/* Parent marker — small golden hub */}
                         {parentNode && (
                             <Marker coordinates={[parentNode.lng, parentNode.lat]}>
                                 <g
                                     onClick={() => handleMarkerClick(parentNode)}
                                     style={{ cursor: 'pointer' }}
                                 >
-                                    {/* Radar pulse */}
-                                    <circle fill="none" stroke="#eab308" strokeWidth={0.8} pointerEvents="none">
-                                        <animate attributeName="r" from="4" to="10" dur="2.5s" repeatCount="indefinite" />
-                                        <animate attributeName="opacity" from="0.4" to="0" dur="2.5s" repeatCount="indefinite" />
+                                    <circle fill="none" stroke="#eab308" strokeWidth={0.5} pointerEvents="none">
+                                        <animate attributeName="r" from="3" to="7" dur="2.5s" repeatCount="indefinite" />
+                                        <animate attributeName="opacity" from="0.3" to="0" dur="2.5s" repeatCount="indefinite" />
                                     </circle>
-                                    {/* Glow */}
-                                    <circle r={5} fill="rgba(234,179,8,0.15)" />
-                                    {/* Hub dot */}
-                                    <circle r={4} fill="#eab308" />
+                                    <circle r={3} fill="#eab308" />
                                 </g>
                             </Marker>
                         )}
