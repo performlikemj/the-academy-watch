@@ -38,7 +38,7 @@ export function SquadOriginsView({ teamApiId, teamLogo, teamName, initialSeason 
             .then(data => { if (fetchRef.current === id) setOrigins(data) })
             .catch(err => {
                 console.error('Failed to load squad origins', err)
-                if (fetchRef.current === id) setOrigins(null)
+                // Keep previous origins on error — don't blank the screen
             })
             .finally(() => { if (fetchRef.current === id) setLoading(false) })
     }, [teamApiId, season])

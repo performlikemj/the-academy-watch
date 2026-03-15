@@ -115,17 +115,43 @@ class FeederService:
         for j in existing_journeys:
             journeys_by_player[j.player_api_id] = j
 
-        # Auto-sync missing journeys
+        # Auto-sync missing journeys (capped to prevent timeouts)
+        MAX_AUTO_SYNC = 10
         missing_ids = [pid for pid in player_api_ids if pid not in journeys_by_player]
         if auto_sync and missing_ids:
-            logger.info(f"Auto-syncing {len(missing_ids)} missing journeys for team {team_api_id}")
-            for pid in missing_ids:
+            sync_batch = missing_ids[:MAX_AUTO_SYNC]
+            logger.info(
+                f"Auto-syncing {len(sync_batch)}/{len(missing_ids)} missing journeys "
+                f"for team {team_api_id}"
+            )
+            for pid in sync_batch:
                 try:
                     journey = self.journey_sync.sync_player(pid)
                     if journey:
                         journeys_by_player[pid] = journey
                 except Exception as e:
                     logger.warning(f"Failed to sync journey for player {pid}: {e}")
+
+        # Filter to current squad: exclude players who left mid-season
+        # (sold, loaned out, etc.) by checking journey's current_club
+        active_squad = []
+        for player in squad_players:
+            journey = journeys_by_player.get(player['player_api_id'])
+            if not journey or not journey.current_club_api_id:
+                active_squad.append(player)  # No journey data — keep
+                continue
+            if journey.current_club_api_id == team_api_id:
+                active_squad.append(player)  # Still at the club
+                continue
+            # Check youth team variant (e.g. currently at "Man United U21")
+            resolved = self._resolve_parent_id(
+                strip_youth_suffix(journey.current_club_name or '')
+            )
+            if resolved == team_api_id:
+                active_squad.append(player)
+                continue
+            # Player is at a different club — exclude
+        squad_players = active_squad
 
         # Group players by academy origin
         academy_groups = defaultdict(list)
