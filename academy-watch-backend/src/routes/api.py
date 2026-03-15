@@ -15805,11 +15805,17 @@ def get_team_players(team_identifier):
             d = tp.to_public_dict()
             d['parent_club_appearances'] = parent_club_apps.get(tp.journey_id, 0)
 
-            # First-team tier split: debut vs established
+            # First-team tier split: academy (0 apps) / debut / established
             if tp.status == 'first_team':
                 pm = parent_minutes_map.get(tp.player_api_id, {})
-                if (pm.get('mins', 0) < ESTABLISHED_MIN_MINUTES
-                        and pm.get('apps', 0) < ESTABLISHED_MIN_APPEARANCES):
+                parent_apps = pm.get('apps', 0)
+                parent_mins = pm.get('mins', 0)
+                if parent_apps == 0 and parent_mins == 0:
+                    # Registered but never played — still academy
+                    d['status'] = 'academy'
+                    d['pathway_status'] = 'academy'
+                elif (parent_mins < ESTABLISHED_MIN_MINUTES
+                        and parent_apps < ESTABLISHED_MIN_APPEARANCES):
                     d['status'] = 'first_team_debut'
                     d['pathway_status'] = 'first_team_debut'
 
