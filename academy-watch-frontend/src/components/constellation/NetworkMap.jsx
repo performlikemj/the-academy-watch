@@ -150,7 +150,7 @@ export function NetworkMap({ data, onNodeClick, selectedNode }) {
                                 from={[parentNode.lng, parentNode.lat]}
                                 to={[cd.lng, cd.lat]}
                                 stroke={ARC_COLOR}
-                                strokeWidth={Math.max(0.5, Math.min(2, Math.sqrt(cd.players) * 0.4))}
+                                strokeWidth={Math.max(0.3, Math.min(1, Math.sqrt(cd.players) * 0.2))}
                                 strokeLinecap="round"
                                 strokeDasharray="4 2"
                                 strokeOpacity={selectedCountry ? (selectedCountry === cd.country ? 0.7 : 0.08) : 0.5}
@@ -160,7 +160,7 @@ export function NetworkMap({ data, onNodeClick, selectedNode }) {
 
                         {/* Country markers */}
                         {countryMapMarkers.map((cd) => {
-                            const r = Math.max(4, Math.min(8, Math.sqrt(cd.clubs) * 1.2))
+                            const r = Math.max(3, Math.min(5, Math.sqrt(cd.clubs) * 0.8))
                             const isActive = selectedCountry === cd.country
 
                             return (
@@ -177,23 +177,12 @@ export function NetworkMap({ data, onNodeClick, selectedNode }) {
                                     >
                                         {/* Active ring */}
                                         {isActive && (
-                                            <circle r={r + 3} fill="none" stroke="#fbbf24" strokeWidth={1.5} />
+                                            <circle r={r + 2} fill="none" stroke="#fbbf24" strokeWidth={1} />
                                         )}
                                         {/* Glow */}
-                                        <circle r={r + 1.5} fill="#f59e0b" opacity={0.15} />
+                                        <circle r={r + 1} fill="#f59e0b" opacity={0.15} />
                                         {/* Dot */}
                                         <circle r={r} fill="#f59e0b" opacity={0.85} />
-                                        {/* Country label */}
-                                        <text
-                                            y={r + 10}
-                                            textAnchor="middle"
-                                            fill="#94a3b8"
-                                            fontSize={7}
-                                            fontWeight="500"
-                                            pointerEvents="none"
-                                        >
-                                            {cd.country}
-                                        </text>
                                     </g>
                                 </Marker>
                             )
@@ -206,19 +195,15 @@ export function NetworkMap({ data, onNodeClick, selectedNode }) {
                                     onClick={() => handleMarkerClick(parentNode)}
                                     style={{ cursor: 'pointer' }}
                                 >
-                                    {/* Double radar pulse */}
-                                    <circle fill="none" stroke="#eab308" strokeWidth={1} pointerEvents="none">
-                                        <animate attributeName="r" from="8" to="18" dur="2.5s" repeatCount="indefinite" />
+                                    {/* Radar pulse */}
+                                    <circle fill="none" stroke="#eab308" strokeWidth={0.8} pointerEvents="none">
+                                        <animate attributeName="r" from="4" to="10" dur="2.5s" repeatCount="indefinite" />
                                         <animate attributeName="opacity" from="0.4" to="0" dur="2.5s" repeatCount="indefinite" />
                                     </circle>
-                                    <circle fill="none" stroke="#eab308" strokeWidth={0.8} pointerEvents="none">
-                                        <animate attributeName="r" from="8" to="18" dur="2.5s" begin="1.25s" repeatCount="indefinite" />
-                                        <animate attributeName="opacity" from="0.3" to="0" dur="2.5s" begin="1.25s" repeatCount="indefinite" />
-                                    </circle>
                                     {/* Glow */}
-                                    <circle r={7} fill="rgba(234,179,8,0.15)" />
+                                    <circle r={5} fill="rgba(234,179,8,0.15)" />
                                     {/* Hub dot */}
-                                    <circle r={5} fill="#eab308" />
+                                    <circle r={4} fill="#eab308" />
                                 </g>
                             </Marker>
                         )}
