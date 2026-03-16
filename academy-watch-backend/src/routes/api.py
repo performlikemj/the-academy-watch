@@ -9353,10 +9353,13 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
             # Fetch transfer fee for sold players
             if tp.status == 'sold' and not tp.sale_fee and not dry_run:
                 try:
-                    transfers_data = api_client.get_player_transfers(tp.player_api_id)
-                    transfers_list = transfers_data.get('transfers', []) if transfers_data else []
+                    transfers_resp = api_client.get_player_transfers(tp.player_api_id)
+                    # Response is a list: [{player: {...}, transfers: [{date, type, teams}]}]
+                    all_transfers = []
+                    for entry in (transfers_resp or []):
+                        all_transfers.extend(entry.get('transfers', []))
                     # Find the most recent non-loan transfer
-                    for xfer in reversed(transfers_list):
+                    for xfer in reversed(all_transfers):
                         fee = extract_transfer_fee(xfer.get('type', ''))
                         if fee is not None:
                             tp.sale_fee = fee
