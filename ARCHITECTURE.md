@@ -1,0 +1,289 @@
+# Architecture & Configuration
+
+How everything in The Academy Watch is wired together.
+
+## System Overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│           Frontend (React 19 + Vite 6 + Tailwind 4)     │
+│                                                         │
+│  Admin Dashboard (14 pages)  ·  Writer Interface        │
+│  Public Player Pages  ·  Journey Timeline  ·  Maps      │
+│  Radix UI components  ·  Stripe.js payments             │
+└──────────────────────────┬──────────────────────────────┘
+                           │  /api/* proxy (dev → :5001)
+                           │  VITE_API_BASE (prod)
+┌──────────────────────────▼──────────────────────────────┐
+│           Backend (Flask 3.1 + SQLAlchemy 2.0)          │
+│                                                         │
+│  13 Blueprints  ·  50+ API endpoints                    │
+│  Talisman (CSP/HSTS)  ·  Flask-Limiter  ·  CORS        │
+│  require_api_key + Bearer token (dual-factor admin)     │
+│                                                         │
+│  ┌─────────────┐ ┌──────────┐ ┌───────────┐            │
+│  │ API-Football │ │ Mailgun  │ │  Stripe   │            │
+│  │   Client     │ │ + SMTP   │ │  Connect  │            │
+│  └──────┬───────┘ └────┬─────┘ └─────┬─────┘            │
+│         │              │             │                   │
+│  ┌──────┴───┐   ┌──────┴──┐   ┌─────┴──────┐           │
+│  │ Reddit   │   │ OpenAI  │   │ Brave MCP  │           │
+│  │ Posting  │   │ (AI     │   │ (enriched  │           │
+│  │          │   │  news)  │   │  context)  │           │
+│  └──────────┘   └─────────┘   └────────────┘           │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────┐
+│             PostgreSQL (Supabase)                        │
+│                                                         │
+│  35+ models  ·  RLS enabled  ·  Alembic migrations      │
+│  Connection pooling (pre-ping, 300s recycle)             │
+└─────────────────────────────────────────────────────────┘
+```
+
+## API-Football Integration
+
+The core data pipeline. All football data (players, fixtures, stats, transfers) comes from [API-Football v3](https://www.api-football.com/documentation-v3).
+
+**Client:** `academy-watch-backend/src/api_football_client.py`
+
+### Authentication Modes
+
+| Mode | Base URL | Header | When to use |
+|------|----------|--------|-------------|
+| `direct` | `v3.football.api-sports.io` | `x-apisports-key` | Production (default) |
+| `rapidapi` | `api-football-v1.p.rapidapi.com/v3` | `X-RapidAPI-Key` + `X-RapidAPI-Host` | Alternative billing |
+| `stub` | None | None | Offline testing only |
+
+Set via `API_FOOTBALL_MODE` env var. Stub mode requires explicit `API_USE_STUB_DATA=true`.
+
+### Endpoints Used
+
+| Endpoint | Purpose | Cache TTL |
+|----------|---------|-----------|
+| `status` | Health check, quota info | Never cached |
+| `players?id=X&season=Y` | Player profile, position, season totals | 7-30 days |
+| `players/seasons?player=X` | Available seasons for a player | 7 days |
+| `transfers?player=X` | Transfer history (includes fee in `type` field) | 24h (in-season), 7d (off-season) |
+| `fixtures?team=X&season=Y&from=D&to=D` | Team fixtures in date range | 10 years (completed), 6h (upcoming) |
+| `fixtures/players?fixture=X` | Per-player stats for a fixture (full coverage) | 10 years |
+| `fixtures/lineups?fixture=X` | Starting XI + substitutes (limited coverage fallback) | 10 years |
+| `fixtures/events?fixture=X` | Goals, cards, substitutions (limited coverage fallback) | 10 years |
+| `teams?id=X` | Team info (name, logo, venue) | 30 days |
+| `leagues?id=X` | League info + coverage flags | 30 days |
+
+### Caching Strategy (3 Layers)
+
+**Layer 1 — In-memory (per-process, 24hr TTL):**
+- Transfer cache: `{player_id: (data, timestamp)}`
+- Player stats cache: `{(player_id, season): (data, timestamp)}`
+- Player-team-season totals: `{(player_id, team_id, season): (data, timestamp)}`
+- Team name/profile cache (no expiry, populated lazily)
+
+**Layer 2 — Database (`APICache` table):**
+- Keyed by endpoint + params hash
+- TTL varies by data type (see table above)
+- Completed fixtures cached for 10 years (immutable data)
+- Empty responses cached for 5 minutes (retry soon)
+
+**Layer 3 — Fixture records:**
+- Completed fixtures stored in `Fixture` table with `raw_json`
+- `get_fixtures_for_team_cached()` checks DB first, then API for new/upcoming games
+- Deduplicates by `fixture_id_api`
+
+### Rate Limiting & Quota
+
+- Tracks `X-RateLimit-Remaining` header from API responses
+- Optional daily limit via `API_FOOTBALL_DAILY_LIMIT` env var
+- Tracked per-endpoint in `APIUsageDaily` table
+- Exceeding quota raises `RuntimeError`, blocking further calls
+- Batch sync uses configurable `delay` parameter between fixture API calls (default 0.1s)
+
+### Season Calculation
+
+Season is derived dynamically, never hardcoded:
+- Aug-Dec → season = current year (e.g., 2025 = "2025-2026")
+- Jan-Jul → season = previous year (e.g., Jan 2026 = "2025-2026")
+- For players with a `window_key` (e.g., `"2025-26::SUMMER"`), season is extracted from the key
+
+### Data Sync Pipeline
+
+```
+API-Football                    Database                      Frontend
+───────────                     ────────                      ────────
+
+/fixtures?team=X ──────────► Fixture table
+                               (fixture_id_api, date,
+                                home/away teams, score)
+                                        │
+/fixtures/players?fixture=X ──► FixturePlayerStats table
+                               (player_api_id, team_api_id,
+                                minutes, goals, assists,
+                                position, rating, ...)
+                                        │
+                              _compute_stats() aggregates ──► Player stats
+                               COUNT(*) as appearances        on page
+                               SUM(goals), SUM(assists)...
+```
+
+### Sync Triggers
+
+| Trigger | Scope | When |
+|---------|-------|------|
+| Page visit | Single player | User views `/players/{id}/stats` — compares API totals vs local count |
+| Admin single sync | Single player | `POST /admin/players/{id}/sync-fixtures` |
+| Admin team sync | All players at one academy | `POST /admin/teams/{id}/sync-all-fixtures` |
+| Batch sync | All tracked players | `POST /admin/sync-all-player-fixtures` |
+
+The batch sync groups players by their current team to minimize API calls — `O(teams × fixtures)` not `O(players × fixtures)`. For sold/released players with no team on record, it discovers their current team via the `/players` endpoint and backfills `TrackedPlayer.loan_club_api_id`.
+
+### Coverage Tiers
+
+| Tier | Source | Leagues | Stats available |
+|------|--------|---------|----------------|
+| **Full** | `/fixtures/players` | Top 5 (PL, La Liga, Serie A, Bundesliga, Ligue 1) | Minutes, rating, shots, passes, tackles, duels, dribbles, cards, saves |
+| **Limited** | `/fixtures/lineups` + `/fixtures/events` | Lower leagues | Appearances, goals, assists, cards only |
+| **None** | Manual entry | Uncovered leagues | Whatever is entered manually |
+
+Determined by `stats_coverage` field on `AcademyPlayer` and validated via `check_league_stats_coverage()` which checks the league's `coverage.fixtures.statistics_players` flag.
+
+### Transfer Detection
+
+Transfer types from the API `type` field:
+- `"Loan"` → new loan (player going out)
+- `"Back from Loan"` / `"End of Loan"` etc. → loan return
+- `"Free"` / `"Free Transfer"` / `"Free agent"` → permanent, no fee
+- `"€ 50M"` / `"€ 25.5M"` → permanent with fee amount
+- `"Transfer"` → permanent, fee undisclosed
+- `"N/A"` → unknown
+
+The `extract_transfer_fee()` function returns the raw fee string for non-loan transfers, stored on `TrackedPlayer.sale_fee`.
+
+### Player ID Verification
+
+API-Football sometimes uses different player IDs across endpoints (squad/transfer vs fixture). `verify_player_id_via_fixtures()` checks recent fixture lineups to find the correct ID by matching player name, and auto-corrects `AcademyPlayer.player_id` if a mismatch is found.
+
+## Data Model Relationships
+
+```
+Team (academy club)
+  │
+  ├── TrackedPlayer (one row per player per academy)
+  │     ├── status: academy | on_loan | first_team | sold | released
+  │     ├── loan_club_api_id (current club if on_loan or sold)
+  │     ├── sale_fee (transfer fee if sold)
+  │     ├── position (Goalkeeper, Defender, Midfielder, Attacker)
+  │     └── journey_id → PlayerJourney
+  │                         └── PlayerJourneyEntry[] (career stops)
+  │                               ├── club, season, level, entry_type
+  │                               ├── appearances, goals, assists
+  │                               └── transfer_fee, transfer_date
+  │
+  ├── AcademyPlayer (one row per loan spell)
+  │     ├── player_id (API-Football ID)
+  │     ├── primary_team_id → Team (parent club)
+  │     ├── loan_team_id → Team (loan club)
+  │     ├── window_key ("2025-26::SUMMER")
+  │     ├── stats_coverage (full | limited | none)
+  │     └── _compute_stats() → aggregates from FixturePlayerStats
+  │
+  └── Team.team_id (API-Football team ID)
+        │
+        └── Fixture (match records)
+              ├── fixture_id_api, date_utc, season
+              ├── home_team_api_id, away_team_api_id
+              └── FixturePlayerStats[] (per-player per-match)
+                    ├── player_api_id, team_api_id
+                    ├── minutes, position, rating
+                    ├── goals, assists, saves
+                    └── shots, passes, tackles, duels, dribbles, cards
+```
+
+## Deployment Topology
+
+```
+Azure Container Apps              Azure Static Web App
+┌────────────────────┐           ┌────────────────────┐
+│ ca-loan-army-      │           │ swa-goonloan       │
+│ backend            │◄──────────│                    │
+│                    │  API calls│ React SPA           │
+│ Flask + Gunicorn   │           │ Built by Vite       │
+│ Port 5001          │           └────────────────────┘
+└────────┬───────────┘
+         │
+         ▼
+Azure Container Registry          Azure Key Vault
+┌────────────────────┐           ┌────────────────────┐
+│ acrloanarmy        │           │ kv-loan-army       │
+│                    │           │                    │
+│ loanarmy/backend   │           │ secret-key         │
+│ :prod              │           │ admin-api-key      │
+└────────────────────┘           │ api-football-key   │
+                                 │ supabase-db-*      │
+Supabase                         │ stripe-*           │
+┌────────────────────┐           │ mailgun-*          │
+│ PostgreSQL         │           └────────────────────┘
+│ aws-1-us-west-1    │
+│ .pooler.supabase   │
+│ .com               │
+└────────────────────┘
+
+Scheduled Jobs (Azure Container Apps Jobs):
+  - job-weekly-newsletters: Weekly newsletter generation
+  - job-transfer-heal: Transfer data reconciliation
+```
+
+### CI/CD
+
+- **GitHub Actions** (`.github/workflows/deploy.yml`): Triggered on push to `main`
+  1. Security checks (RLS verification via psql)
+  2. Build backend Docker image → push to ACR
+  3. Update Container App with new image
+  4. Build frontend → deploy to Static Web App
+  5. Update scheduled job images
+
+- **Manual deploy**: `./deploy_aca.sh` — same steps, run locally
+
+### Key Vault References
+
+Container App env vars reference Key Vault secrets via `kvref:` URIs. The Container App's managed identity has `GET` permissions on the vault. Secrets are resolved at container startup.
+
+## Environment Variables
+
+See `academy-watch-backend/env.template` for the full list. Grouped summary:
+
+| Group | Variables | Purpose |
+|-------|-----------|---------|
+| **Database** | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | PostgreSQL connection |
+| **API-Football** | `API_FOOTBALL_KEY`, `API_FOOTBALL_MODE` | Football data source |
+| **Flask** | `SECRET_KEY`, `FLASK_ENV`, `CORS_ALLOW_ORIGINS` | App config + security |
+| **Auth** | `ADMIN_API_KEY`, `ADMIN_EMAILS`, `ADMIN_IP_WHITELIST` | Admin endpoint protection |
+| **Stripe** | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Payment processing |
+| **Email** | `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `SMTP_*` | Newsletter + transactional email |
+| **Reddit** | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USERNAME`, `REDDIT_PASSWORD` | Social posting |
+| **Brave/MCP** | `BRAVE_API_KEY`, `ENABLE_BRAVE_SEARCH` | Enriched newsletter context |
+| **Dev/Test** | `TEST_ONLY_MANU`, `API_USE_STUB_DATA`, `SKIP_API_HANDSHAKE` | Development shortcuts |
+
+## Backend Blueprints
+
+| Blueprint | Prefix | Endpoints | Purpose |
+|-----------|--------|-----------|---------|
+| `api_bp` | `/api` | 50+ | Core API: players, teams, leagues, newsletters, admin sync |
+| `auth_bp` | `/api` | 5 | Email-code login, token verification, user info |
+| `journalist_bp` | `/api` | 20+ | Writer assignments, commentaries, Stripe payouts |
+| `teams_bp` | `/api` | 10+ | Squad views, academy origins, departure tracking |
+| `journey_bp` | `/api` | 3 | Player career journey (map, timeline, sync) |
+| `academy_bp` | `/api` | 5 | Academy appearances, league tracking |
+| `cohort_bp` | `/api` | 4 | Cohort-based player grouping and analysis |
+| `community_takes_bp` | `/api` | 5 | Fan community submissions |
+| `newsletter_deadline_bp` | `/api` | 3 | Newsletter deadline management |
+| `curator_bp` | `/api` | 4 | Content curation tools |
+| `formation_bp` | `/api` | 3 | Formation analysis |
+| `feeder_bp` | `/api` | 2 | Feeder club relationships |
+| `gol_bp` | `/api` | 2 | Goal-of-the-loan tracking |
+
+## Frontend API Proxy
+
+In development, Vite proxies `/api/*` to `http://localhost:5001` (see `vite.config.js`).
+
+In production, the frontend is built with `VITE_API_BASE` pointing to the backend's FQDN (e.g., `https://ca-loan-army-backend.lemonmoss-23c9ec03.westus2.azurecontainerapps.io/api`).
