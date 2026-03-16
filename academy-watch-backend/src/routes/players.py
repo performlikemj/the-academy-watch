@@ -224,6 +224,23 @@ def get_public_player_profile(player_id: int):
             result['nationality'] = player.nationality
             result['age'] = player.age
 
+        # Enrich position from TrackedPlayer or FixturePlayerStats if missing
+        if not result['position']:
+            from src.models.tracked_player import TrackedPlayer
+            tp = TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True).first()
+            if tp and tp.position:
+                result['position'] = tp.position
+
+        if not result['position']:
+            POS_MAP = {'G': 'Goalkeeper', 'D': 'Defender', 'M': 'Midfielder', 'F': 'Attacker'}
+            recent_stats = FixturePlayerStats.query.filter_by(
+                player_api_id=player_id
+            ).filter(
+                FixturePlayerStats.position.isnot(None)
+            ).order_by(FixturePlayerStats.id.desc()).first()
+            if recent_stats:
+                result['position'] = POS_MAP.get(recent_stats.position, recent_stats.position)
+
         # Get loan info from AcademyPlayer (most recent active loan)
         loaned = AcademyPlayer.query.filter_by(player_id=player_id, is_active=True).order_by(AcademyPlayer.updated_at.desc()).first()
         if not loaned:

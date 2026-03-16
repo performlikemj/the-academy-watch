@@ -156,6 +156,17 @@ export function PlayerPage() {
             setSeasonStats(seasonData)
             setCommentaries(commentariesData || { commentaries: [], authors: [], total_count: 0 })
 
+            // Use profile position as initial value (backend enriches from multiple sources)
+            if (profileData?.position) {
+                const p = profileData.position
+                let mapped = DEFAULT_POSITION
+                if (p === 'G' || p === 'Goalkeeper') mapped = 'Goalkeeper'
+                else if (p === 'D' || p === 'Defender') mapped = 'Defender'
+                else if (p === 'M' || p === 'Midfielder') mapped = 'Midfielder'
+                else if (p === 'F' || p === 'Attacker') mapped = 'Attacker'
+                setPosition(mapped)
+            }
+
             // Journey: use cached data, or trigger on-demand sync if missing
             if (journeyMapData) {
                 setJourneyData(journeyMapData)
