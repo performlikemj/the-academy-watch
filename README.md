@@ -81,6 +81,10 @@ loan-army-frontend/src/
 └── lib/api.js       # API service wrapper
 ```
 
+## Architecture
+
+For detailed architecture, API-Football integration, data model relationships, caching strategy, and deployment topology, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+
 ## Contributing
 
 1. Read `AGENTS.md` for operating principles
