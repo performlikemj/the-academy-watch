@@ -137,6 +137,17 @@ API-Football                    Database                      Frontend
 
 The batch sync groups players by their current team to minimize API calls — `O(teams × fixtures)` not `O(players × fixtures)`. For sold/released players with no team on record, it discovers their current team via the `/players` endpoint and backfills `TrackedPlayer.loan_club_api_id`.
 
+### Club-First Default (National Team Filtering)
+
+API-Football's `/players` endpoint returns statistics for **all teams** a player appeared for — including national teams (e.g., Argentina, England U21). When discovering teams for sold/released players, both the batch sync and on-demand stats endpoint **filter out national teams** using `is_national_team()` from `utils/academy_classifier.py`, then pick the **club with the most appearances**.
+
+This ensures:
+- **Default view** (header stats, Performance Analysis charts) shows club data
+- **International data** is preserved in the journey timeline and accessible by clicking the national team node
+- `TrackedPlayer.loan_club_api_id` is always a club, never a national team
+
+The position fallback chain also prioritizes club data: `Player.position` → `TrackedPlayer.position` → most recent `FixturePlayerStats.position` (from club matches). The frontend uses the backend profile position as the initial value, overridden by stats-inferred position if match data exists.
+
 ### Coverage Tiers
 
 | Tier | Source | Leagues | Stats available |
