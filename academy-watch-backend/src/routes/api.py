@@ -1731,6 +1731,25 @@ def get_public_player_stats(player_id: int):
                     'is_active': True,
                 }
 
+        # Also include ALL teams this player has FixturePlayerStats for
+        # (handles mid-season transfers where stats span multiple clubs)
+        if tracked_player_for_stats:
+            from sqlalchemy import func as sa_func
+            existing_team_ids = db.session.query(
+                FixturePlayerStats.team_api_id
+            ).filter(
+                FixturePlayerStats.player_api_id == player_id
+            ).distinct().all()
+            for (tid,) in existing_team_ids:
+                if tid not in loan_teams_info:
+                    team_rec = Team.query.filter_by(team_id=tid).first()
+                    loan_teams_info[tid] = {
+                        'name': team_rec.name if team_rec else f'Team {tid}',
+                        'logo': team_rec.logo if team_rec else None,
+                        'window_type': 'Summer',
+                        'is_active': False,
+                    }
+
         # API-Football fallback: discover teams for sold/released players
         if not loan_teams_info and tracked_player_for_stats:
             try:
