@@ -1734,24 +1734,36 @@ def get_public_player_stats(player_id: int):
         # API-Football fallback: discover teams for sold/released players
         if not loan_teams_info and tracked_player_for_stats:
             try:
+                from src.utils.academy_classifier import is_national_team
                 api_client = APIFootballClient()
                 player_data = api_client.get_player_by_id(player_id, season)
                 if player_data and player_data.get('statistics'):
+                    # Find best club team (skip national teams, prefer most appearances)
+                    best_team_id = None
+                    best_team_info = None
+                    best_apps = -1
                     for stat in player_data['statistics']:
                         team_block = stat.get('team', {})
+                        team_name = team_block.get('name', '')
                         team_api_id = team_block.get('id')
-                        if team_api_id:
-                            loan_teams_info[team_api_id] = {
-                                'name': team_block.get('name', f'Team {team_api_id}'),
+                        if not team_api_id or is_national_team(team_name):
+                            continue
+                        games = stat.get('games', {}) or {}
+                        apps = games.get('appearences') or games.get('appearances') or 0
+                        if apps > best_apps:
+                            best_apps = apps
+                            best_team_id = team_api_id
+                            best_team_info = {
+                                'name': team_name or f'Team {team_api_id}',
                                 'logo': team_block.get('logo'),
                                 'window_type': 'Summer',
                                 'is_active': False,
                             }
-                    # Backfill TrackedPlayer for future lookups
-                    if loan_teams_info:
-                        first_team_id = next(iter(loan_teams_info))
-                        tracked_player_for_stats.loan_club_api_id = first_team_id
-                        tracked_player_for_stats.loan_club_name = loan_teams_info[first_team_id]['name']
+                    if best_team_id and best_team_info:
+                        loan_teams_info[best_team_id] = best_team_info
+                        # Backfill TrackedPlayer for future lookups
+                        tracked_player_for_stats.loan_club_api_id = best_team_id
+                        tracked_player_for_stats.loan_club_name = best_team_info['name']
                         db.session.commit()
             except Exception as e:
                 logger.warning(f"Failed to discover teams for player {player_id}: {e}")
@@ -9332,24 +9344,39 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
             continue
         # Discover team from API-Football /players endpoint
         try:
+            from src.utils.academy_classifier import is_national_team
             player_data = api_client.get_player_by_id(tp.player_api_id, season)
             if player_data and player_data.get('statistics'):
+                # Find the best CLUB team (skip national teams, prefer most appearances)
+                best_team_block = None
+                best_stat = None
+                best_apps = -1
                 for stat in player_data['statistics']:
                     team_block = stat.get('team', {})
-                    team_api_id = team_block.get('id')
-                    if team_api_id:
-                        team_players[team_api_id].append((tp.player_api_id, tp.player_name))
-                        tracked_api_ids.add(tp.player_api_id)
-                        # Backfill team on TrackedPlayer
-                        if not dry_run:
-                            tp.loan_club_api_id = team_api_id
-                            tp.loan_club_name = team_block.get('name')
-                            # Also backfill position if missing
-                            if not tp.position:
-                                games = stat.get('games', {}) or {}
-                                tp.position = games.get('position')
-                        discovery_count += 1
-                        break  # Use first team found
+                    team_name = team_block.get('name', '')
+                    # Skip international/national teams — we want club stats
+                    if is_national_team(team_name):
+                        continue
+                    games = stat.get('games', {}) or {}
+                    apps = games.get('appearences') or games.get('appearances') or 0
+                    if apps > best_apps:
+                        best_apps = apps
+                        best_team_block = team_block
+                        best_stat = stat
+
+                if best_team_block:
+                    team_api_id = best_team_block.get('id')
+                    team_players[team_api_id].append((tp.player_api_id, tp.player_name))
+                    tracked_api_ids.add(tp.player_api_id)
+                    # Backfill team on TrackedPlayer
+                    if not dry_run:
+                        tp.loan_club_api_id = team_api_id
+                        tp.loan_club_name = best_team_block.get('name')
+                        # Also backfill position if missing
+                        if not tp.position:
+                            games = best_stat.get('games', {}) or {}
+                            tp.position = games.get('position')
+                    discovery_count += 1
             # Fetch transfer fee for sold players
             if tp.status == 'sold' and not tp.sale_fee and not dry_run:
                 try:
