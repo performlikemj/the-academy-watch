@@ -68,6 +68,7 @@ export function buildProgressionNodes(stops) {
                     stats: { apps, goals, assists },
                     competitions: comps,
                     years: `${season}/${season + 1}`,
+                    transferFee: stop.transfer_fee || null,
                     stopIndex,
                 })
             })
@@ -97,6 +98,7 @@ export function buildProgressionNodes(stops) {
                 },
                 competitions: stop.competitions || [],
                 years: stop.years || '',
+                transferFee: stop.transfer_fee || null,
                 stopIndex,
             })
         }

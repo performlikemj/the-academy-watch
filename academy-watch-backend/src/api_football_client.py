@@ -66,6 +66,21 @@ def is_new_loan_transfer(transfer_type: str) -> bool:
     # We use exact match to avoid false positives
     return normalized == 'loan'
 
+def extract_transfer_fee(transfer_type: str) -> str | None:
+    """Extract fee from API-Football transfer type field.
+    Returns raw string like '€50M', 'Free', or None if it's a loan/unknown.
+    """
+    if not transfer_type:
+        return None
+    t = transfer_type.strip()
+    lower = t.lower()
+    if lower in LOAN_START_TYPES | LOAN_RETURN_TYPES:
+        return None
+    if lower in ('n/a', ''):
+        return None
+    return t
+
+
 class APIFootballClient:
     """Client for API-Football integration."""
     

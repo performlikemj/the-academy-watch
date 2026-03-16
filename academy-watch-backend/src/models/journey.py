@@ -146,6 +146,9 @@ class PlayerJourney(db.Model):
             td = getattr(entry, 'transfer_date', None) or ''
             if td > club.get('_max_transfer_date', ''):
                 club['_max_transfer_date'] = td
+            # Track transfer fee (use first non-null fee for this club)
+            if getattr(entry, 'transfer_fee', None) and not club.get('transfer_fee'):
+                club['transfer_fee'] = entry.transfer_fee
             
             # Add to level breakdown
             level = entry.level
@@ -184,6 +187,7 @@ class PlayerJourney(db.Model):
                 'total_goals': club['total_goals'],
                 'total_assists': club['total_assists'],
                 'breakdown': club['breakdown'],
+                'transfer_fee': club.get('transfer_fee'),
                 'competitions': sorted(club['competitions'], key=lambda x: x['season'], reverse=True),
             })
         
@@ -252,6 +256,9 @@ class PlayerJourneyEntry(db.Model):
     # Populated from transfer API for loan entries; used as tiebreaker
     # when multiple clubs share the same season and sort_priority.
     transfer_date = db.Column(db.String(20))
+
+    # Transfer fee (raw string from API-Football, e.g. "€50M", "Free")
+    transfer_fee = db.Column(db.String(100))
 
     # Sorting priority (higher = more prominent display)
     sort_priority = db.Column(db.Integer, default=0)

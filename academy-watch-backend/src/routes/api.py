@@ -1731,6 +1731,31 @@ def get_public_player_stats(player_id: int):
                     'is_active': True,
                 }
 
+        # API-Football fallback: discover teams for sold/released players
+        if not loan_teams_info and tracked_player_for_stats:
+            try:
+                api_client = APIFootballClient()
+                player_data = api_client.get_player_by_id(player_id, season)
+                if player_data and player_data.get('statistics'):
+                    for stat in player_data['statistics']:
+                        team_block = stat.get('team', {})
+                        team_api_id = team_block.get('id')
+                        if team_api_id:
+                            loan_teams_info[team_api_id] = {
+                                'name': team_block.get('name', f'Team {team_api_id}'),
+                                'logo': team_block.get('logo'),
+                                'window_type': 'Summer',
+                                'is_active': False,
+                            }
+                    # Backfill TrackedPlayer for future lookups
+                    if loan_teams_info:
+                        first_team_id = next(iter(loan_teams_info))
+                        tracked_player_for_stats.loan_club_api_id = first_team_id
+                        tracked_player_for_stats.loan_club_name = loan_teams_info[first_team_id]['name']
+                        db.session.commit()
+            except Exception as e:
+                logger.warning(f"Failed to discover teams for player {player_id}: {e}")
+
         loan_team_api_ids = list(loan_teams_info.keys())
 
         # Query local stats for ALL loan teams
@@ -9285,6 +9310,63 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                 team_players[parent_team.team_id].append((tp.player_api_id, tp.player_name))
                 tracked_api_ids.add(tp.player_api_id)
 
+    # Sold/released players — discover their current team via API-Football
+    from src.api_football_client import extract_transfer_fee
+    sold_released = TrackedPlayer.query.filter(
+        TrackedPlayer.is_active.is_(True),
+        TrackedPlayer.status.in_(['sold', 'released']),
+    ).all()
+
+    discovery_count = 0
+    fee_count = 0
+    for tp in sold_released:
+        if tp.player_api_id in tracked_api_ids:
+            continue
+        # If we already have a team from a prior backfill, use it
+        if tp.loan_club_api_id:
+            team_players[tp.loan_club_api_id].append((tp.player_api_id, tp.player_name))
+            tracked_api_ids.add(tp.player_api_id)
+            continue
+        # Discover team from API-Football /players endpoint
+        try:
+            player_data = api_client.get_player_by_id(tp.player_api_id, season)
+            if player_data and player_data.get('statistics'):
+                for stat in player_data['statistics']:
+                    team_block = stat.get('team', {})
+                    team_api_id = team_block.get('id')
+                    if team_api_id:
+                        team_players[team_api_id].append((tp.player_api_id, tp.player_name))
+                        tracked_api_ids.add(tp.player_api_id)
+                        # Backfill team on TrackedPlayer
+                        if not dry_run:
+                            tp.loan_club_api_id = team_api_id
+                            tp.loan_club_name = team_block.get('name')
+                            # Also backfill position if missing
+                            if not tp.position:
+                                games = stat.get('games', {}) or {}
+                                tp.position = games.get('position')
+                        discovery_count += 1
+                        break  # Use first team found
+            # Fetch transfer fee for sold players
+            if tp.status == 'sold' and not tp.sale_fee and not dry_run:
+                try:
+                    transfers_data = api_client.get_player_transfers(tp.player_api_id)
+                    transfers_list = transfers_data.get('transfers', []) if transfers_data else []
+                    # Find the most recent non-loan transfer
+                    for xfer in reversed(transfers_list):
+                        fee = extract_transfer_fee(xfer.get('type', ''))
+                        if fee is not None:
+                            tp.sale_fee = fee
+                            fee_count += 1
+                            break
+                except Exception:
+                    pass
+            if not dry_run:
+                db.session.commit()
+            time.sleep(delay)  # Rate limit API calls
+        except Exception as e:
+            logger.warning(f"Failed to discover team for player {tp.player_api_id} ({tp.player_name}): {e}")
+
     # AcademyPlayer fallback for players not in TrackedPlayer
     academy_fallback = AcademyPlayer.query.filter_by(is_active=True).all()
     for lp in academy_fallback:
@@ -9299,6 +9381,7 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
     total_teams = len(team_players)
     total_players = sum(len(v) for v in team_players.values())
     logger.info(f"Batch sync: {total_players} players across {total_teams} teams, season={season}, dry_run={dry_run}")
+    logger.info(f"Team discovery: {discovery_count} sold/released players resolved, {fee_count} fees extracted")
 
     if job_id:
         _update_job(job_id, total=total_players, progress=0,

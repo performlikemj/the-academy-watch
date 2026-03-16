@@ -174,6 +174,12 @@ export function MiniProgressBar() {
                                                         <div className="text-[10px] text-muted-foreground">Assists</div>
                                                     </div>
                                                 </div>
+                                                {/* Transfer fee */}
+                                                {node.transferFee && (
+                                                    <div className="text-xs text-center text-muted-foreground border-t pt-1.5 mt-1">
+                                                        Transfer: <span className="font-semibold text-foreground">{node.transferFee}</span>
+                                                    </div>
+                                                )}
                                                 {/* Hint */}
                                                 <p className="text-[10px] text-muted-foreground/70 text-center">Click to explore</p>
                                             </div>

@@ -31,9 +31,12 @@ class TrackedPlayer(db.Model):
     current_level = db.Column(db.String(20))
     #   'U18' | 'U21' | 'U23' | 'Reserve' | 'Senior'
 
-    # If on loan, where
+    # If on loan, where (also used for sold players' current club)
     loan_club_api_id = db.Column(db.Integer)
     loan_club_name = db.Column(db.String(200))
+
+    # Transfer fee when sold (raw string from API-Football, e.g. "€50M", "Free")
+    sale_fee = db.Column(db.String(100))
 
     # Provenance
     data_source = db.Column(db.String(30), nullable=False, default='api-football')
@@ -85,6 +88,7 @@ class TrackedPlayer(db.Model):
             'current_level': self.current_level,
             'loan_club_api_id': self.loan_club_api_id,
             'loan_club_name': self.loan_club_name,
+            'sale_fee': self.sale_fee,
             'data_source': self.data_source,
             'data_depth': self.data_depth,
             'journey_id': self.journey_id,
