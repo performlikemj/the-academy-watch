@@ -351,7 +351,7 @@ class GolPlayerLookup:
         current_club_name = journey.current_club_name if journey else None
         current_level = journey.current_level if journey else None
 
-        status, loan_club_api_id, loan_club_name = classify_tracked_player(
+        status, current_club_api_id, current_club_name = classify_tracked_player(
             current_club_api_id=current_club_id,
             current_club_name=current_club_name,
             current_level=current_level,
@@ -390,8 +390,8 @@ class GolPlayerLookup:
             existing.age = age if age is not None else existing.age
             existing.status = status
             existing.current_level = current_level or existing.current_level
-            existing.loan_club_api_id = loan_club_api_id
-            existing.loan_club_name = loan_club_name
+            existing.current_club_api_id = current_club_api_id
+            existing.current_club_name = current_club_name
             existing.journey_id = journey.id if journey else existing.journey_id
             existing.data_source = 'api-football'
             existing.data_depth = 'full_stats'
@@ -410,8 +410,8 @@ class GolPlayerLookup:
             team_id=team.id,
             status=status,
             current_level=current_level,
-            loan_club_api_id=loan_club_api_id,
-            loan_club_name=loan_club_name,
+            current_club_api_id=current_club_api_id,
+            current_club_name=current_club_name,
             data_source='api-football',
             data_depth='full_stats',
             journey_id=journey.id if journey else None,

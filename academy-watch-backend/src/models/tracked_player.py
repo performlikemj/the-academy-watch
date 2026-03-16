@@ -31,9 +31,9 @@ class TrackedPlayer(db.Model):
     current_level = db.Column(db.String(20))
     #   'U18' | 'U21' | 'U23' | 'Reserve' | 'Senior'
 
-    # If on loan, where (also used for sold players' current club)
-    loan_club_api_id = db.Column(db.Integer)
-    loan_club_name = db.Column(db.String(200))
+    # Current club (loan club if on_loan, buying club if sold, new club if released)
+    current_club_api_id = db.Column(db.Integer)
+    current_club_name = db.Column(db.String(200))
 
     # Transfer fee when sold (raw string from API-Football, e.g. "€50M", "Free")
     sale_fee = db.Column(db.String(100))
@@ -86,8 +86,8 @@ class TrackedPlayer(db.Model):
             'team_api_id': self.team.team_id if self.team else None,
             'status': self.status,
             'current_level': self.current_level,
-            'loan_club_api_id': self.loan_club_api_id,
-            'loan_club_name': self.loan_club_name,
+            'current_club_api_id': self.current_club_api_id,
+            'current_club_name': self.current_club_name,
             'sale_fee': self.sale_fee,
             'data_source': self.data_source,
             'data_depth': self.data_depth,
@@ -114,8 +114,8 @@ class TrackedPlayer(db.Model):
             'primary_team_id': self.team_id,
             'primary_team_name': self.team.name if self.team else None,
             'primary_team_api_id': self.team.team_id if self.team else None,
-            'loan_team_name': self.loan_club_name,
-            'loan_team_api_id': self.loan_club_api_id,
+            'loan_team_name': self.current_club_name,
+            'loan_team_api_id': self.current_club_api_id,
             'loan_team_logo': None,  # Caller can enrich
             'is_active': self.is_active,
             'status': self.status,

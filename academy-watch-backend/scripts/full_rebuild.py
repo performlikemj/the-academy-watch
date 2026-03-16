@@ -385,7 +385,7 @@ def stage_4_tracked_players(team_ids, seasons, dry_run):
                 position = pi.get('position') or ''
                 age = pi.get('age')
 
-                status, loan_club_api_id, loan_club_name = derive_player_status(
+                status, current_club_api_id, current_club_name = derive_player_status(
                     current_club_api_id=journey.current_club_api_id if journey else None,
                     current_club_name=journey.current_club_name if journey else None,
                     current_level=journey.current_level if journey else None,
@@ -408,8 +408,8 @@ def stage_4_tracked_players(team_ids, seasons, dry_run):
                     team_id=team.id,
                     status=status,
                     current_level=current_level,
-                    loan_club_api_id=loan_club_api_id,
-                    loan_club_name=loan_club_name,
+                    current_club_api_id=current_club_api_id,
+                    current_club_name=current_club_name,
                     data_source='api-football',
                     data_depth='full_stats',
                     journey_id=journey.id if journey else None,
@@ -490,7 +490,7 @@ def stage_6_refresh_statuses(team_ids, dry_run):
             continue
 
         journey = tp.journey
-        status, loan_club_api_id, loan_club_name = derive_player_status(
+        status, current_club_api_id, current_club_name = derive_player_status(
             current_club_api_id=journey.current_club_api_id if journey else None,
             current_club_name=journey.current_club_name if journey else None,
             current_level=journey.current_level if journey else None,
@@ -500,14 +500,14 @@ def stage_6_refresh_statuses(team_ids, dry_run):
 
         changed = (
             tp.status != status or
-            tp.loan_club_api_id != loan_club_api_id or
-            tp.loan_club_name != loan_club_name
+            tp.current_club_api_id != current_club_api_id or
+            tp.current_club_name != current_club_name
         )
 
         if changed and not dry_run:
             tp.status = status
-            tp.loan_club_api_id = loan_club_api_id
-            tp.loan_club_name = loan_club_name
+            tp.current_club_api_id = current_club_api_id
+            tp.current_club_name = current_club_name
             updated += 1
         elif changed:
             updated += 1

@@ -1778,9 +1778,9 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
         }
 
         if tp.status == 'on_loan':
-            player_dict['loan_team_name'] = tp.loan_club_name
-            player_dict['loan_team_api_id'] = tp.loan_club_api_id
-            player_dict['loan_team'] = tp.loan_club_name
+            player_dict['loan_team_name'] = tp.current_club_name
+            player_dict['loan_team_api_id'] = tp.current_club_api_id
+            player_dict['loan_team'] = tp.current_club_name
             # Delegate to existing loan stats pipeline via AcademyPlayer bridge
             if tp.loaned_player_id:
                 lp = AcademyPlayer.query.get(tp.loaned_player_id)
@@ -1790,8 +1790,8 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
             # Get weekly stats from FixturePlayerStats
             _enrich_on_loan_stats(player_dict, tp, start, end, season_start_year)
             # Fallback: derive loan league from Team record if not set from match data
-            if not player_dict.get('loan_league_name') and tp.loan_club_api_id:
-                loan_team_row = Team.query.filter_by(team_id=tp.loan_club_api_id).first()
+            if not player_dict.get('loan_league_name') and tp.current_club_api_id:
+                loan_team_row = Team.query.filter_by(team_id=tp.current_club_api_id).first()
                 if loan_team_row and loan_team_row.league:
                     player_dict['loan_league_name'] = loan_team_row.league.name
             groups['on_loan'].append(player_dict)
@@ -1849,7 +1849,7 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             totals['reds'] += row.reds or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
             if fixture:
-                is_home = fixture.home_team_api_id == tp.loan_club_api_id
+                is_home = fixture.home_team_api_id == tp.current_club_api_id
                 opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
                 # Resolve team name from Team table (Fixture model has no name columns)
                 opp_team_row = Team.query.filter_by(team_id=opp_api_id).first()

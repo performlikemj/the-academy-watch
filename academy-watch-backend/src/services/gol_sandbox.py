@@ -118,7 +118,7 @@ def _build_helpers(dataframes: dict) -> dict:
         tracked = dataframes.get('tracked', pd.DataFrame())
         teams = dataframes.get('teams', pd.DataFrame())
         if tracked.empty or teams.empty:
-            return pd.DataFrame(columns=['player_name', 'team', 'status', 'position', 'loan_club_name', 'age'])
+            return pd.DataFrame(columns=['player_name', 'team', 'status', 'position', 'current_club_name', 'age'])
 
         active = tracked[tracked['status'].isin(['academy', 'on_loan', 'first_team'])]
         merged = active.merge(teams[['id', 'name']], left_on='team_id', right_on='id', how='inner')
@@ -126,7 +126,7 @@ def _build_helpers(dataframes: dict) -> dict:
             merged = merged[merged['name'].str.contains(team_name, case=False, na=False)]
         else:
             merged = merged[merged['name'].isin(BIG_6)]
-        return (merged[['player_name', 'name', 'status', 'position', 'loan_club_name', 'age']]
+        return (merged[['player_name', 'name', 'status', 'position', 'current_club_name', 'age']]
                 .rename(columns={'name': 'team'})
                 .sort_values(['team', 'status', 'player_name'])
                 .reset_index(drop=True))
@@ -170,7 +170,7 @@ def _build_helpers(dataframes: dict) -> dict:
         if merged.empty:
             return pd.DataFrame(columns=['player_name', 'parent_club', 'loan_club', 'goals', 'assists', 'minutes', 'avg_rating'])
 
-        agg = merged.groupby(['player_api_id', 'player_name', 'parent_club', 'loan_club_name']).agg(
+        agg = merged.groupby(['player_api_id', 'player_name', 'parent_club', 'current_club_name']).agg(
             goals=('goals', 'sum'),
             assists=('assists', 'sum'),
             minutes=('minutes', 'sum'),
@@ -179,7 +179,7 @@ def _build_helpers(dataframes: dict) -> dict:
         agg['avg_rating'] = agg['avg_rating'].round(2)
         agg = agg.sort_values(['goals', 'assists'], ascending=[False, False]).head(limit)
         return agg.rename(columns={
-            'loan_club_name': 'loan_club'
+            'current_club_name': 'loan_club'
         })[['player_name', 'parent_club', 'loan_club', 'goals', 'assists', 'minutes', 'avg_rating']].reset_index(drop=True)
 
     def player_career(player_name):

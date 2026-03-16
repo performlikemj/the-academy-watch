@@ -135,7 +135,7 @@ API-Football                    Database                      Frontend
 | Admin team sync | All players at one academy | `POST /admin/teams/{id}/sync-all-fixtures` |
 | Batch sync | All tracked players | `POST /admin/sync-all-player-fixtures` |
 
-The batch sync groups players by their current team to minimize API calls — `O(teams × fixtures)` not `O(players × fixtures)`. For sold/released players with no team on record, it discovers their current team via the `/players` endpoint and backfills `TrackedPlayer.loan_club_api_id`.
+The batch sync groups players by their current team to minimize API calls — `O(teams × fixtures)` not `O(players × fixtures)`. For sold/released players with no team on record, it discovers their current team via the `/players` endpoint and backfills `TrackedPlayer.current_club_api_id`.
 
 ### Club-First Default (National Team Filtering)
 
@@ -144,7 +144,7 @@ API-Football's `/players` endpoint returns statistics for **all teams** a player
 This ensures:
 - **Default view** (header stats, Performance Analysis charts) shows club data
 - **International data** is preserved in the journey timeline and accessible by clicking the national team node
-- `TrackedPlayer.loan_club_api_id` is always a club, never a national team
+- `TrackedPlayer.current_club_api_id` is always a club, never a national team
 
 The position fallback chain also prioritizes club data: `Player.position` → `TrackedPlayer.position` → most recent `FixturePlayerStats.position` (from club matches). The frontend uses the backend profile position as the initial value, overridden by stats-inferred position if match data exists.
 
@@ -181,7 +181,7 @@ Team (academy club)
   │
   ├── TrackedPlayer (one row per player per academy)
   │     ├── status: academy | on_loan | first_team | sold | released
-  │     ├── loan_club_api_id (current club if on_loan or sold)
+  │     ├── current_club_api_id (current club if on_loan or sold)
   │     ├── sale_fee (transfer fee if sold)
   │     ├── position (Goalkeeper, Defender, Midfielder, Attacker)
   │     └── journey_id → PlayerJourney

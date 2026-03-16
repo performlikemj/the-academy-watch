@@ -90,8 +90,8 @@ function AllPlayersTab({ teams, setMessage }) {
         setEditForm({
             status: player.status || 'academy',
             current_level: player.current_level || '',
-            loan_club_api_id: player.loan_club_api_id || '',
-            loan_club_name: player.loan_club_name || '',
+            current_club_api_id: player.current_club_api_id || '',
+            current_club_name: player.current_club_name || '',
             notes: player.notes || '',
             position: player.position || '',
         })
@@ -276,8 +276,8 @@ function AllPlayersTab({ teams, setMessage }) {
                                             <div>
                                                 <Label className="text-xs">Loan Club Name</Label>
                                                 <Input
-                                                    value={editForm.loan_club_name}
-                                                    onChange={(e) => setEditForm({ ...editForm, loan_club_name: e.target.value })}
+                                                    value={editForm.current_club_name}
+                                                    onChange={(e) => setEditForm({ ...editForm, current_club_name: e.target.value })}
                                                     placeholder="e.g. Sheffield Wednesday"
                                                 />
                                             </div>
@@ -285,8 +285,8 @@ function AllPlayersTab({ teams, setMessage }) {
                                                 <Label className="text-xs">Loan Club API ID</Label>
                                                 <Input
                                                     type="number"
-                                                    value={editForm.loan_club_api_id}
-                                                    onChange={(e) => setEditForm({ ...editForm, loan_club_api_id: e.target.value })}
+                                                    value={editForm.current_club_api_id}
+                                                    onChange={(e) => setEditForm({ ...editForm, current_club_api_id: e.target.value })}
                                                     placeholder="Optional"
                                                 />
                                             </div>
@@ -327,7 +327,7 @@ function AllPlayersTab({ teams, setMessage }) {
                                                 <span>{p.team_name || '—'}</span>
                                                 {p.position && <span>{p.position}</span>}
                                                 {p.current_level && <span>{p.current_level}</span>}
-                                                {p.loan_club_name && <span>@ {p.loan_club_name}</span>}
+                                                {p.current_club_name && <span>@ {p.current_club_name}</span>}
                                             </div>
                                         </div>
                                     </div>
@@ -620,7 +620,7 @@ function ManualAddForm({ teams, setMessage }) {
         team_id: '',
         status: 'academy',
         current_level: '',
-        loan_club_name: '',
+        current_club_name: '',
         notes: '',
     })
 
@@ -645,12 +645,12 @@ function ManualAddForm({ teams, setMessage }) {
             if (form.nationality) payload.nationality = form.nationality
             if (form.age) payload.age = parseInt(form.age)
             if (form.current_level) payload.current_level = form.current_level
-            if (form.loan_club_name) payload.loan_club_name = form.loan_club_name
+            if (form.current_club_name) payload.current_club_name = form.current_club_name
             if (form.notes) payload.notes = form.notes
 
             await APIService.adminTrackedPlayerCreate(payload)
             setMessage({ type: 'success', text: `Added ${form.player_name}` })
-            setForm({ player_name: '', position: '', nationality: '', age: '', team_id: '', status: 'academy', current_level: '', loan_club_name: '', notes: '' })
+            setForm({ player_name: '', position: '', nationality: '', age: '', team_id: '', status: 'academy', current_level: '', current_club_name: '', notes: '' })
         } catch (error) {
             setMessage({ type: 'error', text: `Create failed: ${error?.body?.error || error.message}` })
         }
@@ -698,7 +698,7 @@ function ManualAddForm({ teams, setMessage }) {
                 {form.status === 'on_loan' && (
                     <div className="md:col-span-2">
                         <Label>Loan Club Name</Label>
-                        <Input value={form.loan_club_name} onChange={(e) => setForm({ ...form, loan_club_name: e.target.value })} placeholder="e.g. Sheffield Wednesday" />
+                        <Input value={form.current_club_name} onChange={(e) => setForm({ ...form, current_club_name: e.target.value })} placeholder="e.g. Sheffield Wednesday" />
                     </div>
                 )}
                 <div className="md:col-span-2">

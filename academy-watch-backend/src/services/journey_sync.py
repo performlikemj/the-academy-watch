@@ -1001,7 +1001,7 @@ class JourneySyncService:
                 team_id=team.id,
             ).first()
 
-            status, loan_club_api_id, loan_club_name = classify_tracked_player(
+            status, current_club_api_id, current_club_name = classify_tracked_player(
                 current_club_api_id=journey.current_club_api_id,
                 current_club_name=journey.current_club_name,
                 current_level=journey.current_level,
@@ -1023,8 +1023,8 @@ class JourneySyncService:
                     data_source='journey-sync',
                     data_depth='full_stats',
                     status=status,
-                    loan_club_api_id=loan_club_api_id,
-                    loan_club_name=loan_club_name,
+                    current_club_api_id=current_club_api_id,
+                    current_club_name=current_club_name,
                 )
                 db.session.add(tp)
             else:
@@ -1038,8 +1038,8 @@ class JourneySyncService:
                     )
                     continue
                 existing.status = status
-                existing.loan_club_api_id = loan_club_api_id
-                existing.loan_club_name = loan_club_name
+                existing.current_club_api_id = current_club_api_id
+                existing.current_club_name = current_club_name
 
     @staticmethod
     def _get_latest_departure_type(transfers, parent_api_id):

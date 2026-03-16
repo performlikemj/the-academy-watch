@@ -348,7 +348,7 @@ def _run_full_rebuild(job_id, config):
                     position = pi.get('position') or ''
                     age = pi.get('age')
 
-                    status, loan_club_api_id, loan_club_name = classify_tracked_player(
+                    status, current_club_api_id, current_club_name = classify_tracked_player(
                         current_club_api_id=journey.current_club_api_id if journey else None,
                         current_club_name=journey.current_club_name if journey else None,
                         current_level=journey.current_level if journey else None,
@@ -372,8 +372,8 @@ def _run_full_rebuild(job_id, config):
                         team_id=team.id,
                         status=status,
                         current_level=current_level,
-                        loan_club_api_id=loan_club_api_id,
-                        loan_club_name=loan_club_name,
+                        current_club_api_id=current_club_api_id,
+                        current_club_name=current_club_name,
                         data_source='api-football',
                         data_depth='full_stats',
                         journey_id=journey.id if journey else None,
@@ -420,7 +420,7 @@ def _run_full_rebuild(job_id, config):
 
         # Build squad membership map for squad cross-reference
         squad_members_by_club = {}
-        _loan_ids = {tp.loan_club_api_id for tp in tracked if tp.loan_club_api_id}
+        _loan_ids = {tp.current_club_api_id for tp in tracked if tp.current_club_api_id}
         _parent_ids = {tp.team.team_id for tp in tracked if tp.team}
         for _cid in (_loan_ids | _parent_ids):
             try:
@@ -449,10 +449,10 @@ def _run_full_rebuild(job_id, config):
                 latest_season=_get_latest_season(journey.id, parent_api_id=tp.team.team_id, parent_club_name=tp.team.name) if journey else None,
                 squad_members_by_club=squad_members_by_club,
             )
-            if tp.status != status or tp.loan_club_api_id != loan_api_id:
+            if tp.status != status or tp.current_club_api_id != loan_api_id:
                 tp.status = status
-                tp.loan_club_api_id = loan_api_id
-                tp.loan_club_name = loan_name
+                tp.current_club_api_id = loan_api_id
+                tp.current_club_name = loan_name
                 updated += 1
             status_counts[status] = status_counts.get(status, 0) + 1
         if updated:

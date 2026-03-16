@@ -141,7 +141,7 @@ def derive_player_status(
     parent_api_id: int,
     parent_club_name: str,
 ) -> Tuple[str, Optional[int], Optional[str]]:
-    """Derive (status, loan_club_api_id, loan_club_name) for a player
+    """Derive (status, current_club_api_id, current_club_name) for a player
     relative to their parent / academy club.
 
     Rules (in order):
@@ -151,7 +151,7 @@ def derive_player_status(
     4. Different club → on_loan
 
     Returns:
-        (status, loan_club_api_id, loan_club_name)
+        (status, current_club_api_id, current_club_name)
         where status is one of 'academy', 'first_team', 'on_loan'
     """
     # No current club info → assume still at academy
@@ -188,7 +188,7 @@ def derive_player_status_with_reasoning(
     """Like derive_player_status but also returns step-by-step reasoning.
 
     Returns:
-        (status, loan_club_api_id, loan_club_name, reasoning)
+        (status, current_club_api_id, current_club_name, reasoning)
         where reasoning is a list of dicts with rule/check/result/detail.
     """
     reasoning: List[Dict] = []
@@ -432,8 +432,8 @@ def classify_tracked_player(
             inactivity check.
 
     Returns:
-        ``(status, loan_club_api_id, loan_club_name)`` or
-        ``(status, loan_club_api_id, loan_club_name, reasoning)``
+        ``(status, current_club_api_id, current_club_name)`` or
+        ``(status, current_club_api_id, current_club_name, reasoning)``
         when *with_reasoning* is True.
     """
     if config is None:

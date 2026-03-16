@@ -543,7 +543,7 @@ def _diff_loan_rows(
                 pass
 
             if apply_changes and classification.get('valid') and team is not None:
-                loan_club_name = classification.get('loan_club') or loan_team_name
+                current_club_name = classification.get('loan_club') or loan_team_name
                 parent_name = classification.get('parent_club') or parent_club or team.name
                 resolved_player = classification.get('player_name') or player_name
                 season_start = classification.get('season_start_year') or season_value
@@ -551,26 +551,26 @@ def _diff_loan_rows(
                     "[sandbox-diff] applying change create supplemental for player=%s parent=%s loan=%s season=%s source=%s",
                     resolved_player,
                     parent_name,
-                    loan_club_name,
+                    current_club_name,
                     season_start,
                     data_source,
                 )
 
                 loan_team = (
                     context.db_session.query(Team)
-                    .filter(func.lower(Team.name) == loan_club_name.lower())
+                    .filter(func.lower(Team.name) == current_club_name.lower())
                     .first()
                 )
                 # Canonicalize loan club name when we can resolve a Team row
                 if loan_team:
-                    loan_club_name = loan_team.name
+                    current_club_name = loan_team.name
 
                 existing_sup = (
                     context.db_session.query(SupplementalLoan)
                     .filter(
                         SupplementalLoan.parent_team_id == team.id,
                         func.lower(SupplementalLoan.player_name) == resolved_player.lower(),
-                        func.lower(SupplementalLoan.loan_team_name) == loan_club_name.lower(),
+                        func.lower(SupplementalLoan.loan_team_name) == current_club_name.lower(),
                         SupplementalLoan.season_year == season_start,
                     )
                     .first()
@@ -595,7 +595,7 @@ def _diff_loan_rows(
                         parent_team_id=team.id,
                         parent_team_name=parent_name,
                         loan_team_id=loan_team.id if loan_team else None,
-                        loan_team_name=loan_club_name,
+                        loan_team_name=current_club_name,
                         season_year=season_start,
                         api_player_id=resolved_api_player_id,
                         data_source=data_source,
@@ -608,14 +608,14 @@ def _diff_loan_rows(
                         "[sandbox-diff] created SupplementalLoan player=%s parent_id=%s loan_team=%s season=%s",
                         resolved_player,
                         team.id,
-                        loan_club_name,
+                        current_club_name,
                         season_start,
                     )
                 else:
                     logger.info(
                         "[sandbox-diff] supplemental already exists for player=%s loan_team=%s season=%s; skipping",
                         resolved_player,
-                        loan_club_name,
+                        current_club_name,
                         season_start,
                     )
 
