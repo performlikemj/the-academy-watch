@@ -1757,7 +1757,9 @@ def get_public_player_stats(player_id: int):
                 api_client = APIFootballClient()
                 player_data = api_client.get_player_by_id(player_id, season)
                 if player_data and player_data.get('statistics'):
-                    # Find best club team (skip national teams, prefer most appearances)
+                    # Find best club team (skip national teams + parent academy)
+                    parent_team_obj = Team.query.get(tracked_player_for_stats.team_id) if tracked_player_for_stats.team_id else None
+                    parent_api_id = parent_team_obj.team_id if parent_team_obj else None
                     best_team_id = None
                     best_team_info = None
                     best_apps = -1
@@ -1766,6 +1768,8 @@ def get_public_player_stats(player_id: int):
                         team_name = team_block.get('name', '')
                         team_api_id = team_block.get('id')
                         if not team_api_id or is_national_team(team_name):
+                            continue
+                        if parent_api_id and team_api_id == parent_api_id:
                             continue
                         games = stat.get('games', {}) or {}
                         apps = games.get('appearences') or games.get('appearances') or 0
@@ -9366,15 +9370,22 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
             from src.utils.academy_classifier import is_national_team
             player_data = api_client.get_player_by_id(tp.player_api_id, season)
             if player_data and player_data.get('statistics'):
-                # Find the best CLUB team (skip national teams, prefer most appearances)
+                # Find the best CLUB team (skip national teams + parent academy, prefer most appearances)
+                # For sold players, we want the club they were sold TO, not the parent
+                parent_team = Team.query.get(tp.team_id) if tp.team_id else None
+                parent_api_id = parent_team.team_id if parent_team else None
                 best_team_block = None
                 best_stat = None
                 best_apps = -1
                 for stat in player_data['statistics']:
                     team_block = stat.get('team', {})
                     team_name = team_block.get('name', '')
-                    # Skip international/national teams — we want club stats
+                    team_api_id = team_block.get('id')
+                    # Skip international/national teams
                     if is_national_team(team_name):
+                        continue
+                    # Skip parent academy (for sold players, we want the destination club)
+                    if parent_api_id and team_api_id == parent_api_id:
                         continue
                     games = stat.get('games', {}) or {}
                     apps = games.get('appearences') or games.get('appearances') or 0
