@@ -1721,8 +1721,8 @@ def get_public_player_stats(player_id: int):
                     }
         
         # TrackedPlayer fallback: inject loan club if no AcademyPlayer provided teams
-        if not loan_teams_info and tracked_player_for_stats and tracked_player_for_stats.loan_club_api_id:
-            loan_team_record = Team.query.filter_by(team_id=tracked_player_for_stats.loan_club_api_id).first()
+        if not loan_teams_info and tracked_player_for_stats and tracked_player_for_stats.current_club_api_id:
+            loan_team_record = Team.query.filter_by(team_id=tracked_player_for_stats.current_club_api_id).first()
             if loan_team_record:
                 loan_teams_info[loan_team_record.team_id] = {
                     'name': loan_team_record.name,
@@ -1785,8 +1785,8 @@ def get_public_player_stats(player_id: int):
                     if best_team_id and best_team_info:
                         loan_teams_info[best_team_id] = best_team_info
                         # Backfill TrackedPlayer for future lookups
-                        tracked_player_for_stats.loan_club_api_id = best_team_id
-                        tracked_player_for_stats.loan_club_name = best_team_info['name']
+                        tracked_player_for_stats.current_club_api_id = best_team_id
+                        tracked_player_for_stats.current_club_name = best_team_info['name']
                         db.session.commit()
             except Exception as e:
                 logger.warning(f"Failed to discover teams for player {player_id}: {e}")
@@ -2103,7 +2103,7 @@ def public_player_search():
                 'photo_url': row.photo_url,
                 'position': row.position,
                 'team_name': row.team.name if row.team else None,
-                'loan_club_name': row.loan_club_name,
+                'current_club_name': row.current_club_name,
             })
             if len(results) >= 8:
                 break
@@ -2242,9 +2242,9 @@ def get_public_player_profile(player_id: int):
                     result['parent_team_id'] = tracked.team.team_id
                     result['primary_team_db_id'] = tracked.team_id
                 # Loan team from tracked player (if on_loan)
-                if not result['loan_team_name'] and tracked.loan_club_api_id:
-                    result['loan_team_name'] = tracked.loan_club_name
-                    loan_team_record = Team.query.filter_by(team_id=tracked.loan_club_api_id).first()
+                if not result['loan_team_name'] and tracked.current_club_api_id:
+                    result['loan_team_name'] = tracked.current_club_name
+                    loan_team_record = Team.query.filter_by(team_id=tracked.current_club_api_id).first()
                     if loan_team_record:
                         result['loan_team_logo'] = loan_team_record.logo
                         result['loan_team_id'] = loan_team_record.team_id
@@ -2338,11 +2338,11 @@ def get_public_player_profile(player_id: int):
             })
         
         # If loan_history is empty and TrackedPlayer is on_loan, synthesize an entry
-        if not loan_history and tracked and tracked.status == 'on_loan' and tracked.loan_club_api_id:
-            loan_team_record = Team.query.filter_by(team_id=tracked.loan_club_api_id).first()
+        if not loan_history and tracked and tracked.status == 'on_loan' and tracked.current_club_api_id:
+            loan_team_record = Team.query.filter_by(team_id=tracked.current_club_api_id).first()
             loan_history.append({
-                'loan_team_name': tracked.loan_club_name or (loan_team_record.name if loan_team_record else None),
-                'loan_team_id': tracked.loan_club_api_id,
+                'loan_team_name': tracked.current_club_name or (loan_team_record.name if loan_team_record else None),
+                'loan_team_id': tracked.current_club_api_id,
                 'loan_team_db_id': loan_team_record.id if loan_team_record else None,
                 'loan_team_logo': loan_team_record.logo if loan_team_record else None,
                 'parent_team_name': tracked.team.name if tracked.team else None,
@@ -2425,8 +2425,8 @@ def get_public_player_season_stats(player_id: int):
                     if linked_loan:
                         all_loans = [linked_loan]
                 # If on loan with a club but no AcademyPlayer, inject the loan club
-                elif tracked_for_season.loan_club_api_id:
-                    loan_team_record = Team.query.filter_by(team_id=tracked_for_season.loan_club_api_id).first()
+                elif tracked_for_season.current_club_api_id:
+                    loan_team_record = Team.query.filter_by(team_id=tracked_for_season.current_club_api_id).first()
                     if loan_team_record:
                         # Create a minimal object-like dict for downstream processing
                         # We'll handle this in the loan_teams_info block below
@@ -2447,7 +2447,7 @@ def get_public_player_season_stats(player_id: int):
                 return jsonify(result)
             # For on_loan tracked players with a loan club but no AcademyPlayer row,
             # proceed with loan_teams_info injection below
-            if not (tracked_for_season and tracked_for_season.loan_club_api_id):
+            if not (tracked_for_season and tracked_for_season.current_club_api_id):
                 return jsonify(result)
 
         # 📊 CHECK FOR LIMITED COVERAGE (e.g., National League)
@@ -2503,8 +2503,8 @@ def get_public_player_season_stats(player_id: int):
                     loan_team_api_ids.append(loan_team.team_id)
         
         # TrackedPlayer fallback: inject loan club if no AcademyPlayer provided teams
-        if not loan_teams_info and tracked_for_season and tracked_for_season.loan_club_api_id:
-            loan_team_record = Team.query.filter_by(team_id=tracked_for_season.loan_club_api_id).first()
+        if not loan_teams_info and tracked_for_season and tracked_for_season.current_club_api_id:
+            loan_team_record = Team.query.filter_by(team_id=tracked_for_season.current_club_api_id).first()
             if loan_team_record:
                 loan_teams_info.append({
                     'api_id': loan_team_record.team_id,
@@ -9031,9 +9031,9 @@ def admin_sync_player_fixtures(player_id: int):
         
         if tp:
             player_name = tp.player_name
-            if tp.status == 'on_loan' and tp.loan_club_api_id:
-                team_api_id = tp.loan_club_api_id
-                team_name = tp.loan_club_name or f'Team {tp.loan_club_api_id}'
+            if tp.status == 'on_loan' and tp.current_club_api_id:
+                team_api_id = tp.current_club_api_id
+                team_name = tp.current_club_name or f'Team {tp.current_club_api_id}'
             elif tp.status == 'first_team':
                 parent_team = Team.query.get(tp.team_id)
                 if parent_team:
@@ -9336,8 +9336,8 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
 
     tracked_api_ids = set()
     for tp in tracked:
-        if tp.status == 'on_loan' and tp.loan_club_api_id:
-            team_players[tp.loan_club_api_id].append((tp.player_api_id, tp.player_name))
+        if tp.status == 'on_loan' and tp.current_club_api_id:
+            team_players[tp.current_club_api_id].append((tp.player_api_id, tp.player_name))
             tracked_api_ids.add(tp.player_api_id)
         elif tp.status in ('first_team', 'academy') and tp.team_id:
             parent_team = Team.query.get(tp.team_id)
@@ -9361,8 +9361,8 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
         if tp.player_api_id in tracked_api_ids:
             continue
         # If we already have a team from a prior backfill, use it
-        if tp.loan_club_api_id:
-            team_players[tp.loan_club_api_id].append((tp.player_api_id, tp.player_name))
+        if tp.current_club_api_id:
+            team_players[tp.current_club_api_id].append((tp.player_api_id, tp.player_name))
             tracked_api_ids.add(tp.player_api_id)
             continue
         # Discover team from API-Football /players endpoint
@@ -9400,8 +9400,8 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                     tracked_api_ids.add(tp.player_api_id)
                     # Backfill team on TrackedPlayer
                     if not dry_run:
-                        tp.loan_club_api_id = team_api_id
-                        tp.loan_club_name = best_team_block.get('name')
+                        tp.current_club_api_id = team_api_id
+                        tp.current_club_name = best_team_block.get('name')
                         # Also backfill position if missing
                         if not tp.position:
                             games = best_stat.get('games', {}) or {}
@@ -9777,10 +9777,10 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
         # Build a unified list of (player_api_id, player_name, team_api_id, team_name)
         players_to_sync = []
         for tp in tracked_players:
-            if tp.status == 'on_loan' and tp.loan_club_api_id:
+            if tp.status == 'on_loan' and tp.current_club_api_id:
                 players_to_sync.append((
                     tp.player_api_id, tp.player_name,
-                    tp.loan_club_api_id, tp.loan_club_name or f'Team {tp.loan_club_api_id}',
+                    tp.current_club_api_id, tp.current_club_name or f'Team {tp.current_club_api_id}',
                 ))
             elif tp.status in ('first_team', 'academy'):
                 players_to_sync.append((
@@ -13961,12 +13961,12 @@ def get_player_journey_map(player_id: int):
                     'source': 'tracked-player',
                 }
                 # Add loan club stop if on loan
-                if tracked.loan_club_api_id:
-                    loan_team = Team.query.filter_by(team_id=tracked.loan_club_api_id).first()
+                if tracked.current_club_api_id:
+                    loan_team = Team.query.filter_by(team_id=tracked.current_club_api_id).first()
                     if loan_team:
                         map_data['stops'].append({
-                            'club_id': tracked.loan_club_api_id,
-                            'club_name': tracked.loan_club_name or loan_team.name,
+                            'club_id': tracked.current_club_api_id,
+                            'club_name': tracked.current_club_name or loan_team.name,
                             'club_logo': loan_team.logo,
                             'years': str(datetime.now().year),
                             'levels': ['First Team'],
@@ -14481,8 +14481,8 @@ def admin_test_classify():
                 'parent_api_id': pid,
                 'parent_club_name': parent_name,
                 'status': status,
-                'loan_club_api_id': loan_id,
-                'loan_club_name': loan_name,
+                'current_club_api_id': loan_id,
+                'current_club_name': loan_name,
                 'reasoning': reasoning,
             })
 
@@ -15045,8 +15045,8 @@ def admin_create_tracked_player():
             position=data.get('position'),
             nationality=data.get('nationality'),
             age=data.get('age'),
-            loan_club_api_id=data.get('loan_club_api_id'),
-            loan_club_name=data.get('loan_club_name'),
+            current_club_api_id=data.get('current_club_api_id'),
+            current_club_name=data.get('current_club_name'),
             data_source=data.get('data_source', 'manual'),
             notes=data.get('notes'),
         )
@@ -15069,7 +15069,7 @@ def admin_update_tracked_player(player_id):
             return jsonify({'error': 'Player not found'}), 404
 
         data = request.get_json(force=True)
-        allowed = ['status', 'current_level', 'loan_club_api_id', 'loan_club_name',
+        allowed = ['status', 'current_level', 'current_club_api_id', 'current_club_name',
                     'notes', 'position', 'is_active', 'photo_url', 'team_id',
                     'pinned_parent']
         for field in allowed:
@@ -15288,10 +15288,10 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                     api_client=_api,
                     latest_season=_get_latest_season(journey.id, parent_api_id=parent_api_id, parent_club_name=team.name) if journey else None,
                 )
-                if existing.status != new_status or existing.loan_club_api_id != new_loan_id:
+                if existing.status != new_status or existing.current_club_api_id != new_loan_id:
                     existing.status = new_status
-                    existing.loan_club_api_id = new_loan_id
-                    existing.loan_club_name = new_loan_name
+                    existing.current_club_api_id = new_loan_id
+                    existing.current_club_name = new_loan_name
                 skipped += 1
                 continue
 
@@ -15312,7 +15312,7 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                 position = (stats_list[0].get('games') or {}).get('position') or ''
             age = pi.get('age')
 
-            status, loan_club_api_id, loan_club_name = classify_tracked_player(
+            status, current_club_api_id, current_club_name = classify_tracked_player(
                 current_club_api_id=journey.current_club_api_id if journey else None,
                 current_club_name=journey.current_club_name if journey else None,
                 current_level=journey.current_level if journey else None,
@@ -15338,8 +15338,8 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                 team_id=team_id,
                 status=status,
                 current_level=current_level,
-                loan_club_api_id=loan_club_api_id,
-                loan_club_name=loan_club_name,
+                current_club_api_id=current_club_api_id,
+                current_club_name=current_club_name,
                 data_source='api-football',
                 data_depth='full_stats',
                 journey_id=journey.id if journey else None,
@@ -15866,7 +15866,7 @@ def get_team_players(team_identifier):
         from src.models.weekly import FixturePlayerStats
         from sqlalchemy import func as sa_func
 
-        player_api_ids_on_loan = [tp.player_api_id for tp in players if tp.loan_club_api_id]
+        player_api_ids_on_loan = [tp.player_api_id for tp in players if tp.current_club_api_id]
         player_stats_map = {}
         if player_api_ids_on_loan:
             stats_rows = db.session.query(
@@ -15938,10 +15938,10 @@ def get_team_players(team_identifier):
                 }
 
         # Batch-fetch loan team logos (1 query)
-        loan_club_api_ids = list({tp.loan_club_api_id for tp in players if tp.loan_club_api_id})
+        current_club_api_ids = list({tp.current_club_api_id for tp in players if tp.current_club_api_id})
         loan_team_logos = {}
-        if loan_club_api_ids:
-            loan_teams = Team.query.filter(Team.team_id.in_(loan_club_api_ids)).all()
+        if current_club_api_ids:
+            loan_teams = Team.query.filter(Team.team_id.in_(current_club_api_ids)).all()
             loan_team_logos = {lt.team_id: lt.logo for lt in loan_teams}
 
         # Build results with batch-enriched data
@@ -15984,8 +15984,8 @@ def get_team_players(team_identifier):
                     d['position'] = POSITION_MAP.get(fps_pos, fps_pos)
 
             # Fill in loan team logo
-            if tp.loan_club_api_id:
-                logo = loan_team_logos.get(tp.loan_club_api_id)
+            if tp.current_club_api_id:
+                logo = loan_team_logos.get(tp.current_club_api_id)
                 if logo:
                     d['loan_team_logo'] = logo
 

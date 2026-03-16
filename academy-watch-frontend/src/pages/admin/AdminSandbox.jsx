@@ -95,7 +95,7 @@ export function AdminSandbox() {
             id: tp.player_api_id,
             name: tp.player_name,
             photo: tp.photo_url,
-            team: tp.loan_club_name || (tp.team?.name),
+            team: tp.current_club_name || (tp.team?.name),
         })
         setSearchQuery(tp.player_name || '')
         setResult(null)
@@ -365,9 +365,9 @@ export function AdminSandbox() {
                                             Classification: {cls.parent_club_name}
                                         </CardTitle>
                                         <StatusBadge status={cls.status} />
-                                        {cls.loan_club_name && (
+                                        {cls.current_club_name && (
                                             <span className="text-sm text-muted-foreground">
-                                                at {cls.loan_club_name}
+                                                at {cls.current_club_name}
                                             </span>
                                         )}
                                     </div>

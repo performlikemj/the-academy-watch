@@ -55,7 +55,7 @@ class DataFrameCache:
                     tp.position, tp.nationality,
                     tp.team_id AS parent_team_id,
                     t.name AS parent_club,
-                    tp.loan_club_name,
+                    tp.current_club_name,
                     tp.current_level, tp.is_active
                 FROM tracked_players tp
                 LEFT JOIN teams t ON tp.team_id = t.id
@@ -77,7 +77,7 @@ class DataFrameCache:
                     tp.player_api_id, tp.player_name, tp.position,
                     tp.nationality, tp.age, tp.team_id,
                     tp.status, tp.current_level,
-                    tp.loan_club_name, tp.data_source, tp.is_active
+                    tp.current_club_name, tp.data_source, tp.is_active
                 FROM tracked_players tp
                 WHERE tp.is_active = true
             """)

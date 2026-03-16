@@ -877,7 +877,7 @@ def get_academy_network(team_identifier):
                 'player_name': tp.player_name,
                 'player_photo': tp.photo_url,
                 'status': tp.status,
-                'current_club_name': tp.loan_club_name,
+                'current_club_name': tp.current_club_name,
                 'total_appearances': 0,
                 'parent_club_appearances': 0,
                 'destinations': [],

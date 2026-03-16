@@ -40,7 +40,7 @@ format for the data. `pd` (pandas) and `np` (numpy) are pre-loaded. NEVER use \
 ### `loan_players` (players currently on loan — roster ONLY, NO stats)
 Columns: player_api_id (int, API-Football ID), player_name (str), age (int), \
 position (str), nationality (str), parent_team_id (int, FK to teams.id), \
-parent_club (str, parent/academy club name), loan_club_name (str, where on loan), \
+parent_club (str, parent/academy club name), current_club_name (str, where on loan), \
 current_level (str), is_active (bool)
 **This table has NO stats columns.** For goals, assists, appearances, minutes, \
 use `fixture_stats` (per-match) or `journey_entries` (season aggregates).
@@ -54,7 +54,7 @@ country (str), league_name (str or null), is_tracked (bool), season (int)
 Columns: player_api_id (int), player_name (str), position (str: Goalkeeper/Defender/Midfielder/Attacker), \
 nationality (str), age (int), team_id (int, FK to teams.id), \
 status (str: academy/on_loan/first_team/released/sold), \
-current_level (str), loan_club_name (str or null), data_source (str), is_active (bool)
+current_level (str), current_club_name (str or null), data_source (str), is_active (bool)
 
 ### `journeys` (career summaries)
 Columns: player_api_id (int), player_name (str), nationality (str), \
@@ -135,7 +135,7 @@ aggregates. Standard pattern for loan player stats:
   ```
   fs = fixture_stats[fixture_stats['season'] == fixture_stats['season'].max()]
   agg = fs.groupby('player_api_id')[['goals','assists','minutes']].sum().reset_index()
-  result = loan_players[['player_api_id','player_name','loan_club_name']].merge(agg, on='player_api_id', how='inner')
+  result = loan_players[['player_api_id','player_name','current_club_name']].merge(agg, on='player_api_id', how='inner')
   ```
 - **Season filtering:** When aggregating `fixture_stats`, always filter by season \
 first: `fixture_stats[fixture_stats['season'] == fixture_stats['season'].max()]`. This avoids \
@@ -560,7 +560,7 @@ class GolService:
         ).order_by(func.random()).limit(2).all()
 
         for p in recent_players:
-            suggestions.append(f"How is {p.player_name} doing at {p.loan_club_name}?")
+            suggestions.append(f"How is {p.player_name} doing at {p.current_club_name}?")
 
         suggestions.extend([
             "Which Big 6 academy is producing the most first-team players?",

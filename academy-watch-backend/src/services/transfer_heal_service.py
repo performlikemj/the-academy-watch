@@ -4,7 +4,7 @@ Detects loan club changes for tracked players by re-querying API-Football,
 updates statuses, and optionally cascades fixture syncs for affected players.
 
 Uses TrackedPlayer as the primary model — fixture syncs are cascaded
-per-player via _sync_player_club_fixtures using TrackedPlayer.loan_club_api_id
+per-player via _sync_player_club_fixtures using TrackedPlayer.current_club_api_id
 directly, without depending on AcademyPlayer rows.
 """
 
@@ -69,7 +69,7 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
 
     # Batch pre-fetch squads for loan + parent clubs
     squad_members_by_club = {}
-    loan_club_ids = {tp.loan_club_api_id for tp in players if tp.loan_club_api_id}
+    loan_club_ids = {tp.current_club_api_id for tp in players if tp.current_club_api_id}
     parent_club_ids = set()
     _team_cache = {}
     for tp in players:
@@ -149,16 +149,16 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
             continue
 
         changed = False
-        old_loan_id = tp.loan_club_api_id
+        old_loan_id = tp.current_club_api_id
 
         if tp.status != new_status:
             tp.status = new_status
             changed = True
-        if tp.loan_club_api_id != new_loan_id:
-            tp.loan_club_api_id = new_loan_id
+        if tp.current_club_api_id != new_loan_id:
+            tp.current_club_api_id = new_loan_id
             changed = True
-        if tp.loan_club_name != new_loan_name:
-            tp.loan_club_name = new_loan_name
+        if tp.current_club_name != new_loan_name:
+            tp.current_club_name = new_loan_name
             changed = True
         if journey.current_level and tp.current_level != journey.current_level:
             tp.current_level = journey.current_level
@@ -172,8 +172,8 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
                     'player_api_id': tp.player_api_id,
                     'player_name': tp.player_name,
                     'team_id': tp.team_id,
-                    'old_loan_club_api_id': old_loan_id,
-                    'new_loan_club_api_id': new_loan_id,
+                    'old_current_club_api_id': old_loan_id,
+                    'new_current_club_api_id': new_loan_id,
                     'new_loan_club': new_loan_name,
                 })
 
@@ -193,7 +193,7 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
             try:
                 synced = _sync_player_club_fixtures(
                     player_id=pc['player_api_id'],
-                    loan_team_api_id=pc['new_loan_club_api_id'],
+                    loan_team_api_id=pc['new_current_club_api_id'],
                     season=season,
                     player_name=pc.get('player_name'),
                 )
@@ -202,12 +202,12 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
                     'transfer-heal: synced %d fixtures for player %d (%s) '
                     'at new club %s (api_id=%d)',
                     synced, pc['player_api_id'], pc.get('player_name'),
-                    pc['new_loan_club'], pc['new_loan_club_api_id'],
+                    pc['new_loan_club'], pc['new_current_club_api_id'],
                 )
             except Exception as exc:
                 logger.error(
                     'transfer-heal: fixture sync failed for player %d at club %d: %s',
-                    pc['player_api_id'], pc['new_loan_club_api_id'], exc,
+                    pc['player_api_id'], pc['new_current_club_api_id'], exc,
                 )
 
     return {
