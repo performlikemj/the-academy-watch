@@ -432,6 +432,50 @@ def get_team_loans(team_identifier):
 
             result.append(loan_dict)
 
+        # Merge TrackedPlayer records for players not already in AcademyPlayer results
+        # This ensures sold/released/first_team/academy players show up even without
+        # an AcademyPlayer loan spell record
+        if direction == 'loaned_from':
+            from src.models.tracked_player import TrackedPlayer
+            from src.models.weekly import FixturePlayerStats
+            from sqlalchemy import func as sa_func
+
+            existing_player_ids = {loan_dict.get('player_id') for loan_dict in result}
+            tp_query = TrackedPlayer.query.filter_by(team_id=team.id, is_active=True)
+            if pathway_status:
+                tp_query = tp_query.filter(TrackedPlayer.status == pathway_status)
+            tracked = tp_query.all()
+
+            # Batch-fetch stats for all TrackedPlayer IDs not already in results
+            tp_api_ids = [tp.player_api_id for tp in tracked if tp.player_api_id not in existing_player_ids]
+            stats_by_player = {}
+            if tp_api_ids:
+                stats_rows = db.session.query(
+                    FixturePlayerStats.player_api_id,
+                    sa_func.count().label('appearances'),
+                    sa_func.coalesce(sa_func.sum(FixturePlayerStats.goals), 0).label('goals'),
+                    sa_func.coalesce(sa_func.sum(FixturePlayerStats.assists), 0).label('assists'),
+                    sa_func.coalesce(sa_func.sum(FixturePlayerStats.minutes), 0).label('minutes_played'),
+                ).filter(
+                    FixturePlayerStats.player_api_id.in_(tp_api_ids)
+                ).group_by(FixturePlayerStats.player_api_id).all()
+                for row in stats_rows:
+                    stats_by_player[row.player_api_id] = {
+                        'appearances': row.appearances,
+                        'goals': int(row.goals),
+                        'assists': int(row.assists),
+                        'minutes_played': int(row.minutes_played),
+                    }
+
+            for tp in tracked:
+                if tp.player_api_id in existing_player_ids:
+                    continue
+                tp_dict = tp.to_public_dict()
+                # Enrich with actual stats from FixturePlayerStats
+                if tp.player_api_id in stats_by_player:
+                    tp_dict.update(stats_by_player[tp.player_api_id])
+                result.append(tp_dict)
+
         # Include supplemental loans if requested
         include_supp = request.args.get('include_supplemental', 'false').lower() in ('1', 'true', 'yes', 'on')
         if include_supp:
