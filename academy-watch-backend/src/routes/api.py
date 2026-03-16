@@ -9310,6 +9310,9 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                 team_players[parent_team.team_id].append((tp.player_api_id, tp.player_name))
                 tracked_api_ids.add(tp.player_api_id)
 
+    # Create API client early — needed for team discovery below
+    api_client = APIFootballClient()
+
     # Sold/released players — discover their current team via API-Football
     from src.api_football_client import extract_transfer_fee
     sold_released = TrackedPlayer.query.filter(
@@ -9387,7 +9390,6 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
         _update_job(job_id, total=total_players, progress=0,
                     current_player=f'Starting: {total_players} players across {total_teams} teams')
 
-    api_client = APIFootballClient()
     season_start = f"{season}-08-01"
     today = now_utc.strftime('%Y-%m-%d')
 
