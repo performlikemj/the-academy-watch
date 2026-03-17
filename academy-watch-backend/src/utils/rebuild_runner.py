@@ -124,7 +124,7 @@ def _run_full_rebuild(job_id, config):
                 if not league or Team.query.filter_by(league_id=league.id, is_active=True).count() == 0:
                     update_job(job_id, current_player='Syncing European league teams...')
                     from src.routes.teams import _lazy_sync_european_teams
-                    _lazy_sync_european_teams()
+                    _lazy_sync_european_teams(seasons[0] if seasons else None)
                     break
 
         # ── Stage 1: Clean slate ──
