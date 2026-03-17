@@ -137,6 +137,20 @@ API-Football                    Database                      Frontend
 
 The batch sync groups players by their current team to minimize API calls — `O(teams × fixtures)` not `O(players × fixtures)`. For sold/released players with no team on record, it discovers their current team via the `/players` endpoint and backfills `TrackedPlayer.current_club_api_id`.
 
+### Team Squad Seeding
+
+Each tracked team's full squad is populated via `get_team_players(team_api_id, season)` which calls the API-Football `/players?team=X&season=Y` endpoint. This returns the complete roster (25-50 players per team) with profile info (name, photo, position, nationality, age, birth date).
+
+**Seeding process:**
+1. For each team in the top 5 European leagues + Champions League, fetch the current season squad
+2. Create a `TrackedPlayer` record for each player with `status='first_team'` and `data_source='api-football'`
+3. The unique constraint `(player_api_id, team_id)` prevents duplicates — existing players are skipped
+4. Status classification (`classify_tracked_player()` in `academy_classifier.py`) refines statuses later: academy, on_loan, first_team, sold, released
+
+**Admin endpoint:** `POST /admin/tracked-players/seed-team` — seeds a single team with optional journey sync.
+
+**Important:** The `Team` table must have exactly one row per `team_id` (API-Football ID). Duplicate records cause players to be created under the wrong team and become invisible on the frontend. The `teams.team_id` column should be treated as a unique identifier even though it's not enforced at the DB level.
+
 ### Club-First Default (National Team Filtering)
 
 API-Football's `/players` endpoint returns statistics for **all teams** a player appeared for — including national teams (e.g., Argentina, England U21). When discovering teams for sold/released players, both the batch sync and on-demand stats endpoint **filter out national teams** using `is_national_team()` from `utils/academy_classifier.py`, then pick the **club with the most appearances**.
@@ -177,14 +191,16 @@ API-Football sometimes uses different player IDs across endpoints (squad/transfe
 ## Data Model Relationships
 
 ```
-Team (academy club)
+Team (club — one row per API-Football team_id)
   │
-  ├── TrackedPlayer (one row per player per academy)
+  ├── TrackedPlayer (one row per player per club — full squad, not just loans)
   │     ├── status: academy | on_loan | first_team | sold | released
-  │     ├── current_club_api_id (current club if on_loan or sold)
-  │     ├── sale_fee (transfer fee if sold)
+  │     ├── current_club_api_id (loan club, buying club, or new club — never parent academy)
+  │     ├── current_club_name
+  │     ├── sale_fee (transfer fee if sold, raw string e.g. "€50M")
   │     ├── position (Goalkeeper, Defender, Midfielder, Attacker)
-  │     └── journey_id → PlayerJourney
+  │     ├── data_source: api-football | journey-sync | manual | cohort-seed
+  │     └── journey_id → PlayerJourney (lazy — synced on first page visit)
   │                         └── PlayerJourneyEntry[] (career stops)
   │                               ├── club, season, level, entry_type
   │                               ├── appearances, goals, assists
