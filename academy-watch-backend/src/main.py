@@ -279,6 +279,42 @@ def backfill_unsubscribe_tokens():
     print(f"✅ Backfilled {count} subscription(s) with unsubscribe tokens")
 
 
+@app.cli.command("seed-teams")
+@app.cli.with_appcontext
+def seed_teams_cmd():
+    """Seed academy players for all tracked teams with < 20 players.
+    Uses journey sync for proper academy classification. Max age 30.
+    """
+    import click
+    from src.models.tracked_player import TrackedPlayer
+    from src.routes.api import _seed_single_team
+    from sqlalchemy import func
+
+    max_age = 30
+    min_threshold = 20
+
+    teams_with_counts = db.session.query(
+        Team, func.count(TrackedPlayer.id).label('count')
+    ).outerjoin(
+        TrackedPlayer, (Team.id == TrackedPlayer.team_id) & (TrackedPlayer.is_active == True)
+    ).filter(Team.is_tracked == True
+    ).group_by(Team.id).having(func.count(TrackedPlayer.id) < min_threshold
+    ).order_by(Team.name).all()
+
+    print(f"Seeding {len(teams_with_counts)} teams with < {min_threshold} players (max_age={max_age})", flush=True)
+
+    for i, (team, current_count) in enumerate(teams_with_counts):
+        print(f"[{i+1}/{len(teams_with_counts)}] {team.name} (api={team.team_id}, current={current_count})...", flush=True)
+        try:
+            result = _seed_single_team(team, sync_journeys=True, max_age=max_age, years=4)
+            print(f"  => created={result.get('created', 0)}, skipped={result.get('skipped', 0)}, "
+                  f"candidates={result.get('candidates_found', 0)}, journeys_synced={result.get('journeys_synced', 0)}", flush=True)
+        except Exception as e:
+            print(f"  => FAILED: {e}", flush=True)
+
+    print("Seed complete.", flush=True)
+
+
 if __name__ == "__main__":
     # Only run when you execute `python src/main.py`,
     # NOT when Flask CLI imports the app.
