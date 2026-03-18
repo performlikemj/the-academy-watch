@@ -395,6 +395,60 @@ def get_public_player_season_stats(player_id: int):
             all_loans = [loaned] if loaned else []
 
         if not all_loans:
+            # Fallback: compute stats directly from FixturePlayerStats
+            # This handles players seeded via squad fetch (no AcademyPlayer record)
+            from src.models.tracked_player import TrackedPlayer
+            tp = TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True).first()
+            if tp:
+                stats_agg = db.session.query(
+                    func.count().label('appearances'),
+                    func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label('minutes'),
+                    func.coalesce(func.sum(FixturePlayerStats.goals), 0).label('goals'),
+                    func.coalesce(func.sum(FixturePlayerStats.assists), 0).label('assists'),
+                    func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label('yellows'),
+                    func.coalesce(func.sum(FixturePlayerStats.reds), 0).label('reds'),
+                    func.coalesce(func.sum(FixturePlayerStats.saves), 0).label('saves'),
+                    func.coalesce(func.sum(FixturePlayerStats.goals_conceded), 0).label('goals_conceded'),
+                ).filter(
+                    FixturePlayerStats.player_api_id == player_id,
+                ).join(Fixture, FixturePlayerStats.fixture_id == Fixture.id).filter(
+                    Fixture.date_utc >= season_start,
+                ).first()
+
+                if stats_agg and stats_agg.appearances > 0:
+                    # Compute avg rating
+                    rated = db.session.query(
+                        func.avg(func.cast(FixturePlayerStats.rating, db.Float))
+                    ).filter(
+                        FixturePlayerStats.player_api_id == player_id,
+                        FixturePlayerStats.rating.isnot(None),
+                    ).join(Fixture, FixturePlayerStats.fixture_id == Fixture.id).filter(
+                        Fixture.date_utc >= season_start,
+                    ).scalar()
+
+                    result['appearances'] = stats_agg.appearances
+                    result['minutes'] = int(stats_agg.minutes)
+                    result['goals'] = int(stats_agg.goals)
+                    result['assists'] = int(stats_agg.assists)
+                    result['yellows'] = int(stats_agg.yellows)
+                    result['reds'] = int(stats_agg.reds)
+                    result['saves'] = int(stats_agg.saves)
+                    result['goals_conceded'] = int(stats_agg.goals_conceded)
+                    result['avg_rating'] = round(float(rated), 2) if rated else None
+                    result['source'] = 'fixture-stats'
+
+                    # Add parent team as club
+                    parent_team = Team.query.get(tp.team_id)
+                    if parent_team:
+                        result['clubs'] = [{
+                            'team_name': parent_team.name,
+                            'team_logo': parent_team.logo,
+                            'appearances': stats_agg.appearances,
+                            'goals': int(stats_agg.goals),
+                            'assists': int(stats_agg.assists),
+                            'is_current': True,
+                        }]
+
             return jsonify(result)
 
         # Check for limited coverage
