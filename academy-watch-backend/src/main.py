@@ -280,12 +280,10 @@ def backfill_unsubscribe_tokens():
 
 
 @app.cli.command("seed-teams")
-@app.cli.with_appcontext
 def seed_teams_cmd():
     """Seed academy players for all tracked teams with < 20 players.
     Uses journey sync for proper academy classification. Max age 30.
     """
-    import click
     from src.models.tracked_player import TrackedPlayer
     from src.routes.api import _seed_single_team
     from sqlalchemy import func
