@@ -335,11 +335,25 @@ class GolService:
     _df_cache = None  # Class-level singleton
 
     def __init__(self, session_id: str | None = None):
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY not configured")
-        self.client = OpenAI(api_key=api_key)
-        self.model = 'gpt-4.1-mini'
+        provider = os.getenv('GOL_PROVIDER', 'openai')
+        if provider == 'openrouter':
+            api_key = os.getenv('OPENROUTER_API_KEY')
+            if not api_key:
+                raise RuntimeError("OPENROUTER_API_KEY not configured")
+            self.client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key,
+                default_headers={
+                    "HTTP-Referer": "https://theacademywatch.com",
+                    "X-Title": "The Academy Watch GOL",
+                },
+            )
+        else:
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY not configured")
+            self.client = OpenAI(api_key=api_key)
+        self.model = os.getenv('GOL_MODEL', 'gpt-4.1-mini')
         self._session_id = session_id
         if GolService._df_cache is None:
             GolService._df_cache = DataFrameCache()
@@ -360,9 +374,10 @@ class GolService:
         try:
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-            # Add history (cap at 20 messages = 10 turns)
+            # Add history (cap at 20 messages) with validation
             if history:
-                messages.extend(history[-20:])
+                for entry in history[-20:]:
+                    messages.append(self._sanitize_history_entry(entry))
 
             # Set per-chat session context for lookup_rate limiting
             self._session_id = session_id
@@ -465,6 +480,19 @@ class GolService:
                         "content": json.dumps(llm_result),
                     })
 
+                # Emit history entries so the frontend can replay them next turn
+                history_entries = [
+                    {"role": "assistant", "content": content_buffer or None, "tool_calls": assistant_tool_calls},
+                ]
+                for idx in sorted(tool_calls_buffer.keys()):
+                    tc = tool_calls_buffer[idx]
+                    # Find the matching tool message we appended
+                    for msg in reversed(messages):
+                        if msg.get("role") == "tool" and msg.get("tool_call_id") == tc["id"]:
+                            history_entries.append(msg)
+                            break
+                yield {"event": "history_entries", "data": {"entries": history_entries}}
+
                 # Continue with next completion round
                 yield from self._run_completion(messages, depth + 1)
                 return
@@ -488,6 +516,17 @@ class GolService:
         else:
             hint = "The code could not be executed. Try a simpler approach."
         return {"result_type": "error", "error": hint}
+
+    @staticmethod
+    def _sanitize_history_entry(entry: dict) -> dict:
+        """Whitelist fields on a history entry to prevent injection."""
+        role = entry.get("role", "user")
+        clean = {"role": role, "content": entry.get("content")}
+        if role == "assistant" and "tool_calls" in entry:
+            clean["tool_calls"] = entry["tool_calls"]
+        if role == "tool" and "tool_call_id" in entry:
+            clean["tool_call_id"] = entry["tool_call_id"]
+        return clean
 
     def _execute_tool(self, name: str, args: dict) -> dict:
         """Execute a tool and return the result."""
