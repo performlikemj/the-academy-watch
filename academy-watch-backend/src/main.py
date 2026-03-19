@@ -313,6 +313,70 @@ def seed_teams_cmd():
     print("Seed complete.", flush=True)
 
 
+@app.cli.command("reclass-journeys")
+def reclass_journeys_cmd():
+    """Re-run academy classification on all existing journeys.
+
+    Reprocesses entry_type classification and recomputes academy_club_ids
+    using the latest rules, without re-fetching career data from API-Football.
+    Transfer records are fetched (cached) for accurate permanent-transfer gating.
+    """
+    from src.models.journey import PlayerJourney, PlayerJourneyEntry
+    from src.services.journey_sync import JourneySyncService
+
+    svc = JourneySyncService()
+    journeys = PlayerJourney.query.all()
+    total = len(journeys)
+    print(f"Reclassifying {total} journeys ...", flush=True)
+
+    changed = 0
+    errors = 0
+    for i, journey in enumerate(journeys):
+        if (i + 1) % 100 == 0:
+            print(f"  [{i+1}/{total}] ...", flush=True)
+        try:
+            entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
+            if not entries:
+                continue
+
+            old_ids = sorted(journey.academy_club_ids or [])
+
+            # Reset youth entries to 'academy' so classification starts fresh
+            for e in entries:
+                if e.is_youth and not e.is_international and e.entry_type in ('academy', 'development', 'integration'):
+                    e.entry_type = 'academy'
+
+            # Fetch transfers (hits DB cache first, then API if needed)
+            transfers = svc._get_player_transfers(journey.player_api_id)
+
+            # Re-run classification passes
+            svc._apply_development_classification(entries, transfers=transfers, birth_date=journey.birth_date)
+
+            # Re-run level classification for entries that may have wrong level (U17 fix)
+            for e in entries:
+                new_level = svc._classify_level(e.club_name, e.league_name or '')
+                if new_level != e.level:
+                    e.level = new_level
+                    e.is_youth = new_level in ('U15', 'U16', 'U17', 'U18', 'U19', 'U21', 'U23', 'Reserve', 'International Youth')
+                    e.entry_type = svc._classify_entry_type(new_level, e.league_name or '')
+
+            # Recompute academy_club_ids and update TrackedPlayer rows
+            svc._compute_academy_club_ids(journey, entries, transfers=transfers)
+
+            new_ids = sorted(journey.academy_club_ids or [])
+            if old_ids != new_ids:
+                changed += 1
+
+            db.session.flush()
+        except Exception as e:
+            errors += 1
+            print(f"  FAILED journey {journey.id} (player {journey.player_api_id}): {e}", flush=True)
+            db.session.rollback()
+
+    db.session.commit()
+    print(f"Done — {changed} journeys changed, {errors} errors out of {total} total.", flush=True)
+
+
 @app.cli.command("sync-fixtures")
 def sync_fixtures_cmd():
     """Sync match fixtures and player stats for all active tracked players."""

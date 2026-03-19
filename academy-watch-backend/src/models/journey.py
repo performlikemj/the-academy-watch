@@ -425,4 +425,4 @@ LEVEL_PRIORITY = {
 }
 
 # Youth levels for classification
-YOUTH_LEVELS = {'U18', 'U19', 'U21', 'U23', 'Reserve', 'International Youth'}
+YOUTH_LEVELS = {'U15', 'U16', 'U17', 'U18', 'U19', 'U21', 'U23', 'Reserve', 'International Youth'}

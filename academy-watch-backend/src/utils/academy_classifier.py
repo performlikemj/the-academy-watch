@@ -74,6 +74,8 @@ INTERNATIONAL_PATTERNS = [
     'world cup', 'euro', 'copa america', 'african cup', 'asian cup',
     'gold cup', 'nations league', 'friendlies', 'qualification',
     'u20 world', 'u17 world', 'olympic', 'toulon', 'maurice revello',
+    'caf', 'concacaf', 'conmebol', 'afc',
+    'cup of nations',
 ]
 
 # ── levels that count as "international" ───────────────────────────────
