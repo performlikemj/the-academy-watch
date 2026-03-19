@@ -313,6 +313,16 @@ def seed_teams_cmd():
     print("Seed complete.", flush=True)
 
 
+@app.cli.command("sync-fixtures")
+def sync_fixtures_cmd():
+    """Sync match fixtures and player stats for all active tracked players."""
+    from src.routes.api import _run_batch_fixture_sync
+
+    print("Starting batch fixture sync ...", flush=True)
+    result = _run_batch_fixture_sync({})
+    print(f"Done — {result}", flush=True)
+
+
 if __name__ == "__main__":
     # Only run when you execute `python src/main.py`,
     # NOT when Flask CLI imports the app.
