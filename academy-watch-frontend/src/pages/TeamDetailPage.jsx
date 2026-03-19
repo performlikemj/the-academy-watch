@@ -328,6 +328,7 @@ export function TeamDetailPage() {
                                 <CardContent className="py-12 text-center">
                                     <Users className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
                                     <p className="text-muted-foreground mb-4">No tracked academy players yet</p>
+                                    <p className="text-xs text-muted-foreground/70 max-w-md mx-auto">Academy data for this team is limited. We are working with our data provider to improve coverage.</p>
                                     {team?.is_tracked === false && (
                                         <Button variant="outline" onClick={openRequestTracking}>
                                             Request Tracking
@@ -337,6 +338,12 @@ export function TeamDetailPage() {
                             </Card>
                         ) : (
                             <div className="space-y-4">
+                                {/* Limited data disclaimer */}
+                                {players.length < 10 && (
+                                    <p className="text-xs text-muted-foreground/70 text-center py-1">
+                                        Academy data for this team is limited. We are working with our data provider to improve coverage.
+                                    </p>
+                                )}
                                 {/* Status filter chips */}
                                 {Object.keys(statusCounts).length > 1 && (
                                     <div className="flex flex-wrap gap-2">
