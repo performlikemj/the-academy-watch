@@ -15223,8 +15223,37 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                 synced += 1
                 if journey and parent_api_id in (journey.academy_club_ids or []):
                     candidate_ids[pid] = journey
-                else:
-                    not_academy += 1
+                elif pid not in candidate_ids:
+                    # Transfer-based fallback for clubs without youth league data
+                    # (e.g., Serie A, La Liga, Ligue 1 clubs whose youth teams
+                    # aren't in API-Football as separate entries)
+                    age = player_info.get('age')
+                    if age and int(age) <= 22:
+                        was_bought = False
+                        try:
+                            transfers_resp = _api.get_player_transfers(pid)
+                            for tentry in (transfers_resp or []):
+                                for xfer in tentry.get('transfers', []):
+                                    teams_in = xfer.get('teams', {}).get('in', {})
+                                    xfer_type = (xfer.get('type') or '').strip().lower()
+                                    if teams_in.get('id') == parent_api_id and xfer_type not in (
+                                        'loan', 'back from loan', 'return from loan',
+                                        'end of loan', 'loan end', 'loan return',
+                                    ):
+                                        was_bought = True
+                                        break
+                                if was_bought:
+                                    break
+                        except Exception:
+                            pass
+                        if not was_bought:
+                            candidate_ids[pid] = journey
+                            logger.info('seed: transfer-fallback accepted %d (%s) age %s for %s',
+                                        pid, player_info.get('name'), age, team.name)
+                        else:
+                            not_academy += 1
+                    else:
+                        not_academy += 1
             except Exception as sync_err:
                 logger.warning('seed: journey sync failed for %d: %s', pid, sync_err)
         else:
