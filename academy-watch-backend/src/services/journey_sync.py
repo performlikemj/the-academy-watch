@@ -37,6 +37,9 @@ class JourneySyncService:
 
     # Patterns to detect youth/academy levels
     LEVEL_PATTERNS = {
+        'U15': ['u15', 'under 15', 'under-15'],
+        'U16': ['u16', 'under 16', 'under-16'],
+        'U17': ['u17', 'under 17', 'under-17'],
         'U18': ['u18', 'under 18', 'under-18', 'youth cup'],
         'U19': ['u19', 'under 19', 'under-19', 'youth league'],
         'U21': ['u21', 'under 21', 'under-21'],
@@ -592,12 +595,17 @@ class JourneySyncService:
         """
         # Build lookup: parent_base_name -> earliest first-team season
         first_team_debut_by_club = {}
+        # Also track total first-team appearances per club for age/experience gate
+        first_team_apps_by_club = {}
         for entry in entries:
             if entry.level == 'First Team' and not entry.is_international:
                 base_name = self._strip_youth_suffix(entry.club_name)
                 existing = first_team_debut_by_club.get(base_name)
                 if existing is None or entry.season < existing:
                     first_team_debut_by_club[base_name] = entry.season
+                first_team_apps_by_club[base_name] = (
+                    first_team_apps_by_club.get(base_name, 0) + (entry.appearances or 0)
+                )
 
         # Build set of clubs the player was permanently transferred TO.
         # A permanent transfer TO a club means the player is NOT an academy
@@ -654,9 +662,18 @@ class JourneySyncService:
                     continue
 
                 # Integration: first-team at a DIFFERENT club before or during
-                # this youth season (player was bought with senior experience)
+                # this youth season (player was bought with senior experience).
+                # Gate: a young player (≤18) with few apps (≤15) at a small club
+                # before joining a big academy is a normal academy transfer, not
+                # an integration (e.g., Hansen-Aarøen: 7 apps at Tromso age 16,
+                # then 4 years in ManU youth).
                 for club_name, debut in first_team_debut_by_club.items():
                     if club_name != parent_name and debut <= entry.season:
+                        if birth_year is not None:
+                            age_at_other_debut = debut - birth_year
+                            other_apps = first_team_apps_by_club.get(club_name, 0)
+                            if age_at_other_debut <= 18 and other_apps <= 15:
+                                continue
                         entry.entry_type = 'integration'
                         logger.debug(
                             f"Reclassified {entry.club_name} season {entry.season} as "

@@ -226,6 +226,25 @@ Team (club — one row per API-Football team_id)
                     └── shots, passes, tackles, duels, dribbles, cards
 ```
 
+### Academy Classification Pipeline
+
+Determines which team's academy a player belongs to. Core logic in `services/journey_sync.py`.
+
+**Entry classification** (`_classify_level`): Each career entry gets a `level` (U15-U23, Reserve, First Team, International, International Youth) and `entry_type`:
+- `academy` — genuine youth entry, no prior senior experience
+- `development` — youth entry at a club where player already had first-team appearances (promoted player getting youth minutes)
+- `integration` — youth entry at a club the player was transferred to with prior senior experience elsewhere (bought player being integrated)
+- `first_team`, `loan`, `international` — non-youth types
+
+**Reclassification** (`_apply_development_classification`): Three passes refine `academy` entries:
+1. **Journey-based**: first-team at same club → `development`; first-team at different club → `integration` (with age/experience gate: ≤18 years old and ≤15 apps at other club are skipped as normal academy transfers)
+2. **Transfer-based**: permanent transfer TO this club → `integration`
+3. **Age-based**: first youth appearance at age 21+ → `integration`
+
+**Academy ID computation** (`_compute_academy_club_ids`): Collects youth entries with `entry_type` in (`academy`, `development`), strips youth suffix from club names, resolves to parent club API IDs, removes permanent transfer destinations. Result stored as `PlayerJourney.academy_club_ids` JSON array.
+
+**TrackedPlayer creation**: For each academy club ID, creates a `TrackedPlayer` row linking the player to that academy team.
+
 ## Deployment Topology
 
 ```
@@ -258,6 +277,7 @@ Supabase                         │ stripe-*           │
 Scheduled Jobs (Azure Container Apps Jobs):
   - job-weekly-newsletters: Weekly newsletter generation
   - job-transfer-heal: Transfer data reconciliation
+  - job-sync-fixtures: Batch fixture + player stats sync
 ```
 
 ### CI/CD
