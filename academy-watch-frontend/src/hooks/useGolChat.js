@@ -1,16 +1,36 @@
 import { useState, useCallback, useRef } from 'react'
 import { APIService } from '@/lib/api'
 
+/**
+ * Build API history from messages, including tool-call context.
+ * Each message may carry hiddenHistory entries (assistant tool_calls + tool results)
+ * that must be replayed so the model retains context across turns.
+ */
+function buildHistory(messages) {
+  const history = []
+  for (const m of messages) {
+    // Insert tool-call context entries first (assistant w/ tool_calls + tool results)
+    if (m.hiddenHistory?.length) {
+      for (const entry of m.hiddenHistory) {
+        history.push(entry)
+      }
+    }
+    // Then the visible message itself
+    history.push({ role: m.role, content: m.content })
+  }
+  return history.slice(-20)
+}
+
 export function useGolChat() {
   const [messages, setMessages] = useState([])
-  // Each message: {id, role: 'user'|'assistant', content: '', dataCards: [], toolCall: null}
+  // Each message: {id, role, content, dataCards, toolCall, hiddenHistory}
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionId] = useState(() => crypto.randomUUID())
   const abortRef = useRef(null)
 
   const sendMessage = useCallback(async (content) => {
-    const userMsg = { id: Date.now(), role: 'user', content, dataCards: [] }
-    const assistantMsg = { id: Date.now() + 1, role: 'assistant', content: '', dataCards: [], toolCall: null }
+    const userMsg = { id: Date.now(), role: 'user', content, dataCards: [], hiddenHistory: [] }
+    const assistantMsg = { id: Date.now() + 1, role: 'assistant', content: '', dataCards: [], toolCall: null, hiddenHistory: [] }
 
     setMessages(prev => [...prev, userMsg, assistantMsg])
     setIsStreaming(true)
@@ -19,8 +39,8 @@ export function useGolChat() {
     abortRef.current = controller
 
     try {
-      // Build history from existing messages (only role + content for API)
-      const history = messages.map(m => ({ role: m.role, content: m.content }))
+      // Build history with tool-call context from previous turns
+      const history = buildHistory(messages)
 
       const response = await APIService.streamChat(content, history, sessionId, controller.signal)
 
@@ -81,6 +101,15 @@ export function useGolChat() {
                   const updated = [...prev]
                   const last = { ...updated[updated.length - 1] }
                   last.toolCall = data.name
+                  updated[updated.length - 1] = last
+                  return updated
+                })
+              } else if (eventType === 'history_entries') {
+                // Store tool-call context for replay in future turns
+                setMessages(prev => {
+                  const updated = [...prev]
+                  const last = { ...updated[updated.length - 1] }
+                  last.hiddenHistory = [...last.hiddenHistory, ...(data.entries || [])]
                   updated[updated.length - 1] = last
                   return updated
                 })
