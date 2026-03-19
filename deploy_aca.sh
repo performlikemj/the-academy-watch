@@ -31,6 +31,8 @@ TAG="${TAG:-prod}"
 JOB_WEEKLY_NAME="${JOB_WEEKLY_NAME:-job-weekly-newsletters}"
 # Optional: transfer heal job name to keep in sync with backend image tag
 JOB_TRANSFER_HEAL_NAME="${JOB_TRANSFER_HEAL_NAME:-job-transfer-heal}"
+# Optional: fixture sync job name to keep in sync with backend image tag
+JOB_SYNC_FIXTURES_NAME="${JOB_SYNC_FIXTURES_NAME:-job-sync-fixtures}"
 # Optional explicit API base for frontend build. If empty, derived from backend FQDN
 VITE_API_BASE="${VITE_API_BASE:-}"
 
@@ -225,6 +227,14 @@ if az containerapp job show -g "$RG" -n "$JOB_TRANSFER_HEAL_NAME" >/dev/null 2>&
     --image "$ACR_SERVER/loanarmy/backend:$TAG" >/dev/null
 else
   log "Skipping job update (job '$JOB_TRANSFER_HEAL_NAME' not found)"
+fi
+
+if az containerapp job show -g "$RG" -n "$JOB_SYNC_FIXTURES_NAME" >/dev/null 2>&1; then
+  log "Updating scheduled job '$JOB_SYNC_FIXTURES_NAME' image to $ACR_SERVER/loanarmy/backend:$TAG"
+  az containerapp job update -g "$RG" -n "$JOB_SYNC_FIXTURES_NAME" \
+    --image "$ACR_SERVER/loanarmy/backend:$TAG" >/dev/null
+else
+  log "Skipping job update (job '$JOB_SYNC_FIXTURES_NAME' not found)"
 fi
 
 # ---------------------------
