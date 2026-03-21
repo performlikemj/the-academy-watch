@@ -64,10 +64,13 @@ class DataFrameCache:
                     tp.player_api_id, tp.player_name, tp.position,
                     tp.nationality, tp.age, tp.team_id,
                     t.name AS parent_club,
+                    pj.origin_club_name AS academy_club,
                     tp.status, tp.current_level,
-                    tp.current_club_name, tp.data_source, tp.is_active
+                    tp.current_club_name, tp.data_source, tp.is_active,
+                    tp.updated_at
                 FROM tracked_players tp
                 LEFT JOIN teams t ON tp.team_id = t.id
+                LEFT JOIN player_journeys pj ON tp.journey_id = pj.id
                 WHERE tp.is_active = true
             """)
 
@@ -134,7 +137,7 @@ class DataFrameCache:
             frames['fixture_stats'] = self._load_query(engine, """
                 SELECT
                     fs.fixture_id, fs.player_api_id, fs.team_api_id,
-                    f.season, f.date_utc,
+                    f.season, f.date_utc, f.competition_name,
                     fs.minutes, fs.position, fs.rating,
                     fs.formation, fs.grid, fs.formation_position,
                     fs.goals, fs.assists, fs.saves, fs.yellows, fs.reds,

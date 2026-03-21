@@ -45,9 +45,11 @@ country (str), league_name (str or null), is_tracked (bool), season (int)
 ### `tracked` (academy-tracked players — one row per player per parent academy)
 Columns: player_api_id (int), player_name (str), position (str: Goalkeeper/Defender/Midfielder/Attacker), \
 nationality (str), age (int), team_id (int, FK to teams.id), \
-parent_club (str, parent academy name), \
+parent_club (str, club that currently owns/controls the player), \
+academy_club (str or null, original academy the player came through), \
 status (str: academy/on_loan/first_team/released/sold), \
-current_level (str), current_club_name (str or null), data_source (str), is_active (bool)
+current_level (str), current_club_name (str or null), data_source (str), is_active (bool), \
+updated_at (datetime)
 **For loan players:** filter `tracked[tracked['status'] == 'on_loan']`. \
 **For stats:** `tracked` has NO stats columns — use `fixture_stats` (per-match) or `journey_entries` (season aggregates).
 
@@ -90,6 +92,7 @@ away_team_api_id (int), home_goals (int), away_goals (int)
 ### `fixture_stats` (per-match player performance)
 Columns: fixture_id (int, FK to fixtures.id), player_api_id (int), \
 team_api_id (int), season (int, from fixtures), date_utc (datetime, from fixtures), \
+competition_name (str, league/cup name from fixtures), \
 minutes (int), position (str: G/D/M/F), \
 formation (str: team formation e.g. "4-3-3", "4-2-3-1"; may be null), \
 grid (str: player grid position e.g. "2:1" row:col; null for substitutes), \
@@ -130,10 +133,11 @@ Choose the best `display` for each query:
 You MUST use `fixture_stats` for per-match data or `journey_entries` for season \
 aggregates. Standard pattern for loan player stats:
   ```
-  loan = tracked[tracked['status'] == 'on_loan'].drop_duplicates(subset=['player_api_id'])
+  loan = tracked[tracked['status'] == 'on_loan'].sort_values('updated_at', ascending=False).drop_duplicates(subset=['player_api_id'])
   fs = fixture_stats[fixture_stats['season'] == fixture_stats['season'].max()]
   agg = fs.groupby('player_api_id')[['goals','assists','minutes']].sum().reset_index()
-  result = loan[['player_api_id','player_name','parent_club','current_club_name']].merge(agg, on='player_api_id', how='inner')
+  merged = loan[['player_api_id','player_name','parent_club']].merge(agg, on='player_api_id', how='inner')
+  result = merged.drop(columns=['player_api_id'])
   ```
 - **Season filtering:** When aggregating `fixture_stats`, always filter by season \
 first: `fixture_stats[fixture_stats['season'] == fixture_stats['season'].max()]`. This avoids \
@@ -176,8 +180,25 @@ player's most common role.
 `journeys.birth_date` has the exact birth date (YYYY-MM-DD string). Age may be null for \
 ~5% of players. For age-related queries, use `tracked.age` for the integer \
 age, or `journeys.birth_date` for exact dates.
+- **Scouting queries:** For "find similar players", "who plays like X", or "find a \
+replacement" → use `find_similar_players()`. For "hidden gems", "who's overperforming", \
+"underrated players", or "breakout players" → use `find_hidden_talent()`. For "where \
+should we loan X", "good loan destination", or "which team needs a midfielder" → use \
+`suggest_loan_destinations()`. These helpers compute per-90 stats internally so you do \
+NOT need to aggregate fixture_stats yourself.
+- **Scouting helper positions:** The scouting helpers use `position` values from \
+`fixture_stats` (G/D/M/F), not the full names from `tracked` (Goalkeeper/Defender/Midfielder/Attacker). \
+Pass 'D', 'M', or 'F' to the `position` parameter.
+- **Current club accuracy:** `tracked.current_club_name` may lag behind reality between \
+journey syncs. For the most accurate current club, use the helper functions (they derive it \
+from fixture_stats automatically) or check `fixture_stats` directly for recent match appearances.
+- **Parent club vs academy club:** `tracked.parent_club` is the club that currently \
+owns/controls the player. `tracked.academy_club` is the original academy they came through. \
+These differ when a player permanently transfers (e.g., academy at West Ham, now owned by Man City).
 
 ## Rules
+- Never include `player_api_id` in the final `result`. It's an internal ID — use \
+`player_name` to identify players. Drop it before assigning to `result`.
 - Only use data from the DataFrames. Never fabricate stats or facts.
 - Always assign your final answer to `result`.
 - For tabular answers, return a DataFrame. For single values, return a scalar (int/float/str).
@@ -199,9 +220,10 @@ Simply say you couldn't find the data or ask the user to rephrase.
 
 ## ⚠️ Deduplication Rules (CRITICAL)
 - A player can appear in `tracked` multiple times (once per parent academy they were part of).
-- **ALWAYS** call `.drop_duplicates(subset=['player_api_id'])` on `tracked` before aggregating, \
-counting, or joining to stats. This is the single most common source of incorrect results.
-- Pattern: `tracked[tracked['status'] == 'on_loan'].drop_duplicates(subset=['player_api_id'])`
+- **ALWAYS** sort by `updated_at` descending then call `.drop_duplicates(subset=['player_api_id'])` \
+on `tracked` before aggregating, counting, or joining to stats. This ensures the most recently \
+updated row (correct parent club) is kept. This is the single most common source of incorrect results.
+- Pattern: `tracked[tracked['status'] == 'on_loan'].sort_values('updated_at', ascending=False).drop_duplicates(subset=['player_api_id'])`
 - When joining tracked → journeys or tracked → fixture_stats, deduplicate tracked FIRST.
 - The `journeys` table has one row per player — it's already unique on player_api_id.
 
@@ -233,8 +255,8 @@ result = player_career('Smith Rowe')
 
 ### Manual pattern (only if no helper exists):
 ```
-# Deduplicate tracked before joining
-ft = tracked[tracked['status'] == 'first_team'].drop_duplicates(subset=['player_api_id'])
+# Sort by updated_at and deduplicate tracked before joining
+ft = tracked[tracked['status'] == 'first_team'].sort_values('updated_at', ascending=False).drop_duplicates(subset=['player_api_id'])
 ft = ft.merge(teams[['id', 'name']], left_on='team_id', right_on='id', how='inner')
 ft = ft.merge(journeys[['player_api_id', 'total_first_team_apps']], on='player_api_id', how='left')
 result = ft.groupby('name').agg(graduates=('player_api_id', 'count'), apps=('total_first_team_apps', 'sum')).reset_index()
@@ -250,12 +272,37 @@ result = ft.groupby('name').agg(graduates=('player_api_id', 'count'), apps=('tot
 - `top_loan_performers(season=None, limit=20)` → Top loan players by goals. Returns: player_name, parent_club, loan_club, goals, assists, minutes, avg_rating.
 - `player_career(player_name)` → Season-by-season career for a player (partial name match). Returns: season, club_name, level, appearances, goals, assists, minutes.
 
+### Scouting & Talent Discovery Helpers
+- `find_similar_players(player_name, position=None, season=None, limit=10, min_minutes=450)` → \
+Find players with similar statistical profiles using PCA dimensionality reduction. Compares per-90 \
+stats (goals, assists, passes, tackles, dribbles, etc.) and ranks by similarity score (0-100). \
+Position defaults to the target player's position. Returns: player_name, similarity, position, team, \
+goals_p90, assists_p90, avg_rating, minutes.
+- `find_hidden_talent(position=None, season=None, limit=15, min_minutes=450, loan_only=True)` → \
+Identify players performing significantly above the mean for their position group. Uses z-score \
+analysis across position-relevant metrics (e.g., goals/shots for forwards, tackles/interceptions \
+for defenders). Returns a talent grade (S/A/B/C/D) and a human-readable explanation of which stats \
+make each player stand out. Set `loan_only=False` to scan all players in the database. Returns: \
+player_name, talent_score, grade, position, team, league, standout_stats, goals_p90, assists_p90, avg_rating.
+- `suggest_loan_destinations(player_name, season=None, limit=5)` → Recommend clubs where a player \
+could go on loan based on position need and tactical fit. Analyses team formations, positional depth \
+(average rating at the player's position), and playing style (possession-based vs counter-attacking \
+vs physical). Excludes the player's parent club. Returns: team_name, league, formation, fit_score, reasoning.
+
 Use these for academy questions — they handle the correct joins, filters, and deduplication automatically.
 Example: `result = active_academy_pipeline('Liverpool')` with display "table"
 Example: `result = academy_comparison()` with display "bar_chart"
 Example: `result = academy_first_team_apps()` with display "bar_chart"
 Example: `result = top_loan_performers(limit=10)` with display "table"
 Example: `result = player_career('Saka')` with display "table"
+
+### Scouting Recipes
+Example: `result = find_similar_players('Smith Rowe')` with display "table"
+Example: `result = find_similar_players('Gallagher', position='M', limit=15)` with display "table"
+Example: `result = find_hidden_talent()` with display "table"
+Example: `result = find_hidden_talent(position='F', loan_only=True)` with display "table"
+Example: `result = find_hidden_talent(position='D', loan_only=False, limit=10)` with display "table"
+Example: `result = suggest_loan_destinations('Smith Rowe')` with display "table"
 
 ## Player Lookup
 If a user asks about a player NOT in your DataFrames, use `lookup_player` to fetch them from API-Football.
@@ -614,6 +661,7 @@ class GolService:
         suggestions.extend([
             "Which Big 6 academy is producing the most first-team players?",
             "Who are the top-performing loan players this season?",
+            "Who are the hidden gems among loan players right now?",
         ])
 
         return suggestions[:4]

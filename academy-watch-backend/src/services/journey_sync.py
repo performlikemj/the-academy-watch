@@ -991,7 +991,11 @@ class JourneySyncService:
         from src.models.tracked_player import TrackedPlayer
         from src.utils.academy_classifier import classify_tracked_player, _get_latest_season
 
-        # Deactivate journey-sync rows whose academy connection no longer holds
+        # Determine owning club (last permanent transfer destination, if not an academy)
+        owning_api_id = self._determine_owning_club_id(journey, transfers, academy_ids)
+        keep_ids = academy_ids | ({owning_api_id} if owning_api_id else set())
+
+        # Deactivate journey-sync rows whose connection no longer holds
         # Skip pinned rows — manual corrections must persist.
         stale_rows = TrackedPlayer.query.filter_by(
             player_api_id=journey.player_api_id,
@@ -1001,10 +1005,10 @@ class JourneySyncService:
         for tp in stale_rows:
             if tp.pinned_parent:
                 continue
-            if tp.team and tp.team.team_id not in academy_ids:
+            if tp.team and tp.team.team_id not in keep_ids:
                 tp.is_active = False
 
-        if not academy_ids:
+        if not academy_ids and not owning_api_id:
             return
 
         for academy_api_id in academy_ids:
@@ -1057,6 +1061,96 @@ class JourneySyncService:
                 existing.status = status
                 existing.current_club_api_id = current_club_api_id
                 existing.current_club_name = current_club_name
+
+        # ── Owning-club row (non-academy parent) ──
+        # If the player permanently transferred to a club not in academy_ids,
+        # create a TrackedPlayer row for the owning club so parent_club is correct.
+        if owning_api_id:
+            team = Team.query.filter_by(team_id=owning_api_id, is_active=True)\
+                .order_by(Team.season.desc()).first()
+            if team:
+                existing = TrackedPlayer.query.filter_by(
+                    player_api_id=journey.player_api_id,
+                    team_id=team.id,
+                ).first()
+                status, cur_club_id, cur_club_name = classify_tracked_player(
+                    current_club_api_id=journey.current_club_api_id,
+                    current_club_name=journey.current_club_name,
+                    current_level=journey.current_level,
+                    parent_api_id=owning_api_id,
+                    parent_club_name=team.name,
+                    transfers=transfers or [],
+                    latest_season=_get_latest_season(
+                        journey.id, parent_api_id=owning_api_id, parent_club_name=team.name,
+                    ),
+                )
+                if not existing:
+                    tp = TrackedPlayer(
+                        player_api_id=journey.player_api_id,
+                        player_name=journey.player_name or f'Player {journey.player_api_id}',
+                        photo_url=journey.player_photo,
+                        nationality=journey.nationality,
+                        birth_date=journey.birth_date,
+                        team_id=team.id,
+                        journey_id=journey.id,
+                        data_source='journey-sync',
+                        data_depth='full_stats',
+                        status=status,
+                        current_club_api_id=cur_club_id,
+                        current_club_name=cur_club_name,
+                    )
+                    db.session.add(tp)
+                    logger.info(
+                        f"Created owning-club TrackedPlayer for {journey.player_api_id} "
+                        f"at {team.name} (non-academy parent)"
+                    )
+                elif not existing.pinned_parent:
+                    existing.journey_id = journey.id
+                    existing.status = status
+                    existing.current_club_api_id = cur_club_id
+                    existing.current_club_name = cur_club_name
+                    existing.is_active = True
+
+    def _determine_owning_club_id(self, journey, transfers, academy_ids):
+        """Find the club that currently owns the player (last permanent transfer dest).
+
+        Returns team_api_id or None if the owning club is already in academy_ids
+        or cannot be determined.
+
+        Strategy: transfer history first (most explicit), journey entries fallback.
+        """
+        owning_id = None
+
+        # Strategy 1: Transfer history — last permanent transfer destination
+        if transfers:
+            permanent = []
+            for t in transfers:
+                transfer_type = (t.get('type') or '').strip().lower()
+                if not transfer_type or is_new_loan_transfer(transfer_type):
+                    continue
+                if transfer_type in LOAN_RETURN_TYPES:
+                    continue
+                dest_id = t.get('teams', {}).get('in', {}).get('id')
+                date = t.get('date', '')
+                if dest_id:
+                    permanent.append((date, dest_id))
+            if permanent:
+                permanent.sort(reverse=True)  # Most recent first
+                owning_id = permanent[0][1]
+
+        # Strategy 2: Journey entries fallback — last non-youth permanent entry
+        if not owning_id and journey.id:
+            entry = PlayerJourneyEntry.query.filter_by(journey_id=journey.id)\
+                .filter(PlayerJourneyEntry.is_youth.is_(False))\
+                .filter(PlayerJourneyEntry.entry_type.in_(['permanent', 'first_team']))\
+                .order_by(PlayerJourneyEntry.season.desc()).first()
+            if entry and entry.club_api_id:
+                owning_id = entry.club_api_id
+
+        # Skip if owning club is already in academy_ids (already has a tracked row)
+        if owning_id and owning_id not in academy_ids:
+            return owning_id
+        return None
 
     @staticmethod
     def _get_latest_departure_type(transfers, parent_api_id):
