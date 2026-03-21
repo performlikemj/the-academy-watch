@@ -170,6 +170,19 @@ that club. This is correct — both academies can claim the player. The status f
 double-counting in active queries (e.g., `released` for Liverpool but `on_loan` for Man United).
 - **Finding players by name:** Use `.str.contains('Name', case=False)` on player_name columns.
 - **Finding teams by name:** `teams[teams['name'].str.contains('Arsenal', case=False)]`
+- **Player position/role:** `fixture_stats.position` is broad (G/D/M/F). For tactical roles \
+(LB, CAM, RW, ST, CDM), use `formation_position` — it's derived from the team's formation \
+and the player's grid position. It's null for substitutes and some lower-league fixtures. \
+Use `formation_position` when the user asks "what position", "where does X play", or similar. \
+Example: `fs.groupby('formation_position').size().sort_values(ascending=False)` to find a \
+player's most common role.
+- **Team formation:** `fixture_stats.formation` contains the team's tactical formation \
+(e.g. "4-3-3"). Use it for questions like "what formation does team X use?" by grouping: \
+`fs[fs['team_api_id']==ID].groupby('formation').size()`.
+- **Player age:** `tracked.age` and `loan_players.age` contain the player's current age. \
+`journeys.birth_date` has the exact birth date (YYYY-MM-DD string). Age may be null for \
+~5% of players. For age-related queries, prefer `tracked` or `loan_players` for the integer \
+age, or `journeys` for exact birth dates.
 
 ## Rules
 - Only use data from the DataFrames. Never fabricate stats or facts.
