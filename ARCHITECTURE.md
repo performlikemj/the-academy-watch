@@ -121,6 +121,9 @@ API-Football                    Database                      Frontend
                                 minutes, goals, assists,
                                 position, rating, ...)
                                         │
+/fixtures/lineups?fixture=X ────► formation, grid, formation_position
+                                  (team formation + player tactical role)
+                                        │
                               _compute_stats() aggregates ──► Player stats
                                COUNT(*) as appearances        on page
                                SUM(goals), SUM(assists)...
@@ -222,6 +225,8 @@ Team (club — one row per API-Football team_id)
               └── FixturePlayerStats[] (per-player per-match)
                     ├── player_api_id, team_api_id
                     ├── minutes, position, rating
+                    ├── formation (team formation e.g. "4-3-3")
+                    ├── grid (player grid position e.g. "2:1"), formation_position (role e.g. "LB", "CAM")
                     ├── goals, assists, saves
                     └── shots, passes, tackles, duels, dribbles, cards
 ```

@@ -147,6 +147,7 @@ class DataFrameCache:
                     fs.fixture_id, fs.player_api_id, fs.team_api_id,
                     f.season, f.date_utc,
                     fs.minutes, fs.position, fs.rating,
+                    fs.formation, fs.grid, fs.formation_position,
                     fs.goals, fs.assists, fs.saves, fs.yellows, fs.reds,
                     fs.shots_total, fs.shots_on,
                     fs.passes_total, fs.passes_key,

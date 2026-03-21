@@ -96,6 +96,9 @@ away_team_api_id (int), home_goals (int), away_goals (int)
 Columns: fixture_id (int, FK to fixtures.id), player_api_id (int), \
 team_api_id (int), season (int, from fixtures), date_utc (datetime, from fixtures), \
 minutes (int), position (str: G/D/M/F), \
+formation (str: team formation e.g. "4-3-3", "4-2-3-1"; may be null), \
+grid (str: player grid position e.g. "2:1" row:col; null for substitutes), \
+formation_position (str: derived tactical role e.g. "LB", "CAM", "RW", "ST", "CDM"; null for subs/missing data), \
 rating (float), goals (int), assists (int), saves (int), \
 yellows (int), reds (int), shots_total (int), shots_on (int), \
 passes_total (int), passes_key (int), tackles_total (int), \

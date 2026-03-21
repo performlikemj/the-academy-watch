@@ -108,7 +108,12 @@ class FixturePlayerStats(db.Model):
     
     # Other
     offsides = db.Column(db.Integer)
-    
+
+    # Formation & tactical position (from /fixtures/lineups)
+    formation = db.Column(db.String(20))       # e.g. "4-3-3", "4-2-3-1"
+    grid = db.Column(db.String(10))            # e.g. "2:1" (row:col in formation grid)
+    formation_position = db.Column(db.String(10))  # derived role label e.g. "LB", "CAM"
+
     # Raw JSON for future expansion
     raw_json = db.Column(db.Text)
     

@@ -1895,6 +1895,36 @@ def get_public_player_stats(player_id: int):
         return jsonify(_safe_error_payload(e, 'Failed to fetch player stats')), 500
 
 
+def _extract_lineup_info(api_client, fixture_id_api: int, player_api_id: int, team_api_id: int):
+    """Extract formation and grid for a player from cached lineup data.
+
+    Returns (formation, grid, formation_position).
+    All values may be None if lineup data is unavailable or player not found.
+    """
+    from src.utils.formation_roles import grid_to_role
+    try:
+        lineups = api_client.get_fixture_lineups(fixture_id_api).get("response", [])
+    except Exception:
+        return None, None, None
+
+    for lu in lineups:
+        team = lu.get('team') or {}
+        if team.get('id') != team_api_id:
+            continue
+        formation = lu.get('formation')
+        for entry in lu.get('startXI') or []:
+            pb = (entry or {}).get('player') or {}
+            if pb.get('id') == player_api_id:
+                grid = pb.get('grid')
+                return formation, grid, grid_to_role(formation, grid)
+        # Player is a substitute — formation known but no grid
+        for entry in lu.get('substitutes') or []:
+            pb = (entry or {}).get('player') or {}
+            if pb.get('id') == player_api_id:
+                return formation, None, None
+    return None, None, None
+
+
 def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: int, player_name: str = None) -> int:
     """
     Sync all fixtures for a player at their loan club from API-Football.
@@ -2038,6 +2068,9 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                     fouls = st.get('fouls', {}) or {}
                     penalty = st.get('penalty', {}) or {}
                     
+                    formation, grid, formation_pos = _extract_lineup_info(
+                        api_client, fixture_id_api, player_id, loan_team_api_id)
+
                     fps = FixturePlayerStats(
                         fixture_id=existing_fixture.id,
                         player_api_id=player_id,
@@ -2064,6 +2097,10 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                         fouls_drawn=fouls.get('drawn'),
                         fouls_committed=fouls.get('committed'),
                         penalty_saved=penalty.get('saved'),
+                        # Formation & tactical position
+                        formation=formation,
+                        grid=grid,
+                        formation_position=formation_pos,
                     )
                     db.session.add(fps)
                     synced += 1
@@ -7944,6 +7981,9 @@ def _run_reconcile_ids_logic(data: dict, job_id: str = None) -> dict:
         shots = stats.get('shots', {})
         cards = stats.get('cards', {})
         
+        formation, grid, formation_pos = _extract_lineup_info(
+            api_client, fixture_api_id, player_api_id, team_api_id)
+
         new_stat = FixturePlayerStats(
             fixture_id=fixture.id,
             player_api_id=player_api_id,
@@ -7963,6 +8003,9 @@ def _run_reconcile_ids_logic(data: dict, job_id: str = None) -> dict:
             shots_total=shots.get('total'),
             shots_on=shots.get('on'),
             passes_total=passes.get('total'),
+            formation=formation,
+            grid=grid,
+            formation_position=formation_pos,
         )
         db.session.add(new_stat)
         return {
@@ -9146,6 +9189,8 @@ def admin_sync_player_fixtures(player_id: int):
 
                     # Record if player played or was listed as substitute
                     if (minutes > 0 or games.get('substitute') is not None) and not dry_run and existing_fixture:
+                        formation, grid, formation_pos = _extract_lineup_info(
+                            api_client, fixture_id_api, player_id, team_api_id)
                         fps = FixturePlayerStats(
                             fixture_id=existing_fixture.id,
                             player_api_id=player_id,
@@ -9165,13 +9210,14 @@ def admin_sync_player_fixtures(player_id: int):
                             duels_won=duels.get('won'),
                             duels_total=duels.get('total'),
                             dribbles_success=dribbles.get('success'),
-                            # Goalkeeper stats - saves and conceded are in goals block
                             saves=goals_block.get('saves'),
                             goals_conceded=goals_block.get('conceded'),
-                            # Additional stats
                             fouls_drawn=fouls.get('drawn'),
                             fouls_committed=fouls.get('committed'),
                             penalty_saved=penalty.get('saved'),
+                            formation=formation,
+                            grid=grid,
+                            formation_position=formation_pos,
                         )
                         db.session.add(fps)
                         synced += 1
@@ -9579,6 +9625,8 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
 
                         if minutes > 0 or games.get('substitute') is not None:
                             if not dry_run:
+                                formation, grid_val, formation_pos = _extract_lineup_info(
+                                    api_client, fixture_id_api, pid, team_api_id)
                                 fps = FixturePlayerStats(
                                     fixture_id=existing_fixture.id,
                                     player_api_id=pid,
@@ -9603,6 +9651,9 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                                     fouls_drawn=fouls.get('drawn'),
                                     fouls_committed=fouls.get('committed'),
                                     penalty_saved=penalty.get('saved'),
+                                    formation=formation,
+                                    grid=grid_val,
+                                    formation_position=formation_pos,
                                 )
                                 db.session.add(fps)
                             team_result['synced'] += 1
@@ -9740,6 +9791,228 @@ def admin_backfill_fixture_raw_json():
         logger.exception("admin_backfill_fixture_raw_json failed")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, 'Failed to backfill fixture raw_json')), 500
+
+
+@api_bp.route('/admin/tracked-players/backfill-ages', methods=['POST'])
+@require_api_key
+def admin_backfill_ages():
+    """Backfill age and birth_date on TrackedPlayer records.
+
+    Phase A: copy birth_date from linked PlayerJourney (zero API calls).
+    Phase B: fetch from API-Football /players endpoint for remaining gaps.
+
+    Body:
+    - team_api_id: (optional) limit to one parent club
+    - limit: (optional) max players to API-fetch (default 500)
+    - dry_run: (optional) report only
+    """
+    try:
+        from src.api_football_client import APIFootballClient
+        from src.models.tracked_player import TrackedPlayer
+        from src.models.journey import PlayerJourney
+        from datetime import date
+
+        data = request.get_json() or {}
+        limit = min(data.get('limit', 500), 2000)
+        dry_run = data.get('dry_run', False)
+        team_api_id = data.get('team_api_id')
+
+        # ── Phase A: journey-based fill (no API calls) ──
+        journey_q = (
+            db.session.query(TrackedPlayer)
+            .join(PlayerJourney, TrackedPlayer.journey_id == PlayerJourney.id)
+            .filter(
+                TrackedPlayer.is_active.is_(True),
+                TrackedPlayer.birth_date.is_(None),
+                PlayerJourney.birth_date.isnot(None),
+            )
+        )
+        journey_filled = 0
+        for tp in journey_q.all():
+            journey = tp.journey
+            if not journey or not journey.birth_date:
+                continue
+            if not dry_run:
+                tp.birth_date = journey.birth_date
+                try:
+                    bd = date.fromisoformat(journey.birth_date)
+                    today = date.today()
+                    tp.age = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
+                except (ValueError, TypeError):
+                    pass
+            journey_filled += 1
+
+        if not dry_run and journey_filled:
+            db.session.commit()
+
+        # ── Phase B: API-based fill ──
+        api_q = (
+            TrackedPlayer.query
+            .filter(TrackedPlayer.is_active.is_(True), TrackedPlayer.age.is_(None))
+        )
+        if team_api_id:
+            from src.models.league import Team
+            team = Team.query.filter_by(team_id=team_api_id).first()
+            if team:
+                api_q = api_q.filter(TrackedPlayer.team_id == team.id)
+
+        players_to_fill = api_q.limit(limit).all()
+        api_client_inst = APIFootballClient()
+        api_filled = 0
+        api_errors = 0
+
+        for i, tp in enumerate(players_to_fill):
+            try:
+                resp = api_client_inst.get_player_by_id(tp.player_api_id, season=2025)
+                items = resp.get('response', [])
+                if not items:
+                    continue
+                player_data = items[0].get('player', {})
+                birth = player_data.get('birth', {}) or {}
+
+                if not dry_run:
+                    if player_data.get('age'):
+                        tp.age = int(player_data['age'])
+                    if birth.get('date'):
+                        tp.birth_date = birth['date']
+                        # Compute age from birth_date if API age missing
+                        if not tp.age:
+                            try:
+                                bd = date.fromisoformat(birth['date'])
+                                today = date.today()
+                                tp.age = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
+                            except (ValueError, TypeError):
+                                pass
+                    if not tp.nationality and player_data.get('nationality'):
+                        tp.nationality = player_data['nationality']
+                    if not tp.photo_url and player_data.get('photo'):
+                        tp.photo_url = player_data['photo']
+                api_filled += 1
+            except Exception as e:
+                logger.warning(f"Backfill age failed for player {tp.player_api_id}: {e}")
+                api_errors += 1
+
+            # Commit in batches
+            if not dry_run and (i + 1) % 50 == 0:
+                db.session.commit()
+
+        if not dry_run:
+            db.session.commit()
+
+        return jsonify({
+            'kind': 'backfill-ages',
+            'journey_filled': journey_filled,
+            'api_filled': api_filled,
+            'api_remaining': len(players_to_fill) - api_filled - api_errors,
+            'api_errors': api_errors,
+            'dry_run': dry_run,
+        })
+
+    except Exception as e:
+        logger.exception("admin_backfill_ages failed")
+        db.session.rollback()
+        return jsonify(_safe_error_payload(e, 'Failed to backfill ages')), 500
+
+
+@api_bp.route('/admin/fixtures/backfill-formations', methods=['POST'])
+@require_api_key
+def admin_backfill_formations():
+    """Backfill formation, grid, and formation_position on existing FixturePlayerStats.
+
+    Groups by fixture to minimize API calls (one lineup fetch per fixture).
+
+    Body:
+    - limit: (optional) max fixtures to process (default 200)
+    - dry_run: (optional) report only
+    """
+    try:
+        from src.api_football_client import APIFootballClient
+        from src.models.weekly import Fixture, FixturePlayerStats
+        from src.utils.formation_roles import grid_to_role
+        from sqlalchemy import func
+
+        data = request.get_json() or {}
+        limit = min(data.get('limit', 200), 1000)
+        dry_run = data.get('dry_run', False)
+
+        # Find distinct fixture IDs that have stats rows missing formation
+        fixture_ids = (
+            db.session.query(FixturePlayerStats.fixture_id)
+            .filter(FixturePlayerStats.formation.is_(None))
+            .distinct()
+            .limit(limit)
+            .all()
+        )
+        fixture_ids = [row[0] for row in fixture_ids]
+
+        if not fixture_ids:
+            return jsonify({'message': 'No fixtures need formation backfill', 'updated': 0})
+
+        api_client_inst = APIFootballClient()
+        total_updated = 0
+        total_errors = 0
+
+        for fix_id in fixture_ids:
+            fixture = Fixture.query.get(fix_id)
+            if not fixture:
+                continue
+
+            try:
+                lineups = api_client_inst.get_fixture_lineups(fixture.fixture_id_api).get('response', [])
+            except Exception as e:
+                logger.warning(f"Backfill formation: failed to fetch lineups for fixture {fixture.fixture_id_api}: {e}")
+                total_errors += 1
+                continue
+
+            # Build lookup: {team_api_id: {formation, players: {player_id: grid}}}
+            team_lineup = {}
+            for lu in lineups:
+                team_id = (lu.get('team') or {}).get('id')
+                if not team_id:
+                    continue
+                formation = lu.get('formation')
+                player_grids = {}
+                for entry in lu.get('startXI') or []:
+                    pb = (entry or {}).get('player') or {}
+                    if pb.get('id'):
+                        player_grids[pb['id']] = pb.get('grid')
+                for entry in lu.get('substitutes') or []:
+                    pb = (entry or {}).get('player') or {}
+                    if pb.get('id'):
+                        player_grids[pb['id']] = None  # subs have no grid
+                team_lineup[team_id] = {'formation': formation, 'players': player_grids}
+
+            # Update all stats rows for this fixture
+            stats_rows = FixturePlayerStats.query.filter_by(fixture_id=fix_id).all()
+            for fps in stats_rows:
+                tl = team_lineup.get(fps.team_api_id)
+                if not tl:
+                    continue
+                formation = tl['formation']
+                grid = tl['players'].get(fps.player_api_id)
+                pos = grid_to_role(formation, grid)
+
+                if not dry_run:
+                    fps.formation = formation
+                    fps.grid = grid
+                    fps.formation_position = pos
+                total_updated += 1
+
+            if not dry_run:
+                db.session.commit()
+
+        return jsonify({
+            'kind': 'backfill-formations',
+            'fixtures_processed': len(fixture_ids),
+            'stats_updated': total_updated,
+            'errors': total_errors,
+            'dry_run': dry_run,
+        })
+
+    except Exception as e:
+        logger.exception("admin_backfill_formations failed")
+        db.session.rollback()
+        return jsonify(_safe_error_payload(e, 'Failed to backfill formations')), 500
 
 
 def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dict:
@@ -9905,6 +10178,8 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                             minutes = games.get('minutes', 0) or 0
                             
                             if (minutes > 0 or games.get('substitute') is not None) and not dry_run and existing_fixture:
+                                formation, grid_val, formation_pos = _extract_lineup_info(
+                                    api_client, fixture_id_api, p_api_id, p_team_api_id)
                                 fps = FixturePlayerStats(
                                     fixture_id=existing_fixture.id,
                                     player_api_id=p_api_id,
@@ -9929,6 +10204,9 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                                     fouls_drawn=fouls.get('drawn'),
                                     fouls_committed=fouls.get('committed'),
                                     penalty_saved=penalty.get('saved'),
+                                    formation=formation,
+                                    grid=grid_val,
+                                    formation_position=formation_pos,
                                 )
                                 db.session.add(fps)
                                 player_result['synced'] += 1
