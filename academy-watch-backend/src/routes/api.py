@@ -9863,11 +9863,11 @@ def admin_backfill_ages():
 
         for i, tp in enumerate(players_to_fill):
             try:
+                # get_player_by_id returns {'player': {...}, 'statistics': [...]} directly
                 resp = api_client_inst.get_player_by_id(tp.player_api_id, season=2025)
-                items = resp.get('response', [])
-                if not items:
+                if not resp:
                     continue
-                player_data = items[0].get('player', {})
+                player_data = resp.get('player', {})
                 birth = player_data.get('birth', {}) or {}
 
                 if not dry_run:
