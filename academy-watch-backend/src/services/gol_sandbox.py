@@ -156,17 +156,20 @@ def _build_helpers(dataframes: dict) -> dict:
         return result.sort_values('total_first_team_apps', ascending=False).reset_index(drop=True)
 
     def top_loan_performers(season=None, limit=20):
-        """Top loan players by goals this season."""
-        loan_players = dataframes.get('loan_players', pd.DataFrame())
+        """Top loan players by goals this season. Deduplicates multi-academy players."""
+        tracked = dataframes.get('tracked', pd.DataFrame())
         fixture_stats = dataframes.get('fixture_stats', pd.DataFrame())
-        if loan_players.empty or fixture_stats.empty:
+        if tracked.empty or fixture_stats.empty:
             return pd.DataFrame(columns=['player_name', 'parent_club', 'loan_club', 'goals', 'assists', 'minutes', 'avg_rating'])
+
+        # Filter to on-loan players, deduplicate by player_api_id
+        loan = tracked[tracked['status'] == 'on_loan'].drop_duplicates(subset=['player_api_id'])
 
         fs = fixture_stats.copy()
         target_season = season if season else fs['season'].max()
         fs = fs[fs['season'] == target_season]
 
-        merged = loan_players.merge(fs, on='player_api_id', how='inner')
+        merged = loan.merge(fs, on='player_api_id', how='inner')
         if merged.empty:
             return pd.DataFrame(columns=['player_name', 'parent_club', 'loan_club', 'goals', 'assists', 'minutes', 'avg_rating'])
 
