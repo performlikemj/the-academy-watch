@@ -1759,7 +1759,19 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
 
     groups: Dict[str, list] = {'first_team': [], 'on_loan': [], 'academy': []}
 
+    # Thresholds for reclassifying first-team players with minimal involvement back to academy
+    ACADEMY_THRESHOLD_MINUTES = 200  # ~2 full matches
+    ACADEMY_THRESHOLD_APPS = 5
+
     for tp in tracked:
+        # A1: Filter out bought players (not academy products)
+        if tp.journey_id:
+            journey = PlayerJourney.query.get(tp.journey_id)
+            if journey and journey.academy_club_ids:
+                if team.team_id not in (journey.academy_club_ids or []):
+                    _nl_dbg(f"Skipping non-academy product: {tp.player_name} (academy_club_ids={journey.academy_club_ids}, parent={team.team_id})")
+                    continue
+
         player_dict = {
             'player_api_id': tp.player_api_id,
             'player_id': tp.player_api_id,
@@ -1798,11 +1810,28 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
             groups['on_loan'].append(player_dict)
 
         elif tp.status == 'first_team':
-            player_dict['loan_team_name'] = team.name  # They play for the parent club
-            player_dict['loan_team'] = team.name
-            player_dict['loan_team_api_id'] = team.team_id
+            # Enrich first — we need season_totals to decide classification
             _enrich_first_team_stats(player_dict, tp, team, start, end, season_start_year)
-            groups['first_team'].append(player_dict)
+
+            # A2: Reclassify to academy if minimal first-team involvement
+            st = player_dict.get('season_totals') or {}
+            season_mins = st.get('minutes', 0)
+            season_apps = st.get('appearances', 0)
+
+            if season_mins < ACADEMY_THRESHOLD_MINUTES and season_apps < ACADEMY_THRESHOLD_APPS:
+                # Academy player with a brief first-team cameo
+                player_dict['pathway_status'] = 'academy'
+                player_dict['loan_team_name'] = f"{team.name} {tp.current_level or 'Academy'}"
+                player_dict['loan_team'] = player_dict['loan_team_name']
+                if season_mins > 0:
+                    player_dict['first_team_cameo'] = True
+                _enrich_academy_stats(player_dict, tp, season_start_year)
+                groups['academy'].append(player_dict)
+            else:
+                player_dict['loan_team_name'] = team.name
+                player_dict['loan_team'] = team.name
+                player_dict['loan_team_api_id'] = team.team_id
+                groups['first_team'].append(player_dict)
 
         elif tp.status == 'academy':
             player_dict['loan_team_name'] = f"{team.name} {tp.current_level or 'Academy'}"
@@ -2030,15 +2059,69 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
 
 
 def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -> None:
-    """Enrich an academy player dict with season-level stats from journey entries.
-    
-    Academy players don't have fixture-level tracking, so all stats are season totals.
-    These go into season_totals (not totals) to keep the weekly/season distinction clear.
+    """Enrich an academy player dict with stats.
+
+    Tries FixturePlayerStats first (youth team fixtures synced from API-Football).
+    Falls back to PlayerJourneyEntry season totals if no fixture data available.
     """
+    from src.models.weekly import Fixture, FixturePlayerStats
+
     player_dict['totals'] = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
     player_dict['matches'] = []
     player_dict['_stats_source'] = 'academy_season'
 
+    # Try FixturePlayerStats first (match-level data from youth fixture sync)
+    if tp.player_api_id:
+        try:
+            season_start = date(season, 8, 1)
+            season_end = date(season + 1, 6, 30)
+            stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
+                Fixture, FixturePlayerStats.fixture_id == Fixture.id
+            ).filter(
+                FixturePlayerStats.player_api_id == tp.player_api_id,
+                db.func.date(Fixture.date_utc) >= season_start,
+                db.func.date(Fixture.date_utc) <= season_end,
+            ).all()
+
+            if stats_rows:
+                totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
+                matches = []
+                for row, fixture in stats_rows:
+                    totals['minutes'] += row.minutes or 0
+                    totals['goals'] += row.goals or 0
+                    totals['assists'] += row.assists or 0
+                    totals['yellows'] += row.yellows or 0
+                    totals['reds'] += row.reds or 0
+                    totals['saves'] += getattr(row, 'saves', 0) or 0
+                    if fixture:
+                        matches.append({
+                            'competition': getattr(fixture, 'competition_name', None),
+                            'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
+                            'played': (row.minutes or 0) > 0,
+                            'role': getattr(row, 'role', None),
+                            'player': {
+                                'position': getattr(row, 'position', None),
+                                'goals': row.goals or 0,
+                                'assists': row.assists or 0,
+                                'minutes': row.minutes or 0,
+                            },
+                        })
+                player_dict['season_totals'] = {
+                    'minutes': totals['minutes'],
+                    'goals': totals['goals'],
+                    'assists': totals['assists'],
+                    'appearances': sum(1 for r, _ in stats_rows if (r.minutes or 0) > 0),
+                }
+                player_dict['_stats_source'] = 'fixture_stats'
+                if player_dict.get('season_totals'):
+                    player_dict['season_context'] = {
+                        'season_stats': player_dict['season_totals'],
+                    }
+                return
+        except Exception as e:
+            _nl_dbg('_enrich_academy_stats fixture query error:', str(e))
+
+    # Fallback: season totals from PlayerJourneyEntry
     if not tp.journey_id:
         return
 
@@ -2055,6 +2138,10 @@ def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -
                 'assists': sum(e.assists or 0 for e in entries),
                 'appearances': sum(1 for e in entries if (e.minutes or 0) > 0),
             }
+            if player_dict.get('season_totals'):
+                player_dict['season_context'] = {
+                    'season_stats': player_dict['season_totals'],
+                }
     except Exception as e:
         _nl_dbg('_enrich_academy_stats error:', str(e))
 
@@ -2964,25 +3051,11 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
     # ── Split first-team into "established" vs "debut" tiers ──
     # Established: 500+ season minutes OR 10+ season appearances
     # First Team Debut: made the senior squad but not yet established
-    ESTABLISHED_MIN_MINUTES = 500
-    ESTABLISHED_MIN_APPEARANCES = 10
-    established_items: list[dict[str, Any]] = []
-    debut_items: list[dict[str, Any]] = []
-    for item in first_team_items:
-        st = item.get('season_totals') or item.get('season_stats') or {}
-        season_mins = st.get('minutes', 0)
-        season_apps = st.get('appearances', 0)
-        if season_mins >= ESTABLISHED_MIN_MINUTES or season_apps >= ESTABLISHED_MIN_APPEARANCES:
-            established_items.append(item)
-        else:
-            item['pathway_status'] = 'first_team_debut'
-            debut_items.append(item)
-
+    # Cameo players already reclassified to academy in fetch_pipeline_report_tool,
+    # so all remaining first_team_items are genuinely established first-team players.
     sections: list[dict[str, Any]] = []
-    if established_items:
-        sections.append({"title": "First Team", "items": established_items})
-    if debut_items:
-        sections.append({"title": "First Team Debut", "items": debut_items})
+    if first_team_items:
+        sections.append({"title": "First Team", "items": first_team_items})
     if on_loan_items:
         subsections = _group_items_by(on_loan_items, "loan_league_name", fallback="Other")
         if len(subsections) > 1:

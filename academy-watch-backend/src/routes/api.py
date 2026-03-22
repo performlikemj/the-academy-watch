@@ -10015,6 +10015,35 @@ def admin_backfill_formations():
         return jsonify(_safe_error_payload(e, 'Failed to backfill formations')), 500
 
 
+_YOUTH_LEVEL_LEAGUES = {
+    'U21': [702],       # Premier League 2 Division One
+    'U23': [702],       # Premier League 2 Division One
+    'U18': [695, 696],  # U18 Premier League North / South
+}
+_youth_team_cache: dict[tuple, int | None] = {}  # (team_id, level, season) → youth_api_id
+
+
+def _resolve_youth_team_for_sync(api_client, team, current_level: str, season: int) -> int | None:
+    """Resolve a youth team API ID for fixture sync. Cached per session."""
+    cache_key = (team.team_id, current_level, season)
+    if cache_key in _youth_team_cache:
+        return _youth_team_cache[cache_key]
+
+    from src.services.youth_competition_resolver import resolve_youth_team_for_parent
+    league_ids = _YOUTH_LEVEL_LEAGUES.get(current_level, [])
+    teams_cache = {}
+    for league_id in league_ids:
+        youth_id, youth_name = resolve_youth_team_for_parent(
+            api_client, league_id, season, team.name, teams_cache)
+        if youth_id:
+            _youth_team_cache[cache_key] = youth_id
+            logger.info(f"[SYNC] Resolved youth team for {team.name} {current_level}: {youth_name} (ID={youth_id})")
+            return youth_id
+
+    _youth_team_cache[cache_key] = None
+    return None
+
+
 def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dict:
     """Run the team fixture sync logic, optionally with progress updates.
     
@@ -10058,10 +10087,19 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
             elif tp.status == 'on_loan' and not tp.current_club_api_id:
                 logger.warning(f"[SYNC] Skipping on-loan {tp.player_name} (id={tp.id}): current_club_api_id is null")
             elif tp.status in ('first_team', 'academy'):
+                # Sync parent first-team fixtures
                 players_to_sync.append((
                     tp.player_api_id, tp.player_name,
                     team.team_id, team.name,
                 ))
+                # For academy players, also sync youth team fixtures
+                if tp.status == 'academy' and tp.current_level:
+                    youth_id = _resolve_youth_team_for_sync(api_client, team, tp.current_level, season)
+                    if youth_id:
+                        players_to_sync.append((
+                            tp.player_api_id, tp.player_name,
+                            youth_id, f"{team.name} {tp.current_level}",
+                        ))
         
         # Fallback: also include AcademyPlayer records not in TrackedPlayer
         tracked_api_ids = {p[0] for p in players_to_sync}
