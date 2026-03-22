@@ -143,11 +143,24 @@ def _build_helpers(dataframes: dict) -> dict:
                 lambda row: (
                     _resolve_team_name(team_mode.get(row['player_api_id']))
                     if row['status'] == 'on_loan' and pd.notna(team_mode.get(row['player_api_id']))
-                    else (row.get('current_club_name') or '')
+                    else _resolve_team_name_or_fallback(row.get('current_club_name'))
+                ), axis=1,
+            )
+
+            # Enrich position from fixture_stats when TrackedPlayer.position is null
+            pos_mode = (
+                fs.groupby('player_api_id')['position']
+                .agg(lambda x: x.mode().iloc[0] if not x.dropna().mode().empty else None)
+            )
+            merged['position'] = merged.apply(
+                lambda row: (
+                    row['position']
+                    if pd.notna(row.get('position')) and row.get('position')
+                    else (pos_mode.get(row['player_api_id']) or None)
                 ), axis=1,
             )
         else:
-            merged['current_club'] = merged.get('current_club_name', '')
+            merged['current_club'] = merged['current_club_name'].apply(_resolve_team_name_or_fallback)
 
         return (merged[['player_name', 'name', 'status', 'position', 'current_club', 'age']]
                 .rename(columns={'name': 'team'})
@@ -341,12 +354,30 @@ def _build_helpers(dataframes: dict) -> dict:
     def _resolve_team_name(team_api_id):
         """Look up a team name from team_api_id."""
         teams = dataframes.get('teams', pd.DataFrame())
-        if teams.empty:
+        if teams.empty or pd.isna(team_api_id):
+            return str(team_api_id) if pd.notna(team_api_id) else ''
+        try:
+            tid = int(team_api_id)
+        except (TypeError, ValueError):
             return str(team_api_id)
-        match = teams[teams['team_id'] == team_api_id]
+        match = teams[teams['team_id'] == tid]
         if not match.empty:
             return match.iloc[0]['name']
         return str(team_api_id)
+
+    def _resolve_team_name_or_fallback(value):
+        """Resolve a current_club_name that might be a raw API ID or a real name."""
+        if not value or (isinstance(value, float) and pd.isna(value)):
+            return ''
+        s = str(value).strip()
+        if not s:
+            return ''
+        # If the value looks like a raw numeric ID, try to resolve it
+        try:
+            tid = int(s)
+            return _resolve_team_name(tid)
+        except (TypeError, ValueError):
+            return s
 
     def _find_similar_via_journey(target_pid, per90_fixture, season, position, limit):
         """Fallback similarity search using journey_entries when fixture_stats unavailable.
