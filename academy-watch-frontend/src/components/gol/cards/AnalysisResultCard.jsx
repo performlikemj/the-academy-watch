@@ -32,7 +32,7 @@ const CHART_COLORS = [
   'var(--chart-5, #8b5cf6)',
 ]
 
-export function AnalysisResultCard({ data, expanded }) {
+export function AnalysisResultCard({ data, expanded, onPlayerClick }) {
   if (!data) return null
 
   const { result_type, display } = data
@@ -55,7 +55,7 @@ export function AnalysisResultCard({ data, expanded }) {
     return <ListCard data={data} />
   }
   if (result_type === 'table') {
-    return <TableCard data={data} />
+    return <TableCard data={data} onPlayerClick={onPlayerClick} />
   }
   if (result_type === 'dict') {
     return <DictCard data={data} />
@@ -84,7 +84,7 @@ function MetaBar({ data }) {
 
 /* ─── Table ───────────────────────────────────────────────────────── */
 
-function TableCard({ data }) {
+function TableCard({ data, onPlayerClick }) {
   const { columns = [], rows = [], total_rows, truncated } = data
   const scrollRef = useRef(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
@@ -120,6 +120,16 @@ function TableCard({ data }) {
     )
   }
 
+  // Detect player_api_id + player_name for clickable linking
+  const pidIdx = columns.indexOf('player_api_id')
+  const nameIdx = columns.indexOf('player_name')
+  const hasPlayerLink = pidIdx !== -1 && nameIdx !== -1 && !!onPlayerClick
+
+  // Build display columns (hide player_api_id from view)
+  const displayCols = columns
+    .map((col, i) => ({ col, origIdx: i }))
+    .filter(({ col }) => !(hasPlayerLink && col === 'player_api_id'))
+
   const isTall = rows.length > 15
 
   return (
@@ -143,7 +153,7 @@ function TableCard({ data }) {
             <Table>
               <TableHeader className={cn(isTall && 'sticky top-0 z-20')}>
                 <TableRow className="bg-muted/50">
-                  {columns.map((col) => (
+                  {displayCols.map(({ col }) => (
                     <TableHead key={col} className="text-xs font-semibold whitespace-nowrap">
                       {col}
                     </TableHead>
@@ -153,19 +163,32 @@ function TableCard({ data }) {
               <TableBody>
                 {rows.map((row, i) => (
                   <TableRow key={i} className="hover:bg-muted/30">
-                    {row.map((cell, j) => (
-                      <TableCell
-                        key={j}
-                        className={cn(
-                          'text-xs whitespace-nowrap',
-                          typeof cell === 'number' && 'tabular-nums text-right',
-                          columns[j]?.toLowerCase().includes('goal') && cell > 0 && 'font-bold text-emerald-700',
-                          columns[j]?.toLowerCase().includes('assist') && cell > 0 && 'font-bold text-amber-700',
-                        )}
-                      >
-                        {cell ?? '\u2013'}
-                      </TableCell>
-                    ))}
+                    {displayCols.map(({ col, origIdx }, j) => {
+                      const cell = row[origIdx]
+                      const isNameCell = hasPlayerLink && origIdx === nameIdx
+                      return (
+                        <TableCell
+                          key={j}
+                          className={cn(
+                            'text-xs whitespace-nowrap',
+                            typeof cell === 'number' && 'tabular-nums text-right',
+                            col?.toLowerCase().includes('goal') && cell > 0 && 'font-bold text-emerald-700',
+                            col?.toLowerCase().includes('assist') && cell > 0 && 'font-bold text-amber-700',
+                          )}
+                        >
+                          {isNameCell ? (
+                            <button
+                              onClick={() => onPlayerClick(row[pidIdx])}
+                              className="text-left underline decoration-dotted underline-offset-2 hover:text-primary cursor-pointer transition-colors"
+                            >
+                              {cell ?? '\u2013'}
+                            </button>
+                          ) : (
+                            cell ?? '\u2013'
+                          )}
+                        </TableCell>
+                      )
+                    })}
                   </TableRow>
                 ))}
               </TableBody>

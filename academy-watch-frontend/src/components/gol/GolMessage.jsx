@@ -50,7 +50,7 @@ const mdComponents = {
   td: ({ children }) => <TableCell className="text-xs whitespace-nowrap">{children}</TableCell>,
 }
 
-export function GolMessage({ message, expanded }) {
+export function GolMessage({ message, expanded, onPlayerClick }) {
   const isUser = message.role === 'user'
 
   const contentEl = message.content
@@ -90,7 +90,7 @@ export function GolMessage({ message, expanded }) {
         {message.dataCards?.length > 0 && (
           <div className="mt-2 space-y-2 text-left">
             {message.dataCards.map((card, i) => (
-              <GolDataCard key={i} card={card} expanded={expanded} />
+              <GolDataCard key={i} card={card} expanded={expanded} onPlayerClick={onPlayerClick} />
             ))}
           </div>
         )}

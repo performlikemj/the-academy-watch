@@ -162,7 +162,7 @@ def _build_helpers(dataframes: dict) -> dict:
         else:
             merged['current_club'] = merged['current_club_name'].apply(_resolve_team_name_or_fallback)
 
-        return (merged[['player_name', 'name', 'status', 'position', 'current_club', 'age']]
+        return (merged[['player_api_id', 'player_name', 'name', 'status', 'position', 'current_club', 'age']]
                 .rename(columns={'name': 'team'})
                 .sort_values(['team', 'status', 'player_name'])
                 .reset_index(drop=True))
@@ -232,7 +232,7 @@ def _build_helpers(dataframes: dict) -> dict:
         )
 
         agg = agg.sort_values(['goals', 'assists'], ascending=[False, False]).head(limit)
-        return agg[['player_name', 'parent_club', 'loan_club', 'goals', 'assists', 'minutes', 'avg_rating']].reset_index(drop=True)
+        return agg[['player_api_id', 'player_name', 'parent_club', 'loan_club', 'goals', 'assists', 'minutes', 'avg_rating']].reset_index(drop=True)
 
     def player_career(player_name):
         """Season-by-season career for a player (partial name match)."""
@@ -247,7 +247,9 @@ def _build_helpers(dataframes: dict) -> dict:
 
         pid = matches.iloc[0]['player_api_id']
         entries = journey_entries[journey_entries['player_api_id'] == pid].sort_values('season')
-        return entries[['season', 'club_name', 'level', 'appearances', 'goals', 'assists', 'minutes']].reset_index(drop=True)
+        entries = entries.copy()
+        entries['player_api_id'] = pid
+        return entries[['player_api_id', 'season', 'club_name', 'level', 'appearances', 'goals', 'assists', 'minutes']].reset_index(drop=True)
 
     # ── Scouting helpers ──────────────────────────────────────────────
     # Techniques inspired by open-source football analytics:
@@ -481,7 +483,7 @@ def _build_helpers(dataframes: dict) -> dict:
             result['team'] = 'Unknown'
 
         result['note'] = 'based on season aggregates (limited stats)'
-        cols = ['player_name', 'similarity', 'position', 'team',
+        cols = ['player_api_id', 'player_name', 'similarity', 'position', 'team',
                 'goals_p90', 'assists_p90', 'avg_rating', 'total_minutes', 'note']
         out_cols = [c for c in cols if c in result.columns]
         out = result[out_cols].reset_index(drop=True)
@@ -602,7 +604,7 @@ def _build_helpers(dataframes: dict) -> dict:
             lambda x: _resolve_team_name(x) if pd.notna(x) else 'Unknown'
         )
 
-        cols = ['player_name', 'similarity', 'position', 'team',
+        cols = ['player_api_id', 'player_name', 'similarity', 'position', 'team',
                 'goals_p90', 'assists_p90', 'avg_rating', 'total_minutes']
         out_cols = [c for c in cols if c in result.columns]
         out = result[out_cols].reset_index(drop=True)
@@ -756,7 +758,7 @@ def _build_helpers(dataframes: dict) -> dict:
         else:
             combined['league'] = 'Unknown'
 
-        cols = ['player_name', 'talent_score', 'grade', 'position', 'team',
+        cols = ['player_api_id', 'player_name', 'talent_score', 'grade', 'position', 'team',
                 'league', 'standout_stats', 'goals_p90', 'assists_p90', 'avg_rating']
         out_cols = [c for c in cols if c in combined.columns]
         return combined[out_cols].reset_index(drop=True)

@@ -1,11 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { GolMessage } from './GolMessage'
 import { GolInput } from './GolInput'
 import { GolSuggestions } from './GolSuggestions'
+import { PlayerPreviewDrawer } from './PlayerPreviewDrawer'
 import { Button } from '@/components/ui/button'
 import { Trash2 } from 'lucide-react'
 
 export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, stopStreaming, expanded }) {
+  const [previewPlayerId, setPreviewPlayerId] = useState(null)
   const scrollRef = useRef(null)
   const bottomRef = useRef(null)
   const prefersReducedMotion = useRef(
@@ -27,7 +29,7 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
         ) : (
           <div className="space-y-4 min-w-0">
             {messages.map(msg => (
-              <GolMessage key={msg.id} message={msg} expanded={expanded} />
+              <GolMessage key={msg.id} message={msg} expanded={expanded} onPlayerClick={setPreviewPlayerId} />
             ))}
             <div ref={bottomRef} />
           </div>
@@ -44,6 +46,12 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
         )}
         <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
       </div>
+
+      <PlayerPreviewDrawer
+        playerId={previewPlayerId}
+        open={!!previewPlayerId}
+        onOpenChange={(open) => { if (!open) setPreviewPlayerId(null) }}
+      />
     </div>
   )
 }

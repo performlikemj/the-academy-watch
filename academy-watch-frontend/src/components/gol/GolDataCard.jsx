@@ -5,12 +5,12 @@ import { CohortGrid } from './cards/CohortGrid'
 import { CommunityTakesList } from './cards/CommunityTakesList'
 import { Card, CardContent } from '@/components/ui/card'
 
-export function GolDataCard({ card, expanded }) {
+export function GolDataCard({ card, expanded, onPlayerClick }) {
   const { type, payload } = card
 
   switch (type) {
     case 'analysis_result':
-      return <AnalysisResultCard data={payload} expanded={expanded} />
+      return <AnalysisResultCard data={payload} expanded={expanded} onPlayerClick={onPlayerClick} />
     case 'search_players':
     case 'get_player_stats':
     case 'get_team_loans':
