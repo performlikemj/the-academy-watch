@@ -3,8 +3,9 @@ import { GolMessage } from './GolMessage'
 import { GolInput } from './GolInput'
 import { GolSuggestions } from './GolSuggestions'
 import { PlayerPreviewDrawer } from './PlayerPreviewDrawer'
+import { exportChatAsMarkdown } from './exportChat'
 import { Button } from '@/components/ui/button'
-import { Trash2 } from 'lucide-react'
+import { Download, Trash2 } from 'lucide-react'
 
 export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, stopStreaming, expanded }) {
   const [previewPlayerId, setPreviewPlayerId] = useState(null)
@@ -38,7 +39,24 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
 
       <div className="border-t px-4 py-3">
         {messages.length > 0 && (
-          <div className="flex justify-end mb-2">
+          <div className="flex justify-end gap-1 mb-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground"
+              onClick={() => {
+                const md = exportChatAsMarkdown(messages)
+                const blob = new Blob([md], { type: 'text/markdown' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `gol-chat-${new Date().toISOString().slice(0, 10)}.md`
+                a.click()
+                URL.revokeObjectURL(url)
+              }}
+            >
+              <Download className="h-3 w-3 mr-1" /> Save
+            </Button>
             <Button variant="ghost" size="sm" onClick={clearChat} className="text-xs text-muted-foreground">
               <Trash2 className="h-3 w-3 mr-1" /> Clear
             </Button>

@@ -1093,7 +1093,7 @@ class JourneySyncService:
                         birth_date=journey.birth_date,
                         team_id=team.id,
                         journey_id=journey.id,
-                        data_source='journey-sync',
+                        data_source='owning-club',
                         data_depth='full_stats',
                         status=status,
                         current_club_api_id=cur_club_id,
@@ -1106,6 +1106,7 @@ class JourneySyncService:
                     )
                 elif not existing.pinned_parent:
                     existing.journey_id = journey.id
+                    existing.data_source = 'owning-club'
                     existing.status = status
                     existing.current_club_api_id = cur_club_id
                     existing.current_club_name = cur_club_name

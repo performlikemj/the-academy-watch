@@ -62,6 +62,22 @@ def _build_helpers(dataframes: dict) -> dict:
     These run as normal Python (not RestrictedPython), so pandas is unrestricted.
     """
 
+    def _dedup_tracked(df):
+        """Deduplicate tracked players, preferring owning-club rows over academy rows.
+
+        When a player has multiple TrackedPlayer rows (one per academy + owning club),
+        the owning-club row (data_source='owning-club') should win because it represents
+        the club that currently controls the player.
+        """
+        if df.empty:
+            return df
+        out = df.copy()
+        out['_prio'] = out['data_source'].map(lambda x: 0 if x == 'owning-club' else 1)
+        out = (out.sort_values(['_prio', 'updated_at'], ascending=[True, False])
+               .drop_duplicates(subset=['player_api_id'])
+               .drop(columns=['_prio']))
+        return out
+
     def academy_comparison():
         """Big 6 academy status breakdown: first_team/on_loan/academy/released per club."""
         tracked = dataframes.get('tracked', pd.DataFrame())
@@ -121,9 +137,9 @@ def _build_helpers(dataframes: dict) -> dict:
         if tracked.empty or teams.empty:
             return pd.DataFrame(columns=['player_name', 'team', 'status', 'position', 'current_club', 'age'])
 
-        active = (tracked[tracked['status'].isin(['academy', 'on_loan', 'first_team'])]
-                  .sort_values('updated_at', ascending=False)
-                  .drop_duplicates(subset=['player_api_id']))
+        active = _dedup_tracked(
+            tracked[tracked['status'].isin(['academy', 'on_loan', 'first_team'])]
+        )
         merged = active.merge(teams[['id', 'name']], left_on='team_id', right_on='id', how='inner')
         if team_name:
             merged = merged[merged['name'].str.contains(team_name, case=False, na=False)]
@@ -175,9 +191,7 @@ def _build_helpers(dataframes: dict) -> dict:
         if tracked.empty or teams.empty or journeys.empty:
             return pd.DataFrame(columns=['team', 'total_graduates', 'total_first_team_apps'])
 
-        ft = (tracked[tracked['status'] == 'first_team']
-              .sort_values('updated_at', ascending=False)
-              .drop_duplicates(subset=['player_api_id']))
+        ft = _dedup_tracked(tracked[tracked['status'] == 'first_team'])
         ft = ft.merge(teams[['id', 'name']], left_on='team_id', right_on='id', how='inner')
         ft = ft.merge(journeys[['player_api_id', 'total_first_team_apps']], on='player_api_id', how='left')
         ft['total_first_team_apps'] = ft['total_first_team_apps'].fillna(0).astype(int)
@@ -201,10 +215,8 @@ def _build_helpers(dataframes: dict) -> dict:
         if tracked.empty or fixture_stats.empty:
             return pd.DataFrame(columns=['player_name', 'parent_club', 'loan_club', 'goals', 'assists', 'minutes', 'avg_rating'])
 
-        # Filter to on-loan players, deduplicate — most recently updated row wins
-        loan = (tracked[tracked['status'] == 'on_loan']
-                .sort_values('updated_at', ascending=False)
-                .drop_duplicates(subset=['player_api_id']))
+        # Filter to on-loan players, deduplicate — owning-club row wins ties
+        loan = _dedup_tracked(tracked[tracked['status'] == 'on_loan'])
 
         fs = fixture_stats.copy()
         target_season = season if season else fs['season'].max()
@@ -354,18 +366,33 @@ def _build_helpers(dataframes: dict) -> dict:
         return str(player_api_id)
 
     def _resolve_team_name(team_api_id):
-        """Look up a team name from team_api_id."""
-        teams = dataframes.get('teams', pd.DataFrame())
-        if teams.empty or pd.isna(team_api_id):
-            return str(team_api_id) if pd.notna(team_api_id) else ''
+        """Look up a team name from team_api_id.
+
+        Checks teams table first (current season), then team_profiles
+        (canonical info cached from API-Football lookups).
+        """
+        if pd.isna(team_api_id):
+            return ''
         try:
             tid = int(team_api_id)
         except (TypeError, ValueError):
             return str(team_api_id)
-        match = teams[teams['team_id'] == tid]
-        if not match.empty:
-            return match.iloc[0]['name']
-        return str(team_api_id)
+
+        # 1. Teams table (current season, explicitly tracked)
+        teams = dataframes.get('teams', pd.DataFrame())
+        if not teams.empty:
+            match = teams[teams['team_id'] == tid]
+            if not match.empty:
+                return match.iloc[0]['name']
+
+        # 2. TeamProfile table (canonical, no season filter)
+        profiles = dataframes.get('team_profiles', pd.DataFrame())
+        if not profiles.empty:
+            match = profiles[profiles['team_id'] == tid]
+            if not match.empty:
+                return match.iloc[0]['name']
+
+        return f'Team {tid}'
 
     def _resolve_team_name_or_fallback(value):
         """Resolve a current_club_name that might be a raw API ID or a real name."""
@@ -643,9 +670,7 @@ def _build_helpers(dataframes: dict) -> dict:
         # Determine player scope
         player_ids = None
         if loan_only and not tracked.empty:
-            loan = (tracked[tracked['status'] == 'on_loan']
-                    .sort_values('updated_at', ascending=False)
-                    .drop_duplicates(subset=['player_api_id']))
+            loan = _dedup_tracked(tracked[tracked['status'] == 'on_loan'])
             player_ids = set(loan['player_api_id'].tolist())
             if not player_ids:
                 return empty
