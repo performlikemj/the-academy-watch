@@ -1302,6 +1302,7 @@ def _build_player_report_item(loanee: dict, hits: list[dict[str, Any]], *, week_
         "can_fetch_stats": can_track,
         "stats": stats,
         "season_stats": season_context.get("season_stats"),
+        "season_totals": loanee.get("season_totals"),
         "season_trends": season_context.get("trends"),
         "recent_form": season_context.get("recent_form"),
         "week_summary": week_summary,
@@ -1825,10 +1826,17 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
 def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, end: date, season: int) -> None:
     """Enrich an on-loan player dict with weekly FixturePlayerStats."""
     from src.models.weekly import Fixture, FixturePlayerStats
+    import logging
+    _enrich_logger = logging.getLogger('newsletter.enrich')
+
+    # Guard: skip if player_api_id is missing
+    if not tp.player_api_id:
+        _enrich_logger.warning(f"[ENRICH-LOAN] player_api_id is null for tp.id={getattr(tp, 'id', '?')} ({tp.player_name})")
+        player_dict['totals'] = {}
+        player_dict['matches'] = []
+        return
 
     try:
-        import logging
-        _enrich_logger = logging.getLogger('newsletter.enrich')
         _enrich_logger.info(f"[ENRICH-LOAN] player={tp.player_api_id} ({tp.player_name}) range={start}..{end}")
         stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
             Fixture, FixturePlayerStats.fixture_id == Fixture.id
@@ -1838,6 +1846,16 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             db.func.date(Fixture.date_utc) <= end,
         ).all()
         _enrich_logger.info(f"[ENRICH-LOAN] player={tp.player_api_id} found {len(stats_rows)} rows")
+
+        if not stats_rows:
+            any_ever = db.session.query(db.func.count(FixturePlayerStats.id)).filter(
+                FixturePlayerStats.player_api_id == tp.player_api_id
+            ).scalar()
+            _enrich_logger.warning(
+                f"[ENRICH-LOAN] 0 weekly rows for {tp.player_name} (api_id={tp.player_api_id}) "
+                f"in {start}..{end}. Total rows in DB: {any_ever}. "
+                f"current_club_api_id={tp.current_club_api_id}"
+            )
 
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
@@ -1877,9 +1895,37 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
         if league_names:
             from collections import Counter
             player_dict['loan_league_name'] = Counter(league_names).most_common(1)[0][0]
+
+        # Season-level totals for context (full season, no week filter)
+        try:
+            season_start = date(season, 8, 1)
+            season_end = date(season + 1, 6, 30)
+            season_rows = db.session.query(FixturePlayerStats).join(
+                Fixture, FixturePlayerStats.fixture_id == Fixture.id
+            ).filter(
+                FixturePlayerStats.player_api_id == tp.player_api_id,
+                db.func.date(Fixture.date_utc) >= season_start,
+                db.func.date(Fixture.date_utc) <= season_end,
+            ).all()
+            if season_rows:
+                player_dict['season_totals'] = {
+                    'minutes': sum(r.minutes or 0 for r in season_rows),
+                    'goals': sum(r.goals or 0 for r in season_rows),
+                    'assists': sum(r.assists or 0 for r in season_rows),
+                    'appearances': sum(1 for r in season_rows if (r.minutes or 0) > 0),
+                }
+        except Exception:
+            pass
+
+        # Wire season_context so _build_player_report_item and Groq get real season data
+        if player_dict.get('season_totals'):
+            player_dict['season_context'] = {
+                'season_stats': player_dict['season_totals'],
+            }
+
     except Exception as e:
-        import logging, traceback
-        logging.getLogger('newsletter.enrich').error(f"[ENRICH-LOAN] ERROR player={tp.player_api_id}: {e}\n{traceback.format_exc()}")
+        import traceback
+        _enrich_logger.error(f"[ENRICH-LOAN] ERROR player={tp.player_api_id}: {e}\n{traceback.format_exc()}")
         player_dict['totals'] = {}
         player_dict['matches'] = []
 
@@ -1887,10 +1933,17 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
 def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team", start: date, end: date, season: int) -> None:
     """Enrich a first-team player dict with parent club FixturePlayerStats."""
     from src.models.weekly import Fixture, FixturePlayerStats
+    import logging
+    _enrich_logger = logging.getLogger('newsletter.enrich')
+
+    # Guard: skip if player_api_id is missing
+    if not tp.player_api_id:
+        _enrich_logger.warning(f"[ENRICH-FT] player_api_id is null for tp.id={getattr(tp, 'id', '?')} ({tp.player_name})")
+        player_dict['totals'] = {}
+        player_dict['matches'] = []
+        return
 
     try:
-        import logging
-        _enrich_logger = logging.getLogger('newsletter.enrich')
         _enrich_logger.info(f"[ENRICH-FT] player={tp.player_api_id} ({tp.player_name}) team_api={team.team_id} range={start}..{end}")
         stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
             Fixture, FixturePlayerStats.fixture_id == Fixture.id
@@ -1903,6 +1956,16 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
                 Fixture.away_team_api_id == team.team_id,
             ),
         ).all()
+        _enrich_logger.info(f"[ENRICH-FT] player={tp.player_api_id} found {len(stats_rows)} rows")
+
+        if not stats_rows:
+            any_ever = db.session.query(db.func.count(FixturePlayerStats.id)).filter(
+                FixturePlayerStats.player_api_id == tp.player_api_id
+            ).scalar()
+            _enrich_logger.warning(
+                f"[ENRICH-FT] 0 weekly rows for {tp.player_name} (api_id={tp.player_api_id}) "
+                f"in {start}..{end}. Total rows in DB: {any_ever}."
+            )
 
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
@@ -1958,6 +2021,12 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
                 }
         except Exception:
             pass
+
+    # Wire season_context so _build_player_report_item and Groq get real season data
+    if player_dict.get('season_totals'):
+        player_dict['season_context'] = {
+            'season_stats': player_dict['season_totals'],
+        }
 
 
 def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -> None:
@@ -2900,8 +2969,9 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
     established_items: list[dict[str, Any]] = []
     debut_items: list[dict[str, Any]] = []
     for item in first_team_items:
-        season_mins = (item.get('totals') or item.get('stats') or {}).get('minutes', 0)
-        season_apps = len([m for m in (item.get('matches') or []) if m.get('played')])
+        st = item.get('season_totals') or item.get('season_stats') or {}
+        season_mins = st.get('minutes', 0)
+        season_apps = st.get('appearances', 0)
         if season_mins >= ESTABLISHED_MIN_MINUTES or season_apps >= ESTABLISHED_MIN_APPEARANCES:
             established_items.append(item)
         else:

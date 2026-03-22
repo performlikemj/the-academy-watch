@@ -10055,6 +10055,8 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                     tp.player_api_id, tp.player_name,
                     tp.current_club_api_id, tp.current_club_name or f'Team {tp.current_club_api_id}',
                 ))
+            elif tp.status == 'on_loan' and not tp.current_club_api_id:
+                logger.warning(f"[SYNC] Skipping on-loan {tp.player_name} (id={tp.id}): current_club_api_id is null")
             elif tp.status in ('first_team', 'academy'):
                 players_to_sync.append((
                     tp.player_api_id, tp.player_name,
