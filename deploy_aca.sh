@@ -206,7 +206,24 @@ done
 if az containerapp show -g "$RG" -n "$APP_BACKEND" >/dev/null 2>&1; then
   log "Updating backend image + ingress (force new revision)"
   az containerapp revision set-mode -g "$RG" -n "$APP_BACKEND" --mode single >/dev/null 2>&1 || true
-  az containerapp update -g "$RG" -n "$APP_BACKEND" --image "$ACR_SERVER/loanarmy/backend:$TAG" --min-replicas 1 --revision-suffix "r$RANDOM$RANDOM" >/dev/null
+
+  # Build --set-env-vars for GOL bot provider/model if configured in environment
+  GOL_ENV_VARS=""
+  if [[ -n "${GOL_PROVIDER:-}" ]]; then
+    GOL_ENV_VARS="GOL_PROVIDER=$GOL_PROVIDER"
+  fi
+  if [[ -n "${GOL_MODEL:-}" ]]; then
+    GOL_ENV_VARS="$GOL_ENV_VARS GOL_MODEL=$GOL_MODEL"
+  fi
+  if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+    GOL_ENV_VARS="$GOL_ENV_VARS OPENROUTER_API_KEY=$OPENROUTER_API_KEY"
+  fi
+
+  if [[ -n "$GOL_ENV_VARS" ]]; then
+    az containerapp update -g "$RG" -n "$APP_BACKEND" --image "$ACR_SERVER/loanarmy/backend:$TAG" --min-replicas 1 --revision-suffix "r$RANDOM$RANDOM" --set-env-vars $GOL_ENV_VARS >/dev/null
+  else
+    az containerapp update -g "$RG" -n "$APP_BACKEND" --image "$ACR_SERVER/loanarmy/backend:$TAG" --min-replicas 1 --revision-suffix "r$RANDOM$RANDOM" >/dev/null
+  fi
   az containerapp ingress enable -g "$RG" -n "$APP_BACKEND" --type external --target-port 5001 >/dev/null 2>&1 || true
 fi
 

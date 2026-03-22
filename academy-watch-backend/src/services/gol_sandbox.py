@@ -243,10 +243,6 @@ def _build_helpers(dataframes: dict) -> dict:
     # - Nuno Felix's scouting-talent-in-portugal-app (MIT) — position grading
     # Standard PCA/z-score techniques; no code copied directly.
 
-    # Position-group mappings (fixture_stats.position uses G/D/M/F)
-    _POS_MAP = {'Goalkeeper': 'G', 'Defender': 'D', 'Midfielder': 'M', 'Attacker': 'F'}
-    _BROAD_POS = {'G': 'G', 'D': 'D', 'M': 'M', 'F': 'F'}
-
     # Per-position stat weights for talent detection
     _POSITION_METRICS = {
         'D': ['tackles_p90', 'interceptions_p90', 'blocks_p90', 'duel_win_rate', 'avg_rating'],
@@ -352,6 +348,116 @@ def _build_helpers(dataframes: dict) -> dict:
             return match.iloc[0]['name']
         return str(team_api_id)
 
+    def _find_similar_via_journey(target_pid, per90_fixture, season, position, limit):
+        """Fallback similarity search using journey_entries when fixture_stats unavailable.
+
+        Builds reduced per-90 features (goals, assists) from season aggregates and
+        compares against the fixture_stats-based pool.
+        """
+        je = dataframes.get('journey_entries', pd.DataFrame())
+        tracked = dataframes.get('tracked', pd.DataFrame())
+        empty = pd.DataFrame(columns=[
+            'player_name', 'similarity', 'position', 'team',
+            'goals_p90', 'assists_p90', 'avg_rating', 'minutes', 'note',
+        ])
+
+        if je.empty:
+            return empty
+
+        # Get target's latest season from journey_entries
+        target_je = je[je['player_api_id'] == target_pid].copy()
+        if target_je.empty:
+            return empty
+
+        target_season = season if season else target_je['season'].max()
+        target_row = target_je[target_je['season'] == target_season]
+        if target_row.empty:
+            # Try any season
+            target_row = target_je.sort_values('season', ascending=False).head(1)
+
+        # Aggregate target's season stats (may have multiple entries per season)
+        t_goals = target_row['goals'].sum()
+        t_assists = target_row['assists'].sum()
+        t_minutes = target_row['minutes'].sum()
+
+        if t_minutes < 90:
+            return empty
+
+        t_goals_p90 = round(t_goals / t_minutes * 90, 3)
+        t_assists_p90 = round(t_assists / t_minutes * 90, 3)
+
+        # Get target position from tracked or journey level
+        target_pos = position
+        if not target_pos and not tracked.empty:
+            t_match = tracked[tracked['player_api_id'] == target_pid]
+            if not t_match.empty:
+                pos_raw = t_match.iloc[0].get('position', '')
+                pos_map = {'Goalkeeper': 'G', 'Defender': 'D', 'Midfielder': 'M', 'Attacker': 'F'}
+                target_pos = pos_map.get(pos_raw, pos_raw)
+
+        # Use the per90_fixture pool (players with fixture_stats) as comparison base.
+        # Compare using the reduced feature set (goals_p90, assists_p90, avg_rating).
+        pool = per90_fixture.copy()
+        if target_pos and target_pos in ('D', 'M', 'F'):
+            pos_pool = pool[pool['position'] == target_pos]
+            if len(pos_pool) >= 3:
+                pool = pos_pool
+
+        reduced_features = ['goals_p90', 'assists_p90', 'avg_rating']
+        available = [c for c in reduced_features if c in pool.columns]
+        if not available:
+            return empty
+
+        # Build feature matrix for pool
+        X_pool = pool[available].fillna(0).values.astype(float)
+
+        # Build target vector from journey_entries
+        target_vec = np.array([t_goals_p90, t_assists_p90, 0.0])  # no rating from journey
+        # Only use features that are available
+        target_vec = target_vec[:len(available)]
+
+        # Z-score normalise
+        means = np.nanmean(X_pool, axis=0)
+        stds = np.nanstd(X_pool, axis=0)
+        stds[stds == 0] = 1.0
+        X_norm = (X_pool - means) / stds
+        target_norm = (target_vec - means) / stds
+
+        # Euclidean distance (no PCA needed with only 2-3 features)
+        dists = np.linalg.norm(X_norm - target_norm, axis=1)
+        max_dist = dists.max() if dists.max() > 0 else 1.0
+        similarity = (100 * (1 - dists / max_dist)).round(1)
+
+        pool = pool.copy()
+        pool['similarity'] = similarity
+        result = pool.nlargest(limit, 'similarity')
+
+        result['player_name'] = result['player_api_id'].apply(_resolve_player_name)
+
+        fixture_stats = dataframes.get('fixture_stats', pd.DataFrame())
+        fs = fixture_stats.copy()
+        if not fs.empty:
+            fs_season = season if season else fs['season'].max()
+            fs = fs[fs['season'] == fs_season]
+            team_mode = (
+                fs.groupby('player_api_id')['team_api_id']
+                .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else None)
+            )
+            result['team'] = result['player_api_id'].map(team_mode).apply(
+                lambda x: _resolve_team_name(x) if pd.notna(x) else 'Unknown'
+            )
+        else:
+            result['team'] = 'Unknown'
+
+        result['note'] = 'based on season aggregates (limited stats)'
+        cols = ['player_name', 'similarity', 'position', 'team',
+                'goals_p90', 'assists_p90', 'avg_rating', 'total_minutes', 'note']
+        out_cols = [c for c in cols if c in result.columns]
+        out = result[out_cols].reset_index(drop=True)
+        if 'total_minutes' in out.columns:
+            out = out.rename(columns={'total_minutes': 'minutes'})
+        return out
+
     def find_similar_players(player_name, position=None, season=None, limit=10, min_minutes=450):
         """Find players with similar statistical profiles using PCA.
 
@@ -401,7 +507,8 @@ def _build_helpers(dataframes: dict) -> dict:
                 fixture_stats, season=season, min_minutes=90, player_ids=[target_pid],
             )
             if per90_relaxed.empty:
-                return empty
+                # Fallback: use journey_entries season aggregates when no fixture_stats
+                return _find_similar_via_journey(target_pid, per90, season, position, limit)
             per90 = pd.concat([per90, per90_relaxed]).drop_duplicates(subset=['player_api_id'])
 
         # Filter by position
@@ -680,13 +787,8 @@ def _build_helpers(dataframes: dict) -> dict:
 
         # Get player's per-90 stats and most common formation position
         player_fs = fs[fs['player_api_id'] == target_pid]
-        if player_fs.empty:
-            # Try relaxed — player might have limited minutes
-            per90_player = _compute_per90_stats(fixture_stats, season=season, min_minutes=90,
-                                                player_ids=[target_pid])
-        else:
-            per90_player = _compute_per90_stats(fixture_stats, season=season, min_minutes=90,
-                                                player_ids=[target_pid])
+        per90_player = _compute_per90_stats(fixture_stats, season=season, min_minutes=90,
+                                            player_ids=[target_pid])
 
         if per90_player.empty:
             return empty

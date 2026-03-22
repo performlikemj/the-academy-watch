@@ -195,6 +195,9 @@ from fixture_stats automatically) or check `fixture_stats` directly for recent m
 - **Parent club vs academy club:** `tracked.parent_club` is the club that currently \
 owns/controls the player. `tracked.academy_club` is the original academy they came through. \
 These differ when a player permanently transfers (e.g., academy at West Ham, now owned by Man City).
+- **Similar player search:** If `find_similar_players()` returns empty, the player may \
+lack match-level stats. Use `lookup_player` first to sync their career data, then retry. \
+The function automatically falls back to season aggregate stats if per-match data is unavailable.
 
 ## Rules
 - Never include `player_api_id` in the final `result`. It's an internal ID — use \
