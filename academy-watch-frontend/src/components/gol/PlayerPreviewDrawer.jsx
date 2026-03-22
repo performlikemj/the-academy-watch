@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Drawer,
   DrawerContent,
@@ -86,12 +86,19 @@ function RatingBadge({ rating }) {
 /* ── Main drawer ───────────────────────────────────────────────── */
 
 export function PlayerPreviewDrawer({ playerId, open, onOpenChange }) {
+  const navigate = useNavigate()
   const [profile, setProfile] = useState(null)
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const abortRef = useRef(null)
   const loadedIdRef = useRef(null)
+
+  const goToFullProfile = useCallback(() => {
+    onOpenChange(false)
+    // Small delay to let drawer close animation start before navigating
+    setTimeout(() => navigate(`/players/${playerId}`), 150)
+  }, [navigate, playerId, onOpenChange])
 
   useEffect(() => {
     if (!open || !playerId || loadedIdRef.current === playerId) return
@@ -134,26 +141,27 @@ export function PlayerPreviewDrawer({ playerId, open, onOpenChange }) {
     }
   }, [open])
 
-  // Derive display data
-  const name = profile?.player_name || profile?.name || 'Player'
-  const position = profile?.position || stats?.position || '\u2013'
-  const age = profile?.age ?? stats?.age
-  const nationality = profile?.nationality || stats?.nationality
-  const parentClub = profile?.parent_club || profile?.team_name
-  const currentClub = profile?.current_club_name || profile?.loan_club
+  // Derive display data — API returns:
+  //   profile: { name, position, age, nationality, parent_team_name, loan_team_name, ... }
+  //   stats: array of match objects [{ goals, assists, rating, minutes, opponent, fixture_date, ... }]
+  const name = profile?.name || 'Player'
+  const position = profile?.position || '\u2013'
+  const age = profile?.age
+  const nationality = profile?.nationality
+  const parentClub = profile?.parent_team_name
+  const currentClub = profile?.loan_team_name
 
-  // Season totals from stats
-  const matches = stats?.matches || stats?.recent_matches || []
-  const seasonGoals = stats?.goals ?? matches.reduce((s, m) => s + (m.goals || 0), 0)
-  const seasonAssists = stats?.assists ?? matches.reduce((s, m) => s + (m.assists || 0), 0)
-  const seasonApps = stats?.appearances ?? matches.length
-  const avgRating = stats?.avg_rating ?? (
-    matches.length > 0
-      ? (matches.reduce((s, m) => s + (m.rating || 0), 0) / matches.length).toFixed(1)
-      : null
-  )
+  // Stats is an array of match objects (most recent last)
+  const allMatches = Array.isArray(stats) ? stats : []
+  const seasonGoals = allMatches.reduce((s, m) => s + (m.goals || 0), 0)
+  const seasonAssists = allMatches.reduce((s, m) => s + (m.assists || 0), 0)
+  const seasonApps = allMatches.length
+  const avgRating = allMatches.length > 0
+    ? (allMatches.reduce((s, m) => s + (m.rating || 0), 0) / allMatches.length).toFixed(1)
+    : null
 
-  const recentMatches = matches.slice(0, 5)
+  // Last 5 matches (reverse to show most recent first)
+  const recentMatches = [...allMatches].reverse().slice(0, 5)
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -168,8 +176,8 @@ export function PlayerPreviewDrawer({ playerId, open, onOpenChange }) {
           ) : error ? (
             <div className="text-center py-8 space-y-2">
               <p className="text-sm text-muted-foreground">{error}</p>
-              <Button variant="outline" size="sm" asChild>
-                <Link to={`/players/${playerId}`}>View full profile</Link>
+              <Button variant="outline" size="sm" onClick={goToFullProfile}>
+                View full profile
               </Button>
             </div>
           ) : profile ? (
@@ -256,11 +264,9 @@ export function PlayerPreviewDrawer({ playerId, open, onOpenChange }) {
         </ScrollArea>
 
         <DrawerFooter className="pt-2">
-          <Button variant="outline" size="sm" asChild className="w-full">
-            <Link to={`/players/${playerId}`}>
-              View full profile
-              <ChevronRight className="h-3.5 w-3.5 ml-1" />
-            </Link>
+          <Button variant="outline" size="sm" onClick={goToFullProfile} className="w-full">
+            View full profile
+            <ChevronRight className="h-3.5 w-3.5 ml-1" />
           </Button>
         </DrawerFooter>
       </DrawerContent>
