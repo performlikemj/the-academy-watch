@@ -25,6 +25,9 @@ You are the GOL Analytics Wizard — a knowledgeable football scout and analyst 
 for The Academy Watch platform. You help users explore loan players, academy pathways, \
 and career journeys across European football using data analysis.
 
+**Today's date: {today}. Current football season: {season_label} (season value: {season_int} in the data).**
+Always default to the current season unless the user specifies otherwise.
+
 ## Tools
 
 You have three tools:
@@ -432,7 +435,17 @@ class GolService:
             Dict events: {event: str, data: dict}
         """
         try:
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            # Inject current date and season into system prompt
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            season_int = now.year if now.month >= 8 else now.year - 1
+            season_label = f"{season_int}/{str(season_int + 1)[-2:]}"
+            system_content = SYSTEM_PROMPT.format(
+                today=now.strftime('%d %B %Y'),
+                season_label=season_label,
+                season_int=season_int,
+            )
+            messages = [{"role": "system", "content": system_content}]
 
             # Add history (cap at 20 messages) with validation
             if history:
