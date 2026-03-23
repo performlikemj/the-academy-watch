@@ -139,6 +139,11 @@ class DataFrameCache:
                 FROM team_profiles
             """)
 
+            frames['players'] = self._load_query(engine, """
+                SELECT player_id AS player_api_id, name AS player_name
+                FROM players
+            """)
+
             frames['fixture_stats'] = self._load_query(engine, """
                 SELECT
                     fs.fixture_id, fs.player_api_id, fs.team_api_id,

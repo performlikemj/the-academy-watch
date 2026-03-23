@@ -356,7 +356,7 @@ def _build_helpers(dataframes: dict) -> dict:
 
     def _resolve_player_name(player_api_id):
         """Look up a readable name for a player_api_id across available DataFrames."""
-        for df_name in ('tracked', 'journeys'):
+        for df_name in ('tracked', 'journeys', 'players'):
             df = dataframes.get(df_name, pd.DataFrame())
             if df.empty:
                 continue

@@ -189,28 +189,9 @@ def _enforce_loanee_metadata(
     tracked_pids: set[int] = set()
     tracked_keys: set[str] = set()
 
-    for sec in sections:
-        if not isinstance(sec, dict):
-            continue
-        raw_items = sec.get('items')
-        if not isinstance(raw_items, list):
-            continue
-        title = _strip_text(sec.get('title')).lower()
-        if title == 'what the internet is saying':
-            for item in raw_items:
-                if not isinstance(item, dict):
-                    continue
-                links = item.get('links')
-                if not isinstance(links, list):
-                    continue
-                key = _normalize_player_key(item.get('player_name'))
-                if not key:
-                    continue
-                bucket = internet_links.setdefault(key, [])
-                bucket.extend(link for link in links if link)
-            continue
-
-        filtered_items: list[dict[str, Any]] = []
+    def _process_item_list(raw_items: list) -> list:
+        """Process a list of player items: enrich metadata, dedup, filter untracked."""
+        filtered: list[dict[str, Any]] = []
         for item in raw_items:
             if not isinstance(item, dict):
                 continue
@@ -243,10 +224,8 @@ def _enforce_loanee_metadata(
                 if sofa and not item.get('sofascore_player_id'):
                     item['sofascore_player_id'] = sofa
 
-            # Identify untracked players (manually entered, not in API) by can_fetch_stats flag
             is_untracked = not can_track
             if is_untracked:
-                # Dedup: skip untracked copies when a tracked record exists or meta allows tracking
                 if pid_int is not None:
                     meta_pid = meta_by_pid.get(pid_int)
                     if (meta_pid and meta_pid.get('can_fetch_stats', True)) or pid_int in tracked_pids:
@@ -261,12 +240,51 @@ def _enforce_loanee_metadata(
                 manual_player_items.append(item)
                 continue
 
-            filtered_items.append(item)
+            filtered.append(item)
             if pid_int is not None:
                 tracked_pids.add(pid_int)
             if player_key:
                 tracked_keys.add(player_key)
+        return filtered
 
+    for sec in sections:
+        if not isinstance(sec, dict):
+            continue
+
+        # Handle sections with subsections (On Loan, Academy Rising)
+        if 'subsections' in sec and isinstance(sec['subsections'], list):
+            title = _strip_text(sec.get('title')).lower()
+            if title == 'what the internet is saying':
+                continue
+            for sub in sec['subsections']:
+                raw_items = sub.get('items')
+                if isinstance(raw_items, list):
+                    sub['items'] = _process_item_list(raw_items)
+            # Keep section even if some subsections are empty
+            sec['subsections'] = [s for s in sec['subsections'] if s.get('items')]
+            if sec['subsections']:
+                new_sections.append(sec)
+            continue
+
+        raw_items = sec.get('items')
+        if not isinstance(raw_items, list):
+            continue
+        title = _strip_text(sec.get('title')).lower()
+        if title == 'what the internet is saying':
+            for item in raw_items:
+                if not isinstance(item, dict):
+                    continue
+                links = item.get('links')
+                if not isinstance(links, list):
+                    continue
+                key = _normalize_player_key(item.get('player_name'))
+                if not key:
+                    continue
+                bucket = internet_links.setdefault(key, [])
+                bucket.extend(link for link in links if link)
+            continue
+
+        filtered_items = _process_item_list(raw_items)
         if filtered_items:
             sec['items'] = filtered_items
             new_sections.append(sec)
@@ -275,9 +293,16 @@ def _enforce_loanee_metadata(
         new_sections.append({'title': 'Manual Player Entries', 'items': manual_player_items})
 
     if internet_links:
+        def _all_items_in_section(sec):
+            """Yield all items from a section, whether flat or subsectioned."""
+            if 'subsections' in sec and isinstance(sec.get('subsections'), list):
+                for sub in sec['subsections']:
+                    yield from (sub.get('items') or [])
+            else:
+                yield from (sec.get('items') if isinstance(sec.get('items'), list) else [])
+
         for sec in new_sections:
-            items = sec.get('items') if isinstance(sec.get('items'), list) else []
-            for item in items:
+            for item in _all_items_in_section(sec):
                 if not isinstance(item, dict):
                     continue
                 key = _normalize_player_key(item.get('player_name'))

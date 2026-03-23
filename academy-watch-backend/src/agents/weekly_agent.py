@@ -1956,14 +1956,12 @@ def lint_and_enrich(news: dict) -> dict:
 
     player_ids: set[int] = set()
 
-    # normalize display names and de-dupe within each section by stable identity
-    for sec in news.get("sections", []) or []:
-        seen: set[str] = set()
-        items = []
-        for it in sec.get("items", []) or []:
+    def _lint_item_list(item_list: list, seen: set[str]) -> list:
+        """Normalize, enrich, and dedup a list of player items."""
+        out = []
+        for it in item_list or []:
             nm = _display_name(it.get("player_name"))
             it["player_name"] = nm
-            # coerce stats if provided as a string
             try:
                 st = it.get("stats")
                 if isinstance(st, str):
@@ -1974,12 +1972,8 @@ def lint_and_enrich(news: dict) -> dict:
                     yellows = int(re.search(r"(\d+)\s*yellow", st).group(1)) if re.search(r"(\d+)\s*yellow", st) else 0
                     reds = int(re.search(r"(\d+)\s*red", st) .group(1)) if re.search(r"(\d+)\s*red", st) else 0
                     it["stats"] = {
-                        "games": games,
-                        "minutes": minutes,
-                        "goals": goals,
-                        "assists": assists,
-                        "yellows": yellows,
-                        "reds": reds,
+                        "games": games, "minutes": minutes, "goals": goals,
+                        "assists": assists, "yellows": yellows, "reds": reds,
                     }
             except Exception:
                 pass
@@ -2002,8 +1996,19 @@ def lint_and_enrich(news: dict) -> dict:
             if key in seen:
                 continue
             seen.add(key)
-            items.append(it)
-        sec["items"] = items
+            out.append(it)
+        return out
+
+    # normalize display names and de-dupe within each section by stable identity
+    for sec in news.get("sections", []) or []:
+        seen: set[str] = set()
+        # Handle subsectioned sections (On Loan, Academy Rising)
+        if "subsections" in sec and isinstance(sec.get("subsections"), list):
+            for sub in sec["subsections"]:
+                if isinstance(sub.get("items"), list):
+                    sub["items"] = _lint_item_list(sub["items"], seen)
+            continue
+        sec["items"] = _lint_item_list(sec.get("items", []), seen)
 
     sofascore_lookup: dict[int, int] = {}
     if player_ids:
@@ -2018,8 +2023,8 @@ def lint_and_enrich(news: dict) -> dict:
             sofascore_lookup = {}
 
     if sofascore_lookup:
-        for sec in news.get("sections", []) or []:
-            for it in sec.get("items", []) or []:
+        def _enrich_sofascore(items: list) -> None:
+            for it in items or []:
                 pid = it.get("player_id")
                 if pid is None or it.get("sofascore_player_id"):
                     continue
@@ -2030,6 +2035,13 @@ def lint_and_enrich(news: dict) -> dict:
                 sofascore_value = sofascore_lookup.get(pid_int)
                 if sofascore_value:
                     it["sofascore_player_id"] = sofascore_value
+
+        for sec in news.get("sections", []) or []:
+            if "subsections" in sec and isinstance(sec.get("subsections"), list):
+                for sub in sec["subsections"]:
+                    _enrich_sofascore(sub.get("items", []))
+            else:
+                _enrich_sofascore(sec.get("items", []))
 
     # Fallback (opt-in): attach Sofascore via exact name match when player_id is missing
     if ENABLE_SOFA_NAME_FALLBACK:
