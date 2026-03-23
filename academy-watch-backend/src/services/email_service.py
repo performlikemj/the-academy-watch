@@ -239,7 +239,7 @@ class SMTPProvider(EmailProvider):
         
         # Build from address
         default_from_name = os.getenv('EMAIL_FROM_NAME', 'The Academy Watch')
-        default_from_email = os.getenv('EMAIL_FROM_ADDRESS', f'no-reply@theacademywatch.com')
+        default_from_email = os.getenv('EMAIL_FROM_ADDRESS', f'mail@theacademywatch.com')
         from_name = from_name or default_from_name
         from_email = from_email or default_from_email
         from_addr = f"{from_name} <{from_email}>"

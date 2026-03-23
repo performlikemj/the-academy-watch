@@ -220,7 +220,7 @@ def _nominatim_geocode(city: str, country: Optional[str] = None) -> Optional[Tup
     query = f"{city}, {country}" if country else city
 
     headers = {
-        'User-Agent': 'TheAcademyWatch/1.0 (contact@theacademywatch.com)'
+        'User-Agent': 'TheAcademyWatch/1.0 (mail@theacademywatch.com)'
     }
 
     params = {

@@ -4988,7 +4988,7 @@ def _deliver_newsletter_via_webhook(
 
     from_addr = {
         'name': os.getenv('EMAIL_FROM_NAME', 'The Academy Watch'),
-        'email': os.getenv('EMAIL_FROM_ADDRESS', 'no-reply@theacademywatch.com'),
+        'email': os.getenv('EMAIL_FROM_ADDRESS', 'mail@theacademywatch.com'),
     }
 
     # Optional public base URL for manage/unsubscribe links if the n8n flow uses it
