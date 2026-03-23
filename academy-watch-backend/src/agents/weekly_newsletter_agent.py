@@ -1764,15 +1764,15 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
     ACADEMY_THRESHOLD_APPS = 5
 
     for tp in tracked:
-        # A1: Filter out bought players (not academy products)
+        # A1: Flag academy products vs bought players (for AI commentary context)
+        is_academy_product = True  # default assumption
         if tp.journey_id:
             journey = PlayerJourney.query.get(tp.journey_id)
             if journey and journey.academy_club_ids:
-                if team.team_id not in (journey.academy_club_ids or []):
-                    _nl_dbg(f"Skipping non-academy product: {tp.player_name} (academy_club_ids={journey.academy_club_ids}, parent={team.team_id})")
-                    continue
+                is_academy_product = team.team_id in (journey.academy_club_ids or [])
 
         player_dict = {
+            'is_academy_product': is_academy_product,
             'player_api_id': tp.player_api_id,
             'player_id': tp.player_api_id,
             'player_name': tp.player_name,

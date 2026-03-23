@@ -993,9 +993,9 @@ def get_chart_data():
         if not stat_keys:
             # Default stats based on chart type
             if chart_type == 'radar':
-                stat_keys = ['rating', 'goals', 'assists', 'passes_key', 'tackles_total', 'duels_won']
+                stat_keys = ['goals', 'assists', 'passes_key', 'tackles_total', 'duels_won', 'shots_total']
             elif chart_type in ('bar', 'line'):
-                stat_keys = ['goals', 'assists', 'rating']
+                stat_keys = ['goals', 'assists', 'minutes']
             else:
                 stat_keys = ALL_STAT_KEYS[:10]  # First 10 stats
         
