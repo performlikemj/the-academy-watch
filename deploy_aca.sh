@@ -35,6 +35,8 @@ JOB_TRANSFER_HEAL_NAME="${JOB_TRANSFER_HEAL_NAME:-job-transfer-heal}"
 JOB_SYNC_FIXTURES_NAME="${JOB_SYNC_FIXTURES_NAME:-job-sync-fixtures}"
 # Optional: status refresh job name
 JOB_STATUS_REFRESH_NAME="${JOB_STATUS_REFRESH_NAME:-job-status-refresh}"
+# Optional: data integrity fix job name
+JOB_DATA_FIX_NAME="${JOB_DATA_FIX_NAME:-job-data-fix}"
 # Optional explicit API base for frontend build. If empty, derived from backend FQDN
 VITE_API_BASE="${VITE_API_BASE:-}"
 
