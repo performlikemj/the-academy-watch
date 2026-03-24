@@ -16,12 +16,14 @@ Usage:
 """
 
 import sys
+import time
 import logging
 from datetime import datetime, timezone
 
 from src.main import app
 from src.models.league import db, TeamProfile, Player
 from src.utils.job_utils import is_job_paused
+from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -47,7 +49,17 @@ def phase_1_backfill_team_profiles(dry_run=False):
     if not missing_ids or dry_run:
         return len(missing_ids)
 
+    from src.utils.slug import generate_unique_team_slug
+
     api_client = APIFootballClient()
+
+    # Collect existing slugs for dedup
+    existing_slugs = set(
+        row[0] for row in db.session.execute(
+            db.text('SELECT slug FROM team_profiles WHERE slug IS NOT NULL')
+        ).fetchall()
+    )
+
     filled = 0
     for i, team_id in enumerate(missing_ids):
         if is_job_paused(PAUSE_KEY):
@@ -64,9 +76,12 @@ def phase_1_backfill_team_profiles(dry_run=False):
                 if t.get('id'):
                     existing = TeamProfile.query.get(t['id'])
                     if not existing:
+                        name = t.get('name', f'Team {t["id"]}')
+                        slug = generate_unique_team_slug(name, t.get('country'), t['id'], existing_slugs)
+                        existing_slugs.add(slug)
                         tp = TeamProfile(
                             team_id=t['id'],
-                            name=t.get('name', f'Team {t["id"]}'),
+                            name=name,
                             code=t.get('code'),
                             country=t.get('country'),
                             founded=t.get('founded'),
@@ -75,6 +90,7 @@ def phase_1_backfill_team_profiles(dry_run=False):
                             venue_name=venue.get('name'),
                             venue_city=venue.get('city'),
                             venue_capacity=venue.get('capacity'),
+                            slug=slug,
                         )
                         db.session.add(tp)
                         filled += 1
@@ -161,8 +177,7 @@ def phase_3_recompute_academy_ids(dry_run=False):
     journeys = PlayerJourney.query.filter(
         db.or_(
             PlayerJourney.academy_club_ids.is_(None),
-            PlayerJourney.academy_club_ids == '[]',
-            db.cast(PlayerJourney.academy_club_ids, db.Text) == 'null',
+            func.jsonb_array_length(PlayerJourney.academy_club_ids) == 0,
         )
     ).all()
     logger.info(f'Journeys with missing academy_club_ids: {len(journeys)}')
@@ -335,6 +350,7 @@ def run(dry_run=False, start_phase=1):
         (5, 'formations', phase_5_backfill_formations),
     ]
 
+    api_heavy_phases = {'players', 'statuses', 'formations'}
     for num, name, func in phases:
         if num < start_phase:
             logger.info(f'Skipping phase {num} ({name})')
@@ -342,6 +358,10 @@ def run(dry_run=False, start_phase=1):
         if is_job_paused(PAUSE_KEY):
             logger.info('Paused by admin, stopping.')
             break
+        # Cooldown before API-heavy phases to respect rate limits
+        if name in api_heavy_phases and results:
+            logger.info(f'Cooling down 60s before phase {num} to respect API rate limits...')
+            time.sleep(60)
         try:
             results[name] = func(dry_run=dry_run)
         except Exception as e:
