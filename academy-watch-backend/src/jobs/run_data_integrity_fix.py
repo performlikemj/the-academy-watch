@@ -21,9 +21,9 @@ import logging
 from datetime import datetime, timezone
 
 from src.main import app
-from src.models.league import db, TeamProfile, Player
+from src.models.league import db
 from src.utils.job_utils import is_job_paused
-from sqlalchemy import func
+from sqlalchemy import text, func
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -31,13 +31,24 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 PAUSE_KEY = 'data_integrity_fix_paused'
 
 
+def _verify_count(label, sql):
+    """Run a verification count query and log the result."""
+    result = db.session.execute(text(sql)).scalar()
+    logger.info(f'  [VERIFY] {label}: {result}')
+    return result
+
+
 def phase_1_backfill_team_profiles(dry_run=False):
-    """Backfill TeamProfile for all teams in fixture_player_stats that are missing."""
+    """Backfill TeamProfile for all teams in fixture_player_stats that are missing.
+
+    Uses raw SQL INSERT ON CONFLICT to bypass ORM session issues.
+    """
     from src.api_football_client import APIFootballClient
+    from src.utils.slug import generate_unique_team_slug
 
     logger.info('=== Phase 1: Backfill team_profiles ===')
 
-    missing = db.session.execute(db.text("""
+    missing = db.session.execute(text("""
         SELECT DISTINCT fs.team_api_id
         FROM fixture_player_stats fs
         LEFT JOIN team_profiles tp ON fs.team_api_id = tp.team_id
@@ -49,18 +60,16 @@ def phase_1_backfill_team_profiles(dry_run=False):
     if not missing_ids or dry_run:
         return len(missing_ids)
 
-    from src.utils.slug import generate_unique_team_slug
-
     api_client = APIFootballClient()
 
-    # Collect existing slugs for dedup
     existing_slugs = set(
         row[0] for row in db.session.execute(
-            db.text('SELECT slug FROM team_profiles WHERE slug IS NOT NULL')
+            text('SELECT slug FROM team_profiles WHERE slug IS NOT NULL')
         ).fetchall()
     )
 
     filled = 0
+    errors = 0
     for i, team_id in enumerate(missing_ids):
         if is_job_paused(PAUSE_KEY):
             logger.info('Paused by admin')
@@ -70,49 +79,57 @@ def phase_1_backfill_team_profiles(dry_run=False):
             team_data = resp.get('response', [])
             if not team_data:
                 team_data = [resp] if resp.get('team') else []
-            if team_data:
-                t = team_data[0].get('team', {}) if isinstance(team_data[0], dict) else {}
-                venue = team_data[0].get('venue', {}) if isinstance(team_data[0], dict) else {}
-                if t.get('id'):
-                    existing = TeamProfile.query.get(t['id'])
-                    if not existing:
-                        name = t.get('name', f'Team {t["id"]}')
-                        slug = generate_unique_team_slug(name, t.get('country'), t['id'], existing_slugs)
-                        existing_slugs.add(slug)
-                        tp = TeamProfile(
-                            team_id=t['id'],
-                            name=name,
-                            code=t.get('code'),
-                            country=t.get('country'),
-                            founded=t.get('founded'),
-                            is_national=t.get('national', False),
-                            logo_url=t.get('logo'),
-                            venue_name=venue.get('name'),
-                            venue_city=venue.get('city'),
-                            venue_capacity=venue.get('capacity'),
-                            slug=slug,
-                        )
-                        db.session.add(tp)
-                        filled += 1
+            if not team_data:
+                continue
+            t = team_data[0].get('team', {}) if isinstance(team_data[0], dict) else {}
+            venue = team_data[0].get('venue', {}) if isinstance(team_data[0], dict) else {}
+            if not t.get('id'):
+                continue
+
+            name = t.get('name', f'Team {t["id"]}')
+            slug = generate_unique_team_slug(name, t.get('country'), t['id'], existing_slugs)
+            existing_slugs.add(slug)
+
+            db.session.execute(text("""
+                INSERT INTO team_profiles (team_id, name, code, country, founded, is_national,
+                    logo_url, venue_name, venue_city, venue_capacity, slug, created_at, updated_at)
+                VALUES (:team_id, :name, :code, :country, :founded, :is_national,
+                    :logo_url, :venue_name, :venue_city, :venue_capacity, :slug, NOW(), NOW())
+                ON CONFLICT (team_id) DO NOTHING
+            """), {
+                'team_id': t['id'], 'name': name, 'code': t.get('code'),
+                'country': t.get('country'), 'founded': t.get('founded'),
+                'is_national': t.get('national', False), 'logo_url': t.get('logo'),
+                'venue_name': venue.get('name'), 'venue_city': venue.get('city'),
+                'venue_capacity': venue.get('capacity'), 'slug': slug,
+            })
+            db.session.commit()
+            filled += 1
         except Exception as e:
+            db.session.rollback()
+            errors += 1
             logger.warning(f'Team {team_id} failed: {e}')
 
         if (i + 1) % 50 == 0:
-            db.session.commit()
-            logger.info(f'  Phase 1 progress: {i+1}/{len(missing_ids)}, filled={filled}')
+            logger.info(f'  Progress: {i+1}/{len(missing_ids)}, filled={filled}, errors={errors}')
 
-    db.session.commit()
-    logger.info(f'Phase 1 complete: {filled} team profiles added')
+    remaining = _verify_count('teams still missing',
+        "SELECT COUNT(DISTINCT fs.team_api_id) FROM fixture_player_stats fs "
+        "LEFT JOIN team_profiles tp ON fs.team_api_id = tp.team_id WHERE tp.team_id IS NULL")
+    logger.info(f'Phase 1 complete: {filled} added, {errors} errors, {remaining} still missing')
     return filled
 
 
 def phase_2_backfill_players(dry_run=False):
-    """Backfill Player records for all players in fixture_player_stats that are missing."""
+    """Backfill Player records for all players in fixture_player_stats that are missing.
+
+    Uses raw SQL INSERT ON CONFLICT to bypass ORM session issues.
+    """
     from src.api_football_client import APIFootballClient
 
     logger.info('=== Phase 2: Backfill players table ===')
 
-    missing = db.session.execute(db.text("""
+    missing = db.session.execute(text("""
         SELECT DISTINCT fs.player_api_id
         FROM fixture_player_stats fs
         LEFT JOIN players p ON fs.player_api_id = p.player_id
@@ -137,38 +154,50 @@ def phase_2_backfill_players(dry_run=False):
                 errors += 1
                 continue
             pdata = resp.get('player', {})
-            if pdata.get('id'):
-                existing = Player.query.get(pdata['id'])
-                if not existing:
-                    p = Player(
-                        player_id=pdata['id'],
-                        name=pdata.get('name', str(pdata['id'])),
-                        firstname=pdata.get('firstname'),
-                        lastname=pdata.get('lastname'),
-                        nationality=pdata.get('nationality'),
-                        age=pdata.get('age'),
-                        position=pdata.get('position'),
-                        photo_url=pdata.get('photo'),
-                    )
-                    db.session.add(p)
-                    filled += 1
+            if not pdata.get('id'):
+                errors += 1
+                continue
+
+            db.session.execute(text("""
+                INSERT INTO players (player_id, name, firstname, lastname, nationality,
+                    age, position, photo_url, created_at, updated_at)
+                VALUES (:pid, :name, :firstname, :lastname, :nationality,
+                    :age, :position, :photo_url, NOW(), NOW())
+                ON CONFLICT (player_id) DO NOTHING
+            """), {
+                'pid': pdata['id'],
+                'name': pdata.get('name', str(pdata['id'])),
+                'firstname': pdata.get('firstname'),
+                'lastname': pdata.get('lastname'),
+                'nationality': pdata.get('nationality'),
+                'age': pdata.get('age'),
+                'position': pdata.get('position'),
+                'photo_url': pdata.get('photo'),
+            })
+            db.session.commit()
+            filled += 1
         except Exception as e:
+            db.session.rollback()
             errors += 1
-            if 'quota' in str(e).lower():
-                logger.warning(f'API quota hit at player {i+1}. Filled: {filled}')
+            if 'quota' in str(e).lower() or 'ratelimit' in str(e).lower().replace(' ', ''):
+                logger.warning(f'API rate limit at player {i+1}. Filled: {filled}')
                 break
 
-        if (i + 1) % 100 == 0:
-            db.session.commit()
-            logger.info(f'  Phase 2 progress: {i+1}/{len(missing_ids)}, filled={filled}, errors={errors}')
+        if (i + 1) % 200 == 0:
+            logger.info(f'  Progress: {i+1}/{len(missing_ids)}, filled={filled}, errors={errors}')
 
-    db.session.commit()
-    logger.info(f'Phase 2 complete: {filled} player records added, {errors} errors')
+    remaining = _verify_count('players still missing',
+        "SELECT COUNT(DISTINCT fs.player_api_id) FROM fixture_player_stats fs "
+        "LEFT JOIN players p ON fs.player_api_id = p.player_id WHERE p.player_id IS NULL")
+    logger.info(f'Phase 2 complete: {filled} added, {errors} errors, {remaining} still missing')
     return filled
 
 
 def phase_3_recompute_academy_ids(dry_run=False):
-    """Recompute academy_club_ids for all PlayerJourney records using current algorithm."""
+    """Recompute academy_club_ids for all PlayerJourney records using current algorithm.
+
+    Pure DB computation — no API calls.
+    """
     from src.services.journey_sync import JourneySyncService
     from src.models.journey import PlayerJourney, PlayerJourneyEntry
 
@@ -187,6 +216,7 @@ def phase_3_recompute_academy_ids(dry_run=False):
 
     sync_service = JourneySyncService()
     fixed = 0
+    errors = 0
     for i, journey in enumerate(journeys):
         if is_job_paused(PAUSE_KEY):
             logger.info('Paused by admin')
@@ -196,17 +226,22 @@ def phase_3_recompute_academy_ids(dry_run=False):
             if not entries:
                 continue
             sync_service._compute_academy_club_ids(journey, entries=entries)
+            db.session.commit()
             if journey.academy_club_ids:
                 fixed += 1
         except Exception as e:
-            logger.warning(f'Journey {journey.id} (player {journey.player_api_id}) failed: {e}')
+            db.session.rollback()
+            errors += 1
+            if (i + 1) % 500 == 0:
+                logger.warning(f'Journey {journey.id} failed: {e}')
 
-        if (i + 1) % 200 == 0:
-            db.session.commit()
-            logger.info(f'  Phase 3 progress: {i+1}/{len(journeys)}, fixed={fixed}')
+        if (i + 1) % 500 == 0:
+            logger.info(f'  Progress: {i+1}/{len(journeys)}, fixed={fixed}, errors={errors}')
 
-    db.session.commit()
-    logger.info(f'Phase 3 complete: {fixed} journeys updated with academy_club_ids')
+    remaining = _verify_count('journeys still missing IDs',
+        "SELECT COUNT(*) FROM player_journeys "
+        "WHERE academy_club_ids IS NULL OR jsonb_array_length(academy_club_ids) = 0")
+    logger.info(f'Phase 3 complete: {fixed} updated, {errors} errors, {remaining} still missing')
     return fixed
 
 
@@ -224,6 +259,7 @@ def phase_4_refresh_statuses(dry_run=False):
         return len(team_ids)
 
     total_changed = 0
+    total_errors = 0
     for i, team_db_id in enumerate(team_ids):
         if is_job_paused(PAUSE_KEY):
             logger.info('Paused by admin')
@@ -235,7 +271,7 @@ def phase_4_refresh_statuses(dry_run=False):
                 pass
             result = refresh_and_heal(
                 team_id=team_db_id,
-                resync_journeys=False,  # Use existing data, not API re-fetch
+                resync_journeys=False,
                 dry_run=False,
                 cascade_fixtures=False,
             )
@@ -248,12 +284,14 @@ def phase_4_refresh_statuses(dry_run=False):
                 db.session.rollback()
             except Exception:
                 pass
-            logger.warning(f'Team {team_db_id} failed: {e}')
+            total_errors += 1
+            if total_errors <= 5:
+                logger.warning(f'Team {team_db_id} failed: {e}')
 
-        if (i + 1) % 10 == 0:
-            logger.info(f'  Phase 4 progress: {i+1}/{len(team_ids)} teams, {total_changed} total changes')
+        if (i + 1) % 20 == 0:
+            logger.info(f'  Progress: {i+1}/{len(team_ids)} teams, {total_changed} changes, {total_errors} errors')
 
-    logger.info(f'Phase 4 complete: {total_changed} players changed across {len(team_ids)} teams')
+    logger.info(f'Phase 4 complete: {total_changed} players changed, {total_errors} errors across {len(team_ids)} teams')
     return total_changed
 
 
@@ -283,7 +321,7 @@ def phase_5_backfill_formations(dry_run=False):
         if is_job_paused(PAUSE_KEY):
             logger.info('Paused by admin')
             break
-        fixture = Fixture.query.get(fix_id)
+        fixture = db.session.get(Fixture, fix_id)
         if not fixture:
             continue
         try:
@@ -319,12 +357,14 @@ def phase_5_backfill_formations(dry_run=False):
             fps.formation_position = grid_to_role(formation, grid)
             total_updated += 1
 
-        if (i + 1) % 100 == 0:
-            db.session.commit()
-            logger.info(f'  Phase 5 progress: {i+1}/{len(fixture_ids)}, updated={total_updated}')
+        db.session.commit()
 
-    db.session.commit()
-    logger.info(f'Phase 5 complete: {total_updated} rows updated')
+        if (i + 1) % 100 == 0:
+            logger.info(f'  Progress: {i+1}/{len(fixture_ids)}, updated={total_updated}')
+
+    remaining = _verify_count('fixture stats still missing formation',
+        "SELECT COUNT(*) FROM fixture_player_stats WHERE formation IS NULL")
+    logger.info(f'Phase 5 complete: {total_updated} updated, {remaining} still missing')
     return total_updated
 
 
@@ -338,7 +378,7 @@ def run(dry_run=False, start_phase=1):
         logger.info('Data integrity fix is paused by admin. Exiting.')
         return
 
-    logger.info(f'Data integrity fix starting. dry_run={dry_run}, start_phase={start_phase}')
+    logger.info(f'Starting data integrity fix. dry_run={dry_run}, start_phase={start_phase}')
     start = datetime.now(timezone.utc)
 
     results = {}
@@ -358,9 +398,8 @@ def run(dry_run=False, start_phase=1):
         if is_job_paused(PAUSE_KEY):
             logger.info('Paused by admin, stopping.')
             break
-        # Cooldown before API-heavy phases to respect rate limits
         if name in api_heavy_phases and results:
-            logger.info(f'Cooling down 60s before phase {num} to respect API rate limits...')
+            logger.info(f'Cooling down 60s before phase {num}...')
             time.sleep(60)
         try:
             results[name] = func(dry_run=dry_run)
