@@ -283,6 +283,7 @@ Scheduled Jobs (Azure Container Apps Jobs):
   - job-weekly-newsletters: Weekly newsletter generation
   - job-transfer-heal: Transfer data reconciliation
   - job-sync-fixtures: Batch fixture + player stats sync
+  - job-status-refresh: Re-classify player statuses from transfer data
 ```
 
 ### CI/CD

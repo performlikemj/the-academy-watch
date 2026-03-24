@@ -31,6 +31,9 @@ env:
   APP_BACKEND: ca-loan-army-backend
   SWA_NAME: swa-goonloan
   JOB_WEEKLY_NAME: job-weekly-newsletters
+  JOB_TRANSFER_HEAL_NAME: job-transfer-heal
+  JOB_SYNC_FIXTURES_NAME: job-sync-fixtures
+  JOB_STATUS_REFRESH_NAME: job-status-refresh
   TAG: prod
   # Supabase connection for security checks
   SUPA_DB_HOST: db.snqwamzutbcbjgusubsa.supabase.co
@@ -173,17 +176,19 @@ jobs:
             --type external \
             --target-port 5001 > /dev/null 2>&1 || true
 
-      - name: Update scheduled job
+      - name: Update scheduled jobs
         run: |
-          if az containerapp job show -g "${{ env.RESOURCE_GROUP }}" -n "${{ env.JOB_WEEKLY_NAME }}" > /dev/null 2>&1; then
-            echo "Updating scheduled job image"
-            az containerapp job update \
-              -g "${{ env.RESOURCE_GROUP }}" \
-              -n "${{ env.JOB_WEEKLY_NAME }}" \
-              --image "${{ steps.acr.outputs.server }}/loanarmy/backend:${{ env.TAG }}" > /dev/null
-          else
-            echo "Scheduled job not found, skipping"
-          fi
+          for JOB_NAME in "${{ env.JOB_WEEKLY_NAME }}" "${{ env.JOB_TRANSFER_HEAL_NAME }}" "${{ env.JOB_SYNC_FIXTURES_NAME }}" "${{ env.JOB_STATUS_REFRESH_NAME }}"; do
+            if az containerapp job show -g "${{ env.RESOURCE_GROUP }}" -n "$JOB_NAME" > /dev/null 2>&1; then
+              echo "Updating job '$JOB_NAME' image"
+              az containerapp job update \
+                -g "${{ env.RESOURCE_GROUP }}" \
+                -n "$JOB_NAME" \
+                --image "${{ steps.acr.outputs.server }}/loanarmy/backend:${{ env.TAG }}" > /dev/null
+            else
+              echo "Job '$JOB_NAME' not found, skipping"
+            fi
+          done
 
       - name: Get backend FQDN
         id: get-fqdn
