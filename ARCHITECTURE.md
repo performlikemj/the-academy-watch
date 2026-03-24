@@ -280,10 +280,11 @@ Supabase                         │ stripe-*           │
 └────────────────────┘
 
 Scheduled Jobs (Azure Container Apps Jobs):
-  - job-weekly-newsletters: Weekly newsletter generation
-  - job-transfer-heal: Transfer data reconciliation
-  - job-sync-fixtures: Batch fixture + player stats sync
-  - job-status-refresh: Re-classify player statuses from transfer data
+  - job-transfer-heal: Daily 3AM UTC — transfer detection + status refresh
+    (full journey resync during transfer windows, light refresh outside)
+  - job-sync-fixtures: Daily 5AM UTC — batch fixture + player stats sync
+  - job-data-fix: Manual — comprehensive 5-phase data integrity repair
+  - job-status-refresh: Manual — force full status re-classification
 ```
 
 ### CI/CD
