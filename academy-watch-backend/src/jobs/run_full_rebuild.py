@@ -21,7 +21,7 @@ import logging
 
 from src.main import app
 from src.models.league import db
-from src.utils.background_jobs import create_job, update_job
+from src.utils.background_jobs import create_background_job, update_job
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -38,7 +38,7 @@ def run(skip_clean=False):
     logger.info('Full rebuild starting. skip_clean=%s', skip_clean)
 
     # Create a background job record for tracking
-    job_id = create_job('full_rebuild')
+    job_id = create_background_job('full_rebuild')
     logger.info('Job ID: %s', job_id)
 
     try:
