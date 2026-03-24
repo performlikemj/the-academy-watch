@@ -959,7 +959,7 @@
       {% set ns = namespace(flat_items=[]) %}
       {% if sec.subsections is defined and sec.subsections %}
         {% for sub in sec.subsections %}
-          {% set ns.flat_items = ns.flat_items + [{'_subsection_header': sub.label}] + (sub.items or []) %}
+          {% set ns.flat_items = ns.flat_items + [{'_subsection_header': sub.label}] + (sub.get('items', []) or []) %}
         {% endfor %}
       {% else %}
         {% if sec is mapping and sec.get is defined %}
