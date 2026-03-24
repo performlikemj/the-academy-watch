@@ -4,6 +4,7 @@ Provides SSE streaming chat endpoint and conversation suggestions.
 """
 from flask import Blueprint, request, Response, jsonify, stream_with_context
 from src.extensions import limiter
+from src.auth import require_api_key
 import json
 import logging
 
@@ -71,3 +72,12 @@ def gol_suggestions():
             "Who are the top-performing loan players this season?",
             "Tell me about Chelsea's academy pipeline",
         ]})
+
+
+@gol_bp.route('/admin/gol/refresh-cache', methods=['POST'])
+@require_api_key
+def admin_refresh_gol_cache():
+    """Invalidate the GOL DataFrame cache so the next query reloads from DB."""
+    from src.services.gol_dataframes import DataFrameCache
+    DataFrameCache.invalidate()
+    return jsonify({'status': 'cache invalidated'})

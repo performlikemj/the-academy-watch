@@ -171,7 +171,7 @@ def resolve_localization_for_country(iso_code: str | None, default: dict[str, st
     return base
 
 
-def _enforce_loanee_metadata(
+def _enforce_player_metadata(
     content: dict,
     meta_by_pid: dict[int, dict[str, Any]],
     meta_by_key: dict[str, dict[str, Any]],
@@ -691,7 +691,7 @@ def _build_player_summary(item: dict, loanee: dict | None, stats: dict, match_ph
     if not can_track:
         base = UNTRACKED_MESSAGE
         if player_display and team_label:
-            base += f" {player_display} remains on loan with {team_label}."
+            base += f" {player_display} is currently with {team_label}."
     else:
         if multi_match_week and minutes > 0:
             if match_count:
@@ -939,7 +939,7 @@ def _media_spotlight_sentence(player_name: str, links: list[dict[str, str]]) -> 
         coverage = f"{titles[0]} and {titles[1]}"
     else:
         coverage = f"{titles[0]}, {titles[1]} and more coverage"
-    return _ensure_period(f"Media spotlight on {player_name or 'this loanee'}: {coverage}.")
+    return _ensure_period(f"Media spotlight on {player_name or 'this player'}: {coverage}.")
 
 
 PLAYER_SUMMARY_SYSTEM_PROMPT = (
@@ -1191,7 +1191,7 @@ def _build_player_report_item(loanee: dict, hits: list[dict[str, Any]], *, week_
     was_unused_sub = _player_was_unused_sub(matches)
     
     if not can_track:
-        base_sentence = f"{UNTRACKED_MESSAGE} {display_name} remains on loan with {loan_team}."
+        base_sentence = f"{UNTRACKED_MESSAGE} {display_name} is currently with {loan_team}."
         paragraphs.append(_ensure_period(base_sentence))
     else:
         if multi_match_week and minutes > 0:
@@ -2844,8 +2844,8 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
 
     # Build player lookup to help post-processing attach player_id + sofascore ids later
     player_lookup: dict[str, list[dict[str, Any]]] = {}
-    loanee_meta_by_pid: dict[int, dict[str, Any]] = {}
-    loanee_meta_by_key: dict[str, dict[str, Any]] = {}
+    player_meta_by_pid: dict[int, dict[str, Any]] = {}
+    player_meta_by_key: dict[str, dict[str, Any]] = {}
 
     def _register_alias(alias: str | None, entry: dict[str, Any]) -> None:
         if not alias:
@@ -2861,7 +2861,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
         key = _normalize_player_key(alias)
         if not key:
             return
-        loanee_meta_by_key[key] = meta
+        player_meta_by_key[key] = meta
 
     all_players = groups.get("on_loan", []) + groups.get("first_team", []) + groups.get("academy", [])
 
@@ -2888,7 +2888,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
             }
             if pid:
                 try:
-                    loanee_meta_by_pid[int(pid)] = meta_entry
+                    player_meta_by_pid[int(pid)] = meta_entry
                 except Exception:
                     pass
             primary_name = player.get("player_name") or player.get("name")
@@ -3129,7 +3129,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
         content_payload, _ = _apply_player_lookup(content_payload, player_lookup)
         content_payload = legacy_lint_and_enrich(content_payload)
         if has_any_players:
-            content_payload = _enforce_loanee_metadata(content_payload, loanee_meta_by_pid, loanee_meta_by_key)
+            content_payload = _enforce_player_metadata(content_payload, player_meta_by_pid, player_meta_by_key)
     except Exception as enrich_error:
         _nl_dbg("lint-and-enrich failed:", str(enrich_error))
 

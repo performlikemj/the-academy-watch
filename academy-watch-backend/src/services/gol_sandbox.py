@@ -211,22 +211,25 @@ def _build_helpers(dataframes: dict) -> dict:
         """Top loan players by goals this season. Deduplicates multi-academy players."""
         tracked = dataframes.get('tracked', pd.DataFrame())
         fixture_stats = dataframes.get('fixture_stats', pd.DataFrame())
-        teams = dataframes.get('teams', pd.DataFrame())
         if tracked.empty or fixture_stats.empty:
             return pd.DataFrame(columns=['player_name', 'parent_club', 'loan_club', 'goals', 'assists', 'minutes', 'avg_rating'])
 
-        # Filter to on-loan players, deduplicate — owning-club row wins ties
-        loan = _dedup_tracked(tracked[tracked['status'] == 'on_loan'])
+        # Dedup FIRST (owning-club row wins), THEN filter to on-loan
+        deduped = _dedup_tracked(tracked)
+        loan = deduped[deduped['status'] == 'on_loan'].copy()
 
         fs = fixture_stats.copy()
         target_season = season if season else fs['season'].max()
         fs = fs[fs['season'] == target_season]
 
+        # Use current_club_name from tracked data as loan club (not fixture_stats team)
+        loan['loan_club'] = loan['current_club_name'].apply(_resolve_team_name_or_fallback)
+
         merged = loan.merge(fs, on='player_api_id', how='inner')
         if merged.empty:
             return pd.DataFrame(columns=['player_name', 'parent_club', 'loan_club', 'goals', 'assists', 'minutes', 'avg_rating'])
 
-        agg = merged.groupby(['player_api_id', 'player_name', 'parent_club']).agg(
+        agg = merged.groupby(['player_api_id', 'player_name', 'parent_club', 'loan_club']).agg(
             goals=('goals', 'sum'),
             assists=('assists', 'sum'),
             minutes=('minutes', 'sum'),
@@ -234,14 +237,8 @@ def _build_helpers(dataframes: dict) -> dict:
         ).reset_index()
         agg['avg_rating'] = agg['avg_rating'].round(2)
 
-        # Derive actual loan club from fixture_stats (most common team played for)
-        team_mode = (
-            fs.groupby('player_api_id')['team_api_id']
-            .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else None)
-        )
-        agg['loan_club'] = agg['player_api_id'].map(team_mode).apply(
-            lambda x: _resolve_team_name(x) if pd.notna(x) else 'Unknown'
-        )
+        # Filter out players where parent_club == loan_club (not actually on loan elsewhere)
+        agg = agg[agg['parent_club'] != agg['loan_club']]
 
         agg = agg.sort_values(['goals', 'assists'], ascending=[False, False]).head(limit)
         return agg[['player_api_id', 'player_name', 'parent_club', 'loan_club', 'goals', 'assists', 'minutes', 'avg_rating']].reset_index(drop=True)
