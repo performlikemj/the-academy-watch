@@ -176,7 +176,7 @@ def derive_player_status(
     if is_same_club(current_club_name or '', parent_club_name):
         return (_base_status(current_level), None, None)
 
-    # 4. Genuinely at a different club → on loan
+    # 4. Genuinely at a different club → on loan (will be refined by transfer check)
     return ('on_loan', current_club_api_id, current_club_name)
 
 
@@ -257,8 +257,10 @@ def upgrade_status_from_transfers(
     status: str,
     transfers: list,
     parent_api_id: int,
+    current_club_api_id: int | None = None,
 ) -> str:
-    """Upgrade 'on_loan' → 'sold'/'released' when latest departure was permanent."""
+    """Upgrade 'on_loan' → 'sold'/'released' when latest departure was permanent
+    or when the current club has no loan transfer record."""
     if status != 'on_loan' or not transfers:
         return status
 
@@ -275,7 +277,18 @@ def upgrade_status_from_transfers(
     dep_type = (departures[0].get('type') or '').strip().lower()
 
     if not dep_type or is_new_loan_transfer(dep_type):
-        return status  # still a loan
+        # Latest departure looks like a loan — but verify the current club
+        # actually matches a loan destination. If not, the player moved
+        # permanently to a club with no transfer record (common in lower leagues).
+        if current_club_api_id:
+            loan_destinations = {
+                t.get('teams', {}).get('in', {}).get('id')
+                for t in transfers
+                if is_new_loan_transfer((t.get('type') or '').strip().lower())
+            }
+            if current_club_api_id not in loan_destinations:
+                return 'sold'  # at a club with no loan record → permanent move
+        return status  # confirmed loan destination
 
     # Permanent departure: free agent → 'released', else → 'sold'
     if dep_type in ('free agent', 'free', 'n/a'):
@@ -468,6 +481,7 @@ def classify_tracked_player(
         if effective_transfers:
             upgraded = upgrade_status_from_transfers(
                 status, effective_transfers, parent_api_id,
+                current_club_api_id=current_club_api_id,
             )
             if upgraded != status:
                 if with_reasoning:
