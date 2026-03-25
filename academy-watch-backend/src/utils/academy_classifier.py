@@ -570,3 +570,36 @@ def _base_status(current_level: Optional[str]) -> str:
     if current_level == 'First Team':
         return 'first_team'
     return 'academy'
+
+
+def is_academy_product(
+    player_api_id: int,
+    team_api_id: int,
+    *,
+    journey: Any = None,
+    data_source: Optional[str] = None,
+) -> bool:
+    """Single source of truth: is this player an academy product of the given team?
+
+    Used by Teams page, newsletter pipeline, and GOL bot to filter out
+    bought players (owning-club rows) from academy views.
+
+    Rules:
+    1. academy_club_ids contains team_api_id → True (confirmed academy product)
+    2. academy_club_ids exists but doesn't contain team_api_id → False (different academy)
+    3. No/empty academy_club_ids + data_source='owning-club' → False (bought player)
+    4. No/empty academy_club_ids + other source → True (benefit of doubt — discovered
+       through academy pipelines like journey-sync or cohort-seed)
+    """
+    if journey is None:
+        from src.models.journey import PlayerJourney
+        journey = PlayerJourney.query.filter_by(player_api_id=player_api_id).first()
+
+    if journey and journey.academy_club_ids:
+        return team_api_id in (journey.academy_club_ids or [])
+
+    # No academy data — decide by data source
+    if data_source == 'owning-club':
+        return False
+
+    return True

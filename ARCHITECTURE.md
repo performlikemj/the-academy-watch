@@ -145,7 +145,7 @@ The batch sync groups players by their current team to minimize API calls — `O
 Each tracked team's full squad is populated via `get_team_players(team_api_id, season)` which calls the API-Football `/players?team=X&season=Y` endpoint. This returns the complete roster (25-50 players per team) with profile info (name, photo, position, nationality, age, birth date).
 
 **Seeding process:**
-1. For each team in the top 5 European leagues + Champions League, fetch the current season squad
+1. For each `is_tracked=true` team, fetch the current season squad
 2. Create a `TrackedPlayer` record for each player with `status='first_team'` and `data_source='api-football'`
 3. The unique constraint `(player_api_id, team_id)` prevents duplicates — existing players are skipped
 4. Status classification (`classify_tracked_player()` in `academy_classifier.py`) refines statuses later: academy, on_loan, first_team, sold, released
@@ -183,7 +183,7 @@ Transfer types from the API `type` field:
 - `"Free"` / `"Free Transfer"` / `"Free agent"` → permanent, no fee
 - `"€ 50M"` / `"€ 25.5M"` → permanent with fee amount
 - `"Transfer"` → permanent, fee undisclosed
-- `"N/A"` → unknown
+- `"N/A"` → treated as `released` (free departure)
 
 The `extract_transfer_fee()` function returns the raw fee string for non-loan transfers, stored on `TrackedPlayer.sale_fee`.
 
@@ -196,13 +196,15 @@ API-Football sometimes uses different player IDs across endpoints (squad/transfe
 ```
 Team (club — one row per API-Football team_id)
   │
-  ├── TrackedPlayer (one row per player per club — full squad, not just loans)
+  ├── TrackedPlayer (two row types per player)
+  │     ├── Academy-origin rows (data_source: journey-sync | api-football | cohort-seed)
+  │     │     team_id points to the academy club
+  │     ├── Owning-club rows (data_source: owning-club)
+  │     │     team_id points to current contract holder (for bought players)
   │     ├── status: academy | on_loan | first_team | sold | released
-  │     ├── current_club_api_id (loan club, buying club, or new club — never parent academy)
-  │     ├── current_club_name
+  │     ├── current_club_api_id (loan club, buying club, or new club)
   │     ├── sale_fee (transfer fee if sold, raw string e.g. "€50M")
   │     ├── position (Goalkeeper, Defender, Midfielder, Attacker)
-  │     ├── data_source: api-football | journey-sync | manual | cohort-seed
   │     └── journey_id → PlayerJourney (lazy — synced on first page visit)
   │                         └── PlayerJourneyEntry[] (career stops)
   │                               ├── club, season, level, entry_type
@@ -250,6 +252,50 @@ Determines which team's academy a player belongs to. Core logic in `services/jou
 
 **TrackedPlayer creation**: For each academy club ID, creates a `TrackedPlayer` row linking the player to that academy team.
 
+### Academy Product Filter (Single Source of Truth)
+
+`is_academy_product()` in `utils/academy_classifier.py` is the **sole gate** for determining whether a player appears on a team's page or in its newsletter. Used by:
+- Teams page (`routes/teams.py`) — TrackedPlayer merge
+- Newsletter pipeline (`agents/weekly_newsletter_agent.py`) — A1 filter
+- GOL bot dedup (`services/gol_sandbox.py`) — `_dedup_tracked()`
+
+Rules:
+1. `academy_club_ids` contains team → **include** (confirmed academy product)
+2. `academy_club_ids` exists but doesn't contain team → **exclude** (different academy)
+3. No/empty `academy_club_ids` + `data_source='owning-club'` → **exclude** (bought player)
+4. No/empty `academy_club_ids` + other source → **include** (benefit of doubt)
+
+### Transfer Classification — Unrecorded Moves
+
+When a player is at a club that has no "Loan" type transfer record in the API data, `upgrade_status_from_transfers()` classifies them as `sold` instead of defaulting to `on_loan`. This handles API-Football gaps where permanent transfers to lower leagues aren't always recorded.
+
+### Stale Row Cleanup
+
+`refresh_and_heal()` in `services/transfer_heal_service.py` auto-deactivates stale academy-origin rows when a correct owning-club row exists for the same player. This prevents duplicates from leaking into queries.
+
+### GOL Analytics Bot
+
+AI-powered analytics assistant using pandas DataFrames loaded from the DB. See `services/gol_service.py`, `services/gol_sandbox.py`, `services/gol_dataframes.py`.
+
+**DataFrames** (cached 5 min, `DataFrameCache` in `gol_dataframes.py`):
+- `tracked` — all active TrackedPlayers with `parent_club` from teams join
+- `fixture_stats` — per-match player stats with formation/grid/formation_position
+- `players` — player name/photo cache (fallback for name resolution)
+- `team_profiles` — team name/logo cache (fallback for team resolution)
+- `journeys`, `journey_entries` — career data
+- `fixtures`, `cohorts`, `cohort_members` — match and cohort data
+
+**Admin cache endpoint**: `POST /api/admin/gol/refresh-cache` — forces DataFrame reload after data fixes.
+
+### Newsletter Sections
+
+Newsletters are structured with subsections:
+- **First Team** — flat items list
+- **On Loan** — subsections grouped by league (e.g., "Championship", "League One")
+- **Academy Rising** — subsections grouped by level (e.g., "U21", "U18")
+
+Both `_enforce_player_metadata()` and `lint_and_enrich()` process flat items AND subsection items.
+
 ## Deployment Topology
 
 ```
@@ -282,8 +328,10 @@ Supabase                         │ stripe-*           │
 Scheduled Jobs (Azure Container Apps Jobs):
   - job-transfer-heal: Daily 3AM UTC — transfer detection + status refresh
     (full journey resync during transfer windows, light refresh outside)
+    Auto-deactivates stale duplicate rows after each run.
   - job-sync-fixtures: Daily 5AM UTC — batch fixture + player stats sync
-  - job-data-fix: Manual — comprehensive 5-phase data integrity repair
+  - job-full-rebuild: Manual — full data wipe and rebuild from scratch (12hr timeout)
+  - job-data-fix: Manual — 5-phase incremental data integrity repair
   - job-status-refresh: Manual — force full status re-classification
 ```
 
@@ -334,7 +382,7 @@ See `academy-watch-backend/env.template` for the full list. Grouped summary:
 | `curator_bp` | `/api` | 4 | Content curation tools |
 | `formation_bp` | `/api` | 3 | Formation analysis |
 | `feeder_bp` | `/api` | 2 | Feeder club relationships |
-| `gol_bp` | `/api` | 2 | Goal-of-the-loan tracking |
+| `gol_bp` | `/api` | 3 | GOL Analytics Wizard (AI chat + cache admin) |
 
 ## Frontend API Proxy
 

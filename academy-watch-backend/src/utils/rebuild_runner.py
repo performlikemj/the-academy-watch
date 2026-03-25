@@ -97,7 +97,12 @@ def _run_full_rebuild(job_id, config):
     from sqlalchemy import cast
     from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB
 
-    team_ids = config.get('team_ids') or list(BIG_6.keys())
+    if config.get('team_ids'):
+        team_ids = config['team_ids']
+    else:
+        # Process ALL tracked teams, not just Big 6
+        tracked_teams = Team.query.filter_by(is_tracked=True).with_entities(Team.team_id).all()
+        team_ids = [t[0] for t in tracked_teams] if tracked_teams else list(BIG_6.keys())
     seasons = config.get('seasons') or SEASONS
     skip_clean = config.get('skip_clean', False)
     skip_cohorts = config.get('skip_cohorts', False)

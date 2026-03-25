@@ -467,8 +467,14 @@ def get_team_loans(team_identifier):
                         'minutes_played': int(row.minutes_played),
                     }
 
+            from src.utils.academy_classifier import is_academy_product
+
             for tp in tracked:
                 if tp.player_api_id in existing_player_ids:
+                    continue
+                # Only show academy products on the Teams page
+                if not is_academy_product(tp.player_api_id, team.team_id,
+                                         data_source=tp.data_source):
                     continue
                 tp_dict = tp.to_public_dict()
                 # Enrich with actual stats from FixturePlayerStats

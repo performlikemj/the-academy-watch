@@ -1788,19 +1788,11 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
     ACADEMY_THRESHOLD_MINUTES = 200  # ~2 full matches
     ACADEMY_THRESHOLD_APPS = 5
 
+    from src.utils.academy_classifier import is_academy_product as _is_academy_product
+
     for tp in tracked:
         # A1: Filter non-academy products out of newsletter
-        is_academy_product = True  # default for players discovered through academy pipelines
-        if tp.journey_id:
-            journey = PlayerJourney.query.get(tp.journey_id)
-            if journey and journey.academy_club_ids:
-                is_academy_product = team.team_id in (journey.academy_club_ids or [])
-            elif tp.data_source == 'owning-club':
-                is_academy_product = False
-        elif tp.data_source == 'owning-club':
-            is_academy_product = False
-
-        if not is_academy_product:
+        if not _is_academy_product(tp.player_api_id, team.team_id, data_source=tp.data_source):
             continue
 
         player_dict = {
