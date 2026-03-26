@@ -469,18 +469,25 @@ def get_team_loans(team_identifier):
 
             from src.utils.academy_classifier import is_academy_product
 
+            filtered_out = []
             for tp in tracked:
                 if tp.player_api_id in existing_player_ids:
                     continue
                 # Only show academy products on the Teams page
-                if not is_academy_product(tp.player_api_id, team.team_id,
-                                         data_source=tp.data_source):
+                is_acad = is_academy_product(tp.player_api_id, team.team_id,
+                                             data_source=tp.data_source)
+                if not is_acad:
+                    filtered_out.append(f"{tp.player_name}({tp.player_api_id})")
                     continue
                 tp_dict = tp.to_public_dict()
                 # Enrich with actual stats from FixturePlayerStats
                 if tp.player_api_id in stats_by_player:
                     tp_dict.update(stats_by_player[tp.player_api_id])
                 result.append(tp_dict)
+
+            if filtered_out:
+                logger.info('Teams page: filtered out %d non-academy players: %s',
+                           len(filtered_out), ', '.join(filtered_out[:10]))
 
         # Include supplemental loans if requested
         include_supp = request.args.get('include_supplemental', 'false').lower() in ('1', 'true', 'yes', 'on')

@@ -16189,10 +16189,18 @@ def get_team_players(team_identifier):
         team = resolve_team_by_identifier(team_identifier)
         team_id = team.id
 
-        players = TrackedPlayer.query.filter_by(
+        from src.utils.academy_classifier import is_academy_product
+
+        all_tracked = TrackedPlayer.query.filter_by(
             team_id=team_id,
             is_active=True,
         ).order_by(TrackedPlayer.player_name).all()
+
+        # Filter to academy products only
+        players = [
+            tp for tp in all_tracked
+            if is_academy_product(tp.player_api_id, team.team_id, data_source=tp.data_source)
+        ]
 
         # Batch-compute parent club appearances from journey entries
         from src.models.journey import PlayerJourneyEntry
