@@ -57,10 +57,14 @@ def run(dry_run=False):
         logger.info('Another transfer heal job is already running. Exiting.')
         return [{'error': 'already_running'}]
 
-    resync = is_transfer_window()
+    # Always resync journeys — transfer cross-reference needs fresh
+    # transfer data to detect players who moved but haven't played yet.
+    # The window check only controlled depth before, but skipping resync
+    # entirely meant current_club never got updated outside windows.
+    resync = True
     logger.info(
         'Transfer heal starting. transfer_window=%s, resync_journeys=%s, dry_run=%s',
-        resync, resync, dry_run,
+        is_transfer_window(), resync, dry_run,
     )
 
     team_ids = teams_with_active_tracked_players()
