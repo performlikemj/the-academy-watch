@@ -496,7 +496,20 @@ def classify_tracked_player(
                 loan_name = None
 
     # ── Step 2.5: squad cross-reference ────────────────────────────────
-    if (status == 'on_loan' and config.get('use_squad_check')
+    # Skip squad check if transfers confirm a loan — transfer data is more
+    # authoritative than squad lists (which aren't updated mid-season for loans).
+    has_confirmed_loan = False
+    _check_transfers = transfers or []
+    if status == 'on_loan' and loan_id:
+        from src.api_football_client import is_new_loan_transfer as _is_loan
+        has_confirmed_loan = any(
+            _is_loan((t.get('type') or '').strip().lower())
+            and t.get('teams', {}).get('in', {}).get('id') == loan_id
+            for t in _check_transfers
+        )
+
+    if (status == 'on_loan' and not has_confirmed_loan
+            and config.get('use_squad_check')
             and squad_members_by_club is not None and player_api_id):
         loan_squad = squad_members_by_club.get(loan_id)
         parent_squad = squad_members_by_club.get(parent_api_id)
