@@ -770,7 +770,29 @@ class JourneySyncService:
             journey.current_club_api_id = current.club_api_id
             journey.current_club_name = current.club_name
             journey.current_level = current.level
-        
+
+        # Cross-reference transfers: if the most recent permanent transfer
+        # goes to a DIFFERENT club than what stats show, override current_club.
+        # This handles players who transferred but haven't played yet.
+        if transfers:
+            most_recent = sorted(transfers, key=lambda x: x.get('date', ''), reverse=True)
+            for t in most_recent:
+                transfer_type = (t.get('type') or '').strip().lower()
+                if is_new_loan_transfer(transfer_type) or transfer_type in LOAN_RETURN_TYPES:
+                    continue
+                # Found the most recent permanent transfer
+                dest = t.get('teams', {}).get('in', {})
+                if (dest.get('id') and dest.get('name')
+                        and dest['id'] != journey.current_club_api_id):
+                    logger.info(
+                        'Journey %d: overriding current_club from transfer %s → %s (%s)',
+                        journey.id, journey.current_club_name, dest['name'], t.get('date'),
+                    )
+                    journey.current_club_api_id = dest['id']
+                    journey.current_club_name = dest['name']
+                    journey.current_level = 'First Team'
+                break  # only check the most recent permanent transfer
+
         # Find first team debut
         first_team_entries = [e for e in entries if e.level == 'First Team' and not e.is_international]
         if first_team_entries:
