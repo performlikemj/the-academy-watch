@@ -782,7 +782,16 @@ class JourneySyncService:
                 transfer_type = (t.get('type') or '').strip().lower()
                 if transfer_type in LOAN_RETURN_TYPES:
                     # Most recent move is a loan return — player is back at parent.
-                    # Don't override current_club at all.
+                    dest = t.get('teams', {}).get('in', {})
+                    if (dest.get('id') and dest.get('name')
+                            and dest['id'] != journey.current_club_api_id):
+                        logger.info(
+                            'Journey %d: loan return → updating current_club to %s (%s)',
+                            journey.id, dest['name'], t.get('date'),
+                        )
+                        journey.current_club_api_id = dest['id']
+                        journey.current_club_name = dest['name']
+                        journey.current_level = 'First Team'
                     break
                 most_recent_transfer = t
                 break
