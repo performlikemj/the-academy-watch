@@ -1815,9 +1815,11 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
         }
 
         if tp.status == 'on_loan':
-            player_dict['loan_team_name'] = tp.current_club_name
+            from src.utils.team_resolver import resolve_team_name
+            loan_club = tp.current_club_name or (resolve_team_name(tp.current_club_api_id) if tp.current_club_api_id else None)
+            player_dict['loan_team_name'] = loan_club
             player_dict['loan_team_api_id'] = tp.current_club_api_id
-            player_dict['loan_team'] = tp.current_club_name
+            player_dict['loan_team'] = loan_club
             # Delegate to existing loan stats pipeline via AcademyPlayer bridge
             if tp.loaned_player_id:
                 lp = AcademyPlayer.query.get(tp.loaned_player_id)
