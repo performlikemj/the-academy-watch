@@ -364,7 +364,8 @@ class CohortService:
             current_level=journey.current_level,
             parent_api_id=parent_api_id,
             parent_club_name=parent_club_name,
-            transfers=[],  # cohort context — no per-player API calls
+            transfers=None,  # auto-fetch via api_client if available
+            player_api_id=journey.player_api_id,
             latest_season=latest_entry.season if latest_entry else None,
         )
 

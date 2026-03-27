@@ -1697,6 +1697,27 @@ def get_public_player_stats(player_id: int):
                                 'window_type': 'Summer',
                                 'is_active': False,
                             }
+                    # Cross-reference against transfers before backfilling
+                    try:
+                        from src.api_football_client import is_new_loan_transfer, LOAN_RETURN_TYPES
+                        from src.utils.academy_classifier import flatten_transfers
+                        raw_transfers = api_client.get_player_transfers(player_id)
+                        flat = flatten_transfers(raw_transfers)
+                        if flat:
+                            most_recent = sorted(flat, key=lambda x: x.get('date', ''), reverse=True)[0]
+                            tr_type = (most_recent.get('type') or '').strip().lower()
+                            dest = most_recent.get('teams', {}).get('in', {})
+                            if dest.get('id') and tr_type not in LOAN_RETURN_TYPES:
+                                best_team_id = dest['id']
+                                best_team_info = {
+                                    'name': dest.get('name', f'Team {dest["id"]}'),
+                                    'logo': dest.get('logo'),
+                                    'window_type': 'Summer',
+                                    'is_active': True,
+                                }
+                    except Exception:
+                        pass  # fall through to stats-based result
+
                     if best_team_id and best_team_info:
                         loan_teams_info[best_team_id] = best_team_info
                         # Backfill TrackedPlayer for future lookups
@@ -9355,6 +9376,21 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                         best_team_block = team_block
                         best_stat = stat
 
+                # Cross-reference against transfers before backfilling
+                try:
+                    from src.api_football_client import is_new_loan_transfer, LOAN_RETURN_TYPES
+                    from src.utils.academy_classifier import flatten_transfers
+                    raw_transfers = api_client.get_player_transfers(tp.player_api_id)
+                    flat = flatten_transfers(raw_transfers)
+                    if flat:
+                        most_recent = sorted(flat, key=lambda x: x.get('date', ''), reverse=True)[0]
+                        tr_type = (most_recent.get('type') or '').strip().lower()
+                        dest = most_recent.get('teams', {}).get('in', {})
+                        if dest.get('id') and tr_type not in LOAN_RETURN_TYPES:
+                            best_team_block = {'id': dest['id'], 'name': dest.get('name', f'Team {dest["id"]}'), 'logo': dest.get('logo')}
+                except Exception:
+                    pass  # fall through to stats-based result
+
                 if best_team_block:
                     team_api_id = best_team_block.get('id')
                     team_players[team_api_id].append((tp.player_api_id, tp.player_name))
@@ -9365,7 +9401,7 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                         tp.current_club_name = best_team_block.get('name')
                         # Also backfill position if missing
                         if not tp.position:
-                            games = best_stat.get('games', {}) or {}
+                            games = (best_stat or {}).get('games', {}) or {}
                             tp.position = games.get('position')
                     discovery_count += 1
             # Fetch transfer fee for sold players
