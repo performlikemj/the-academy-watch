@@ -255,7 +255,7 @@ Determines which team's academy a player belongs to. Core logic in `services/jou
 ### Academy Product Filter (Single Source of Truth)
 
 `is_academy_product()` in `utils/academy_classifier.py` is the **sole gate** for determining whether a player appears on a team's page or in its newsletter. Used by:
-- Teams page (`routes/teams.py`) — TrackedPlayer merge
+- Teams page (`routes/api.py` — `/teams/{id}/players` endpoint)
 - Newsletter pipeline (`agents/weekly_newsletter_agent.py`) — A1 filter
 - GOL bot dedup (`services/gol_sandbox.py`) — `_dedup_tracked()`
 
@@ -265,9 +265,40 @@ Rules:
 3. No/empty `academy_club_ids` + `data_source='owning-club'` → **exclude** (bought player)
 4. No/empty `academy_club_ids` + other source → **include** (benefit of doubt)
 
+### Transfer Cross-Reference (Journey Sync)
+
+`_update_journey_aggregates()` in `services/journey_sync.py` derives `current_club` from the `/players` endpoint (season stats), then cross-references against the `/transfers` endpoint. The most recent transfer overrides stats-based current_club:
+
+- Most recent is **permanent** (e.g., `"€ 35M"`, `"Transfer"`, `"Free"`) → set current_club to destination, status = `first_team`
+- Most recent is **loan** (`"Loan"`) → set current_club to loan destination
+- Most recent is **loan return** (`"Back from Loan"`) → set current_club to return destination (parent club)
+
+This handles players who transferred but haven't played yet at their new club (stats would still show the old club).
+
 ### Transfer Classification — Unrecorded Moves
 
 When a player is at a club that has no "Loan" type transfer record in the API data, `upgrade_status_from_transfers()` classifies them as `sold` instead of defaulting to `on_loan`. This handles API-Football gaps where permanent transfers to lower leagues aren't always recorded.
+
+### Confirmed Loan Protection
+
+When `classify_tracked_player()` runs the squad cross-reference (Step 2.5), it first checks if the loan has a confirmed `"Loan"` type transfer in the API data. If confirmed, the squad check is skipped — transfer data is more authoritative than squad lists, which aren't updated mid-season for loans.
+
+### Team Name Resolution (Single Source of Truth)
+
+`resolve_team_name()` and `resolve_team_name_and_logo()` in `utils/team_resolver.py` are the shared functions for resolving API-Football team IDs to human-readable names. Used by API endpoints, newsletter pipeline, and any code that needs a team name.
+
+Fallback chain: Team table → TeamProfile table → API-Football `/teams` endpoint → `"Team {id}"`.
+
+### API-Football Data Gaps
+
+API-Football's `/transfers` endpoint does not always have complete transfer records, especially for:
+- Lower league permanent transfers (e.g., a player sold to a League Two club)
+- Mid-season moves in non-European leagues (e.g., MLS → European club)
+- Recent transfers that haven't been indexed yet
+
+When transfer data is missing, the system falls back to stats-based inference, which can be wrong if the player hasn't played at their new club. The daily `job-transfer-heal` re-checks transfers and self-corrects as API-Football updates its records.
+
+**For players with genuinely missing transfer data**, manual admin correction via the admin dashboard is the only option. This is a known limitation of relying on a third-party data source.
 
 ### Stale Row Cleanup
 
