@@ -43,7 +43,7 @@ def gol_chat():
                 evt_data = event.get('data', {})
                 yield f"event: {evt_type}\ndata: {json.dumps(evt_data)}\n\n"
         except Exception as e:
-            logger.error(f"SSE stream error: {e}")
+            logger.error(f"SSE stream error: {e}", exc_info=True)
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
 
     return Response(

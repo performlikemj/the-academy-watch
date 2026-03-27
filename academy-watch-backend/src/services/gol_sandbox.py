@@ -1165,6 +1165,8 @@ def _safe_value(v):
     """Convert numpy/pandas types to JSON-safe Python natives."""
     if v is None or (isinstance(v, float) and np.isnan(v)):
         return None
+    if isinstance(v, type(pd.NaT)):
+        return None
     if isinstance(v, (np.integer,)):
         return int(v)
     if isinstance(v, (np.floating,)):
@@ -1173,6 +1175,10 @@ def _safe_value(v):
         return bool(v)
     if isinstance(v, pd.Timestamp):
         return v.isoformat()
+    if isinstance(v, pd.DataFrame):
+        return f"[DataFrame: {len(v)} rows × {len(v.columns)} cols]"
+    if isinstance(v, pd.Series):
+        return v.tolist()
     if isinstance(v, (list, tuple)):
         return [_safe_value(i) for i in v]
     return v

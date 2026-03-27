@@ -541,16 +541,35 @@ class GolService:
 
                     # Only emit data card for successful results
                     if result.get('result_type') != 'error':
+                        try:
+                            json.dumps(result)  # Pre-validate serialization
+                        except TypeError as ser_err:
+                            logger.error(
+                                "data_card serialization failed: %s | result_type=%s keys=%s",
+                                ser_err, result.get('result_type'), list(result.keys()),
+                            )
+                            for k, v in result.items():
+                                if not isinstance(v, (str, int, float, bool, list, dict, type(None))):
+                                    logger.error("  key=%s type=%s", k, type(v).__name__)
+                            result = {'result_type': 'error', 'error': 'Result could not be serialized'}
                         yield {"event": "data_card", "data": {"type": "analysis_result", "payload": result}}
 
                     # Sanitize error details before sending to LLM
                     llm_result = self._sanitize_for_llm(result) if result.get('result_type') == 'error' else result
 
                     # Add tool result to messages for LLM context
+                    try:
+                        tool_content = json.dumps(llm_result)
+                    except TypeError as ser_err:
+                        logger.error(
+                            "LLM tool result serialization failed: %s | result_type=%s",
+                            ser_err, llm_result.get('result_type'),
+                        )
+                        tool_content = json.dumps({'result_type': 'error', 'error': 'Result could not be serialized'})
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
-                        "content": json.dumps(llm_result),
+                        "content": tool_content,
                     })
 
                 # Emit history entries so the frontend can replay them next turn
