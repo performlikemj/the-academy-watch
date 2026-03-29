@@ -134,8 +134,7 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
     ax.set_xticklabels(categories, size=8, color=CHART_COLORS['gray'])
     ax.set_ylim(0, 100)
     ax.set_yticks([25, 50, 75, 100])
-    ax.set_yticklabels(['25', '50', '75', '100'], size=7, color=CHART_COLORS['gray'])
-    ax.set_rlabel_position(30)
+    ax.set_yticklabels([], size=0)  # Hide numeric labels — shape tells the story
 
     # Title
     title = f"{player_name}"

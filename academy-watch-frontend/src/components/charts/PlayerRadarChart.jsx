@@ -102,8 +102,9 @@ function PercentileRadar({ data }) {
             <PolarRadiusAxis
               angle={30}
               domain={[0, 100]}
-              tick={{ fontSize: 9 }}
+              tick={false}
               tickCount={5}
+              axisLine={false}
             />
             {/* Position average layer (behind) */}
             <Radar
@@ -238,8 +239,9 @@ function LegacyRadar({ data }) {
             <PolarRadiusAxis
               angle={30}
               domain={[0, 100]}
-              tick={{ fontSize: 10 }}
+              tick={false}
               tickCount={5}
+              axisLine={false}
             />
             <Radar
               name="Stats"
