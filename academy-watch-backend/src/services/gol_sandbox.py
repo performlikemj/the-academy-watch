@@ -389,7 +389,12 @@ def _build_helpers(dataframes: dict) -> dict:
             if not match.empty:
                 return match.iloc[0]['name']
 
-        return f'Team {tid}'
+        # 3. Centralized resolver (DB + API fallback, caches to TeamProfile)
+        try:
+            from src.utils.team_resolver import resolve_team_name as _central_resolve
+            return _central_resolve(tid)
+        except Exception:
+            return f'Team {tid}'
 
     def _resolve_team_name_or_fallback(value):
         """Resolve a current_club_name that might be a raw API ID or a real name."""

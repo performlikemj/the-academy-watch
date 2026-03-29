@@ -1603,6 +1603,12 @@ def _persist_team_profile(payload: dict | None) -> TeamProfile | None:
     return None
 
 
+def _resolve_team_name_central(team_api_id: int) -> str:
+    """Resolve team name via centralized resolver (Team → TeamProfile → API)."""
+    from src.utils.team_resolver import resolve_team_name
+    return resolve_team_name(team_api_id)
+
+
 def _team_logo_for_team(team_api_id: Any, *, fallback_name: str | None = None) -> str | None:
     if team_api_id is None:
         return None
@@ -1636,7 +1642,7 @@ def _team_logo_for_team(team_api_id: Any, *, fallback_name: str | None = None) -
                 try:
                     record = profile_model(
                         team_id=key,
-                        name=team_row.name or fallback_name or f"Team {key}",
+                        name=team_row.name or fallback_name or _resolve_team_name_central(key),
                         code=team_row.code,
                         country=team_row.country,
                         founded=team_row.founded,

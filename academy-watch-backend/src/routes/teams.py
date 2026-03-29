@@ -721,8 +721,11 @@ def get_academy_network(team_identifier):
         # Find the parent team for name/logo
         parent_team = Team.query.filter_by(team_id=team_api_id, is_active=True)\
             .order_by(Team.season.desc()).first()
-        parent_name = parent_team.name if parent_team else f'Team {team_api_id}'
-        parent_logo = parent_team.logo if parent_team else None
+        if parent_team and parent_team.name:
+            parent_name, parent_logo = parent_team.name, parent_team.logo
+        else:
+            from src.utils.team_resolver import resolve_team_name_and_logo
+            parent_name, parent_logo = resolve_team_name_and_logo(team_api_id)
 
         # Query 1: Academy products — prefer TrackedPlayer, fallback to JSONB
         tp_lookup = {}
