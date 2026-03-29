@@ -86,7 +86,8 @@ def phase_1_backfill_team_profiles(dry_run=False):
             if not t.get('id'):
                 continue
 
-            name = t.get('name', f'Team {t["id"]}')
+            from src.utils.team_resolver import resolve_team_name
+            name = t.get('name') or resolve_team_name(t['id'])
             slug = generate_unique_team_slug(name, t.get('country'), t['id'], existing_slugs)
             existing_slugs.add(slug)
 

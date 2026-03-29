@@ -322,20 +322,6 @@ def build_academy_league_seed_rows(api_client=None, season: int | None = None) -
     return rows
 
 
-def resolve_team_name(api_client, team_api_id: int, fallback_name: str | None = None) -> str:
-    """Resolve parent team display name, with fallback to provided name or ID."""
-    if fallback_name:
-        return fallback_name
-    try:
-        data = api_client.get_team_by_id(int(team_api_id))
-        team_obj = data.get("team", {}) if isinstance(data, dict) else {}
-        name = team_obj.get("name")
-        if name:
-            return name
-    except Exception:
-        pass
-    return str(team_api_id)
-
 
 def resolve_youth_team_for_parent(
     api_client,

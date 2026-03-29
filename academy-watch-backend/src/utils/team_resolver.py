@@ -137,6 +137,61 @@ def resolve_latest_team_id(identifier: int, *, assume_api_id: bool = False) -> i
         return None
 
 
+def is_placeholder_name(name: str | None) -> bool:
+    """Return True if a player name looks like a placeholder (e.g. 'Player 12345', 'Unknown')."""
+    if not name:
+        return True
+    s = str(name).strip()
+    if not s:
+        return True
+    low = s.lower()
+    return low.startswith('player ') or low.startswith('unknown')
+
+
+def is_placeholder_team_name(name: str | None) -> bool:
+    """Return True if a team name looks like a placeholder (e.g. 'Team 12345')."""
+    if not name:
+        return True
+    s = str(name).strip()
+    if not s:
+        return True
+    return s.lower().startswith('team ')
+
+
+def update_team_name_if_missing(team_row, *, season: int, dry_run: bool = False) -> dict:
+    """Update a Team row's name when it is a placeholder.
+
+    Uses the centralized resolve_team_name_and_logo fallback chain
+    (Team table → TeamProfile → API-Football → placeholder).
+    Returns a dict with status and optional new_name/error for logging.
+    """
+    if not team_row:
+        return {'status': 'no_team_row'}
+
+    current_name = getattr(team_row, 'name', None)
+    api_team_id = getattr(team_row, 'team_id', None)
+
+    if not is_placeholder_team_name(current_name):
+        return {'status': 'ok_existing', 'name': current_name}
+
+    if not api_team_id:
+        return {'status': 'missing_api_id'}
+
+    try:
+        new_name, _ = resolve_team_name_and_logo(api_team_id, season)
+    except Exception as exc:
+        return {'status': 'error', 'error': str(exc)}
+
+    if not new_name or is_placeholder_team_name(new_name):
+        return {'status': 'no_name_found'}
+
+    if dry_run:
+        return {'status': 'would_update', 'new_name': new_name}
+
+    team_row.name = new_name
+    return {'status': 'updated', 'new_name': new_name}
+
+
 def resolve_team_by_identifier(identifier: str):
     """Look up a Team by slug or numeric DB primary-key ID. Aborts with 404 if not found."""
     if identifier.isdigit():

@@ -1658,9 +1658,13 @@ def get_public_player_stats(player_id: int):
             for (tid,) in existing_team_ids:
                 if tid not in loan_teams_info:
                     team_rec = Team.query.filter_by(team_id=tid).first()
+                    if team_rec and team_rec.name:
+                        t_name, t_logo = team_rec.name, team_rec.logo
+                    else:
+                        t_name, t_logo = resolve_team_name_and_logo(tid)
                     loan_teams_info[tid] = {
-                        'name': team_rec.name if team_rec else f'Team {tid}',
-                        'logo': team_rec.logo if team_rec else None,
+                        'name': t_name,
+                        'logo': t_logo,
                         'window_type': 'Summer',
                         'is_active': False,
                     }
@@ -8541,57 +8545,12 @@ def _run_reconcile_ids_logic(data: dict, job_id: str = None) -> dict:
         raise
 
 
-# --- Admin: Missing names helpers ---
-def _is_placeholder_name(name: str | None) -> bool:
-    if not name:
-        return True
-    s = str(name).strip()
-    if not s:
-        return True
-    low = s.lower()
-    return low.startswith('player ') or low.startswith('unknown')
-
-
-def _is_placeholder_team_name(name: str | None) -> bool:
-    if not name:
-        return True
-    s = str(name).strip()
-    if not s:
-        return True
-    return s.lower().startswith('team ')
-
-
-def _update_team_name_if_missing(team_row, *, season: int, dry_run: bool = False) -> dict:
-    """Update a Team row's name when it is a placeholder.
-
-    Returns a dict with status and optional new_name/error for logging/testing.
-    """
-    if not team_row:
-        return {'status': 'no_team_row'}
-
-    current_name = getattr(team_row, 'name', None)
-    api_team_id = getattr(team_row, 'team_id', None)
-
-    if not _is_placeholder_team_name(current_name):
-        return {'status': 'ok_existing', 'name': current_name}
-
-    if not api_team_id:
-        return {'status': 'missing_api_id'}
-
-    try:
-        info = api_client.get_team_by_id(int(api_team_id), season)
-        new_name = (info.get('team') or {}).get('name') if isinstance(info, dict) else None
-    except Exception as exc:  # pragma: no cover - network failures
-        return {'status': 'error', 'error': str(exc)}
-
-    if not new_name or _is_placeholder_team_name(new_name):
-        return {'status': 'no_name_found'}
-
-    if dry_run:
-        return {'status': 'would_update', 'new_name': new_name}
-
-    team_row.name = new_name
-    return {'status': 'updated', 'new_name': new_name}
+# --- Admin: Missing names helpers (canonical source: utils/team_resolver.py) ---
+from src.utils.team_resolver import (
+    is_placeholder_name as _is_placeholder_name,
+    is_placeholder_team_name as _is_placeholder_team_name,
+    update_team_name_if_missing as _update_team_name_if_missing,
+)
 
 @api_bp.route('/admin/loans/missing-names', methods=['GET'])
 @require_api_key
@@ -9012,7 +8971,7 @@ def admin_sync_player_fixtures(player_id: int):
             player_name = tp.player_name
             if tp.status == 'on_loan' and tp.current_club_api_id:
                 team_api_id = tp.current_club_api_id
-                team_name = tp.current_club_name or f'Team {tp.current_club_api_id}'
+                team_name = tp.current_club_name or resolve_team_name_and_logo(tp.current_club_api_id)[0]
             elif tp.status == 'first_team':
                 parent_team = Team.query.get(tp.team_id)
                 if parent_team:
@@ -10033,7 +9992,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
             if tp.status == 'on_loan' and tp.current_club_api_id:
                 players_to_sync.append((
                     tp.player_api_id, tp.player_name,
-                    tp.current_club_api_id, tp.current_club_name or f'Team {tp.current_club_api_id}',
+                    tp.current_club_api_id, tp.current_club_name or resolve_team_name_and_logo(tp.current_club_api_id)[0],
                 ))
             elif tp.status == 'on_loan' and not tp.current_club_api_id:
                 logger.warning(f"[SYNC] Skipping on-loan {tp.player_name} (id={tp.id}): current_club_api_id is null")

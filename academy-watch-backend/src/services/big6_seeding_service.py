@@ -17,10 +17,10 @@ from src.services.cohort_service import CohortService
 from src.services.journey_sync import JourneySyncService
 from src.services.youth_competition_resolver import (
     get_default_youth_league_map,
-    resolve_team_name,
     resolve_youth_leagues,
     resolve_youth_team_for_parent,
 )
+from src.utils.team_resolver import resolve_team_name
 from src.utils.background_jobs import update_job, is_job_cancelled
 
 logger = logging.getLogger(__name__)
@@ -152,7 +152,7 @@ def run_big6_seed(job_id, seasons=None, team_ids=None, league_ids=None,
     )
 
     parent_names = {
-        team_id: resolve_team_name(api_client, team_id, fallback_name=BIG_6.get(team_id))
+        team_id: BIG_6.get(team_id) or resolve_team_name(team_id)
         for team_id in team_ids
     }
     teams_cache = {}

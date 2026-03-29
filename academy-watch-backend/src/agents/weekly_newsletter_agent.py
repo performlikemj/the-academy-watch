@@ -1924,12 +1924,13 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             if fixture:
                 is_home = fixture.home_team_api_id == tp.current_club_api_id
                 opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
-                # Resolve team name from Team table (Fixture model has no name columns)
-                opp_team_row = Team.query.filter_by(team_id=opp_api_id).first()
-                opp_name = opp_team_row.name if opp_team_row else str(opp_api_id)
+                # Resolve opponent name + logo via centralized resolver (Team → TeamProfile → API)
+                from src.utils.team_resolver import resolve_team_name_and_logo
+                opp_name, opp_logo = resolve_team_name_and_logo(opp_api_id, season)
                 matches.append({
                     'opponent': opp_name,
                     'opponent_id': opp_api_id,
+                    'opponent_logo': opp_logo,
                     'competition': getattr(fixture, 'competition_name', None),
                     'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
@@ -2034,11 +2035,12 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
             if fixture:
                 is_home = fixture.home_team_api_id == team.team_id
                 opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
-                opp_team_row = Team.query.filter_by(team_id=opp_api_id).first()
-                opp_name = opp_team_row.name if opp_team_row else str(opp_api_id)
+                from src.utils.team_resolver import resolve_team_name_and_logo
+                opp_name, opp_logo = resolve_team_name_and_logo(opp_api_id, season)
                 matches.append({
                     'opponent': opp_name,
                     'opponent_id': opp_api_id,
+                    'opponent_logo': opp_logo,
                     'competition': getattr(fixture, 'competition_name', None),
                     'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
@@ -2120,9 +2122,21 @@ def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -
                     totals['reds'] += row.reds or 0
                     totals['saves'] += getattr(row, 'saves', 0) or 0
                     if fixture:
+                        # Resolve opponent for academy matches (youth team fixtures)
+                        acad_team_id = tp.current_club_api_id or (team.team_id if hasattr(tp, 'team') and tp.team else None)
+                        is_home = fixture.home_team_api_id == acad_team_id if acad_team_id else True
+                        opp_api_id = (fixture.away_team_api_id if is_home else fixture.home_team_api_id) if acad_team_id else None
+                        opp_name, opp_logo = None, None
+                        if opp_api_id:
+                            from src.utils.team_resolver import resolve_team_name_and_logo
+                            opp_name, opp_logo = resolve_team_name_and_logo(opp_api_id, season)
                         matches.append({
+                            'opponent': opp_name,
+                            'opponent_id': opp_api_id,
+                            'opponent_logo': opp_logo,
                             'competition': getattr(fixture, 'competition_name', None),
                             'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
+                            'home': is_home,
                             'played': (row.minutes or 0) > 0,
                             'role': getattr(row, 'role', None),
                             'player': {
