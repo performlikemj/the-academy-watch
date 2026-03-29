@@ -94,3 +94,4 @@ export const CHART_GRID_COLOR = '#e7e5e4'       // stone-200
 export const CHART_AXIS_COLOR = '#78716c'        // stone-500
 export const CHART_TOOLTIP_BG = '#ffffff'
 export const CHART_TOOLTIP_BORDER = '#d6d3d1'    // stone-300
+export const CHART_POSITION_AVG_COLOR = '#94a3b8' // slate-400 — position average overlay

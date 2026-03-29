@@ -136,3 +136,46 @@ _FWD_ROLES = {
     2: {1: "LST", 2: "RST"},
     3: {1: "LW", 2: "ST", 3: "RW"},
 }
+
+# ---------------------------------------------------------------------------
+# Position groups for radar-chart percentile comparisons.
+# Maps each formation_position label to one of 8 comparison groups.
+# ---------------------------------------------------------------------------
+
+POSITION_GROUPS = {
+    # Goalkeeper
+    "GK": "GK",
+    # Centre-backs
+    "CB": "CB", "LCB": "CB", "RCB": "CB",
+    # Full-backs / wing-backs
+    "LB": "FB", "RB": "FB", "LWB": "FB", "RWB": "FB",
+    # Defensive midfield
+    "CDM": "DM", "LCDM": "DM", "RCDM": "DM", "LDM": "DM", "RDM": "DM", "DM": "DM",
+    # Central midfield
+    "CM": "CM", "LCM": "CM", "RCM": "CM",
+    # Attacking midfield
+    "CAM": "AM", "LAM": "AM", "RAM": "AM", "AM": "AM",
+    # Wingers
+    "LW": "W", "RW": "W", "LM": "W", "RM": "W",
+    # Strikers
+    "ST": "ST", "LST": "ST", "RST": "ST", "CF": "ST", "FWD": "ST",
+}
+
+# Fallback: map broad API-Football position codes (G/D/M/F) to a group
+POSITION_BROAD_TO_GROUP = {
+    "G": "GK",
+    "D": "CB",
+    "M": "CM",
+    "F": "ST",
+}
+
+POSITION_GROUP_LABELS = {
+    "GK": "Goalkeeper",
+    "CB": "Centre-Back",
+    "FB": "Full-Back",
+    "DM": "Defensive Mid",
+    "CM": "Central Mid",
+    "AM": "Attacking Mid",
+    "W": "Winger",
+    "ST": "Striker",
+}

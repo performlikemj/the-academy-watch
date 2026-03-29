@@ -61,42 +61,74 @@ def generate_chart_id(block: dict, player_id: Optional[int], week_start: Optiona
 def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400) -> bytes:
     """
     Render a radar/spider chart as PNG bytes.
-    
+
+    Supports both the new percentile-based format (position_group present)
+    and the legacy normalized format.
+
     Args:
         data: Chart data from the API including 'data' array with stat info
         width: Image width in pixels
         height: Image height in pixels
-        
+
     Returns:
         PNG image as bytes
     """
     radar_data = data.get('data', [])
     player_name = data.get('player', {}).get('name', 'Player')
     matches_count = data.get('matches_count', 0)
-    position_category = data.get('position_category', 'Midfielder')
-    
+    is_new_format = 'position_group' in data
+
     if not radar_data:
         return _render_empty_chart("No data available", width, height)
-    
+
     # Setup figure
     fig = plt.figure(figsize=(width/100, height/100), dpi=100)
     ax = fig.add_subplot(111, polar=True)
-    
+
     # Prepare data
     categories = [item.get('label', item.get('stat', '')) for item in radar_data]
-    values = [item.get('normalized', 0) for item in radar_data]
     num_vars = len(categories)
-    
-    # Compute angle for each axis
     angles = [n / float(num_vars) * 2 * np.pi for n in range(num_vars)]
     angles += angles[:1]  # Complete the circle
-    values += values[:1]  # Complete the polygon
-    
-    # Plot
-    color = POSITION_COLORS.get(position_category, CHART_COLORS['primary'])
-    ax.plot(angles, values, 'o-', linewidth=2, color=color)
-    ax.fill(angles, values, alpha=0.25, color=color)
-    
+
+    if is_new_format:
+        # New percentile-based dual-layer format
+        position_group_label = data.get('position_group_label', 'Position')
+        position_category = _group_to_category(data.get('position_group', 'CM'))
+        color = POSITION_COLORS.get(position_category, CHART_COLORS['primary'])
+        avg_color = '#94a3b8'  # slate-400
+
+        player_values = [item.get('player_percentile', 0) for item in radar_data]
+        avg_values = [item.get('position_avg_percentile', 50) for item in radar_data]
+        player_values += player_values[:1]
+        avg_values += avg_values[:1]
+
+        # Position average layer (behind)
+        ax.plot(angles, avg_values, linewidth=1.5, color=avg_color, linestyle='--')
+        ax.fill(angles, avg_values, alpha=0.08, color=avg_color)
+
+        # Player layer (front)
+        ax.plot(angles, player_values, 'o-', linewidth=2, color=color, markersize=4)
+        ax.fill(angles, player_values, alpha=0.3, color=color)
+
+        # Legend
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Line2D([0], [0], color=color, linewidth=2, label='Player'),
+            Line2D([0], [0], color=avg_color, linewidth=1.5, linestyle='--',
+                   label=f'{position_group_label} Avg'),
+        ]
+        ax.legend(handles=legend_elements, loc='lower right', fontsize=7,
+                  bbox_to_anchor=(1.2, -0.1), framealpha=0.8)
+    else:
+        # Legacy normalized format
+        position_category = data.get('position_category', 'Midfielder')
+        color = POSITION_COLORS.get(position_category, CHART_COLORS['primary'])
+        values = [item.get('normalized', 0) for item in radar_data]
+        values += values[:1]
+        ax.plot(angles, values, 'o-', linewidth=2, color=color)
+        ax.fill(angles, values, alpha=0.25, color=color)
+
     # Configure axes
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(categories, size=8, color=CHART_COLORS['gray'])
@@ -104,19 +136,28 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
     ax.set_yticks([25, 50, 75, 100])
     ax.set_yticklabels(['25', '50', '75', '100'], size=7, color=CHART_COLORS['gray'])
     ax.set_rlabel_position(30)
-    
+
     # Title
     title = f"{player_name}"
     if matches_count:
         title += f" - {matches_count} match{'es' if matches_count != 1 else ''}"
     ax.set_title(title, size=10, color=CHART_COLORS['gray'], y=1.1, fontweight='bold')
-    
+
     # Convert to bytes
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white', edgecolor='none')
     plt.close(fig)
     buf.seek(0)
     return buf.read()
+
+
+def _group_to_category(group: str) -> str:
+    """Map position group to broad category for color selection."""
+    return {
+        'GK': 'Goalkeeper', 'CB': 'Defender', 'FB': 'Defender',
+        'DM': 'Midfielder', 'CM': 'Midfielder', 'AM': 'Midfielder',
+        'W': 'Forward', 'ST': 'Forward',
+    }.get(group, 'Midfielder')
 
 
 def render_bar_chart(data: Dict[str, Any], width: int = 500, height: int = 300) -> bytes:

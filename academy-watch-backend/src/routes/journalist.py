@@ -559,6 +559,7 @@ def _get_player_week_stats(player_id: int, week_start, week_end) -> list:
                     # Basic stats (flat)
                     'minutes': stats.minutes or 0,
                     'position': stats.position,
+                    'formation_position': stats.formation_position,
                     'rating': stats.rating,
                     'goals': stats.goals or 0,
                     'assists': stats.assists or 0,
@@ -613,7 +614,7 @@ def _get_player_week_stats(player_id: int, week_start, week_end) -> list:
                 }
             }
             results.append(fixture_data)
-        
+
         return results
     except Exception as e:
         logger.warning(f"Failed to get player week stats: {e}")
@@ -745,6 +746,7 @@ def _get_season_stats(player_id: int, season: int = None) -> list:
                     # Basic stats (flat)
                     'minutes': stats.minutes or 0,
                     'position': stats.position,
+                    'formation_position': stats.formation_position,
                     'rating': stats.rating,
                     'goals': stats.goals or 0,
                     'assists': stats.assists or 0,
@@ -799,7 +801,7 @@ def _get_season_stats(player_id: int, season: int = None) -> list:
                 }
             }
             results.append(fixture_data)
-        
+
         return results
     except Exception as e:
         logger.warning(f"Failed to get season stats: {e}")
@@ -1064,31 +1066,14 @@ def get_chart_data():
             response['fixtures'] = fixtures_data
         
         elif chart_type == 'radar':
-            # Aggregate stats for radar chart (use averages per game for fair comparison)
-            aggregated = _aggregate_player_stats(fixtures_data, stat_keys, average_stats=True)
-            totals = _aggregate_player_stats(fixtures_data, stat_keys, average_stats=False)
-            
-            # Determine player's primary position from fixtures
-            player_position = _get_primary_position(fixtures_data)
-            position_category = _categorize_position(player_position)
-            
-            # Position-based max values for realistic normalization
-            stat_max_values = _get_position_max_values(position_category)
-            
-            response['position'] = player_position
-            response['position_category'] = position_category
-            response['data'] = [
-                {
-                    'stat': key,
-                    'value': aggregated.get(key, 0),  # Average per game
-                    'total': totals.get(key, 0),      # Total across all matches
-                    'label': key.replace('_', ' ').title(),
-                    'max_value': stat_max_values.get(key, 5),  # Position-adjusted max
-                    'normalized': min(100, round((aggregated.get(key, 0) / max(stat_max_values.get(key, 5), 0.1)) * 100, 1))
-                }
-                for key in stat_keys
-            ]
-            response['matches_count'] = len(fixtures_data)
+            from src.services.radar_stats_service import get_radar_chart_data
+
+            # Let the service auto-select axes unless caller explicitly provided stat_keys
+            explicit_keys = stat_keys if stat_keys_param else None
+            radar = get_radar_chart_data(player_id, fixtures_data, stat_keys=explicit_keys)
+
+            response.update(radar)
+            response['player'] = player_info
         
         elif chart_type == 'bar':
             # Per-match data for bar chart
@@ -1788,26 +1773,11 @@ def _fetch_chart_data_for_rendering(player_id: int, chart_type: str, stat_keys: 
             response['fixtures'] = fixtures_data
         
         elif chart_type == 'radar':
-            aggregated = _aggregate_player_stats(fixtures_data, stat_keys, average_stats=True)
-            totals = _aggregate_player_stats(fixtures_data, stat_keys, average_stats=False)
-            player_position = _get_primary_position(fixtures_data)
-            position_category = _categorize_position(player_position)
-            stat_max_values = _get_position_max_values(position_category)
-            
-            response['position'] = player_position
-            response['position_category'] = position_category
-            response['data'] = [
-                {
-                    'stat': key,
-                    'value': aggregated.get(key, 0),
-                    'total': totals.get(key, 0),
-                    'label': key.replace('_', ' ').title(),
-                    'max_value': stat_max_values.get(key, 5),
-                    'normalized': min(100, round((aggregated.get(key, 0) / max(stat_max_values.get(key, 5), 0.1)) * 100, 1))
-                }
-                for key in stat_keys
-            ]
-            response['matches_count'] = len(fixtures_data)
+            from src.services.radar_stats_service import get_radar_chart_data
+
+            radar = get_radar_chart_data(player_id, fixtures_data, stat_keys=stat_keys or None)
+            response.update(radar)
+            response['player'] = player_info
         
         elif chart_type == 'bar':
             response['data'] = [

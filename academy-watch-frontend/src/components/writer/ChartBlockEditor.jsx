@@ -219,11 +219,22 @@ export function ChartBlockEditor({
             </RadioGroup>
           </div>
 
+          {/* Radar auto-select note */}
+          {chartType === 'radar' && (
+            <div className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+              Radar charts automatically select the most relevant stats based on the player's
+              most frequently played position and compare against peers. You can override
+              the stats below if needed.
+            </div>
+          )}
+
           {/* Stat Selection (only for radar, bar, line) */}
           {['radar', 'bar', 'line', 'stat_table'].includes(chartType) && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Statistics to Display</Label>
+                <Label className="text-sm font-medium">
+                  {chartType === 'radar' ? 'Statistics Override (optional)' : 'Statistics to Display'}
+                </Label>
                 <Badge variant="secondary" className="text-xs">
                   {selectedStats.length} selected
                 </Badge>
