@@ -38,8 +38,16 @@ export function ChartPreview({ block, playerId, weekRange, previewData: external
         const params = {
           player_id: effectivePlayerId,
           chart_type: block.chart_type,
-          stat_keys: block.chart_config?.stat_keys?.join(',') || 'goals,assists,rating',
           date_range: block.chart_config?.date_range || 'week',
+        }
+
+        // For radar charts, only send stat_keys if explicitly configured
+        // (otherwise the backend auto-selects position-appropriate axes)
+        const configuredKeys = block.chart_config?.stat_keys
+        if (configuredKeys?.length) {
+          params.stat_keys = configuredKeys.join(',')
+        } else if (block.chart_type !== 'radar') {
+          params.stat_keys = 'goals,assists,minutes'
         }
 
         if (params.date_range === 'week' && weekRange?.start && weekRange?.end) {

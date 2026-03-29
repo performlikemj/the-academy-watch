@@ -1439,14 +1439,6 @@ def _compose_team_summary_from_player_items(team_name: str, week_range: list[str
     return summary_text
 
 
-POSITION_STAT_KEYS = {
-    'Forward': ['goals', 'assists', 'shots_total', 'dribbles_success', 'rating'],
-    'Midfielder': ['goals', 'assists', 'passes_key', 'tackles_total', 'rating'],
-    'Defender': ['tackles_total', 'tackles_interceptions', 'duels_won', 'passes_total', 'rating'],
-    'Goalkeeper': ['saves', 'goals_conceded', 'passes_total', 'rating'],
-}
-
-
 def _generate_player_charts(player_api_id: int, player_name: str,
                             week_start, week_end) -> dict:
     """Generate platform data charts for a player's newsletter section.
@@ -1456,11 +1448,7 @@ def _generate_player_charts(player_api_id: int, player_name: str,
     newsletter pipeline.
     """
     try:
-        from src.routes.journalist import (
-            _fetch_chart_data_for_rendering,
-            _get_primary_position,
-            _categorize_position,
-        )
+        from src.routes.journalist import _fetch_chart_data_for_rendering
         from src.services.chart_renderer import save_chart_to_file
     except Exception:
         return {}
@@ -1471,27 +1459,17 @@ def _generate_player_charts(player_api_id: int, player_name: str,
     ts = int(datetime.now(timezone.utc).timestamp())
     charts: dict[str, str] = {}
 
-    # Helper: determine position-appropriate stat keys from season data
-    position_category = 'Midfielder'  # default
-    try:
-        season_data = _fetch_chart_data_for_rendering(
-            player_api_id, 'stat_table', ['rating'], 'season')
-        if season_data and season_data.get('data'):
-            pos = _get_primary_position([
-                {'stats': row} for row in season_data['data']
-            ])
-            position_category = _categorize_position(pos)
-    except Exception:
-        pass
-
-    stat_keys = POSITION_STAT_KEYS.get(position_category, POSITION_STAT_KEYS['Midfielder'])
+    # Stat keys for non-radar charts (stat table, bar, line).
+    # Radar charts auto-select axes via the radar_stats_service.
+    stat_keys = ['goals', 'assists', 'passes_key', 'tackles_total', 'duels_won', 'minutes']
     ws = week_start.isoformat() if hasattr(week_start, 'isoformat') else str(week_start)
     we = week_end.isoformat() if hasattr(week_end, 'isoformat') else str(week_end)
 
-    # 1. Radar chart (season-level)
+    # 1. Radar chart (season-level) — pass no stat_keys so the service
+    #    auto-selects position-appropriate axes via formation_position
     try:
         radar_data = _fetch_chart_data_for_rendering(
-            player_api_id, 'radar', stat_keys, 'season')
+            player_api_id, 'radar', [], 'season')
         if radar_data and radar_data.get('data'):
             fname = f"{player_api_id}_radar_{ts}"
             path = save_chart_to_file('radar', radar_data, fname, width=400, height=400)

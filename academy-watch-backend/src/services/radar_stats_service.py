@@ -57,7 +57,7 @@ POSITION_STAT_AXES: Dict[str, List[str]] = {
         "duels_won", "passes_total", "passes_key", "fouls_committed",
     ],
     "GK": [
-        "saves", "goals_conceded", "rating", "passes_total",
+        "saves", "goals_conceded", "passes_total", "passes_key",
     ],
 }
 

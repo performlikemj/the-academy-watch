@@ -100,7 +100,7 @@ export function ChartBlockEditor({
   const [chartType, setChartType] = useState(block?.chart_type || 'match_card')
   const [dateRange, setDateRange] = useState(block?.chart_config?.date_range || 'week')
   const [selectedStats, setSelectedStats] = useState(
-    block?.chart_config?.stat_keys || ['goals', 'assists', 'rating']
+    block?.chart_config?.stat_keys || []
   )
   const [previewData, setPreviewData] = useState(null)
   const [loading, setLoading] = useState(false)

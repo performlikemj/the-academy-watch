@@ -54,7 +54,7 @@ const BLOCK_TEMPLATES = {
     type: 'chart',
     chart_type: chartType,
     chart_config: {
-      stat_keys: ['goals', 'assists', 'rating'],
+      stat_keys: [],
       date_range: 'week',
     },
     is_premium: false,
