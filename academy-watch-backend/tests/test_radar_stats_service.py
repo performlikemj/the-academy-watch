@@ -248,6 +248,7 @@ class TestGetRadarChartData:
             assert "position_avg_per90" in item
             assert "position_avg_percentile" in item
             assert 0 <= item["player_percentile"] <= 100
+            assert 0 <= item["position_avg_percentile"] <= 100
 
     @patch("src.services.radar_stats_service.compute_position_percentiles")
     def test_position_group_fallback(self, mock_percentiles):

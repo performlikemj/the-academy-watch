@@ -280,7 +280,7 @@ class TestRadarStatsE2E:
             for item in result["data"]:
                 assert 0 <= item["player_percentile"] <= 100
                 assert item["player_per90"] >= 0
-                assert item["position_avg_percentile"] == 50
+                assert 0 <= item["position_avg_percentile"] <= 100
 
     def test_percentile_pool_stats(self, app_ctx, test_players):
         """Validate the percentile pool for each position group."""

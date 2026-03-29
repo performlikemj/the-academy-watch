@@ -54,7 +54,7 @@ POSITION_STAT_AXES: Dict[str, List[str]] = {
     ],
     "CB": [
         "tackles_total", "tackles_interceptions", "tackles_blocks",
-        "duels_won", "passes_total", "fouls_committed", "rating",
+        "duels_won", "passes_total", "passes_key", "fouls_committed",
     ],
     "GK": [
         "saves", "goals_conceded", "rating", "passes_total",
@@ -468,10 +468,12 @@ def get_radar_chart_data(
         avg_val = pool.get("averages", {}).get(stat_key, 0.0)
 
         pct = percentile_rank(p90_val, sorted_vals)
+        avg_pct = percentile_rank(avg_val, sorted_vals)
 
         # Invert for "lower is better" stats
         if stat_key in _INVERTED_STATS:
             pct = 100 - pct
+            avg_pct = 100 - avg_pct
 
         label = STAT_LABELS.get(stat_key, stat_key.replace("_", " ").title())
         if stat_key not in _RAW_AVERAGE_STATS:
@@ -483,7 +485,7 @@ def get_radar_chart_data(
             "player_per90": round(p90_val, 2),
             "player_percentile": pct,
             "position_avg_per90": round(avg_val, 2),
-            "position_avg_percentile": 50,
+            "position_avg_percentile": avg_pct,
         })
 
     return {
