@@ -7,9 +7,8 @@ import {
   PolarRadiusAxis,
   ResponsiveContainer,
   Tooltip,
-  Legend,
 } from 'recharts'
-import { CHART_POSITION_COLORS, CHART_AXIS_COLOR, CHART_POSITION_AVG_COLOR } from '../../lib/theme-constants'
+import { CHART_POSITION_COLORS, CHART_AXIS_COLOR } from '../../lib/theme-constants'
 
 export function PlayerRadarChart({ data }) {
   // Detect new (percentile-based) vs old (normalized) response format
@@ -102,21 +101,12 @@ function PercentileRadar({ data }) {
             <PolarRadiusAxis
               angle={30}
               domain={[0, 100]}
-              tick={false}
+              tick={{ fontSize: 9, fill: CHART_AXIS_COLOR }}
               tickCount={5}
               axisLine={false}
+              tickFormatter={(v) => v === 0 ? '' : `${v}th`}
             />
-            {/* Position average layer (behind) */}
-            <Radar
-              name={`${positionGroupLabel} Avg`}
-              dataKey="avgPercentile"
-              stroke={CHART_POSITION_AVG_COLOR}
-              fill={CHART_POSITION_AVG_COLOR}
-              fillOpacity={0.08}
-              strokeWidth={1.5}
-              strokeDasharray="4 3"
-            />
-            {/* Player layer (front) */}
+            {/* Player layer */}
             <Radar
               name="Player"
               dataKey="playerPercentile"
@@ -153,26 +143,17 @@ function PercentileRadar({ data }) {
                 )
               }}
             />
-            <Legend
-              wrapperStyle={{ fontSize: 11 }}
-              formatter={(value) => (
-                <span className="text-xs text-muted-foreground">{value}</span>
-              )}
-            />
           </RadarChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Disclaimer */}
+      {/* Footer — percentile explanation */}
       <div className="text-xs text-muted-foreground text-center leading-relaxed">
+        Percentile rank vs {peersCount > 0 ? peersCount : '?'} {positionGroupLabel.toLowerCase()}
+        {peersCount !== 1 ? 's' : ''}.
+        {' '}50th = median.
         {formationPosition !== 'Unknown' && positionMatches > 0 && (
-          <>
-            Position based on most frequently played role ({formationPosition} in{' '}
-            {positionMatches} of {matchesCount} starts).
-          </>
-        )}
-        {peersCount > 0 && peersCount < 10 && (
-          <> Small sample ({peersCount} peers).</>
+          <> Most played role: {formationPosition} ({positionMatches}/{matchesCount} starts).</>
         )}
       </div>
     </div>

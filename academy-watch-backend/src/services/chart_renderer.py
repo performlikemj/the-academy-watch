@@ -92,36 +92,20 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
     angles += angles[:1]  # Complete the circle
 
     if is_new_format:
-        # New percentile-based dual-layer format
         position_group_label = data.get('position_group_label', 'Position')
+        peers_count = data.get('peers_count', 0)
         position_category = _group_to_category(data.get('position_group', 'CM'))
         color = POSITION_COLORS.get(position_category, CHART_COLORS['primary'])
-        avg_color = '#94a3b8'  # slate-400
 
         player_values = [item.get('player_percentile', 0) for item in radar_data]
-        avg_values = [item.get('position_avg_percentile', 50) for item in radar_data]
         player_values += player_values[:1]
-        avg_values += avg_values[:1]
 
-        # Position average layer (behind)
-        ax.plot(angles, avg_values, linewidth=1.5, color=avg_color, linestyle='--')
-        ax.fill(angles, avg_values, alpha=0.08, color=avg_color)
-
-        # Player layer (front)
+        # Single player layer
         ax.plot(angles, player_values, 'o-', linewidth=2, color=color, markersize=4)
         ax.fill(angles, player_values, alpha=0.3, color=color)
-
-        # Legend
-        from matplotlib.lines import Line2D
-        legend_elements = [
-            Line2D([0], [0], color=color, linewidth=2, label='Player'),
-            Line2D([0], [0], color=avg_color, linewidth=1.5, linestyle='--',
-                   label=f'{position_group_label} Avg'),
-        ]
-        ax.legend(handles=legend_elements, loc='lower right', fontsize=7,
-                  bbox_to_anchor=(1.2, -0.1), framealpha=0.8)
     else:
-        # Legacy normalized format
+        position_group_label = None
+        peers_count = 0
         position_category = data.get('position_category', 'Midfielder')
         color = POSITION_COLORS.get(position_category, CHART_COLORS['primary'])
         values = [item.get('normalized', 0) for item in radar_data]
@@ -134,13 +118,19 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
     ax.set_xticklabels(categories, size=8, color=CHART_COLORS['gray'])
     ax.set_ylim(0, 100)
     ax.set_yticks([25, 50, 75, 100])
-    ax.set_yticklabels([], size=0)  # Hide numeric labels — shape tells the story
+    ax.set_yticklabels(['25th', '50th', '75th', '100th'], size=6, color=CHART_COLORS['gray'])
+    ax.set_rlabel_position(30)
 
     # Title
     title = f"{player_name}"
     if matches_count:
         title += f" - {matches_count} match{'es' if matches_count != 1 else ''}"
     ax.set_title(title, size=10, color=CHART_COLORS['gray'], y=1.1, fontweight='bold')
+
+    # Footer — percentile explanation
+    if is_new_format and position_group_label:
+        footer = f"Percentile rank vs {peers_count} {position_group_label.lower()}s. 50th = median."
+        fig.text(0.5, -0.02, footer, ha='center', fontsize=7, color=CHART_COLORS['gray'])
 
     # Convert to bytes
     buf = io.BytesIO()
