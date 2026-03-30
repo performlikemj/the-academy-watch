@@ -8,6 +8,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     curl \
+    fontconfig \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker layer caching
@@ -15,6 +17,9 @@ COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Clear matplotlib font cache so it discovers the newly installed fonts
+RUN rm -rf /root/.cache/matplotlib
 
 # Copy application source code
 COPY src/ src/
