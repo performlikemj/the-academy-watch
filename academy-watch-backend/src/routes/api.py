@@ -4431,7 +4431,7 @@ def _public_base_url(default: str | None = None) -> str:
 def _absolute_url(path: str) -> str:
     if not path:
         return path
-    if path.startswith('http://') or path.startswith('https://'):
+    if path.startswith(('http://', 'https://', 'data:')):
         return path
     base = _public_base_url()
     if not base:
@@ -4654,6 +4654,10 @@ def _compute_newsletter_social_meta(n: Newsletter, context: dict[str, Any]) -> d
 # --- Newsletter delivery helpers ---
 def _embed_image(path):
     if not path: return ''
+    # Already a data URI (generated inline at newsletter creation time)
+    if path.startswith('data:'):
+        return path
+    # Legacy /static/ path — try to read from disk and base64-encode
     if path.startswith('/static/'):
         try:
             clean_path = path.replace('/static/', '', 1)

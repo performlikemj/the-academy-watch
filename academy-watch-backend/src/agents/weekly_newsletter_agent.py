@@ -1443,20 +1443,21 @@ def _generate_player_charts(player_api_id: int, player_name: str,
                             week_start, week_end) -> dict:
     """Generate platform data charts for a player's newsletter section.
 
-    Returns a dict of chart file URLs (``/static/charts/...``) keyed by chart
-    type.  All errors are swallowed so chart generation never blocks the
+    Returns a dict of base64 data-URI strings keyed by chart type.
+    Images are encoded inline so they survive container restarts
+    (no dependency on ephemeral filesystem paths).
+    All errors are swallowed so chart generation never blocks the
     newsletter pipeline.
     """
     try:
         from src.routes.journalist import _fetch_chart_data_for_rendering
-        from src.services.chart_renderer import save_chart_to_file
+        from src.services.chart_renderer import render_chart_to_base64
     except Exception:
         return {}
 
     if not player_api_id:
         return {}
 
-    ts = int(datetime.now(timezone.utc).timestamp())
     charts: dict[str, str] = {}
 
     # Stat keys for non-radar charts (stat table, bar, line).
@@ -1471,9 +1472,7 @@ def _generate_player_charts(player_api_id: int, player_name: str,
         radar_data = _fetch_chart_data_for_rendering(
             player_api_id, 'radar', [], 'season')
         if radar_data and radar_data.get('data'):
-            fname = f"{player_api_id}_radar_{ts}"
-            path = save_chart_to_file('radar', radar_data, fname, width=400, height=400)
-            charts['radar_chart_url'] = '/static/charts/' + os.path.basename(path)
+            charts['radar_chart_url'] = render_chart_to_base64('radar', radar_data, 400, 400)
     except Exception:
         pass
 
@@ -1483,9 +1482,7 @@ def _generate_player_charts(player_api_id: int, player_name: str,
             player_api_id, 'stat_table', stat_keys, 'week',
             week_start=ws, week_end=we)
         if table_data and table_data.get('data'):
-            fname = f"{player_api_id}_stat_table_{ts}"
-            path = save_chart_to_file('stat_table', table_data, fname, width=500, height=250)
-            charts['stat_table_url'] = '/static/charts/' + os.path.basename(path)
+            charts['stat_table_url'] = render_chart_to_base64('stat_table', table_data, 500, 250)
     except Exception:
         pass
 
@@ -1494,9 +1491,7 @@ def _generate_player_charts(player_api_id: int, player_name: str,
         trend_data = _fetch_chart_data_for_rendering(
             player_api_id, 'line', ['rating'], 'season')
         if trend_data and trend_data.get('data'):
-            fname = f"{player_api_id}_trend_{ts}"
-            path = save_chart_to_file('line', trend_data, fname, width=500, height=300)
-            charts['trend_chart_url'] = '/static/charts/' + os.path.basename(path)
+            charts['trend_chart_url'] = render_chart_to_base64('line', trend_data, 500, 300)
     except Exception:
         pass
 
@@ -1506,9 +1501,7 @@ def _generate_player_charts(player_api_id: int, player_name: str,
             player_api_id, 'match_card', stat_keys, 'week',
             week_start=ws, week_end=we)
         if card_data and card_data.get('fixtures'):
-            fname = f"{player_api_id}_match_card_{ts}"
-            path = save_chart_to_file('match_card', card_data, fname, width=500, height=200)
-            charts['match_card_url'] = '/static/charts/' + os.path.basename(path)
+            charts['match_card_url'] = render_chart_to_base64('match_card', card_data, 500, 200)
     except Exception:
         pass
 
@@ -1768,9 +1761,15 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
 
     from src.utils.academy_classifier import is_academy_product as _is_academy_product
 
+    _filter_total = len(tracked)
+    _filter_skipped = 0
+    _filter_skipped_names = []
+
     for tp in tracked:
         # A1: Filter non-academy products out of newsletter
         if not _is_academy_product(tp.player_api_id, team.team_id, data_source=tp.data_source):
+            _filter_skipped += 1
+            _filter_skipped_names.append(f"{tp.player_name} (src={tp.data_source})")
             continue
 
         player_dict = {
@@ -1842,6 +1841,18 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
             player_dict['loan_team'] = player_dict['loan_team_name']
             _enrich_academy_stats(player_dict, tp, season_start_year)
             groups['academy'].append(player_dict)
+
+    _filter_included = _filter_total - _filter_skipped
+    _nl_dbg("pipeline.filter_breakdown", {
+        "team": team.name,
+        "total_active_tracked": _filter_total,
+        "skipped_not_academy_product": _filter_skipped,
+        "included_in_newsletter": _filter_included,
+        "on_loan": len(groups['on_loan']),
+        "first_team": len(groups['first_team']),
+        "academy": len(groups['academy']),
+        "skipped_players": _filter_skipped_names,
+    })
 
     has_active = len(tracked) > 0
 

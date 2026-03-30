@@ -1,3 +1,5 @@
+import base64
+import io
 import os
 from datetime import datetime, timezone
 from src.models.league import db
@@ -70,14 +72,13 @@ class GraphService:
             # Format dates
             fig.autofmt_xdate()
             
-            # Save
-            timestamp = int(datetime.now(timezone.utc).timestamp())
-            filename = f"rating_{player_id}_{timestamp}.png"
-            filepath = os.path.join(self.static_folder, filename)
-            fig.savefig(filepath, bbox_inches='tight', dpi=100)
+            # Encode as base64 data URI (survives container restarts)
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
             plt.close(fig)
-
-            return f"/static/graphs/{filename}"
+            buf.seek(0)
+            encoded = base64.b64encode(buf.read()).decode('utf-8')
+            return f"data:image/png;base64,{encoded}"
         except Exception as e:
             print(f"Error generating rating graph for {player_id}: {e}")
             return None
@@ -129,14 +130,13 @@ class GraphService:
             else:
                 plt.xticks(rotation=45, ha='right')
 
-            # Save
-            timestamp = int(datetime.now(timezone.utc).timestamp())
-            filename = f"minutes_{player_id}_{timestamp}.png"
-            filepath = os.path.join(self.static_folder, filename)
-            fig.savefig(filepath, bbox_inches='tight', dpi=100)
+            # Encode as base64 data URI (survives container restarts)
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
             plt.close(fig)
-
-            return f"/static/graphs/{filename}"
+            buf.seek(0)
+            encoded = base64.b64encode(buf.read()).decode('utf-8')
+            return f"data:image/png;base64,{encoded}"
         except Exception as e:
             print(f"Error generating minutes graph for {player_id}: {e}")
             return None
