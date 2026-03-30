@@ -91,34 +91,68 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
     angles = [n / float(num_vars) * 2 * np.pi for n in range(num_vars)]
     angles += angles[:1]  # Complete the circle
 
-    if is_new_format:
+    is_league_format = 'league_name' in data
+
+    if is_league_format:
+        # League-based: player vs league average, normalized to league max
+        league_name = data.get('league_name', 'League')
+        league_peers = data.get('league_peers', 0)
         position_group_label = data.get('position_group_label', 'Position')
-        peers_count = data.get('peers_count', 0)
         position_category = _group_to_category(data.get('position_group', 'CM'))
         color = POSITION_COLORS.get(position_category, CHART_COLORS['primary'])
+        avg_color = '#94a3b8'
 
-        player_values = [item.get('player_percentile', 0) for item in radar_data]
+        player_values = [item.get('player_normalized', 0) for item in radar_data]
+        avg_values = [item.get('league_avg_normalized') for item in radar_data]
+        has_overlay = any(v is not None for v in avg_values)
+
         player_values += player_values[:1]
+        if has_overlay:
+            avg_values_clean = [(v or 0) for v in avg_values] + [(avg_values[0] or 0)]
+            ax.plot(angles, avg_values_clean, linewidth=1.5, color=avg_color, linestyle='--')
+            ax.fill(angles, avg_values_clean, alpha=0.08, color=avg_color)
 
-        # Single player layer
         ax.plot(angles, player_values, 'o-', linewidth=2, color=color, markersize=4)
         ax.fill(angles, player_values, alpha=0.3, color=color)
+
+        if has_overlay:
+            from matplotlib.lines import Line2D
+            legend_elements = [
+                Line2D([0], [0], color=color, linewidth=2, label='Player'),
+                Line2D([0], [0], color=avg_color, linewidth=1.5, linestyle='--',
+                       label=f'{league_name} Avg'),
+            ]
+            ax.legend(handles=legend_elements, loc='lower right', fontsize=7,
+                      bbox_to_anchor=(1.25, -0.1), framealpha=0.8)
+    elif is_new_format:
+        # Percentile-based (fallback)
+        position_category = _group_to_category(data.get('position_group', 'CM'))
+        color = POSITION_COLORS.get(position_category, CHART_COLORS['primary'])
+        player_values = [item.get('player_percentile', item.get('player_normalized', 0)) for item in radar_data]
+        player_values += player_values[:1]
+        ax.plot(angles, player_values, 'o-', linewidth=2, color=color, markersize=4)
+        ax.fill(angles, player_values, alpha=0.3, color=color)
+        league_name = None
+        league_peers = 0
+        position_group_label = data.get('position_group_label', '')
     else:
-        position_group_label = None
-        peers_count = 0
+        # Legacy normalized format
         position_category = data.get('position_category', 'Midfielder')
         color = POSITION_COLORS.get(position_category, CHART_COLORS['primary'])
         values = [item.get('normalized', 0) for item in radar_data]
         values += values[:1]
         ax.plot(angles, values, 'o-', linewidth=2, color=color)
         ax.fill(angles, values, alpha=0.25, color=color)
+        league_name = None
+        league_peers = 0
+        position_group_label = None
 
     # Configure axes
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(categories, size=8, color=CHART_COLORS['gray'])
     ax.set_ylim(0, 100)
     ax.set_yticks([25, 50, 75, 100])
-    ax.set_yticklabels(['25th', '50th', '75th', '100th'], size=6, color=CHART_COLORS['gray'])
+    ax.set_yticklabels(['25%', '50%', '75%', '100%'], size=6, color=CHART_COLORS['gray'])
     ax.set_rlabel_position(30)
 
     # Title
@@ -127,9 +161,9 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
         title += f" - {matches_count} match{'es' if matches_count != 1 else ''}"
     ax.set_title(title, size=10, color=CHART_COLORS['gray'], y=1.1, fontweight='bold')
 
-    # Footer — percentile explanation
-    if is_new_format and position_group_label:
-        footer = f"Percentile rank vs {peers_count} {position_group_label.lower()}s. 50th = median."
+    # Footer
+    if is_league_format and league_name:
+        footer = f"Per 90 vs {league_peers} {position_group_label.lower()}s in {league_name}. 100% = best in league."
         fig.text(0.5, -0.02, footer, ha='center', fontsize=7, color=CHART_COLORS['gray'])
 
     # Convert to bytes

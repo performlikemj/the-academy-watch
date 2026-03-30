@@ -1,20 +1,17 @@
-"""Per-90 percentile radar chart service.
+"""Radar chart service — per-90 stats compared against league-wide position averages.
 
-Computes per-90-minute stats for a player and ranks them against peers
-who most frequently play the same positional role (derived from
-FixturePlayerStats.formation_position).
+Computes per-90-minute stats for a player and compares them against the
+average for all players at the same broad position in the same league,
+using API-Football's /players endpoint for league-wide season data.
 """
 
 import logging
+import os
 import time
-from bisect import bisect_left
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func
-
 from src.models.league import db
-from src.models.weekly import Fixture, FixturePlayerStats
 from src.utils.formation_roles import (
     POSITION_BROAD_TO_GROUP,
     POSITION_GROUP_LABELS,
@@ -61,11 +58,11 @@ POSITION_STAT_AXES: Dict[str, List[str]] = {
     ],
 }
 
-# Stats that are NOT per-90 normalized (they are already rates/averages)
-_RAW_AVERAGE_STATS = {"rating", "passes_accuracy"}
-
-# Stats where lower is better (invert percentile: 100 - pct)
+# Stats where lower is better (invert: higher normalized = fewer conceded/fouls)
 _INVERTED_STATS = {"goals_conceded", "fouls_committed"}
+
+# Stats that are NOT per-90 normalized (already rates/averages)
+_RAW_AVERAGE_STATS = {"rating", "passes_accuracy"}
 
 # Human-readable labels
 STAT_LABELS: Dict[str, str] = {
@@ -92,27 +89,41 @@ STAT_LABELS: Dict[str, str] = {
     "rating": "Rating",
 }
 
-# Minimum minutes for inclusion in percentile pool
-MIN_MINUTES_POOL = 200
+# Minimum minutes for a league player to be included in averages
+MIN_MINUTES_LEAGUE = 400
 # Minimum minutes for the charted player before we show a warning
 MIN_MINUTES_PLAYER = 200
+# Minimum league peers to show the comparison overlay
+MIN_PEERS_FOR_OVERLAY = 10
+
+# Map our granular position groups to API-Football broad positions
+_GROUP_TO_BROAD_POSITION = {
+    "GK": "Goalkeeper",
+    "CB": "Defender",
+    "FB": "Defender",
+    "DM": "Midfielder",
+    "CM": "Midfielder",
+    "AM": "Midfielder",
+    "W": "Attacker",
+    "ST": "Attacker",
+}
 
 # ---------------------------------------------------------------------------
-# In-memory cache for position percentile pools
+# In-memory cache for league position averages
 # ---------------------------------------------------------------------------
-_percentile_cache: Dict[Tuple[str, int], Tuple[float, dict]] = {}
-_CACHE_TTL = 6 * 3600  # 6 hours
+_league_cache: Dict[Tuple[int, int], Tuple[float, dict]] = {}
+_LEAGUE_CACHE_TTL = 24 * 3600  # 24 hours (API response cached 7 days anyway)
 
 
-def _cache_get(key: Tuple[str, int]) -> Optional[dict]:
-    entry = _percentile_cache.get(key)
-    if entry and (time.time() - entry[0]) < _CACHE_TTL:
+def _cache_get(key: Tuple) -> Optional[dict]:
+    entry = _league_cache.get(key)
+    if entry and (time.time() - entry[0]) < _LEAGUE_CACHE_TTL:
         return entry[1]
     return None
 
 
-def _cache_set(key: Tuple[str, int], data: dict) -> None:
-    _percentile_cache[key] = (time.time(), data)
+def _cache_set(key: Tuple, data: dict) -> None:
+    _league_cache[key] = (time.time(), data)
 
 
 # ---------------------------------------------------------------------------
@@ -123,11 +134,7 @@ def formation_position_to_group(
     formation_position: Optional[str],
     fallback_position: Optional[str] = None,
 ) -> Optional[str]:
-    """Map a formation_position label (e.g. 'LW') to a position group key (e.g. 'W').
-
-    Falls back to broad position code (G/D/M/F) if formation_position is missing.
-    Returns None if nothing can be resolved.
-    """
+    """Map a formation_position label (e.g. 'LW') to a position group key (e.g. 'W')."""
     if formation_position:
         group = POSITION_GROUPS.get(formation_position.upper())
         if group:
@@ -138,15 +145,7 @@ def formation_position_to_group(
 
 
 def get_primary_formation_position(fixtures_data: List[dict]) -> Tuple[Optional[str], int, int]:
-    """Determine a player's most-played formation_position from fixture data.
-
-    Args:
-        fixtures_data: List of fixture dicts, each with a 'stats' sub-dict
-                       containing 'formation_position' and optionally 'substitute'.
-
-    Returns:
-        (most_common_position, count_at_that_position, total_starts_with_position_data)
-    """
+    """Determine a player's most-played formation_position from fixture data."""
     counter: Counter = Counter()
     for f in fixtures_data:
         stats = f.get("stats", {})
@@ -162,13 +161,7 @@ def get_primary_formation_position(fixtures_data: List[dict]) -> Tuple[Optional[
 
 
 def compute_player_per90(fixtures_data: List[dict]) -> Dict[str, float]:
-    """Compute per-90-minute stats for a single player from their fixture data.
-
-    For stats in _RAW_AVERAGE_STATS (rating, passes_accuracy), returns the
-    simple average instead of per-90 normalization.
-
-    Returns dict of {stat_key: per90_value}.
-    """
+    """Compute per-90-minute stats for a single player from their fixture data."""
     total_minutes = 0
     totals: Dict[str, float] = {}
     rating_values: List[float] = []
@@ -182,7 +175,6 @@ def compute_player_per90(fixtures_data: List[dict]) -> Dict[str, float]:
 
         total_minutes += minutes
 
-        # Accumulate countable stats
         for key in STAT_LABELS:
             if key in _RAW_AVERAGE_STATS:
                 continue
@@ -191,12 +183,10 @@ def compute_player_per90(fixtures_data: List[dict]) -> Dict[str, float]:
                 continue
             totals[key] = totals.get(key, 0) + (val if isinstance(val, (int, float)) else 0)
 
-        # Collect rating values for averaging
         r = stats.get("rating")
         if r is not None and isinstance(r, (int, float)) and r > 0:
             rating_values.append(r)
 
-        # Collect pass accuracy (may be string like "68%")
         pa = stats.get("passes_accuracy")
         if pa is not None:
             try:
@@ -212,7 +202,6 @@ def compute_player_per90(fixtures_data: List[dict]) -> Dict[str, float]:
     for key, total in totals.items():
         result[key] = round((total / total_minutes) * 90, 3)
 
-    # Raw averages
     if rating_values:
         result["rating"] = round(sum(rating_values) / len(rating_values), 2)
     if accuracy_values:
@@ -221,197 +210,190 @@ def compute_player_per90(fixtures_data: List[dict]) -> Dict[str, float]:
     return result
 
 
-def percentile_rank(value: float, sorted_values: List[float]) -> int:
-    """Return the percentile rank (0-100) of value within sorted_values.
+# ---------------------------------------------------------------------------
+# League-wide position averages from API-Football
+# ---------------------------------------------------------------------------
 
-    Uses bisect_left for O(log n) lookup.
-    Returns 0 if sorted_values is empty.
+def _extract_player_per90_from_api(stat_block: dict) -> Optional[Dict[str, float]]:
+    """Extract per-90 stats from a single API-Football player statistics block.
+
+    Returns None if the player doesn't meet the minimum minutes threshold.
     """
-    n = len(sorted_values)
-    if n == 0:
-        return 0
-    idx = bisect_left(sorted_values, value)
-    return round((idx / n) * 100)
+    games = stat_block.get("games", {})
+    minutes = games.get("minutes") or 0
+    if minutes < MIN_MINUTES_LEAGUE:
+        return None
+
+    goals = stat_block.get("goals", {})
+    passes = stat_block.get("passes", {})
+    tackles = stat_block.get("tackles", {})
+    duels = stat_block.get("duels", {})
+    dribbles = stat_block.get("dribbles", {})
+    fouls = stat_block.get("fouls", {})
+    shots = stat_block.get("shots", {})
+
+    def _p90(val):
+        """Convert a season total to per-90."""
+        v = val if isinstance(val, (int, float)) else 0
+        return round((v / minutes) * 90, 3)
+
+    return {
+        "goals": _p90(goals.get("total")),
+        "assists": _p90(goals.get("assists")),
+        "saves": _p90(goals.get("saves")),
+        "goals_conceded": _p90(goals.get("conceded")),
+        "shots_total": _p90(shots.get("total")),
+        "shots_on": _p90(shots.get("on")),
+        "passes_total": _p90(passes.get("total")),
+        "passes_key": _p90(passes.get("key")),
+        "tackles_total": _p90(tackles.get("total")),
+        "tackles_blocks": _p90(tackles.get("blocks")),
+        "tackles_interceptions": _p90(tackles.get("interceptions")),
+        "duels_total": _p90(duels.get("total")),
+        "duels_won": _p90(duels.get("won")),
+        "dribbles_success": _p90(dribbles.get("success")),
+        "dribbles_attempts": _p90(dribbles.get("attempts")),
+        "fouls_drawn": _p90(fouls.get("drawn")),
+        "fouls_committed": _p90(fouls.get("committed")),
+    }
 
 
-def compute_position_percentiles(
-    position_group: str,
-    season: Optional[int] = None,
-) -> Dict[str, Any]:
-    """Compute per-90 stats for all players in a position group and return
-    sorted arrays for each stat (used for percentile lookups).
-
-    Uses an in-memory cache with 6-hour TTL.
+def fetch_league_position_averages(
+    league_api_id: int,
+    season: int,
+) -> Dict[str, Dict[str, Any]]:
+    """Fetch per-90 averages for all positions in a league from API-Football.
 
     Returns:
         {
-            'sorted_stats': {stat_key: sorted_list_of_per90_values},
-            'averages': {stat_key: mean_per90_value},
-            'peers_count': int,
+            "Defender": {
+                "averages": {stat_key: avg_per90, ...},
+                "maximums": {stat_key: max_per90, ...},
+                "player_count": int,
+            },
+            "Midfielder": { ... },
+            ...
         }
     """
-    from datetime import datetime, timezone
-
-    if season is None:
-        now = datetime.now(timezone.utc)
-        season = now.year if now.month >= 7 else now.year - 1
-
-    cache_key = (position_group, season)
+    cache_key = (league_api_id, season)
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
-    # Find all formation_position labels that belong to this group
-    group_positions = [fp for fp, g in POSITION_GROUPS.items() if g == position_group]
-    if not group_positions:
-        return {"sorted_stats": {}, "averages": {}, "peers_count": 0}
+    from src.api_football_client import APIFootballClient
 
-    # Query: get per-player aggregates for the season
-    # Join FixturePlayerStats with Fixture to filter by season
-    rows = (
-        db.session.query(
-            FixturePlayerStats.player_api_id,
-            func.sum(FixturePlayerStats.minutes).label("total_minutes"),
-            func.sum(FixturePlayerStats.goals).label("total_goals"),
-            func.sum(FixturePlayerStats.assists).label("total_assists"),
-            func.sum(FixturePlayerStats.shots_total).label("total_shots_total"),
-            func.sum(FixturePlayerStats.shots_on).label("total_shots_on"),
-            func.sum(FixturePlayerStats.passes_total).label("total_passes_total"),
-            func.sum(FixturePlayerStats.passes_key).label("total_passes_key"),
-            func.sum(FixturePlayerStats.tackles_total).label("total_tackles_total"),
-            func.sum(FixturePlayerStats.tackles_blocks).label("total_tackles_blocks"),
-            func.sum(FixturePlayerStats.tackles_interceptions).label("total_tackles_interceptions"),
-            func.sum(FixturePlayerStats.duels_total).label("total_duels_total"),
-            func.sum(FixturePlayerStats.duels_won).label("total_duels_won"),
-            func.sum(FixturePlayerStats.dribbles_success).label("total_dribbles_success"),
-            func.sum(FixturePlayerStats.dribbles_attempts).label("total_dribbles_attempts"),
-            func.sum(FixturePlayerStats.fouls_drawn).label("total_fouls_drawn"),
-            func.sum(FixturePlayerStats.fouls_committed).label("total_fouls_committed"),
-            func.sum(FixturePlayerStats.saves).label("total_saves"),
-            func.sum(FixturePlayerStats.goals_conceded).label("total_goals_conceded"),
-            func.sum(FixturePlayerStats.yellows).label("total_yellows"),
-            func.sum(FixturePlayerStats.reds).label("total_reds"),
-            func.avg(FixturePlayerStats.rating).label("avg_rating"),
-            func.count(FixturePlayerStats.id).label("appearances"),
-        )
-        .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
-        .filter(
-            Fixture.season == season,
-            FixturePlayerStats.formation_position.in_(group_positions),
-            FixturePlayerStats.minutes > 0,
-        )
-        .group_by(FixturePlayerStats.player_api_id)
-        .having(func.sum(FixturePlayerStats.minutes) >= MIN_MINUTES_POOL)
-        .all()
-    )
+    api_key = os.getenv("API_FOOTBALL_KEY")
+    if not api_key:
+        logger.warning("API_FOOTBALL_KEY not set — cannot fetch league averages")
+        return {}
 
-    if not rows:
-        result = {"sorted_stats": {}, "averages": {}, "peers_count": 0}
-        _cache_set(cache_key, result)
-        return result
+    client = APIFootballClient(api_key=api_key)
 
-    # Now we need to filter to players whose MOST COMMON formation_position
-    # is in this group. The query above includes all appearances at group positions,
-    # but a player might mostly play elsewhere.
-    # For efficiency, we do a second pass: for each player in our result set,
-    # check their most common position.
-    player_ids = [r.player_api_id for r in rows]
-
-    # Get formation_position counts per player (only for this season)
-    fp_counts = (
-        db.session.query(
-            FixturePlayerStats.player_api_id,
-            FixturePlayerStats.formation_position,
-            func.count(FixturePlayerStats.id).label("cnt"),
-        )
-        .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
-        .filter(
-            Fixture.season == season,
-            FixturePlayerStats.player_api_id.in_(player_ids),
-            FixturePlayerStats.formation_position.isnot(None),
-            FixturePlayerStats.minutes > 0,
-        )
-        .group_by(FixturePlayerStats.player_api_id, FixturePlayerStats.formation_position)
-        .all()
-    )
-
-    # Find each player's primary position
-    player_fp_counts: Dict[int, Counter] = {}
-    for row in fp_counts:
-        if row.player_api_id not in player_fp_counts:
-            player_fp_counts[row.player_api_id] = Counter()
-        player_fp_counts[row.player_api_id][row.formation_position] = row.cnt
-
-    valid_player_ids = set()
-    for pid, counter in player_fp_counts.items():
-        primary_fp = counter.most_common(1)[0][0]
-        primary_group = POSITION_GROUPS.get(primary_fp)
-        if primary_group == position_group:
-            valid_player_ids.add(pid)
-
-    # Filter rows to only valid players
-    valid_rows = [r for r in rows if r.player_api_id in valid_player_ids]
-
-    if not valid_rows:
-        result = {"sorted_stats": {}, "averages": {}, "peers_count": 0}
-        _cache_set(cache_key, result)
-        return result
-
-    # Compute per-90 for each valid player
-    stat_columns = {
-        "goals": "total_goals",
-        "assists": "total_assists",
-        "shots_total": "total_shots_total",
-        "shots_on": "total_shots_on",
-        "passes_total": "total_passes_total",
-        "passes_key": "total_passes_key",
-        "tackles_total": "total_tackles_total",
-        "tackles_blocks": "total_tackles_blocks",
-        "tackles_interceptions": "total_tackles_interceptions",
-        "duels_total": "total_duels_total",
-        "duels_won": "total_duels_won",
-        "dribbles_success": "total_dribbles_success",
-        "dribbles_attempts": "total_dribbles_attempts",
-        "fouls_drawn": "total_fouls_drawn",
-        "fouls_committed": "total_fouls_committed",
-        "saves": "total_saves",
-        "goals_conceded": "total_goals_conceded",
-        "yellows": "total_yellows",
-        "reds": "total_reds",
+    # Collect per-90 stats grouped by broad position
+    position_stats: Dict[str, List[Dict[str, float]]] = {
+        "Goalkeeper": [],
+        "Defender": [],
+        "Midfielder": [],
+        "Attacker": [],
     }
 
-    all_per90: Dict[str, List[float]] = {k: [] for k in stat_columns}
-    all_per90["rating"] = []
+    page = 1
+    while True:
+        try:
+            resp = client._make_request("players", {
+                "league": league_api_id,
+                "season": season,
+                "page": page,
+            })
+        except Exception as e:
+            logger.error(f"API error fetching league {league_api_id} page {page}: {e}")
+            break
 
-    for r in valid_rows:
-        mins = r.total_minutes or 0
-        if mins <= 0:
+        players_data = resp.get("response", [])
+        if not players_data:
+            break
+
+        for player_row in players_data:
+            for stat_block in player_row.get("statistics", []):
+                pos = (stat_block.get("games", {}).get("position") or "").strip()
+                if pos not in position_stats:
+                    continue
+
+                per90 = _extract_player_per90_from_api(stat_block)
+                if per90:
+                    position_stats[pos].append(per90)
+
+        paging = resp.get("paging", {})
+        if page >= paging.get("total", 1):
+            break
+        page += 1
+
+    # Aggregate: compute mean and max per stat per position
+    result: Dict[str, Dict[str, Any]] = {}
+    for pos, players in position_stats.items():
+        if not players:
+            result[pos] = {"averages": {}, "maximums": {}, "player_count": 0}
             continue
-        for stat_key, col_name in stat_columns.items():
-            val = getattr(r, col_name, None) or 0
-            p90 = round((val / mins) * 90, 3)
-            all_per90[stat_key].append(p90)
-        # Rating is a raw average
-        if r.avg_rating and r.avg_rating > 0:
-            all_per90["rating"].append(round(r.avg_rating, 2))
 
-    # Sort each stat array and compute averages
-    sorted_stats: Dict[str, List[float]] = {}
-    averages: Dict[str, float] = {}
-    for stat_key, values in all_per90.items():
-        if not values:
-            continue
-        sorted_stats[stat_key] = sorted(values)
-        averages[stat_key] = round(sum(values) / len(values), 3)
+        all_stats = players[0].keys()
+        averages: Dict[str, float] = {}
+        maximums: Dict[str, float] = {}
 
-    result = {
-        "sorted_stats": sorted_stats,
-        "averages": averages,
-        "peers_count": len(valid_rows),
-    }
+        for stat in all_stats:
+            values = [p[stat] for p in players if p.get(stat) is not None]
+            if values:
+                averages[stat] = round(sum(values) / len(values), 3)
+                maximums[stat] = round(max(values), 3)
+
+        result[pos] = {
+            "averages": averages,
+            "maximums": maximums,
+            "player_count": len(players),
+        }
+
     _cache_set(cache_key, result)
+    logger.info(
+        f"League {league_api_id} season {season}: "
+        + ", ".join(f"{p}={d['player_count']}" for p, d in result.items())
+    )
     return result
 
+
+def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
+    """Resolve a player's league from their loan team or tracked team.
+
+    Returns (league_api_id, league_name) or None.
+    """
+    from src.models.league import AcademyPlayer, Team, League
+
+    ap = (
+        AcademyPlayer.query
+        .filter_by(player_id=player_api_id)
+        .order_by(AcademyPlayer.updated_at.desc())
+        .first()
+    )
+    if not ap:
+        return None
+
+    # Try loan team first, then primary team
+    team_id = ap.loan_team_id or ap.primary_team_id
+    if not team_id:
+        return None
+
+    team = Team.query.filter_by(id=team_id).first()
+    if not team or not team.league_id:
+        return None
+
+    league = League.query.filter_by(id=team.league_id).first()
+    if not league:
+        return None
+
+    return league.league_id, league.name
+
+
+# ---------------------------------------------------------------------------
+# Main radar chart builder
+# ---------------------------------------------------------------------------
 
 def get_radar_chart_data(
     player_id: int,
@@ -421,19 +403,19 @@ def get_radar_chart_data(
 ) -> Dict[str, Any]:
     """Build the full radar chart response for a player.
 
-    Args:
-        player_id: The player's API ID.
-        fixtures_data: List of fixture dicts with 'stats' sub-dict.
-        stat_keys: Explicit stat axes to use. If None, auto-selects by position.
-        season: Season year for percentile pool. Defaults to current.
-
-    Returns:
-        Dict matching the new radar chart API response shape.
+    Compares the player's per-90 stats against the league-wide position
+    average. Both values are normalized to 0-100 where 100 = the best
+    performer at that position in the league.
     """
+    from datetime import datetime, timezone
+
+    if season is None:
+        now = datetime.now(timezone.utc)
+        season = now.year if now.month >= 7 else now.year - 1
+
     # Determine primary position
     primary_fp, fp_count, fp_total = get_primary_formation_position(fixtures_data)
 
-    # Get broad position fallback
     broad_positions: Counter = Counter()
     for f in fixtures_data:
         pos = f.get("stats", {}).get("position")
@@ -443,37 +425,53 @@ def get_radar_chart_data(
 
     position_group = formation_position_to_group(primary_fp, fallback_pos)
     if not position_group:
-        position_group = "CM"  # ultimate fallback
+        position_group = "CM"
 
-    # Auto-select stat axes if not provided
+    # Auto-select stat axes
     if not stat_keys:
         stat_keys = POSITION_STAT_AXES.get(position_group, POSITION_STAT_AXES["CM"])
 
-    # Compute player per-90 stats
+    # Compute player per-90
     player_per90 = compute_player_per90(fixtures_data)
-
-    # Compute total minutes
     total_minutes = sum(
         (f.get("stats", {}).get("minutes") or 0) for f in fixtures_data
     )
 
-    # Get position percentile pool
-    pool = compute_position_percentiles(position_group, season)
+    # Resolve league and fetch league-wide averages
+    league_info = resolve_player_league(player_id)
+    league_name = None
+    league_peers = 0
+    league_avg: Dict[str, float] = {}
+    league_max: Dict[str, float] = {}
+
+    if league_info:
+        league_api_id, league_name = league_info
+        broad_pos = _GROUP_TO_BROAD_POSITION.get(position_group, "Midfielder")
+        league_data = fetch_league_position_averages(league_api_id, season)
+        pos_data = league_data.get(broad_pos, {})
+        league_avg = pos_data.get("averages", {})
+        league_max = pos_data.get("maximums", {})
+        league_peers = pos_data.get("player_count", 0)
+
+    has_league_data = league_peers >= MIN_PEERS_FOR_OVERLAY
 
     # Build data array
     data_items = []
     for stat_key in stat_keys:
         p90_val = player_per90.get(stat_key, 0.0)
-        sorted_vals = pool.get("sorted_stats", {}).get(stat_key, [])
-        avg_val = pool.get("averages", {}).get(stat_key, 0.0)
+        avg_val = league_avg.get(stat_key, 0.0)
+        max_val = league_max.get(stat_key, 0.0)
 
-        pct = percentile_rank(p90_val, sorted_vals)
-        avg_pct = percentile_rank(avg_val, sorted_vals)
-
-        # Invert for "lower is better" stats
-        if stat_key in _INVERTED_STATS:
-            pct = 100 - pct
-            avg_pct = 100 - avg_pct
+        # For inverted stats, flip: higher normalized = fewer conceded/fouls
+        if stat_key in _INVERTED_STATS and max_val > 0:
+            player_norm = max(0, round((1 - p90_val / max_val) * 100))
+            avg_norm = max(0, round((1 - avg_val / max_val) * 100))
+        elif max_val > 0:
+            player_norm = min(100, round((p90_val / max_val) * 100))
+            avg_norm = min(100, round((avg_val / max_val) * 100))
+        else:
+            player_norm = 0
+            avg_norm = 0
 
         label = STAT_LABELS.get(stat_key, stat_key.replace("_", " ").title())
         if stat_key not in _RAW_AVERAGE_STATS:
@@ -483,9 +481,9 @@ def get_radar_chart_data(
             "stat": stat_key,
             "label": label,
             "player_per90": round(p90_val, 2),
-            "player_percentile": pct,
-            "position_avg_per90": round(avg_val, 2),
-            "position_avg_percentile": avg_pct,
+            "player_normalized": player_norm,
+            "league_avg_per90": round(avg_val, 2),
+            "league_avg_normalized": avg_norm if has_league_data else None,
         })
 
     return {
@@ -497,6 +495,7 @@ def get_radar_chart_data(
         "matches_count": len(fixtures_data),
         "total_minutes": total_minutes,
         "min_minutes_met": total_minutes >= MIN_MINUTES_PLAYER,
-        "peers_count": pool.get("peers_count", 0),
+        "league_name": league_name,
+        "league_peers": league_peers,
         "data": data_items,
     }
