@@ -384,6 +384,48 @@ class SupplementalLoan(db.Model):
         }
 
 
+class PlayerStatsCache(db.Model):
+    """Cached stats for players, primarily for limited-coverage leagues
+    where FixturePlayerStats doesn't exist.  Can be rebuilt at any time
+    from FixturePlayerStats + lineup/event source data."""
+    __tablename__ = 'player_stats_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    player_api_id = db.Column(db.Integer, nullable=False, index=True)
+    team_api_id = db.Column(db.Integer, nullable=False)
+    season = db.Column(db.Integer, nullable=False)
+    stats_coverage = db.Column(db.String(20), nullable=False, default='limited')
+    appearances = db.Column(db.Integer, default=0)
+    goals = db.Column(db.Integer, default=0)
+    assists = db.Column(db.Integer, default=0)
+    minutes_played = db.Column(db.Integer, default=0)
+    saves = db.Column(db.Integer, default=0)
+    yellows = db.Column(db.Integer, default=0)
+    reds = db.Column(db.Integer, default=0)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                           onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint('player_api_id', 'team_api_id', 'season',
+                            name='uq_player_stats_cache'),
+    )
+
+    def to_dict(self):
+        return {
+            'player_api_id': self.player_api_id,
+            'team_api_id': self.team_api_id,
+            'season': self.season,
+            'stats_coverage': self.stats_coverage,
+            'appearances': self.appearances or 0,
+            'goals': self.goals or 0,
+            'assists': self.assists or 0,
+            'minutes_played': self.minutes_played or 0,
+            'saves': self.saves or 0,
+            'yellows': self.yellows or 0,
+            'reds': self.reds or 0,
+        }
+
+
 class TeamProfile(db.Model):
     __tablename__ = 'team_profiles'
 

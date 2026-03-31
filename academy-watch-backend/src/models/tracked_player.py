@@ -34,6 +34,7 @@ class TrackedPlayer(db.Model):
     # Current club (loan club if on_loan, buying club if sold, new club if released)
     current_club_api_id = db.Column(db.Integer)
     current_club_name = db.Column(db.String(200))
+    current_club_db_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
 
     # Transfer fee when sold (raw string from API-Football, e.g. "€50M", "Free")
     sale_fee = db.Column(db.String(100))
@@ -64,11 +65,84 @@ class TrackedPlayer(db.Model):
     )
 
     # Relationships
-    team = db.relationship('Team', backref='tracked_players', lazy=True)
+    team = db.relationship('Team', backref='tracked_players', lazy=True,
+                           foreign_keys=[team_id])
+    current_club = db.relationship('Team', foreign_keys=[current_club_db_id], lazy=True)
     journey = db.relationship('PlayerJourney', backref='tracked_player', lazy=True,
                              foreign_keys=[journey_id])
     loaned_player = db.relationship('AcademyPlayer', backref='tracked_player_link', lazy=True,
                                     foreign_keys=[loaned_player_id])
+
+    def compute_stats(self):
+        """Compute stats independently of AcademyPlayer.
+
+        - full_stats: aggregate from FixturePlayerStats
+        - events_only / limited: read from PlayerStatsCache
+        """
+        default_stats = {
+            'appearances': 0,
+            'goals': 0,
+            'assists': 0,
+            'minutes_played': 0,
+            'saves': 0,
+            'yellows': 0,
+            'reds': 0,
+            'stats_coverage': self.data_depth or 'full_stats',
+        }
+
+        if not self.current_club_api_id:
+            return default_stats
+
+        # Limited / events-only coverage → read from PlayerStatsCache
+        if self.data_depth in ('events_only', 'profile_only'):
+            from src.models.league import PlayerStatsCache
+            cache = PlayerStatsCache.query.filter_by(
+                player_api_id=self.player_api_id,
+                team_api_id=self.current_club_api_id,
+            ).order_by(PlayerStatsCache.season.desc()).first()
+            if cache:
+                return {
+                    'appearances': cache.appearances or 0,
+                    'goals': cache.goals or 0,
+                    'assists': cache.assists or 0,
+                    'minutes_played': cache.minutes_played or 0,
+                    'saves': cache.saves or 0,
+                    'yellows': cache.yellows or 0,
+                    'reds': cache.reds or 0,
+                    'stats_coverage': cache.stats_coverage or 'limited',
+                }
+            return default_stats
+
+        # Full stats → aggregate from FixturePlayerStats
+        from src.models.weekly import FixturePlayerStats
+        from sqlalchemy import func
+
+        stats = db.session.query(
+            func.count().label('appearances'),
+            func.coalesce(func.sum(FixturePlayerStats.goals), 0).label('goals'),
+            func.coalesce(func.sum(FixturePlayerStats.assists), 0).label('assists'),
+            func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label('minutes_played'),
+            func.coalesce(func.sum(FixturePlayerStats.saves), 0).label('saves'),
+            func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label('yellows'),
+            func.coalesce(func.sum(FixturePlayerStats.reds), 0).label('reds'),
+        ).filter(
+            FixturePlayerStats.player_api_id == self.player_api_id,
+            FixturePlayerStats.team_api_id == self.current_club_api_id,
+        ).first()
+
+        if not stats:
+            return default_stats
+
+        return {
+            'appearances': stats.appearances or 0,
+            'goals': int(stats.goals or 0),
+            'assists': int(stats.assists or 0),
+            'minutes_played': int(stats.minutes_played or 0),
+            'saves': int(stats.saves or 0),
+            'yellows': int(stats.yellows or 0),
+            'reds': int(stats.reds or 0),
+            'stats_coverage': 'full',
+        }
 
     def to_dict(self):
         return {
@@ -88,6 +162,8 @@ class TrackedPlayer(db.Model):
             'current_level': self.current_level,
             'current_club_api_id': self.current_club_api_id,
             'current_club_name': self.current_club_name,
+            'current_club_db_id': self.current_club_db_id,
+            'current_club_logo': self.current_club.logo if self.current_club else None,
             'sale_fee': self.sale_fee,
             'data_source': self.data_source,
             'data_depth': self.data_depth,
@@ -116,7 +192,8 @@ class TrackedPlayer(db.Model):
             'primary_team_api_id': self.team.team_id if self.team else None,
             'loan_team_name': self.current_club_name,
             'loan_team_api_id': self.current_club_api_id,
-            'loan_team_logo': None,  # Caller can enrich
+            'loan_team_db_id': self.current_club_db_id,
+            'loan_team_logo': self.current_club.logo if self.current_club else None,
             'is_active': self.is_active,
             'status': self.status,
             'pathway_status': self.status,

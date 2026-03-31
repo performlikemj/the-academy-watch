@@ -16,9 +16,22 @@ branch_labels = None
 depends_on = None
 
 
+def _column_exists(table, column):
+    """Check if a column already exists (handles out-of-band additions)."""
+    from alembic import op as _op
+    conn = _op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = :table AND column_name = :column"
+    ), {'table': table, 'column': column})
+    return result.scalar() is not None
+
+
 def upgrade():
-    op.add_column('tracked_players', sa.Column('sale_fee', sa.String(100), nullable=True))
-    op.add_column('player_journey_entries', sa.Column('transfer_fee', sa.String(100), nullable=True))
+    if not _column_exists('tracked_players', 'sale_fee'):
+        op.add_column('tracked_players', sa.Column('sale_fee', sa.String(100), nullable=True))
+    if not _column_exists('player_journey_entries', 'transfer_fee'):
+        op.add_column('player_journey_entries', sa.Column('transfer_fee', sa.String(100), nullable=True))
 
 
 def downgrade():
