@@ -10,6 +10,7 @@ same season and sort priority.
 """
 from alembic import op
 import sqlalchemy as sa
+from migrations.versions._migration_helpers import add_column_safe
 
 
 # revision identifiers, used by Alembic.
@@ -20,7 +21,7 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
+    add_column_safe(
         'player_journey_entries',
         sa.Column('transfer_date', sa.String(20), nullable=True),
     )

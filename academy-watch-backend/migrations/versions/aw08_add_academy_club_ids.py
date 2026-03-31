@@ -11,6 +11,7 @@ Enables filtering Browse Teams to show only genuine academy products.
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
+from migrations.versions._migration_helpers import column_exists, index_exists
 
 
 # revision identifiers, used by Alembic.
@@ -21,14 +22,16 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        'player_journeys',
-        sa.Column('academy_club_ids', JSONB(), nullable=True),
-    )
-    op.execute(
-        "CREATE INDEX ix_player_journeys_academy_club_ids "
-        "ON player_journeys USING GIN (academy_club_ids jsonb_path_ops)"
-    )
+    if not column_exists('player_journeys', 'academy_club_ids'):
+        op.add_column(
+            'player_journeys',
+            sa.Column('academy_club_ids', JSONB(), nullable=True),
+        )
+    if not index_exists('ix_player_journeys_academy_club_ids'):
+        op.execute(
+            "CREATE INDEX ix_player_journeys_academy_club_ids "
+            "ON player_journeys USING GIN (academy_club_ids jsonb_path_ops)"
+        )
 
 
 def downgrade():

@@ -10,6 +10,7 @@ for map visualization.
 """
 from alembic import op
 import sqlalchemy as sa
+from migrations.versions._migration_helpers import table_exists, create_index_safe
 
 
 # revision identifiers, used by Alembic.
@@ -20,49 +21,36 @@ depends_on = None
 
 
 def upgrade():
-    op.create_table(
-        'player_career_stints',
-        sa.Column('id', sa.Integer(), nullable=False),
+    if not table_exists('player_career_stints'):
+        op.create_table(
+            'player_career_stints',
+            sa.Column('id', sa.Integer(), nullable=False),
+            sa.Column('player_id', sa.Integer(), nullable=False),
+            sa.Column('player_name', sa.String(100), nullable=False),
+            sa.Column('loaned_player_id', sa.Integer(), nullable=True),
+            sa.Column('team_api_id', sa.Integer(), nullable=False),
+            sa.Column('team_name', sa.String(100), nullable=False),
+            sa.Column('team_logo', sa.String(255), nullable=True),
+            sa.Column('city', sa.String(100), nullable=True),
+            sa.Column('country', sa.String(100), nullable=True),
+            sa.Column('latitude', sa.Float(), nullable=True),
+            sa.Column('longitude', sa.Float(), nullable=True),
+            sa.Column('stint_type', sa.String(20), nullable=False),
+            sa.Column('level', sa.String(20), nullable=True),
+            sa.Column('start_date', sa.Date(), nullable=True),
+            sa.Column('end_date', sa.Date(), nullable=True),
+            sa.Column('is_current', sa.Boolean(), nullable=False, server_default='false'),
+            sa.Column('sequence', sa.Integer(), nullable=False, server_default='1'),
+            sa.Column('created_at', sa.DateTime(), nullable=True),
+            sa.Column('updated_at', sa.DateTime(), nullable=True),
+            sa.PrimaryKeyConstraint('id'),
+            sa.ForeignKeyConstraint(['loaned_player_id'], ['loaned_players.id']),
+            sa.UniqueConstraint('player_id', 'team_api_id', 'stint_type', 'sequence',
+                              name='uq_player_career_stint'),
+        )
 
-        # Player reference
-        sa.Column('player_id', sa.Integer(), nullable=False),
-        sa.Column('player_name', sa.String(100), nullable=False),
-        sa.Column('loaned_player_id', sa.Integer(), nullable=True),
-
-        # Team info
-        sa.Column('team_api_id', sa.Integer(), nullable=False),
-        sa.Column('team_name', sa.String(100), nullable=False),
-        sa.Column('team_logo', sa.String(255), nullable=True),
-
-        # Location (for map)
-        sa.Column('city', sa.String(100), nullable=True),
-        sa.Column('country', sa.String(100), nullable=True),
-        sa.Column('latitude', sa.Float(), nullable=True),
-        sa.Column('longitude', sa.Float(), nullable=True),
-
-        # Stint details
-        sa.Column('stint_type', sa.String(20), nullable=False),
-        sa.Column('level', sa.String(20), nullable=True),
-        sa.Column('start_date', sa.Date(), nullable=True),
-        sa.Column('end_date', sa.Date(), nullable=True),
-        sa.Column('is_current', sa.Boolean(), nullable=False, server_default='false'),
-
-        # Journey ordering
-        sa.Column('sequence', sa.Integer(), nullable=False, server_default='1'),
-
-        # Metadata
-        sa.Column('created_at', sa.DateTime(), nullable=True),
-        sa.Column('updated_at', sa.DateTime(), nullable=True),
-
-        sa.PrimaryKeyConstraint('id'),
-        sa.ForeignKeyConstraint(['loaned_player_id'], ['loaned_players.id']),
-        sa.UniqueConstraint('player_id', 'team_api_id', 'stint_type', 'sequence',
-                          name='uq_player_career_stint'),
-    )
-
-    # Create indexes
-    op.create_index('ix_player_career_stints_player', 'player_career_stints', ['player_id'])
-    op.create_index('ix_player_career_stints_loaned_player', 'player_career_stints', ['loaned_player_id'])
+    create_index_safe('ix_player_career_stints_player', 'player_career_stints', ['player_id'])
+    create_index_safe('ix_player_career_stints_loaned_player', 'player_career_stints', ['loaned_player_id'])
 
 
 def downgrade():

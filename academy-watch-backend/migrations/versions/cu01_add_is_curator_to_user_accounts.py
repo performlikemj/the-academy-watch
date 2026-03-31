@@ -7,6 +7,7 @@ Create Date: 2026-03-11
 """
 from alembic import op
 import sqlalchemy as sa
+from migrations.versions._migration_helpers import add_column_safe
 
 
 # revision identifiers, used by Alembic.
@@ -17,7 +18,7 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column('user_accounts', sa.Column('is_curator', sa.Boolean(), nullable=False, server_default=sa.text('false')))
+    add_column_safe('user_accounts', sa.Column('is_curator', sa.Boolean(), nullable=False, server_default=sa.text('false')))
 
 
 def downgrade():

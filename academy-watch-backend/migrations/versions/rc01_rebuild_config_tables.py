@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy import text
 import json
 from datetime import datetime, timezone
+from migrations.versions._migration_helpers import table_exists
 
 
 # revision identifiers, used by Alembic.
@@ -48,50 +49,58 @@ DEFAULT_CONFIG = {
 
 
 def upgrade():
-    op.create_table(
-        'rebuild_configs',
-        sa.Column('id', sa.Integer(), primary_key=True),
-        sa.Column('name', sa.String(100), unique=True, nullable=False),
-        sa.Column('is_active', sa.Boolean(), nullable=False, server_default='false'),
-        sa.Column('config_json', sa.Text(), nullable=False),
-        sa.Column('notes', sa.Text()),
-        sa.Column('created_at', sa.DateTime()),
-        sa.Column('updated_at', sa.DateTime()),
-    )
-
-    op.create_table(
-        'rebuild_config_logs',
-        sa.Column('id', sa.Integer(), primary_key=True),
-        sa.Column('config_id', sa.Integer(), sa.ForeignKey('rebuild_configs.id'), nullable=False),
-        sa.Column('action', sa.String(20), nullable=False),
-        sa.Column('diff_json', sa.Text()),
-        sa.Column('snapshot_json', sa.Text()),
-        sa.Column('created_at', sa.DateTime()),
-    )
-
-    # Seed default config
-    config_str = json.dumps(DEFAULT_CONFIG)
-    op.execute(
-        text(
-            "INSERT INTO rebuild_configs (name, is_active, config_json, notes, created_at, updated_at) "
-            "VALUES (:name, true, :config, :notes, NOW(), NOW())"
-        ).bindparams(
-            name='Big 6 Standard',
-            config=config_str,
-            notes='Default configuration seeded from hardcoded values.',
+    if not table_exists('rebuild_configs'):
+        op.create_table(
+            'rebuild_configs',
+            sa.Column('id', sa.Integer(), primary_key=True),
+            sa.Column('name', sa.String(100), unique=True, nullable=False),
+            sa.Column('is_active', sa.Boolean(), nullable=False, server_default='false'),
+            sa.Column('config_json', sa.Text(), nullable=False),
+            sa.Column('notes', sa.Text()),
+            sa.Column('created_at', sa.DateTime()),
+            sa.Column('updated_at', sa.DateTime()),
         )
-    )
 
-    # Log the creation
-    op.execute(
-        text(
-            "INSERT INTO rebuild_config_logs (config_id, action, snapshot_json, created_at) "
-            "VALUES ((SELECT id FROM rebuild_configs WHERE name = :name), 'created', :snapshot, NOW())"
-        ).bindparams(
-            name='Big 6 Standard',
-            snapshot=config_str,
+    if not table_exists('rebuild_config_logs'):
+        op.create_table(
+            'rebuild_config_logs',
+            sa.Column('id', sa.Integer(), primary_key=True),
+            sa.Column('config_id', sa.Integer(), sa.ForeignKey('rebuild_configs.id'), nullable=False),
+            sa.Column('action', sa.String(20), nullable=False),
+            sa.Column('diff_json', sa.Text()),
+            sa.Column('snapshot_json', sa.Text()),
+            sa.Column('created_at', sa.DateTime()),
         )
-    )
+
+    # Seed default config (skip if already exists)
+    conn = op.get_bind()
+    existing = conn.execute(text(
+        "SELECT 1 FROM rebuild_configs WHERE name = 'Big 6 Standard'"
+    )).scalar()
+
+    if not existing:
+        config_str = json.dumps(DEFAULT_CONFIG)
+        conn.execute(
+            text(
+                "INSERT INTO rebuild_configs (name, is_active, config_json, notes, created_at, updated_at) "
+                "VALUES (:name, true, :config, :notes, NOW(), NOW())"
+            ),
+            {
+                'name': 'Big 6 Standard',
+                'config': config_str,
+                'notes': 'Default configuration seeded from hardcoded values.',
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO rebuild_config_logs (config_id, action, snapshot_json, created_at) "
+                "VALUES ((SELECT id FROM rebuild_configs WHERE name = :name), 'created', :snapshot, NOW())"
+            ),
+            {
+                'name': 'Big 6 Standard',
+                'snapshot': config_str,
+            },
+        )
 
 
 def downgrade():

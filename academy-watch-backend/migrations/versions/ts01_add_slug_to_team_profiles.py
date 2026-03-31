@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy import text
 import re
 import unicodedata
+from migrations.versions._migration_helpers import column_exists, index_exists
 
 
 # revision identifiers, used by Alembic.
@@ -31,39 +32,40 @@ def _slugify(value):
 
 
 def upgrade():
-    # 1. Add nullable slug column
-    op.add_column('team_profiles', sa.Column('slug', sa.String(200), nullable=True))
+    if not column_exists('team_profiles', 'slug'):
+        # 1. Add nullable slug column
+        op.add_column('team_profiles', sa.Column('slug', sa.String(200), nullable=True))
 
-    # 2. Backfill slugs from existing names
-    conn = op.get_bind()
-    profiles = conn.execute(text(
-        "SELECT team_id, name, country FROM team_profiles ORDER BY team_id"
-    )).fetchall()
+        # 2. Backfill slugs from existing names
+        conn = op.get_bind()
+        profiles = conn.execute(text(
+            "SELECT team_id, name, country FROM team_profiles ORDER BY team_id"
+        )).fetchall()
 
-    used_slugs = set()
-    for p in profiles:
-        base = _slugify(p.name)
-        if not base:
-            base = f"team-{p.team_id}"
+        used_slugs = set()
+        for p in profiles:
+            base = _slugify(p.name)
+            if not base:
+                base = f"team-{p.team_id}"
 
-        slug = base
-        if slug in used_slugs:
-            # Try with country
-            if p.country:
-                slug = f"{base}-{_slugify(p.country)}"
+            slug = base
             if slug in used_slugs:
-                # Last resort: append API team_id
-                slug = f"{base}-{p.team_id}"
+                if p.country:
+                    slug = f"{base}-{_slugify(p.country)}"
+                if slug in used_slugs:
+                    slug = f"{base}-{p.team_id}"
 
-        used_slugs.add(slug)
-        conn.execute(
-            text("UPDATE team_profiles SET slug = :slug WHERE team_id = :tid"),
-            {'slug': slug, 'tid': p.team_id},
-        )
+            used_slugs.add(slug)
+            conn.execute(
+                text("UPDATE team_profiles SET slug = :slug WHERE team_id = :tid"),
+                {'slug': slug, 'tid': p.team_id},
+            )
 
-    # 3. Set NOT NULL and add unique index
-    op.alter_column('team_profiles', 'slug', nullable=False)
-    op.create_index('ix_team_profiles_slug', 'team_profiles', ['slug'], unique=True)
+        # 3. Set NOT NULL and add unique index
+        op.alter_column('team_profiles', 'slug', nullable=False)
+
+    if not index_exists('ix_team_profiles_slug'):
+        op.create_index('ix_team_profiles_slug', 'team_profiles', ['slug'], unique=True)
 
 
 def downgrade():

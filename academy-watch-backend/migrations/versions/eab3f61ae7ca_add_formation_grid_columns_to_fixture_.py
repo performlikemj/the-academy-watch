@@ -7,6 +7,7 @@ Create Date: 2026-03-22 00:38:36.627664
 """
 from alembic import op
 import sqlalchemy as sa
+from migrations.versions._migration_helpers import add_column_safe
 
 # revision identifiers, used by Alembic.
 revision = 'eab3f61ae7ca'
@@ -16,10 +17,9 @@ depends_on = None
 
 
 def upgrade():
-    with op.batch_alter_table('fixture_player_stats', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('formation', sa.String(length=20), nullable=True))
-        batch_op.add_column(sa.Column('grid', sa.String(length=10), nullable=True))
-        batch_op.add_column(sa.Column('formation_position', sa.String(length=10), nullable=True))
+    add_column_safe('fixture_player_stats', sa.Column('formation', sa.String(length=20), nullable=True))
+    add_column_safe('fixture_player_stats', sa.Column('grid', sa.String(length=10), nullable=True))
+    add_column_safe('fixture_player_stats', sa.Column('formation_position', sa.String(length=10), nullable=True))
 
 
 def downgrade():

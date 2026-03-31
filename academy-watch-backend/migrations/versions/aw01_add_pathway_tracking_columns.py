@@ -12,6 +12,7 @@ academy players in addition to loan tracking:
 """
 from alembic import op
 import sqlalchemy as sa
+from migrations.versions._migration_helpers import add_column_safe
 
 
 # revision identifiers, used by Alembic.
@@ -22,19 +23,14 @@ depends_on = None
 
 
 def upgrade():
-    # Add pathway_status column with default 'on_loan' for existing records
-    op.add_column('loaned_players',
-                  sa.Column('pathway_status', sa.String(20), nullable=False,
-                            server_default='on_loan'))
-
-    # Add current_level column (nullable, for youth players)
-    op.add_column('loaned_players',
-                  sa.Column('current_level', sa.String(20), nullable=True))
-
-    # Add data_depth column with default 'full_stats' for existing records
-    op.add_column('loaned_players',
-                  sa.Column('data_depth', sa.String(20), nullable=False,
-                            server_default='full_stats'))
+    add_column_safe('loaned_players',
+                    sa.Column('pathway_status', sa.String(20), nullable=False,
+                              server_default='on_loan'))
+    add_column_safe('loaned_players',
+                    sa.Column('current_level', sa.String(20), nullable=True))
+    add_column_safe('loaned_players',
+                    sa.Column('data_depth', sa.String(20), nullable=False,
+                              server_default='full_stats'))
 
 
 def downgrade():
