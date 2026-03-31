@@ -37,6 +37,15 @@ def _get_resolve_team_name_and_logo():
     return resolve_team_name_and_logo
 
 
+def _prefer_academy_origin():
+    """Order expression that sorts owning-club rows last.
+    Use with .order_by() to prefer academy-origin TrackedPlayer rows."""
+    return db.case(
+        (TrackedPlayer.data_source == 'owning-club', 1),
+        else_=0,
+    ).asc()
+
+
 # ---------------------------------------------------------------------------
 # Player stats endpoint
 # ---------------------------------------------------------------------------
@@ -65,15 +74,15 @@ def get_public_player_stats(player_id: int):
         season = current_year if current_month >= 8 else current_year - 1
         season_prefix = f"{season}-{str(season + 1)[-2:]}"
 
-        # Find ALL tracked players for this player
+        # Find ALL tracked players for this player (prefer academy-origin rows)
         tracked = TrackedPlayer.query.filter_by(
             player_api_id=player_id, is_active=True,
-        ).all()
+        ).order_by(_prefer_academy_origin(), TrackedPlayer.updated_at.desc()).all()
 
         if not tracked:
             tracked = TrackedPlayer.query.filter_by(
                 player_api_id=player_id,
-            ).order_by(TrackedPlayer.updated_at.desc()).limit(1).all()
+            ).order_by(_prefer_academy_origin(), TrackedPlayer.updated_at.desc()).limit(1).all()
 
         # Build a map of team_api_id -> team info
         # For on_loan: use current_club (loan destination)
@@ -225,10 +234,14 @@ def get_public_player_profile(player_id: int):
             result['nationality'] = player.nationality
             result['age'] = player.age
 
-        # Enrich from TrackedPlayer (position, status, sale_fee, loan/parent team)
-        tp = TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True).first()
+        # Enrich from TrackedPlayer (prefer academy-origin row over owning-club)
+        tp = TrackedPlayer.query.filter_by(
+            player_api_id=player_id, is_active=True,
+        ).order_by(_prefer_academy_origin(), TrackedPlayer.updated_at.desc()).first()
         if not tp:
-            tp = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(TrackedPlayer.updated_at.desc()).first()
+            tp = TrackedPlayer.query.filter_by(
+                player_api_id=player_id,
+            ).order_by(_prefer_academy_origin(), TrackedPlayer.updated_at.desc()).first()
 
         if tp:
             if not result['position'] and tp.position:
@@ -350,13 +363,15 @@ def get_public_player_season_stats(player_id: int):
             'clubs': [],
         }
 
-        # Find tracked players for this player
+        # Find tracked players (prefer academy-origin rows)
         all_tracked = TrackedPlayer.query.filter_by(
             player_api_id=player_id, is_active=True,
-        ).all()
+        ).order_by(_prefer_academy_origin(), TrackedPlayer.updated_at.desc()).all()
 
         if not all_tracked:
-            tp_single = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(TrackedPlayer.updated_at.desc()).first()
+            tp_single = TrackedPlayer.query.filter_by(
+                player_api_id=player_id,
+            ).order_by(_prefer_academy_origin(), TrackedPlayer.updated_at.desc()).first()
             all_tracked = [tp_single] if tp_single else []
 
         # Check for limited coverage
@@ -388,34 +403,58 @@ def get_public_player_season_stats(player_id: int):
         if not all_tracked:
             return jsonify(result)
 
-        # Build list of clubs with their API IDs from TrackedPlayer
-        # For on_loan: use current_club (loan destination)
-        # For first_team/academy: use parent club (team)
+        # Build list of clubs from FixturePlayerStats (source of truth for which
+        # clubs the player actually played for this season) rather than deriving
+        # from TrackedPlayer rows which may include owning-club rows.
+        resolve_team_name_and_logo = _get_resolve_team_name_and_logo()
+        distinct_teams = db.session.query(
+            FixturePlayerStats.team_api_id,
+        ).join(
+            Fixture, FixturePlayerStats.fixture_id == Fixture.id,
+        ).filter(
+            FixturePlayerStats.player_api_id == player_id,
+            Fixture.date_utc >= season_start,
+        ).distinct().all()
+
         loan_teams_info = []
         loan_team_api_ids = []
-        for tp in all_tracked:
-            if not tp:
+        for (team_api_id,) in distinct_teams:
+            if team_api_id in loan_team_api_ids:
                 continue
-            if tp.status == 'on_loan' and tp.current_club_api_id:
-                club_api_id = tp.current_club_api_id
-                club_name = tp.current_club_name or (tp.current_club.name if tp.current_club else 'Unknown')
-                club_logo = tp.current_club.logo if tp.current_club else None
-            elif tp.team:
-                club_api_id = tp.team.team_id
-                club_name = tp.team.name
-                club_logo = tp.team.logo
-            else:
-                continue
+            team_name, team_logo = resolve_team_name_and_logo(team_api_id, season_start_year)
+            loan_teams_info.append({
+                'api_id': team_api_id,
+                'name': team_name or 'Unknown',
+                'logo': team_logo,
+                'window_type': 'Summer',
+                'is_active': True,
+            })
+            loan_team_api_ids.append(team_api_id)
 
-            if club_api_id not in loan_team_api_ids:
-                loan_teams_info.append({
-                    'api_id': club_api_id,
-                    'name': club_name,
-                    'logo': club_logo,
-                    'window_type': 'Summer',
-                    'is_active': tp.is_active,
-                })
-                loan_team_api_ids.append(club_api_id)
+        # Fallback: if no fixture stats yet, use TrackedPlayer
+        if not loan_teams_info:
+            for tp in all_tracked:
+                if not tp:
+                    continue
+                if tp.status == 'on_loan' and tp.current_club_api_id:
+                    club_api_id = tp.current_club_api_id
+                    club_name = tp.current_club_name or 'Unknown'
+                    club_logo = tp.current_club.logo if tp.current_club else None
+                elif tp.team:
+                    club_api_id = tp.team.team_id
+                    club_name = tp.team.name
+                    club_logo = tp.team.logo
+                else:
+                    continue
+                if club_api_id not in loan_team_api_ids:
+                    loan_teams_info.append({
+                        'api_id': club_api_id,
+                        'name': club_name,
+                        'logo': club_logo,
+                        'window_type': 'Summer',
+                        'is_active': tp.is_active,
+                    })
+                    loan_team_api_ids.append(club_api_id)
 
         result['loan_team'] = loan_teams_info[0]['name'] if loan_teams_info else None
         result['has_multiple_clubs'] = len(loan_teams_info) > 1
