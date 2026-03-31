@@ -15,34 +15,6 @@ def _as_utc(dt: datetime | None) -> datetime | None:
 db = SQLAlchemy()
 
 
-_db_epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-
-
-def _player_sort_key(player) -> tuple[datetime, int]:
-    """Sort key prioritising most recently updated player rows."""
-    timestamp = getattr(player, 'updated_at', None) or getattr(player, 'created_at', None) or _db_epoch
-    player_id = getattr(player, 'id', 0) or 0
-    return (timestamp, player_id)
-
-
-def _dedupe_players(players_iterable):
-    """Select a single latest entry per player across a sequence of tracked players."""
-    best_by_player = {}
-    for player in players_iterable:
-        if player is None:
-            continue
-        player_key = getattr(player, 'player_id', None)
-        if player_key is None:
-            player_name = (getattr(player, 'player_name', '') or '').strip().lower()
-            if not player_name:
-                continue
-            player_key = player_name
-        existing = best_by_player.get(player_key)
-        if existing is None or _player_sort_key(player) > _player_sort_key(existing):
-            best_by_player[player_key] = player
-    deduped = list(best_by_player.values())
-    deduped.sort(key=_player_sort_key, reverse=True)
-    return deduped
 
 class League(db.Model):
     __tablename__ = 'leagues'
@@ -127,13 +99,6 @@ class Team(db.Model):
     )
       
     # Relationships
-    # DEPRECATED: Use Team.tracked_players (backref from TrackedPlayer) instead.
-    academy_players = db.relationship('AcademyPlayer',
-                                       foreign_keys='AcademyPlayer.primary_team_id',
-                                       backref='parent_team', lazy=True)
-    placed_players = db.relationship('AcademyPlayer',
-                                      foreign_keys='AcademyPlayer.loan_team_id',
-                                      backref='borrowing_team', lazy=True)
     newsletters = db.relationship('Newsletter', backref='team', lazy=True)
     subscriptions = db.relationship('UserSubscription', backref='team', lazy=True)
 
@@ -165,222 +130,6 @@ class Team(db.Model):
             'slug': getattr(self, '_slug', None),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-
-class AcademyPlayer(db.Model):
-    __tablename__ = 'loaned_players'  # DB table name unchanged
-    
-    id = db.Column(db.Integer, primary_key=True)
-    # Store raw API‑Football player ID directly (no Player FK table anymore)
-    player_id = db.Column(db.Integer, nullable=False)
-    player_name = db.Column(db.String(100), nullable=False)
-    age = db.Column(db.Integer)
-    nationality = db.Column(db.String(50))
-    primary_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)  # Nullable for custom teams
-    primary_team_name = db.Column(db.String(100), nullable=False)
-    loan_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)  # Nullable for custom teams
-    loan_team_name = db.Column(db.String(100), nullable=False)
-    team_ids = db.Column(db.String(255))  # Comma-separated list of team IDs
-    window_key = db.Column(db.String(50))  # e.g., "2022-23::FULL"
-    actual_loan_status = db.Column(db.String(50))  # Active, Terminated, etc.
-    legacy_parent_team_id = db.Column(db.Integer)
-    legacy_loan_team_id = db.Column(db.Integer)
-    reviewer_notes = db.Column(db.Text)
-    is_active = db.Column(db.Boolean, default=True)  # Keep for API compatibility
-    appearances = db.Column(db.Integer, default=0)
-    goals = db.Column(db.Integer, default=0)
-    assists = db.Column(db.Integer, default=0)
-    minutes_played = db.Column(db.Integer, default=0)
-    saves = db.Column(db.Integer, default=0)  # Goalkeeper saves
-    yellows = db.Column(db.Integer, default=0)
-    reds = db.Column(db.Integer, default=0)
-    data_source = db.Column(db.String(50), nullable=False, default='api-football')
-    can_fetch_stats = db.Column(db.Boolean, nullable=False, default=True)
-    # Stats coverage level: 'full' (all stats), 'limited' (appearances/goals from lineups/events), 'none'
-    stats_coverage = db.Column(db.String(20), nullable=False, default='full')
-    # Timestamp when API data confirmed this manual entry (for manual loans that API later matches)
-    api_confirmed_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-
-    # Pathway tracking columns for Academy Watch
-    pathway_status = db.Column(db.String(20), nullable=False, default='on_loan')
-    # Values: 'academy' | 'on_loan' | 'first_team' | 'released'
-
-    current_level = db.Column(db.String(20), nullable=True)
-    # Values: 'U18' | 'U21' | 'U23' | 'Reserve' | 'Senior'
-
-    data_depth = db.Column(db.String(20), nullable=False, default='full_stats')
-    # Values: 'full_stats' | 'events_only' | 'profile_only'
-
-    __table_args__ = (
-        # Ensure one row per player/parent/loan/window
-        db.UniqueConstraint('player_id', 'primary_team_id', 'loan_team_id', 'window_key', name='uq_loans_player_parent_loan_window'),
-    )
-
-    def _compute_stats(self):
-        """
-        Compute stats from fixture_player_stats (source of truth).
-        For limited coverage players (e.g., National League), uses denormalized columns
-        which are populated via the /admin/sync-limited-stats endpoint.
-        """
-        from src.models.weekly import FixturePlayerStats
-        from sqlalchemy import func
-        
-        # Default stats if we can't compute
-        default_stats = {
-            'appearances': 0,
-            'goals': 0,
-            'assists': 0,
-            'minutes_played': 0,
-            'saves': 0,
-            'yellows': 0,
-            'reds': 0,
-            'stats_coverage': getattr(self, 'stats_coverage', 'full'),
-        }
-        
-        # For LIMITED coverage players (e.g., National League), use denormalized columns
-        # These are populated by /admin/sync-limited-stats from lineup/events data
-        if getattr(self, 'stats_coverage', 'full') == 'limited':
-            return {
-                'appearances': self.appearances or 0,
-                'goals': self.goals or 0,
-                'assists': self.assists or 0,
-                'minutes_played': 0,  # Not available for limited coverage
-                'saves': self.saves or 0,
-                'yellows': self.yellows or 0,
-                'reds': self.reds or 0,
-                'stats_coverage': 'limited',
-            }
-        
-        # Can't compute without loan team
-        if not self.loan_team_id:
-            return default_stats
-        
-        # Get loan team's API ID
-        loan_team = Team.query.get(self.loan_team_id)
-        if not loan_team or not loan_team.team_id:
-            return default_stats
-        
-        # Aggregate stats from fixture_player_stats (FULL coverage)
-        stats = db.session.query(
-            func.count().label('appearances'),
-            func.coalesce(func.sum(FixturePlayerStats.goals), 0).label('goals'),
-            func.coalesce(func.sum(FixturePlayerStats.assists), 0).label('assists'),
-            func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label('minutes_played'),
-            func.coalesce(func.sum(FixturePlayerStats.saves), 0).label('saves'),
-            func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label('yellows'),
-            func.coalesce(func.sum(FixturePlayerStats.reds), 0).label('reds'),
-        ).filter(
-            FixturePlayerStats.player_api_id == self.player_id,
-            FixturePlayerStats.team_api_id == loan_team.team_id
-        ).first()
-        
-        if not stats:
-            return default_stats
-        
-        return {
-            'appearances': stats.appearances or 0,
-            'goals': int(stats.goals or 0),
-            'assists': int(stats.assists or 0),
-            'minutes_played': int(stats.minutes_played or 0),
-            'saves': int(stats.saves or 0),
-            'yellows': int(stats.yellows or 0),
-            'reds': int(stats.reds or 0),
-            'stats_coverage': 'full',
-        }
-
-    def to_dict(self):
-        # Compute stats from fixture_player_stats (source of truth)
-        # This eliminates sync bugs from stale denormalized columns
-        computed = self._compute_stats()
-        
-        return {
-            'id': self.id,
-            'player_id': self.player_id,
-            'player_name': self.player_name,
-            'age': self.age,
-            'nationality': self.nationality,
-            'primary_team_id': self.primary_team_id,
-            'primary_team_name': self.primary_team_name,
-            'primary_team_api_id': (self.parent_team.team_id if hasattr(self, 'parent_team') and self.parent_team else None),
-            'loan_team_id': self.loan_team_id,
-            'loan_team_name': self.loan_team_name,
-            'loan_team_api_id': (self.borrowing_team.team_id if hasattr(self, 'borrowing_team') and self.borrowing_team else None),
-            'team_ids': self.team_ids,
-            'window_key': self.window_key,
-            'legacy_parent_team_id': self.legacy_parent_team_id,
-            'legacy_loan_team_id': self.legacy_loan_team_id,
-            'reviewer_notes': self.reviewer_notes,
-            'is_active': self.is_active,
-            # Use computed stats from fixture_player_stats instead of denormalized columns
-            'appearances': computed['appearances'],
-            'goals': computed['goals'],
-            'assists': computed['assists'],
-            'minutes_played': computed['minutes_played'],
-            'saves': computed['saves'],
-            'yellows': computed['yellows'],
-            'reds': computed['reds'],
-            'data_source': self.data_source,
-            'can_fetch_stats': self.can_fetch_stats,
-            'stats_coverage': self.stats_coverage,  # 'full', 'limited', or 'none'
-            # Pathway tracking fields (Academy Watch)
-            'pathway_status': self.pathway_status,  # 'academy', 'on_loan', 'first_team', 'released'
-            'current_level': self.current_level,    # 'U18', 'U21', 'U23', 'Reserve', 'Senior'
-            'data_depth': self.data_depth,          # 'full_stats', 'events_only', 'profile_only'
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-
-
-class SupplementalLoan(db.Model):
-    """DEPRECATED: Use AcademyPlayer with can_fetch_stats=False instead.
-
-    This table has been deprecated in favor of unified manual player handling.
-    Manual/untrackable players are now identified by:
-    - player_id < 0 (negative IDs)
-    - can_fetch_stats = False in AcademyPlayer
-    - data_source = 'manual' in AcademyPlayer
-
-    Historical records remain for reference only. All new manual players should
-    be created via AcademyPlayer table using the Players Manager.
-    """
-    __tablename__ = 'supplemental_loans'
-
-    id = db.Column(db.Integer, primary_key=True)
-    player_name = db.Column(db.String(120), nullable=False)
-    parent_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
-    parent_team_name = db.Column(db.String(120), nullable=False)
-    loan_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
-    loan_team_name = db.Column(db.String(120), nullable=False)
-    season_year = db.Column(db.Integer, nullable=False)
-    api_player_id = db.Column(db.Integer, nullable=True)
-    sofascore_player_id = db.Column(db.Integer, nullable=True)
-    data_source = db.Column(db.String(50), nullable=False, default='wikipedia')
-    can_fetch_stats = db.Column(db.Boolean, nullable=False, default=False)
-    source_url = db.Column(db.String(255))
-    wiki_title = db.Column(db.String(255))
-    is_verified = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-
-    parent_team = db.relationship('Team', foreign_keys=[parent_team_id], lazy=True)
-    loan_team = db.relationship('Team', foreign_keys=[loan_team_id], lazy=True)
-
-    def to_dict(self) -> dict:
-        return {
-            'id': self.id,
-            'player_name': self.player_name,
-            'parent_team_name': self.parent_team_name,
-            'loan_team_name': self.loan_team_name,
-            'season_year': self.season_year,
-            'data_source': self.data_source,
-            'can_fetch_stats': self.can_fetch_stats,
-            'source_url': self.source_url,
-            'wiki_title': self.wiki_title,
-            'is_verified': self.is_verified,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -832,11 +581,11 @@ class NewsletterComment(db.Model):
 
 class NewsletterPlayerYoutubeLink(db.Model):
     """YouTube highlights links for players in newsletters.
-    
+
     Uses player_id for both tracked (positive IDs) and manual (negative IDs) players.
     Manual players are identified by:
     - player_id < 0 (negative IDs from migration or Players & Loans Manager)
-    - Corresponding AcademyPlayer.can_fetch_stats = False
+    - Corresponding TrackedPlayer.can_fetch_stats = False
     """
     __tablename__ = 'newsletter_player_youtube_links'
 
@@ -1615,7 +1364,6 @@ class AcademyAppearance(db.Model):
 
     # Relationships
     academy_league = db.relationship('AcademyLeague', backref=db.backref('appearances', lazy=True))
-    loaned_player = db.relationship('AcademyPlayer', backref=db.backref('academy_appearances', lazy=True))
 
     __table_args__ = (
         db.UniqueConstraint('player_id', 'fixture_id', name='uq_academy_appearance_player_fixture'),

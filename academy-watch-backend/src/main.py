@@ -10,6 +10,7 @@ import src.models.cohort   # Ensure cohort models are registered with SQLAlchemy
 import src.models.formation  # Ensure formation models are registered with SQLAlchemy
 import src.models.api_cache  # Ensure API cache models are registered with SQLAlchemy
 import src.models.tracked_player  # Ensure TrackedPlayer model is registered with SQLAlchemy
+from src.models.tracked_player import TrackedPlayer
 from src.routes.api import api_bp, require_api_key
 from src.routes.auth_routes import auth_bp
 from src.routes.journalist import journalist_bp
@@ -233,8 +234,8 @@ def debug_database():
                 'leagues': League.query.count(),
                 'teams': Team.query.count(),
                 'active_teams': Team.query.filter_by(is_active=True).count(),
-                'academy_players': AcademyPlayer.query.count(),
-                'active_academy_players': AcademyPlayer.query.filter_by(is_active=True).count(),
+                'tracked_players': TrackedPlayer.query.count(),
+                'active_tracked_players': TrackedPlayer.query.filter_by(is_active=True).count(),
                 'newsletters': Newsletter.query.count(),
                 'subscriptions': UserSubscription.query.count()
             }

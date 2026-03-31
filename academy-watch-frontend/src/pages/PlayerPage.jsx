@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
+import { STATUS_BADGE_CLASSES } from '@/lib/theme-constants'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
     Drawer,
@@ -391,6 +392,11 @@ export function PlayerPage() {
                                     )}
                                     {profile?.nationality && (
                                         <Badge variant="outline" className="text-muted-foreground">{profile.nationality}</Badge>
+                                    )}
+                                    {profile?.status && (
+                                        <Badge className={STATUS_BADGE_CLASSES[profile.status] || 'bg-secondary text-muted-foreground'}>
+                                            {profile.status.replace('_', ' ')}{profile.sale_fee ? ` · ${profile.sale_fee}` : ''}
+                                        </Badge>
                                     )}
                                 </div>
                                 {/* Mini Progress Bar — career stops at a glance */}

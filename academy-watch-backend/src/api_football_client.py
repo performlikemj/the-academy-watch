@@ -2795,7 +2795,7 @@ class APIFootballClient:
         db_session=None,
     ) -> Dict[str, Any]:
         """Generate match-week summaries for all active loanees of one parent club."""
-        from src.models.league import Team, SupplementalLoan
+        from src.models.league import Team
         from src.models.tracked_player import TrackedPlayer
 
         start_str, end_str = week_start.isoformat(), week_end.isoformat()
@@ -2917,39 +2917,7 @@ class APIFootballClient:
             key = f"{_name_key(lp.player_name)}::{loan_team_api_id or loan_team_name}"
             existing_keys.add(key)
 
-        # Include legacy supplemental loans if present
-        supplemental_rows = (
-            db_session.query(SupplementalLoan)
-            .filter(
-                SupplementalLoan.parent_team_id == parent_team_db_id,
-                SupplementalLoan.season_year == season,
-            )
-            .all()
-            if db_session
-            else []
-        )
-        for supp in supplemental_rows:
-            loan_team_row = db_session.query(Team).get(supp.loan_team_id) if db_session and supp.loan_team_id else None
-            loan_team_api_id = loan_team_row.team_id if loan_team_row and getattr(loan_team_row, "team_id", None) else None
-            loan_team_name = supp.loan_team_name or (loan_team_row.name if loan_team_row else None)
-            loan_team_country = _resolve_team_country(loan_team_row, loan_team_api_id)
-            key = f"{_name_key(supp.player_name)}::{loan_team_api_id or loan_team_name}"
-            if key in existing_keys:
-                continue
-            loanees.append(
-                dict(
-                    player_api_id=supp.api_player_id if supp.api_player_id is not None else -abs(supp.id or 0),
-                    player_name=supp.player_name or "",
-                    loan_team_api_id=loan_team_api_id,
-                    loan_team_name=loan_team_name,
-                    loan_team_country=loan_team_country,
-                    can_fetch_stats=False,
-                    data_source=supp.data_source or "supplemental",
-                    sofascore_player_id=supp.sofascore_player_id,
-                    source="supplemental",
-                )
-            )
-            existing_keys.add(key)
+        # Supplemental loans removed (deprecated table dropped)
 
         # ------------------------------------------------------------------
         # 2️⃣ Summarise each loanee via API-Football

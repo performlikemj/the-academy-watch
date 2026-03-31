@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from sqlalchemy import func, or_
 
-from src.models.league import League, PlayerFlag, AcademyPlayer, SupplementalLoan, Team, Player
+from src.models.league import League, PlayerFlag, Team, Player
+from src.models.tracked_player import TrackedPlayer
 from src.utils.brave_players import BravePlayerCollection, collect_players_from_brave
 from src.utils.wikipedia_players import (
     collect_player_loans_from_wikipedia,
@@ -205,19 +206,19 @@ def _task_list_missing_sofascore_ids(
     include_inactive = bool(params.get('include_inactive'))
 
     query = context.db_session.query(
-        AcademyPlayer.player_id,
-        AcademyPlayer.player_name,
-        AcademyPlayer.primary_team_name,
-        AcademyPlayer.loan_team_name,
-        AcademyPlayer.is_active,
+        TrackedPlayer.player_api_id,
+        TrackedPlayer.player_name,
+        TrackedPlayer.team_id,
+        TrackedPlayer.current_club_name,
+        TrackedPlayer.is_active,
     )
 
     if not include_inactive:
-        query = query.filter(AcademyPlayer.is_active.is_(True))
+        query = query.filter(TrackedPlayer.is_active.is_(True))
 
-    rows = query.order_by(AcademyPlayer.player_name.asc()).all()
+    rows = query.order_by(TrackedPlayer.player_name.asc()).all()
 
-    player_ids = {row.player_id for row in rows if row.player_id}
+    player_ids = {row.player_api_id for row in rows if row.player_api_id}
     players: list[Player] = []
     if player_ids:
         players = (
@@ -228,9 +229,16 @@ def _task_list_missing_sofascore_ids(
 
     sofascore_map = {p.player_id: p for p in players if getattr(p, 'sofascore_id', None)}
 
+    # Pre-fetch team names for display
+    team_ids = {row.team_id for row in rows if row.team_id}
+    team_name_map: dict[int, str] = {}
+    if team_ids:
+        team_rows = context.db_session.query(Team.id, Team.name).filter(Team.id.in_(team_ids)).all()
+        team_name_map = {t.id: t.name for t in team_rows}
+
     deduped: dict[int, dict[str, Any]] = {}
     for row in rows:
-        pid = row.player_id
+        pid = row.player_api_id
         if not pid or pid in deduped:
             continue
         player_rec = sofascore_map.get(pid)
@@ -238,39 +246,13 @@ def _task_list_missing_sofascore_ids(
         entry = {
             'player_id': pid,
             'player_name': row.player_name,
-            'primary_team': row.primary_team_name,
-            'loan_team': row.loan_team_name,
+            'primary_team': team_name_map.get(row.team_id, ''),
+            'loan_team': row.current_club_name,
             'is_active': bool(row.is_active),
             'sofascore_id': sofascore_id,
             'has_sofascore_id': bool(sofascore_id),
         }
         deduped[pid] = entry
-
-    # Also show supplemental entries (missing Sofascore or API id)
-    try:
-        supp_rows: list[SupplementalLoan] = (
-            context.db_session.query(SupplementalLoan)
-            .order_by(SupplementalLoan.created_at.desc())
-            .all()
-        )
-    except Exception:
-        supp_rows = []
-    for s in supp_rows:
-        pid = getattr(s, 'api_player_id', None)
-        sofa = getattr(s, 'sofascore_player_id', None)
-        entry = {
-            'supplemental_id': s.id,
-            'player_id': pid,  # may be None
-            'player_name': s.player_name,
-            'primary_team': s.parent_team_name,
-            'loan_team': s.loan_team_name,
-            'is_active': True,
-            'sofascore_id': sofa,
-            'has_sofascore_id': bool(sofa),
-            'is_supplemental': True,
-        }
-        # Use negative key to avoid collision with real player ids
-        deduped[-(s.id or 0)] = entry
 
     players_list = list(deduped.values())
     if not include_with_id:
@@ -279,8 +261,8 @@ def _task_list_missing_sofascore_ids(
     summary = (
         f"Found {len(players_list)} players missing Sofascore ids"
         if not include_with_id
-        else f"Found {len(players_list)} loaned players"
-    ) if players_list else "No loaned players found"
+        else f"Found {len(players_list)} tracked players"
+    ) if players_list else "No tracked players found"
 
     return SandboxTaskResult(
         status="ok",
@@ -297,12 +279,11 @@ def _task_update_sofascore_id(
     context: SandboxContext,
 ) -> SandboxTaskResult:
     player_id = _safe_int(params.get('player_id'))
-    supplemental_id = _safe_int(params.get('supplemental_id'))
     sofascore_id = params.get('sofascore_id')
     player_name = params.get('player_name')
 
-    if not player_id and not supplemental_id:
-        raise TaskValidationError('Provide either player_id (API‑Football) or supplemental_id')
+    if not player_id:
+        raise TaskValidationError('player_id (API-Football) is required')
 
     if sofascore_id in (None, ''):
         normalized_sofa = None
@@ -315,37 +296,7 @@ def _task_update_sofascore_id(
     created = False
     now = datetime.now(timezone.utc)
 
-    # If supplemental_id provided and player_id missing, allow linking to existing Player by setting api_player_id first
-    supplemental_row = None
-    if supplemental_id:
-        supplemental_row = session.query(SupplementalLoan).filter_by(id=supplemental_id).first()
-        if not supplemental_row:
-            raise TaskValidationError(f'supplemental_id {supplemental_id} not found')
-
-    if supplemental_row and not player_id:
-        pid = getattr(supplemental_row, 'api_player_id', None)
-        if pid:
-            player_id = int(pid)
-        else:
-            supplemental_row.sofascore_player_id = normalized_sofa
-            supplemental_row.updated_at = now
-            session.commit()
-            logger.info('[sofa] saved supplemental_id=%s sofascore_id=%s (no api player)', supplemental_id, normalized_sofa)
-            summary = (
-                f"Assigned Sofascore id {normalized_sofa} to supplemental loan #{supplemental_id}"
-                if normalized_sofa
-                else f"Cleared Sofascore id for supplemental loan #{supplemental_id}"
-            )
-            return SandboxTaskResult(
-                status='ok',
-                summary=summary,
-                payload={
-                    'supplemental_id': supplemental_id,
-                    'sofascore_id': normalized_sofa,
-                },
-            )
-
-    logger.info('[sofa] update requested player_id=%s supplemental_id=%s sofascore_id=%s', player_id, supplemental_id, sofascore_id)
+    logger.info('[sofa] update requested player_id=%s sofascore_id=%s', player_id, sofascore_id)
 
     if normalized_sofa:
         existing = (
@@ -373,14 +324,8 @@ def _task_update_sofascore_id(
     record.sofascore_id = normalized_sofa
     record.updated_at = now
 
-    # Optionally link a supplemental row to this player in one go
-    if supplemental_row:
-        supplemental_row.api_player_id = player_id
-        supplemental_row.sofascore_player_id = normalized_sofa
-        supplemental_row.updated_at = now
-
     session.commit()
-    logger.info('[sofa] saved player_id=%s sofascore_id=%s created=%s linked_supp=%s', player_id, normalized_sofa, created, bool(supplemental_id))
+    logger.info('[sofa] saved player_id=%s sofascore_id=%s created=%s', player_id, normalized_sofa, created)
 
     summary = (
         f"Assigned Sofascore id {normalized_sofa} to player #{player_id}"
@@ -444,22 +389,20 @@ def _diff_loan_rows(
     if not rows:
         return [], 0
 
-    query = context.db_session.query(AcademyPlayer).filter(
-        AcademyPlayer.window_key.like(f"{season_year}-%")
-    )
+    query = context.db_session.query(TrackedPlayer)
     if not run_all_teams and team is not None:
-        query = query.filter(AcademyPlayer.primary_team_id == team.id)
+        query = query.filter(TrackedPlayer.team_id == team.id)
 
     existing_loans = query.all()
     existing_keys = {
-        (row.player_name.lower(), row.loan_team_name.lower())
+        (row.player_name.lower(), (row.current_club_name or '').lower())
         for row in existing_loans
     }
-    # Build a normalized index for fuzzy lookups scoped to team/season
+    # Build a normalized index for fuzzy lookups scoped to team
     existing_norm: dict[str, set[str]] = {}
     for row in existing_loans:
         try:
-            key = row.loan_team_name.lower()
+            key = (row.current_club_name or '').lower()
             existing_norm.setdefault(key, set()).add(_normalize_player_name_key(row.player_name))
         except Exception:
             continue
@@ -544,15 +487,12 @@ def _diff_loan_rows(
 
             if apply_changes and classification.get('valid') and team is not None:
                 current_club_name = classification.get('loan_club') or loan_team_name
-                parent_name = classification.get('parent_club') or parent_club or team.name
                 resolved_player = classification.get('player_name') or player_name
-                season_start = classification.get('season_start_year') or season_value
                 logger.info(
-                    "[sandbox-diff] applying change create supplemental for player=%s parent=%s loan=%s season=%s source=%s",
+                    "[sandbox-diff] applying change create TrackedPlayer for player=%s parent=%s loan=%s source=%s",
                     resolved_player,
-                    parent_name,
+                    team.name,
                     current_club_name,
-                    season_start,
                     data_source,
                 )
 
@@ -565,58 +505,60 @@ def _diff_loan_rows(
                 if loan_team:
                     current_club_name = loan_team.name
 
-                existing_sup = (
-                    context.db_session.query(SupplementalLoan)
+                # Check if a TrackedPlayer already exists for this player+team
+                existing_tp = (
+                    context.db_session.query(TrackedPlayer)
                     .filter(
-                        SupplementalLoan.parent_team_id == team.id,
-                        func.lower(SupplementalLoan.player_name) == resolved_player.lower(),
-                        func.lower(SupplementalLoan.loan_team_name) == current_club_name.lower(),
-                        SupplementalLoan.season_year == season_start,
+                        TrackedPlayer.team_id == team.id,
+                        func.lower(TrackedPlayer.player_name) == resolved_player.lower(),
+                        func.lower(TrackedPlayer.current_club_name) == current_club_name.lower(),
                     )
                     .first()
                 )
-                if not existing_sup:
-                    # Try to resolve API-Football player id deterministically from existing loans for this parent team
+                if not existing_tp:
+                    # Try to resolve API-Football player id from existing tracked players for this parent team
                     resolved_api_player_id = None
                     try:
-                        lp_match = (
-                            context.db_session.query(AcademyPlayer)
-                            .filter(AcademyPlayer.primary_team_id == team.id)
-                            .filter(func.lower(AcademyPlayer.player_name) == resolved_player.lower())
-                            .order_by(AcademyPlayer.updated_at.desc())
+                        tp_match = (
+                            context.db_session.query(TrackedPlayer)
+                            .filter(TrackedPlayer.team_id == team.id)
+                            .filter(func.lower(TrackedPlayer.player_name) == resolved_player.lower())
+                            .order_by(TrackedPlayer.updated_at.desc())
                             .first()
                         )
-                        if lp_match and getattr(lp_match, 'player_id', None):
-                            resolved_api_player_id = int(lp_match.player_id)
+                        if tp_match and tp_match.player_api_id:
+                            resolved_api_player_id = int(tp_match.player_api_id)
                     except Exception:
                         resolved_api_player_id = None
-                    supplemental = SupplementalLoan(
-                        player_name=resolved_player,
-                        parent_team_id=team.id,
-                        parent_team_name=parent_name,
-                        loan_team_id=loan_team.id if loan_team else None,
-                        loan_team_name=current_club_name,
-                        season_year=season_start,
-                        api_player_id=resolved_api_player_id,
-                        data_source=data_source,
-                        wiki_title=row.get('wiki_title'),
-                        can_fetch_stats=False,
-                    )
-                    context.db_session.add(supplemental)
-                    created_count += 1
-                    logger.info(
-                        "[sandbox-diff] created SupplementalLoan player=%s parent_id=%s loan_team=%s season=%s",
-                        resolved_player,
-                        team.id,
-                        current_club_name,
-                        season_start,
-                    )
+
+                    if resolved_api_player_id:
+                        new_tp = TrackedPlayer(
+                            player_name=resolved_player,
+                            player_api_id=resolved_api_player_id,
+                            team_id=team.id,
+                            status='on_loan',
+                            current_club_db_id=loan_team.id if loan_team else None,
+                            current_club_name=current_club_name,
+                            data_source=data_source,
+                        )
+                        context.db_session.add(new_tp)
+                        created_count += 1
+                        logger.info(
+                            "[sandbox-diff] created TrackedPlayer player=%s team_id=%s loan_team=%s",
+                            resolved_player,
+                            team.id,
+                            current_club_name,
+                        )
+                    else:
+                        logger.info(
+                            "[sandbox-diff] skipping create for player=%s: no api_player_id resolved",
+                            resolved_player,
+                        )
                 else:
                     logger.info(
-                        "[sandbox-diff] supplemental already exists for player=%s loan_team=%s season=%s; skipping",
+                        "[sandbox-diff] TrackedPlayer already exists for player=%s loan_team=%s; skipping",
                         resolved_player,
                         current_club_name,
-                        season_start,
                     )
 
         if not present:
@@ -669,8 +611,8 @@ def _task_check_missing_loanees(
     missing: List[Dict[str, Any]] = []
     for flag in flags:
         exists = (
-            context.db_session.query(AcademyPlayer)
-            .filter(AcademyPlayer.player_id == flag.player_api_id)
+            context.db_session.query(TrackedPlayer)
+            .filter(TrackedPlayer.player_api_id == flag.player_api_id)
             .first()
         )
         if exists:
@@ -726,12 +668,12 @@ def _task_compare_player_stats(
             raise TaskValidationError("Parameter 'season' must be a valid year") from exc
 
     loan = (
-        context.db_session.query(AcademyPlayer)
-        .filter(AcademyPlayer.player_id == player_id_int)
+        context.db_session.query(TrackedPlayer)
+        .filter(TrackedPlayer.player_api_id == player_id_int)
         .first()
     )
     if not loan:
-        raise TaskValidationError(f"Player {player_id_int} has no loan record in the database")
+        raise TaskValidationError(f"Player {player_id_int} has no tracked record in the database")
 
     if context.api_client is None:
         raise TaskExecutionError("API client is not configured for sandbox tasks")
@@ -759,27 +701,32 @@ def _task_compare_player_stats(
         )
         totals["appearances"] += _safe_int(appearances)
 
+    local_stats = loan.compute_stats()
+
     diff = {
         "goals": {
-            "db": _safe_int(loan.goals),
+            "db": _safe_int(local_stats.get('goals')),
             "api": totals["goals"],
         },
         "assists": {
-            "db": _safe_int(loan.assists),
+            "db": _safe_int(local_stats.get('assists')),
             "api": totals["assists"],
         },
         "minutes": {
-            "db": _safe_int(loan.minutes_played),
+            "db": _safe_int(local_stats.get('minutes_played')),
             "api": totals["minutes"],
         },
         "appearances": {
-            "db": _safe_int(loan.appearances),
+            "db": _safe_int(local_stats.get('appearances')),
             "api": totals["appearances"],
         },
     }
 
     for key, values in diff.items():
         values["delta"] = values["api"] - values["db"]
+
+    # Resolve parent team name via relationship
+    parent_team_name = loan.team.name if loan.team else ''
 
     deltas = [f"{key} Δ{values['delta']:+d}" for key, values in diff.items() if values["delta"]]
     if deltas:
@@ -790,10 +737,10 @@ def _task_compare_player_stats(
 
     payload = {
         "player": {
-            "player_id": loan.player_id,
+            "player_id": loan.player_api_id,
             "player_name": loan.player_name,
-            "primary_team": loan.primary_team_name,
-            "loan_team": loan.loan_team_name,
+            "primary_team": parent_team_name,
+            "loan_team": loan.current_club_name,
             "season_requested": season_value,
         },
         "diff": diff,
@@ -941,349 +888,8 @@ register_task(
         runner=_task_update_sofascore_id,
     )
 )
-def _task_set_supplemental_api_player_id(
-    params: MutableMapping[str, Any],
-    context: SandboxContext,
-) -> SandboxTaskResult:
-    supp_id = _safe_int(params.get('supplemental_id'))
-    api_player_id = _safe_int(params.get('api_player_id'))
-    if not supp_id or not api_player_id:
-        raise TaskValidationError('supplemental_id and api_player_id are required integers')
-    row = context.db_session.query(SupplementalLoan).filter_by(id=supp_id).first()
-    if not row:
-        raise TaskValidationError(f'supplemental loan id {supp_id} not found')
-    row.api_player_id = api_player_id
-    context.db_session.commit()
-    return SandboxTaskResult(
-        status='ok',
-        summary=f'Set api_player_id={api_player_id} for supplemental #{supp_id}',
-        payload={'supplemental_id': supp_id, 'api_player_id': api_player_id},
-    )
-
-register_task(
-    SandboxTask(
-        task_id='set-supplemental-api-player-id',
-        label='Set Supplemental API Player ID',
-        description='Attach an API-Football player id to a supplemental loan row.',
-        parameters=[
-            {'name': 'supplemental_id', 'type': 'number', 'label': 'Supplemental row id', 'required': True},
-            {'name': 'api_player_id', 'type': 'number', 'label': 'API-Football player id', 'required': True},
-        ],
-        runner=_task_set_supplemental_api_player_id,
-    )
-)
 
 
-def _task_list_supplemental_loans(
-    params: MutableMapping[str, Any],
-    context: SandboxContext,
-) -> SandboxTaskResult:
-    season_param = params.get('season')
-    try:
-        season_year = int(season_param)
-    except (TypeError, ValueError):
-        raise TaskValidationError("Parameter 'season' is required and must be an integer")
-
-    team = _resolve_team_from_params(params)
-
-    rows = (
-        context.db_session.query(SupplementalLoan)
-        .filter(
-            SupplementalLoan.parent_team_id == team.id,
-            SupplementalLoan.season_year == season_year,
-        )
-        .order_by(SupplementalLoan.updated_at.desc())
-        .all()
-    )
-
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        pid = getattr(r, 'api_player_id', None)
-        sofascore_id = None
-        if pid:
-            player = context.db_session.query(Player).filter(Player.player_id == pid).first()
-            if player and getattr(player, 'sofascore_id', None):
-                sofascore_id = int(player.sofascore_id)
-        out.append({
-            'supplemental_id': r.id,
-            'player_name': r.player_name,
-            'loan_team': r.loan_team_name,
-            'season_year': r.season_year,
-            'api_player_id': pid,
-            'has_api_player_id': bool(pid),
-            'sofascore_id': sofascore_id,
-            'has_sofascore_id': bool(sofascore_id),
-            'created_at': r.created_at.isoformat() if r.created_at else None,
-            'updated_at': r.updated_at.isoformat() if r.updated_at else None,
-        })
-
-    return SandboxTaskResult(
-        status='ok',
-        summary=f"Found {len(out)} supplemental rows for {team.name} {season_year}",
-        payload={'team': team.name, 'season': season_year, 'supplemental': out},
-        meta={'with_api_id': sum(1 for x in out if x['has_api_player_id']), 'with_sofascore': sum(1 for x in out if x['has_sofascore_id'])},
-    )
-
-
-register_task(
-    SandboxTask(
-        task_id='list-supplemental-loans',
-        label='List Supplemental Loans (team + season)',
-        description='Show supplemental loans for a team/season with API id and Sofascore status.',
-        parameters=[
-            {'name': 'season', 'type': 'number', 'label': 'Season start year', 'placeholder': 'e.g. 2025', 'required': True},
-            {'name': 'team_name', 'type': 'select', 'label': 'Team', 'placeholder': 'Select a club', 'required': True},
-            {'name': 'team_db_id', 'type': 'hidden', 'label': 'Team DB ID', 'required': False},
-            {'name': 'api_team_id', 'type': 'hidden', 'label': 'API-Football Team ID', 'required': False},
-        ],
-        runner=_task_list_supplemental_loans,
-    )
-)
-
-
-def _task_delete_supplemental_loan(
-    params: MutableMapping[str, Any],
-    context: SandboxContext,
-) -> SandboxTaskResult:
-    supp_id = _safe_int(params.get('supplemental_id'))
-    if not supp_id:
-        raise TaskValidationError('supplemental_id is required')
-
-    confirm = bool(params.get('confirm'))
-    if not confirm:
-        raise TaskValidationError('Set confirm=true to delete this supplemental loan')
-
-    session = context.db_session
-    row = session.query(SupplementalLoan).filter_by(id=supp_id).first()
-    if not row:
-        raise TaskValidationError(f'Supplemental loan id {supp_id} not found')
-
-    payload = {
-        'deleted_id': supp_id,
-        'player_name': row.player_name,
-        'parent_team': row.parent_team_name,
-        'loan_team': row.loan_team_name,
-        'season_year': row.season_year,
-    }
-
-    session.delete(row)
-    session.commit()
-
-    logger.info('[supp] deleted supplemental_id=%s player=%s loan_team=%s', supp_id, payload['player_name'], payload['loan_team'])
-
-    return SandboxTaskResult(
-        status='ok',
-        summary=f"Deleted supplemental loan #{supp_id} ({payload['player_name']})",
-        payload=payload,
-    )
-
-
-register_task(
-    SandboxTask(
-        task_id='delete-supplemental-loan',
-        label='Delete Supplemental Loan',
-        description='Permanently remove a supplemental loan row by id.',
-        parameters=[
-            {'name': 'supplemental_id', 'type': 'number', 'label': 'Supplemental row id', 'required': True},
-            {
-                'name': 'confirm',
-                'type': 'checkbox',
-                'label': 'Yes, delete this supplemental loan',
-                'required': False,
-                'help': 'Tick to confirm deletion. This action cannot be undone.',
-            },
-        ],
-        runner=_task_delete_supplemental_loan,
-    )
-)
-
-
-def _task_bulk_resolve_supplemental_api_ids(
-    params: MutableMapping[str, Any],
-    context: SandboxContext,
-) -> SandboxTaskResult:
-    season_param = params.get('season')
-    try:
-        season_year = int(season_param)
-    except (TypeError, ValueError):
-        raise TaskValidationError("Parameter 'season' is required and must be an integer")
-
-    team = _resolve_team_from_params(params)
-    apply_changes = bool(params.get('apply_changes'))
-
-    rows: list[SupplementalLoan] = (
-        context.db_session.query(SupplementalLoan)
-        .filter(
-            SupplementalLoan.parent_team_id == team.id,
-            SupplementalLoan.season_year == season_year,
-            SupplementalLoan.api_player_id.is_(None),
-        )
-        .all()
-    )
-
-    results: list[dict[str, Any]] = []
-    updated = 0
-    for r in rows:
-        name = (r.player_name or '').strip()
-        if not name:
-            results.append({'supplemental_id': r.id, 'player_name': r.player_name, 'status': 'skip:no-name'})
-            continue
-        # Normalize target name
-        target_key = _normalize_player_name_key(name)
-        target_last = _strip_diacritics((name.split()[-1] if name else '')).lower().strip(". ,")
-
-        # Strategy 1: unique match in AcademyPlayer (exact OR normalized OR last-name+team)
-        lp_ids: list[int] = []
-        lp_ids_norm: list[int] = []
-        lp_ids_last_team: list[int] = []
-        try:
-            lp_rows_full: list[AcademyPlayer] = (
-                context.db_session.query(AcademyPlayer)
-                .filter(AcademyPlayer.primary_team_id == team.id)
-                .all()
-            )
-            for lp in lp_rows_full:
-                try:
-                    pid_val = int(lp.player_id) if lp.player_id else None
-                except Exception:
-                    pid_val = None
-                if not pid_val:
-                    continue
-                # exact name
-                if lp.player_name and lp.player_name.strip().lower() == name.lower():
-                    lp_ids.append(pid_val)
-                # normalized key compare (e.g., "M. Rashford" vs "Marcus Rashford")
-                lp_key = _normalize_player_name_key(lp.player_name or '')
-                if lp_key and target_key and lp_key == target_key:
-                    lp_ids_norm.append(pid_val)
-                # last-name + loan team match
-                lp_last = _strip_diacritics((lp.player_name or '').split()[-1]).lower().strip(". ,")
-                if (
-                    target_last and lp_last and target_last == lp_last and
-                    (lp.loan_team_name or '').strip().lower() == (r.loan_team_name or '').strip().lower()
-                ):
-                    lp_ids_last_team.append(pid_val)
-        except Exception:
-            lp_ids, lp_ids_norm, lp_ids_last_team = [], [], []
-        chosen_id = None
-        source = None
-        if len(lp_ids) == 1:
-            chosen_id = lp_ids[0]
-            source = 'loaned_players'
-        elif len(lp_ids_norm) == 1:
-            chosen_id = lp_ids_norm[0]
-            source = 'loaned_players_norm'
-        elif len(lp_ids_last_team) == 1:
-            chosen_id = lp_ids_last_team[0]
-            source = 'loaned_players_last_team'
-        else:
-            # Strategy 2: unique match in Player by exact name
-            try:
-                player_rows = (
-                    context.db_session.query(Player.player_id)
-                    .filter(func.lower(Player.name) == name.lower())
-                    .distinct()
-                    .all()
-                )
-                p_ids = [int(x[0]) for x in player_rows if x and x[0]]
-            except Exception:
-                p_ids = []
-            if len(p_ids) == 1:
-                chosen_id = p_ids[0]
-                source = 'players'
-
-        # Strategy 3: API-Football search constrained by team if still unresolved
-        if chosen_id is None and context.api_client is not None:
-            try:
-                # Prefer loan team id; resolve by name if needed
-                team_api_ids: list[int] = []
-                loan_team_api_id = None
-                if getattr(r, 'loan_team_id', None):
-                    team_row = context.db_session.query(Team).get(r.loan_team_id)
-                    if team_row and getattr(team_row, 'team_id', None):
-                        loan_team_api_id = int(team_row.team_id)
-                if loan_team_api_id is None and r.loan_team_name:
-                    t = (
-                        context.db_session.query(Team)
-                        .filter(func.lower(Team.name) == r.loan_team_name.lower())
-                        .order_by(Team.id.desc())
-                        .first()
-                    )
-                    if t and getattr(t, 'team_id', None):
-                        loan_team_api_id = int(t.team_id)
-                if loan_team_api_id:
-                    team_api_ids.append(loan_team_api_id)
-                # As a fallback, also try parent team api id for context
-                parent_api_id = None
-                try:
-                    parent_row = context.db_session.query(Team).get(team.id)
-                    if parent_row and getattr(parent_row, 'team_id', None):
-                        parent_api_id = int(parent_row.team_id)
-                except Exception:
-                    parent_api_id = None
-                if parent_api_id and parent_api_id not in team_api_ids:
-                    team_api_ids.append(parent_api_id)
-
-                # Search with team constraint; expect a unique player id
-                matches = context.api_client.search_player_profiles(
-                    query=name,
-                    season=season_year,
-                    team_ids=team_api_ids or None,
-                )
-                candidate_ids = []
-                for m in matches or []:
-                    pid = ((m or {}).get('player') or {}).get('id')
-                    if isinstance(pid, int):
-                        candidate_ids.append(pid)
-                candidate_ids = list({int(x) for x in candidate_ids})
-                if len(candidate_ids) == 1:
-                    chosen_id = candidate_ids[0]
-                    source = 'api_search'
-            except Exception:
-                pass
-
-        if chosen_id and apply_changes:
-            r.api_player_id = chosen_id
-            updated += 1
-        reason = None
-        if chosen_id is None:
-            reason = 'no-unique-match'
-            if any([lp_ids, lp_ids_norm, lp_ids_last_team]):
-                reason = 'ambiguous-candidates'
-        results.append({
-            'supplemental_id': r.id,
-            'player_name': r.player_name,
-            'loan_team': r.loan_team_name,
-            'matched_api_player_id': chosen_id,
-            'matched_via': source,
-            'reason': reason,
-        })
-
-    if apply_changes and updated:
-        context.db_session.commit()
-
-    return SandboxTaskResult(
-        status='ok',
-        summary=f"Resolved {updated} / {len(rows)} supplemental rows",
-        payload={'team': team.name, 'season': season_year, 'resolved': results, 'updated': updated, 'total_candidates': len(rows)},
-        meta={'apply_changes': apply_changes},
-    )
-
-register_task(
-    SandboxTask(
-        task_id='bulk-resolve-supplemental-api-ids',
-        label='Bulk Resolve Supplemental API IDs',
-        description='Set api_player_id for supplemental rows via exact unique matches (no fuzzy).',
-        parameters=[
-            {'name': 'season', 'type': 'number', 'label': 'Season start year', 'required': True},
-            {'name': 'team_name', 'type': 'select', 'label': 'Team', 'required': True},
-            {'name': 'team_db_id', 'type': 'hidden', 'label': 'Team DB ID', 'required': False},
-            {'name': 'api_team_id', 'type': 'hidden', 'label': 'API-Football Team ID', 'required': False},
-            {'name': 'apply_changes', 'type': 'checkbox', 'label': 'Apply changes', 'required': False},
-        ],
-        runner=_task_bulk_resolve_supplemental_api_ids,
-    )
-)
 
 
 def _task_backfill_team_countries(
@@ -1376,101 +982,6 @@ register_task(
 )
 
 
-def _task_search_supplemental_api_candidates(
-    params: MutableMapping[str, Any],
-    context: SandboxContext,
-) -> SandboxTaskResult:
-    season_param = params.get('season')
-    try:
-        season_year = int(season_param)
-    except (TypeError, ValueError):
-        raise TaskValidationError("Parameter 'season' is required and must be an integer")
-
-    team = _resolve_team_from_params(params)
-
-    supp_id = _safe_int(params.get('supplemental_id'))
-    row = context.db_session.query(SupplementalLoan).filter(
-        SupplementalLoan.id == supp_id,
-        SupplementalLoan.parent_team_id == team.id,
-        SupplementalLoan.season_year == season_year,
-    ).first()
-    if not row:
-        raise TaskValidationError('supplemental_id not found for team/season')
-
-    if context.api_client is None:
-        raise TaskExecutionError('API client is not configured')
-
-    # Build team constraints for search
-    team_api_ids: list[int] = []
-    loan_team_api_id = None
-    if getattr(row, 'loan_team_id', None):
-        t = context.db_session.query(Team).get(row.loan_team_id)
-        if t and getattr(t, 'team_id', None):
-            loan_team_api_id = int(t.team_id)
-    if loan_team_api_id is None and row.loan_team_name:
-        t = (
-            context.db_session.query(Team)
-            .filter(func.lower(Team.name) == row.loan_team_name.lower())
-            .order_by(Team.id.desc())
-            .first()
-        )
-        if t and getattr(t, 'team_id', None):
-            loan_team_api_id = int(t.team_id)
-    if loan_team_api_id:
-        team_api_ids.append(loan_team_api_id)
-    parent_api_id = None
-    pr = context.db_session.query(Team).get(team.id)
-    if pr and getattr(pr, 'team_id', None):
-        parent_api_id = int(pr.team_id)
-    if parent_api_id and parent_api_id not in team_api_ids:
-        team_api_ids.append(parent_api_id)
-
-    # Query API-Football
-    matches = context.api_client.search_player_profiles(
-        query=row.player_name,
-        season=season_year,
-        team_ids=team_api_ids or None,
-    )
-
-    candidates: list[dict[str, Any]] = []
-    for m in matches or []:
-        try:
-            pid = ((m or {}).get('player') or {}).get('id')
-            pname = ((m or {}).get('player') or {}).get('name')
-            stats = (m or {}).get('statistics') or []
-            teams = []
-            for s in stats:
-                tblock = (s or {}).get('team') or {}
-                tid = tblock.get('id')
-                tname = tblock.get('name')
-                if tid and tname:
-                    teams.append({'team_id': tid, 'team_name': tname})
-            if isinstance(pid, int):
-                candidates.append({'player_id': pid, 'name': pname, 'teams': teams})
-        except Exception:
-            continue
-
-    return SandboxTaskResult(
-        status='ok',
-        summary=f"Found {len(candidates)} candidates for supplemental #{row.id}",
-        payload={'supplemental_id': row.id, 'player_name': row.player_name, 'loan_team': row.loan_team_name, 'candidates': candidates},
-    )
-
-register_task(
-    SandboxTask(
-        task_id='search-supplemental-api-candidates',
-        label='Search API Player Candidates (supplemental)',
-        description='Find API‑Football player candidates for a supplemental row using team/season constraints.',
-        parameters=[
-            {'name': 'season', 'type': 'number', 'label': 'Season start year', 'required': True},
-            {'name': 'team_name', 'type': 'select', 'label': 'Team', 'required': True},
-            {'name': 'team_db_id', 'type': 'hidden', 'label': 'Team DB ID', 'required': False},
-            {'name': 'api_team_id', 'type': 'hidden', 'label': 'API-Football Team ID', 'required': False},
-            {'name': 'supplemental_id', 'type': 'number', 'label': 'Supplemental row id', 'required': True},
-        ],
-        runner=_task_search_supplemental_api_candidates,
-    )
-)
 
 register_task(
     SandboxTask(
@@ -1746,7 +1257,7 @@ def _task_wiki_loan_diff(
         },
         meta={
             'candidate_count': len(wiki_rows),
-            'created_supplemental': created_count,
+            'created_tracked': created_count,
             'openai_used': bool(use_openai or apply_changes),
             'api_roster_count': api_roster_count,
             'use_api_roster': use_api_roster,
@@ -1828,8 +1339,8 @@ register_task(
             {
                 'name': 'apply_changes',
                 'type': 'checkbox',
-                'label': 'Create supplemental loans',
-                'help': 'Insert missing loans into supplemental table (uses OpenAI classifier).',
+                'label': 'Create tracked players',
+                'help': 'Insert missing loans as tracked player rows (uses OpenAI classifier).',
                 'required': False,
             },
         ],
@@ -1955,7 +1466,7 @@ def _task_brave_loan_diff(
         },
         meta={
             'candidate_count': len(brave_rows),
-            'created_supplemental': created_count,
+            'created_tracked': created_count,
             'openai_used': bool(use_openai or apply_changes),
             'query': query_override if run_all_teams else (next(iter(collection_lookup.values())).query if collection_lookup else None),
             'result_limit': result_limit,
@@ -2040,8 +1551,8 @@ register_task(
             {
                 'name': 'apply_changes',
                 'type': 'checkbox',
-                'label': 'Create supplemental entries',
-                'help': 'Adds supplemental loan rows for validated results.',
+                'label': 'Create tracked player entries',
+                'help': 'Adds tracked player rows for validated results.',
                 'required': False,
             },
         ],
@@ -2072,27 +1583,25 @@ def _task_scan_duplicate_loans(
         team = None
 
     session = context.db_session
-    query = session.query(AcademyPlayer)
+    query = session.query(TrackedPlayer)
     if team:
-        query = query.filter(AcademyPlayer.primary_team_id == team.id)
+        query = query.filter(TrackedPlayer.team_id == team.id)
     if active_only:
-        query = query.filter(AcademyPlayer.is_active.is_(True))
+        query = query.filter(TrackedPlayer.is_active.is_(True))
+    # season filtering is not applicable for TrackedPlayer (no window_key)
     season_slug = None
-    if season_year is not None:
-        season_slug = f"{season_year}-{str(season_year + 1)[-2:]}"
-        query = query.filter(AcademyPlayer.window_key.like(f"{season_slug}%"))
 
     rows = query.order_by(
-        AcademyPlayer.primary_team_id.asc(),
-        AcademyPlayer.player_id.asc(),
-        AcademyPlayer.updated_at.desc(),
+        TrackedPlayer.team_id.asc(),
+        TrackedPlayer.player_api_id.asc(),
+        TrackedPlayer.updated_at.desc(),
     ).all()
 
-    grouped: dict[tuple[int, int], list[AcademyPlayer]] = defaultdict(list)
+    grouped: dict[tuple[int, int], list[TrackedPlayer]] = defaultdict(list)
     for row in rows:
-        grouped[(row.primary_team_id, row.player_id)].append(row)
+        grouped[(row.team_id, row.player_api_id)].append(row)
 
-    def _sort_key(item: AcademyPlayer):
+    def _sort_key(item: TrackedPlayer):
         ts = item.updated_at or item.created_at or datetime(1970, 1, 1, tzinfo=timezone.utc)
         return ts, item.id or 0
 
@@ -2102,21 +1611,21 @@ def _task_scan_duplicate_loans(
             continue
         ordered = sorted(loan_rows, key=_sort_key, reverse=True)
         primary = ordered[0]
+        parent_team_name = primary.team.name if primary.team else ''
         entry = {
             'primary_team_id': team_id,
-            'primary_team_name': primary.primary_team_name,
+            'primary_team_name': parent_team_name,
             'player_id': player_id,
             'player_name': primary.player_name,
             'count': len(ordered),
             'active_count': sum(1 for item in ordered if item.is_active),
-            'window_keys': [item.window_key for item in ordered],
             'rows': [
                 {
                     'id': item.id,
-                    'loan_team_id': item.loan_team_id,
-                    'loan_team_name': item.loan_team_name,
+                    'loan_team_id': item.current_club_db_id,
+                    'loan_team_name': item.current_club_name,
                     'is_active': bool(item.is_active),
-                    'window_key': item.window_key,
+                    'status': item.status,
                     'data_source': item.data_source,
                     'created_at': item.created_at.isoformat() if item.created_at else None,
                     'updated_at': item.updated_at.isoformat() if item.updated_at else None,
@@ -2134,7 +1643,6 @@ def _task_scan_duplicate_loans(
         'team_id': getattr(team, 'id', None),
         'team_name': getattr(team, 'name', None),
         'season': season_year,
-        'season_slug': season_slug,
         'active_only': active_only,
         'min_count': min_count,
         'limit': limit,

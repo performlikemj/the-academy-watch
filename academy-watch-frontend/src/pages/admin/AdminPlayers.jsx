@@ -32,8 +32,12 @@ const LEVEL_OPTIONS = [
 
 const POSITION_OPTIONS = ['Goalkeeper', 'Defender', 'Midfielder', 'Attacker']
 
-function StatusBadge({ status }) {
-    return <Badge className={STATUS_BADGE_CLASSES[status] || 'bg-secondary text-muted-foreground'}>{(status || '').replace('_', ' ')}</Badge>
+function StatusBadge({ status, saleFee }) {
+    return (
+        <Badge className={STATUS_BADGE_CLASSES[status] || 'bg-secondary text-muted-foreground'}>
+            {(status || '').replace('_', ' ')}{saleFee ? ` · ${saleFee}` : ''}
+        </Badge>
+    )
 }
 
 // ============================================================
@@ -94,6 +98,7 @@ function AllPlayersTab({ teams, setMessage }) {
             current_club_name: player.current_club_name || '',
             notes: player.notes || '',
             position: player.position || '',
+            sale_fee: player.sale_fee || '',
         })
     }
 
@@ -292,6 +297,16 @@ function AllPlayersTab({ teams, setMessage }) {
                                             </div>
                                         </div>
                                     )}
+                                    {editForm.status === 'sold' && (
+                                        <div>
+                                            <Label className="text-xs">Sale Fee</Label>
+                                            <Input
+                                                value={editForm.sale_fee}
+                                                onChange={(e) => setEditForm({ ...editForm, sale_fee: e.target.value })}
+                                                placeholder="e.g. €50M, Free"
+                                            />
+                                        </div>
+                                    )}
                                     <div>
                                         <Label className="text-xs">Notes</Label>
                                         <Textarea
@@ -332,7 +347,7 @@ function AllPlayersTab({ teams, setMessage }) {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <StatusBadge status={p.status} />
+                                        <StatusBadge status={p.status} saleFee={p.sale_fee} />
                                         <Badge variant="outline" className="text-xs">{p.data_source}</Badge>
                                         <Button variant="ghost" size="sm" onClick={() => startEdit(p)}>
                                             <Pencil className="h-4 w-4" />

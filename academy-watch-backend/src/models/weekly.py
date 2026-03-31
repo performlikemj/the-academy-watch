@@ -186,9 +186,6 @@ class WeeklyLoanAppearance(db.Model):
     weekly_report_id = db.Column(db.Integer,
                                  db.ForeignKey('weekly_loan_reports.id'),
                                  nullable=False)
-    loaned_player_id = db.Column(db.Integer,
-                                 db.ForeignKey('loaned_players.id'),
-                                 nullable=False)
     player_api_id = db.Column(db.Integer, nullable=False)
     fixture_id = db.Column(db.Integer, db.ForeignKey('fixtures.id'),
                            nullable=False)
@@ -200,7 +197,7 @@ class WeeklyLoanAppearance(db.Model):
     yellows = db.Column(db.Integer, default=0)
     reds = db.Column(db.Integer, default=0)
     __table_args__ = (
-        db.UniqueConstraint('weekly_report_id', 'loaned_player_id',
+        db.UniqueConstraint('weekly_report_id', 'player_api_id',
                             'fixture_id', name='uq_week_player_fixture'),
     )
 

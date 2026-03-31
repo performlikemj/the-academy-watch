@@ -257,7 +257,25 @@ def get_cohort(cohort_id):
         return jsonify({'error': 'Cohort not found'}), 404
 
     include_members = request.args.get('include_members', 'false').lower() == 'true'
-    return jsonify(cohort.to_dict(include_members=include_members))
+    data = cohort.to_dict(include_members=include_members)
+
+    # Enrich sold members with sale_fee from TrackedPlayer
+    if include_members and data.get('members'):
+        from src.models.tracked_player import TrackedPlayer
+        sold_api_ids = [m['player_api_id'] for m in data['members']
+                        if m.get('current', {}).get('status') == 'sold']
+        if sold_api_ids:
+            fees = {tp.player_api_id: tp.sale_fee for tp in
+                    TrackedPlayer.query.filter(
+                        TrackedPlayer.player_api_id.in_(sold_api_ids),
+                        TrackedPlayer.is_active.is_(True),
+                    ).all() if tp.sale_fee}
+            for m in data['members']:
+                fee = fees.get(m['player_api_id'])
+                if fee:
+                    m['current']['sale_fee'] = fee
+
+    return jsonify(data)
 
 
 @cohort_bp.route('/cohorts/teams', methods=['GET'])

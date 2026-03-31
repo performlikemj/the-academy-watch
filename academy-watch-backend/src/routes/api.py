@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, make_response, render_template, Response, current_app, g
-from src.models.league import db, League, Team, AcademyPlayer, Newsletter, UserSubscription, EmailToken, PlayerFlag, AdminSetting, NewsletterComment, UserAccount, SupplementalLoan, NewsletterPlayerYoutubeLink, NewsletterCommentary, Player, JournalistTeamAssignment, CommentaryApplause, TeamTrackingRequest, StripeSubscription, NewsletterDigestQueue, JournalistSubscription, BackgroundJob, TeamSubreddit, RedditPost, TeamAlias, ManualPlayerSubmission, CommunityTake, AcademyAppearance, PlayerComment, PlayerLink, _as_utc, _dedupe_players
+from src.models.league import db, League, Team, Newsletter, UserSubscription, EmailToken, PlayerFlag, AdminSetting, NewsletterComment, UserAccount, NewsletterPlayerYoutubeLink, NewsletterCommentary, Player, JournalistTeamAssignment, CommentaryApplause, TeamTrackingRequest, StripeSubscription, NewsletterDigestQueue, JournalistSubscription, BackgroundJob, TeamSubreddit, RedditPost, TeamAlias, ManualPlayerSubmission, CommunityTake, AcademyAppearance, PlayerComment, PlayerLink, _as_utc
 from src.models.tracked_player import TrackedPlayer
 from src.models.sponsor import Sponsor
 from src.api_football_client import APIFootballClient
@@ -1402,12 +1402,11 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
     Returns number of fixtures synced.
     
     Now includes automatic ID verification - if player_id yields no results but
-    a matching player name is found with a different ID, updates the AcademyPlayer
+    a matching player name is found with a different ID, updates the TrackedPlayer
     record and syncs with the correct ID.
     """
     from src.api_football_client import APIFootballClient
     from src.models.weekly import Fixture, FixturePlayerStats
-    from src.models.league import AcademyPlayer, Team
     
     api_client = APIFootballClient()
     
@@ -1440,21 +1439,6 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                 f"🔄 ID mismatch detected during stats sync for '{player_name}': "
                 f"stored={player_id}, correct={verified_id}. Auto-correcting..."
             )
-            # Update the AcademyPlayer record
-            loan_team_db = Team.query.filter_by(team_id=loan_team_api_id).first()
-            if loan_team_db:
-                loan = AcademyPlayer.query.filter(
-                    AcademyPlayer.player_id == player_id,
-                    AcademyPlayer.loan_team_id == loan_team_db.id,
-                    AcademyPlayer.is_active.is_(True)
-                ).first()
-                if loan:
-                    loan.player_id = verified_id
-                    loan.reviewer_notes = (loan.reviewer_notes or '') + f' | ID auto-corrected during sync: {player_id} → {verified_id}'
-                    loan.updated_at = datetime.now(timezone.utc)
-                    db.session.commit()
-                    logger.info(f"✅ Updated AcademyPlayer ID from {player_id} to {verified_id}")
-            
             # Also delete any ghost stats with the old ID
             ghost_deleted = FixturePlayerStats.query.filter(
                 FixturePlayerStats.player_api_id == player_id,
@@ -2628,11 +2612,7 @@ def get_overview_stats():
             .count()
         )
 
-        season_loans_count = 0
-        if current_season_slug:
-            season_loans_count = AcademyPlayer.query.filter(
-                AcademyPlayer.window_key.like(f"{current_season_slug}%")
-            ).count()
+        season_loans_count = TrackedPlayer.query.filter_by(is_active=True).count()
 
         # Count unique teams (deduplicated by team_id) to avoid counting same team across seasons
         unique_team_count = (
@@ -4231,12 +4211,10 @@ def admin_sync_player_fixtures(player_id: int):
     """
     Sync/backfill all fixtures for a player from API-Football.
     Uses TrackedPlayer to determine current team (loan club or parent club).
-    Falls back to AcademyPlayer for backwards compatibility.
     """
     try:
         from src.api_football_client import APIFootballClient
         from src.models.weekly import Fixture, FixturePlayerStats
-        from src.models.league import AcademyPlayer
         from src.models.tracked_player import TrackedPlayer
         
         data = request.get_json() or {}
@@ -4268,20 +4246,8 @@ def admin_sync_player_fixtures(player_id: int):
                     team_api_id = parent_team.team_id
                     team_name = parent_team.name
         
-        # Fallback to AcademyPlayer if TrackedPlayer didn't resolve
         if not team_api_id:
-            loaned = AcademyPlayer.query.filter_by(player_id=player_id, is_active=True).order_by(AcademyPlayer.updated_at.desc()).first()
-            if not loaned:
-                loaned = AcademyPlayer.query.filter_by(player_id=player_id).order_by(AcademyPlayer.updated_at.desc()).first()
-            if loaned and loaned.loan_team_id:
-                loan_team = Team.query.get(loaned.loan_team_id)
-                if loan_team:
-                    team_api_id = loan_team.team_id
-                    team_name = loan_team.name
-                    player_name = player_name or loaned.player_name
-        
-        if not team_api_id:
-            return jsonify({'error': 'No team found for this player (checked TrackedPlayer and AcademyPlayer)'}), 404
+            return jsonify({'error': 'No team found for this player in TrackedPlayer'}), 404
         
         api_client = APIFootballClient()
         
@@ -4670,17 +4636,6 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
             time.sleep(delay)  # Rate limit API calls
         except Exception as e:
             logger.warning(f"Failed to discover team for player {tp.player_api_id} ({tp.player_name}): {e}")
-
-    # AcademyPlayer fallback for players not in TrackedPlayer
-    academy_fallback = AcademyPlayer.query.filter_by(is_active=True).all()
-    for lp in academy_fallback:
-        if lp.player_id in tracked_api_ids:
-            continue
-        if lp.loan_team_id:
-            loan_team = Team.query.get(lp.loan_team_id)
-            if loan_team and loan_team.team_id:
-                team_players[loan_team.team_id].append((lp.player_id, lp.player_name))
-                tracked_api_ids.add(lp.player_id)
 
     total_teams = len(team_players)
     total_players = sum(len(v) for v in team_players.values())
@@ -5243,8 +5198,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
     """Run the team fixture sync logic, optionally with progress updates.
     
     Uses TrackedPlayer (newer model) to find all active players for a team,
-    including both on_loan and first_team players. Falls back to AcademyPlayer
-    for any players not found in TrackedPlayer.
+    including both on_loan and first_team players.
     """
     from src.api_football_client import APIFootballClient
     from src.models.weekly import Fixture, FixturePlayerStats
@@ -5295,20 +5249,6 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                             tp.player_api_id, tp.player_name,
                             youth_id, f"{team.name} {tp.current_level}",
                         ))
-        
-        # Fallback: also include AcademyPlayer records not in TrackedPlayer
-        tracked_api_ids = {p[0] for p in players_to_sync}
-        loaned_fallback = AcademyPlayer.query.filter_by(
-            primary_team_id=team_id, is_active=True,
-        ).all()
-        for lp in loaned_fallback:
-            if lp.player_id not in tracked_api_ids:
-                loan_team = Team.query.get(lp.loan_team_id) if lp.loan_team_id else None
-                if loan_team:
-                    players_to_sync.append((
-                        lp.player_id, lp.player_name,
-                        loan_team.team_id, loan_team.name,
-                    ))
         
         total_players = len(players_to_sync)
         if job_id:
@@ -5548,7 +5488,7 @@ def admin_delete_team_data(team_id: int):
     Delete all tracking data for a team while keeping the team record.
     
     This removes:
-    - All AcademyPlayer records where this team is the primary (parent) team
+    - All TrackedPlayer records where this team is the parent team
     - All newsletters for this team
     - All weekly loan reports for this team
     - All user subscriptions for this team
@@ -5576,11 +5516,10 @@ def admin_delete_team_data(team_id: int):
             'deleted': {}
         }
         
-        # 1. Get loans where this team is the primary team
-        loans = AcademyPlayer.query.filter_by(primary_team_id=team_id).all()
-        loan_ids = [l.id for l in loans]
-        player_api_ids = [l.player_id for l in loans]
-        summary['deleted']['loaned_players'] = len(loans)
+        # 1. Get tracked players where this team is the parent team
+        tracked_players_del = TrackedPlayer.query.filter_by(team_id=team_id).all()
+        player_api_ids = [tp.player_api_id for tp in tracked_players_del]
+        summary['deleted']['tracked_players'] = len(tracked_players_del)
         
         # 2. Get newsletters for this team
         newsletters = Newsletter.query.filter_by(team_id=team_id).all()
@@ -5692,9 +5631,9 @@ def admin_delete_team_data(team_id: int):
         for newsletter in newsletters:
             db.session.delete(newsletter)
         
-        # Delete loaned players
-        for loan in loans:
-            db.session.delete(loan)
+        # Delete tracked players
+        for tp in tracked_players_del:
+            db.session.delete(tp)
         
         # Mark team as not tracked
         team.is_tracked = False
@@ -5897,13 +5836,11 @@ def admin_bulk_fix_team_names():
 def admin_propagate_team_names():
     """
     Propagate corrected team names from the Teams table to:
-    1. AcademyPlayer records (primary_team_name, loan_team_name)
-    2. Newsletter structured_content JSON
-    
+    1. Newsletter structured_content JSON
+
     Body: {
         "team_ids": [1, 2, 3],  # Optional: specific teams to propagate (DB IDs)
         "dry_run": false,  # Preview changes without saving
-        "fix_loans": true,  # Update AcademyPlayer records
         "fix_newsletters": true  # Update Newsletter structured_content
     }
     """
@@ -5913,12 +5850,10 @@ def admin_propagate_team_names():
         data = request.get_json() or {}
         team_ids = data.get('team_ids', [])
         dry_run = bool(data.get('dry_run', False))
-        fix_loans = bool(data.get('fix_loans', True))
         fix_newsletters = bool(data.get('fix_newsletters', True))
-        
+
         results = {
             'dry_run': dry_run,
-            'loans_updated': 0,
             'newsletters_updated': 0,
             'details': []
         }
@@ -5935,49 +5870,6 @@ def admin_propagate_team_names():
         team_name_map = {}
         for t in teams:
             team_name_map[t.id] = t.name
-        
-        if fix_loans:
-            # Update AcademyPlayer.primary_team_name
-            for team in teams:
-                count = AcademyPlayer.query.filter(
-                    AcademyPlayer.primary_team_id == team.id,
-                    AcademyPlayer.primary_team_name != team.name
-                ).count()
-                
-                if count > 0:
-                    results['details'].append({
-                        'type': 'loan_primary',
-                        'team_id': team.id,
-                        'team_name': team.name,
-                        'records': count
-                    })
-                    
-                    if not dry_run:
-                        AcademyPlayer.query.filter(
-                            AcademyPlayer.primary_team_id == team.id
-                        ).update({'primary_team_name': team.name}, synchronize_session=False)
-                        results['loans_updated'] += count
-            
-            # Update AcademyPlayer.loan_team_name
-            for team in teams:
-                count = AcademyPlayer.query.filter(
-                    AcademyPlayer.loan_team_id == team.id,
-                    AcademyPlayer.loan_team_name != team.name
-                ).count()
-                
-                if count > 0:
-                    results['details'].append({
-                        'type': 'loan_borrowing',
-                        'team_id': team.id,
-                        'team_name': team.name,
-                        'records': count
-                    })
-                    
-                    if not dry_run:
-                        AcademyPlayer.query.filter(
-                            AcademyPlayer.loan_team_id == team.id
-                        ).update({'loan_team_name': team.name}, synchronize_session=False)
-                        results['loans_updated'] += count
         
         if fix_newsletters:
             # Update Newsletter structured_content
@@ -6268,7 +6160,7 @@ def get_team_tracking_status(team_identifier: str):
             'is_tracked': team.is_tracked,
             'has_pending_request': pending_request is not None,
             'pending_request_id': pending_request.id if pending_request else None,
-            'loan_count': AcademyPlayer.query.filter_by(primary_team_id=team_id, is_active=True).count()
+            'loan_count': TrackedPlayer.query.filter_by(team_id=team_id, is_active=True).count()
         })
     except Exception as e:
         logger.exception('get_team_tracking_status failed')
@@ -7548,7 +7440,7 @@ def admin_check_pending_games(team_id: int):
             return jsonify({'pending': False, 'games': [], 'message': 'No active loans found'})
             
         # 3. Group players by loan team API ID
-        loan_team_map = {} # api_id -> list of AcademyPlayer objects
+        loan_team_map = {} # api_id -> list of TrackedPlayer objects
         for loan in active_loans:
             if loan.borrowing_team and loan.borrowing_team.team_id:
                 api_id = loan.borrowing_team.team_id
@@ -8042,48 +7934,44 @@ def admin_list_players():
         search_query = request.args.get('search', '').strip()
         has_sofascore_param = request.args.get('has_sofascore', '').lower()
         
-        # Get all loaned players first
-        loan_query = AcademyPlayer.query
-        
+        # Get all tracked players
+        tp_query = TrackedPlayer.query
+
         # Apply team filter
         if team_id_param:
-            loan_query = loan_query.filter(
+            tp_query = tp_query.filter(
                 or_(
-                    AcademyPlayer.primary_team_id == team_id_param,
-                    AcademyPlayer.loan_team_id == team_id_param
+                    TrackedPlayer.team_id == team_id_param,
+                    TrackedPlayer.current_club_db_id == team_id_param
                 )
             )
-        
+
         # Apply search filter
         if search_query:
-            loan_query = loan_query.filter(AcademyPlayer.player_name.ilike(f'%{search_query}%'))
-        
-        # Get all loans
-        all_loans = loan_query.all()
-        
-        # Group by player_id
+            tp_query = tp_query.filter(TrackedPlayer.player_name.ilike(f'%{search_query}%'))
+
+        # Get all tracked players
+        all_tracked = tp_query.all()
+
+        # Group by player_api_id
         player_map = {}
-        for loan in all_loans:
-            if loan.player_id not in player_map:
-                # Extract season from window_key (e.g., "2024-25::summer" -> "2024-25")
-                loan_season = None
-                if loan.window_key:
-                    loan_season = loan.window_key.split('::')[0] if '::' in loan.window_key else loan.window_key
-                
-                player_map[loan.player_id] = {
-                    'player_id': loan.player_id,
-                    'player_name': loan.player_name,
-                    'primary_team_name': loan.primary_team_name,
-                    'loan_team_name': loan.loan_team_name,
-                    'primary_team_id': loan.primary_team_id,
-                    'loan_team_id': loan.loan_team_id,
-                    'is_active': loan.is_active,
+        for tp in all_tracked:
+            if tp.player_api_id not in player_map:
+                parent_team = Team.query.get(tp.team_id) if tp.team_id else None
+                player_map[tp.player_api_id] = {
+                    'player_id': tp.player_api_id,
+                    'player_name': tp.player_name,
+                    'primary_team_name': parent_team.name if parent_team else None,
+                    'loan_team_name': tp.current_club_name,
+                    'primary_team_id': tp.team_id,
+                    'loan_team_id': tp.current_club_db_id,
+                    'is_active': tp.is_active,
                     'loan_count': 0,
-                    'loan_id': loan.id,  # ID of the first/primary loan record for team editing
-                    'window_key': loan.window_key,  # Full window key (e.g., "2024-25::summer")
-                    'loan_season': loan_season  # Human-readable season (e.g., "2024-25")
+                    'loan_id': tp.id,
+                    'window_key': None,
+                    'loan_season': None
                 }
-            player_map[loan.player_id]['loan_count'] += 1
+            player_map[tp.player_api_id]['loan_count'] += 1
         
         # Get Player records with sofascore IDs
         player_ids = list(player_map.keys())
@@ -8171,15 +8059,12 @@ def admin_get_player(player_id):
         # Get Player record
         player_record = Player.query.filter_by(player_id=player_id).first()
         
-        # Get all loans for this player
-        loans = AcademyPlayer.query.filter_by(player_id=player_id).order_by(AcademyPlayer.created_at.desc()).all()
-        
-        # Get supplemental loans if any
-        supplemental = SupplementalLoan.query.filter_by(api_player_id=player_id).order_by(SupplementalLoan.created_at.desc()).all()
-        
+        # Get all tracked player records for this player
+        tracked_records = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(TrackedPlayer.created_at.desc()).all()
+
         player_data = {
             'player_id': player_id,
-            'name': player_record.name if player_record else (loans[0].player_name if loans else f"Player {player_id}"),
+            'name': player_record.name if player_record else (tracked_records[0].player_name if tracked_records else f"Player {player_id}"),
             'sofascore_id': player_record.sofascore_id if player_record else None,
             'photo_url': player_record.photo_url if player_record else None,
             'position': player_record.position if player_record else None,
@@ -8189,9 +8074,9 @@ def admin_get_player(player_id):
             'weight': player_record.weight if player_record else None,
             'firstname': player_record.firstname if player_record else None,
             'lastname': player_record.lastname if player_record else None,
-            'loans': [l.to_dict() for l in loans],
-            'supplemental_loans': [s.to_dict() for s in supplemental],
-            'total_loans': len(loans) + len(supplemental),
+            'loans': [tp.to_dict() for tp in tracked_records],
+            'supplemental_loans': [],
+            'total_loans': len(tracked_records),
             'created_at': player_record.created_at.isoformat() if player_record and player_record.created_at else None,
             'updated_at': player_record.updated_at.isoformat() if player_record and player_record.updated_at else None,
         }
@@ -8268,7 +8153,7 @@ def admin_update_player(player_id):
         
         player_record.updated_at = datetime.now(timezone.utc)
         if propagated_name:
-            updated_rows = AcademyPlayer.query.filter_by(player_id=player_id).update(
+            updated_rows = TrackedPlayer.query.filter_by(player_api_id=player_id).update(
                 {
                     'player_name': propagated_name,
                     'updated_at': datetime.now(timezone.utc),
@@ -8276,7 +8161,7 @@ def admin_update_player(player_id):
                 synchronize_session=False,
             )
             if updated_rows:
-                logger.info('Propagated name update to %d loan rows for player_id=%s', updated_rows, player_id)
+                logger.info('Propagated name update to %d TrackedPlayer rows for player_api_id=%s', updated_rows, player_id)
 
         db.session.commit()
         
@@ -8394,7 +8279,7 @@ def admin_create_player():
     """
     Create a new manual player with loan association.
     
-    This creates both a Player record and a AcademyPlayer record to properly
+    This creates both a Player record and a TrackedPlayer record to properly
     track the player's loan status and team associations.
     """
     try:
@@ -8481,42 +8366,30 @@ def admin_create_player():
             player_record.sofascore_id = sofascore_id
         
         db.session.add(player_record)
-        db.session.flush()  # Get player_id before creating loan record
-        
-        # Create AcademyPlayer record to track the loan
-        # Build team_ids string (comma-separated API IDs, if available)
-        team_ids_parts = []
-        if primary_team_api_id:
-            team_ids_parts.append(str(primary_team_api_id))
-        if loan_team_api_id:
-            team_ids_parts.append(str(loan_team_api_id))
-        team_ids_str = ','.join(team_ids_parts) if team_ids_parts else None
-        
-        academy_player = AcademyPlayer(
-            player_id=new_player_id,
+        db.session.flush()  # Get player_id before creating tracked player record
+
+        # Create TrackedPlayer record to track the loan
+        tracked_player = TrackedPlayer(
+            player_api_id=new_player_id,
             player_name=name,
-            age=data.get('age'),
-            nationality=data.get('nationality'),
-            primary_team_id=primary_team_id,  # Will be None for custom teams
-            primary_team_name=primary_team_name,
-            loan_team_id=loan_team_id,  # Will be None for custom teams
-            loan_team_name=loan_team_name,
-            team_ids=team_ids_str,
-            window_key=window_key,
+            team_id=primary_team_id,
+            status='on_loan',
+            current_club_db_id=loan_team_id,
+            current_club_api_id=loan_team_api_id,
+            current_club_name=loan_team_name,
             is_active=True,
             data_source='manual',
-            can_fetch_stats=False,  # Manual players can't auto-fetch stats
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
         )
-        
-        db.session.add(academy_player)
+
+        db.session.add(tracked_player)
         db.session.commit()
 
         return jsonify({
             'message': f'Player "{name}" created successfully with loan from {primary_team_name} to {loan_team_name}',
             'player': player_record.to_dict(),
-            'loan': academy_player.to_dict()
+            'tracked_player': tracked_player.to_dict()
         }), 201
     except Exception as e:
         logger.exception('admin_create_player failed')
@@ -8537,9 +8410,9 @@ def admin_delete_player(player_id):
             player_id = int(player_id)
         except ValueError:
             return jsonify({'error': 'Invalid player ID'}), 400
-        # Check for loaned player records
-        loaned_records = AcademyPlayer.query.filter_by(player_id=player_id).all()
-        loaned_count = len(loaned_records)
+        # Check for tracked player records
+        tracked_records = TrackedPlayer.query.filter_by(player_api_id=player_id).all()
+        tracked_count = len(tracked_records)
         
         # Check for YouTube links
         youtube_links = NewsletterPlayerYoutubeLink.query.filter_by(player_id=player_id).all()
@@ -8549,7 +8422,7 @@ def admin_delete_player(player_id):
         player_record = Player.query.filter_by(player_id=player_id).first()
         
         # If no data exists anywhere, player not found
-        if not player_record and loaned_count == 0 and youtube_count == 0:
+        if not player_record and tracked_count == 0 and youtube_count == 0:
             return jsonify({'error': 'Player not found'}), 404
         
         # Delete all associated data
@@ -8557,9 +8430,9 @@ def admin_delete_player(player_id):
         for link in youtube_links:
             db.session.delete(link)
         
-        # 2. Delete loaned player records
-        for loan in loaned_records:
-            db.session.delete(loan)
+        # 2. Delete tracked player records
+        for tp in tracked_records:
+            db.session.delete(tp)
         
         # 3. Delete player record if it exists
         if player_record:
@@ -8570,7 +8443,7 @@ def admin_delete_player(player_id):
         return jsonify({
             'message': 'Player deleted successfully',
             'deleted': {
-                'loaned_records': loaned_count,
+                'tracked_records': tracked_count,
                 'youtube_links': youtube_count,
                 'player_record': player_record is not None
             }
@@ -8600,178 +8473,6 @@ def admin_runs_history_clear():
     except Exception as e:
         return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
 
-# --- Admin: Supplemental Loans management ---
-@api_bp.route('/admin/supplemental-loans', methods=['GET'])
-@require_api_key
-def admin_list_supplemental_loans():
-    """DEPRECATED: List supplemental loans with optional filters.
-    
-    Use AcademyPlayer with can_fetch_stats=False instead.
-    """
-    try:
-        parent_team_api_id = request.args.get('parent_team_api_id', type=int)
-        parent_team_db_id = request.args.get('parent_team_db_id', type=int)
-        season = request.args.get('season', type=int)
-        player_name = request.args.get('player_name')
-
-        q = SupplementalLoan.query
-
-        # Filter by parent team
-        if parent_team_db_id:
-            q = q.filter(SupplementalLoan.parent_team_id == parent_team_db_id)
-        elif parent_team_api_id and season:
-            row = Team.query.filter_by(team_id=parent_team_api_id, season=season).first()
-            if row:
-                q = q.filter(SupplementalLoan.parent_team_id == row.id)
-
-        # Filter by season
-        if season:
-            q = q.filter(SupplementalLoan.season_year == season)
-
-        # Filter by player name
-        if player_name:
-            q = q.filter(SupplementalLoan.player_name.ilike(f"%{player_name}%"))
-
-        loans = q.order_by(SupplementalLoan.updated_at.desc()).all()
-        return jsonify([l.to_dict() for l in loans])
-    except Exception as e:
-        logger.exception('admin_list_supplemental_loans failed')
-        return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
-
-@api_bp.route('/admin/supplemental-loans', methods=['POST'])
-@require_api_key
-def admin_create_supplemental_loan():
-    """DEPRECATED: Create a new supplemental loan entry.
-    
-    Use POST /admin/players instead to create manual players as AcademyPlayer records.
-    """
-    try:
-        data = request.get_json() or {}
-        
-        player_name = (data.get('player_name') or '').strip()
-        if not player_name:
-            return jsonify({'error': 'player_name is required'}), 400
-
-        parent_team_name = (data.get('parent_team_name') or '').strip()
-        loan_team_name = (data.get('loan_team_name') or '').strip()
-        if not parent_team_name or not loan_team_name:
-            return jsonify({'error': 'parent_team_name and loan_team_name are required'}), 400
-
-        season_year = data.get('season_year', type=int)
-        if not season_year:
-            return jsonify({'error': 'season_year is required'}), 400
-
-        # Optional team IDs for linking
-        parent_team_db_id = data.get('parent_team_db_id', type=int)
-        loan_team_db_id = data.get('loan_team_db_id', type=int)
-        parent_team_api_id = data.get('parent_team_api_id', type=int)
-        loan_team_api_id = data.get('loan_team_api_id', type=int)
-
-        # Resolve parent team
-        parent_team = None
-        if parent_team_db_id:
-            parent_team = Team.query.get(parent_team_db_id)
-        elif parent_team_api_id:
-            parent_team = Team.query.filter_by(team_id=parent_team_api_id, season=season_year).first()
-
-        # Resolve loan team
-        loan_team = None
-        if loan_team_db_id:
-            loan_team = Team.query.get(loan_team_db_id)
-        elif loan_team_api_id:
-            loan_team = Team.query.filter_by(team_id=loan_team_api_id, season=season_year).first()
-
-        # Create supplemental loan
-        supp_loan = SupplementalLoan(
-            player_name=player_name,
-            parent_team_id=parent_team.id if parent_team else None,
-            parent_team_name=parent_team_name,
-            loan_team_id=loan_team.id if loan_team else None,
-            loan_team_name=loan_team_name,
-            season_year=season_year,
-            data_source=data.get('data_source', 'manual'),
-            can_fetch_stats=data.get('can_fetch_stats', False),
-            source_url=data.get('source_url'),
-            wiki_title=data.get('wiki_title'),
-            is_verified=data.get('is_verified', False),
-            youtube_link=data.get('youtube_link'),
-        )
-
-        db.session.add(supp_loan)
-        db.session.commit()
-
-        return jsonify({'message': 'created', 'loan': supp_loan.to_dict()}), 201
-    except Exception as e:
-        logger.exception('admin_create_supplemental_loan failed')
-        db.session.rollback()
-        return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
-
-@api_bp.route('/admin/supplemental-loans/<int:loan_id>', methods=['PUT'])
-@require_api_key
-def admin_update_supplemental_loan(loan_id: int):
-    """DEPRECATED: Update an existing supplemental loan entry.
-    
-    Use PUT /admin/loans/{id} to update AcademyPlayer records instead.
-    """
-    try:
-        loan = SupplementalLoan.query.get_or_404(loan_id)
-        data = request.get_json() or {}
-
-        # Update basic fields
-        if 'player_name' in data:
-            loan.player_name = (data.get('player_name') or '').strip() or loan.player_name
-        if 'parent_team_name' in data:
-            loan.parent_team_name = (data.get('parent_team_name') or '').strip() or loan.parent_team_name
-        if 'loan_team_name' in data:
-            loan.loan_team_name = (data.get('loan_team_name') or '').strip() or loan.loan_team_name
-        if 'season_year' in data:
-            loan.season_year = int(data.get('season_year'))
-        if 'data_source' in data:
-            loan.data_source = data.get('data_source')
-        if 'can_fetch_stats' in data:
-            loan.can_fetch_stats = bool(data.get('can_fetch_stats'))
-        if 'source_url' in data:
-            loan.source_url = data.get('source_url')
-        if 'wiki_title' in data:
-            loan.wiki_title = data.get('wiki_title')
-        if 'is_verified' in data:
-            loan.is_verified = bool(data.get('is_verified'))
-        if 'youtube_link' in data:
-            loan.youtube_link = data.get('youtube_link')
-
-        # Update team relationships if provided
-        if 'parent_team_db_id' in data:
-            team = Team.query.get(data.get('parent_team_db_id'))
-            if team:
-                loan.parent_team_id = team.id
-        if 'loan_team_db_id' in data:
-            team = Team.query.get(data.get('loan_team_db_id'))
-            if team:
-                loan.loan_team_id = team.id
-
-        db.session.commit()
-        return jsonify({'message': 'updated', 'loan': loan.to_dict()})
-    except Exception as e:
-        logger.exception('admin_update_supplemental_loan failed')
-        db.session.rollback()
-        return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
-
-@api_bp.route('/admin/supplemental-loans/<int:loan_id>', methods=['DELETE'])
-@require_api_key
-def admin_delete_supplemental_loan(loan_id: int):
-    """DEPRECATED: Delete a supplemental loan entry.
-    
-    Use DELETE /admin/loans/{id} to delete AcademyPlayer records instead.
-    """
-    try:
-        loan = SupplementalLoan.query.get_or_404(loan_id)
-        db.session.delete(loan)
-        db.session.commit()
-        return jsonify({'message': 'deleted', 'id': loan_id})
-    except Exception as e:
-        logger.exception('admin_delete_supplemental_loan failed')
-        db.session.rollback()
-        return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
 
 
 # --- Admin: Dashboard Stats ---

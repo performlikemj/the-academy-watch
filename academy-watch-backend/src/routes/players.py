@@ -16,7 +16,6 @@ from src.auth import _safe_error_payload
 from src.models.league import (
     db,
     Player,
-    SupplementalLoan,
     Team,
     NewsletterCommentary,
 )
@@ -255,18 +254,6 @@ def get_public_player_profile(player_id: int):
             ).order_by(FixturePlayerStats.id.desc()).first()
             if recent_stats:
                 result['position'] = POS_MAP.get(recent_stats.position, recent_stats.position)
-
-        # If still no name, try supplemental loans
-        if not result['name']:
-            supplemental = SupplementalLoan.query.filter_by(api_player_id=player_id).first()
-            if supplemental:
-                result['name'] = supplemental.player_name
-                result['loan_team_name'] = supplemental.loan_team_name
-                result['parent_team_name'] = supplemental.parent_team_name
-                if supplemental.loan_team:
-                    result['loan_team_logo'] = supplemental.loan_team.logo
-                if supplemental.parent_team:
-                    result['parent_team_logo'] = supplemental.parent_team.logo
 
         # If still no name, try to get from fixture stats
         if not result['name']:

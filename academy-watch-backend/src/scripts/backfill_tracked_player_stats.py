@@ -64,8 +64,15 @@ def backfill_current_club_db_id(dry_run=False):
 
 
 def backfill_player_stats_cache(dry_run=False):
-    """Copy limited-coverage stats from AcademyPlayer into PlayerStatsCache."""
-    from src.models.league import AcademyPlayer, PlayerStatsCache, Team, db
+    """Copy limited-coverage stats into PlayerStatsCache. (AcademyPlayer table dropped)"""
+    from src.models.league import PlayerStatsCache, Team, db
+    log.info("[stats_cache] AcademyPlayer table dropped — skipping backfill")
+    return
+
+
+def _backfill_player_stats_cache_legacy(dry_run=False):
+    """Legacy: was used when AcademyPlayer existed."""
+    from src.models.league import PlayerStatsCache, Team, db
 
     limited = AcademyPlayer.query.filter_by(stats_coverage='limited', is_active=True).all()
     log.info(f"[stats_cache] Found {len(limited)} limited-coverage AcademyPlayer rows")
@@ -130,11 +137,12 @@ def backfill_player_stats_cache(dry_run=False):
 
 
 def check_coverage(dry_run=False):
-    """Report active AcademyPlayer rows that have no corresponding TrackedPlayer."""
-    from src.models.league import AcademyPlayer, db
+    """Report TrackedPlayer coverage."""
+    from src.models.league import db
     from src.models.tracked_player import TrackedPlayer
 
-    active_aps = AcademyPlayer.query.filter_by(is_active=True).all()
+    log.info("[coverage] AcademyPlayer table dropped — checking TrackedPlayer only")
+    active_aps = []  # No more AcademyPlayer rows
     log.info(f"[coverage] Checking {len(active_aps)} active AcademyPlayer rows")
 
     gaps = []

@@ -1,7 +1,8 @@
 export const NEWSLETTER_GENERATE_ENDPOINT = '/newsletters/generate'
 export const NEWSLETTER_GENERATE_ALL_ENDPOINT = '/newsletters/generate-weekly-all'
-export const LOANS_SEED_TEAM_ENDPOINT = '/admin/loans/seed-team'
-export const LOANS_SEED_TOP5_ENDPOINT = '/admin/loans/seed-top5'
+// Legacy loan seed endpoints removed — use /admin/tracked-players/seed-team instead
+export const LOANS_SEED_TEAM_ENDPOINT = '/admin/tracked-players/seed-team'
+export const LOANS_SEED_TOP5_ENDPOINT = '/admin/tracked-players/seed-team'
 
 export function buildGenerateTeamRequest({ teamId, targetDate, forceRefresh }) {
   if (!teamId) throw new Error('teamId is required')

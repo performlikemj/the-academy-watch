@@ -28,24 +28,30 @@ const STATUS_ICONS = {
     sold: BadgeDollarSign,
 }
 
-function StatusIndicator({ status, teamName }) {
+function StatusIndicator({ status, teamName, saleFee }) {
     const IconComponent = STATUS_ICONS[status]
     const colorClass = STATUS_BADGE_CLASSES[status] || 'bg-secondary text-muted-foreground border-border'
     const label = getStatusLabel(status, teamName)
+    const tooltipLabel = saleFee ? `${label} · ${saleFee}` : label
 
     if (!IconComponent) return null
 
     return (
         <Tooltip>
             <TooltipTrigger asChild>
-                <span
-                    className={`inline-flex items-center justify-center h-5 w-5 rounded-full border ${colorClass}`}
-                    aria-label={label}
-                >
-                    <IconComponent className="h-3 w-3" />
+                <span className="inline-flex items-center gap-1">
+                    <span
+                        className={`inline-flex items-center justify-center h-5 w-5 rounded-full border ${colorClass}`}
+                        aria-label={tooltipLabel}
+                    >
+                        <IconComponent className="h-3 w-3" />
+                    </span>
+                    {saleFee && (
+                        <span className="text-[11px] font-medium text-muted-foreground">{saleFee}</span>
+                    )}
                 </span>
             </TooltipTrigger>
-            <TooltipContent side="top">{label}</TooltipContent>
+            <TooltipContent side="top">{tooltipLabel}</TooltipContent>
         </Tooltip>
     )
 }
@@ -403,7 +409,7 @@ export function TeamDetailPage() {
                                                             {name}
                                                         </span>
                                                         {status && (
-                                                            <StatusIndicator status={status} teamName={team?.name} />
+                                                            <StatusIndicator status={status} teamName={team?.name} saleFee={player.sale_fee} />
                                                         )}
                                                     </div>
                                                     {loanTeam && (

@@ -47,9 +47,6 @@ class TrackedPlayer(db.Model):
     # Link to rich career data
     journey_id = db.Column(db.Integer, db.ForeignKey('player_journeys.id'))
 
-    # Link to active AcademyPlayer row (if on loan)
-    loaned_player_id = db.Column(db.Integer, db.ForeignKey('loaned_players.id'), nullable=True)
-
     # When True, refresh-statuses will never change team_id — prevents
     # the classifier from reassigning parent club based on stale API data.
     pinned_parent = db.Column(db.Boolean, default=False, server_default='false')
@@ -70,9 +67,6 @@ class TrackedPlayer(db.Model):
     current_club = db.relationship('Team', foreign_keys=[current_club_db_id], lazy=True)
     journey = db.relationship('PlayerJourney', backref='tracked_player', lazy=True,
                              foreign_keys=[journey_id])
-    loaned_player = db.relationship('AcademyPlayer', backref='tracked_player_link', lazy=True,
-                                    foreign_keys=[loaned_player_id])
-
     def compute_stats(self):
         """Compute stats independently of AcademyPlayer.
 
@@ -168,7 +162,6 @@ class TrackedPlayer(db.Model):
             'data_source': self.data_source,
             'data_depth': self.data_depth,
             'journey_id': self.journey_id,
-            'loaned_player_id': self.loaned_player_id,
             'pinned_parent': self.pinned_parent,
             'notes': self.notes,
             'is_active': self.is_active,
@@ -207,6 +200,7 @@ class TrackedPlayer(db.Model):
             'saves': 0,
             'yellows': 0,
             'reds': 0,
+            'sale_fee': self.sale_fee,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

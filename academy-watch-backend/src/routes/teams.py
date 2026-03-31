@@ -24,7 +24,6 @@ from src.models.league import (
     Team,
     TeamProfile,
     Player,
-    SupplementalLoan,
 )
 from src.models.journey import PlayerJourney, PlayerJourneyEntry, ClubLocation
 from src.models.tracked_player import TrackedPlayer
@@ -387,10 +386,7 @@ def get_team_loans(team_identifier):
                 tp_dict.update(stats_by_player[tp.player_api_id])
             result.append(tp_dict)
 
-        # Include supplemental loans if requested
-        include_supp = request.args.get('include_supplemental', 'false').lower() in ('1', 'true', 'yes', 'on')
-        if include_supp:
-            result.extend(_get_supplemental_loans(team.id, season_val))
+        # Supplemental loans removed (deprecated SupplementalLoan table)
 
         return jsonify(result)
     except NotFound:
@@ -425,135 +421,6 @@ def _get_team_logo(team_api_id: int) -> str | None:
     except Exception:
         return None
 
-
-def _enrich_with_season_context(loan, loan_dict: dict, season_val: int | None):
-    """Enrich loan dict with season context stats."""
-    try:
-        from src.api_football_client import APIFootballClient
-        from src.models.weekly import FixturePlayerStats
-
-        real_client = APIFootballClient()
-
-        # Determine season from window_key or use current season
-        season_year = season_val
-        if not season_year and loan.window_key:
-            try:
-                season_str = loan.window_key.split('-')[0]
-                season_year = int(season_str)
-            except (ValueError, IndexError):
-                now = datetime.now(timezone.utc)
-                season_year = now.year if now.month >= 8 else now.year - 1
-
-        if not season_year:
-            now = datetime.now(timezone.utc)
-            season_year = now.year if now.month >= 8 else now.year - 1
-
-        # Verify player ID
-        player_id_to_use = loan_dict['player_id']
-        verified_id, method = real_client.verify_player_id_via_fixtures(
-            candidate_player_id=loan_dict['player_id'],
-            player_name=loan.player_name,
-            loan_team_id=loan_dict['loan_team_api_id'],
-            season=season_year,
-            max_fixtures=3
-        )
-
-        if verified_id != loan_dict['player_id']:
-            logger.warning(
-                f"Browse Teams ID correction for '{loan.player_name}': "
-                f"{loan_dict['player_id']} -> {verified_id}"
-            )
-            player_id_to_use = verified_id
-            # Update the database record
-            loan.player_id = verified_id
-            loan.reviewer_notes = (loan.reviewer_notes or '') + f' | ID auto-corrected in browse: {loan_dict["player_id"]} -> {verified_id}'
-            loan.updated_at = datetime.now(timezone.utc)
-            db.session.commit()
-            # Delete ghost stats
-            FixturePlayerStats.query.filter(
-                FixturePlayerStats.player_api_id == loan_dict['player_id'],
-                FixturePlayerStats.team_api_id == loan_dict['loan_team_api_id'],
-                FixturePlayerStats.minutes == 0
-            ).delete()
-            db.session.commit()
-            loan_dict['player_id'] = verified_id
-
-        # Get season context with verified ID
-        season_context = real_client.get_player_season_context(
-            player_id=player_id_to_use,
-            loan_team_id=loan_dict['loan_team_api_id'],
-            season=season_year,
-            up_to_date=datetime.now(timezone.utc).date(),
-            db_session=db.session
-        )
-
-        # Use cumulative season stats if available
-        season_stats = season_context.get('season_stats', {})
-        if season_stats:
-            _merge_season_stats(loan_dict, season_stats)
-    except Exception as e:
-        logger.debug(f"Failed to enrich loan {loan.id} with season context: {e}")
-
-
-def _merge_season_stats(loan_dict: dict, season_stats: dict):
-    """Merge season stats into loan dict."""
-    if season_stats.get('games_played', 0) > 0:
-        loan_dict['appearances'] = season_stats.get('games_played', loan_dict.get('appearances', 0))
-    if season_stats.get('goals', 0) > (loan_dict.get('goals') or 0):
-        loan_dict['goals'] = season_stats.get('goals', loan_dict.get('goals', 0))
-    if season_stats.get('assists', 0) > (loan_dict.get('assists') or 0):
-        loan_dict['assists'] = season_stats.get('assists', loan_dict.get('assists', 0))
-    if season_stats.get('minutes', 0) > (loan_dict.get('minutes_played') or 0):
-        loan_dict['minutes_played'] = season_stats.get('minutes', loan_dict.get('minutes_played', 0))
-
-    # Position-specific stats
-    for key in ['tackles_total', 'interceptions', 'duels_won', 'duels_total', 'passes_key', 'saves', 'goals_conceded', 'clean_sheets']:
-        if season_stats.get(key) is not None:
-            mapped_key = {
-                'tackles_total': 'tackles',
-                'passes_key': 'key_passes',
-            }.get(key, key)
-            loan_dict[mapped_key] = season_stats.get(key)
-
-
-def _get_supplemental_loans(team_id: int, season_val: int | None) -> list[dict]:
-    """Get supplemental loans for a team."""
-    result = []
-    supp_query = SupplementalLoan.query.filter_by(parent_team_id=team_id)
-    if season_val:
-        supp_query = supp_query.filter_by(season_year=season_val)
-
-    for s in supp_query.all():
-        try:
-            item = {
-                'player_name': s.player_name,
-                'primary_team_name': s.parent_team_name,
-                'primary_team_api_id': getattr(s.parent_team, 'team_id', None),
-                'loan_team_id': s.loan_team_id,
-                'loan_team_name': s.loan_team_name,
-                'loan_team_api_id': getattr(s.loan_team, 'team_id', None),
-                'window_key': f"{s.season_year}-{str(s.season_year + 1)[-2:]}" if s.season_year else None,
-                'is_active': True,
-                'appearances': None,
-                'goals': None,
-                'assists': None,
-                'minutes_played': None,
-                'yellows': None,
-                'reds': None,
-                'data_source': s.data_source or 'supplemental',
-                'can_fetch_stats': False,
-                'created_at': s.created_at.isoformat() if s.created_at else None,
-                'updated_at': s.updated_at.isoformat() if s.updated_at else None,
-                'season_year': s.season_year,
-                'id': f"supp-{s.id}",
-                'player_id': s.api_player_id,
-                'player_photo': _get_player_photo(s.api_player_id) if s.api_player_id else None,
-                'loan_team_logo': _get_team_logo(getattr(s.loan_team, 'team_id', None)) if s.loan_team else None,
-            }
-            result.append(item)
-        except Exception:
-            continue
-    return result
 
 
 @teams_bp.route('/teams/<team_identifier>/loans/season/<int:season>', methods=['GET'])

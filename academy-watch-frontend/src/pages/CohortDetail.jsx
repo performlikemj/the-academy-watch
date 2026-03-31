@@ -83,11 +83,11 @@ export function CohortDetail() {
         })
     }
 
-    const getStatusBadge = (status) => {
+    const getStatusBadge = (status, saleFee) => {
         const colorClass = STATUS_BADGE_CLASSES[status] || 'bg-purple-50 text-purple-800 border-purple-200'
         return (
             <Badge className={colorClass}>
-                {status?.replace('_', ' ') || 'unknown'}
+                {status?.replace('_', ' ') || 'unknown'}{saleFee ? ` · ${saleFee}` : ''}
             </Badge>
         )
     }
@@ -300,7 +300,7 @@ export function CohortDetail() {
                                                 <td className="p-3 text-muted-foreground">{member.cohort_stats?.appearances ?? '-'}</td>
                                                 <td className="p-3 text-muted-foreground">{member.cohort_stats?.goals ?? '-'}</td>
                                                 <td className="p-3 text-muted-foreground">{member.current?.club_name || '-'}</td>
-                                                <td className="p-3">{getStatusBadge(member.current?.status)}</td>
+                                                <td className="p-3">{getStatusBadge(member.current?.status, member.current?.sale_fee)}</td>
                                             </tr>
                                         ))}
                                     </tbody>

@@ -715,34 +715,7 @@ export class APIService {
     static async adminResolveFlag(flagId, { deactivateLoan = false, note = '' } = {}) {
         return this.request(`/loans/flags/${flagId}/resolve`, { method: 'POST', body: JSON.stringify({ action: deactivateLoan ? 'deactivate_loan' : 'none', note }) }, { admin: true })
     }
-    static async adminLoansList(params = {}) {
-        const q = new URLSearchParams(params)
-        return this.request(`/admin/loans?${q}`, {}, { admin: true })
-    }
-    static async adminLoanCreate(payload) {
-        return this.request('/admin/loans', { method: 'POST', body: JSON.stringify(payload) }, { admin: true })
-    }
-    static async adminLoanUpdate(loanId, payload) {
-        return this.request(`/admin/loans/${loanId}`, { method: 'PUT', body: JSON.stringify(payload) }, { admin: true })
-    }
-    static async adminLoanDeactivate(loanId) {
-        return this.request(`/admin/loans/${loanId}/deactivate`, { method: 'POST' }, { admin: true })
-    }
-    static async adminLoanTransition(loanId, payload) {
-        return this.request(`/admin/loans/${loanId}/transition`, { method: 'POST', body: JSON.stringify(payload) }, { admin: true })
-    }
-    static async adminLoansBulkDeactivate(loanIds, note = null) {
-        return this.request('/admin/loans/bulk-deactivate', { method: 'POST', body: JSON.stringify({ loan_ids: loanIds, note }) }, { admin: true })
-    }
-    static async adminLoansBulkTransition(transitions) {
-        return this.request('/admin/loans/bulk-transition', { method: 'POST', body: JSON.stringify({ transitions }) }, { admin: true })
-    }
-    static async adminLoansPreviewSync(params) {
-        return this.request('/admin/loans/preview-sync', { method: 'POST', body: JSON.stringify(params) }, { admin: true })
-    }
-    static async adminSeedTeam(params) {
-        return this.request('/admin/loans/seed-team', { method: 'POST', body: JSON.stringify(params) }, { admin: true })
-    }
+    // Legacy /admin/loans endpoints removed — use /admin/tracked-players instead
     static async adminFlags(params = {}) {
         const q = new URLSearchParams(params)
         return this.request(`/admin/flags?${q}`, {}, { admin: true })
@@ -757,13 +730,7 @@ export class APIService {
         const body = seasons && seasons.length ? { seasons } : {}
         return this.request(`/admin/backfill-team-leagues`, { method: 'POST', body: JSON.stringify(body) }, { admin: true })
     }
-    static async adminMissingNames(params = {}) {
-        const q = new URLSearchParams(params)
-        return this.request(`/admin/loans/missing-names?${q}`, {}, { admin: true })
-    }
-    static async adminBackfillNames(payload = {}) {
-        return this.request(`/admin/loans/backfill-names`, { method: 'POST', body: JSON.stringify(payload) }, { admin: true })
-    }
+    // adminMissingNames + adminBackfillNames removed — legacy loan endpoints
     static async adminSandboxTasks() {
         return this.request('/admin/sandbox?format=json', { headers: { Accept: 'application/json' } }, { admin: true })
     }
@@ -776,19 +743,7 @@ export class APIService {
             body: JSON.stringify(payload || {}),
         }, { admin: true })
     }
-    static async adminSupplementalLoansList(params = {}) {
-        const q = new URLSearchParams(params)
-        return this.request(`/admin/supplemental-loans?${q}`, {}, { admin: true })
-    }
-    static async adminSupplementalLoanCreate(payload) {
-        return this.request('/admin/supplemental-loans', { method: 'POST', body: JSON.stringify(payload) }, { admin: true })
-    }
-    static async adminSupplementalLoanUpdate(loanId, payload) {
-        return this.request(`/admin/supplemental-loans/${loanId}`, { method: 'PUT', body: JSON.stringify(payload) }, { admin: true })
-    }
-    static async adminSupplementalLoanDelete(loanId) {
-        return this.request(`/admin/supplemental-loans/${loanId}`, { method: 'DELETE' }, { admin: true })
-    }
+    // adminSupplementalLoans* removed — deprecated table
     static async adminNewslettersList(params = {}) {
         const q = new URLSearchParams(params)
         const query = q.toString()
