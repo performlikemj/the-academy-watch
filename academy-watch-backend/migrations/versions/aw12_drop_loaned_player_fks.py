@@ -20,54 +20,64 @@ branch_labels = None
 depends_on = None
 
 
+def _get_fk_constraints(table, column):
+    """Look up actual FK constraint names from pg_catalog."""
+    conn = op.get_bind()
+    result = conn.execute(sa.text("""
+        SELECT con.conname
+        FROM pg_constraint con
+        JOIN pg_class rel ON rel.oid = con.conrelid
+        JOIN pg_attribute att ON att.attrelid = con.conrelid
+            AND att.attnum = ANY(con.conkey)
+        WHERE rel.relname = :table
+            AND att.attname = :column
+            AND con.contype = 'f'
+    """), {'table': table, 'column': column})
+    return [row[0] for row in result]
+
+
+def _get_unique_constraints(table, column):
+    """Look up unique constraint names that include this column."""
+    conn = op.get_bind()
+    result = conn.execute(sa.text("""
+        SELECT con.conname
+        FROM pg_constraint con
+        JOIN pg_class rel ON rel.oid = con.conrelid
+        JOIN pg_attribute att ON att.attrelid = con.conrelid
+            AND att.attnum = ANY(con.conkey)
+        WHERE rel.relname = :table
+            AND att.attname = :column
+            AND con.contype = 'u'
+    """), {'table': table, 'column': column})
+    return [row[0] for row in result]
+
+
+def _drop_column_with_constraints(table, column):
+    """Drop a column and all its FK/unique constraints."""
+    if not column_exists(table, column):
+        return
+
+    # Drop FK constraints
+    for fk_name in _get_fk_constraints(table, column):
+        op.drop_constraint(fk_name, table, type_='foreignkey')
+
+    # Drop unique constraints that include this column
+    for uq_name in _get_unique_constraints(table, column):
+        op.drop_constraint(uq_name, table, type_='unique')
+
+    op.drop_column(table, column)
+
+
 def upgrade():
-    # Drop loaned_player_id from tracked_players
-    if column_exists('tracked_players', 'loaned_player_id'):
-        op.drop_constraint('tracked_players_loaned_player_id_fkey',
-                           'tracked_players', type_='foreignkey')
-        op.drop_column('tracked_players', 'loaned_player_id')
-
-    # Drop loaned_player_id from weekly_loan_appearances
-    if column_exists('weekly_loan_appearances', 'loaned_player_id'):
-        # Drop unique constraint that includes loaned_player_id first
-        try:
-            op.drop_constraint('uq_weekly_appearance', 'weekly_loan_appearances',
-                               type_='unique')
-        except Exception:
-            pass
-        try:
-            op.drop_constraint('weekly_loan_appearances_loaned_player_id_fkey',
-                               'weekly_loan_appearances', type_='foreignkey')
-        except Exception:
-            pass
-        op.drop_column('weekly_loan_appearances', 'loaned_player_id')
-
-    # Drop loaned_player_id from academy_appearances
-    if column_exists('academy_appearances', 'loaned_player_id'):
-        try:
-            op.drop_constraint('academy_appearances_loaned_player_id_fkey',
-                               'academy_appearances', type_='foreignkey')
-        except Exception:
-            pass
-        op.drop_column('academy_appearances', 'loaned_player_id')
+    _drop_column_with_constraints('tracked_players', 'loaned_player_id')
+    _drop_column_with_constraints('weekly_loan_appearances', 'loaned_player_id')
+    _drop_column_with_constraints('academy_appearances', 'loaned_player_id')
 
 
 def downgrade():
-    # Re-add columns (without data)
     op.add_column('academy_appearances',
                   sa.Column('loaned_player_id', sa.Integer(), nullable=True))
-    op.create_foreign_key('academy_appearances_loaned_player_id_fkey',
-                          'academy_appearances', 'loaned_players',
-                          ['loaned_player_id'], ['id'])
-
     op.add_column('weekly_loan_appearances',
                   sa.Column('loaned_player_id', sa.Integer(), nullable=True))
-    op.create_foreign_key('weekly_loan_appearances_loaned_player_id_fkey',
-                          'weekly_loan_appearances', 'loaned_players',
-                          ['loaned_player_id'], ['id'])
-
     op.add_column('tracked_players',
                   sa.Column('loaned_player_id', sa.Integer(), nullable=True))
-    op.create_foreign_key('tracked_players_loaned_player_id_fkey',
-                          'tracked_players', 'loaned_players',
-                          ['loaned_player_id'], ['id'])
