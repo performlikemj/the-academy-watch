@@ -11,7 +11,7 @@ Enables filtering Browse Teams to show only genuine academy products.
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
-from migrations.versions._migration_helpers import column_exists, index_exists
+from migrations._migration_helpers import column_exists, index_exists
 
 
 # revision identifiers, used by Alembic.

@@ -9,7 +9,7 @@ One row per player per parent club — replaces per-window LoanedPlayer duplicat
 """
 from alembic import op
 import sqlalchemy as sa
-from migrations.versions._migration_helpers import table_exists
+from migrations._migration_helpers import table_exists
 
 
 # revision identifiers, used by Alembic.

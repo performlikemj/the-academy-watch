@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy import text
 import json
 from datetime import datetime, timezone
-from migrations.versions._migration_helpers import table_exists
+from migrations._migration_helpers import table_exists
 
 
 # revision identifiers, used by Alembic.

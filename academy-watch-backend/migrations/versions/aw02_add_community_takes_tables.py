@@ -11,7 +11,7 @@ content aggregation:
 """
 from alembic import op
 import sqlalchemy as sa
-from migrations.versions._migration_helpers import table_exists, create_index_safe
+from migrations._migration_helpers import table_exists, create_index_safe
 
 
 # revision identifiers, used by Alembic.

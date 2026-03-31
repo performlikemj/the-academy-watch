@@ -7,7 +7,7 @@ Create Date: 2026-03-22 00:38:36.627664
 """
 from alembic import op
 import sqlalchemy as sa
-from migrations.versions._migration_helpers import add_column_safe
+from migrations._migration_helpers import add_column_safe
 
 # revision identifiers, used by Alembic.
 revision = 'eab3f61ae7ca'

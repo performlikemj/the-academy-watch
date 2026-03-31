@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy import text
 import re
 import unicodedata
-from migrations.versions._migration_helpers import column_exists, index_exists
+from migrations._migration_helpers import column_exists, index_exists
 
 
 # revision identifiers, used by Alembic.

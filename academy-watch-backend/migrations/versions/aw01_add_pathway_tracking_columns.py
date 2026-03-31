@@ -12,7 +12,7 @@ academy players in addition to loan tracking:
 """
 from alembic import op
 import sqlalchemy as sa
-from migrations.versions._migration_helpers import add_column_safe
+from migrations._migration_helpers import add_column_safe
 
 
 # revision identifiers, used by Alembic.

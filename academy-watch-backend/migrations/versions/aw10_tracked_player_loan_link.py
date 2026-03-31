@@ -10,7 +10,7 @@ from PlayerJourney.academy_club_ids for teams that haven't been seeded yet.
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import text
-from migrations.versions._migration_helpers import column_exists
+from migrations._migration_helpers import column_exists
 
 
 # revision identifiers, used by Alembic.

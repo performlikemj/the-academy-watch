@@ -6,7 +6,7 @@ Create Date: 2026-03-17
 
 """
 from alembic import op
-from migrations.versions._migration_helpers import column_exists
+from migrations._migration_helpers import column_exists
 
 
 # revision identifiers, used by Alembic.
