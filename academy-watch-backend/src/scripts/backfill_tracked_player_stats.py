@@ -8,8 +8,8 @@ Three tasks:
 
 Usage:
     cd academy-watch-backend
-    ../.loan/bin/python scripts/backfill_tracked_player_stats.py
-    ../.loan/bin/python scripts/backfill_tracked_player_stats.py --dry-run
+    python src/scripts/backfill_tracked_player_stats.py
+    python src/scripts/backfill_tracked_player_stats.py --dry-run
 """
 
 import argparse
@@ -17,7 +17,8 @@ import logging
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+# Add project root to path (two levels up from src/scripts/)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 log = logging.getLogger(__name__)
