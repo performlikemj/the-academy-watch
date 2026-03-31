@@ -154,6 +154,10 @@ class JourneySyncService:
                 if heartbeat_fn and (season_idx + 1) % 3 == 0:
                     heartbeat_fn()
 
+            # Correct club IDs for players who transferred — API-Football
+            # retroactively returns the current team for historical seasons
+            self._correct_club_ids_from_transfers(all_entries, transfers)
+
             # Deduplicate entries with identical stat fingerprints
             all_entries = self._deduplicate_entries(all_entries)
 
@@ -572,6 +576,73 @@ class JourneySyncService:
                     f"Set transfer_date={best_date} for {entry.club_name} "
                     f"season {entry.season} (from permanent transfer)"
                 )
+
+    def _correct_club_ids_from_transfers(self, entries: list, transfers: list):
+        """Correct club_api_id for entries where API-Football returned the
+        player's current team instead of the historical team.
+
+        After a permanent transfer, API-Football may retroactively return the
+        new club's ID for historical seasons.  We use the transfer history to
+        detect this and override club_api_id with the correct team.
+        """
+        if not transfers:
+            return
+
+        # Build a list of permanent transfers: (date, team_out, team_in)
+        permanent_moves = []
+        for t in transfers:
+            transfer_date = t.get('date')
+            if not transfer_date:
+                continue
+            teams = t.get('teams', {})
+            team_in = teams.get('in', {})
+            team_out = teams.get('out', {})
+            if not team_in.get('id') or not team_out.get('id'):
+                continue
+            # Skip loans — they're handled by _apply_loan_classification
+            t_type = (t.get('type') or '').lower()
+            if t_type in ('loan', 'n/a') or t_type in {lt.lower() for lt in LOAN_RETURN_TYPES}:
+                continue
+            permanent_moves.append({
+                'date': transfer_date,
+                'in_id': team_in['id'],
+                'in_name': team_in.get('name', ''),
+                'in_logo': team_in.get('logo', ''),
+                'out_id': team_out['id'],
+                'out_name': team_out.get('name', ''),
+                'out_logo': team_out.get('logo', ''),
+            })
+
+        if not permanent_moves:
+            return
+
+        corrected = 0
+        for entry in entries:
+            if entry.is_international:
+                continue
+
+            # Season runs Aug to Jun: entry.season=2024 → Aug 2024 to Jun 2025
+            season_end = f"{entry.season + 1}-06-30"
+
+            for move in permanent_moves:
+                # If this entry's club matches the transfer destination,
+                # and the transfer happened AFTER the season ended,
+                # then the entry was actually at the source club
+                if (move['in_id'] == entry.club_api_id and
+                        move['date'] > season_end):
+                    logger.info(
+                        f"Correcting entry: {entry.club_name} (season {entry.season}) "
+                        f"→ {move['out_name']} (transfer to {move['in_name']} "
+                        f"on {move['date']} is after season end {season_end})"
+                    )
+                    entry.club_api_id = move['out_id']
+                    entry.club_name = move['out_name']
+                    entry.club_logo = move['out_logo']
+                    corrected += 1
+                    break
+
+        if corrected:
+            logger.info(f"Corrected {corrected} entries with wrong club from post-transfer API data")
 
     def _apply_development_classification(self, entries: list, transfers=None,
                                           birth_date=None):
