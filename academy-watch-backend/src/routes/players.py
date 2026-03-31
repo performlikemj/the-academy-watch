@@ -75,13 +75,22 @@ def get_public_player_stats(player_id: int):
                 player_api_id=player_id,
             ).order_by(TrackedPlayer.updated_at.desc()).limit(1).all()
 
-        # Build a map of team_api_id -> team info from current clubs
+        # Build a map of team_api_id -> team info
+        # For on_loan: use current_club (loan destination)
+        # For first_team/academy: use parent club (team)
         loan_teams_info = {}
         for tp in tracked:
-            if tp.current_club_api_id:
+            if tp.status == 'on_loan' and tp.current_club_api_id:
                 loan_teams_info[tp.current_club_api_id] = {
                     'name': tp.current_club_name or (tp.current_club.name if tp.current_club else 'Unknown'),
                     'logo': tp.current_club.logo if tp.current_club else None,
+                    'window_type': 'Summer',
+                    'is_active': tp.is_active,
+                }
+            elif tp.team:
+                loan_teams_info[tp.team.team_id] = {
+                    'name': tp.team.name,
+                    'logo': tp.team.logo,
                     'window_type': 'Summer',
                     'is_active': tp.is_active,
                 }
@@ -379,19 +388,34 @@ def get_public_player_season_stats(player_id: int):
         if not all_tracked:
             return jsonify(result)
 
-        # Build list of loan teams with their API IDs from TrackedPlayer
+        # Build list of clubs with their API IDs from TrackedPlayer
+        # For on_loan: use current_club (loan destination)
+        # For first_team/academy: use parent club (team)
         loan_teams_info = []
         loan_team_api_ids = []
         for tp in all_tracked:
-            if tp and tp.current_club_api_id and tp.current_club_api_id not in loan_team_api_ids:
+            if not tp:
+                continue
+            if tp.status == 'on_loan' and tp.current_club_api_id:
+                club_api_id = tp.current_club_api_id
+                club_name = tp.current_club_name or (tp.current_club.name if tp.current_club else 'Unknown')
+                club_logo = tp.current_club.logo if tp.current_club else None
+            elif tp.team:
+                club_api_id = tp.team.team_id
+                club_name = tp.team.name
+                club_logo = tp.team.logo
+            else:
+                continue
+
+            if club_api_id not in loan_team_api_ids:
                 loan_teams_info.append({
-                    'api_id': tp.current_club_api_id,
-                    'name': tp.current_club_name or (tp.current_club.name if tp.current_club else 'Unknown'),
-                    'logo': tp.current_club.logo if tp.current_club else None,
+                    'api_id': club_api_id,
+                    'name': club_name,
+                    'logo': club_logo,
                     'window_type': 'Summer',
                     'is_active': tp.is_active,
                 })
-                loan_team_api_ids.append(tp.current_club_api_id)
+                loan_team_api_ids.append(club_api_id)
 
         result['loan_team'] = loan_teams_info[0]['name'] if loan_teams_info else None
         result['has_multiple_clubs'] = len(loan_teams_info) > 1
