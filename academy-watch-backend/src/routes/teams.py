@@ -23,10 +23,8 @@ from src.models.league import (
     League,
     Team,
     TeamProfile,
-    AcademyPlayer,
     Player,
     SupplementalLoan,
-    _dedupe_players,
 )
 from src.models.journey import PlayerJourney, PlayerJourneyEntry, ClubLocation
 from src.models.tracked_player import TrackedPlayer
@@ -329,165 +327,65 @@ def get_team_loans(team_identifier):
         pathway_status = request.args.get('pathway_status', '').strip().lower()
         academy_only = request.args.get('academy_only', 'false').lower() in ('1', 'true', 'yes', 'on', 'y')
 
-        # Filter by direction: loaned_from = parent club, loaned_to = loan destination
+        # Query TrackedPlayer by direction
         if direction == 'loaned_to':
-            query = AcademyPlayer.query.filter_by(loan_team_id=team.id)
+            tp_query = TrackedPlayer.query.filter_by(current_club_db_id=team.id)
         else:
-            query = AcademyPlayer.query.filter_by(primary_team_id=team.id)
+            tp_query = TrackedPlayer.query.filter_by(team_id=team.id)
 
         if active_only:
-            query = query.filter(AcademyPlayer.is_active.is_(True))
+            tp_query = tp_query.filter(TrackedPlayer.is_active.is_(True))
 
         if pathway_status:
-            query = query.filter(AcademyPlayer.pathway_status == pathway_status)
+            tp_query = tp_query.filter(TrackedPlayer.status == pathway_status)
 
-        # Filter to academy products using JSONB @> containment.
-        # Uses outerjoin so players without journey data are kept (not
-        # silently hidden); only players with a journey that *excludes*
-        # this team are filtered out.
+        # Filter to academy products using JSONB @> containment
         if academy_only:
-            from src.models.journey import PlayerJourney
-            from sqlalchemy import cast, or_
-            from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB
-
-            query = query.outerjoin(
+            from sqlalchemy import or_
+            tp_query = tp_query.outerjoin(
                 PlayerJourney,
-                AcademyPlayer.player_id == PlayerJourney.player_api_id
+                TrackedPlayer.player_api_id == PlayerJourney.player_api_id
             ).filter(
                 or_(
-                    PlayerJourney.id.is_(None),  # no journey yet — keep
+                    PlayerJourney.id.is_(None),
                     PlayerJourney.academy_club_ids.contains(
                         cast([team.team_id], PG_JSONB)
                     ),
                 )
             )
 
-        if season_val:
-            slug = f"{season_val}-{str(season_val + 1)[-2:]}"
-            query = query.filter(AcademyPlayer.window_key.like(f"{slug}%"))
+        tracked = tp_query.order_by(TrackedPlayer.updated_at.desc()).all()
 
-        aggregate_stats = request.args.get('aggregate_stats', 'false').lower() in ('1', 'true', 'yes', 'on', 'y')
+        # Batch-fetch stats for all TrackedPlayers
+        from src.models.weekly import FixturePlayerStats
+        from sqlalchemy import func as sa_func
 
-        all_loans = query.order_by(AcademyPlayer.updated_at.desc()).all()
-        if dedupe:
-            loans = _dedupe_players(all_loans)
-        else:
-            loans = all_loans
-
-        # Pre-compute aggregated stats for players with multiple loan spells.
-        # Look up ALL same-team loans (including inactive) so full-season stats
-        # are captured even when active_only filters the display list.
-        aggregated_by_player = {}
-        if dedupe and aggregate_stats:
-            player_ids = set(l.player_id for l in all_loans)
-            all_spells_query = AcademyPlayer.query.filter(
-                AcademyPlayer.primary_team_id == team.id,
-                AcademyPlayer.player_id.in_(player_ids),
-            )
-            if season_val:
-                slug = f"{season_val}-{str(season_val + 1)[-2:]}"
-                all_spells_query = all_spells_query.filter(
-                    AcademyPlayer.window_key.like(f"{slug}%")
-                )
-            all_spells = all_spells_query.all()
-            loans_by_player = {}
-            for loan in all_spells:
-                loans_by_player.setdefault(loan.player_id, []).append(loan)
-            _STAT_KEYS = ('appearances', 'goals', 'assists', 'minutes_played', 'saves', 'yellows', 'reds')
-            for pid, spells in loans_by_player.items():
-                totals = {k: 0 for k in _STAT_KEYS}
-                for spell in spells:
-                    computed = spell._compute_stats()
-                    for k in _STAT_KEYS:
-                        totals[k] += computed.get(k, 0)
-                aggregated_by_player[pid] = totals
+        tp_api_ids = [tp.player_api_id for tp in tracked]
+        stats_by_player = {}
+        if tp_api_ids:
+            stats_rows = db.session.query(
+                FixturePlayerStats.player_api_id,
+                sa_func.count().label('appearances'),
+                sa_func.coalesce(sa_func.sum(FixturePlayerStats.goals), 0).label('goals'),
+                sa_func.coalesce(sa_func.sum(FixturePlayerStats.assists), 0).label('assists'),
+                sa_func.coalesce(sa_func.sum(FixturePlayerStats.minutes), 0).label('minutes_played'),
+            ).filter(
+                FixturePlayerStats.player_api_id.in_(tp_api_ids)
+            ).group_by(FixturePlayerStats.player_api_id).all()
+            for row in stats_rows:
+                stats_by_player[row.player_api_id] = {
+                    'appearances': row.appearances,
+                    'goals': int(row.goals),
+                    'assists': int(row.assists),
+                    'minutes_played': int(row.minutes_played),
+                }
 
         result = []
-        for loan in loans:
-            loan_dict = loan.to_dict()
-
-            # Add player photo and position from Player table
-            if loan_dict.get('player_id'):
-                loan_dict['player_photo'] = _get_player_photo(loan_dict['player_id'])
-                loan_dict['position'] = _get_player_position(loan_dict['player_id'])
-            else:
-                loan_dict['player_photo'] = None
-                loan_dict['position'] = None
-
-            # Add loan team logo if loan_team_api_id is available
-            if loan_dict.get('loan_team_api_id'):
-                loan_dict['loan_team_logo'] = _get_team_logo(loan_dict['loan_team_api_id'])
-            else:
-                loan_dict['loan_team_logo'] = None
-
-            # Override stats with aggregated totals for multi-spell players
-            pid = loan_dict.get('player_id')
-            if pid and pid in aggregated_by_player:
-                loan_dict.update(aggregated_by_player[pid])
-
-            # Optionally enrich with season context stats
-            include_season_context = request.args.get('include_season_context', 'false').lower() in ('1', 'true', 'yes', 'on', 'y')
-            if include_season_context and loan_dict.get('player_id') and loan_dict.get('loan_team_api_id'):
-                _enrich_with_season_context(loan, loan_dict, season_val)
-
-            result.append(loan_dict)
-
-        # Merge TrackedPlayer records for players not already in AcademyPlayer results
-        # This ensures sold/released/first_team/academy players show up even without
-        # an AcademyPlayer loan spell record
-        if direction == 'loaned_from':
-            from src.models.tracked_player import TrackedPlayer
-            from src.models.weekly import FixturePlayerStats
-            from sqlalchemy import func as sa_func
-
-            existing_player_ids = {loan_dict.get('player_id') for loan_dict in result}
-            tp_query = TrackedPlayer.query.filter_by(team_id=team.id, is_active=True)
-            if pathway_status:
-                tp_query = tp_query.filter(TrackedPlayer.status == pathway_status)
-            tracked = tp_query.all()
-
-            # Batch-fetch stats for all TrackedPlayer IDs not already in results
-            tp_api_ids = [tp.player_api_id for tp in tracked if tp.player_api_id not in existing_player_ids]
-            stats_by_player = {}
-            if tp_api_ids:
-                stats_rows = db.session.query(
-                    FixturePlayerStats.player_api_id,
-                    sa_func.count().label('appearances'),
-                    sa_func.coalesce(sa_func.sum(FixturePlayerStats.goals), 0).label('goals'),
-                    sa_func.coalesce(sa_func.sum(FixturePlayerStats.assists), 0).label('assists'),
-                    sa_func.coalesce(sa_func.sum(FixturePlayerStats.minutes), 0).label('minutes_played'),
-                ).filter(
-                    FixturePlayerStats.player_api_id.in_(tp_api_ids)
-                ).group_by(FixturePlayerStats.player_api_id).all()
-                for row in stats_rows:
-                    stats_by_player[row.player_api_id] = {
-                        'appearances': row.appearances,
-                        'goals': int(row.goals),
-                        'assists': int(row.assists),
-                        'minutes_played': int(row.minutes_played),
-                    }
-
-            from src.utils.academy_classifier import is_academy_product
-
-            filtered_out = []
-            for tp in tracked:
-                if tp.player_api_id in existing_player_ids:
-                    continue
-                # Only show academy products on the Teams page
-                is_acad = is_academy_product(tp.player_api_id, team.team_id,
-                                             data_source=tp.data_source)
-                if not is_acad:
-                    filtered_out.append(f"{tp.player_name}({tp.player_api_id})")
-                    continue
-                tp_dict = tp.to_public_dict()
-                # Enrich with actual stats from FixturePlayerStats
-                if tp.player_api_id in stats_by_player:
-                    tp_dict.update(stats_by_player[tp.player_api_id])
-                result.append(tp_dict)
-
-            if filtered_out:
-                logger.info('Teams page: filtered out %d non-academy players: %s',
-                           len(filtered_out), ', '.join(filtered_out[:10]))
+        for tp in tracked:
+            tp_dict = tp.to_public_dict()
+            if tp.player_api_id in stats_by_player:
+                tp_dict.update(stats_by_player[tp.player_api_id])
+            result.append(tp_dict)
 
         # Include supplemental loans if requested
         include_supp = request.args.get('include_supplemental', 'false').lower() in ('1', 'true', 'yes', 'on')
@@ -528,7 +426,7 @@ def _get_team_logo(team_api_id: int) -> str | None:
         return None
 
 
-def _enrich_with_season_context(loan: AcademyPlayer, loan_dict: dict, season_val: int | None):
+def _enrich_with_season_context(loan, loan_dict: dict, season_val: int | None):
     """Enrich loan dict with season context stats."""
     try:
         from src.api_football_client import APIFootballClient
@@ -667,15 +565,14 @@ def get_team_loans_by_season(team_identifier: str, season: int):
         active_only = request.args.get('active_only', 'false').lower() in ('true', '1', 'yes', 'y')
 
         q = (
-            AcademyPlayer.query
-            .filter(AcademyPlayer.primary_team_id == team.id)
-            .filter(AcademyPlayer.window_key.like(f"{slug}%"))
+            TrackedPlayer.query
+            .filter(TrackedPlayer.team_id == team.id)
         )
         if active_only:
-            q = q.filter(AcademyPlayer.is_active.is_(True))
+            q = q.filter(TrackedPlayer.is_active.is_(True))
 
-        loans = q.order_by(AcademyPlayer.updated_at.desc()).all()
-        return jsonify([loan.to_dict() for loan in loans])
+        players = q.order_by(TrackedPlayer.updated_at.desc()).all()
+        return jsonify([tp.to_public_dict() for tp in players])
     except NotFound:
         raise
     except Exception as e:

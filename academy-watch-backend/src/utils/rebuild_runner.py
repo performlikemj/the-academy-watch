@@ -83,7 +83,7 @@ def _run_full_rebuild(job_id, config):
       6. Refresh statuses
       7. Seed club locations
     """
-    from src.models.league import db, Team, AcademyPlayer, AcademyLeague, AcademyAppearance
+    from src.models.league import db, Team, AcademyLeague, AcademyAppearance
     from src.models.tracked_player import TrackedPlayer
     from src.models.journey import PlayerJourney, PlayerJourneyEntry, ClubLocation
     from src.models.cohort import AcademyCohort, CohortMember
@@ -146,7 +146,7 @@ def _run_full_rebuild(job_id, config):
                 ('cohorts', AcademyCohort),
                 ('weekly_loan_appearances', WeeklyLoanAppearance),
                 ('academy_appearances', AcademyAppearance),
-                ('loaned_players', AcademyPlayer),
+                ('tracked_players', TrackedPlayer),
                 ('club_locations', ClubLocation),
             ]:
                 count = model.query.count()

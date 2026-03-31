@@ -2,8 +2,9 @@ from flask import Blueprint, request, jsonify, g, current_app
 from src.models.league import (
     db, UserAccount, JournalistSubscription, NewsletterCommentary, Newsletter,
     JournalistTeamAssignment, JournalistLoanTeamAssignment, WriterCoverageRequest,
-    Team, AcademyPlayer, Player, ManualPlayerSubmission, ContributorProfile
+    Team, Player, ManualPlayerSubmission, ContributorProfile
 )
+from src.models.tracked_player import TrackedPlayer
 from src.routes.api import require_user_auth, _safe_error_payload, require_api_key, _ensure_user_account, issue_user_token
 from src.utils.team_utils import normalize_team_name, get_all_team_name_variations
 from datetime import datetime, timezone, timedelta
@@ -101,8 +102,8 @@ def can_writer_cover_player(user_id: int, player_id: int, team_id: int = None) -
         if assignment:
             return True
 
-    loan = AcademyPlayer.query.filter_by(player_id=player_id).order_by(
-        AcademyPlayer.updated_at.desc()
+    loan = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(
+        TrackedPlayer.updated_at.desc()
     ).first()
 
     if not loan:
@@ -182,24 +183,24 @@ def get_writer_available_players(user_id: int) -> list:
     
     # Players from assigned parent clubs
     if parent_team_ids:
-        conditions.append(AcademyPlayer.primary_team_id.in_(parent_team_ids))
+        conditions.append(TrackedPlayer.team_id.in_(parent_team_ids))
     
     # Players loaned to assigned loan teams (by ID)
     if loan_team_ids:
-        conditions.append(AcademyPlayer.loan_team_id.in_(loan_team_ids))
+        conditions.append(TrackedPlayer.current_club_db_id.in_(loan_team_ids))
     
     # Players loaned to assigned loan teams (by name, for custom teams)
     if loan_team_names:
-        conditions.append(AcademyPlayer.loan_team_name.in_(loan_team_names))
+        conditions.append(TrackedPlayer.current_club_name.in_(loan_team_names))
     
     if not conditions:
         return []
 
-    players = AcademyPlayer.query.filter(
-        AcademyPlayer.is_active == True,
+    players = TrackedPlayer.query.filter(
+        TrackedPlayer.is_active == True,
         or_(*conditions)
     ).order_by(
-        AcademyPlayer.player_name.asc()
+        TrackedPlayer.player_name.asc()
     ).all()
 
     # Also include TrackedPlayer records for assigned parent clubs
@@ -1037,7 +1038,7 @@ def get_chart_data():
         
         # Get player info
         player_info = None
-        lp = AcademyPlayer.query.filter_by(player_id=player_id).order_by(AcademyPlayer.updated_at.desc()).first()
+        lp = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(TrackedPlayer.updated_at.desc()).first()
         if lp:
             player_info = {
                 'player_id': lp.player_id,
@@ -1179,7 +1180,7 @@ def get_commentary_public(commentary_id: int):
         
         if commentary.player_id:
             # First look in AcademyPlayer for current season
-            lp = AcademyPlayer.query.filter_by(player_id=commentary.player_id).order_by(AcademyPlayer.updated_at.desc()).first()
+            lp = TrackedPlayer.query.filter_by(player_api_id=commentary.player_id).order_by(TrackedPlayer.updated_at.desc()).first()
             # Also try to get photo from Player table
             p = Player.query.filter_by(player_id=commentary.player_id).first()
             photo_url = p.photo_url if p else None
@@ -1287,18 +1288,18 @@ def get_loan_destinations():
         # Group by loan team name and ID
         # We use loan_team_name as the primary grouping since ID might be null for some
         results = db.session.query(
-            AcademyPlayer.loan_team_name,
-            AcademyPlayer.loan_team_id,
-            func.count(AcademyPlayer.id).label('player_count')
+            TrackedPlayer.current_club_name,
+            TrackedPlayer.current_club_db_id,
+            func.count(TrackedPlayer.id).label('player_count')
         ).filter(
-            AcademyPlayer.is_active.is_(True),
-            AcademyPlayer.loan_team_name.isnot(None),
-            AcademyPlayer.loan_team_name != ''
+            TrackedPlayer.is_active.is_(True),
+            TrackedPlayer.current_club_name.isnot(None),
+            TrackedPlayer.current_club_name != ''
         ).group_by(
-            AcademyPlayer.loan_team_name,
-            AcademyPlayer.loan_team_id
+            TrackedPlayer.current_club_name,
+            TrackedPlayer.current_club_db_id
         ).order_by(
-            func.count(AcademyPlayer.id).desc()
+            func.count(TrackedPlayer.id).desc()
         ).all()
 
         destinations = []
@@ -1746,7 +1747,7 @@ def _fetch_chart_data_for_rendering(player_id: int, chart_type: str, stat_keys: 
         
         # Get player info
         player_info = None
-        lp = AcademyPlayer.query.filter_by(player_id=player_id).order_by(AcademyPlayer.updated_at.desc()).first()
+        lp = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(TrackedPlayer.updated_at.desc()).first()
         if lp:
             player_info = {
                 'player_id': lp.player_id,
@@ -2349,7 +2350,7 @@ def get_player_stats(player_id):
 
         # Import models here to avoid circular imports if any
         from src.models.weekly import FixturePlayerStats, Fixture
-        from src.models.league import Team, AcademyPlayer
+        from src.models.league import Team
         from src.api_football_client import APIFootballClient
         from src.routes.api import resolve_team_name_and_logo, _sync_player_club_fixtures
         from datetime import datetime, timezone
@@ -2361,9 +2362,9 @@ def get_player_stats(player_id):
         season = current_year if current_month >= 8 else current_year - 1
         
         # Auto-sync: Check if we're missing fixtures compared to API-Football
-        loaned = AcademyPlayer.query.filter_by(player_id=player_id, is_active=True).first()
+        loaned = TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True).first()
         if not loaned:
-            loaned = AcademyPlayer.query.filter_by(player_id=player_id).order_by(AcademyPlayer.updated_at.desc()).first()
+            loaned = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(TrackedPlayer.updated_at.desc()).first()
         
         if loaned and loaned.loan_team_id:
             loan_team = Team.query.get(loaned.loan_team_id)

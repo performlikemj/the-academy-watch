@@ -2795,7 +2795,8 @@ class APIFootballClient:
         db_session=None,
     ) -> Dict[str, Any]:
         """Generate match-week summaries for all active loanees of one parent club."""
-        from src.models.league import AcademyPlayer, Team, SupplementalLoan
+        from src.models.league import Team, SupplementalLoan
+        from src.models.tracked_player import TrackedPlayer
 
         start_str, end_str = week_start.isoformat(), week_end.isoformat()
         logger.info(
@@ -2807,10 +2808,10 @@ class APIFootballClient:
         # 1️⃣ Fetch active loanees for this parent from DB
         # ------------------------------------------------------------------
         loanee_rows = (
-            db_session.query(AcademyPlayer)
+            db_session.query(TrackedPlayer)
             .filter(
-                AcademyPlayer.primary_team_id == parent_team_db_id,
-                AcademyPlayer.is_active.is_(True),
+                TrackedPlayer.team_id == parent_team_db_id,
+                TrackedPlayer.is_active.is_(True),
             )
             .all()
             if db_session
@@ -2866,56 +2867,51 @@ class APIFootballClient:
             return country_val or None
 
         for lp in loanee_rows:
-            # Handle both database teams and custom teams
             loan_team_row = None
             loan_team_api_id = None
             loan_team_name = None
             loan_team_country = None
-            
-            if lp.loan_team_id:
-                # Team is in database - fetch it
-                loan_team_row = db_session.query(Team).get(lp.loan_team_id)
+
+            if lp.current_club_db_id:
+                loan_team_row = db_session.query(Team).get(lp.current_club_db_id)
                 if not loan_team_row or not loan_team_row.team_id:
-                    logger.debug(f"Skipping {lp.player_name}: loan_team_id={lp.loan_team_id} not found or has no API ID")
+                    logger.debug(f"Skipping {lp.player_name}: current_club_db_id={lp.current_club_db_id} not found")
                     skipped_missing_team += 1
                     continue
                 loan_team_api_id = loan_team_row.team_id
                 loan_team_name = loan_team_row.name
                 loan_team_country = _resolve_team_country(loan_team_row, loan_team_api_id)
+            elif lp.current_club_api_id:
+                loan_team_api_id = lp.current_club_api_id
+                loan_team_name = lp.current_club_name
             else:
-                # Custom team not in database - use the team name directly
-                loan_team_name = lp.loan_team_name
+                loan_team_name = lp.current_club_name
                 if not loan_team_name or not loan_team_name.strip():
-                    logger.debug(f"Skipping {lp.player_name}: no loan_team_id and no loan_team_name")
+                    logger.debug(f"Skipping {lp.player_name}: no current club info")
                     skipped_missing_team += 1
                     continue
-                loan_team_api_id = None  # No API ID for custom teams
-                loan_team_country = None  # Unknown country for custom teams
-                logger.debug(f"Including {lp.player_name} with custom team: {loan_team_name}")
-            
-            # Get sofascore_id if available
+
             sofa_id = None
             try:
-                if lp.player_id and lp.player_id > 0:
-                    # Look up sofascore_id from Player table for tracked players
+                if lp.player_api_id and lp.player_api_id > 0:
                     from src.models.league import Player
-                    player_rec = db_session.query(Player).filter_by(player_id=lp.player_id).first()
+                    player_rec = db_session.query(Player).filter_by(player_id=lp.player_api_id).first()
                     if player_rec and hasattr(player_rec, 'sofascore_id'):
                         sofa_id = player_rec.sofascore_id
             except Exception:
                 pass
-            
+
             loanees.append(
                 dict(
-                    player_api_id=lp.player_id,
+                    player_api_id=lp.player_api_id,
                     player_name=lp.player_name or "",
                     loan_team_api_id=loan_team_api_id,
                     loan_team_name=loan_team_name,
                     loan_team_country=loan_team_country,
-                    can_fetch_stats=lp.can_fetch_stats,
+                    can_fetch_stats=lp.data_depth != 'profile_only',
                     data_source=lp.data_source,
                     sofascore_player_id=sofa_id,
-                    stats_coverage=getattr(lp, 'stats_coverage', 'full'),  # 'full', 'limited', or 'none'
+                    stats_coverage=lp.data_depth or 'full_stats',
                 )
             )
             key = f"{_name_key(lp.player_name)}::{loan_team_api_id or loan_team_name}"
@@ -3102,31 +3098,25 @@ class APIFootballClient:
                             # Update the database record so this is permanent
                             if db_session:
                                 try:
-                                    from src.models.league import AcademyPlayer, Team
+                                    from src.models.tracked_player import TrackedPlayer as _TP
                                     from src.models.weekly import FixturePlayerStats
-                                    loan_team_db = db_session.query(Team).filter_by(
-                                        team_id=info["loan_team_api_id"]
+                                    tp_row = db_session.query(_TP).filter(
+                                        _TP.player_api_id == info["player_api_id"],
+                                        _TP.is_active.is_(True),
                                     ).first()
-                                    if loan_team_db:
-                                        loan = db_session.query(AcademyPlayer).filter(
-                                            AcademyPlayer.player_id == info["player_api_id"],
-                                            AcademyPlayer.loan_team_id == loan_team_db.id,
-                                            AcademyPlayer.is_active.is_(True)
-                                        ).first()
-                                        if loan:
-                                            loan.player_id = verified_id
-                                            loan.reviewer_notes = (loan.reviewer_notes or '') + f' | ID auto-corrected pre-newsletter: {info["player_api_id"]} → {verified_id}'
+                                    if tp_row:
+                                        tp_row.player_api_id = verified_id
+                                        tp_row.notes = (tp_row.notes or '') + f' | ID auto-corrected pre-newsletter: {info["player_api_id"]} → {verified_id}'
+                                        db_session.commit()
+                                        logger.info(f"✅ Updated TrackedPlayer ID in database")
+                                        ghost_deleted = db_session.query(FixturePlayerStats).filter(
+                                            FixturePlayerStats.player_api_id == info["player_api_id"],
+                                            FixturePlayerStats.team_api_id == info["loan_team_api_id"],
+                                            FixturePlayerStats.minutes == 0
+                                        ).delete()
+                                        if ghost_deleted:
                                             db_session.commit()
-                                            logger.info(f"✅ Updated AcademyPlayer ID in database")
-                                            # Delete ghost stats
-                                            ghost_deleted = db_session.query(FixturePlayerStats).filter(
-                                                FixturePlayerStats.player_api_id == info["player_api_id"],
-                                                FixturePlayerStats.team_api_id == info["loan_team_api_id"],
-                                                FixturePlayerStats.minutes == 0
-                                            ).delete()
-                                            if ghost_deleted:
-                                                db_session.commit()
-                                                logger.info(f"🗑️ Deleted {ghost_deleted} ghost stats")
+                                            logger.info(f"🗑️ Deleted {ghost_deleted} ghost stats")
                                 except Exception as db_err:
                                     logger.warning(f"Failed to update DB for ID correction: {db_err}")
                     
@@ -5079,7 +5069,7 @@ class APIFootballClient:
         Returns:
             Dict of loan candidates similar to get_direct_loan_candidates
         """
-        from src.models.league import AcademyPlayer
+        from src.models.tracked_player import TrackedPlayer
 
         if league_ids is None:
             league_ids = list(self.european_leagues.keys())
@@ -5087,11 +5077,11 @@ class APIFootballClient:
         logger.info(f"🔄 Incremental loan detection since {last_check.isoformat()}")
 
         # Get players with recent database updates
-        recent_players = AcademyPlayer.query.filter(
-            AcademyPlayer.updated_at > last_check
+        recent_players = TrackedPlayer.query.filter(
+            TrackedPlayer.updated_at > last_check
         ).all()
-        
-        player_ids = list(set(p.player_id for p in recent_players))
+
+        player_ids = list(set(p.player_api_id for p in recent_players))
         logger.info(f"📊 Found {len(player_ids)} players with recent updates")
         
         if not player_ids:
