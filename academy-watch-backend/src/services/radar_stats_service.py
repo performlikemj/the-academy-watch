@@ -360,14 +360,11 @@ def fetch_league_position_averages(
 
 
 def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
-    """Resolve a player's league from their loan team or tracked team.
-
-    Checks TrackedPlayer first (current source of truth), then falls back
-    to AcademyPlayer for legacy rows.
+    """Resolve a player's league from their tracked team.
 
     Returns (league_api_id, league_name) or None.
     """
-    from src.models.league import AcademyPlayer, Team, League
+    from src.models.league import Team, League
     from src.models.tracked_player import TrackedPlayer
 
     def _league_from_team(team: "Team") -> Optional[Tuple[int, str]]:
@@ -378,7 +375,6 @@ def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
             return None
         return league.league_id, league.name
 
-    # 1. Try TrackedPlayer (current club for on-loan, parent club otherwise)
     tp = (
         TrackedPlayer.query
         .filter_by(player_api_id=player_api_id, is_active=True)
@@ -396,19 +392,6 @@ def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
         result = _league_from_team(team)
         if result:
             return result
-
-    # 2. Fallback to AcademyPlayer (legacy)
-    ap = (
-        AcademyPlayer.query
-        .filter_by(player_id=player_api_id)
-        .order_by(AcademyPlayer.updated_at.desc())
-        .first()
-    )
-    if ap:
-        team_id = ap.loan_team_id or ap.primary_team_id
-        if team_id:
-            team = Team.query.filter_by(id=team_id).first()
-            return _league_from_team(team)
 
     return None
 

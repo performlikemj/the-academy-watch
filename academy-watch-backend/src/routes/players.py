@@ -15,12 +15,12 @@ from flask import Blueprint, jsonify, request
 from src.auth import _safe_error_payload
 from src.models.league import (
     db,
-    AcademyPlayer,
     Player,
     SupplementalLoan,
     Team,
     NewsletterCommentary,
 )
+from src.models.tracked_player import TrackedPlayer
 
 logger = logging.getLogger(__name__)
 
@@ -66,33 +66,26 @@ def get_public_player_stats(player_id: int):
         season = current_year if current_month >= 8 else current_year - 1
         season_prefix = f"{season}-{str(season + 1)[-2:]}"
 
-        # Find ALL loan teams for this player this season
-        all_loans = AcademyPlayer.query.filter(
-            AcademyPlayer.player_id == player_id,
-            AcademyPlayer.window_key.like(f"{season_prefix}%")
-        ).order_by(AcademyPlayer.updated_at.desc()).all()
+        # Find ALL tracked players for this player
+        tracked = TrackedPlayer.query.filter_by(
+            player_api_id=player_id, is_active=True,
+        ).all()
 
-        if not all_loans:
-            all_loans = [AcademyPlayer.query.filter_by(player_id=player_id).order_by(AcademyPlayer.updated_at.desc()).first()]
-            all_loans = [l for l in all_loans if l]
+        if not tracked:
+            tracked = TrackedPlayer.query.filter_by(
+                player_api_id=player_id,
+            ).order_by(TrackedPlayer.updated_at.desc()).limit(1).all()
 
-        # Build a map of team_api_id -> team info
+        # Build a map of team_api_id -> team info from current clubs
         loan_teams_info = {}
-        for loan in all_loans:
-            if loan and loan.loan_team_id:
-                loan_team = Team.query.get(loan.loan_team_id)
-                if loan_team:
-                    window_type = 'Summer'
-                    if loan.window_key and '::' in loan.window_key:
-                        window_part = loan.window_key.split('::')[1]
-                        if window_part.upper() == 'JANUARY':
-                            window_type = 'January'
-                    loan_teams_info[loan_team.team_id] = {
-                        'name': loan_team.name,
-                        'logo': loan_team.logo,
-                        'window_type': window_type,
-                        'is_active': loan.is_active,
-                    }
+        for tp in tracked:
+            if tp.current_club_api_id:
+                loan_teams_info[tp.current_club_api_id] = {
+                    'name': tp.current_club_name or (tp.current_club.name if tp.current_club else 'Unknown'),
+                    'logo': tp.current_club.logo if tp.current_club else None,
+                    'window_type': 'Summer',
+                    'is_active': tp.is_active,
+                }
 
         loan_team_api_ids = list(loan_teams_info.keys())
 
@@ -113,7 +106,7 @@ def get_public_player_stats(player_id: int):
         stats_query = stats_query.order_by(Fixture.date_utc.asc()).all()
 
         # Sync missing games from each loan team
-        player_name_for_sync = all_loans[0].player_name if all_loans else None
+        player_name_for_sync = tracked[0].player_name if tracked else None
 
         for loan_team_api_id in loan_team_api_ids:
             try:
@@ -224,12 +217,34 @@ def get_public_player_profile(player_id: int):
             result['nationality'] = player.nationality
             result['age'] = player.age
 
-        # Enrich position from TrackedPlayer or FixturePlayerStats if missing
-        if not result['position']:
-            from src.models.tracked_player import TrackedPlayer
-            tp = TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True).first()
-            if tp and tp.position:
+        # Enrich from TrackedPlayer (position, status, sale_fee, loan/parent team)
+        tp = TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True).first()
+        if not tp:
+            tp = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(TrackedPlayer.updated_at.desc()).first()
+
+        if tp:
+            if not result['position'] and tp.position:
                 result['position'] = tp.position
+            if not result['name']:
+                result['name'] = tp.player_name
+            result['status'] = tp.status
+            result['sale_fee'] = tp.sale_fee
+
+            # Loan team info
+            result['loan_team_name'] = tp.current_club_name
+            if tp.current_club:
+                result['loan_team_logo'] = tp.current_club.logo
+                result['loan_team_id'] = tp.current_club.team_id
+                result['loan_team_db_id'] = tp.current_club_db_id
+            elif tp.current_club_api_id:
+                result['loan_team_id'] = tp.current_club_api_id
+
+            # Parent team info
+            if tp.team:
+                result['parent_team_name'] = tp.team.name
+                result['parent_team_logo'] = tp.team.logo
+                result['parent_team_id'] = tp.team.team_id
+                result['primary_team_db_id'] = tp.team_id
 
         if not result['position']:
             POS_MAP = {'G': 'Goalkeeper', 'D': 'Defender', 'M': 'Midfielder', 'F': 'Attacker'}
@@ -240,31 +255,6 @@ def get_public_player_profile(player_id: int):
             ).order_by(FixturePlayerStats.id.desc()).first()
             if recent_stats:
                 result['position'] = POS_MAP.get(recent_stats.position, recent_stats.position)
-
-        # Get loan info from AcademyPlayer (most recent active loan)
-        loaned = AcademyPlayer.query.filter_by(player_id=player_id, is_active=True).order_by(AcademyPlayer.updated_at.desc()).first()
-        if not loaned:
-            loaned = AcademyPlayer.query.filter_by(player_id=player_id).order_by(AcademyPlayer.updated_at.desc()).first()
-
-        if loaned:
-            if not result['name']:
-                result['name'] = loaned.player_name
-            result['loan_team_name'] = loaned.loan_team_name
-            result['parent_team_name'] = loaned.primary_team_name
-
-            if loaned.loan_team_id:
-                loan_team = Team.query.get(loaned.loan_team_id)
-                if loan_team:
-                    result['loan_team_logo'] = loan_team.logo
-                    result['loan_team_id'] = loan_team.team_id
-                    result['loan_team_db_id'] = loaned.loan_team_id
-
-            if loaned.primary_team_id:
-                parent_team = Team.query.get(loaned.primary_team_id)
-                if parent_team:
-                    result['parent_team_logo'] = parent_team.logo
-                    result['parent_team_id'] = parent_team.team_id
-                    result['primary_team_db_id'] = loaned.primary_team_id
 
         # If still no name, try supplemental loans
         if not result['name']:
@@ -288,51 +278,31 @@ def get_public_player_profile(player_id: int):
         if not result['name']:
             result['name'] = f"Player #{player_id}"
 
-        # Get ALL loans for this season (for mid-season transfers)
-        now_utc = datetime.now(timezone.utc)
-        current_year = now_utc.year
-        current_month = now_utc.month
-        season_year = current_year if current_month >= 8 else current_year - 1
-        season_prefix = f"{season_year}-{str(season_year + 1)[-2:]}"
+        # Build loan history from all TrackedPlayer records for this player
+        all_tracked = TrackedPlayer.query.filter_by(
+            player_api_id=player_id,
+        ).order_by(TrackedPlayer.created_at.asc()).all()
 
-        all_season_loans = AcademyPlayer.query.filter(
-            AcademyPlayer.player_id == player_id,
-            AcademyPlayer.window_key.like(f"{season_prefix}%")
-        ).order_by(AcademyPlayer.created_at.asc()).all()
-
-        # Deduplicate by (loan_team_id, window_key)
-        seen_loan_keys = set()
+        seen_clubs = set()
         loan_history = []
-        for loan in all_season_loans:
-            dedup_key = (loan.loan_team_id, loan.window_key)
-            if dedup_key in seen_loan_keys:
+        for t in all_tracked:
+            if not t.current_club_api_id:
                 continue
-            seen_loan_keys.add(dedup_key)
-
-            loan_team = Team.query.get(loan.loan_team_id) if loan.loan_team_id else None
-            parent_team = Team.query.get(loan.primary_team_id) if loan.primary_team_id else None
-
-            window_type = 'Summer'
-            if loan.window_key and '::' in loan.window_key:
-                window_part = loan.window_key.split('::')[1]
-                if window_part.upper() == 'JANUARY':
-                    window_type = 'January'
-                elif window_part.upper() == 'FULL':
-                    window_type = 'Summer'
-                else:
-                    window_type = window_part.title()
+            if t.current_club_api_id in seen_clubs:
+                continue
+            seen_clubs.add(t.current_club_api_id)
 
             loan_history.append({
-                'loan_team_name': loan.loan_team_name,
-                'loan_team_id': loan_team.team_id if loan_team else None,
-                'loan_team_db_id': loan.loan_team_id,
-                'loan_team_logo': loan_team.logo if loan_team else None,
-                'parent_team_name': loan.primary_team_name,
-                'parent_team_id': parent_team.team_id if parent_team else None,
-                'parent_team_logo': parent_team.logo if parent_team else None,
-                'window_type': window_type,
-                'window_key': loan.window_key,
-                'is_active': loan.is_active,
+                'loan_team_name': t.current_club_name,
+                'loan_team_id': t.current_club_api_id,
+                'loan_team_db_id': t.current_club_db_id,
+                'loan_team_logo': t.current_club.logo if t.current_club else None,
+                'parent_team_name': t.team.name if t.team else None,
+                'parent_team_id': t.team.team_id if t.team else None,
+                'parent_team_logo': t.team.logo if t.team else None,
+                'window_type': 'Summer',
+                'window_key': None,
+                'is_active': t.is_active,
             })
 
         result['loan_history'] = loan_history
@@ -384,121 +354,57 @@ def get_public_player_season_stats(player_id: int):
             'clubs': [],
         }
 
-        # Find ALL loan teams for this player this season
-        all_loans = AcademyPlayer.query.filter(
-            AcademyPlayer.player_id == player_id,
-            AcademyPlayer.window_key.like(f"{season_prefix}%")
-        ).order_by(AcademyPlayer.updated_at.desc()).all()
+        # Find tracked players for this player
+        all_tracked = TrackedPlayer.query.filter_by(
+            player_api_id=player_id, is_active=True,
+        ).all()
 
-        if not all_loans:
-            loaned = AcademyPlayer.query.filter_by(player_id=player_id).order_by(AcademyPlayer.updated_at.desc()).first()
-            all_loans = [loaned] if loaned else []
-
-        if not all_loans:
-            # Fallback: compute stats directly from FixturePlayerStats
-            # This handles players seeded via squad fetch (no AcademyPlayer record)
-            from src.models.tracked_player import TrackedPlayer
-            tp = TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True).first()
-            if tp:
-                stats_agg = db.session.query(
-                    func.count().label('appearances'),
-                    func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label('minutes'),
-                    func.coalesce(func.sum(FixturePlayerStats.goals), 0).label('goals'),
-                    func.coalesce(func.sum(FixturePlayerStats.assists), 0).label('assists'),
-                    func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label('yellows'),
-                    func.coalesce(func.sum(FixturePlayerStats.reds), 0).label('reds'),
-                    func.coalesce(func.sum(FixturePlayerStats.saves), 0).label('saves'),
-                    func.coalesce(func.sum(FixturePlayerStats.goals_conceded), 0).label('goals_conceded'),
-                ).filter(
-                    FixturePlayerStats.player_api_id == player_id,
-                ).join(Fixture, FixturePlayerStats.fixture_id == Fixture.id).filter(
-                    Fixture.date_utc >= season_start,
-                ).first()
-
-                if stats_agg and stats_agg.appearances > 0:
-                    # Compute avg rating
-                    rated = db.session.query(
-                        func.avg(func.cast(FixturePlayerStats.rating, db.Float))
-                    ).filter(
-                        FixturePlayerStats.player_api_id == player_id,
-                        FixturePlayerStats.rating.isnot(None),
-                    ).join(Fixture, FixturePlayerStats.fixture_id == Fixture.id).filter(
-                        Fixture.date_utc >= season_start,
-                    ).scalar()
-
-                    result['appearances'] = stats_agg.appearances
-                    result['minutes'] = int(stats_agg.minutes)
-                    result['goals'] = int(stats_agg.goals)
-                    result['assists'] = int(stats_agg.assists)
-                    result['yellows'] = int(stats_agg.yellows)
-                    result['reds'] = int(stats_agg.reds)
-                    result['saves'] = int(stats_agg.saves)
-                    result['goals_conceded'] = int(stats_agg.goals_conceded)
-                    result['avg_rating'] = round(float(rated), 2) if rated else None
-                    result['source'] = 'fixture-stats'
-
-                    # Add parent team as club
-                    parent_team = Team.query.get(tp.team_id)
-                    if parent_team:
-                        result['clubs'] = [{
-                            'team_name': parent_team.name,
-                            'team_logo': parent_team.logo,
-                            'appearances': stats_agg.appearances,
-                            'goals': int(stats_agg.goals),
-                            'assists': int(stats_agg.assists),
-                            'is_current': True,
-                        }]
-
-            return jsonify(result)
+        if not all_tracked:
+            tp_single = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(TrackedPlayer.updated_at.desc()).first()
+            all_tracked = [tp_single] if tp_single else []
 
         # Check for limited coverage
-        primary_loan = all_loans[0]
-        if getattr(primary_loan, 'stats_coverage', 'full') == 'limited':
-            logger.info(f"Using limited coverage stats for player {player_id}")
-            result['appearances'] = primary_loan.appearances or 0
-            result['minutes'] = 0
-            result['goals'] = primary_loan.goals or 0
-            result['assists'] = primary_loan.assists or 0
-            result['yellows'] = primary_loan.yellows or 0
-            result['reds'] = primary_loan.reds or 0
+        if all_tracked and all_tracked[0].data_depth in ('events_only', 'profile_only'):
+            tp = all_tracked[0]
+            computed = tp.compute_stats()
+            result['appearances'] = computed['appearances']
+            result['minutes'] = computed['minutes_played']
+            result['goals'] = computed['goals']
+            result['assists'] = computed['assists']
+            result['yellows'] = computed['yellows']
+            result['reds'] = computed['reds']
             result['source'] = 'limited-coverage'
             result['stats_coverage'] = 'limited'
 
-            if primary_loan.loan_team_id:
-                loan_team = Team.query.get(primary_loan.loan_team_id)
-                if loan_team:
-                    result['loan_team'] = loan_team.name
-                    result['clubs'] = [{
-                        'team_name': loan_team.name,
-                        'team_logo': loan_team.logo,
-                        'appearances': primary_loan.appearances or 0,
-                        'goals': primary_loan.goals or 0,
-                        'assists': primary_loan.assists or 0,
-                        'is_current': primary_loan.is_active,
-                    }]
+            if tp.current_club:
+                result['loan_team'] = tp.current_club.name
+                result['clubs'] = [{
+                    'team_name': tp.current_club.name,
+                    'team_logo': tp.current_club.logo,
+                    'appearances': computed['appearances'],
+                    'goals': computed['goals'],
+                    'assists': computed['assists'],
+                    'is_current': tp.is_active,
+                }]
 
             return jsonify(result)
 
-        # Build list of loan teams with their API IDs
+        if not all_tracked:
+            return jsonify(result)
+
+        # Build list of loan teams with their API IDs from TrackedPlayer
         loan_teams_info = []
         loan_team_api_ids = []
-        for loan in all_loans:
-            if loan and loan.loan_team_id:
-                loan_team = Team.query.get(loan.loan_team_id)
-                if loan_team and loan_team.team_id not in loan_team_api_ids:
-                    window_type = 'Summer'
-                    if loan.window_key and '::' in loan.window_key:
-                        window_part = loan.window_key.split('::')[1]
-                        if window_part.upper() == 'JANUARY':
-                            window_type = 'January'
-                    loan_teams_info.append({
-                        'api_id': loan_team.team_id,
-                        'name': loan_team.name,
-                        'logo': loan_team.logo,
-                        'window_type': window_type,
-                        'is_active': loan.is_active,
-                    })
-                    loan_team_api_ids.append(loan_team.team_id)
+        for tp in all_tracked:
+            if tp and tp.current_club_api_id and tp.current_club_api_id not in loan_team_api_ids:
+                loan_teams_info.append({
+                    'api_id': tp.current_club_api_id,
+                    'name': tp.current_club_name or (tp.current_club.name if tp.current_club else 'Unknown'),
+                    'logo': tp.current_club.logo if tp.current_club else None,
+                    'window_type': 'Summer',
+                    'is_active': tp.is_active,
+                })
+                loan_team_api_ids.append(tp.current_club_api_id)
 
         result['loan_team'] = loan_teams_info[0]['name'] if loan_teams_info else None
         result['has_multiple_clubs'] = len(loan_teams_info) > 1

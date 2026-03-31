@@ -6,7 +6,8 @@ player appearances, goals, assists from lineups and events data.
 import logging
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Dict, Any, Optional, Set
-from src.models.league import db, AcademyLeague, AcademyAppearance, AcademyPlayer
+from src.models.league import db, AcademyLeague, AcademyAppearance
+from src.models.tracked_player import TrackedPlayer
 from src.api_football_client import APIFootballClient
 
 logger = logging.getLogger(__name__)
@@ -140,14 +141,13 @@ class AcademySyncService:
 
     def _get_tracked_player_ids(self) -> Dict[int, int]:
         """
-        Get mapping of API player IDs to AcademyPlayer IDs for matching.
+        Get mapping of API player IDs to TrackedPlayer IDs for matching.
 
         Returns:
-            Dict mapping player_api_id -> loaned_player.id
+            Dict mapping player_api_id -> tracked_player.id
         """
-        players = AcademyPlayer.query.filter(
-            AcademyPlayer.is_active == True,
-            AcademyPlayer.player_api_id.isnot(None),
+        players = TrackedPlayer.query.filter(
+            TrackedPlayer.is_active == True,
         ).all()
         return {p.player_api_id: p.id for p in players}
 

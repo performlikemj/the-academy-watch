@@ -127,6 +127,7 @@ class Team(db.Model):
     )
       
     # Relationships
+    # DEPRECATED: Use Team.tracked_players (backref from TrackedPlayer) instead.
     academy_players = db.relationship('AcademyPlayer',
                                        foreign_keys='AcademyPlayer.primary_team_id',
                                        backref='parent_team', lazy=True)
@@ -135,11 +136,10 @@ class Team(db.Model):
                                       backref='borrowing_team', lazy=True)
     newsletters = db.relationship('Newsletter', backref='team', lazy=True)
     subscriptions = db.relationship('UserSubscription', backref='team', lazy=True)
-    
+
     def unique_active_players(self):
-        """Return active tracked players with duplicates collapsed to the newest row per player."""
-        active = (p for p in self.academy_players if getattr(p, 'is_active', False))
-        return _dedupe_players(active)
+        """Return active tracked players for this team (parent club)."""
+        return [tp for tp in self.tracked_players if tp.is_active]
 
     def to_dict(self):
         current_players = self.unique_active_players()
