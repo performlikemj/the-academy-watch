@@ -6,7 +6,7 @@ Handles:
 - Academy appearance data retrieval
 """
 from flask import Blueprint, request, jsonify
-from src.models.league import db, AcademyLeague, AcademyAppearance, AcademyPlayer
+from src.models.league import db, AcademyLeague, AcademyAppearance
 from src.routes.api import require_api_key
 from src.services.academy_sync_service import academy_sync_service
 from datetime import datetime, date, timedelta, timezone

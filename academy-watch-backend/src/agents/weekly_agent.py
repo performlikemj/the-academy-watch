@@ -26,7 +26,8 @@ from agents import (Agent,
                     )
 from agents.run_context import RunContextWrapper
 
-from src.models.league import db, Team, AcademyPlayer, Newsletter, Player, TeamProfile, LeagueLocalization
+from src.models.league import db, Team, Newsletter, Player, TeamProfile, LeagueLocalization
+from src.models.tracked_player import TrackedPlayer
 from sqlalchemy import func
 from src.agents.errors import NoActiveLoaneesError
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -1689,25 +1690,20 @@ def _team_logo_for_player(player_id: Any, loan_team_name: str | None = None) -> 
     except (TypeError, ValueError):
         return None
 
-    lp: AcademyPlayer | None = None
+    tp: TrackedPlayer | None = None
     try:
-        lp = (
-            db.session.query(AcademyPlayer)
-            .filter(AcademyPlayer.player_id == pid)
-            .order_by(AcademyPlayer.updated_at.desc())
+        tp = (
+            db.session.query(TrackedPlayer)
+            .filter(TrackedPlayer.player_api_id == pid, TrackedPlayer.is_active == True)
+            .order_by(TrackedPlayer.updated_at.desc())
             .first()
         )
     except Exception:
-        lp = None
+        tp = None
 
     team_api_id = None
-    if lp and lp.loan_team_id:
-        try:
-            team_row = db.session.get(Team, lp.loan_team_id)
-        except Exception:
-            team_row = None
-        if team_row and team_row.team_id:
-            team_api_id = team_row.team_id
+    if tp and tp.current_club_api_id:
+        team_api_id = tp.current_club_api_id
 
     if team_api_id is None and loan_team_name:
         try:

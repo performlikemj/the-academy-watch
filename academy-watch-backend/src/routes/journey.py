@@ -3,10 +3,11 @@
 Handles player career journey retrieval for map visualization.
 
 Primary data source: PlayerJourney + PlayerJourneyEntry (from API-Football sync).
-Legacy fallback: AcademyPlayer records (for players not yet synced).
+Legacy fallback: TrackedPlayer records (for players not yet synced).
 """
 from flask import Blueprint, request, jsonify
-from src.models.league import db, AcademyPlayer, Team, TeamProfile
+from src.models.league import db, Team, TeamProfile
+from src.models.tracked_player import TrackedPlayer
 from src.models.journey import PlayerJourney, ClubLocation, YOUTH_LEVELS
 from src.utils.geocoding import get_team_coordinates
 from collections import defaultdict
@@ -58,34 +59,34 @@ def get_player_journey(player_id):
             **journey_data,
         })
 
-    # Fallback: build from AcademyPlayer records
-    sample_loan = AcademyPlayer.query.filter_by(player_id=player_id).first()
-    primary_team_id = sample_loan.primary_team_id if sample_loan else None
+    # Fallback: build from TrackedPlayer records
+    tp = TrackedPlayer.query.filter_by(player_api_id=player_id).first()
+    primary_team_id = tp.team_id if tp else None
 
     journey_data = _build_legacy_journey(player_id, primary_team_id)
 
     return jsonify({
         'player_id': player_id,
-        'source': 'loaned_player',
+        'source': 'tracked_player',
         **journey_data,
     })
 
 
 @journey_bp.route('/loans/<int:loaned_player_id>/journey', methods=['GET'])
 def get_loan_journey(loaned_player_id):
-    """Get journey for a specific AcademyPlayer record.
+    """Get journey for a specific TrackedPlayer record.
 
     Returns the complete journey for the player, including all loan stints
     across their career (not just the current loan).
     """
-    loan = AcademyPlayer.query.get_or_404(loaned_player_id)
+    tp = TrackedPlayer.query.get_or_404(loaned_player_id)
 
     # Try PlayerJourney first
-    journey = PlayerJourney.query.filter_by(player_api_id=loan.player_id).first()
+    journey = PlayerJourney.query.filter_by(player_api_id=tp.player_api_id).first()
     if journey:
         journey_data = _build_journey_from_player_journey(journey)
     else:
-        journey_data = _build_legacy_journey(loan.player_id, loan.primary_team_id)
+        journey_data = _build_legacy_journey(tp.player_api_id, tp.team_id)
 
     return jsonify({
         'loaned_player_id': loaned_player_id,
@@ -184,7 +185,7 @@ def _build_journey_from_player_journey(journey: PlayerJourney) -> dict:
 
 
 # =============================================================================
-# Helper: AcademyPlayer-based (legacy fallback)
+# Helpers
 # =============================================================================
 
 def _get_team_venue_info(team_api_id: int) -> dict:
@@ -208,62 +209,14 @@ def _get_team_venue_info(team_api_id: int) -> dict:
     return {}
 
 
-def _parse_window_key(window_key: str) -> tuple:
-    """Parse window_key for chronological sorting."""
-    if not window_key:
-        return (0, 0)
-
-    match = re.match(r'(\d{4})-\d{2}::(\w+)', window_key)
-    if not match:
-        return (0, 0)
-
-    season_start = int(match.group(1))
-    window_type = match.group(2).upper()
-    window_order = {'SUMMER': 0, 'FULL': 1, 'WINTER': 2}.get(window_type, 1)
-
-    return (season_start, window_order)
-
-
-def _extract_season_from_window(window_key: str) -> str:
-    """Extract season string from window_key."""
-    if not window_key:
-        return ''
-    match = re.match(r'(\d{4}-\d{2})', window_key)
-    return match.group(1) if match else ''
-
-
-def _dedupe_loan_stints(loans: list) -> list:
-    """Deduplicate loan records to one stint per (loan_team_id, season)."""
-    seen = {}
-
-    for loan in loans:
-        season = _extract_season_from_window(loan.window_key)
-        key = (loan.loan_team_id, season)
-
-        if key not in seen:
-            seen[key] = loan
-        else:
-            existing = seen[key]
-            existing_order = _parse_window_key(existing.window_key)
-            new_order = _parse_window_key(loan.window_key)
-
-            if loan.is_active and not existing.is_active:
-                seen[key] = loan
-            elif new_order > existing_order:
-                seen[key] = loan
-
-    return list(seen.values())
-
-
 def _build_legacy_journey(player_id: int, primary_team_id: int = None) -> dict:
-    """Build journey from AcademyPlayer records (legacy fallback).
+    """Build a minimal journey from TrackedPlayer records.
 
     Used when a player has no PlayerJourney record yet.
     """
-    loans = AcademyPlayer.query.filter_by(player_id=player_id)\
-        .order_by(AcademyPlayer.window_key).all()
+    tracked = TrackedPlayer.query.filter_by(player_api_id=player_id).all()
 
-    if not loans:
+    if not tracked:
         return {
             'stints': [],
             'total_stints': 0,
@@ -272,14 +225,8 @@ def _build_legacy_journey(player_id: int, primary_team_id: int = None) -> dict:
             'moved_on': False,
         }
 
-    first_loan = loans[0]
-    parent_team_api_id = None
-    if primary_team_id:
-        parent_team = Team.query.get(primary_team_id)
-        if parent_team:
-            parent_team_api_id = parent_team.team_id
-    elif first_loan.parent_team:
-        parent_team_api_id = first_loan.parent_team.team_id
+    tp = tracked[0]
+    parent_team_api_id = tp.team.team_id if tp.team else None
 
     parent_venue = _get_team_venue_info(parent_team_api_id) if parent_team_api_id else {}
     parent_coords = get_team_coordinates(parent_venue.get('city'), parent_venue.get('country'))
@@ -288,50 +235,34 @@ def _build_legacy_journey(player_id: int, primary_team_id: int = None) -> dict:
     sequence = 1
     country_counts = defaultdict(int)
 
-    has_academy = any(l.pathway_status == 'academy' or l.current_level in ('U18', 'U21', 'U23') for l in loans)
-    has_first_team = any(l.pathway_status == 'first_team' for l in loans)
-    most_recent = max(loans, key=lambda l: _parse_window_key(l.window_key))
+    # Academy stint
+    stint = {
+        'id': f'{player_id}-{sequence}',
+        'team_api_id': parent_team_api_id or 0,
+        'team_name': tp.team.name if tp.team else 'Unknown',
+        'team_logo': parent_venue.get('logo'),
+        'city': parent_venue.get('city'),
+        'country': parent_venue.get('country'),
+        'latitude': parent_coords[0] if parent_coords else None,
+        'longitude': parent_coords[1] if parent_coords else None,
+        'stint_type': 'academy',
+        'level': 'Academy',
+        'is_current': tp.status == 'academy',
+        'sequence': sequence,
+    }
+    stints.append(stint)
+    if stint['country']:
+        country_counts[stint['country']] += 1
+    sequence += 1
 
-    if has_academy:
-        stint = {
-            'id': f'{player_id}-{sequence}',
-            'team_api_id': parent_team_api_id or 0,
-            'team_name': first_loan.primary_team_name,
-            'team_logo': parent_venue.get('logo'),
-            'city': parent_venue.get('city'),
-            'country': parent_venue.get('country'),
-            'latitude': parent_coords[0] if parent_coords else None,
-            'longitude': parent_coords[1] if parent_coords else None,
-            'stint_type': 'academy',
-            'level': 'Academy',
-            'is_current': False,
-            'sequence': sequence,
-        }
-        stints.append(stint)
-        if stint['country']:
-            country_counts[stint['country']] += 1
-        sequence += 1
-
-    sorted_loans = sorted(loans, key=lambda l: _parse_window_key(l.window_key))
-    deduped_loans = _dedupe_loan_stints(sorted_loans)
-    deduped_loans = sorted(deduped_loans, key=lambda l: _parse_window_key(l.window_key))
-
-    for loan in deduped_loans:
-        if not loan.loan_team_id and not loan.loan_team_name:
-            continue
-
-        loan_team_api_id = None
-        if loan.borrowing_team:
-            loan_team_api_id = loan.borrowing_team.team_id
-
-        loan_venue = _get_team_venue_info(loan_team_api_id) if loan_team_api_id else {}
+    # Current club stint (if on loan or first team)
+    if tp.status == 'on_loan' and tp.current_club_api_id:
+        loan_venue = _get_team_venue_info(tp.current_club_api_id)
         loan_coords = get_team_coordinates(loan_venue.get('city'), loan_venue.get('country'))
-        is_current = loan.is_active and loan.id == most_recent.id
-
         stint = {
             'id': f'{player_id}-{sequence}',
-            'team_api_id': loan_team_api_id or 0,
-            'team_name': loan.loan_team_name,
+            'team_api_id': tp.current_club_api_id,
+            'team_name': tp.current_club_name or 'Unknown',
             'team_logo': loan_venue.get('logo'),
             'city': loan_venue.get('city'),
             'country': loan_venue.get('country'),
@@ -339,38 +270,14 @@ def _build_legacy_journey(player_id: int, primary_team_id: int = None) -> dict:
             'longitude': loan_coords[1] if loan_coords else None,
             'stint_type': 'loan',
             'level': 'Senior',
-            'is_current': is_current,
-            'sequence': sequence,
-            'window_key': loan.window_key,
-        }
-        stints.append(stint)
-        if stint['country']:
-            country_counts[stint['country']] += 1
-        sequence += 1
-
-    if has_first_team:
-        stint = {
-            'id': f'{player_id}-{sequence}',
-            'team_api_id': parent_team_api_id or 0,
-            'team_name': first_loan.primary_team_name,
-            'team_logo': parent_venue.get('logo'),
-            'city': parent_venue.get('city'),
-            'country': parent_venue.get('country'),
-            'latitude': parent_coords[0] if parent_coords else None,
-            'longitude': parent_coords[1] if parent_coords else None,
-            'stint_type': 'first_team',
-            'level': 'Senior',
-            'is_current': most_recent.pathway_status == 'first_team',
+            'is_current': True,
             'sequence': sequence,
         }
         stints.append(stint)
         if stint['country']:
             country_counts[stint['country']] += 1
 
-    moved_on = (
-        most_recent.pathway_status == 'released' or
-        (not most_recent.is_active and not has_first_team and most_recent.pathway_status != 'academy')
-    )
+    moved_on = tp.status in ('released', 'sold')
 
     countries = [
         {'name': name, 'stint_count': count}

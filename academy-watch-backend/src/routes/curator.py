@@ -8,8 +8,9 @@ Handles:
 from flask import Blueprint, request, jsonify, g
 from src.models.league import (
     db, CommunityTake, Team, Newsletter, JournalistTeamAssignment,
-    AcademyPlayer, UserAccount,
+    UserAccount,
 )
+from src.models.tracked_player import TrackedPlayer
 from src.auth import require_curator_auth
 from src.utils.sanitize import sanitize_plain_text, sanitize_comment_body
 from datetime import datetime, timezone, timedelta
@@ -513,9 +514,9 @@ def curator_players():
     else:
         target_ids = team_ids
 
-    players = AcademyPlayer.query.filter(
-        AcademyPlayer.team_id.in_(target_ids),
-        AcademyPlayer.is_active == True,
+    players = TrackedPlayer.query.filter(
+        TrackedPlayer.team_id.in_(target_ids),
+        TrackedPlayer.is_active == True,
     ).all()
 
     return jsonify({

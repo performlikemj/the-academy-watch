@@ -16,7 +16,7 @@ try:  # Optional Groq dependency for newsletter summaries
     from groq import Groq
 except ImportError:  # pragma: no cover
     Groq = None
-from src.models.league import db, Team, AcademyPlayer, Newsletter, AdminSetting, NewsletterCommentary
+from src.models.league import db, Team, Newsletter, AdminSetting, NewsletterCommentary
 from src.models.tracked_player import TrackedPlayer
 from src.models.journey import PlayerJourney, PlayerJourneyEntry, derive_journey_context
 from src.api_football_client import APIFootballClient
@@ -1797,12 +1797,7 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
             player_dict['loan_team_name'] = loan_club
             player_dict['loan_team_api_id'] = tp.current_club_api_id
             player_dict['loan_team'] = loan_club
-            # Delegate to existing loan stats pipeline via AcademyPlayer bridge
-            if tp.loaned_player_id:
-                lp = AcademyPlayer.query.get(tp.loaned_player_id)
-                if lp:
-                    player_dict['can_fetch_stats'] = bool(lp.can_fetch_stats)
-                    player_dict['sofascore_player_id'] = getattr(lp, 'sofascore_player_id', None)
+            player_dict['can_fetch_stats'] = tp.data_depth != 'profile_only'
             # Get weekly stats from FixturePlayerStats
             _enrich_on_loan_stats(player_dict, tp, start, end, season_start_year)
             # Fallback: derive loan league from Team record if not set from match data
