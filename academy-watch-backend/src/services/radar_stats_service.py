@@ -362,33 +362,55 @@ def fetch_league_position_averages(
 def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
     """Resolve a player's league from their loan team or tracked team.
 
+    Checks TrackedPlayer first (current source of truth), then falls back
+    to AcademyPlayer for legacy rows.
+
     Returns (league_api_id, league_name) or None.
     """
     from src.models.league import AcademyPlayer, Team, League
+    from src.models.tracked_player import TrackedPlayer
 
+    def _league_from_team(team: "Team") -> Optional[Tuple[int, str]]:
+        if not team or not team.league_id:
+            return None
+        league = League.query.filter_by(id=team.league_id).first()
+        if not league:
+            return None
+        return league.league_id, league.name
+
+    # 1. Try TrackedPlayer (current club for on-loan, parent club otherwise)
+    tp = (
+        TrackedPlayer.query
+        .filter_by(player_api_id=player_api_id, is_active=True)
+        .first()
+    )
+    if tp:
+        # For on-loan players, resolve league from their current (loan) club
+        if tp.status == 'on_loan' and tp.current_club_api_id:
+            team = Team.query.filter_by(team_id=tp.current_club_api_id).first()
+            result = _league_from_team(team)
+            if result:
+                return result
+        # Fallback to parent club
+        team = Team.query.filter_by(id=tp.team_id).first()
+        result = _league_from_team(team)
+        if result:
+            return result
+
+    # 2. Fallback to AcademyPlayer (legacy)
     ap = (
         AcademyPlayer.query
         .filter_by(player_id=player_api_id)
         .order_by(AcademyPlayer.updated_at.desc())
         .first()
     )
-    if not ap:
-        return None
+    if ap:
+        team_id = ap.loan_team_id or ap.primary_team_id
+        if team_id:
+            team = Team.query.filter_by(id=team_id).first()
+            return _league_from_team(team)
 
-    # Try loan team first, then primary team
-    team_id = ap.loan_team_id or ap.primary_team_id
-    if not team_id:
-        return None
-
-    team = Team.query.filter_by(id=team_id).first()
-    if not team or not team.league_id:
-        return None
-
-    league = League.query.filter_by(id=team.league_id).first()
-    if not league:
-        return None
-
-    return league.league_id, league.name
+    return None
 
 
 # ---------------------------------------------------------------------------

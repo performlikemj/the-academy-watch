@@ -272,9 +272,16 @@ def render_line_chart(data: Dict[str, Any], width: int = 500, height: int = 300)
     colors = [CHART_COLORS['primary'], CHART_COLORS['success'], CHART_COLORS['info'],
               CHART_COLORS['warning'], CHART_COLORS['danger']]
     
-    # Plot line for each stat
+    # Plot line for each stat, skipping missing/zero values
     for i, stat in enumerate(stat_keys):
-        values = [d.get(stat, 0) or 0 for d in line_data]
+        raw_values = [d.get(stat) for d in line_data]
+        # Build masked arrays so missing data points create gaps instead of zero dips
+        values = []
+        for v in raw_values:
+            if v is not None and v > 0:
+                values.append(v)
+            else:
+                values.append(float('nan'))
         ax.plot(x, values, 'o-', label=stat.replace('_', ' ').title(),
                 color=colors[i % len(colors)], linewidth=2, markersize=6)
     
