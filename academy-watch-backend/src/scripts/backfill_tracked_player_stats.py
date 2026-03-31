@@ -24,9 +24,9 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 log = logging.getLogger(__name__)
 
 
-def create_app():
-    from src.main import create_app as _create_app
-    return _create_app()
+def get_app():
+    from src.main import app
+    return app
 
 
 def backfill_current_club_db_id(dry_run=False):
@@ -179,7 +179,7 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='Preview changes without committing')
     args = parser.parse_args()
 
-    app = create_app()
+    app = get_app()
     with app.app_context():
         log.info("=== Phase 0 Backfill: TrackedPlayer Stats Foundation ===")
         log.info("")
