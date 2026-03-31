@@ -3,7 +3,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from flask import Flask, send_from_directory, jsonify
-from src.models.league import db, League, Team, AcademyPlayer, Newsletter, UserSubscription
+from src.models.league import db, League, Team, Newsletter, UserSubscription
 import src.models.weekly  # Ensure weekly models are registered with SQLAlchemy
 import src.models.journey  # Ensure journey models are registered with SQLAlchemy
 import src.models.cohort   # Ensure cohort models are registered with SQLAlchemy
@@ -23,6 +23,7 @@ from src.routes.formation import formation_bp
 from src.routes.teams import teams_bp
 from src.routes.feeder import feeder_bp
 from src.routes.curator import curator_bp
+from src.routes.players import players_bp
 import logging
 from sqlalchemy.engine.url import make_url, URL
 from flask_migrate import Migrate
@@ -87,6 +88,7 @@ for name in ("mcp", "agents.mcp", "mcp.shared.session", "mcp.client"):
     logging.getLogger(name).setLevel(logging.WARNING)
 
 app.register_blueprint(journey_bp, url_prefix='/api')
+app.register_blueprint(players_bp, url_prefix='/api')
 app.register_blueprint(api_bp, url_prefix='/api')
 app.register_blueprint(auth_bp, url_prefix='/api')
 app.register_blueprint(journalist_bp, url_prefix='/api')
