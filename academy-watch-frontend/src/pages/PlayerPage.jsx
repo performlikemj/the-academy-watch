@@ -103,6 +103,22 @@ const DEFAULT_POSITION = 'Midfielder'
 function AcademyStatsSection({ academyStats, defaultOpen = false }) {
     const [open, setOpen] = useState(defaultOpen)
 
+    // Group season_stats by season (descending) for development arc
+    const seasonGroups = React.useMemo(() => {
+        if (!academyStats.season_stats?.length) return []
+        const groups = {}
+        for (const entry of academyStats.season_stats) {
+            const key = entry.season
+            if (!groups[key]) groups[key] = []
+            groups[key].push(entry)
+        }
+        return Object.entries(groups)
+            .sort(([a], [b]) => Number(b) - Number(a))
+            .map(([season, entries]) => ({ season: Number(season), entries }))
+    }, [academyStats.season_stats])
+
+    const statOrDash = (val) => val != null ? val : '\u2014'
+
     return (
         <Collapsible open={open} onOpenChange={setOpen}>
             <Card className={defaultOpen ? 'bg-blue-50 border-blue-200' : ''}>
@@ -131,9 +147,6 @@ function AcademyStatsSection({ academyStats, defaultOpen = false }) {
                         {academyStats.rating && (
                             <div className="flex items-center gap-2">
                                 <Badge variant="secondary" className="text-sm">Avg Rating: {academyStats.rating}</Badge>
-                                {academyStats.minutes > 0 && (
-                                    <span className="text-sm text-muted-foreground">{academyStats.minutes} minutes played</span>
-                                )}
                             </div>
                         )}
 
@@ -152,8 +165,8 @@ function AcademyStatsSection({ academyStats, defaultOpen = false }) {
                             </Card>
                             <Card>
                                 <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-foreground">{academyStats.minutes ? Math.round(academyStats.minutes / 90) : 0}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">90s</div>
+                                    <div className="text-3xl font-bold text-foreground">{(academyStats.minutes || 0).toLocaleString()}</div>
+                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Minutes</div>
                                 </CardContent>
                             </Card>
                             <Card>
@@ -176,54 +189,54 @@ function AcademyStatsSection({ academyStats, defaultOpen = false }) {
                             </Card>
                         </div>
 
-                        {/* Per-league breakdown */}
-                        {academyStats.season_stats?.length > 0 && (
-                            <div className="space-y-4">
-                                <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                                    <Target className="h-4 w-4" />
-                                    By Competition
-                                </h4>
-                                {academyStats.season_stats.map((league, i) => (
-                                    <div key={i} className="rounded-lg border p-4 space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <div className="font-medium">{league.league}</div>
-                                                {league.team && <div className="text-xs text-muted-foreground">{league.team} &middot; {league.season}/{league.season + 1}</div>}
-                                            </div>
-                                            {league.rating && (
-                                                <Badge variant="secondary" className="text-xs">{league.rating}</Badge>
-                                            )}
-                                        </div>
-                                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 text-center text-sm">
-                                            <div>
-                                                <div className="font-semibold">{league.appearances}</div>
-                                                <div className="text-xs text-muted-foreground">Apps</div>
-                                            </div>
-                                            <div>
-                                                <div className="font-semibold">{league.minutes || 0}</div>
-                                                <div className="text-xs text-muted-foreground">Mins</div>
-                                            </div>
-                                            <div>
-                                                <div className="font-semibold text-emerald-600">{league.goals}</div>
-                                                <div className="text-xs text-muted-foreground">Goals</div>
-                                            </div>
-                                            <div>
-                                                <div className="font-semibold text-amber-600">{league.assists}</div>
-                                                <div className="text-xs text-muted-foreground">Assists</div>
-                                            </div>
-                                            {league.passes_accuracy != null && (
-                                                <div className="hidden sm:block">
-                                                    <div className="font-semibold">{league.passes_accuracy}%</div>
-                                                    <div className="text-xs text-muted-foreground">Pass%</div>
+                        {/* Per-season breakdown */}
+                        {seasonGroups.length > 0 && (
+                            <div className="space-y-5">
+                                {seasonGroups.map(({ season, entries }) => (
+                                    <div key={season} className="space-y-3">
+                                        <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                                            <Calendar className="h-4 w-4" />
+                                            {season}/{season + 1}
+                                        </h4>
+                                        {entries.map((league, i) => (
+                                            <div key={i} className="rounded-lg border p-4 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <div className="font-medium">{league.league}</div>
+                                                        {league.team && <div className="text-xs text-muted-foreground">{league.team}</div>}
+                                                    </div>
+                                                    {league.rating && (
+                                                        <Badge variant="secondary" className="text-xs">{league.rating}</Badge>
+                                                    )}
                                                 </div>
-                                            )}
-                                            {league.dribbles_success != null && (
-                                                <div className="hidden sm:block">
-                                                    <div className="font-semibold">{league.dribbles_success}/{league.dribbles_attempts || 0}</div>
-                                                    <div className="text-xs text-muted-foreground">Dribbles</div>
+                                                <div className="grid grid-cols-6 gap-2 text-center text-sm">
+                                                    <div>
+                                                        <div className="font-semibold">{league.appearances}</div>
+                                                        <div className="text-xs text-muted-foreground">Apps</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-semibold">{league.minutes || 0}</div>
+                                                        <div className="text-xs text-muted-foreground">Mins</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-semibold text-emerald-600">{league.goals}</div>
+                                                        <div className="text-xs text-muted-foreground">Goals</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-semibold text-amber-600">{league.assists}</div>
+                                                        <div className="text-xs text-muted-foreground">Assists</div>
+                                                    </div>
+                                                    <div className="hidden sm:block">
+                                                        <div className="font-semibold">{statOrDash(league.passes_accuracy != null ? `${league.passes_accuracy}%` : null)}</div>
+                                                        <div className="text-xs text-muted-foreground">Pass%</div>
+                                                    </div>
+                                                    <div className="hidden sm:block">
+                                                        <div className="font-semibold">{league.dribbles_success != null ? `${league.dribbles_success}/${league.dribbles_attempts || 0}` : '\u2014'}</div>
+                                                        <div className="text-xs text-muted-foreground">Dribbles</div>
+                                                    </div>
                                                 </div>
-                                            )}
-                                        </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 ))}
                             </div>
@@ -552,6 +565,11 @@ export function PlayerPage() {
                                     {profile?.status && (
                                         <Badge className={STATUS_BADGE_CLASSES[profile.status] || 'bg-secondary text-muted-foreground'}>
                                             {profile.status.replace('_', ' ')}{profile.sale_fee ? ` · ${profile.sale_fee}` : ''}
+                                        </Badge>
+                                    )}
+                                    {academyStats?.appearances > 0 && stats.length > 0 && (
+                                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                                            Academy: {academyStats.appearances} apps
                                         </Badge>
                                     )}
                                 </div>
