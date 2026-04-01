@@ -1345,9 +1345,6 @@ class AcademyAppearance(db.Model):
     # League reference
     academy_league_id = db.Column(db.Integer, db.ForeignKey('academy_leagues.id'), nullable=True)
 
-    # Tracked player reference (if linked)
-    loaned_player_id = db.Column(db.Integer, db.ForeignKey('loaned_players.id'), nullable=True)
-
     # Appearance data (what we can reliably get from lineups/events)
     started = db.Column(db.Boolean, default=False)  # In starting XI
     minutes_played = db.Column(db.Integer, nullable=True)  # If available
@@ -1369,7 +1366,6 @@ class AcademyAppearance(db.Model):
         db.UniqueConstraint('player_id', 'fixture_id', name='uq_academy_appearance_player_fixture'),
         db.Index('ix_academy_appearances_player', 'player_id'),
         db.Index('ix_academy_appearances_fixture_date', 'fixture_date'),
-        db.Index('ix_academy_appearances_loaned_player', 'loaned_player_id'),
     )
 
     def to_dict(self):
@@ -1383,7 +1379,6 @@ class AcademyAppearance(db.Model):
             'away_team': self.away_team,
             'competition': self.competition,
             'academy_league_id': self.academy_league_id,
-            'loaned_player_id': self.loaned_player_id,
             'started': self.started,
             'minutes_played': self.minutes_played,
             'goals': self.goals,
