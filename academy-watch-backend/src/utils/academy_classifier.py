@@ -492,8 +492,9 @@ def classify_tracked_player(
                         'detail': f'Upgraded from {status} to {upgraded}',
                     })
                 status = upgraded
-                loan_id = None
-                loan_name = None
+                # Keep current_club info — loan_id/loan_name are reused as
+                # current_club_api_id/current_club_name in the return value.
+                # For sold/released players, this is their destination club.
 
     # ── Step 2.5: squad cross-reference ────────────────────────────────
     # Skip squad check if transfers confirm a loan — transfer data is more
