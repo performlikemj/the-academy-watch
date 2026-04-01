@@ -6,7 +6,7 @@ player appearances, goals, assists from lineups and events data.
 import logging
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Dict, Any, Optional, Set
-from src.models.league import db, AcademyLeague, AcademyAppearance
+from src.models.league import db, AcademyLeague, AcademyAppearance, AcademyPlayerSeasonStats
 from src.models.tracked_player import TrackedPlayer
 from src.api_football_client import APIFootballClient
 from src.services.big6_seeding_service import RateLimiter
@@ -138,6 +138,7 @@ class AcademySyncService:
             db.session.commit()
 
         except Exception as e:
+            db.session.rollback()
             error_msg = f"Error syncing league {league.name}: {str(e)}"
             logger.exception(error_msg)
             results['errors'].append(error_msg)
@@ -196,10 +197,13 @@ class AcademySyncService:
         Returns:
             Dict mapping player_api_id -> tracked_player.id
         """
-        players = TrackedPlayer.query.filter(
+        rows = db.session.query(
+            TrackedPlayer.player_api_id,
+            TrackedPlayer.id,
+        ).filter(
             TrackedPlayer.is_active == True,
         ).all()
-        return {p.player_api_id: p.id for p in players}
+        return {row[0]: row[1] for row in rows}
 
     def _process_fixture(
         self,
@@ -396,6 +400,194 @@ class AcademySyncService:
 
         return player_events
 
+    # ------------------------------------------------------------------
+    # Player-first sync: fetch season stats from /players endpoint
+    # ------------------------------------------------------------------
+
+    def sync_academy_stats_for_players(
+        self,
+        season: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Sync season-level stats for all tracked academy players.
+
+        Uses /players?id=X&season=Y which returns per-league aggregated stats
+        including appearances, goals, assists, minutes, rating, and extended stats.
+        This works for youth leagues where /fixtures/lineups returns empty.
+        """
+        season = season or _current_season()
+
+        # Get academy league IDs for filtering stats entries
+        academy_leagues = AcademyLeague.query.filter_by(is_active=True).all()
+        academy_league_ids = {league.api_league_id for league in academy_leagues}
+
+        # Get tracked academy players
+        rows = db.session.query(
+            TrackedPlayer.id,
+            TrackedPlayer.player_api_id,
+            TrackedPlayer.player_name,
+        ).filter(
+            TrackedPlayer.is_active == True,
+            TrackedPlayer.status == 'academy',
+        ).all()
+
+        if not rows:
+            logger.info("No active academy players to sync")
+            return {'players_checked': 0, 'stats_created': 0, 'stats_updated': 0, 'errors': []}
+
+        logger.info(f"Syncing academy stats for {len(rows)} players (season {season})")
+
+        results = {
+            'players_checked': 0,
+            'stats_created': 0,
+            'stats_updated': 0,
+            'errors': [],
+        }
+
+        for i, (tp_id, player_api_id, player_name) in enumerate(rows):
+            try:
+                # Use direct API call — avoid get_player_by_id's expensive fallback
+                # logic (tries older seasons, transfers) which wastes quota.
+                # The API client has its own DB cache + _respect_ratelimit() for
+                # network calls, so we don't pre-throttle here.
+                resp = self.api_client._make_request('players', {
+                    'id': player_api_id,
+                    'season': season,
+                })
+                players_data = resp.get('response', [])
+                if not players_data:
+                    results['players_checked'] += 1
+                    continue
+
+                player_data = players_data[0]
+                stats_list = player_data.get('statistics', [])
+                p_info = player_data.get('player', {})
+                display_name = p_info.get('name') or player_name
+
+                for stat in stats_list:
+                    league_info = stat.get('league', {})
+                    league_id = league_info.get('id')
+
+                    # Only store stats for configured academy leagues
+                    if league_id not in academy_league_ids:
+                        continue
+
+                    created, updated = self._upsert_season_stats(
+                        player_api_id=player_api_id,
+                        player_name=display_name,
+                        tracked_player_id=tp_id,
+                        stat=stat,
+                        season=season,
+                    )
+                    results['stats_created'] += created
+                    results['stats_updated'] += updated
+
+                results['players_checked'] += 1
+
+                if (i + 1) % 10 == 0:
+                    db.session.commit()
+                    logger.info(
+                        f"  Progress: {i + 1}/{len(rows)} players "
+                        f"({results['stats_created']} created, {results['stats_updated']} updated)"
+                    )
+
+            except Exception as e:
+                db.session.rollback()
+                error_msg = f"Error syncing player {player_api_id} ({player_name}): {e}"
+                logger.error(error_msg)
+                results['errors'].append(error_msg)
+
+        db.session.commit()
+        logger.info(
+            f"Academy player stats sync complete: {results['players_checked']} players, "
+            f"{results['stats_created']} created, {results['stats_updated']} updated, "
+            f"{len(results['errors'])} errors"
+        )
+        return results
+
+    def _upsert_season_stats(
+        self,
+        player_api_id: int,
+        player_name: str,
+        tracked_player_id: int,
+        stat: Dict[str, Any],
+        season: int,
+    ) -> tuple:
+        """Upsert a single AcademyPlayerSeasonStats row. Returns (created, updated) counts."""
+        league_info = stat.get('league', {})
+        team_info = stat.get('team', {})
+        games = stat.get('games', {})
+        goals_data = stat.get('goals', {})
+        cards = stat.get('cards', {})
+        shots = stat.get('shots', {})
+        passes = stat.get('passes', {})
+        tackles = stat.get('tackles', {})
+        duels = stat.get('duels', {})
+        dribbles = stat.get('dribbles', {})
+        fouls = stat.get('fouls', {})
+        penalty = stat.get('penalty', {})
+
+        league_api_id = league_info.get('id')
+
+        existing = AcademyPlayerSeasonStats.query.filter_by(
+            player_api_id=player_api_id,
+            league_api_id=league_api_id,
+            season=season,
+        ).first()
+
+        rating_str = games.get('rating')
+        rating = float(rating_str) if rating_str else None
+
+        fields = dict(
+            player_name=player_name,
+            league_name=league_info.get('name'),
+            team_api_id=team_info.get('id'),
+            team_name=team_info.get('name'),
+            tracked_player_id=tracked_player_id,
+            appearances=games.get('appearences') or games.get('appearances') or 0,
+            lineups=games.get('lineups') or 0,
+            minutes=games.get('minutes') or 0,
+            rating=rating,
+            goals=goals_data.get('total') or 0,
+            assists=goals_data.get('assists') or 0,
+            yellow_cards=cards.get('yellow') or 0,
+            red_cards=cards.get('red') or 0,
+            shots_total=shots.get('total'),
+            shots_on=shots.get('on'),
+            passes_total=passes.get('total'),
+            passes_key=passes.get('key'),
+            passes_accuracy=float(passes['accuracy']) if passes.get('accuracy') else None,
+            tackles_total=tackles.get('total'),
+            interceptions=tackles.get('interceptions'),
+            duels_total=duels.get('total'),
+            duels_won=duels.get('won'),
+            dribbles_attempts=dribbles.get('attempts'),
+            dribbles_success=dribbles.get('success'),
+            fouls_drawn=fouls.get('drawn'),
+            fouls_committed=fouls.get('committed'),
+            penalty_scored=penalty.get('scored'),
+            penalty_missed=penalty.get('missed'),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        if existing:
+            for key, value in fields.items():
+                setattr(existing, key, value)
+            return (0, 1)
+        else:
+            row = AcademyPlayerSeasonStats(
+                player_api_id=player_api_id,
+                league_api_id=league_api_id,
+                season=season,
+                **fields,
+            )
+            db.session.add(row)
+            return (1, 0)
+
+    # ------------------------------------------------------------------
+    # Stats retrieval
+    # ------------------------------------------------------------------
+
     def get_player_academy_stats(
         self,
         player_id: int,
@@ -405,16 +597,52 @@ class AcademySyncService:
         """
         Get aggregated academy stats for a player.
 
-        Args:
-            player_id: API-Football player ID
-            date_from: Optional start date filter
-            date_to: Optional end date filter
-
-        Returns:
-            Dict with appearances, starts, goals, assists, etc.
+        Checks AcademyPlayerSeasonStats first (rich data from /players endpoint),
+        falls back to AcademyAppearance (per-fixture data, usually empty for youth leagues).
         """
-        query = AcademyAppearance.query.filter_by(player_id=player_id)
+        # Try season stats first (the rich data source)
+        season_rows = AcademyPlayerSeasonStats.query.filter_by(
+            player_api_id=player_id,
+        ).order_by(AcademyPlayerSeasonStats.season.desc()).all()
 
+        if season_rows:
+            # Only aggregate stats from leagues where the player actually appeared
+            season_rows = [r for r in season_rows if (r.appearances or 0) > 0]
+
+        if season_rows:
+            total_apps = sum(r.appearances or 0 for r in season_rows)
+            total_starts = sum(r.lineups or 0 for r in season_rows)
+            total_goals = sum(r.goals or 0 for r in season_rows)
+            total_assists = sum(r.assists or 0 for r in season_rows)
+            total_minutes = sum(r.minutes or 0 for r in season_rows)
+            total_yellows = sum(r.yellow_cards or 0 for r in season_rows)
+            total_reds = sum(r.red_cards or 0 for r in season_rows)
+
+            # Weighted average rating
+            rated = [(r.rating, r.appearances or 0) for r in season_rows if r.rating]
+            avg_rating = None
+            if rated:
+                total_w = sum(w for _, w in rated)
+                if total_w:
+                    avg_rating = round(sum(r * w for r, w in rated) / total_w, 2)
+
+            return {
+                'player_id': player_id,
+                'player_name': season_rows[0].player_name,
+                'appearances': total_apps,
+                'starts': total_starts,
+                'goals': total_goals,
+                'assists': total_assists,
+                'minutes': total_minutes,
+                'yellow_cards': total_yellows,
+                'red_cards': total_reds,
+                'rating': avg_rating,
+                'matches': [],  # No per-fixture data from this source
+                'season_stats': [r.to_dict() for r in season_rows if (r.appearances or 0) > 0],
+            }
+
+        # Fall back to per-fixture appearances
+        query = AcademyAppearance.query.filter_by(player_id=player_id)
         if date_from:
             query = query.filter(AcademyAppearance.fixture_date >= date_from)
         if date_to:
@@ -436,14 +664,14 @@ class AcademySyncService:
 
         return {
             'player_id': player_id,
-            'player_name': appearances[0].player_name if appearances else None,
+            'player_name': appearances[0].player_name,
             'appearances': len(appearances),
             'starts': sum(1 for a in appearances if a.started),
             'goals': sum(a.goals for a in appearances),
             'assists': sum(a.assists for a in appearances),
             'yellow_cards': sum(a.yellow_cards for a in appearances),
             'red_cards': sum(a.red_cards for a in appearances),
-            'matches': [a.to_dict() for a in appearances[:10]],  # Last 10 matches
+            'matches': [a.to_dict() for a in appearances[:10]],
         }
 
 

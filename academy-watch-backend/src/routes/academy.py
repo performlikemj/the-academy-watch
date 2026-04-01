@@ -226,6 +226,29 @@ def sync_all_academy_leagues():
 
 
 # =============================================================================
+# Player-level Academy Stats Sync
+# =============================================================================
+
+@academy_bp.route('/admin/academy-stats/sync-players', methods=['POST'])
+@require_api_key
+def sync_academy_player_stats():
+    """Sync season-level stats for all tracked academy players.
+
+    Uses /players endpoint which returns richer data than fixture lineups.
+    Optional JSON body: {"season": 2025}
+    """
+    data = request.get_json() or {}
+    season = data.get('season')
+
+    results = academy_sync_service.sync_academy_stats_for_players(season=season)
+
+    return jsonify({
+        'message': 'Player stats sync completed',
+        'results': results,
+    })
+
+
+# =============================================================================
 # Academy Appearances (Admin & Public)
 # =============================================================================
 

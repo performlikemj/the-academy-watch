@@ -369,23 +369,61 @@ class EmailToken(db.Model):
             'created_at': (_as_utc(self.created_at).isoformat() if self.created_at else None),
         }
 
+# Valid flag categories and statuses
+FLAG_CATEGORIES = ('player_data', 'stats', 'club_assignment', 'match_result', 'missing_data', 'transfer', 'other')
+FLAG_SOURCES = ('website', 'newsletter')
+FLAG_STATUSES = ('pending', 'investigating', 'resolved', 'dismissed')
+
 # Guest-submitted player flags for corrections
 class PlayerFlag(db.Model):
     __tablename__ = 'loan_flags'  # DB table name unchanged
 
     id = db.Column(db.Integer, primary_key=True)
-    player_api_id = db.Column(db.Integer, nullable=False)
-    primary_team_api_id = db.Column(db.Integer, nullable=False)
+    player_api_id = db.Column(db.Integer, nullable=True)
+    primary_team_api_id = db.Column(db.Integer, nullable=True)
     loan_team_api_id = db.Column(db.Integer, nullable=True)
     season = db.Column(db.Integer, nullable=True)
     reason = db.Column(db.Text, nullable=False)
     email = db.Column(db.String(255))
     ip_address = db.Column(db.String(64))
     user_agent = db.Column(db.String(512))
-    status = db.Column(db.String(20), default='pending')  # pending|resolved
+    status = db.Column(db.String(20), default='pending')  # pending|investigating|resolved|dismissed
     admin_note = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     resolved_at = db.Column(db.DateTime)
+
+    # Extended fields for general data correction flagging
+    category = db.Column(db.String(30), default='player_data')  # player_data|stats|club_assignment|match_result|missing_data|transfer|other
+    source = db.Column(db.String(20), default='website')  # website|newsletter
+    player_name = db.Column(db.String(100), nullable=True)
+    team_name = db.Column(db.String(100), nullable=True)
+    newsletter_id = db.Column(db.Integer, db.ForeignKey('newsletters.id'), nullable=True)
+    page_url = db.Column(db.String(500), nullable=True)
+    forwarded_to_api_football = db.Column(db.Boolean, default=False)
+    forwarded_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'player_api_id': self.player_api_id,
+            'primary_team_api_id': self.primary_team_api_id,
+            'loan_team_api_id': self.loan_team_api_id,
+            'season': self.season,
+            'reason': self.reason,
+            'email': self.email,
+            'status': self.status,
+            'admin_note': self.admin_note,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
+            'category': self.category,
+            'source': self.source,
+            'player_name': self.player_name,
+            'team_name': self.team_name,
+            'newsletter_id': self.newsletter_id,
+            'page_url': self.page_url,
+            'forwarded_to_api_football': self.forwarded_to_api_football,
+            'forwarded_at': self.forwarded_at.isoformat() if self.forwarded_at else None,
+        }
 
 
 class TeamTrackingRequest(db.Model):
@@ -1386,6 +1424,95 @@ class AcademyAppearance(db.Model):
             'yellow_cards': self.yellow_cards,
             'red_cards': self.red_cards,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AcademyPlayerSeasonStats(db.Model):
+    """Season-level aggregated stats for academy players from API-Football /players endpoint.
+
+    One row per player per league per season. Captures rich stats including
+    shots, passes, tackles, dribbles — data that youth league fixture endpoints don't provide.
+    """
+    __tablename__ = 'academy_player_season_stats'
+
+    id = db.Column(db.Integer, primary_key=True)
+    player_api_id = db.Column(db.Integer, nullable=False, index=True)
+    player_name = db.Column(db.String(200))
+    league_api_id = db.Column(db.Integer, nullable=False)
+    league_name = db.Column(db.String(200))
+    team_api_id = db.Column(db.Integer)
+    team_name = db.Column(db.String(200))
+    season = db.Column(db.Integer, nullable=False)
+
+    # Core stats
+    appearances = db.Column(db.Integer, default=0)
+    lineups = db.Column(db.Integer, default=0)          # starts
+    minutes = db.Column(db.Integer, default=0)
+    rating = db.Column(db.Float)
+    goals = db.Column(db.Integer, default=0)
+    assists = db.Column(db.Integer, default=0)
+    yellow_cards = db.Column(db.Integer, default=0)
+    red_cards = db.Column(db.Integer, default=0)
+
+    # Extended stats
+    shots_total = db.Column(db.Integer)
+    shots_on = db.Column(db.Integer)
+    passes_total = db.Column(db.Integer)
+    passes_key = db.Column(db.Integer)
+    passes_accuracy = db.Column(db.Float)
+    tackles_total = db.Column(db.Integer)
+    interceptions = db.Column(db.Integer)
+    duels_total = db.Column(db.Integer)
+    duels_won = db.Column(db.Integer)
+    dribbles_attempts = db.Column(db.Integer)
+    dribbles_success = db.Column(db.Integer)
+    fouls_drawn = db.Column(db.Integer)
+    fouls_committed = db.Column(db.Integer)
+    penalty_scored = db.Column(db.Integer)
+    penalty_missed = db.Column(db.Integer)
+
+    # Link to tracked player
+    tracked_player_id = db.Column(db.Integer, db.ForeignKey('tracked_players.id'), nullable=True)
+
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                           onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint('player_api_id', 'league_api_id', 'season',
+                            name='uq_academy_player_season_stats'),
+    )
+
+    def to_dict(self):
+        return {
+            'player_api_id': self.player_api_id,
+            'player_name': self.player_name,
+            'league': self.league_name,
+            'league_api_id': self.league_api_id,
+            'team': self.team_name,
+            'season': self.season,
+            'appearances': self.appearances or 0,
+            'starts': self.lineups or 0,
+            'minutes': self.minutes or 0,
+            'rating': round(self.rating, 2) if self.rating else None,
+            'goals': self.goals or 0,
+            'assists': self.assists or 0,
+            'yellow_cards': self.yellow_cards or 0,
+            'red_cards': self.red_cards or 0,
+            'shots_total': self.shots_total,
+            'shots_on': self.shots_on,
+            'passes_total': self.passes_total,
+            'passes_key': self.passes_key,
+            'passes_accuracy': round(self.passes_accuracy, 1) if self.passes_accuracy else None,
+            'tackles_total': self.tackles_total,
+            'interceptions': self.interceptions,
+            'duels_total': self.duels_total,
+            'duels_won': self.duels_won,
+            'dribbles_attempts': self.dribbles_attempts,
+            'dribbles_success': self.dribbles_success,
+            'fouls_drawn': self.fouls_drawn,
+            'fouls_committed': self.fouls_committed,
+            'penalty_scored': self.penalty_scored,
+            'penalty_missed': self.penalty_missed,
         }
 
 
