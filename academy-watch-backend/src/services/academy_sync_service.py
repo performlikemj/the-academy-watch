@@ -404,38 +404,89 @@ class AcademySyncService:
     # Player-first sync: fetch season stats from /players endpoint
     # ------------------------------------------------------------------
 
+    # European youth leagues to seed into academy_leagues if missing
+    EUROPEAN_YOUTH_LEAGUES = [
+        # Italy
+        (705, 'Campionato Primavera 1', 'Italy', 'U20'),
+        (706, 'Campionato Primavera 2', 'Italy', 'U20'),
+        (704, 'Coppa Italia Primavera', 'Italy', 'U20'),
+        (817, 'Super Cup Primavera', 'Italy', 'U20'),
+        # Germany
+        (488, 'U19 Bundesliga', 'Germany', 'U19'),
+        (715, 'DFB Junioren Pokal', 'Germany', 'U19'),
+        # Netherlands
+        (675, 'U21 Divisie 1', 'Netherlands', 'U21'),
+        (724, 'U18 Divisie 1', 'Netherlands', 'U18'),
+        (1152, 'U19 Divisie 1', 'Netherlands', 'U19'),
+        (883, 'Reserve League', 'Netherlands', 'Reserve'),
+        # Portugal
+        (701, 'Liga Revelação U23', 'Portugal', 'U23'),
+        (840, 'Taça Revelação U23', 'Portugal', 'U23'),
+        (1041, 'Júniores U19', 'Portugal', 'U19'),
+    ]
+
+    def _seed_european_leagues(self) -> None:
+        """Ensure European youth leagues are in academy_leagues table."""
+        existing_ids = {
+            r[0] for r in db.session.query(AcademyLeague.api_league_id).all()
+        }
+        added = []
+        for api_id, name, country, level in self.EUROPEAN_YOUTH_LEAGUES:
+            if api_id not in existing_ids:
+                league = AcademyLeague(
+                    api_league_id=api_id,
+                    name=name,
+                    country=country,
+                    level=level,
+                    season=_current_season(),
+                    is_active=True,
+                    sync_enabled=True,
+                )
+                db.session.add(league)
+                added.append(f"{name} ({country})")
+        if added:
+            db.session.commit()
+            logger.info(f"Seeded {len(added)} European youth leagues: {', '.join(added)}")
+
     def sync_academy_stats_for_players(
         self,
-        season: Optional[int] = None,
+        seasons: Optional[List[int]] = None,
     ) -> Dict[str, Any]:
         """
-        Sync season-level stats for all tracked academy players.
+        Sync season-level stats for ALL tracked players across youth leagues.
 
         Uses /players?id=X&season=Y which returns per-league aggregated stats
         including appearances, goals, assists, minutes, rating, and extended stats.
         This works for youth leagues where /fixtures/lineups returns empty.
         """
-        season = season or _current_season()
+        if seasons is None:
+            current = _current_season()
+            seasons = [current - 2, current - 1, current]
+
+        # Seed European youth leagues if not yet in DB
+        self._seed_european_leagues()
 
         # Get academy league IDs for filtering stats entries
         academy_leagues = AcademyLeague.query.filter_by(is_active=True).all()
         academy_league_ids = {league.api_league_id for league in academy_leagues}
 
-        # Get tracked academy players
+        # Get ALL active tracked players (any status — they all have academy origins)
         rows = db.session.query(
             TrackedPlayer.id,
             TrackedPlayer.player_api_id,
             TrackedPlayer.player_name,
         ).filter(
             TrackedPlayer.is_active == True,
-            TrackedPlayer.status == 'academy',
         ).all()
 
         if not rows:
-            logger.info("No active academy players to sync")
+            logger.info("No active tracked players to sync")
             return {'players_checked': 0, 'stats_created': 0, 'stats_updated': 0, 'errors': []}
 
-        logger.info(f"Syncing academy stats for {len(rows)} players (season {season})")
+        logger.info(
+            f"Syncing academy stats for {len(rows)} players "
+            f"across seasons {seasons} ({len(academy_league_ids)} leagues)"
+        )
 
         results = {
             'players_checked': 0,
@@ -446,45 +497,41 @@ class AcademySyncService:
 
         for i, (tp_id, player_api_id, player_name) in enumerate(rows):
             try:
-                # Use direct API call — avoid get_player_by_id's expensive fallback
-                # logic (tries older seasons, transfers) which wastes quota.
-                # The API client has its own DB cache + _respect_ratelimit() for
-                # network calls, so we don't pre-throttle here.
-                resp = self.api_client._make_request('players', {
-                    'id': player_api_id,
-                    'season': season,
-                })
-                players_data = resp.get('response', [])
-                if not players_data:
-                    results['players_checked'] += 1
-                    continue
-
-                player_data = players_data[0]
-                stats_list = player_data.get('statistics', [])
-                p_info = player_data.get('player', {})
-                display_name = p_info.get('name') or player_name
-
-                for stat in stats_list:
-                    league_info = stat.get('league', {})
-                    league_id = league_info.get('id')
-
-                    # Only store stats for configured academy leagues
-                    if league_id not in academy_league_ids:
+                for season in seasons:
+                    # Direct API call — the client has DB cache + _respect_ratelimit()
+                    resp = self.api_client._make_request('players', {
+                        'id': player_api_id,
+                        'season': season,
+                    })
+                    players_data = resp.get('response', [])
+                    if not players_data:
                         continue
 
-                    created, updated = self._upsert_season_stats(
-                        player_api_id=player_api_id,
-                        player_name=display_name,
-                        tracked_player_id=tp_id,
-                        stat=stat,
-                        season=season,
-                    )
-                    results['stats_created'] += created
-                    results['stats_updated'] += updated
+                    player_data = players_data[0]
+                    stats_list = player_data.get('statistics', [])
+                    p_info = player_data.get('player', {})
+                    display_name = p_info.get('name') or player_name
+
+                    for stat in stats_list:
+                        league_info = stat.get('league', {})
+                        league_id = league_info.get('id')
+
+                        if league_id not in academy_league_ids:
+                            continue
+
+                        created, updated = self._upsert_season_stats(
+                            player_api_id=player_api_id,
+                            player_name=display_name,
+                            tracked_player_id=tp_id,
+                            stat=stat,
+                            season=season,
+                        )
+                        results['stats_created'] += created
+                        results['stats_updated'] += updated
 
                 results['players_checked'] += 1
 
-                if (i + 1) % 10 == 0:
+                if (i + 1) % 25 == 0:
                     db.session.commit()
                     logger.info(
                         f"  Progress: {i + 1}/{len(rows)} players "
