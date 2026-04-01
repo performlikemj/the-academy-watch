@@ -121,6 +121,9 @@ export function PlayerPage() {
 
     // Journey data (lifted here so MiniProgressBar can access it from header)
     const [journeyData, setJourneyData] = useState(null)
+
+    // Academy stats (youth league data)
+    const [academyStats, setAcademyStats] = useState(null)
     
 
     // Smart back navigation - goes to previous page, or home if no history
@@ -144,18 +147,20 @@ export function PlayerPage() {
         setLoading(true)
         setError(null)
         try {
-            const [profileData, statsData, seasonData, commentariesData, journeyMapData] = await Promise.all([
+            const [profileData, statsData, seasonData, commentariesData, journeyMapData, academyData] = await Promise.all([
                 APIService.getPublicPlayerProfile(playerId).catch(() => null),
                 APIService.getPublicPlayerStats(playerId),
                 APIService.getPublicPlayerSeasonStats(playerId).catch(() => null),
                 APIService.getPlayerCommentaries(playerId).catch(() => ({ commentaries: [], authors: [], total_count: 0 })),
                 APIService.getPlayerJourneyMap(playerId).catch(() => null),
+                APIService.getPlayerAcademyStats(playerId).catch(() => null),
             ])
 
             setProfile(profileData)
             setStats(statsData || [])
             setSeasonStats(seasonData)
             setCommentaries(commentariesData || { commentaries: [], authors: [], total_count: 0 })
+            setAcademyStats(academyData)
 
             // Use profile position as initial value (backend enriches from multiple sources)
             if (profileData?.position) {
@@ -424,7 +429,95 @@ export function PlayerPage() {
 
             <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 pb-24 sm:pb-6">
                     <div className="space-y-8">
-                        {stats.length === 0 && seasonStats?.stats_coverage !== 'limited' ? (
+                        {stats.length === 0 && seasonStats?.stats_coverage !== 'limited' && academyStats?.appearances > 0 ? (
+                            /* ACADEMY STATS VIEW - Youth league data */
+                            <div className="space-y-6">
+                                <Card className="bg-blue-50 border-blue-200">
+                                    <CardContent className="py-4">
+                                        <div className="flex items-start gap-3">
+                                            <Users className="h-5 w-5 text-blue-600 mt-0.5" />
+                                            <div>
+                                                <p className="font-medium text-blue-800">Academy Stats</p>
+                                                <p className="text-sm text-blue-700 mt-1">
+                                                    Youth league appearances from U18, U21, and U23 competitions.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-foreground">{academyStats.appearances}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Appearances</div>
+                                        </CardContent>
+                                    </Card>
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-foreground">{academyStats.starts || 0}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Starts</div>
+                                        </CardContent>
+                                    </Card>
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-emerald-600">{academyStats.goals}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Goals</div>
+                                        </CardContent>
+                                    </Card>
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-amber-600">{academyStats.assists}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Assists</div>
+                                        </CardContent>
+                                    </Card>
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-amber-600">{academyStats.yellow_cards || 0}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Yellow Cards</div>
+                                        </CardContent>
+                                    </Card>
+                                </div>
+
+                                {/* Academy Match Log */}
+                                {academyStats.matches?.length > 0 && (
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle className="flex items-center gap-2 text-pretty">
+                                                <Calendar className="h-5 w-5" />
+                                                Recent Academy Matches
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="space-y-2">
+                                                {academyStats.matches.map((match, i) => (
+                                                    <div key={i} className="flex items-center justify-between py-2 px-3 rounded-lg bg-secondary/50 text-sm">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="font-medium truncate">
+                                                                {match.home_team} vs {match.away_team}
+                                                            </div>
+                                                            <div className="text-xs text-muted-foreground mt-0.5">
+                                                                {match.competition} &middot; {match.fixture_date ? format(new Date(match.fixture_date), 'dd MMM yyyy') : ''}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-3 text-xs shrink-0 ml-3">
+                                                            <Badge variant={match.started ? 'default' : 'secondary'} className="text-xs">
+                                                                {match.started ? 'Started' : 'Sub'}
+                                                            </Badge>
+                                                            {match.minutes_played != null && (
+                                                                <span className="text-muted-foreground">{match.minutes_played}'</span>
+                                                            )}
+                                                            {match.goals > 0 && <span className="text-emerald-600 font-medium">{match.goals}G</span>}
+                                                            {match.assists > 0 && <span className="text-amber-600 font-medium">{match.assists}A</span>}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                )}
+                            </div>
+                        ) : stats.length === 0 && seasonStats?.stats_coverage !== 'limited' ? (
                             <Card>
                                 <CardContent className="py-12 text-center">
                                     <Target className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
