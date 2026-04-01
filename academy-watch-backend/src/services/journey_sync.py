@@ -158,6 +158,9 @@ class JourneySyncService:
             # retroactively returns the current team for historical seasons
             self._correct_club_ids_from_transfers(all_entries, transfers)
 
+            # Merge entries that share (club, league, season) after correction
+            all_entries = self._merge_corrected_duplicates(all_entries)
+
             # Deduplicate entries with identical stat fingerprints
             all_entries = self._deduplicate_entries(all_entries)
 
@@ -643,6 +646,35 @@ class JourneySyncService:
 
         if corrected:
             logger.info(f"Corrected {corrected} entries with wrong club from post-transfer API data")
+
+    def _merge_corrected_duplicates(self, entries: list) -> list:
+        """Merge entries that share (club_api_id, league_api_id, season).
+
+        After _correct_club_ids_from_transfers, a corrected entry may now
+        share the same club+league+season as an existing entry.  Keep the
+        one with more appearances (more complete data).
+        """
+        from collections import defaultdict
+
+        groups = defaultdict(list)
+        for entry in entries:
+            key = (entry.club_api_id, getattr(entry, 'league_api_id', None), entry.season)
+            groups[key].append(entry)
+
+        result = []
+        merged = 0
+        for key, group in groups.items():
+            if len(group) == 1:
+                result.append(group[0])
+                continue
+            winner = max(group, key=lambda e: e.appearances or 0)
+            merged += len(group) - 1
+            result.append(winner)
+
+        if merged:
+            logger.info(f"Merged {merged} duplicate entries after club ID correction")
+
+        return result
 
     def _apply_development_classification(self, entries: list, transfers=None,
                                           birth_date=None):
