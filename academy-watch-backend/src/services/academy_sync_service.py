@@ -9,15 +9,44 @@ from typing import List, Dict, Any, Optional, Set
 from src.models.league import db, AcademyLeague, AcademyAppearance
 from src.models.tracked_player import TrackedPlayer
 from src.api_football_client import APIFootballClient
+from src.services.big6_seeding_service import RateLimiter
 
 logger = logging.getLogger(__name__)
+
+# Football season boundary: new season starts in August
+SEASON_START_MONTH = 8
+
+
+def _current_season() -> int:
+    """Return the current football season year (season starts in August)."""
+    today = date.today()
+    if today.month >= SEASON_START_MONTH:
+        return today.year
+    return today.year - 1
 
 
 class AcademySyncService:
     """Service for syncing academy/youth league fixtures and player appearances."""
 
-    def __init__(self, api_client: Optional[APIFootballClient] = None):
+    def __init__(
+        self,
+        api_client: Optional[APIFootballClient] = None,
+        rate_limiter: Optional[RateLimiter] = None,
+    ):
         self.api_client = api_client or APIFootballClient()
+        self.rate_limiter = rate_limiter or RateLimiter(per_minute_cap=25, per_day_cap=7000)
+
+    def _ensure_current_season(self, leagues: List[AcademyLeague]) -> None:
+        """Update league seasons to the current football season if stale."""
+        current = _current_season()
+        updated = []
+        for league in leagues:
+            if league.season != current:
+                league.season = current
+                updated.append(league.name)
+        if updated:
+            db.session.commit()
+            logger.info(f"Updated season to {current} for: {', '.join(updated)}")
 
     def sync_league(
         self,
@@ -42,13 +71,16 @@ class AcademySyncService:
             logger.info(f"Sync disabled for league {league.name}")
             return {'status': 'skipped', 'reason': 'sync_disabled'}
 
+        # Auto-update season if stale
+        self._ensure_current_season([league])
+
         # Default date range: last 7 days
         if date_from is None:
             date_from = date.today() - timedelta(days=7)
         if date_to is None:
             date_to = date.today()
 
-        season = season or league.season or date.today().year
+        season = season or league.season or _current_season()
 
         logger.info(f"Syncing {league.name} ({league.api_league_id}) from {date_from} to {date_to}")
 
@@ -63,6 +95,7 @@ class AcademySyncService:
 
         try:
             # Fetch fixtures for the league
+            self.rate_limiter.wait_if_needed()
             fixtures = self._fetch_fixtures(
                 league_id=league.api_league_id,
                 season=season,
@@ -74,10 +107,12 @@ class AcademySyncService:
                 logger.info(f"No fixtures found for {league.name}")
                 return results
 
+            logger.info(f"Found {len(fixtures)} fixtures for {league.name}")
+
             # Get tracked player IDs for matching
             tracked_player_ids = self._get_tracked_player_ids()
 
-            for fixture in fixtures:
+            for i, fixture in enumerate(fixtures):
                 try:
                     fixture_results = self._process_fixture(
                         fixture=fixture,
@@ -87,6 +122,12 @@ class AcademySyncService:
                     results['fixtures_processed'] += 1
                     results['appearances_created'] += fixture_results.get('created', 0)
                     results['appearances_updated'] += fixture_results.get('updated', 0)
+
+                    if (i + 1) % 10 == 0:
+                        logger.info(
+                            f"  {league.name}: {i + 1}/{len(fixtures)} fixtures processed "
+                            f"({results['appearances_created']} created, {results['appearances_updated']} updated)"
+                        )
                 except Exception as e:
                     error_msg = f"Error processing fixture {fixture.get('fixture', {}).get('id')}: {str(e)}"
                     logger.error(error_msg)
@@ -101,6 +142,11 @@ class AcademySyncService:
             logger.exception(error_msg)
             results['errors'].append(error_msg)
 
+        logger.info(
+            f"Sync complete for {league.name}: {results['fixtures_processed']} fixtures, "
+            f"{results['appearances_created']} created, {results['appearances_updated']} updated, "
+            f"{len(results['errors'])} errors"
+        )
         return results
 
     def sync_all_active_leagues(
@@ -110,6 +156,10 @@ class AcademySyncService:
     ) -> List[Dict[str, Any]]:
         """Sync all active academy leagues."""
         leagues = AcademyLeague.query.filter_by(is_active=True, sync_enabled=True).all()
+
+        # Auto-update seasons before syncing
+        self._ensure_current_season(leagues)
+
         results = []
 
         for league in leagues:
@@ -183,8 +233,10 @@ class AcademySyncService:
         league_info = fixture.get('league', {})
         competition = league_info.get('name', league.name)
 
-        # Fetch lineups and events
+        # Fetch lineups and events (rate-limited)
+        self.rate_limiter.wait_if_needed()
         lineups_data = self.api_client.get_fixture_lineups(fixture_id)
+        self.rate_limiter.wait_if_needed()
         events_data = self.api_client.get_fixture_events(fixture_id)
 
         lineups = lineups_data.get('response', [])
