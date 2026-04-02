@@ -598,14 +598,17 @@ export function PlayerPage() {
 
             <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 pb-24 sm:pb-6">
                     <div className="space-y-8">
-                        {stats.length === 0 && seasonStats?.stats_coverage !== 'limited' && !academyStats?.appearances ? (
+                        {stats.length === 0 && academyStats?.appearances > 0 ? (
+                            /* Academy player with no loan stats — academy section below is the primary view */
+                            null
+                        ) : stats.length === 0 && seasonStats?.stats_coverage !== 'limited' ? (
                             <Card>
                                 <CardContent className="py-12 text-center">
                                     <Target className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
                                     <p className="text-muted-foreground">No match data available for this player yet.</p>
                                 </CardContent>
                             </Card>
-                        ) : stats.length === 0 && seasonStats?.stats_coverage === 'limited' ? (
+                        ) : stats.length === 0 && seasonStats?.stats_coverage === 'limited' && !academyStats?.appearances ? (
                             /* LIMITED COVERAGE VIEW - Show basic stats from lineup/events data */
                             <div className="space-y-6">
                                 {/* Limited Coverage Notice */}
