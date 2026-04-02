@@ -1920,7 +1920,7 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
                     'home': is_home,
                     'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
                     'played': (row.minutes or 0) > 0,
-                    'role': getattr(row, 'role', None),
+                    'role': ('substitutes' if row.substitute else 'startXI') if (row.minutes or 0) > 0 else ('substitutes' if row.substitute else None),
                     'player': {
                         'position': getattr(row, 'position', None),
                         'goals': row.goals or 0,
@@ -2030,7 +2030,7 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
                     'home': is_home,
                     'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
                     'played': (row.minutes or 0) > 0,
-                    'role': getattr(row, 'role', None),
+                    'role': ('substitutes' if row.substitute else 'startXI') if (row.minutes or 0) > 0 else ('substitutes' if row.substitute else None),
                     'player': {
                         'position': getattr(row, 'position', None),
                         'goals': row.goals or 0,
@@ -2122,7 +2122,7 @@ def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -
                             'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                             'home': is_home,
                             'played': (row.minutes or 0) > 0,
-                            'role': getattr(row, 'role', None),
+                            'role': ('substitutes' if row.substitute else 'startXI') if (row.minutes or 0) > 0 else ('substitutes' if row.substitute else None),
                             'player': {
                                 'position': getattr(row, 'position', None),
                                 'goals': row.goals or 0,

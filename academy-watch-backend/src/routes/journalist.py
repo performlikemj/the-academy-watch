@@ -533,25 +533,27 @@ def _get_player_week_stats(player_id: int, week_start, week_end) -> list:
             Fixture.date_utc.asc()
         ).all()
         
+        from src.utils.team_resolver import resolve_team_name_and_logo
+
         results = []
         for stats, fixture in stats_query:
-            # Get team names
-            home_team = Team.query.filter_by(team_id=fixture.home_team_api_id).first()
-            away_team = Team.query.filter_by(team_id=fixture.away_team_api_id).first()
+            # Get team names via centralized resolver (Team → TeamProfile → API fallback)
+            home_name, home_logo = resolve_team_name_and_logo(fixture.home_team_api_id)
+            away_name, away_logo = resolve_team_name_and_logo(fixture.away_team_api_id)
             is_home = stats.team_api_id == fixture.home_team_api_id
-            
+
             fixture_data = {
                 'fixture_id': fixture.fixture_id_api,
                 'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                 'competition': fixture.competition_name,
                 'home_team': {
-                    'name': home_team.name if home_team else 'Unknown',
-                    'logo': home_team.logo if home_team else None,
+                    'name': home_name,
+                    'logo': home_logo,
                     'score': fixture.home_goals,
                 },
                 'away_team': {
-                    'name': away_team.name if away_team else 'Unknown', 
-                    'logo': away_team.logo if away_team else None,
+                    'name': away_name,
+                    'logo': away_logo,
                     'score': fixture.away_goals,
                 },
                 'is_home': is_home,
@@ -721,24 +723,26 @@ def _get_season_stats(player_id: int, season: int = None) -> list:
         query = query.order_by(Fixture.date_utc.asc())
         stats_query = query.all()
         
+        from src.utils.team_resolver import resolve_team_name_and_logo
+
         results = []
         for stats, fixture in stats_query:
-            home_team = Team.query.filter_by(team_id=fixture.home_team_api_id).first()
-            away_team = Team.query.filter_by(team_id=fixture.away_team_api_id).first()
+            home_name, home_logo = resolve_team_name_and_logo(fixture.home_team_api_id)
+            away_name, away_logo = resolve_team_name_and_logo(fixture.away_team_api_id)
             is_home = stats.team_api_id == fixture.home_team_api_id
-            
+
             fixture_data = {
                 'fixture_id': fixture.fixture_id_api,
                 'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                 'competition': fixture.competition_name,
                 'home_team': {
-                    'name': home_team.name if home_team else 'Unknown',
-                    'logo': home_team.logo if home_team else None,
+                    'name': home_name,
+                    'logo': home_logo,
                     'score': fixture.home_goals,
                 },
                 'away_team': {
-                    'name': away_team.name if away_team else 'Unknown',
-                    'logo': away_team.logo if away_team else None,
+                    'name': away_name,
+                    'logo': away_logo,
                     'score': fixture.away_goals,
                 },
                 'is_home': is_home,
