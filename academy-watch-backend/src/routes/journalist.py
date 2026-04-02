@@ -1179,7 +1179,7 @@ def get_commentary_public(commentary_id: int):
         week_stats = []
         
         if commentary.player_id:
-            # First look in AcademyPlayer for current season
+            # Look up TrackedPlayer for player details
             lp = TrackedPlayer.query.filter_by(player_api_id=commentary.player_id).order_by(TrackedPlayer.updated_at.desc()).first()
             # Also try to get photo from Player table
             p = Player.query.filter_by(player_id=commentary.player_id).first()
@@ -1188,17 +1188,17 @@ def get_commentary_public(commentary_id: int):
             if lp:
                 # Get loan team logo if available
                 loan_team_logo = None
-                if lp.loan_team_id:
-                    loan_team = Team.query.get(lp.loan_team_id)
+                if lp.current_club_db_id:
+                    loan_team = Team.query.get(lp.current_club_db_id)
                     if loan_team:
                         loan_team_logo = loan_team.logo
                 
                 player_info = {
-                    'player_id': lp.player_id,
+                    'player_id': lp.player_api_id,
                     'name': lp.player_name,
                     'nationality': lp.nationality,
                     'photo_url': photo_url,
-                    'loan_team': lp.loan_team_name,
+                    'loan_team': lp.current_club_name,
                     'loan_team_logo': loan_team_logo,
                     'age': lp.age,
                 }
