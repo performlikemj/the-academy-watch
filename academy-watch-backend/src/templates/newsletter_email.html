@@ -513,11 +513,16 @@
                     <div>
                       {% set player_link_id = it.player_api_id or it.player_id %}
                       {% if player_link_id and public_base_url %}
-                      <a href="{{ public_base_url }}/players/{{ player_link_id }}" class="player" 
-                         style="color:#ffffff;text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.3);" 
+                      <a href="{{ public_base_url }}/players/{{ player_link_id }}" class="player"
+                         style="color:#ffffff;text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.3);"
                          target="_blank" rel="noopener">{{ it.player_name }}</a>
                       {% else %}
                       <div class="player">{{ it.player_name }}</div>
+                      {% endif %}
+                      {% if flag_base_url and player_link_id %}
+                      <a href="{{ flag_base_url }}?player_id={{ player_link_id }}&player_name={{ it.player_name|urlencode }}&team_name={{ team_name|urlencode }}&newsletter_id={{ meta.id }}&source=newsletter"
+                         style="font-size:10px;color:#6b7280;text-decoration:none;margin-left:4px;"
+                         title="Report incorrect data" target="_blank" rel="noopener">[Report]</a>
                       {% endif %}
                       <div class="loan-team">
                         {% if it.loan_team_logo %}
@@ -1102,6 +1107,16 @@
                   <div style="font-size:12px;color:#b3b3b3;margin-top:8px;">Enjoying the newsletter? A coffee keeps it
                     going.</div>
                 </div>
+                {% if flag_base_url %}
+                <div style="text-align:center;margin:0 0 18px;padding:12px;background:#1a1a1a;border:1px solid #303030;border-radius:8px;">
+                  <p style="margin:0 0 4px;font-size:12px;color:#9ca3af;">Spot something wrong?</p>
+                  <a href="{{ flag_base_url }}?team_name={{ team_name|urlencode }}&newsletter_id={{ meta.id }}&source=newsletter"
+                     target="_blank" rel="noopener"
+                     style="font-size:13px;color:#ffffff;text-decoration:underline;">
+                    Report a data correction
+                  </a>
+                </div>
+                {% endif %}
                 {% if unsubscribe_url %}
                 <p>
                   If you no longer want these updates{% if team_name %} for {{ team_name }}{% endif %},

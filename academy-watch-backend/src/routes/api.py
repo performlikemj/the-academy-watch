@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, make_response, render_template, Response, current_app, g
-from src.models.league import db, League, Team, Newsletter, UserSubscription, EmailToken, PlayerFlag, AdminSetting, NewsletterComment, UserAccount, NewsletterPlayerYoutubeLink, NewsletterCommentary, Player, JournalistTeamAssignment, CommentaryApplause, TeamTrackingRequest, StripeSubscription, NewsletterDigestQueue, JournalistSubscription, BackgroundJob, TeamSubreddit, RedditPost, TeamAlias, ManualPlayerSubmission, CommunityTake, AcademyAppearance, PlayerComment, PlayerLink, _as_utc
+from src.models.league import db, League, Team, Newsletter, UserSubscription, EmailToken, PlayerFlag, FLAG_CATEGORIES, FLAG_STATUSES, AdminSetting, NewsletterComment, UserAccount, NewsletterPlayerYoutubeLink, NewsletterCommentary, Player, JournalistTeamAssignment, CommentaryApplause, TeamTrackingRequest, StripeSubscription, NewsletterDigestQueue, JournalistSubscription, BackgroundJob, TeamSubreddit, RedditPost, TeamAlias, ManualPlayerSubmission, CommunityTake, AcademyAppearance, PlayerComment, PlayerLink, _as_utc
 from src.models.tracked_player import TrackedPlayer
 from src.models.sponsor import Sponsor
 from src.api_football_client import APIFootballClient
@@ -3270,6 +3270,9 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
     # Submit take URL for footer
     submit_take_url = f"{public_base_url}/submit-take" if public_base_url else None
 
+    # Flag/report URL for data corrections
+    flag_base_url = f"{public_base_url}/flag" if public_base_url else None
+
     # Fetch academy appearances for players in this newsletter's date range.
     # Uses TrackedPlayer (the current model) — status='academy' means they're
     # playing in youth/academy competitions, not yet on loan or first team.
@@ -3314,6 +3317,7 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
         'community_takes': community_takes,
         'twitter_takes': [t for t in community_takes if t.get('source_type') == 'twitter'],
         'submit_take_url': submit_take_url,
+        'flag_base_url': flag_base_url,
         'academy_appearances': academy_appearances,
     }
     context['social_meta'] = _compute_newsletter_social_meta(n, context)
@@ -5430,29 +5434,140 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
         return {'error': str(e)}
 
 
-# --- Admin: Flags management (list/update) ---
+# --- Public: Flag submission (no auth) ---
+
+_FLAG_EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+
+def _flag_hash_ip(ip: str) -> str | None:
+    """Hash IP for spam prevention without storing raw IPs."""
+    if not ip:
+        return None
+    import hashlib
+    return hashlib.sha256(ip.encode()).hexdigest()
+
+def _flag_get_client_ip() -> str:
+    """Get client IP from request, handling proxies."""
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    return request.remote_addr
+
+@api_bp.route('/flags/submit', methods=['POST'])
+@limiter.limit("10 per minute")
+@limiter.limit("30 per hour")
+def submit_flag():
+    """Public endpoint for users to flag incorrect data."""
+    data = request.get_json() or {}
+
+    # Validate required fields
+    reason = (data.get('reason') or '').strip()
+    if not reason:
+        return jsonify({'error': 'reason is required'}), 400
+    if len(reason) > 1000:
+        return jsonify({'error': 'reason must be 1000 characters or less'}), 400
+
+    category = (data.get('category') or 'other').strip().lower()
+    if category not in FLAG_CATEGORIES:
+        return jsonify({'error': f'category must be one of: {", ".join(FLAG_CATEGORIES)}'}), 400
+
+    # Sanitize text inputs
+    reason = sanitize_plain_text(reason)
+    if not reason:
+        return jsonify({'error': 'reason contains invalid content'}), 400
+
+    player_name = sanitize_plain_text((data.get('player_name') or '').strip()) or None
+    team_name = sanitize_plain_text((data.get('team_name') or '').strip()) or None
+    email = (data.get('email') or '').strip() or None
+
+    if email:
+        if not _FLAG_EMAIL_RE.match(email) or len(email) > 254:
+            return jsonify({'error': 'Invalid email format'}), 400
+
+    # Spam prevention: DB-level rate limiting
+    ip_hash = _flag_hash_ip(_flag_get_client_ip())
+    user_agent = request.headers.get('User-Agent', '')[:512]
+
+    if ip_hash:
+        one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+        recent_count = PlayerFlag.query.filter(
+            PlayerFlag.ip_address == ip_hash,
+            PlayerFlag.created_at >= one_hour_ago
+        ).count()
+        if recent_count >= 5:
+            return jsonify({'error': 'Too many submissions. Please try again later.'}), 429
+
+    # Duplicate detection: same reason text within 24 hours
+    twenty_four_hours_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+    duplicate = PlayerFlag.query.filter(
+        PlayerFlag.reason == reason,
+        PlayerFlag.created_at >= twenty_four_hours_ago
+    ).first()
+    if duplicate:
+        return jsonify({'error': 'This issue has already been reported.'}), 400
+
+    source = (data.get('source') or 'website').strip().lower()
+    if source not in ('website', 'newsletter'):
+        source = 'website'
+
+    flag = PlayerFlag(
+        reason=reason,
+        category=category,
+        source=source,
+        player_api_id=data.get('player_api_id'),
+        primary_team_api_id=data.get('primary_team_api_id'),
+        player_name=player_name,
+        team_name=team_name,
+        newsletter_id=data.get('newsletter_id'),
+        page_url=sanitize_plain_text((data.get('page_url') or '').strip()[:500]) or None,
+        email=email,
+        season=data.get('season'),
+        ip_address=ip_hash,
+        user_agent=user_agent,
+        status='pending',
+    )
+    db.session.add(flag)
+    db.session.commit()
+
+    return jsonify({'success': True, 'flag_id': flag.id}), 201
+
+
+# --- Admin: Flags management (list/update/bulk/stats) ---
+
 @api_bp.route('/admin/flags', methods=['GET'])
 @require_api_key
 def admin_list_flags():
     try:
         status = (request.args.get('status') or 'all').strip().lower()
+        category = (request.args.get('category') or '').strip().lower()
+        source = (request.args.get('source') or '').strip().lower()
+        search = (request.args.get('search') or '').strip()
+        page = max(1, request.args.get('page', 1, type=int))
+        per_page = min(100, max(1, request.args.get('per_page', 25, type=int)))
+
         q = PlayerFlag.query
-        if status in ('pending', 'resolved'):
+
+        if status in FLAG_STATUSES:
             q = q.filter(PlayerFlag.status == status)
-        rows = q.order_by(PlayerFlag.created_at.desc()).all()
-        return jsonify([{
-            'id': r.id,
-            'player_api_id': r.player_api_id,
-            'primary_team_api_id': r.primary_team_api_id,
-            'loan_team_api_id': r.loan_team_api_id,
-            'season': r.season,
-            'reason': r.reason,
-            'email': r.email,
-            'status': r.status,
-            'admin_note': r.admin_note,
-            'created_at': r.created_at.isoformat() if r.created_at else None,
-            'resolved_at': r.resolved_at.isoformat() if r.resolved_at else None,
-        } for r in rows])
+        if category in FLAG_CATEGORIES:
+            q = q.filter(PlayerFlag.category == category)
+        if source in ('website', 'newsletter'):
+            q = q.filter(PlayerFlag.source == source)
+        if search:
+            pattern = f'%{search}%'
+            q = q.filter(or_(
+                PlayerFlag.reason.ilike(pattern),
+                PlayerFlag.player_name.ilike(pattern),
+                PlayerFlag.team_name.ilike(pattern),
+            ))
+
+        total = q.count()
+        rows = q.order_by(PlayerFlag.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+
+        return jsonify({
+            'flags': [r.to_dict() for r in rows],
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+        })
     except Exception as e:
         return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
 
@@ -5464,18 +5579,73 @@ def admin_update_flag(flag_id: int):
         data = request.get_json() or {}
         status = (data.get('status') or '').strip().lower()
         note = (data.get('note') or '').strip()
-        if status in ('pending', 'resolved'):
+        if status in FLAG_STATUSES:
             row.status = status
-            if status == 'resolved' and not row.resolved_at:
-                from datetime import datetime as _dt, timezone as _tz
-                row.resolved_at = _dt.now(_tz.utc)
+            if status in ('resolved', 'dismissed') and not row.resolved_at:
+                row.resolved_at = datetime.now(timezone.utc)
         if note:
             row.admin_note = note
         db.session.commit()
-        return jsonify({'message': 'updated'})
+        return jsonify({'message': 'updated', 'flag': row.to_dict()})
     except Exception as e:
         logger.exception('admin_update_flag failed')
         db.session.rollback()
+        return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
+
+@api_bp.route('/admin/flags/bulk', methods=['POST'])
+@require_api_key
+def admin_bulk_flags():
+    """Bulk update flag statuses."""
+    try:
+        data = request.get_json() or {}
+        flag_ids = data.get('flag_ids', [])
+        action = (data.get('action') or '').strip().lower()
+        note = (data.get('note') or '').strip()
+
+        if not flag_ids or not isinstance(flag_ids, list):
+            return jsonify({'error': 'flag_ids is required'}), 400
+        if action not in FLAG_STATUSES:
+            return jsonify({'error': f'action must be one of: {", ".join(FLAG_STATUSES)}'}), 400
+
+        rows = PlayerFlag.query.filter(PlayerFlag.id.in_(flag_ids)).all()
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            row.status = action
+            if action in ('resolved', 'dismissed') and not row.resolved_at:
+                row.resolved_at = now
+            if note:
+                row.admin_note = note
+        db.session.commit()
+        return jsonify({'message': f'Updated {len(rows)} flags', 'updated': len(rows)})
+    except Exception as e:
+        logger.exception('admin_bulk_flags failed')
+        db.session.rollback()
+        return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
+
+@api_bp.route('/admin/flags/stats', methods=['GET'])
+@require_api_key
+def admin_flags_stats():
+    """Get flag counts by status, category, and source."""
+    try:
+        by_status = dict(db.session.query(
+            PlayerFlag.status, func.count(PlayerFlag.id)
+        ).group_by(PlayerFlag.status).all())
+
+        by_category = dict(db.session.query(
+            PlayerFlag.category, func.count(PlayerFlag.id)
+        ).group_by(PlayerFlag.category).all())
+
+        by_source = dict(db.session.query(
+            PlayerFlag.source, func.count(PlayerFlag.id)
+        ).group_by(PlayerFlag.source).all())
+
+        return jsonify({
+            'by_status': by_status,
+            'by_category': by_category,
+            'by_source': by_source,
+            'total': sum(by_status.values()),
+        })
+    except Exception as e:
         return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
 
 

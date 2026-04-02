@@ -15,6 +15,7 @@ import {
     Settings2,
     FlaskConical,
     ChevronDown,
+    Flag,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
@@ -46,6 +47,7 @@ const sidebarGroups = [
             { icon: Mail, label: 'Newsletters', href: '/admin/newsletters' },
             { icon: MessageSquarePlus, label: 'Curation', href: '/admin/curation' },
             { icon: Megaphone, label: 'Sponsors', href: '/admin/sponsors' },
+            { icon: Flag, label: 'Flags', href: '/admin/flags' },
         ],
     },
     {

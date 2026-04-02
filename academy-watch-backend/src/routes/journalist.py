@@ -86,13 +86,13 @@ def can_writer_cover_player(user_id: int, player_id: int, team_id: int = None) -
     
     Args:
         user_id: The writer's user ID
-        player_id: The player's API ID (from AcademyPlayer.player_id)
+        player_id: The player's API ID (from TrackedPlayer.player_api_id)
         team_id: Optional parent club team_id to also check (for backwards compatibility)
     
     Returns:
         True if writer can cover this player
     """
-    # Find the player's loan record (check TrackedPlayer first, then AcademyPlayer)
+    # Find the player's TrackedPlayer record
     from src.models.tracked_player import TrackedPlayer
     tracked = TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True).first()
     if tracked:
@@ -113,37 +113,36 @@ def can_writer_cover_player(user_id: int, player_id: int, team_id: int = None) -
         return False
     
     # Check 1: Is writer assigned to the player's parent club?
-    if loan.primary_team_id:
+    if loan.team_id:
         parent_assignment = JournalistTeamAssignment.query.filter_by(
             user_id=user_id,
-            team_id=loan.primary_team_id
+            team_id=loan.team_id
         ).first()
         if parent_assignment:
             return True
-    
+
     # Also check if assigned to the team_id passed (handles cross-season team IDs)
-    if team_id and team_id != loan.primary_team_id:
+    if team_id and team_id != loan.team_id:
         team_assignment = JournalistTeamAssignment.query.filter_by(
             user_id=user_id,
             team_id=team_id
         ).first()
         if team_assignment:
             return True
-    
-    # Check 2: Is writer assigned to the player's loan team?
-    # Check by loan_team_id if available
-    if loan.loan_team_id:
+
+    # Check 2: Is writer assigned to the player's current club (loan destination)?
+    if loan.current_club_db_id:
         loan_team_assignment = JournalistLoanTeamAssignment.query.filter_by(
             user_id=user_id,
-            loan_team_id=loan.loan_team_id
+            loan_team_id=loan.current_club_db_id
         ).first()
         if loan_team_assignment:
             return True
-    
-    # Also check by loan team name (using normalization)
-    if loan.loan_team_name:
+
+    # Also check by current club name (using normalization)
+    if loan.current_club_name:
         # Get all variations of the player's loan team name
-        variations = get_all_team_name_variations(loan.loan_team_name)
+        variations = get_all_team_name_variations(loan.current_club_name)
         
         # Check if writer is assigned to ANY of these variations
         loan_name_assignment = JournalistLoanTeamAssignment.query.filter(
@@ -1041,9 +1040,9 @@ def get_chart_data():
         lp = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(TrackedPlayer.updated_at.desc()).first()
         if lp:
             player_info = {
-                'player_id': lp.player_id,
+                'player_id': lp.player_api_id,
                 'name': lp.player_name,
-                'loan_team': lp.loan_team_name,
+                'loan_team': lp.current_club_name,
             }
         else:
             p = Player.query.filter_by(player_id=player_id).first()
@@ -1750,9 +1749,9 @@ def _fetch_chart_data_for_rendering(player_id: int, chart_type: str, stat_keys: 
         lp = TrackedPlayer.query.filter_by(player_api_id=player_id).order_by(TrackedPlayer.updated_at.desc()).first()
         if lp:
             player_info = {
-                'player_id': lp.player_id,
+                'player_id': lp.player_api_id,
                 'name': lp.player_name,
-                'loan_team': lp.loan_team_name,
+                'loan_team': lp.current_club_name,
             }
         else:
             p = Player.query.filter_by(player_id=player_id).first()

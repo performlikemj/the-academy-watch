@@ -716,12 +716,21 @@ export class APIService {
         return this.request(`/loans/flags/${flagId}/resolve`, { method: 'POST', body: JSON.stringify({ action: deactivateLoan ? 'deactivate_loan' : 'none', note }) }, { admin: true })
     }
     // Legacy /admin/loans endpoints removed — use /admin/tracked-players instead
+    static async submitFlag(payload) {
+        return this.request('/flags/submit', { method: 'POST', body: JSON.stringify(payload) })
+    }
     static async adminFlags(params = {}) {
         const q = new URLSearchParams(params)
         return this.request(`/admin/flags?${q}`, {}, { admin: true })
     }
     static async adminFlagUpdate(flagId, payload) {
         return this.request(`/admin/flags/${flagId}`, { method: 'POST', body: JSON.stringify(payload) }, { admin: true })
+    }
+    static async adminFlagsBulk(payload) {
+        return this.request('/admin/flags/bulk', { method: 'POST', body: JSON.stringify(payload) }, { admin: true })
+    }
+    static async adminFlagsStats() {
+        return this.request('/admin/flags/stats', {}, { admin: true })
     }
     static async adminBackfillTeamLeagues(season) {
         return this.request(`/admin/backfill-team-leagues/${season}`, { method: 'POST' }, { admin: true })

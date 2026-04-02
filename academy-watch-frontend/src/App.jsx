@@ -91,6 +91,7 @@ import { AdminUsers } from '@/pages/admin/AdminUsers'
 import { AdminTeams } from '@/pages/admin/AdminTeams'
 import { AdminSponsors } from '@/pages/admin/AdminSponsors'
 import { AdminCuration } from '@/pages/admin/AdminCuration'
+import { AdminFlags } from '@/pages/admin/AdminFlags'
 import { AdminAcademy } from '@/pages/admin/AdminAcademy'
 import { AdminCohorts } from '@/pages/admin/AdminCohorts'
 import { AdminTools } from '@/pages/admin/AdminTools'
@@ -103,6 +104,7 @@ import { CohortAnalytics } from '@/pages/CohortAnalytics'
 import { GolPanel } from '@/components/gol/GolPanel'
 import { ClaimAccount } from '@/pages/ClaimAccount'
 import { SubmitTake } from '@/pages/SubmitTake'
+import { FlagData } from '@/pages/FlagData'
 import { WriterLogin } from '@/pages/writer/WriterLogin'
 import { WriterDashboard } from '@/pages/writer/WriterDashboard'
 import { WriteupEditor } from '@/pages/writer/WriteupEditor'
@@ -10959,6 +10961,7 @@ function AppRoutes() {
       <Route path="/verify" element={<VerifyPage />} />
       <Route path="/claim-account" element={<ClaimAccount />} />
       <Route path="/submit-take" element={<SubmitTake />} />
+      <Route path="/flag" element={<FlagData />} />
       <Route path="/academy" element={<CohortBrowser />} />
       <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
       <Route path="/academy/analytics" element={<CohortAnalytics />} />
@@ -10972,6 +10975,7 @@ function AppRoutes() {
         <Route path="teams/:teamId/formation" element={<AdminFormation />} />
         <Route path="sponsors" element={<AdminSponsors />} />
         <Route path="curation" element={<AdminCuration />} />
+        <Route path="flags" element={<AdminFlags />} />
         <Route path="academy" element={<AdminAcademy />} />
         <Route path="cohorts" element={<AdminCohorts />} />
         <Route path="settings" element={<AdminSettings />} />

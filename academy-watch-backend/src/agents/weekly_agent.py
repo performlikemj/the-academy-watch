@@ -1182,8 +1182,8 @@ async def generate_weekly_newsletter(team_db_id: int, target_date: date, force_r
         if player_id_entry is not None:
             entry = {
                 'player_id': player_id_entry,
-                'loan_team_api_id': loanee.get('loan_team_api_id') or loanee.get('loan_team_id'),
-                'loan_team_id': loanee.get('loan_team_db_id') or loanee.get('loan_team_id'),
+                'loan_team_api_id': loanee.get('loan_team_api_id'),
+                'loan_team_id': loanee.get('loan_team_db_id'),
                 'loan_team_name': loan_team,
             }
 

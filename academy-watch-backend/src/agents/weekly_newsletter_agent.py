@@ -1321,8 +1321,8 @@ def _build_player_report_item(loanee: dict, hits: list[dict[str, Any]], *, week_
         "loan_team_name": loan_team,
         "player_id": loanee.get("player_api_id") or loanee.get("player_id"),
         "player_api_id": loanee.get("player_api_id"),
-        "loan_team_api_id": loanee.get("loan_team_api_id") or loanee.get("loan_team_id"),
-        "loan_team_id": loanee.get("loan_team_id"),
+        "loan_team_api_id": loanee.get("loan_team_api_id"),
+        "loan_team_id": loanee.get("loan_team_db_id"),
         "loan_team_country": loanee.get("loan_team_country"),
         "can_fetch_stats": can_track,
         "stats": stats,
@@ -1644,7 +1644,7 @@ def _apply_stat_driven_summaries(content: dict, report: dict, brave_ctx: dict) -
                 loan_team_api_id = loanee.get("loan_team_api_id")
                 if loan_team_api_id:
                     item.setdefault("loan_team_api_id", loan_team_api_id)
-                loan_team_db_id = loanee.get("loan_team_id")
+                loan_team_db_id = loanee.get("loan_team_db_id")
                 if loan_team_db_id:
                     item.setdefault("loan_team_id", loan_team_db_id)
 
@@ -2364,7 +2364,7 @@ def brave_context_for_team_and_loans(team_name: str, report: Dict[str, Any], *, 
         pname = _strip_text(loanee.get("player_name"))
         loan_team = _strip_text(loanee.get("loan_team_name"))
         loan_country = _strip_text(loanee.get("loan_team_country"))
-        loan_team_api_id = loanee.get("loan_team_api_id") or loanee.get("loan_team_id")
+        loan_team_api_id = loanee.get("loan_team_api_id")
         if not pname or not loan_team:
             continue
         p = f'"{pname}"'
@@ -2877,8 +2877,8 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
             if pid:
                 entry = {
                     "player_id": int(pid),
-                    "loan_team_api_id": player.get("loan_team_api_id") or player.get("loan_team_id"),
-                    "loan_team_id": player.get("loan_team_db_id") or player.get("loan_team_id"),
+                    "loan_team_api_id": player.get("loan_team_api_id"),
+                    "loan_team_id": player.get("loan_team_db_id"),
                     "loan_team_name": player.get("loan_team_name") or player.get("loan_team"),
                 }
             meta_entry = {
