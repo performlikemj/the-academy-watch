@@ -359,10 +359,40 @@ def fetch_league_position_averages(
     return result
 
 
+def _league_from_fixtures(player_api_id: int) -> Optional[Tuple[int, str]]:
+    """Extract league from the player's most recent fixture raw_json."""
+    import json
+    from src.models.weekly import Fixture, FixturePlayerStats
+
+    row = (
+        db.session.query(Fixture.raw_json)
+        .join(FixturePlayerStats, FixturePlayerStats.fixture_id == Fixture.id)
+        .filter(
+            FixturePlayerStats.player_api_id == player_api_id,
+            Fixture.raw_json.isnot(None),
+        )
+        .order_by(Fixture.date_utc.desc())
+        .first()
+    )
+    if not row or not row.raw_json:
+        return None
+    try:
+        data = json.loads(row.raw_json)
+        league = data.get("league") or {}
+        league_id = league.get("id")
+        league_name = league.get("name")
+        if league_id and league_name:
+            return int(league_id), league_name
+    except (json.JSONDecodeError, ValueError, TypeError):
+        pass
+    return None
+
+
 def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
     """Resolve a player's league from their tracked team.
 
     Returns (league_api_id, league_name) or None.
+    Tries: loan club Team row → fixture raw_json → parent club Team row.
     """
     from src.models.league import Team, League
     from src.models.tracked_player import TrackedPlayer
@@ -387,7 +417,13 @@ def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
             result = _league_from_team(team)
             if result:
                 return result
-        # Fallback to parent club
+
+        # Fallback: extract league from the player's actual fixture data
+        result = _league_from_fixtures(player_api_id)
+        if result:
+            return result
+
+        # Last resort: parent club
         team = Team.query.filter_by(id=tp.team_id).first()
         result = _league_from_team(team)
         if result:
