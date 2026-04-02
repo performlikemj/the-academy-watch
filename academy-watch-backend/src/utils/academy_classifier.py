@@ -586,23 +586,30 @@ def _base_status(current_level: Optional[str]) -> str:
     return 'academy'
 
 
+_DEVELOPMENT_AGE_CUTOFF = 21  # U21 — aligns with UEFA development squad rules
+
+
 def is_academy_product(
     player_api_id: int,
     team_api_id: int,
     *,
     journey: Any = None,
     data_source: Optional[str] = None,
+    birth_date: Optional[str] = None,
 ) -> bool:
-    """Single source of truth: is this player an academy product of the given team?
+    """Single source of truth: should this player appear in a team's development view?
 
     Used by Teams page, newsletter pipeline, and GOL bot to filter out
-    bought players (owning-club rows) from academy views.
+    senior signings (owning-club rows) from academy/development views.
 
     Rules:
     1. academy_club_ids contains team_api_id → True (confirmed academy product)
     2. academy_club_ids exists but doesn't contain team_api_id → False (different academy)
-    3. No/empty academy_club_ids + data_source='owning-club' → False (bought player)
-    4. No/empty academy_club_ids + other source → True (benefit of doubt — discovered
+    3. No/empty academy_club_ids + data_source='owning-club' + age ≤ 21 → True
+       (bought-to-develop player, e.g. young signing loaned out immediately)
+    4. No/empty academy_club_ids + data_source='owning-club' + age > 21 → False
+       (senior signing)
+    5. No/empty academy_club_ids + other source → True (benefit of doubt — discovered
        through academy pipelines like journey-sync or cohort-seed)
     """
     if journey is None:
@@ -614,6 +621,22 @@ def is_academy_product(
 
     # No academy data — decide by data source
     if data_source == 'owning-club':
-        return False
+        return _is_development_age(birth_date, journey)
 
     return True
+
+
+def _is_development_age(
+    birth_date: Optional[str],
+    journey: Any = None,
+) -> bool:
+    """Return True if the player is young enough to be a development signing."""
+    bd = birth_date or (journey.birth_date if journey else None)
+    if not bd:
+        return False  # no DOB → can't confirm, exclude
+    try:
+        born = datetime.strptime(bd, '%Y-%m-%d')
+    except (ValueError, TypeError):
+        return False
+    age = (datetime.now() - born).days / 365.25
+    return age <= _DEVELOPMENT_AGE_CUTOFF

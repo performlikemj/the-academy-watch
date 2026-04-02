@@ -1767,7 +1767,7 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
 
     for tp in tracked:
         # A1: Filter non-academy products out of newsletter
-        if not _is_academy_product(tp.player_api_id, team.team_id, data_source=tp.data_source):
+        if not _is_academy_product(tp.player_api_id, team.team_id, data_source=tp.data_source, birth_date=tp.birth_date):
             _filter_skipped += 1
             _filter_skipped_names.append(f"{tp.player_name} (src={tp.data_source})")
             continue

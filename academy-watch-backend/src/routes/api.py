@@ -11198,7 +11198,7 @@ def get_team_players(team_identifier):
         # Filter to academy products only
         players = [
             tp for tp in all_tracked
-            if is_academy_product(tp.player_api_id, team.team_id, data_source=tp.data_source)
+            if is_academy_product(tp.player_api_id, team.team_id, data_source=tp.data_source, birth_date=tp.birth_date)
         ]
 
         # Batch-compute parent club appearances from journey entries
