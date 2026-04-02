@@ -1000,6 +1000,36 @@ class JourneySyncService:
             self._upsert_tracked_players(journey, set(), transfers=transfers)
             return
 
+        # ── Development-only noise filter ──
+        # If a player has 50+ first-team apps at a club but only 'development'
+        # youth entries (no genuine 'academy' entries), those youth entries are
+        # noise — e.g. an established player's one-off EFL Trophy appearance.
+        # Exclude them so the club doesn't get tagged as an academy origin.
+        ESTABLISHED_FT_THRESHOLD = 50
+        ft_apps_by_base = {}
+        for e in entries:
+            if e.level == 'First Team' and not e.is_international:
+                base = self._strip_youth_suffix(e.club_name)
+                ft_apps_by_base[base] = ft_apps_by_base.get(base, 0) + (e.appearances or 0)
+
+        has_academy_entry = set()
+        for e in youth_entries:
+            if e.entry_type == 'academy':
+                has_academy_entry.add(self._strip_youth_suffix(e.club_name))
+
+        youth_entries = [
+            e for e in youth_entries
+            if not (
+                e.entry_type == 'development'
+                and self._strip_youth_suffix(e.club_name) not in has_academy_entry
+                and ft_apps_by_base.get(self._strip_youth_suffix(e.club_name), 0) >= ESTABLISHED_FT_THRESHOLD
+            )
+        ]
+        if not youth_entries:
+            journey.academy_club_ids = []
+            self._upsert_tracked_players(journey, set(), transfers=transfers)
+            return
+
         # ── Minimum youth appearances threshold ──
         # Clubs below threshold are excluded to filter noise / data errors.
         MIN_ACADEMY_APPEARANCES = 1
