@@ -542,10 +542,25 @@ def _get_player_week_stats(player_id: int, week_start, week_end) -> list:
             away_name, away_logo = resolve_team_name_and_logo(fixture.away_team_api_id)
             is_home = stats.team_api_id == fixture.home_team_api_id
 
+            # Extract league info from raw_json for radar chart league resolution
+            _league_id = None
+            _league_name = None
+            if fixture.raw_json:
+                try:
+                    import json as _json
+                    _raw = _json.loads(fixture.raw_json)
+                    _lg = _raw.get("league") or {}
+                    _league_id = _lg.get("id")
+                    _league_name = _lg.get("name")
+                except (ValueError, TypeError):
+                    pass
+
             fixture_data = {
                 'fixture_id': fixture.fixture_id_api,
                 'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                 'competition': fixture.competition_name,
+                'league_id': _league_id,
+                'league_name': _league_name,
                 'home_team': {
                     'name': home_name,
                     'logo': home_logo,
@@ -731,10 +746,25 @@ def _get_season_stats(player_id: int, season: int = None) -> list:
             away_name, away_logo = resolve_team_name_and_logo(fixture.away_team_api_id)
             is_home = stats.team_api_id == fixture.home_team_api_id
 
+            # Extract league info from raw_json for radar chart league resolution
+            _league_id = None
+            _league_name = None
+            if fixture.raw_json:
+                try:
+                    import json as _json
+                    _raw = _json.loads(fixture.raw_json)
+                    _lg = _raw.get("league") or {}
+                    _league_id = _lg.get("id")
+                    _league_name = _lg.get("name")
+                except (ValueError, TypeError):
+                    pass
+
             fixture_data = {
                 'fixture_id': fixture.fixture_id_api,
                 'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                 'competition': fixture.competition_name,
+                'league_id': _league_id,
+                'league_name': _league_name,
                 'home_team': {
                     'name': home_name,
                     'logo': home_logo,

@@ -359,6 +359,19 @@ def fetch_league_position_averages(
     return result
 
 
+def _league_from_fixture_dicts(fixtures_data: List[dict]) -> Optional[Tuple[int, str]]:
+    """Extract league from in-memory fixture dicts (most recent first).
+
+    Uses league_id/league_name fields added by _get_season_stats.
+    """
+    for f in reversed(fixtures_data):  # most recent last in list
+        lid = f.get("league_id")
+        lname = f.get("league_name")
+        if lid and lname:
+            return int(lid), lname
+    return None
+
+
 def _league_from_fixtures(player_api_id: int) -> Optional[Tuple[int, str]]:
     """Extract league from the player's most recent fixture raw_json."""
     import json
@@ -478,8 +491,8 @@ def get_radar_chart_data(
         (f.get("stats", {}).get("minutes") or 0) for f in fixtures_data
     )
 
-    # Resolve league and fetch league-wide averages
-    league_info = resolve_player_league(player_id)
+    # Resolve league: prefer the league from actual fixture data over DB lookups
+    league_info = _league_from_fixture_dicts(fixtures_data) or resolve_player_league(player_id)
     league_name = None
     league_peers = 0
     league_avg: Dict[str, float] = {}
@@ -496,6 +509,15 @@ def get_radar_chart_data(
 
     has_league_data = league_peers >= MIN_PEERS_FOR_OVERLAY
 
+    # When no league data exists, self-normalize so the radar still shows
+    # the shape of the player's stats rather than a dot in the center.
+    if not has_league_data:
+        player_max_val = max(
+            (player_per90.get(k, 0.0) for k in stat_keys), default=0.0
+        )
+    else:
+        player_max_val = 0.0  # unused when league data exists
+
     # Build data array
     data_items = []
     for stat_key in stat_keys:
@@ -510,6 +532,10 @@ def get_radar_chart_data(
         elif max_val > 0:
             player_norm = min(100, round((p90_val / max_val) * 100))
             avg_norm = min(100, round((avg_val / max_val) * 100))
+        elif player_max_val > 0:
+            # No league data — self-normalize against player's own best stat
+            player_norm = min(100, round((p90_val / player_max_val) * 100))
+            avg_norm = 0
         else:
             player_norm = 0
             avg_norm = 0
