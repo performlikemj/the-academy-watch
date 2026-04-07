@@ -144,12 +144,13 @@ export function GlobalSearchDialog({
 
       switch (type) {
         case "team":
-          path = `/teams?highlight=${item.id}`
+          path = `/teams/${item.slug || item.id}`
           searchItem = {
             type: "team",
             id: item.id,
             name: item.name,
             logo: item.logo,
+            slug: item.slug,
           }
           break
         case "newsletter":
@@ -191,7 +192,7 @@ export function GlobalSearchDialog({
           break
         case "recent":
           // Navigate to the recent item
-          if (item.type === "team") path = `/teams?highlight=${item.id}`
+          if (item.type === "team") path = `/teams/${item.slug || item.id}`
           else if (item.type === "newsletter") path = `/newsletters/${item.id}`
           else if (item.type === "journalist") path = `/journalists/${item.id}`
           else if (item.type === "player") path = `/players/${item.id}`
