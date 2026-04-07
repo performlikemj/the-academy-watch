@@ -1049,6 +1049,15 @@ def update_my_subscriptions():
 
         db.session.commit()
 
+        if created_count or reactivated_count or deactivated_count:
+            from src.services.admin_notify_service import notify_subscription_change
+            changed_names = [r.name or f'Team #{r.id}' for r in team_rows]
+            notify_subscription_change(
+                email_norm, changed_names,
+                created=created_count, reactivated=reactivated_count,
+                deactivated=deactivated_count,
+            )
+
         active_subs = UserSubscription.query.filter_by(email=email_norm, active=True).all()
         response = {
             'message': 'Subscriptions updated',
@@ -2150,6 +2159,11 @@ def _process_subscriptions(email: str, team_ids_raw: list[Any], preferred_freque
             db.session.flush()
             _send_subscription_verification_email(email, team_names, token_row.token)
             db.session.commit()
+            from src.services.admin_notify_service import notify_subscription_change
+            notify_subscription_change(
+                email, team_names,
+                created=len(valid_ids), pending_verification=True,
+            )
             return ({
                 'message': 'Verification email sent. Please check your inbox to confirm.',
                 'verification_required': True,
@@ -2169,6 +2183,14 @@ def _process_subscriptions(email: str, team_ids_raw: list[Any], preferred_freque
     result = _activate_subscriptions(email, valid_ids, preferred_frequency)
     result['skipped'].extend(skipped)
     db.session.commit()
+
+    if result['created_count'] or result['updated_count']:
+        from src.services.admin_notify_service import notify_subscription_change
+        notify_subscription_change(
+            email, team_names,
+            created=result['created_count'], reactivated=result['updated_count'],
+        )
+
     status = 201 if result['created_count'] else 200
     return result, status
 
@@ -2331,11 +2353,19 @@ def unsubscribe_by_email():
             return jsonify({'message': 'No matching subscriptions found', 'count': 0}), 200
 
         count = 0
+        unsub_team_names = []
         for sub in subs:
             if sub.active:
                 sub.active = False
                 count += 1
+                if sub.team and sub.team.name:
+                    unsub_team_names.append(sub.team.name)
         db.session.commit()
+
+        if count:
+            from src.services.admin_notify_service import notify_unsubscribe
+            notify_unsubscribe(email, unsub_team_names[0] if unsub_team_names else None)
+
         return jsonify({'message': 'Unsubscribed successfully', 'count': count})
     except Exception as e:
         try:
@@ -2361,6 +2391,8 @@ def _unsubscribe_subscription_by_token(token: str) -> tuple[UserSubscription | N
         except Exception:
             db.session.rollback()
             raise
+        from src.services.admin_notify_service import notify_unsubscribe
+        notify_unsubscribe(sub.email, sub.team.name if sub.team else None)
         return sub, 'unsubscribed', 200
 
     return sub, 'already_unsubscribed', 200
