@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Loader2, ArrowLeft, ChevronRight, User, TrendingUp, Share2, Users, FileText, Search, X, Star, ArrowRightLeft, GraduationCap, UserMinus, BadgeDollarSign, Globe } from 'lucide-react'
+import { Loader2, ArrowLeft, ChevronRight, User, TrendingUp, Share2, Users, FileText, Search, X, Star, ArrowRightLeft, GraduationCap, UserMinus, BadgeDollarSign, Globe, Bell, Check } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion' // eslint-disable-line no-unused-vars
 import { APIService } from '@/lib/api'
 import { AcademyConstellation } from '@/components/constellation/AcademyConstellation'
@@ -18,6 +18,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { getStatusLabel } from '@/components/constellation/constellation-utils'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
+import { useAuth, useAuthUI } from '@/context/AuthContext'
 
 const STATUS_ICONS = {
     first_team: Star,
@@ -90,6 +91,51 @@ export function TeamDetailPage() {
     const [trackingRequestState, setTrackingRequestState] = useState({ open: false, reason: '', email: '' })
     const [submittingTrackingRequest, setSubmittingTrackingRequest] = useState(false)
     const [message, setMessage] = useState(null)
+
+    // Subscription state
+    const auth = useAuth()
+    const { openLoginModal } = useAuthUI()
+    const [isSubscribed, setIsSubscribed] = useState(false)
+    const [subscriptionLoading, setSubscriptionLoading] = useState(false)
+
+    // Check subscription status when logged in
+    useEffect(() => {
+        if (!auth?.token || !team?.id) return
+        APIService.getMySubscriptions()
+            .then(subs => {
+                const match = (subs || []).find(s => s.team_id === team.id && s.active)
+                setIsSubscribed(!!match)
+            })
+            .catch(() => {})
+    }, [auth?.token, team?.id])
+
+    const handleSubscribeToggle = async () => {
+        if (!auth?.token) {
+            openLoginModal()
+            return
+        }
+        setSubscriptionLoading(true)
+        try {
+            const subs = await APIService.getMySubscriptions()
+            if (isSubscribed) {
+                const otherTeamIds = (subs || [])
+                    .filter(s => s.team_id !== team.id && s.active)
+                    .map(s => s.team_id)
+                await APIService.updateMySubscriptions({ team_ids: otherTeamIds })
+                setIsSubscribed(false)
+                setMessage({ type: 'success', text: `Unsubscribed from ${team.name} alerts` })
+            } else {
+                const currentIds = (subs || []).filter(s => s.active).map(s => s.team_id)
+                await APIService.updateMySubscriptions({ team_ids: [...currentIds, team.id] })
+                setIsSubscribed(true)
+                setMessage({ type: 'success', text: `Subscribed to ${team.name} alerts!` })
+            }
+        } catch {
+            setMessage({ type: 'error', text: 'Failed to update subscription. Please try again.' })
+        } finally {
+            setSubscriptionLoading(false)
+        }
+    }
 
     // Load team info on mount
     useEffect(() => {
@@ -251,36 +297,61 @@ export function TeamDetailPage() {
             {/* Header */}
             <div className="bg-card border-b sticky top-0 z-10">
                 <div className="max-w-6xl mx-auto px-4 py-4">
-                    <div className="flex items-center gap-4">
-                        <Button variant="ghost" size="sm" onClick={handleBack}>
-                            <ArrowLeft className="mr-2 h-4 w-4" />
-                            Teams
-                        </Button>
-                        <div className="flex items-center gap-4">
-                            {team?.logo ? (
-                                <img
-                                    src={team.logo}
-                                    alt={team.name}
-                                    className="w-12 h-12 object-contain"
-                                />
-                            ) : (
-                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-md">
-                                    <Users className="h-6 w-6 text-primary-foreground" />
-                                </div>
-                            )}
-                            <div>
-                                <h1 className="text-2xl font-bold text-foreground">{team?.name}</h1>
-                                <div className="flex flex-wrap items-center gap-2 mt-1">
-                                    {team?.league_name && (
-                                        <Badge variant="secondary">{team.league_name}</Badge>
-                                    )}
-                                    {team?.country && (
-                                        <Badge variant="outline" className="text-muted-foreground">{team.country}</Badge>
-                                    )}
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-4 min-w-0">
+                            <Button variant="ghost" size="sm" onClick={handleBack}>
+                                <ArrowLeft className="mr-2 h-4 w-4" />
+                                Teams
+                            </Button>
+                            <div className="flex items-center gap-4 min-w-0">
+                                {team?.logo ? (
+                                    <img
+                                        src={team.logo}
+                                        alt={team.name}
+                                        className="w-12 h-12 object-contain shrink-0"
+                                    />
+                                ) : (
+                                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-md shrink-0">
+                                        <Users className="h-6 w-6 text-primary-foreground" />
+                                    </div>
+                                )}
+                                <div className="min-w-0">
+                                    <h1 className="text-2xl font-bold text-foreground truncate">{team?.name}</h1>
+                                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                                        {team?.league_name && (
+                                            <Badge variant="secondary">{team.league_name}</Badge>
+                                        )}
+                                        {team?.country && (
+                                            <Badge variant="outline" className="text-muted-foreground">{team.country}</Badge>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        {/* Desktop subscribe button */}
+                        <Button
+                            variant={isSubscribed ? "outline" : "default"}
+                            size="sm"
+                            onClick={handleSubscribeToggle}
+                            disabled={subscriptionLoading}
+                            className="hidden sm:flex items-center gap-2 shrink-0"
+                        >
+                            {subscriptionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> :
+                             isSubscribed ? <Check className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+                            {isSubscribed ? 'Subscribed' : 'Subscribe'}
+                        </Button>
                     </div>
+                    {/* Mobile subscribe button — full width */}
+                    <Button
+                        variant={isSubscribed ? "outline" : "default"}
+                        onClick={handleSubscribeToggle}
+                        disabled={subscriptionLoading}
+                        className="sm:hidden w-full mt-3 flex items-center justify-center gap-2"
+                    >
+                        {subscriptionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> :
+                         isSubscribed ? <Check className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+                        {isSubscribed ? 'Subscribed' : 'Subscribe to Alerts'}
+                    </Button>
                 </div>
             </div>
 
