@@ -117,6 +117,7 @@ def notify_subscription_change(
     created: int = 0,
     reactivated: int = 0,
     deactivated: int = 0,
+    pending_verification: bool = False,
 ) -> None:
     """Notify admin when a user creates or changes subscriptions."""
     try:
@@ -131,6 +132,8 @@ def notify_subscription_change(
             parts.append(f'{reactivated} reactivated')
         if deactivated:
             parts.append(f'{deactivated} deactivated')
+        if pending_verification:
+            parts.append('awaiting email confirmation')
         action_summary = ', '.join(parts) if parts else 'no changes'
 
         text = (

@@ -320,6 +320,11 @@ def _process_subscriptions(email: str, team_ids_raw: list[Any], preferred_freque
             db.session.flush()
             _send_subscription_verification_email(email, team_names, token_row.token)
             db.session.commit()
+            from src.services.admin_notify_service import notify_subscription_change
+            notify_subscription_change(
+                email, team_names,
+                created=len(valid_ids), pending_verification=True,
+            )
             return ({
                 'message': 'Verification email sent. Please check your inbox to confirm.',
                 'verification_required': True,
