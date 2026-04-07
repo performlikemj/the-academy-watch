@@ -6300,12 +6300,15 @@ def submit_tracking_request(team_identifier: str):
         
         db.session.add(tracking_request)
         db.session.commit()
-        
+
+        from src.services.admin_notify_service import notify_tracking_request
+        notify_tracking_request(team.name, email or None, reason or None)
+
         return jsonify({
             'message': f'Tracking request submitted for {team.name}',
             'request_id': tracking_request.id
         }), 201
-        
+
     except Exception as e:
         logger.exception('submit_tracking_request failed')
         db.session.rollback()

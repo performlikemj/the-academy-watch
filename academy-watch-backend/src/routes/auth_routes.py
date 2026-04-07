@@ -201,10 +201,14 @@ def verify_login_code():
             return jsonify({'error': 'invalid or expired code'}), 400
         # Mark used and issue an auth token
         row.used_at = datetime.now(timezone.utc)
+        is_new_user = not UserAccount.query.filter_by(email=email).first()
         user = _ensure_user_account(email)
         if user:
             user.last_login_at = datetime.now(timezone.utc)
         db.session.commit()
+        if is_new_user:
+            from src.services.admin_notify_service import notify_new_user
+            notify_new_user(email, user.display_name if user else None)
         # Determine role by env allowlist
         allowed = [x.strip().lower() for x in (os.getenv('ADMIN_EMAILS') or '').split(',') if x.strip()]
         role = 'admin' if email in allowed else 'user'

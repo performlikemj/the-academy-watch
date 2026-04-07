@@ -339,6 +339,14 @@ def _process_subscriptions(email: str, team_ids_raw: list[Any], preferred_freque
     result = _activate_subscriptions(email, valid_ids, preferred_frequency)
     result['skipped'].extend(skipped)
     db.session.commit()
+
+    if result['created_count'] or result['updated_count']:
+        from src.services.admin_notify_service import notify_subscription_change
+        notify_subscription_change(
+            email, team_names,
+            created=result['created_count'], reactivated=result['updated_count'],
+        )
+
     status = 201 if result['created_count'] else 200
     return result, status
 
@@ -360,6 +368,8 @@ def _unsubscribe_subscription_by_token(token: str) -> tuple[UserSubscription | N
         except Exception:
             db.session.rollback()
             raise
+        from src.services.admin_notify_service import notify_unsubscribe
+        notify_unsubscribe(sub.email, sub.team.name if sub.team else None)
         return sub, 'unsubscribed', 200
 
     return sub, 'already_unsubscribed', 200
@@ -477,6 +487,15 @@ def update_my_subscriptions():
                 deactivated_count += 1
 
         db.session.commit()
+
+        if created_count or reactivated_count or deactivated_count:
+            from src.services.admin_notify_service import notify_subscription_change
+            changed_names = [r.name or f'Team #{r.id}' for r in team_rows]
+            notify_subscription_change(
+                email_norm, changed_names,
+                created=created_count, reactivated=reactivated_count,
+                deactivated=deactivated_count,
+            )
 
         active_subs = UserSubscription.query.filter_by(email=email_norm, active=True).all()
         response = {
