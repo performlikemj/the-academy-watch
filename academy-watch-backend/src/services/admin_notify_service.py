@@ -39,8 +39,10 @@ def _notify_in_background(subject: str, text: str, html: str) -> None:
     """Send an admin notification email in a background thread."""
     admin_email = _get_admin_email()
     if not admin_email:
-        logger.debug('Admin notification skipped: ADMIN_EMAILS not configured')
+        logger.info('Admin notification skipped: ADMIN_EMAILS not configured')
         return
+
+    logger.info('Queuing admin notification to %s: %s', admin_email, subject)
 
     from src.services.email_service import email_service
     app = email_service._app
@@ -50,21 +52,23 @@ def _notify_in_background(subject: str, text: str, html: str) -> None:
             ctx = app.app_context() if app else None
             if ctx:
                 with ctx:
-                    email_service.send_email(
+                    result = email_service.send_email(
                         to=admin_email,
                         subject=subject,
                         html=html,
                         text=text,
                         tags=['admin-notification'],
                     )
+                    logger.info('Admin notification sent: %s success=%s', subject, result.success if result else 'unknown')
             else:
-                email_service.send_email(
+                result = email_service.send_email(
                     to=admin_email,
                     subject=subject,
                     html=html,
                     text=text,
                     tags=['admin-notification'],
                 )
+                logger.info('Admin notification sent (no app ctx): %s success=%s', subject, result.success if result else 'unknown')
         except Exception:
             logger.exception('Failed to send admin notification: %s', subject)
 

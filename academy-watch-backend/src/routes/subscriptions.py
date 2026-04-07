@@ -493,6 +493,10 @@ def update_my_subscriptions():
 
         db.session.commit()
 
+        logger.info(
+            'update_my_subscriptions result: email=%s created=%d reactivated=%d deactivated=%d',
+            email_norm, created_count, reactivated_count, deactivated_count,
+        )
         if created_count or reactivated_count or deactivated_count:
             from src.services.admin_notify_service import notify_subscription_change
             changed_names = [r.name or f'Team #{r.id}' for r in team_rows]
