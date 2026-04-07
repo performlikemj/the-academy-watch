@@ -2562,6 +2562,16 @@ def verify_email_token(token: str):
             result = _activate_subscriptions(row.email, team_ids, preferred_frequency)
             row.used_at = datetime.now(timezone.utc)
             db.session.commit()
+
+            if result['created_count'] or result['updated_count']:
+                from src.services.admin_notify_service import notify_subscription_change
+                team_rows = Team.query.filter(Team.id.in_(team_ids)).all()
+                confirmed_names = [t.name or f'Team #{t.id}' for t in team_rows]
+                notify_subscription_change(
+                    row.email, confirmed_names,
+                    created=result['created_count'], reactivated=result['updated_count'],
+                )
+
             status = 201 if result['created_count'] else 200
             return jsonify({
                 'message': 'Subscriptions confirmed',
