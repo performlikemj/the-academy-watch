@@ -1189,6 +1189,22 @@ def get_newsletter(newsletter_id):
         except Exception:
             payload['enriched_content'] = None
 
+        # Community takes (incl. tweets). Surfaced on the JSON response so the
+        # React newsletter view can render an inline tweet block per player and
+        # a team-level "Around the Squad — Twitter" section, matching what the
+        # Flask templates already get via _newsletter_render_context.
+        try:
+            community_takes = _fetch_community_takes_for_newsletter(newsletter)
+            payload['community_takes'] = community_takes
+            payload['twitter_takes'] = [
+                t for t in community_takes if t.get('source_type') == 'twitter'
+            ]
+            payload['twitter_takes_by_player'] = _build_twitter_takes_by_player(community_takes)
+        except Exception:
+            payload['community_takes'] = []
+            payload['twitter_takes'] = []
+            payload['twitter_takes_by_player'] = {}
+
         return jsonify(payload)
     except Exception as e:
         return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
@@ -3266,6 +3282,44 @@ def _collect_commentaries_for_newsletter(n: Newsletter) -> list[NewsletterCommen
     return commentaries
 
 
+def _fetch_community_takes_for_newsletter(n: Newsletter) -> list[dict]:
+    """Return approved community takes attached to a newsletter (or recent
+    team-level takes as fallback when none are explicitly linked).
+
+    Used by both `_newsletter_render_context` (Flask template path, for
+    rendered email/web HTML) and `get_newsletter` (JSON API path, for the
+    React newsletter view). Keep the two call sites in sync via this helper.
+    """
+    community_takes: list[dict] = []
+    takes_query = CommunityTake.query.filter_by(status='approved')
+    if n.id:
+        newsletter_takes = takes_query.filter_by(newsletter_id=n.id).all()
+        community_takes.extend([t.to_dict() for t in newsletter_takes])
+
+    # Fallback: when no takes are explicitly attached to this newsletter,
+    # surface the most recent team-level takes that aren't tied to a
+    # different newsletter.
+    if n.team_id and not community_takes:
+        team_takes = takes_query.filter_by(
+            team_id=n.team_id, newsletter_id=None
+        ).order_by(CommunityTake.created_at.desc()).limit(5).all()
+        community_takes.extend([t.to_dict() for t in team_takes])
+
+    return community_takes
+
+
+def _build_twitter_takes_by_player(community_takes: list[dict]) -> dict[int, list[dict]]:
+    """Group twitter-source community takes by `player_id` so the per-player
+    commentary card can render tweets about that specific player inline.
+    Tweets without a `player_id` are surfaced as team-level via `twitter_takes`.
+    """
+    grouped: dict[int, list[dict]] = {}
+    for take in community_takes:
+        if take.get('source_type') == 'twitter' and take.get('player_id'):
+            grouped.setdefault(take['player_id'], []).append(take)
+    return grouped
+
+
 def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
     data = _load_newsletter_json(n) or {}
     team_logo = data.get('team_logo')
@@ -3295,27 +3349,11 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
     # Public base URL for player links in emails
     public_base_url = os.getenv('PUBLIC_BASE_URL', '').rstrip('/')
 
-    # Fetch approved community takes for this newsletter
-    community_takes = []
-    takes_query = CommunityTake.query.filter_by(status='approved')
-    if n.id:
-        # First, get takes explicitly linked to this newsletter
-        newsletter_takes = takes_query.filter_by(newsletter_id=n.id).all()
-        community_takes.extend([t.to_dict() for t in newsletter_takes])
-
-    # Also get takes linked to the team (if any) that aren't newsletter-specific
-    if n.team_id and not community_takes:
-        team_takes = takes_query.filter_by(team_id=n.team_id, newsletter_id=None).order_by(
-            CommunityTake.created_at.desc()
-        ).limit(5).all()
-        community_takes.extend([t.to_dict() for t in team_takes])
-
-    # Group tweets by player_id so the per-player commentary card can show
-    # tweets about that specific player inline.
-    twitter_takes_by_player: dict[int, list] = {}
-    for take in community_takes:
-        if take.get('source_type') == 'twitter' and take.get('player_id'):
-            twitter_takes_by_player.setdefault(take['player_id'], []).append(take)
+    # Fetch approved community takes + group twitter takes by player.
+    # Both helpers are also used by the JSON API endpoint (`get_newsletter`)
+    # so the React renderer sees the same shape as the Flask templates.
+    community_takes = _fetch_community_takes_for_newsletter(n)
+    twitter_takes_by_player = _build_twitter_takes_by_player(community_takes)
 
     # Submit take URL for footer
     submit_take_url = f"{public_base_url}/submit-take" if public_base_url else None

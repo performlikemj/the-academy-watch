@@ -38,10 +38,10 @@
     }
 
     .content {
-      padding: 28px 26px 32px;
+      padding: 36px 32px 44px;
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       color: #e2e8f0;
-      line-height: 1.55;
+      line-height: 1.65;
     }
 
     .brand {
@@ -128,7 +128,7 @@
 
     h2 {
       font-size: 11px;
-      margin: 28px 0 14px;
+      margin: 44px 0 20px;
       text-transform: uppercase;
       letter-spacing: 3px;
       color: #94a3b8;
@@ -138,7 +138,7 @@
 
     h3 {
       font-size: 13px;
-      margin: 20px 0 10px;
+      margin: 32px 0 16px;
       text-transform: uppercase;
       letter-spacing: 1.5px;
       color: #cbd5e1;
@@ -189,9 +189,9 @@
 
     .item {
       background: #131b2e;
-      border-radius: 8px;
-      padding: 18px 18px 18px;
-      margin-bottom: 14px;
+      border-radius: 10px;
+      padding: 24px 22px;
+      margin-bottom: 26px;
     }
 
     .item-header {
@@ -257,7 +257,12 @@
     .match-row {
       display: flex;
       align-items: center;
-      padding: 8px 0;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.06);
+    }
+
+    .match-row:last-child {
+      border-bottom: none;
     }
 
     .match-info {
@@ -303,10 +308,10 @@
     }
 
     .matches-section {
-      margin: 14px 0;
-      padding: 12px 14px;
+      margin: 20px 0;
+      padding: 18px 20px;
       background: #222a3d;
-      border-radius: 6px;
+      border-radius: 8px;
     }
 
     .matches-header {
@@ -315,14 +320,14 @@
       color: #94a3b8;
       font-weight: 700;
       letter-spacing: 1.5px;
-      margin-bottom: 8px;
+      margin-bottom: 12px;
     }
 
     .stats {
       font-family: 'Inter', sans-serif;
       font-size: 13px;
       color: #cbd5e1;
-      margin: 12px 0;
+      margin: 20px 0;
       font-weight: 500;
     }
 
@@ -422,6 +427,57 @@
       color: #2563EB;
       font-weight: 600;
       text-decoration: none;
+    }
+
+    /* Expanded statistics grid — explicit 2-col so it can't overflow at the
+       600px container width that Outlook desktop loves. Dark theme tier-3
+       cards over a tier-2 well, generous interior padding so the grid no
+       longer feels stuffed. */
+    .expanded-stats {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      margin: 22px 0;
+      padding: 18px;
+      background: #222a3d;
+      border-radius: 10px;
+    }
+
+    .es-card {
+      background: #2d3449;
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .es-header {
+      margin: 0 0 10px;
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #94a3b8;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+    }
+
+    .es-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .es-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .es-label {
+      color: #94a3b8;
+    }
+
+    .es-value {
+      font-weight: 700;
+      color: #f1f5f9;
     }
 
     /* Tactical Lens callout / pill / badge utilities */
@@ -673,166 +729,99 @@
                   {% endif %}
                 </div>
 
-                {# Expanded Statistics Grid for Email #}
+                {# Expanded Statistics Grid for Email — explicit 2-column
+                   layout (no auto-fit) so it can't overflow at 600px in
+                   Outlook. Dark theme cards over a tier-2 well. #}
                 {% set has_expanded_stats = s.get('shots_total') or s.get('passes_total') or s.get('tackles_total') or
                 s.get('duels_total') %}
                 {% if has_expanded_stats %}
-                <div
-                  style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:12px 0;padding:12px;background:#f9fafb;border-radius:8px;">
-                  {# Attacking Stats #}
+                <div class="expanded-stats">
                   {% if s.get('shots_total') or s.get('dribbles_attempts') or s.get('offsides') %}
-                  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;">
-                    <div
-                      style="margin:0 0 6px 0;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;letter-spacing:0.5px;">
-                      ⚽ ATTACKING</div>
-                    <div style="display:flex;flex-direction:column;gap:4px;">
+                  <div class="es-card">
+                    <div class="es-header">Attacking</div>
+                    <div class="es-rows">
                       {% if s.get('shots_total') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Shots</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('shots_total') }} ({{ s.get('shots_on', 0)
-                          }} on)</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Shots</span><span class="es-value">{{ s.get('shots_total') }} ({{ s.get('shots_on', 0) }} on)</span></div>
                       {% endif %}
                       {% if s.get('dribbles_attempts') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Dribbles</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('dribbles_success', 0) }}/{{
-                          s.get('dribbles_attempts') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Dribbles</span><span class="es-value">{{ s.get('dribbles_success', 0) }}/{{ s.get('dribbles_attempts') }}</span></div>
                       {% endif %}
                       {% if s.get('offsides') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Offsides</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('offsides') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Offsides</span><span class="es-value">{{ s.get('offsides') }}</span></div>
                       {% endif %}
                     </div>
                   </div>
                   {% endif %}
 
-                  {# Passing Stats #}
                   {% if s.get('passes_total') or s.get('passes_key') %}
-                  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;">
-                    <div
-                      style="margin:0 0 6px 0;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;letter-spacing:0.5px;">
-                      🎯 PASSING</div>
-                    <div style="display:flex;flex-direction:column;gap:4px;">
+                  <div class="es-card">
+                    <div class="es-header">Passing</div>
+                    <div class="es-rows">
                       {% if s.get('passes_total') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Passes</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('passes_total') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Passes</span><span class="es-value">{{ s.get('passes_total') }}</span></div>
                       {% endif %}
                       {% if s.get('passes_key') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Key passes</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('passes_key') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Key passes</span><span class="es-value">{{ s.get('passes_key') }}</span></div>
                       {% endif %}
                       {% if s.get('passes_accuracy') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Accuracy</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('passes_accuracy') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Accuracy</span><span class="es-value">{{ s.get('passes_accuracy') }}</span></div>
                       {% endif %}
                     </div>
                   </div>
                   {% endif %}
 
-                  {# Defensive Stats #}
                   {% if s.get('tackles_total') or s.get('tackles_interceptions') %}
-                  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;">
-                    <div
-                      style="margin:0 0 6px 0;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;letter-spacing:0.5px;">
-                      🛡️ DEFENDING</div>
-                    <div style="display:flex;flex-direction:column;gap:4px;">
+                  <div class="es-card">
+                    <div class="es-header">Defending</div>
+                    <div class="es-rows">
                       {% if s.get('tackles_total') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Tackles</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('tackles_total') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Tackles</span><span class="es-value">{{ s.get('tackles_total') }}</span></div>
                       {% endif %}
                       {% if s.get('tackles_interceptions') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Interceptions</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('tackles_interceptions') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Interceptions</span><span class="es-value">{{ s.get('tackles_interceptions') }}</span></div>
                       {% endif %}
                       {% if s.get('tackles_blocks') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Blocks</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('tackles_blocks') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Blocks</span><span class="es-value">{{ s.get('tackles_blocks') }}</span></div>
                       {% endif %}
                     </div>
                   </div>
                   {% endif %}
 
-                  {# Duels #}
                   {% if s.get('duels_total') %}
-                  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;">
-                    <div
-                      style="margin:0 0 6px 0;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;letter-spacing:0.5px;">
-                      ⚔️ DUELS</div>
-                    <div style="display:flex;flex-direction:column;gap:4px;">
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Won</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('duels_won', 0) }}/{{ s.get('duels_total')
-                          }}</span>
-                      </div>
+                  <div class="es-card">
+                    <div class="es-header">Duels</div>
+                    <div class="es-rows">
+                      <div class="es-row"><span class="es-label">Won</span><span class="es-value">{{ s.get('duels_won', 0) }}/{{ s.get('duels_total') }}</span></div>
                     </div>
                   </div>
                   {% endif %}
 
-                  {# Goalkeeper Stats #}
                   {% if s.get('position') in ['G', 'Goalkeeper'] and (s.get('saves') or s.get('goals_conceded')) %}
-                  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;">
-                    <div
-                      style="margin:0 0 6px 0;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;letter-spacing:0.5px;">
-                      🧤 GOALKEEPER</div>
-                    <div style="display:flex;flex-direction:column;gap:4px;">
+                  <div class="es-card">
+                    <div class="es-header">Goalkeeper</div>
+                    <div class="es-rows">
                       {% if s.get('saves') is not none %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Saves</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('saves') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Saves</span><span class="es-value">{{ s.get('saves') }}</span></div>
                       {% endif %}
                       {% if s.get('goals_conceded') is not none %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Conceded</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('goals_conceded') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Conceded</span><span class="es-value">{{ s.get('goals_conceded') }}</span></div>
                       {% endif %}
                     </div>
                   </div>
                   {% endif %}
 
-                  {# Discipline #}
-                  {% if s.get('fouls_committed') or s.get('fouls_drawn') or s.get('yellows', 0)|int > 0 or s.get('reds',
-                  0)|int > 0 %}
-                  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;">
-                    <div
-                      style="margin:0 0 6px 0;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;letter-spacing:0.5px;">
-                      ⚠️ DISCIPLINE</div>
-                    <div style="display:flex;flex-direction:column;gap:4px;">
+                  {% if s.get('fouls_committed') or s.get('fouls_drawn') or s.get('yellows', 0)|int > 0 or s.get('reds', 0)|int > 0 %}
+                  <div class="es-card">
+                    <div class="es-header">Discipline</div>
+                    <div class="es-rows">
                       {% if s.get('fouls_committed') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Fouls</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('fouls_committed') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Fouls</span><span class="es-value">{{ s.get('fouls_committed') }}</span></div>
                       {% endif %}
                       {% if s.get('fouls_drawn') %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Fouled</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('fouls_drawn') }}</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Fouled</span><span class="es-value">{{ s.get('fouls_drawn') }}</span></div>
                       {% endif %}
                       {% if s.get('yellows', 0)|int > 0 or s.get('reds', 0)|int > 0 %}
-                      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
-                        <span style="color:#6b7280;">Cards</span>
-                        <span style="font-weight:600;color:#111827;">{{ s.get('yellows', 0)|int }}Y {{ s.get('reds',
-                          0)|int }}R</span>
-                      </div>
+                      <div class="es-row"><span class="es-label">Cards</span><span class="es-value">{{ s.get('yellows', 0)|int }}Y {{ s.get('reds', 0)|int }}R</span></div>
                       {% endif %}
                     </div>
                   </div>
@@ -872,7 +861,7 @@
                     {% else %}
                       {% set border_color = '#2a3040' %}
                     {% endif %}
-                    <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid {{ border_color }};{% if loop.last %}border-bottom:none;{% endif %}">
+                    <div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid {{ border_color }};{% if loop.last %}border-bottom:none;{% endif %}">
                       {% if fixture.opponent_logo %}
                       <img src="{{ fixture.opponent_logo }}" alt="{{ fixture.opponent }}" 
                            style="width:24px;height:24px;border-radius:50%;object-fit:cover;background:#222a3d;flex-shrink:0;" />
