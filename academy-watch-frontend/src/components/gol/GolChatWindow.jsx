@@ -4,11 +4,14 @@ import { GolInput } from './GolInput'
 import { GolSuggestions } from './GolSuggestions'
 import { PlayerPreviewDrawer } from './PlayerPreviewDrawer'
 import { exportChatAsMarkdown } from './exportChat'
+import { APIService } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Download, Trash2 } from 'lucide-react'
+import { Download, FileDown, Loader2, Trash2 } from 'lucide-react'
 
 export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, stopStreaming, expanded }) {
   const [previewPlayerId, setPreviewPlayerId] = useState(null)
+  const [pdfExporting, setPdfExporting] = useState(false)
+  const [pdfError, setPdfError] = useState(null)
   const scrollRef = useRef(null)
   const bottomRef = useRef(null)
   const prefersReducedMotion = useRef(
@@ -18,6 +21,19 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: prefersReducedMotion.current ? 'instant' : 'smooth' })
   }, [messages])
+
+  const handleExportPdf = async () => {
+    setPdfError(null)
+    setPdfExporting(true)
+    try {
+      await APIService.golExportPdf(messages)
+    } catch (err) {
+      console.error('GOL PDF export failed', err)
+      setPdfError(err?.message || 'PDF export failed')
+    } finally {
+      setPdfExporting(false)
+    }
+  }
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -39,28 +55,50 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
 
       <div className="border-t px-4 py-3">
         {messages.length > 0 && (
-          <div className="flex justify-end gap-1 mb-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs text-muted-foreground"
-              onClick={() => {
-                const md = exportChatAsMarkdown(messages)
-                const blob = new Blob([md], { type: 'text/markdown' })
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement('a')
-                a.href = url
-                a.download = `gol-chat-${new Date().toISOString().slice(0, 10)}.md`
-                a.click()
-                URL.revokeObjectURL(url)
-              }}
-            >
-              <Download className="h-3 w-3 mr-1" /> Save
-            </Button>
-            <Button variant="ghost" size="sm" onClick={clearChat} className="text-xs text-muted-foreground">
-              <Trash2 className="h-3 w-3 mr-1" /> Clear
-            </Button>
-          </div>
+          <>
+            <div className="flex justify-end gap-1 mb-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground"
+                onClick={() => {
+                  const md = exportChatAsMarkdown(messages)
+                  const blob = new Blob([md], { type: 'text/markdown' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `gol-chat-${new Date().toISOString().slice(0, 10)}.md`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                }}
+              >
+                <Download className="h-3 w-3 mr-1" /> Save
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground"
+                onClick={handleExportPdf}
+                disabled={pdfExporting || isStreaming}
+                title="Download as PDF"
+              >
+                {pdfExporting ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <FileDown className="h-3 w-3 mr-1" />
+                )}
+                PDF
+              </Button>
+              <Button variant="ghost" size="sm" onClick={clearChat} className="text-xs text-muted-foreground">
+                <Trash2 className="h-3 w-3 mr-1" /> Clear
+              </Button>
+            </div>
+            {pdfError && (
+              <div className="text-xs text-rose-500 mb-2 text-right" role="alert">
+                {pdfError}
+              </div>
+            )}
+          </>
         )}
         <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
       </div>

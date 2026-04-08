@@ -605,6 +605,214 @@ def _render_empty_chart(message: str, width: int, height: int) -> bytes:
     return buf.read()
 
 
+def render_generic_bar_chart(
+    columns: List[str],
+    rows: List[List[Any]],
+    title: Optional[str] = None,
+    width: int = 640,
+    height: int = 340,
+) -> bytes:
+    """Render a bar chart from a generic ``{columns, rows}`` shape.
+
+    The first column is treated as the category axis (x) and every subsequent
+    numeric column becomes a bar series. Non-numeric cells in series columns
+    are coerced to 0. If there is only one value column the chart renders a
+    single bar per category with no legend clutter.
+
+    Styling is deliberately identical to :func:`render_bar_chart` (dark
+    Tactical Lens facecolor, light slate labels) so the chart reads as part
+    of the same brand family as the newsletter charts.
+    """
+    if not columns or not rows:
+        return _render_empty_chart("No data available", width, height)
+
+    category_col = columns[0]
+    series_cols = columns[1:]
+
+    if not series_cols:
+        return _render_empty_chart("No numeric series to plot", width, height)
+
+    categories = [str(row[0]) if len(row) > 0 and row[0] is not None else "" for row in rows]
+
+    # Coerce series values to floats, substituting 0 for anything that can't
+    # be parsed — this keeps matplotlib from crashing on mixed-type columns.
+    def _coerce(value: Any) -> float:
+        if value is None:
+            return 0.0
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    series_values = {
+        col: [_coerce(row[idx + 1]) if idx + 1 < len(row) else 0.0 for row in rows]
+        for idx, col in enumerate(series_cols)
+    }
+
+    fig, ax = plt.subplots(figsize=(width / 100, height / 100), dpi=DPI)
+    fig.patch.set_facecolor(TL_CARD)
+    ax.set_facecolor(TL_CARD)
+
+    x = np.arange(len(categories))
+    num_series = len(series_cols)
+    width_bar = 0.8 / max(num_series, 1)
+    palette = [
+        CHART_COLORS['primary'],
+        CHART_COLORS['success'],
+        CHART_COLORS['info'],
+        CHART_COLORS['warning'],
+        CHART_COLORS['danger'],
+    ]
+
+    for i, col in enumerate(series_cols):
+        offset = (i - num_series / 2 + 0.5) * width_bar
+        ax.bar(
+            x + offset,
+            series_values[col],
+            width_bar,
+            label=col.replace('_', ' ').title(),
+            color=palette[i % len(palette)],
+            alpha=0.9,
+        )
+
+    # Axes + labels.
+    ax.set_xlabel(category_col.replace('_', ' ').title(), fontsize=9, color=CHART_COLORS['gray'])
+    if len(series_cols) == 1:
+        ax.set_ylabel(series_cols[0].replace('_', ' ').title(), fontsize=9, color=CHART_COLORS['gray'])
+    ax.set_xticks(x)
+    ax.set_xticklabels(categories, rotation=35, ha='right', fontsize=8, color=CHART_COLORS['gray'])
+
+    if num_series > 1:
+        legend = ax.legend(
+            loc='upper right',
+            fontsize=8,
+            facecolor=TL_INNER,
+            edgecolor=TL_GRID,
+            labelcolor=TL_TEXT,
+        )
+        if legend is not None:
+            legend.get_frame().set_alpha(0.85)
+
+    if title:
+        ax.set_title(title, fontsize=11, fontweight='bold', color=TL_TEXT)
+
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_color(TL_GRID)
+    ax.spines['left'].set_color(TL_GRID)
+    ax.tick_params(colors=CHART_COLORS['gray'])
+    ax.yaxis.label.set_color(CHART_COLORS['gray'])
+    ax.xaxis.label.set_color(CHART_COLORS['gray'])
+    ax.grid(True, axis='y', alpha=0.25, color=TL_GRID, linewidth=0.6)
+
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', facecolor=TL_CARD, edgecolor='none')
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
+
+
+def render_generic_line_chart(
+    columns: List[str],
+    rows: List[List[Any]],
+    title: Optional[str] = None,
+    width: int = 640,
+    height: int = 340,
+) -> bytes:
+    """Render a line chart from a generic ``{columns, rows}`` shape.
+
+    Column semantics match :func:`render_generic_bar_chart`: column 0 is the
+    x-axis category (typically a date, season, or ordered label) and every
+    subsequent column is a numeric line series.
+    """
+    if not columns or not rows:
+        return _render_empty_chart("No data available", width, height)
+
+    category_col = columns[0]
+    series_cols = columns[1:]
+
+    if not series_cols:
+        return _render_empty_chart("No numeric series to plot", width, height)
+
+    categories = [str(row[0]) if len(row) > 0 and row[0] is not None else "" for row in rows]
+
+    def _coerce_or_nan(value: Any) -> float:
+        if value is None:
+            return float('nan')
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float('nan')
+
+    series_values = {
+        col: [_coerce_or_nan(row[idx + 1]) if idx + 1 < len(row) else float('nan') for row in rows]
+        for idx, col in enumerate(series_cols)
+    }
+
+    fig, ax = plt.subplots(figsize=(width / 100, height / 100), dpi=DPI)
+    fig.patch.set_facecolor(TL_CARD)
+    ax.set_facecolor(TL_CARD)
+
+    x = np.arange(len(categories))
+    palette = [
+        CHART_COLORS['primary'],
+        CHART_COLORS['success'],
+        CHART_COLORS['info'],
+        CHART_COLORS['warning'],
+        CHART_COLORS['danger'],
+    ]
+
+    for i, col in enumerate(series_cols):
+        ax.plot(
+            x,
+            series_values[col],
+            'o-',
+            label=col.replace('_', ' ').title(),
+            color=palette[i % len(palette)],
+            linewidth=2.2,
+            markersize=6,
+        )
+
+    ax.set_xlabel(category_col.replace('_', ' ').title(), fontsize=9, color=CHART_COLORS['gray'])
+    if len(series_cols) == 1:
+        ax.set_ylabel(series_cols[0].replace('_', ' ').title(), fontsize=9, color=CHART_COLORS['gray'])
+    ax.set_xticks(x)
+    ax.set_xticklabels(categories, rotation=35, ha='right', fontsize=8, color=CHART_COLORS['gray'])
+
+    if len(series_cols) > 1:
+        legend = ax.legend(
+            loc='upper right',
+            fontsize=8,
+            facecolor=TL_INNER,
+            edgecolor=TL_GRID,
+            labelcolor=TL_TEXT,
+        )
+        if legend is not None:
+            legend.get_frame().set_alpha(0.85)
+
+    if title:
+        ax.set_title(title, fontsize=11, fontweight='bold', color=TL_TEXT)
+
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_color(TL_GRID)
+    ax.spines['left'].set_color(TL_GRID)
+    ax.tick_params(colors=CHART_COLORS['gray'])
+    ax.yaxis.label.set_color(CHART_COLORS['gray'])
+    ax.xaxis.label.set_color(CHART_COLORS['gray'])
+    ax.grid(True, alpha=0.3, color=TL_GRID, linewidth=0.6)
+
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', facecolor=TL_CARD, edgecolor='none')
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
+
+
 def render_chart(chart_type: str, data: Dict[str, Any], width: int = 500, height: int = 300) -> bytes:
     """
     Main entry point to render a chart based on type.

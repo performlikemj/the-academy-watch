@@ -1860,6 +1860,47 @@ export class APIService {
         })
     }
 
+    static async golExportPdf(messages) {
+        if (!Array.isArray(messages) || messages.length === 0) {
+            throw new Error('Nothing to export — start a chat first')
+        }
+        const headers = { 'Content-Type': 'application/json', 'Accept': 'application/pdf' }
+        if (this.userToken) headers['Authorization'] = `Bearer ${this.userToken}`
+        const res = await fetch(`${API_BASE_URL}/gol/export-pdf`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ messages }),
+        })
+        if (!res.ok) {
+            let message = `HTTP ${res.status}`
+            try {
+                const body = await res.text()
+                if (body) message = body
+            } catch (_) { /* ignore */ }
+            const err = new Error(message)
+            err.status = res.status
+            throw err
+        }
+        const blob = await res.blob()
+        const disposition = res.headers.get('content-disposition') || ''
+        let filename = `gol-chat-${new Date().toISOString().slice(0, 10)}.pdf`
+        const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)
+        if (match && match[1]) {
+            try { filename = decodeURIComponent(match[1]) } catch (_) { filename = match[1] }
+        }
+        if (typeof document !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
+            const objectUrl = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = objectUrl
+            a.download = filename
+            document.body.appendChild(a)
+            a.click()
+            a.remove()
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+        }
+        return { blob, filename }
+    }
+
     // ==========================================================================
     // Academy Network
     // ==========================================================================
