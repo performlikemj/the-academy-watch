@@ -249,6 +249,41 @@ def format_matches(matches: Optional[list], upcoming_fixtures: Optional[list]) -
     return '\n'.join(lines)
 
 
+def format_social_buzz(tweets: Optional[list]) -> str:
+    """Format Twitter/X social buzz for a player item.
+
+    Args:
+        tweets: List of tweet dicts from src.mcp.twitter (may be empty or None)
+
+    Returns:
+        Formatted markdown string, or empty string if no tweets
+    """
+    if not tweets:
+        return ''
+
+    lines = ['', '**🐦 Social Buzz:**']
+    for tweet in tweets:
+        text = tweet.get('text', '').strip()
+        url = tweet.get('url', '')
+        likes = tweet.get('likes', 0)
+        rts = tweet.get('retweets', 0)
+        created = tweet.get('created_at', '')
+        # Format date portion only
+        date_label = ''
+        if created:
+            try:
+                dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                date_label = f" · {dt.strftime('%-d %b')}"
+            except Exception:
+                pass
+        metrics = f"❤️ {likes} 🔁 {rts}"
+        if url:
+            lines.append(f"- [{text[:120]}{'…' if len(text) > 120 else ''}]({url}) {metrics}{date_label}")
+        else:
+            lines.append(f"- {text[:120]}{'…' if len(text) > 120 else ''} {metrics}{date_label}")
+    return '\n'.join(lines)
+
+
 def format_links(links: Optional[list]) -> str:
     """Format links for a player item.
     
@@ -462,6 +497,12 @@ def convert_newsletter_to_markdown(
                 lines.append(matches_section)
                 lines.append('')
             
+            # Social Buzz (Twitter/X)
+            social_buzz = item.get('social_buzz', [])
+            if social_buzz:
+                lines.append(format_social_buzz(social_buzz))
+                lines.append('')
+
             # Links
             item_links = item.get('links', [])
             if include_links and item_links:

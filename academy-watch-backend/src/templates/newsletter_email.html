@@ -755,6 +755,24 @@
                 <p>{{ it.week_summary }}</p>
                 {% endif %}
 
+                {# Social Buzz (Twitter/X) #}
+                {% set buzz = it.social_buzz if it.social_buzz is defined else [] %}
+                {% if buzz and buzz|length > 0 %}
+                <div style="margin:14px 0;padding:12px;background:#0f172a;border-left:3px solid #1d9bf0;border-radius:4px;">
+                  <div style="font-size:12px;font-weight:600;color:#1d9bf0;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">🐦 Social Buzz</div>
+                  {% for tweet in buzz[:3] %}
+                  <div style="margin-bottom:8px;padding-bottom:8px;{% if not loop.last %}border-bottom:1px solid #1e293b;{% endif %}">
+                    <p style="color:#e2e8f0;font-size:13px;line-height:1.5;margin:0 0 4px;">{{ tweet.text[:160] }}{% if tweet.text|length > 160 %}…{% endif %}</p>
+                    <div style="font-size:11px;color:#64748b;display:flex;gap:10px;align-items:center;">
+                      <span>❤️ {{ tweet.likes }}</span>
+                      <span>🔁 {{ tweet.retweets }}</span>
+                      {% if tweet.url %}<a href="{{ tweet.url }}" target="_blank" rel="noopener" style="color:#1d9bf0;text-decoration:none;">View →</a>{% endif %}
+                    </div>
+                  </div>
+                  {% endfor %}
+                </div>
+                {% endif %}
+
                 {# Fixtures Section (Upcoming & Results) - Shows next week's fixtures #}
                 {% if it.upcoming_fixtures and it.upcoming_fixtures|length > 0 %}
                 <div

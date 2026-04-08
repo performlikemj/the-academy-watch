@@ -34,6 +34,7 @@ from src.services.graph_service import GraphService
 # If you have an MCP client already for Brave (Model Context Protocol), import it here.
 # This is a thin wrapper that exposes a Python function brave_search(query: str, since: str, until: str) -> List[dict]
 from src.mcp.brave import brave_search  # implement this wrapper to call your MCP tool
+from src.mcp.twitter import twitter_context_for_newsletter, inject_social_buzz
 from .weekly_agent import get_league_localization
 import dotenv
 dotenv.load_dotenv(dotenv.find_dotenv())
@@ -1842,9 +1843,18 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
         for row, fixture in stats_rows:
-            totals['minutes'] += row.minutes or 0
-            totals['goals'] += row.goals or 0
-            totals['assists'] += row.assists or 0
+            raw_minutes = row.minutes or 0
+            row_goals = row.goals or 0
+            row_assists = row.assists or 0
+            # Limited-coverage leagues (e.g. National League) store goals/assists from
+            # match events but do NOT populate `minutes`.  If the player clearly
+            # participated (goals or assists present) but minutes is 0, estimate 45
+            # so the newsletter doesn't falsely report 0'.
+            is_limited_coverage = raw_minutes == 0 and (row_goals > 0 or row_assists > 0)
+            effective_minutes = 45 if is_limited_coverage else raw_minutes
+            totals['minutes'] += effective_minutes
+            totals['goals'] += row_goals
+            totals['assists'] += row_assists
             totals['yellows'] += row.yellows or 0
             totals['reds'] += row.reds or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
@@ -1854,20 +1864,34 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
                 # Resolve team name from Team table (Fixture model has no name columns)
                 opp_team_row = Team.query.filter_by(team_id=opp_api_id).first()
                 opp_name = opp_team_row.name if opp_team_row else str(opp_api_id)
+                # Determine result from fixture score + home/away perspective
+                home_goals = fixture.home_goals
+                away_goals = fixture.away_goals
+                result = None
+                if home_goals is not None and away_goals is not None:
+                    player_goals = home_goals if is_home else away_goals
+                    opp_goals = away_goals if is_home else home_goals
+                    if player_goals > opp_goals:
+                        result = 'W'
+                    elif player_goals == opp_goals:
+                        result = 'D'
+                    else:
+                        result = 'L'
                 matches.append({
                     'opponent': opp_name,
                     'opponent_id': opp_api_id,
                     'competition': getattr(fixture, 'competition_name', None),
                     'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
-                    'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
-                    'played': (row.minutes or 0) > 0,
+                    'score': {'home': home_goals, 'away': away_goals},
+                    'result': result,
+                    'played': effective_minutes > 0 or row_goals > 0 or row_assists > 0,
                     'role': getattr(row, 'role', None),
                     'player': {
                         'position': getattr(row, 'position', None),
-                        'goals': row.goals or 0,
-                        'assists': row.assists or 0,
-                        'minutes': row.minutes or 0,
+                        'goals': row_goals,
+                        'assists': row_assists,
+                        'minutes': effective_minutes,
                     },
                 })
         player_dict['totals'] = totals
@@ -1907,9 +1931,16 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
         for row, fixture in stats_rows:
-            totals['minutes'] += row.minutes or 0
-            totals['goals'] += row.goals or 0
-            totals['assists'] += row.assists or 0
+            raw_minutes = row.minutes or 0
+            row_goals = row.goals or 0
+            row_assists = row.assists or 0
+            # Same limited-coverage fallback as _enrich_on_loan_stats:
+            # if player scored/assisted but minutes=0, estimate 45
+            is_limited_coverage = raw_minutes == 0 and (row_goals > 0 or row_assists > 0)
+            effective_minutes = 45 if is_limited_coverage else raw_minutes
+            totals['minutes'] += effective_minutes
+            totals['goals'] += row_goals
+            totals['assists'] += row_assists
             totals['yellows'] += row.yellows or 0
             totals['reds'] += row.reds or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
@@ -1918,20 +1949,33 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
                 opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
                 opp_team_row = Team.query.filter_by(team_id=opp_api_id).first()
                 opp_name = opp_team_row.name if opp_team_row else str(opp_api_id)
+                home_goals = fixture.home_goals
+                away_goals = fixture.away_goals
+                result = None
+                if home_goals is not None and away_goals is not None:
+                    player_goals = home_goals if is_home else away_goals
+                    opp_goals = away_goals if is_home else home_goals
+                    if player_goals > opp_goals:
+                        result = 'W'
+                    elif player_goals == opp_goals:
+                        result = 'D'
+                    else:
+                        result = 'L'
                 matches.append({
                     'opponent': opp_name,
                     'opponent_id': opp_api_id,
                     'competition': getattr(fixture, 'competition_name', None),
                     'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
-                    'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
-                    'played': (row.minutes or 0) > 0,
+                    'score': {'home': home_goals, 'away': away_goals},
+                    'result': result,
+                    'played': effective_minutes > 0 or row_goals > 0 or row_assists > 0,
                     'role': getattr(row, 'role', None),
                     'player': {
                         'position': getattr(row, 'position', None),
-                        'goals': row.goals or 0,
-                        'assists': row.assists or 0,
-                        'minutes': row.minutes or 0,
+                        'goals': row_goals,
+                        'assists': row_assists,
+                        'minutes': effective_minutes,
                     },
                 })
         player_dict['totals'] = totals
@@ -2737,11 +2781,20 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
 
         hits_by_player = _hits_by_player(brave_ctx)
 
+        # Twitter/X social buzz context
+        try:
+            tweets_by_player = twitter_context_for_newsletter(report)
+            _nl_dbg("Twitter contexts:", len(tweets_by_player), "players with tweets")
+        except Exception as exc:
+            _nl_dbg(f"Twitter enrichment failed: {exc}")
+            tweets_by_player = {}
+
         # Build items per group using the appropriate builder
         for player in groups.get("on_loan", []):
             hits = _extract_hits_for_loanee(player, hits_by_player)
             item = _build_player_report_item(player, hits, week_start=week_start, week_end=week_end)
             item["pathway_status"] = "on_loan"
+            inject_social_buzz(item, tweets_by_player)
             # Generate platform data charts for players with stats coverage
             if item.get("can_fetch_stats") and item.get("player_id"):
                 try:
@@ -2757,6 +2810,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
         for player in groups.get("first_team", []):
             hits = _extract_hits_for_loanee(player, hits_by_player)
             item = _build_first_team_report_item(player, hits, week_start=week_start, week_end=week_end)
+            inject_social_buzz(item, tweets_by_player)
             # Generate platform data charts for first-team players with stats
             if item.get("can_fetch_stats") and item.get("player_id"):
                 try:

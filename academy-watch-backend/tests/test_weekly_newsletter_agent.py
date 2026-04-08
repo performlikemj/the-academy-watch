@@ -168,3 +168,86 @@ def test_llm_too_short_falls_back_to_template(monkeypatch):
     summary = item["week_summary"]
     assert len(summary) > 40  # not just "H."
     assert "logged 90 minutes" in summary
+
+
+def test_limited_coverage_minutes_estimation():
+    """Players with goals/assists but minutes=0 (limited-coverage leagues) should
+    show estimated minutes (45) rather than 0 in the newsletter."""
+    import types
+    from unittest.mock import MagicMock, patch
+    from datetime import date as _date
+
+    # Simulate a FixturePlayerStats row with 0 minutes but goals
+    mock_row = MagicMock()
+    mock_row.minutes = 0
+    mock_row.goals = 1
+    mock_row.assists = 0
+    mock_row.yellows = 0
+    mock_row.reds = 0
+    mock_row.saves = 0
+    mock_row.position = 'F'
+    mock_row.rating = None
+    mock_row.shots_total = None
+    mock_row.shots_on = None
+    mock_row.passes_total = None
+    mock_row.passes_key = None
+    mock_row.tackles_total = None
+    mock_row.tackles_interceptions = None
+    mock_row.duels_total = None
+    mock_row.duels_won = None
+    mock_row.dribbles_attempts = None
+    mock_row.dribbles_success = None
+    mock_row.fouls_drawn = None
+    mock_row.fouls_committed = None
+    mock_row.offsides = None
+
+    mock_fixture = MagicMock()
+    mock_fixture.home_team_api_id = 999
+    mock_fixture.away_team_api_id = 1234
+    mock_fixture.home_goals = 2
+    mock_fixture.away_goals = 0
+    mock_fixture.competition_name = 'National League'
+    mock_fixture.date_utc = None
+
+    mock_tp = MagicMock()
+    mock_tp.player_api_id = 42
+    mock_tp.player_name = 'Test Player'
+    mock_tp.loan_club_api_id = 999
+
+    player_dict = {}
+
+    with patch('src.agents.weekly_newsletter_agent.db') as mock_db, \
+         patch('src.agents.weekly_newsletter_agent.Team') as mock_team_model:
+        # Set up query chain — the filter comparison needs to return a truthy mock
+        mock_query = MagicMock()
+        mock_query.join.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.all.return_value = [(mock_row, mock_fixture)]
+        mock_db.session.query.return_value = mock_query
+        # Make db.func.date(...) >= start return a MagicMock (truthy) so filter works
+        mock_date_expr = MagicMock()
+        mock_date_expr.__ge__ = MagicMock(return_value=True)
+        mock_date_expr.__le__ = MagicMock(return_value=True)
+        mock_db.func.date.return_value = mock_date_expr
+        mock_db.or_ = MagicMock()
+
+        mock_team_instance = MagicMock()
+        mock_team_instance.name = 'Loan Club'
+        mock_team_model.query.filter_by.return_value.first.return_value = mock_team_instance
+
+        agent._enrich_on_loan_stats(
+            player_dict, mock_tp,
+            start=_date(2025, 4, 1),
+            end=_date(2025, 4, 7),
+            season=2024,
+        )
+
+    # Should have estimated 45 minutes due to limited coverage
+    assert player_dict['totals']['minutes'] == 45, \
+        f"Expected 45 estimated minutes, got {player_dict['totals']['minutes']}"
+    assert player_dict['totals']['goals'] == 1
+    # Match played flag should be True
+    assert len(player_dict['matches']) == 1
+    assert player_dict['matches'][0]['played'] is True
+    # Result should be calculated (home team 999 = loan club, scored 2-0)
+    assert player_dict['matches'][0]['result'] == 'W'
