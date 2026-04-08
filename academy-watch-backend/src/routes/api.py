@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, make_response, render_template, Response, current_app, g
+from flask import Blueprint, request, jsonify, make_response, render_template, Response, current_app, g, send_file
 from src.models.league import db, League, Team, Newsletter, UserSubscription, EmailToken, PlayerFlag, FLAG_CATEGORIES, FLAG_STATUSES, AdminSetting, NewsletterComment, UserAccount, NewsletterPlayerYoutubeLink, NewsletterCommentary, Player, JournalistTeamAssignment, CommentaryApplause, TeamTrackingRequest, StripeSubscription, NewsletterDigestQueue, JournalistSubscription, BackgroundJob, TeamSubreddit, RedditPost, TeamAlias, ManualPlayerSubmission, CommunityTake, AcademyAppearance, PlayerComment, PlayerLink, _as_utc
 from src.models.tracked_player import TrackedPlayer
 from src.models.sponsor import Sponsor
@@ -3743,6 +3743,51 @@ def render_newsletter(newsletter_id: int, fmt: str):
     except Exception as e:
         logger.exception('Error rendering newsletter')
         return jsonify(_safe_error_payload(e, 'An unexpected error occurred. Please try again later.')), 500
+
+
+@api_bp.route('/newsletters/<int:newsletter_id>/download.pdf', methods=['GET'])
+@require_api_key
+def download_newsletter_pdf(newsletter_id: int):
+    """Render a newsletter as a paginated PDF and return it as an attachment.
+
+    Reuses the existing Tactical Lens email template as the rendering source,
+    then hands the HTML to ``pdf_renderer.html_to_pdf`` which injects print
+    CSS (``@page`` margins, ``break-inside: avoid`` on player cards, etc.)
+    before calling WeasyPrint. Admin-only via ``@require_api_key``.
+    """
+    try:
+        from src.services.pdf_renderer import html_to_pdf, build_pdf_filename
+    except ImportError:
+        logger.exception('WeasyPrint not available for PDF rendering')
+        return jsonify({
+            'error': 'pdf_renderer_unavailable',
+            'message': 'PDF generation is not configured on this server.',
+        }), 503
+
+    try:
+        n = Newsletter.query.get_or_404(newsletter_id)
+        context = _newsletter_render_context(n)
+        html = render_template('newsletter_email.html', **context)
+        try:
+            base_url = request.url_root
+        except RuntimeError:
+            base_url = None
+        pdf_bytes = html_to_pdf(html, base_url=base_url)
+        filename = build_pdf_filename(
+            team_name=n.team.name if n.team else None,
+            week_end_date=n.week_end_date or n.issue_date,
+            newsletter_id=n.id,
+        )
+        return send_file(
+            BytesIO(pdf_bytes),
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename,
+        )
+    except Exception as e:
+        logger.exception('Error rendering newsletter PDF')
+        return jsonify(_safe_error_payload(e, 'Failed to generate PDF')), 500
+
 
 @api_bp.route('/newsletters/<int:newsletter_id>/send', methods=['POST'])
 @require_api_key
