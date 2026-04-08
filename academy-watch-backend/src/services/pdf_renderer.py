@@ -64,8 +64,7 @@ _PRINT_CSS = """
    WeasyPrint honours backgrounds by default, but we make the intent explicit. */
 html, body {
     background: #0b1326 !important;
-    -weasy-color-adjust: exact;
-    print-color-adjust: exact;
+    color-adjust: exact;
 }
 
 /* Atomic content units — never split these across pages. If any block is
