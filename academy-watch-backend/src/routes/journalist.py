@@ -506,8 +506,15 @@ def search_commentaries():
         return jsonify(_safe_error_payload(e, 'Search failed')), 500
 
 
-def _get_player_week_stats(player_id: int, week_start, week_end) -> list:
-    """Get player stats for fixtures within a specific week range."""
+def _get_player_week_stats(player_id: int, week_start, week_end,
+                            current_club_api_id: int | None = None) -> list:
+    """Get player stats for fixtures within a specific week range.
+
+    If current_club_api_id is provided, only fixtures where the player played
+    for that club are returned. This is used by newsletter chart generation to
+    keep loanee stats scoped to the loan club (e.g. only Barrow fixtures for a
+    Barrow loanee, not their old Forest U21 fixtures).
+    """
     from src.models.weekly import FixturePlayerStats, Fixture
 
     if not player_id or not week_start or not week_end:
@@ -529,9 +536,12 @@ def _get_player_week_stats(player_id: int, week_start, week_end) -> list:
             FixturePlayerStats.player_api_id == player_id,
             Fixture.date_utc >= datetime.combine(week_start, datetime.min.time()),
             Fixture.date_utc <= datetime.combine(week_end, datetime.max.time().replace(microsecond=0))
-        ).order_by(
-            Fixture.date_utc.asc()
-        ).all()
+        )
+        if current_club_api_id:
+            stats_query = stats_query.filter(
+                FixturePlayerStats.team_api_id == current_club_api_id
+            )
+        stats_query = stats_query.order_by(Fixture.date_utc.asc()).all()
         
         from src.utils.team_resolver import resolve_team_name_and_logo
 
@@ -710,19 +720,26 @@ def _aggregate_player_stats(fixtures_data: list, stat_keys: list, average_stats:
     return aggregated
 
 
-def _get_season_stats(player_id: int, season: int = None) -> list:
-    """Get all player stats for a season."""
+def _get_season_stats(player_id: int, season: int = None,
+                       current_club_api_id: int | None = None) -> list:
+    """Get all player stats for a season.
+
+    If current_club_api_id is provided, only fixtures where the player played
+    for that club are returned. This keeps newsletter radar/trend charts scoped
+    to a player's current club (e.g. only Barrow fixtures for a Barrow loanee,
+    not their Forest U21 fixtures from earlier in the season).
+    """
     from src.models.weekly import FixturePlayerStats, Fixture
-    
+
     if not player_id:
         return []
-    
+
     try:
         player_id = int(player_id)
     except Exception:
         # If the player id cannot be coerced, skip stats to avoid DB errors
         return []
-    
+
     try:
         query = db.session.query(
             FixturePlayerStats, Fixture
@@ -731,10 +748,15 @@ def _get_season_stats(player_id: int, season: int = None) -> list:
         ).filter(
             FixturePlayerStats.player_api_id == player_id
         )
-        
+
         if season:
             query = query.filter(Fixture.season == season)
-        
+
+        if current_club_api_id:
+            query = query.filter(
+                FixturePlayerStats.team_api_id == current_club_api_id
+            )
+
         query = query.order_by(Fixture.date_utc.asc())
         stats_query = query.all()
         
@@ -1737,8 +1759,14 @@ def _render_quote_block_to_html(block: dict) -> str:
 def _fetch_chart_data_for_rendering(player_id: int, chart_type: str, stat_keys: list,
                                      date_range: str, week_start: str = None, week_end: str = None) -> dict:
     """Fetch chart data for server-side rendering.
-    
+
     This mirrors the logic in the get_chart_data API endpoint but for internal use.
+
+    Newsletter chart generation must show the player's current-club performance
+    only — not a mix of loan-club and parent-club fixtures from the same season.
+    We resolve the player's current club from TrackedPlayer and pass it as a
+    filter so radar/trend/match cards only count fixtures the player played for
+    that club.
     """
     try:
         try:
@@ -1747,33 +1775,54 @@ def _fetch_chart_data_for_rendering(player_id: int, chart_type: str, stat_keys: 
             return None
 
         from datetime import date, timedelta
-        
+
+        # Resolve the player's current club so all chart fixtures are scoped to
+        # it. Loanee at Barrow → only Barrow fixtures. First-team player at
+        # Forest → only Forest fixtures. None means "no filter" (public API
+        # callers that don't go through this internal helper).
+        current_club_api_id = None
+        try:
+            tp = (
+                TrackedPlayer.query
+                .filter_by(player_api_id=player_id, is_active=True)
+                .order_by(TrackedPlayer.updated_at.desc())
+                .first()
+            )
+            if tp and tp.current_club_api_id:
+                current_club_api_id = tp.current_club_api_id
+        except Exception:
+            pass
+
         # Get fixtures data based on date range
         fixtures_data = []
-        
+
         if date_range == 'week' and week_start and week_end:
             try:
                 start_date = datetime.fromisoformat(week_start).date() if isinstance(week_start, str) else week_start
                 end_date = datetime.fromisoformat(week_end).date() if isinstance(week_end, str) else week_end
-                fixtures_data = _get_player_week_stats(player_id, start_date, end_date)
+                fixtures_data = _get_player_week_stats(player_id, start_date, end_date,
+                                                       current_club_api_id=current_club_api_id)
             except (ValueError, TypeError) as e:
                 logger.warning(f"Invalid date format for chart rendering: {e}")
                 return None
         elif date_range == 'month':
             end_date = datetime.now(timezone.utc).date()
             start_date = end_date - timedelta(days=30)
-            fixtures_data = _get_player_week_stats(player_id, start_date, end_date)
+            fixtures_data = _get_player_week_stats(player_id, start_date, end_date,
+                                                   current_club_api_id=current_club_api_id)
         elif date_range == 'season':
             now_utc = datetime.now(timezone.utc)
             current_year = now_utc.year
             current_month = now_utc.month
             season = current_year if current_month >= 7 else current_year - 1
-            fixtures_data = _get_season_stats(player_id, season)
+            fixtures_data = _get_season_stats(player_id, season,
+                                               current_club_api_id=current_club_api_id)
         else:
             # Default to last 30 days if no specific range
             end_date = datetime.now(timezone.utc).date()
             start_date = end_date - timedelta(days=30)
-            fixtures_data = _get_player_week_stats(player_id, start_date, end_date)
+            fixtures_data = _get_player_week_stats(player_id, start_date, end_date,
+                                                   current_club_api_id=current_club_api_id)
         
         if not fixtures_data:
             return None

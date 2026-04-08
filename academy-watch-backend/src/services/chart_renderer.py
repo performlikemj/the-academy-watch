@@ -124,6 +124,17 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
             ]
             ax.legend(handles=legend_elements, loc='lower right', fontsize=7,
                       bbox_to_anchor=(1.25, -0.1), framealpha=0.8)
+        else:
+            # No league overlay (insufficient peers / unsupported league):
+            # explicitly label the polygon as player-only so the reader doesn't
+            # mistake the self-normalised polygon for a league comparison.
+            from matplotlib.lines import Line2D
+            ax.legend(
+                handles=[Line2D([0], [0], color=color, linewidth=2,
+                                label='Player only (no league overlay)')],
+                loc='lower right', fontsize=7,
+                bbox_to_anchor=(1.25, -0.1), framealpha=0.8,
+            )
     elif is_new_format:
         # Percentile-based (fallback)
         position_category = _group_to_category(data.get('position_group', 'CM'))
@@ -161,9 +172,25 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
         title += f" - {matches_count} match{'es' if matches_count != 1 else ''}"
     ax.set_title(title, size=10, color=CHART_COLORS['gray'], y=1.1, fontweight='bold')
 
-    # Footer
-    if is_league_format and league_name:
-        footer = f"Per 90 vs {league_peers} {position_group_label.lower()}s in {league_name}. 100% = best in league."
+    # Footer — always explain what the chart is showing. When league averages
+    # are unavailable for the player's league, say so explicitly rather than
+    # silently presenting a self-normalised polygon as if it were a comparison.
+    if is_league_format:
+        if has_overlay and league_name:
+            footer = (
+                f"Per 90 vs {league_peers} {position_group_label.lower()}s in "
+                f"{league_name}. 100% = best in league."
+            )
+        elif league_name:
+            footer = (
+                f"League comparison unavailable for {league_name}. "
+                f"Showing player-only per 90 stats normalised to peak axis."
+            )
+        else:
+            footer = (
+                "League comparison unavailable. "
+                "Showing player-only per 90 stats normalised to peak axis."
+            )
         fig.text(0.5, -0.02, footer, ha='center', fontsize=7, color=CHART_COLORS['gray'])
 
     # Convert to bytes
@@ -258,9 +285,23 @@ def render_line_chart(data: Dict[str, Any], width: int = 500, height: int = 300)
     line_data = data.get('data', [])
     stat_keys = data.get('stat_keys', ['goals', 'assists', 'rating'])
     player_name = data.get('player', {}).get('name', 'Player')
-    
+
     if not line_data:
         return _render_empty_chart("No data available", width, height)
+
+    # Even when line_data is non-empty, every stat value can still be None / 0
+    # (e.g. limited-coverage leagues never populate `rating`). Plotting that
+    # produces an empty-axes chart that looks broken — render an explicit
+    # placeholder instead.
+    has_any_value = any(
+        d.get(stat) is not None and d.get(stat) > 0
+        for d in line_data
+        for stat in stat_keys
+    )
+    if not has_any_value:
+        return _render_empty_chart(
+            f"No {', '.join(stat_keys)} data available", width, height,
+        )
     
     # Setup figure
     fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=100)

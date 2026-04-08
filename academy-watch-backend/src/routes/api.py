@@ -3310,6 +3310,13 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
         ).limit(5).all()
         community_takes.extend([t.to_dict() for t in team_takes])
 
+    # Group tweets by player_id so the per-player commentary card can show
+    # tweets about that specific player inline.
+    twitter_takes_by_player: dict[int, list] = {}
+    for take in community_takes:
+        if take.get('source_type') == 'twitter' and take.get('player_id'):
+            twitter_takes_by_player.setdefault(take['player_id'], []).append(take)
+
     # Submit take URL for footer
     submit_take_url = f"{public_base_url}/submit-take" if public_base_url else None
 
@@ -3359,6 +3366,7 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
         'bmc_button_url': bmc_button_url,
         'community_takes': community_takes,
         'twitter_takes': [t for t in community_takes if t.get('source_type') == 'twitter'],
+        'twitter_takes_by_player': twitter_takes_by_player,
         'submit_take_url': submit_take_url,
         'flag_base_url': flag_base_url,
         'academy_appearances': academy_appearances,

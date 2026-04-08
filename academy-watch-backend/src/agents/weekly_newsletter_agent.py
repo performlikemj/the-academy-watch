@@ -1486,12 +1486,18 @@ def _generate_player_charts(player_api_id: int, player_name: str,
     except Exception:
         pass
 
-    # 3. Season trend line (rating)
+    # 3. Season trend line (rating) — only embed if at least one fixture
+    #    actually carries a rating. Otherwise the renderer would draw NaN axes
+    #    that look broken (this is a real issue in limited-coverage leagues
+    #    like League Two / National League where API-Football never populates
+    #    `rating`).
     try:
         trend_data = _fetch_chart_data_for_rendering(
             player_api_id, 'line', ['rating'], 'season')
         if trend_data and trend_data.get('data'):
-            charts['trend_chart_url'] = render_chart_to_base64('line', trend_data, 500, 300)
+            ratings = [d.get('rating') for d in trend_data['data']]
+            if any(r is not None and r > 0 for r in ratings):
+                charts['trend_chart_url'] = render_chart_to_base64('line', trend_data, 500, 300)
     except Exception:
         pass
 
@@ -1899,9 +1905,18 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
         for row, fixture in stats_rows:
-            totals['minutes'] += row.minutes or 0
-            totals['goals'] += row.goals or 0
-            totals['assists'] += row.assists or 0
+            raw_minutes = row.minutes or 0
+            row_goals = row.goals or 0
+            row_assists = row.assists or 0
+            # Limited-coverage leagues (e.g. National League) store goals/assists from
+            # match events but do NOT populate FixturePlayerStats.minutes. If the player
+            # clearly participated (goals or assists present) but minutes is 0, estimate
+            # 45 so the newsletter doesn't falsely report 0'.
+            is_limited_coverage = raw_minutes == 0 and (row_goals > 0 or row_assists > 0)
+            effective_minutes = 45 if is_limited_coverage else raw_minutes
+            totals['minutes'] += effective_minutes
+            totals['goals'] += row_goals
+            totals['assists'] += row_assists
             totals['yellows'] += row.yellows or 0
             totals['reds'] += row.reds or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
@@ -1911,6 +1926,19 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
                 # Resolve opponent name + logo via centralized resolver (Team → TeamProfile → API)
                 from src.utils.team_resolver import resolve_team_name_and_logo
                 opp_name, opp_logo = resolve_team_name_and_logo(opp_api_id, season)
+                # Determine W/D/L from fixture score + player team perspective
+                home_goals = fixture.home_goals
+                away_goals = fixture.away_goals
+                result = None
+                if home_goals is not None and away_goals is not None:
+                    player_team_goals = home_goals if is_home else away_goals
+                    opp_goals = away_goals if is_home else home_goals
+                    if player_team_goals > opp_goals:
+                        result = 'W'
+                    elif player_team_goals == opp_goals:
+                        result = 'D'
+                    else:
+                        result = 'L'
                 matches.append({
                     'opponent': opp_name,
                     'opponent_id': opp_api_id,
@@ -1918,14 +1946,15 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
                     'competition': getattr(fixture, 'competition_name', None),
                     'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
-                    'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
-                    'played': (row.minutes or 0) > 0,
-                    'role': ('substitutes' if row.substitute else 'startXI') if (row.minutes or 0) > 0 else ('substitutes' if row.substitute else None),
+                    'score': {'home': home_goals, 'away': away_goals},
+                    'result': result,
+                    'played': effective_minutes > 0 or row_goals > 0 or row_assists > 0,
+                    'role': ('substitutes' if row.substitute else 'startXI') if effective_minutes > 0 else ('substitutes' if row.substitute else None),
                     'player': {
                         'position': getattr(row, 'position', None),
-                        'goals': row.goals or 0,
-                        'assists': row.assists or 0,
-                        'minutes': row.minutes or 0,
+                        'goals': row_goals,
+                        'assists': row_assists,
+                        'minutes': effective_minutes,
                     },
                 })
         player_dict['totals'] = totals
@@ -2010,9 +2039,16 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
         totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
         matches = []
         for row, fixture in stats_rows:
-            totals['minutes'] += row.minutes or 0
-            totals['goals'] += row.goals or 0
-            totals['assists'] += row.assists or 0
+            raw_minutes = row.minutes or 0
+            row_goals = row.goals or 0
+            row_assists = row.assists or 0
+            # Same limited-coverage fallback as _enrich_on_loan_stats: if player
+            # scored/assisted but minutes=0, estimate 45 so we don't show 0'.
+            is_limited_coverage = raw_minutes == 0 and (row_goals > 0 or row_assists > 0)
+            effective_minutes = 45 if is_limited_coverage else raw_minutes
+            totals['minutes'] += effective_minutes
+            totals['goals'] += row_goals
+            totals['assists'] += row_assists
             totals['yellows'] += row.yellows or 0
             totals['reds'] += row.reds or 0
             totals['saves'] += getattr(row, 'saves', 0) or 0
@@ -2021,6 +2057,18 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
                 opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
                 from src.utils.team_resolver import resolve_team_name_and_logo
                 opp_name, opp_logo = resolve_team_name_and_logo(opp_api_id, season)
+                home_goals = fixture.home_goals
+                away_goals = fixture.away_goals
+                result = None
+                if home_goals is not None and away_goals is not None:
+                    player_team_goals = home_goals if is_home else away_goals
+                    opp_goals = away_goals if is_home else home_goals
+                    if player_team_goals > opp_goals:
+                        result = 'W'
+                    elif player_team_goals == opp_goals:
+                        result = 'D'
+                    else:
+                        result = 'L'
                 matches.append({
                     'opponent': opp_name,
                     'opponent_id': opp_api_id,
@@ -2028,14 +2076,15 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
                     'competition': getattr(fixture, 'competition_name', None),
                     'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
                     'home': is_home,
-                    'score': {'home': fixture.home_goals, 'away': fixture.away_goals},
-                    'played': (row.minutes or 0) > 0,
-                    'role': ('substitutes' if row.substitute else 'startXI') if (row.minutes or 0) > 0 else ('substitutes' if row.substitute else None),
+                    'score': {'home': home_goals, 'away': away_goals},
+                    'result': result,
+                    'played': effective_minutes > 0 or row_goals > 0 or row_assists > 0,
+                    'role': ('substitutes' if row.substitute else 'startXI') if effective_minutes > 0 else ('substitutes' if row.substitute else None),
                     'player': {
                         'position': getattr(row, 'position', None),
-                        'goals': row.goals or 0,
-                        'assists': row.assists or 0,
-                        'minutes': row.minutes or 0,
+                        'goals': row_goals,
+                        'assists': row_assists,
+                        'minutes': effective_minutes,
                     },
                 })
         player_dict['totals'] = totals
