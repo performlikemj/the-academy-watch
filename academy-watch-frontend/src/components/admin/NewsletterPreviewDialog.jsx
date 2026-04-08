@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Loader2, RefreshCw, Monitor, Mail, ExternalLink, Send } from 'lucide-react'
+import { Loader2, RefreshCw, Monitor, Mail, ExternalLink, Send, Download } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 export function NewsletterPreviewDialog({ open, onOpenChange, newsletter, onStatus }) {
@@ -20,6 +20,7 @@ export function NewsletterPreviewDialog({ open, onOpenChange, newsletter, onStat
     const [simulateSubscription, setSimulateSubscription] = useState(false)
     const [sendingAdminPreview, setSendingAdminPreview] = useState(false)
     const [sendStatus, setSendStatus] = useState(null)
+    const [downloadingPdf, setDownloadingPdf] = useState(false)
 
     // Load journalists for the team
     useEffect(() => {
@@ -127,6 +128,24 @@ export function NewsletterPreviewDialog({ open, onOpenChange, newsletter, onStat
             newWindow.document.write(htmlContent)
             newWindow.document.close()
             newWindow.document.title = `Preview - ${newsletter?.team_name}`
+        }
+    }
+
+    const downloadPdf = async () => {
+        if (!newsletter?.id) return
+        setDownloadingPdf(true)
+        setSendStatus(null)
+        try {
+            await APIService.adminNewsletterDownloadPdf(newsletter.id)
+            const text = `Downloaded PDF for newsletter #${newsletter.id}.`
+            setSendStatus({ type: 'success', text })
+            onStatus?.({ type: 'success', text })
+        } catch (error) {
+            const text = error?.body?.message || error?.message || 'Failed to download PDF.'
+            setSendStatus({ type: 'error', text })
+            onStatus?.({ type: 'error', text })
+        } finally {
+            setDownloadingPdf(false)
         }
     }
 
@@ -301,6 +320,19 @@ export function NewsletterPreviewDialog({ open, onOpenChange, newsletter, onStat
                                         <Send className="mr-2 h-4 w-4" />
                                     )}
                                     Send to Admins for Review
+                                </Button>
+                                <Button
+                                    onClick={downloadPdf}
+                                    className="w-full"
+                                    variant="outline"
+                                    disabled={loading || downloadingPdf}
+                                >
+                                    {downloadingPdf ? (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Download className="mr-2 h-4 w-4" />
+                                    )}
+                                    {downloadingPdf ? 'Preparing PDF…' : 'Download PDF'}
                                 </Button>
                                 <Button onClick={handleRefresh} className="w-full" variant="outline" disabled={loading}>
                                     {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}

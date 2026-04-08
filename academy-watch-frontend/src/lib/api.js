@@ -954,6 +954,49 @@ export class APIService {
         return text
     }
 
+    static async adminNewsletterDownloadPdf(id) {
+        const numericId = parseNewsletterId(id)
+        if (!numericId) {
+            throw new Error('Newsletter id must be a positive integer')
+        }
+        const headers = { 'Accept': 'application/pdf' }
+        const key = this.adminKey || (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_admin_key'))
+        if (key) headers['X-API-Key'] = key
+        const token = this.userToken || (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_user_token'))
+        if (token) headers['Authorization'] = `Bearer ${token}`
+        const res = await fetch(`${API_BASE_URL}/newsletters/${numericId}/download.pdf`, { headers, method: 'GET' })
+        if (!res.ok) {
+            let message = `HTTP ${res.status}`
+            try {
+                const body = await res.text()
+                if (body) message = body
+            } catch (_) { /* ignore */ }
+            const err = new Error(message)
+            err.status = res.status
+            throw err
+        }
+        const blob = await res.blob()
+        // Parse filename from Content-Disposition header; fall back to a sensible default.
+        const disposition = res.headers.get('content-disposition') || ''
+        let filename = `newsletter-${numericId}.pdf`
+        const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)
+        if (match && match[1]) {
+            try { filename = decodeURIComponent(match[1]) } catch (_) { filename = match[1] }
+        }
+        // Trigger browser download via a temporary object URL + anchor click.
+        if (typeof document !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
+            const objectUrl = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = objectUrl
+            a.download = filename
+            document.body.appendChild(a)
+            a.click()
+            a.remove()
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+        }
+        return { blob, filename }
+    }
+
     static async listNewsletterComments(newsletterId) {
         const numericId = parseNewsletterId(newsletterId)
         if (!numericId) {

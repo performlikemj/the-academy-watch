@@ -21,7 +21,7 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Mail, Calendar, Send, Trash2, AlertCircle, CheckCircle2, FileJson, Loader2, Monitor, Copy, Check, FileText } from 'lucide-react'
+import { Mail, Calendar, Send, Trash2, AlertCircle, CheckCircle2, FileJson, Loader2, Monitor, Copy, Check, FileText, Download } from 'lucide-react'
 import { convertNewsletterToMarkdown, convertNewsletterToCompactMarkdown } from '@/lib/newsletter-markdown'
 import TeamMultiSelect from '@/components/ui/TeamMultiSelect.jsx'
 import TeamSelect from '@/components/ui/TeamSelect.jsx'
@@ -92,6 +92,7 @@ export function AdminNewsletters() {
     // Preview dialog
     const [previewOpen, setPreviewOpen] = useState(false)
     const [previewNewsletter, setPreviewNewsletter] = useState(null)
+    const [pdfDownloadingId, setPdfDownloadingId] = useState(null)
 
     // Delete confirmation
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -299,6 +300,20 @@ export function AdminNewsletters() {
         setPreviewNewsletter(newsletter)
         setPreviewOpen(true)
     }
+
+    const downloadPdf = useCallback(async (newsletter) => {
+        if (!newsletter || !newsletter.id) return
+        setPdfDownloadingId(newsletter.id)
+        try {
+            await APIService.adminNewsletterDownloadPdf(newsletter.id)
+            setMessage({ type: 'success', text: 'PDF downloaded' })
+        } catch (error) {
+            console.error('Failed to download PDF:', error)
+            setMessage({ type: 'error', text: `PDF download failed: ${error.message || 'Unknown error'}` })
+        } finally {
+            setPdfDownloadingId(null)
+        }
+    }, [])
 
     // Publish/unpublish
     const togglePublish = useCallback(async (newsletter) => {
@@ -1152,6 +1167,19 @@ export function AdminNewsletters() {
                                                                 title="View JSON"
                                                             >
                                                                 <FileJson className="h-4 w-4" />
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                onClick={() => downloadPdf(newsletter)}
+                                                                title="Download PDF"
+                                                                disabled={pdfDownloadingId === newsletter.id}
+                                                            >
+                                                                {pdfDownloadingId === newsletter.id ? (
+                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                ) : (
+                                                                    <Download className="h-4 w-4" />
+                                                                )}
                                                             </Button>
                                                             <Button
                                                                 size="sm"

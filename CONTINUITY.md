@@ -103,6 +103,7 @@ CONTINUITY.md
 
 ## Trivial Log
 
+- 2026-04-08: Added admin-only newsletter PDF download (WeasyPrint) — endpoint `GET /newsletters/<id>/download.pdf`, reuses existing `newsletter_email.html` template with injected print CSS (`@page`, `break-inside: avoid` on `.item`/`.highlights`/`.toc`/`.matches-section`, `break-before: page` on section `<h2>`s). Dockerfile gains libpango/libcairo/libgdk-pixbuf/shared-mime-info (~80MB). Download buttons in `AdminNewsletters.jsx` row actions and `NewsletterPreviewDialog.jsx` control panel. Plan file at `.claude/plans/staged-wibbling-cocoa.md`.
 - 2026-02-12: Academy data audit — all Big 6 teams show 0% conversion due to journey sync never completing
 - 2026-02-12: Fixed Full Rebuild journey sync: added RateLimiter, quota-exceeded break, non-fatal Stage 3, empty-journey bug fix
 - 2026-02-12: Added Phase 2 journey sync timeout guard (`PLAYER_SYNC_TIMEOUT=90`) and verified a live constrained rebuild completes without hangs
