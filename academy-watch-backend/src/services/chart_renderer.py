@@ -398,39 +398,45 @@ def render_line_chart(data: Dict[str, Any], width: int = 560, height: int = 320)
     return buf.read()
 
 
-def render_match_cards_summary(data: Dict[str, Any], width: int = 500, height: int = 200) -> bytes:
+def render_match_cards_summary(data: Dict[str, Any], width: int = 760, height: int = 220) -> bytes:
     """
     Render a summary visualization for match cards.
     Since match cards are detailed, we render a summary bar showing key stats.
-    
+
+    The default canvas is intentionally wide (760×220) because the row carries
+    five stat columns, and the rightmost "Results" column is text-heavy
+    (`1W 0D 1L`). At the previous 500px width the columns collided into each
+    other on retina renders. The columns are also slightly inset and the
+    label/value font sizes are tuned so nothing crowds the neighbours.
+
     Args:
         data: Chart data from the API including 'fixtures' array
-        width: Image width in pixels  
+        width: Image width in pixels
         height: Image height in pixels
-        
+
     Returns:
         PNG image as bytes
     """
     fixtures = data.get('fixtures', [])
     player_name = data.get('player', {}).get('name', 'Player')
-    
+
     if not fixtures:
         return _render_empty_chart("No matches found", width, height)
-    
+
     # Aggregate stats from fixtures
     total_minutes = sum(f.get('stats', {}).get('minutes', 0) or 0 for f in fixtures)
     total_goals = sum(f.get('stats', {}).get('goals', 0) or 0 for f in fixtures)
     total_assists = sum(f.get('stats', {}).get('assists', 0) or 0 for f in fixtures)
-    
+
     ratings = [f.get('stats', {}).get('rating') for f in fixtures if f.get('stats', {}).get('rating')]
     avg_rating = sum(ratings) / len(ratings) if ratings else 0
-    
+
     # Count results
     wins = sum(1 for f in fixtures if (f.get('is_home') and f['home_team']['score'] > f['away_team']['score']) or
                (not f.get('is_home') and f['away_team']['score'] > f['home_team']['score']))
     draws = sum(1 for f in fixtures if f['home_team']['score'] == f['away_team']['score'])
     losses = len(fixtures) - wins - draws
-    
+
     # Setup figure with dark Tactical Lens facecolor.
     fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=DPI)
     fig.patch.set_facecolor(TL_CARD)
@@ -438,7 +444,7 @@ def render_match_cards_summary(data: Dict[str, Any], width: int = 500, height: i
     ax.axis('off')
 
     # Title
-    ax.text(0.5, 0.95, f"{player_name} - {len(fixtures)} Match Summary",
+    ax.text(0.5, 0.92, f"{player_name} - {len(fixtures)} Match Summary",
             fontsize=12, fontweight='bold', ha='center', transform=ax.transAxes,
             color=TL_TEXT)
 
@@ -452,11 +458,18 @@ def render_match_cards_summary(data: Dict[str, Any], width: int = 500, height: i
         (f"{wins}W {draws}D {losses}L", "Results", CHART_COLORS['primary']),
     ]
 
-    x_positions = np.linspace(0.1, 0.9, len(stats))
+    # Inset the row a touch from the left/right edges so labels at the
+    # extremes don't get clipped by bbox_inches='tight'.
+    x_positions = np.linspace(0.08, 0.92, len(stats))
     for i, (value, label, color) in enumerate(stats):
-        ax.text(x_positions[i], 0.55, str(value), fontsize=17, fontweight='bold',
-                ha='center', transform=ax.transAxes, color=color)
-        ax.text(x_positions[i], 0.3, label, fontsize=9, ha='center',
+        # The Results column carries 8 characters of text — drop its font
+        # size a touch so it doesn't crash into the neighbouring Avg Rating
+        # column at narrow chart widths.
+        is_results = (label == 'Results')
+        value_size = 14 if is_results else 18
+        ax.text(x_positions[i], 0.52, str(value), fontsize=value_size, fontweight='bold',
+                ha='center', va='center', transform=ax.transAxes, color=color)
+        ax.text(x_positions[i], 0.22, label, fontsize=9, ha='center', va='center',
                 transform=ax.transAxes, color=CHART_COLORS['gray'])
 
     # Convert to bytes
@@ -612,7 +625,9 @@ def render_chart(chart_type: str, data: Dict[str, Any], width: int = 500, height
     elif chart_type == 'line':
         return render_line_chart(data, width, height)
     elif chart_type == 'match_card':
-        return render_match_cards_summary(data, width, min(height, 200))
+        # Cap height at 240 — anything taller wastes vertical space since the
+        # match card is a single row of stats with a title.
+        return render_match_cards_summary(data, width, min(height, 240))
     elif chart_type == 'stat_table':
         return render_stat_table(data, width, height)
     else:
