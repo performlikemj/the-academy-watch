@@ -68,8 +68,16 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
         for pid, raw in raw_transfers_map.items()
     }
 
-    # Batch pre-fetch squads for loan + parent clubs
+    # Batch pre-fetch squads for loan + parent clubs.
+    # Squads that fail to fetch are tracked in `failed_squad_clubs` so we can
+    # SKIP status classification for any player whose classification would
+    # otherwise depend on a silently-missing squad. Previously a single
+    # failed club would just be a warning and the squad cross-reference
+    # rule inside classify_tracked_player would silently not fire for any
+    # player at that club — an exactly-the-kind-of-silent-miss that let the
+    # O. Hammond class of bug persist. Now those players are left untouched.
     squad_members_by_club = {}
+    failed_squad_clubs: set[int] = set()
     loan_club_ids = {tp.current_club_api_id for tp in players if tp.current_club_api_id}
     parent_club_ids = set()
     _team_cache = {}
@@ -87,9 +95,38 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
                 if e and e.get('player', {}).get('id')
             }
         except Exception as exc:
-            logger.warning('Squad fetch failed for club %d: %s', club_id, exc)
+            failed_squad_clubs.add(club_id)
+            logger.warning(
+                'transfer-heal: squad fetch failed for club %d: %s — '
+                'classification will be SKIPPED for players at this club',
+                club_id, exc,
+            )
+
+    if failed_squad_clubs:
+        logger.warning(
+            'transfer-heal: %d squad fetch(es) failed (clubs=%s); affected '
+            'players will have their status left untouched.',
+            len(failed_squad_clubs), sorted(failed_squad_clubs),
+        )
+
+    # Also track players whose transfer batch came back empty in a way that
+    # suggests a fetch failure rather than a genuinely empty history. We
+    # cannot distinguish a real empty list from a failed fetch for a
+    # batch-call, so we only flag players we received NO key for at all.
+    transfer_fetch_missing = {
+        tp.player_api_id for tp in players
+        if tp.player_api_id and tp.player_api_id not in raw_transfers_map
+    }
+    if transfer_fetch_missing:
+        logger.warning(
+            'transfer-heal: %d player(s) missing from transfer batch response — '
+            'their classification will be SKIPPED to avoid basing it on partial data. '
+            'player_api_ids=%s',
+            len(transfer_fetch_missing), sorted(transfer_fetch_missing),
+        )
 
     # Process each player
+    skipped_by_failed_prefetch = 0
     for tp in players:
         journey = None
 
@@ -120,6 +157,27 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
 
         parent_team = _team_cache.get(tp.team_id) or Team.query.get(tp.team_id)
         if not parent_team:
+            continue
+
+        # Skip classification if any of the data the classifier needs for
+        # this specific player failed to pre-fetch. Running the classifier
+        # against a known-partial squad dict or missing transfer list is
+        # exactly how wrong statuses silently persist — we prefer leaving
+        # the row untouched over writing a guess.
+        player_parent_id = parent_team.team_id
+        player_loan_id = tp.current_club_api_id
+        if (player_parent_id in failed_squad_clubs
+                or (player_loan_id and player_loan_id in failed_squad_clubs)
+                or tp.player_api_id in transfer_fetch_missing):
+            skipped_by_failed_prefetch += 1
+            logger.info(
+                'transfer-heal: skipping player %d (%s) — prefetch incomplete '
+                '(parent_squad_failed=%s loan_squad_failed=%s transfers_missing=%s)',
+                tp.player_api_id, tp.player_name,
+                player_parent_id in failed_squad_clubs,
+                bool(player_loan_id and player_loan_id in failed_squad_clubs),
+                tp.player_api_id in transfer_fetch_missing,
+            )
             continue
 
         new_status, new_loan_id, new_loan_name = classify_tracked_player(
@@ -240,4 +298,6 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
         'journeys_resynced': journeys_resynced,
         'players_changed': players_changed,
         'fixture_syncs_triggered': fixture_syncs_triggered,
+        'skipped_by_failed_prefetch': skipped_by_failed_prefetch,
+        'failed_squad_clubs': sorted(failed_squad_clubs),
     }

@@ -593,6 +593,208 @@ class TestCurrentClubTiebreaker:
         assert mock_journey.current_club_name == 'Manchester United'
 
 
+class TestDeriveCurrentLevelFromClubName:
+    """Test the helper that derives current_level from a destination club name.
+
+    Added after the O. Hammond incident where the transfer-override path in
+    _update_journey_aggregates was hardcoding current_level='First Team'
+    even when the destination was a youth team.
+    """
+
+    def test_u21_destination(self):
+        from src.services.journey_sync import _derive_current_level_from_club_name
+        assert _derive_current_level_from_club_name('Nottingham Forest U21') == 'U21'
+
+    def test_u18_destination(self):
+        from src.services.journey_sync import _derive_current_level_from_club_name
+        assert _derive_current_level_from_club_name('Arsenal U18') == 'U18'
+
+    def test_reserves_destination(self):
+        from src.services.journey_sync import _derive_current_level_from_club_name
+        assert _derive_current_level_from_club_name('Manchester City Reserves') == 'Reserve'
+
+    def test_plain_club_returns_first_team(self):
+        from src.services.journey_sync import _derive_current_level_from_club_name
+        assert _derive_current_level_from_club_name('Nottingham Forest') == 'First Team'
+
+    def test_none_falls_back(self):
+        from src.services.journey_sync import _derive_current_level_from_club_name
+        assert _derive_current_level_from_club_name(None) == 'First Team'
+
+    def test_custom_fallback(self):
+        from src.services.journey_sync import _derive_current_level_from_club_name
+        assert _derive_current_level_from_club_name('Arsenal', fallback='U21') == 'U21'
+
+
+@pytest.mark.usefixtures("app")
+class TestTransferOverrideStaleness:
+    """Regression tests for the O. Hammond bug in _update_journey_aggregates.
+
+    Before the fix, a stale 2024 'N/A' transfer from Cheltenham to
+    'Nottingham Forest U21' was overriding 2025 Oldham entries, causing
+    O. Hammond (api 325967) to be classified as first_team at Nottingham
+    Forest even though his latest actual stats are at Oldham.
+
+    Uses the `app` fixture from conftest.py so _update_journey_aggregates
+    (which touches db.session via helpers like _compute_academy_club_ids)
+    has a Flask application context.
+    """
+
+    def _mock_entry(self, *, season, club_api_id, club_name, level='First Team',
+                    entry_type='first_team', appearances=1, sort_priority=None,
+                    transfer_date=None):
+        from src.models.journey import LEVEL_PRIORITY
+        e = MagicMock()
+        e.season = season
+        e.club_api_id = club_api_id
+        e.club_name = club_name
+        e.level = level
+        e.entry_type = entry_type
+        e.is_youth = level != 'First Team'
+        e.is_international = False
+        e.appearances = appearances
+        e.goals = 0
+        e.assists = 0
+        e.minutes = 0
+        e.sort_priority = sort_priority if sort_priority is not None else LEVEL_PRIORITY.get(level, 0)
+        e.transfer_date = transfer_date
+        return e
+
+    def test_stale_transfer_does_not_override_fresher_entries(self):
+        """The Hammond scenario: a 2024 N/A transfer back to Forest U21 must
+        NOT overwrite 2025 Oldham entries."""
+        from src.services.journey_sync import JourneySyncService
+        service = JourneySyncService(api_client=Mock())
+
+        # 2025 Oldham first-team entries (the true latest state)
+        oldham_2025 = self._mock_entry(
+            season=2025, club_api_id=1349, club_name='Oldham',
+            level='First Team', entry_type='first_team',
+            appearances=16, transfer_date='2025-08-15',
+        )
+        # 2023 Forest U21 entry (earlier)
+        forest_u21_2023 = self._mock_entry(
+            season=2023, club_api_id=19746, club_name='Nottingham Forest U21',
+            level='U21', entry_type='development', appearances=1,
+            transfer_date='2024-01-02',
+        )
+
+        transfers = [
+            # The exact pathological transfer Hammond has on prod
+            {'date': '2024-01-02', 'type': 'N/A',
+             'teams': {'out': {'id': 1943, 'name': 'Cheltenham'},
+                       'in':  {'id': 19746, 'name': 'Nottingham Forest U21'}}},
+            {'date': '2023-08-01', 'type': 'Loan',
+             'teams': {'out': {'id': 65, 'name': 'Nottingham Forest'},
+                       'in':  {'id': 1943, 'name': 'Cheltenham'}}},
+        ]
+
+        journey = MagicMock()
+        journey.id = 1
+        journey.player_api_id = 325967
+
+        with patch('src.services.journey_sync.PlayerJourneyEntry') as MockEntry, \
+             patch.object(service, '_compute_academy_club_ids'):
+            MockEntry.query.filter_by.return_value.all.return_value = [
+                oldham_2025, forest_u21_2023,
+            ]
+            service._update_journey_aggregates(journey, transfers=transfers)
+
+        # The stale 2024 transfer must NOT pull current_club back to Forest U21.
+        assert journey.current_club_api_id == 1349
+        assert journey.current_club_name == 'Oldham'
+        assert journey.current_level == 'First Team'
+
+    def test_na_typed_transfer_is_ignored(self):
+        """N/A transfer types are ambiguous and must never drive overrides,
+        even when they are newer than the latest entry."""
+        from src.services.journey_sync import JourneySyncService
+        service = JourneySyncService(api_client=Mock())
+
+        entry = self._mock_entry(
+            season=2024, club_api_id=1349, club_name='Oldham',
+            transfer_date='2024-08-01',
+        )
+        transfers = [
+            # Newer than the entry, but type=N/A — must be skipped
+            {'date': '2025-01-15', 'type': 'N/A',
+             'teams': {'out': {'id': 1349, 'name': 'Oldham'},
+                       'in':  {'id': 19746, 'name': 'Nottingham Forest U21'}}},
+        ]
+
+        journey = MagicMock()
+        journey.id = 2
+        journey.player_api_id = 2
+
+        with patch('src.services.journey_sync.PlayerJourneyEntry') as MockEntry, \
+             patch.object(service, '_compute_academy_club_ids'):
+            MockEntry.query.filter_by.return_value.all.return_value = [entry]
+            service._update_journey_aggregates(journey, transfers=transfers)
+
+        assert journey.current_club_api_id == 1349
+        assert journey.current_club_name == 'Oldham'
+
+    def test_loan_return_derives_level_from_destination(self):
+        """A loan return to a youth team must set current_level from the
+        destination, not hardcode 'First Team'."""
+        from src.services.journey_sync import JourneySyncService
+        service = JourneySyncService(api_client=Mock())
+
+        entry = self._mock_entry(
+            season=2024, club_api_id=1234, club_name='Some Loan Club',
+            transfer_date='2024-08-01',
+        )
+        transfers = [
+            {'date': '2025-12-30', 'type': 'Return from loan',
+             'teams': {'out': {'id': 1234, 'name': 'Some Loan Club'},
+                       'in':  {'id': 19746, 'name': 'Nottingham Forest U21'}}},
+        ]
+
+        journey = MagicMock()
+        journey.id = 3
+        journey.player_api_id = 3
+
+        with patch('src.services.journey_sync.PlayerJourneyEntry') as MockEntry, \
+             patch.object(service, '_compute_academy_club_ids'):
+            MockEntry.query.filter_by.return_value.all.return_value = [entry]
+            service._update_journey_aggregates(journey, transfers=transfers)
+
+        assert journey.current_club_api_id == 19746
+        assert journey.current_club_name == 'Nottingham Forest U21'
+        # Level must reflect that the destination is a U21 team
+        assert journey.current_level == 'U21'
+
+    def test_newer_valid_transfer_still_overrides(self):
+        """The existing 'stats show Real Madrid but on loan at Lyon' use case
+        must keep working — a valid newer transfer still overrides stats."""
+        from src.services.journey_sync import JourneySyncService
+        service = JourneySyncService(api_client=Mock())
+
+        # Stats show player at Real Madrid in 2025
+        entry = self._mock_entry(
+            season=2025, club_api_id=541, club_name='Real Madrid',
+            transfer_date='2025-07-01',
+        )
+        # Jan 2026 loan to Lyon — newer than stats, valid loan type
+        transfers = [
+            {'date': '2026-01-15', 'type': 'Loan',
+             'teams': {'out': {'id': 541, 'name': 'Real Madrid'},
+                       'in':  {'id': 80, 'name': 'Lyon'}}},
+        ]
+
+        journey = MagicMock()
+        journey.id = 4
+        journey.player_api_id = 4
+
+        with patch('src.services.journey_sync.PlayerJourneyEntry') as MockEntry, \
+             patch.object(service, '_compute_academy_club_ids'):
+            MockEntry.query.filter_by.return_value.all.return_value = [entry]
+            service._update_journey_aggregates(journey, transfers=transfers)
+
+        assert journey.current_club_api_id == 80
+        assert journey.current_club_name == 'Lyon'
+
+
 class TestUpdateAggregatesWithLoans:
     """Test that _update_journey_aggregates counts loan apps"""
 

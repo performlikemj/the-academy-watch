@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import re
@@ -42,11 +43,19 @@ dotenv.load_dotenv(dotenv.find_dotenv())
 #     base_url="https://openrouter.ai/api/v1",
 #     api_key=os.getenv("OPENROUTER_API_KEY")
 # )
+logger = logging.getLogger(__name__)
+
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 set_default_openai_client(client)
 api_client = APIFootballClient()
 graph_service = GraphService()
 _GROQ_CLIENT: Optional["Groq"] = None
+
+# Maximum age (days) a PlayerJourney's last_synced_at can be before the
+# newsletter pipeline logs a staleness warning. Added after the O. Hammond
+# incident, where stale 2024 journey data drove a wrong classification and
+# a departed player ended up in a live newsletter.
+NEWSLETTER_JOURNEY_STALE_DAYS = 14
 
 def _get_groq_client() -> Groq:
     global _GROQ_CLIENT
@@ -1758,6 +1767,70 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
         TrackedPlayer.is_active.is_(True),
         TrackedPlayer.status.notin_(['released', 'sold']),
     ).all()
+
+    # Pre-flight: warn loudly about any player whose linked PlayerJourney
+    # last_synced_at is older than NEWSLETTER_JOURNEY_STALE_DAYS. Added after
+    # the O. Hammond incident — generating a newsletter against stale journey
+    # data is exactly how a departed player ends up in a live newsletter, and
+    # the pipeline previously did not surface this at all.
+    try:
+        _now = datetime.now(timezone.utc)
+        _stale_threshold = timedelta(days=NEWSLETTER_JOURNEY_STALE_DAYS)
+        _journey_ids = [tp.journey_id for tp in tracked if tp.journey_id]
+        _journey_map: Dict[int, PlayerJourney] = {}
+        if _journey_ids:
+            _journey_map = {
+                j.id: j for j in PlayerJourney.query.filter(
+                    PlayerJourney.id.in_(_journey_ids)
+                ).all()
+            }
+        _stale_entries: List[Dict[str, Any]] = []
+        _missing_journeys: List[Dict[str, Any]] = []
+        for tp in tracked:
+            journey = _journey_map.get(tp.journey_id) if tp.journey_id else None
+            if journey is None:
+                _missing_journeys.append({
+                    'player_api_id': tp.player_api_id,
+                    'player_name': tp.player_name,
+                    'status': tp.status,
+                })
+                continue
+            last_synced = journey.last_synced_at
+            if last_synced is None:
+                _stale_entries.append({
+                    'player_api_id': tp.player_api_id,
+                    'player_name': tp.player_name,
+                    'status': tp.status,
+                    'last_synced_at': None,
+                    'stale_days': None,
+                })
+                continue
+            if last_synced.tzinfo is None:
+                last_synced = last_synced.replace(tzinfo=timezone.utc)
+            age = _now - last_synced
+            if age > _stale_threshold:
+                _stale_entries.append({
+                    'player_api_id': tp.player_api_id,
+                    'player_name': tp.player_name,
+                    'status': tp.status,
+                    'last_synced_at': last_synced.isoformat(),
+                    'stale_days': age.days,
+                })
+        if _stale_entries or _missing_journeys:
+            logger.warning(
+                'newsletter pre-flight: team=%s (db_id=%d) has %d stale journey(s) '
+                '(>%dd) and %d player(s) missing a linked journey. '
+                'Consider running POST /admin/tracked-players/refresh-statuses '
+                '{team_id:%d} before publishing. stale=%s missing=%s',
+                team.name, parent_team_db_id, len(_stale_entries),
+                NEWSLETTER_JOURNEY_STALE_DAYS, len(_missing_journeys),
+                parent_team_db_id, _stale_entries, _missing_journeys,
+            )
+    except Exception as _stale_check_err:
+        logger.warning(
+            'newsletter pre-flight staleness check failed for team=%s: %s',
+            team.name, _stale_check_err,
+        )
 
     groups: Dict[str, list] = {'first_team': [], 'on_loan': [], 'academy': []}
 

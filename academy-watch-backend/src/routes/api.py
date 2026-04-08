@@ -10518,11 +10518,17 @@ def admin_refresh_tracked_player_statuses():
     Body: { team_id?: int, resync_journeys?: bool } — if omitted, refreshes all active TrackedPlayers.
     When resync_journeys is true, re-syncs each player's journey data from API-Football
     before re-deriving statuses (fixes stale current_club data).
+
+    Default changed 2026-04 (post O. Hammond incident): resync_journeys now
+    defaults to True. The previous default of False silently ran the classifier
+    against cached journey data, so a naive "refresh statuses" click did
+    nothing useful for stale rows. Operators who explicitly want the
+    cache-only behaviour must now pass resync_journeys=false.
     """
     try:
         data = request.get_json(force=True) or {}
         team_id = data.get('team_id')
-        resync_journeys = data.get('resync_journeys', False)
+        resync_journeys = data.get('resync_journeys', True)
 
         from src.services.transfer_heal_service import refresh_and_heal
         result = refresh_and_heal(
@@ -10531,10 +10537,14 @@ def admin_refresh_tracked_player_statuses():
             cascade_fixtures=False,
         )
 
-        # Return the same shape as before for backwards compatibility
+        # Return the same shape as before for backwards compatibility,
+        # plus the new fail-loud prefetch fields so operators can see at a
+        # glance whether any players were deliberately skipped.
         response = {
             'total': result['total'],
             'updated': result['updated'],
+            'skipped_by_failed_prefetch': result.get('skipped_by_failed_prefetch', 0),
+            'failed_squad_clubs': result.get('failed_squad_clubs', []),
         }
         if resync_journeys:
             response['journeys_resynced'] = result['journeys_resynced']
