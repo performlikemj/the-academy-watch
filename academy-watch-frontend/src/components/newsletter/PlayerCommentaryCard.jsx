@@ -113,6 +113,7 @@ export function PlayerCommentaryCard({
     { url: item.radar_chart_url, alt: 'Performance Radar' },
     { url: item.trend_chart_url, alt: 'Season Rating Trend' },
   ].filter((c) => c.url)
+  const hasCharts = inlineCharts.length > 0
 
   const handleExpand = () => {
     if (onExpand) {
@@ -148,10 +149,16 @@ export function PlayerCommentaryCard({
         </button>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-0">
+      <div className={hasCharts ? 'grid grid-cols-1 md:grid-cols-12 gap-0' : ''}>
         {/* LEFT — identity, stats, narrative, tweets, CTA */}
-        <div className="md:col-span-7 p-5 sm:p-6 md:p-7 lg:p-8">
-          <div className="flex items-start gap-4 mb-4 pr-12">
+        <div
+          className={
+            hasCharts
+              ? 'md:col-span-7 min-w-0 p-5 sm:p-6 md:p-7 lg:p-8'
+              : 'min-w-0 p-5 sm:p-6 md:p-7 lg:p-8'
+          }
+        >
+          <div className="flex items-start gap-4 mb-4 pr-10">
             {photo ? (
               <img
                 src={photo}
@@ -169,12 +176,12 @@ export function PlayerCommentaryCard({
                   to={`/players/${playerLinkId}`}
                   className="block"
                 >
-                  <h3 className="tl-headline text-lg sm:text-xl lg:text-2xl text-[var(--tl-text)] m-0 break-words hover:text-[var(--tl-primary)] transition-colors">
+                  <h3 className="tl-headline text-lg sm:text-xl lg:text-2xl text-[var(--tl-text)] m-0 hover:text-[var(--tl-primary)] transition-colors">
                     {item.player_name}
                   </h3>
                 </Link>
               ) : (
-                <h3 className="tl-headline text-lg sm:text-xl lg:text-2xl text-[var(--tl-text)] m-0 break-words">
+                <h3 className="tl-headline text-lg sm:text-xl lg:text-2xl text-[var(--tl-text)] m-0">
                   {item.player_name}
                 </h3>
               )}
@@ -266,7 +273,7 @@ export function PlayerCommentaryCard({
         {/* RIGHT — slim inline chart set (radar + trend). The full chart
             set lives in the expanded drawer. Each chart is clickable to
             open a lightbox at native resolution. */}
-        {inlineCharts.length > 0 && (
+        {hasCharts && (
           <div
             className="md:col-span-5 p-5 sm:p-6 md:p-7 lg:p-8 space-y-4 border-t md:border-t-0 md:border-l border-[var(--tl-divider)]"
             style={{ background: 'var(--tl-card)' }}
