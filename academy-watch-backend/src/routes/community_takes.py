@@ -436,6 +436,9 @@ def admin_create_take():
     - player_id: Optional. API-Football player ID
     - player_name: Optional. Player name for display
     - team_id: Optional. Team DB ID
+    - newsletter_id: Optional. Attach the take to a specific newsletter so it
+      surfaces in `_fetch_community_takes_for_newsletter` for that issue.
+      Must point to a newsletter belonging to `team_id` if both are provided.
     - status: Optional. 'pending' or 'approved' (default: approved for editor creates)
     """
     data = request.get_json() or {}
@@ -458,6 +461,7 @@ def admin_create_take():
     player_id = data.get('player_id')
     player_name = (data.get('player_name') or '').strip() or None
     team_id = data.get('team_id')
+    newsletter_id = data.get('newsletter_id')
     status = data.get('status', 'approved')  # Default to approved for admin creates
 
     if status not in ('pending', 'approved'):
@@ -469,6 +473,14 @@ def admin_create_take():
         if not team:
             return jsonify({'error': 'Invalid team_id'}), 400
 
+    # Validate newsletter exists and (if a team was passed) belongs to it.
+    if newsletter_id:
+        newsletter = db.session.get(Newsletter, newsletter_id)
+        if not newsletter:
+            return jsonify({'error': 'Invalid newsletter_id'}), 400
+        if team_id and newsletter.team_id and newsletter.team_id != team_id:
+            return jsonify({'error': 'newsletter_id does not belong to team_id'}), 400
+
     take = CommunityTake(
         source_type=source_type,
         source_author=source_author,
@@ -478,6 +490,7 @@ def admin_create_take():
         player_id=player_id,
         player_name=player_name,
         team_id=team_id,
+        newsletter_id=newsletter_id,
         status=status,
         curated_at=datetime.now(timezone.utc) if status == 'approved' else None,
     )
