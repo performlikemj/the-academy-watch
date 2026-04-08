@@ -929,21 +929,22 @@ def get_newsletters():
         for newsletter in newsletters:
             row = newsletter.to_dict()
             try:
-                raw_structured = newsletter.structured_content or newsletter.content or "{}"
-                raw_obj = json.loads(raw_structured)
-            except Exception:
-                raw_obj = None
-            if isinstance(raw_obj, dict):
-                rendered = raw_obj.get('rendered')
-                if isinstance(rendered, dict):
-                    row['rendered'] = {
-                        key: value if isinstance(value, str) else ''
-                        for key, value in rendered.items()
-                    }
-            try:
-                row['enriched_content'] = _load_newsletter_json(newsletter)
+                enriched = _load_newsletter_json(newsletter)
+                # The LIST endpoint must NOT return the full enriched_content —
+                # each newsletter carries ~6 base64-encoded chart PNGs per
+                # player which add ~2 MB / newsletter. With 10+ newsletters
+                # this turns into a 25-30 MB payload that takes 30-40 seconds
+                # to download even on fast connections, which made the
+                # newsletter list page (and the focused-view URL that gates
+                # on it) effectively unusable. Strip the chart URLs and any
+                # embedded HTML before serialising. Detail consumers should
+                # call GET /newsletters/<id> for the full content.
+                row['enriched_content'] = _strip_heavy_fields_for_list(enriched)
             except Exception:
                 row['enriched_content'] = None
+            # Skip `row['rendered']` entirely — the rendered web/email HTML
+            # blobs also embed the chart images and add several MB. The
+            # focused-view detail endpoint still returns them.
             payload.append(row)
         return jsonify(payload)
     except Exception as e:
@@ -2884,6 +2885,73 @@ def _load_newsletter_json(n: Newsletter) -> dict | None:
         return None
     except Exception:
         return None
+
+
+# Field names inside player items that hold base64 chart data URIs.
+# Each one is typically 50-200 KB; with 6 charts × 10 players × 10 newsletters
+# they push the LIST endpoint payload past 25 MB. Strip them in any context
+# that doesn't actually render the charts (i.e. the LIST endpoint).
+_HEAVY_CHART_FIELDS = (
+    'radar_chart_url',
+    'trend_chart_url',
+    'match_card_url',
+    'stat_table_url',
+    'rating_graph_url',
+    'minutes_graph_url',
+)
+
+
+def _strip_heavy_fields_for_list(enriched: dict | None) -> dict | None:
+    """Return a slimmed copy of `enriched_content` with chart base64s and
+    embedded rendered HTML removed.
+
+    Used by the LIST endpoint so a 28 MB response shrinks to ~1 MB. The
+    detail endpoint still returns the full payload via _load_newsletter_json.
+    Walks both the flat `items` shape and the `subsections` shape that the
+    weekly agent emits when players span multiple loan leagues.
+    """
+    if not isinstance(enriched, dict):
+        return enriched
+
+    # Shallow copy then mutate. The original dict is cached by SQLAlchemy
+    # so we must not strip from it in-place.
+    out: dict = dict(enriched)
+
+    # Drop the rendered HTML blobs (web_html / email_html). They embed the
+    # same chart images and add several MB on top of the chart_url fields.
+    if 'rendered' in out:
+        out.pop('rendered', None)
+
+    sections = out.get('sections')
+    if isinstance(sections, list):
+        new_sections: list = []
+        for sec in sections:
+            if not isinstance(sec, dict):
+                new_sections.append(sec)
+                continue
+            new_sec = dict(sec)
+            if 'subsections' in new_sec and isinstance(new_sec['subsections'], list):
+                new_sec['subsections'] = [
+                    {**sub, 'items': [_strip_item(i) for i in (sub.get('items') or [])]}
+                    if isinstance(sub, dict) else sub
+                    for sub in new_sec['subsections']
+                ]
+            elif isinstance(new_sec.get('items'), list):
+                new_sec['items'] = [_strip_item(i) for i in new_sec['items']]
+            new_sections.append(new_sec)
+        out['sections'] = new_sections
+    return out
+
+
+def _strip_item(item: dict) -> dict:
+    """Drop chart base64 fields from a single player item."""
+    if not isinstance(item, dict):
+        return item
+    new_item = dict(item)
+    for field in _HEAVY_CHART_FIELDS:
+        new_item.pop(field, None)
+    return new_item
+
 
 def _plain_text_from_news(data: dict, meta: Newsletter) -> str:
     team = meta.team.name if meta.team else ""
