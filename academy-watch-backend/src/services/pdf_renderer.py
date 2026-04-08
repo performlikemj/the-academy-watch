@@ -113,13 +113,16 @@ h1, h2, h3 {
     page-break-after: avoid;
 }
 
-/* Force each top-level newsletter section onto a fresh page for
-   stakeholder scan-ability. The first <h2> lives after the highlights/TOC
-   on page 1, so this naturally starts the first section on page 2. */
-.content h2 {
-    break-before: page;
-    page-break-before: always;
-}
+/* Intentionally NOT forcing a page break on .content h2. The earlier
+   design forced each top-level section ("First Team", "On Loan",
+   "Academy Rising") onto a fresh page for stakeholder scan-ability,
+   but on sparse sections that produced huge dark whitespace below the
+   last card to the bottom of the page, making the PDF feel cramped
+   and wasteful. Letting content flow continuously matches how the
+   same newsletter renders in email — stakeholders get the same visual
+   experience subscribers get, just paginated at the natural overflow
+   points. The break-inside:avoid rules above still guarantee cards
+   and highlights can't be sliced mid-content. */
 
 /* Widows and orphans on body copy. */
 p, li {
