@@ -18,7 +18,7 @@ import { Target, Shield, Footprints, Users, ArrowRight, Clock, Star, AlertCircle
  * @param {string} playerName - The player's name
  * @param {string} position - The player's position (Goalkeeper, Defender, Midfielder, Attacker)
  */
-export function MatchDetailDrawer({ open, onOpenChange, match, playerName, position }) {
+export function MatchDetailDrawer({ open, onOpenChange, match, _playerName, position }) {
     if (!match) return null
 
     const isGoalkeeper = position === 'Goalkeeper'

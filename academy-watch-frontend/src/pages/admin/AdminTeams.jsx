@@ -88,8 +88,8 @@ export function AdminTeams() {
 
   // Sync fixtures state
   const [syncingTeamId, setSyncingTeamId] = useState(null)
-  const [syncJobId, setSyncJobId] = useState(null)
-  const [syncProgress, setSyncProgress] = useState(null)
+  const [_syncJobId, setSyncJobId] = useState(null)
+  const [_syncProgress, setSyncProgress] = useState(null)
 
   // Purge state
   const [purgeTeamId, setPurgeTeamId] = useState('')

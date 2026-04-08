@@ -786,7 +786,7 @@ export class APIService {
     static async adminNewsletterUpdate(id, payload) {
         return this.request(`/admin/newsletters/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, { admin: true })
     }
-    static async adminNewsletterBulkPublish(selection, publish = true, options = {}) {
+    static async adminNewsletterBulkPublish(selection, publish = true, _options = {}) {
         const payload = { publish: !!publish }
 
         if (selection && typeof selection === 'object' && !Array.isArray(selection)) {

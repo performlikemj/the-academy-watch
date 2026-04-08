@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -39,8 +39,8 @@ function StatItem({ icon: Icon, label, value, highlight = false }) {
 // Fixture card component
 function FixtureCard({ fixture }) {
   const { home_team, away_team, stats, date, competition, is_home } = fixture
-  const playerTeam = is_home ? home_team : away_team
-  const opponentTeam = is_home ? away_team : home_team
+  const _playerTeam = is_home ? home_team : away_team
+  const _opponentTeam = is_home ? away_team : home_team
 
   // Determine result
   const playerScore = is_home ? home_team.score : away_team.score

@@ -80,7 +80,7 @@ export function WriteupEditor() {
                         setIsEditor(true)
                         setManagedWriters(writersResponse.writers)
                     }
-                } catch (editorErr) {
+                } catch {
                     // User is not an editor, this is fine
                     console.debug('Not an editor or no managed writers')
                 }

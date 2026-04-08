@@ -55,7 +55,7 @@ export function JournalistProfile() {
                 // API returns list of journalist objects, so we check sub.id (journalist ID)
                 const subscribed = mySubs.some(sub => sub.id === parseInt(id))
                 setIsSubscribed(subscribed)
-            } catch (e) {
+            } catch {
                 // User might not be logged in
                 setIsSubscribed(false)
             }

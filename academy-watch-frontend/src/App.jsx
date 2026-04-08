@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useContext, createContext, useRef, Fragment } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card.jsx'
@@ -121,7 +121,6 @@ import {
   NewsletterWriterProvider,
   WriterHeaderSection,
   InlinePlayerWriteups,
-  useWriterCommentaries
 } from '@/components/NewsletterWriterOverlay'
 
 import { APIService } from '@/lib/api'
@@ -227,6 +226,14 @@ function HistoricalNewslettersPage() {
   const [generating, setGenerating] = useState(false)
   const [message, setMessage] = useState(null)
 
+  // Auth state — needed for the admin-gated empty state below. Without this
+  // the JSX referenced these as free variables and exploded at runtime.
+  const auth = useAuth()
+  const { openLoginModal, logout: triggerLogout } = useAuthUI()
+  const hasStoredKey = Boolean(auth?.hasApiKey)
+  const hasAdminToken = Boolean(auth?.isAdmin)
+  const authToken = Boolean(auth?.token)
+
   useEffect(() => {
     const loadTeams = async () => {
       try {
@@ -234,7 +241,7 @@ function HistoricalNewslettersPage() {
         const { season, teams: filtered } = filterLatestSeasonTeams(data)
         setTeams(filtered)
         setCurrentSeason(season)
-      } catch (error) {
+      } catch {
         setMessage({ type: 'error', text: 'Failed to load teams' })
       } finally {
         setLoading(false)
@@ -581,7 +588,7 @@ function AdminNewsletterDetailPage() {
     } else if (newsletter?.content) {
       try {
         obj = typeof newsletter.content === 'string' ? JSON.parse(newsletter.content) : (newsletter.content || {})
-      } catch (error) {
+      } catch {
         obj = null
       }
     }
@@ -758,7 +765,7 @@ function AdminNewsletterDetailPage() {
           })}
         </div>
       )
-    } catch (err) {
+    } catch {
       return (
         <div className="bg-secondary p-4 rounded-lg">
           <h3 className="text-lg font-medium text-foreground mb-2">Newsletter Content</h3>
@@ -921,8 +928,8 @@ function AdminPage({ defaultTab = 'newsletters', includeSandbox = true, forcedTa
     loan_team_api_id: '',
     season: '',
   })
-  const [loanFilters, setLoanFilters] = useState({ season: '', sortBy: 'created_at', sortOrder: 'desc', showActive: true })
-  const [loansPagination, setLoansPagination] = useState({ page: 1, pageSize: 25 })
+  const [loanFilters, _setLoanFilters] = useState({ season: '', sortBy: 'created_at', sortOrder: 'desc', showActive: true })
+  const [_loansPagination, _setLoansPagination] = useState({ page: 1, pageSize: 25 })
   const [supplementalLoans, setSupplementalLoans] = useState([])
   const [supplementalFilters, setSupplementalFilters] = useState({ player_name: '', season: '' })
   const [supplementalForm, setSupplementalForm] = useState({ player_name: '', parent_team_name: '', loan_team_name: '', season_year: '' })
@@ -1036,7 +1043,7 @@ function AdminPage({ defaultTab = 'newsletters', includeSandbox = true, forcedTa
   const pageSelectRef = useRef(null)
   const selectionToastRef = useRef({ total: null, excluded: null, active: false })
   const reviewDirtyRef = useRef(false)
-  const adminQuickLinks = useMemo(() => getAdminQuickLinks(), [])
+  const _adminQuickLinks = useMemo(() => getAdminQuickLinks(), [])
   const adminTotalPages = useMemo(() => {
     const total = Math.ceil(newslettersAdmin.length / ADMIN_NEWSLETTER_PAGE_SIZE)
     return total > 0 ? total : 1
@@ -1052,7 +1059,7 @@ function AdminPage({ defaultTab = 'newsletters', includeSandbox = true, forcedTa
     () => resolveAdminTab({ searchParams, defaultTab, allowedTabs: adminTabs, forcedTab }),
     [searchParams, defaultTab, adminTabs, forcedTab],
   )
-  const navigate = useNavigate()
+  const _navigate = useNavigate()
 
   // Sandbox task state (integrated from AdminSandboxPage)
   const [sandboxTasks, setSandboxTasks] = useState([])
@@ -1752,7 +1759,7 @@ function AdminPage({ defaultTab = 'newsletters', includeSandbox = true, forcedTa
       setMnBusy(false)
     }
   }
-  const createLoan = async () => {
+  const _createLoan = async () => {
     try {
       const payload = {
         player_id: parseInt(loanForm.player_id, 10),
@@ -1781,7 +1788,7 @@ function AdminPage({ defaultTab = 'newsletters', includeSandbox = true, forcedTa
       setMessage({ type: 'error', text: `Update failed: ${error?.body?.error || error.message}` })
     }
   }
-  const deactivateLoan = async (loan) => {
+  const _deactivateLoan = async (loan) => {
     try {
       await APIService.adminLoanDeactivate(loan.id)
       await refreshLoans()
@@ -1857,7 +1864,7 @@ function AdminPage({ defaultTab = 'newsletters', includeSandbox = true, forcedTa
     }
     return loans.filter(matchesSeason)
   }, [loans, loanFilters.season])
-  const loansByLeague = useMemo(() => {
+  const _loansByLeague = useMemo(() => {
     const leagues = {}
     for (const l of filteredLoans) {
       const t = teamIdToTeam.get(l.primary_team_id)
@@ -2595,7 +2602,7 @@ function AdminPage({ defaultTab = 'newsletters', includeSandbox = true, forcedTa
         }
       }
       return players
-    } catch (error) {
+    } catch {
       return []
     }
   }
@@ -5652,7 +5659,7 @@ function AdminPage({ defaultTab = 'newsletters', includeSandbox = true, forcedTa
                                     })}
                                   </div>
                                 )
-                              } catch (error) {
+                              } catch (_error) {
                                 return (
                                   <div className="bg-rose-50 border border-rose-200 rounded p-4 text-sm text-rose-700">
                                     Unable to parse newsletter content. Switch to JSON Editor to fix.
@@ -7498,7 +7505,7 @@ function SubscribePage() {
       try {
         // First check database status for debugging
         try {
-          const dbStatus = await APIService.debugDatabase()
+          await APIService.debugDatabase()
         } catch (dbError) {
           console.warn('⚠️ Could not get database status:', dbError)
         }
@@ -7874,7 +7881,6 @@ function TeamsPage() {
     <Link
       key={team.team_api_id}
       to={`/teams/${team.team_api_id}?tab=alumni&view=origins&league=2&season=${clSeason}`}
-      state={{ teamName: team.name, teamLogo: team.logo }}
       className="flex items-center gap-3 p-3 rounded-lg border bg-card text-left transition-all w-full border-border hover:border-border hover:shadow-sm"
     >
       <Avatar className="h-9 w-9 shrink-0">
@@ -8087,7 +8093,7 @@ function NewslettersPage() {
   const [rawNewsletters, setRawNewsletters] = useState([])
   const [newsletters, setNewsletters] = useState([])
   const [focusedNewsletterDetail, setFocusedNewsletterDetail] = useState(null)
-  const [focusedNewsletterLoading, setFocusedNewsletterLoading] = useState(false)
+  const [_focusedNewsletterLoading, setFocusedNewsletterLoading] = useState(false)
   const commentaryIdParam = useQueryParam('commentary_id', null)
   const [loading, setLoading] = useState(true)
   const [dateRange, setDateRange] = useState({ startDate: '', endDate: '', preset: 'all_time' })
@@ -8126,7 +8132,7 @@ function NewslettersPage() {
   const [followedTeamFilter, setFollowedTeamFilter] = useState('')
   const [leagueFilter, setLeagueFilter] = useState('')
   const [teamFilter, setTeamFilter] = useState('')
-  const [mySubscriptions, setMySubscriptions] = useState([])
+  const [_mySubscriptions, setMySubscriptions] = useState([])
   const [viewingJournalist, setViewingJournalist] = useState(null)
 
   useEffect(() => {
@@ -8388,7 +8394,7 @@ function NewslettersPage() {
         }
 
         setFocusedNewsletterDetail(detail)
-      } catch (error) {
+      } catch {
         if (!cancelled) setFocusedNewsletterDetail(null)
       } finally {
         if (!cancelled) setFocusedNewsletterLoading(false)
@@ -8862,11 +8868,11 @@ function NewslettersPage() {
                           const resp = await APIService.unsubscribeEmail({ email: auth.email, team_ids: trackedTeamIds })
                           const removed = resp?.count ?? 0
                           setTrackedTeamIds([])
-                          setMessage({ type: 'success', text: removed ? `Unsubscribed from ${removed} team${removed === 1 ? '' : 's'}.` : 'No active subscriptions were found.' })
+                          // NewslettersPage has no message banner — log to console
+                          // for now and rely on the page reload below.
+                          console.log(removed ? `Unsubscribed from ${removed} team${removed === 1 ? '' : 's'}.` : 'No active subscriptions were found.')
                         } catch (error) {
                           console.error('Failed to unsubscribe', error)
-                          const detail = error?.body?.error || error.message || 'Failed to unsubscribe.'
-                          setMessage({ type: 'error', text: detail })
                         }
                       }}
                     >

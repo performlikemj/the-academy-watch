@@ -180,7 +180,7 @@ function QuoteAttribution({ block }) {
 }
 
 // Locked premium block placeholder
-function LockedBlock({ authorName, authorId, onSubscribe }) {
+function LockedBlock({ authorName, _authorId, onSubscribe }) {
   return (
     <Card className="border-dashed border-2 border-amber-200 bg-amber-50/50">
       <CardContent className="py-8 text-center">

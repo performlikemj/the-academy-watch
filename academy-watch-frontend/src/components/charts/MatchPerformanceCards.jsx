@@ -7,7 +7,7 @@ import {
   Star, Footprints, Shield
 } from 'lucide-react'
 
-function StatBadge({ icon: Icon, label, value, highlight = false }) {
+function StatBadge({ icon: _Icon, _label, value, highlight = false }) {
   if (value === null || value === undefined) return null
   
   return (

@@ -84,7 +84,7 @@ const CHART_TYPES = [
   },
 ]
 
-function BlockOption({ type, chartType, label, description, icon: Icon, color, onClick }) {
+function BlockOption({ _type, _chartType, label, description, icon: Icon, color, onClick }) {
   return (
     <Card
       className={cn(
