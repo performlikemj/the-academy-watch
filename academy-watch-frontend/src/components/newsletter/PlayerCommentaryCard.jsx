@@ -1,36 +1,38 @@
 import { Link } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Maximize2 } from 'lucide-react'
 import { InlinePlayerWriteups } from '@/components/NewsletterWriterOverlay'
 import { MatchCardsStrip } from './MatchCardsStrip'
 import { UpcomingFixturesList } from './UpcomingFixturesList'
 import { TweetCard } from './TweetCard'
 
 /**
- * Player commentary card — the unit of value in the newsletter. Renders one
- * loanee/first-team/academy player with all of their data slots:
- *   - photo + name + status pill + parent/current club
- *   - stat ribbon (mins, G, A, KP, rating)
- *   - chart images (radar, trend, stat table, match card)
- *   - week summary text
- *   - this-week's-matches strip
- *   - coming-up fixtures
- *   - inline curator commentary via InlinePlayerWriteups
- *   - inline tweets about this player (twitter_takes_by_player[player_id])
- *   - "View full player profile" CTA
+ * Player commentary card — the unit of value in the newsletter.
  *
  * Layout:
  *   - Mobile: stacked single column
  *   - md+:   2-column inside the card (info left / charts right)
+ *
+ * Inline view shows a slim chart set (radar + trend) so the card stays
+ * scannable. The full chart set (match summary + stat table + radar +
+ * trend + rating + minutes) lives in the expanded drawer.
+ *
+ * Click affordances:
+ *   - "Expand" button (top right) → opens PlayerCardDrawer with full data
+ *     at 1.5–2× scale.
+ *   - Click on any inline chart → opens ChartLightbox at native resolution.
+ *
+ * Both callbacks (`onExpand`, `onZoomChart`) are owned by NewsletterView
+ * so the drawer/lightbox can be controlled centrally.
  */
 
 function StatPill({ label, value }) {
   if (value === undefined || value === null || value === '') return null
   return (
-    <div className="flex flex-col items-center justify-center px-3 py-2 min-w-[60px] flex-1">
+    <div className="flex flex-col items-center justify-center px-3 py-2.5 min-w-[60px] flex-1">
       <div className="text-[10px] uppercase tracking-wide text-[var(--tl-text-muted)] font-semibold">
         {label}
       </div>
-      <div className="text-sm font-bold text-[var(--tl-text)] mt-0.5">{value}</div>
+      <div className="text-sm sm:text-[15px] font-bold text-[var(--tl-text)] mt-0.5">{value}</div>
     </div>
   )
 }
@@ -92,38 +94,72 @@ function StatusPill({ status, level, loanTeam }) {
   )
 }
 
-export function PlayerCommentaryCard({ item, twitterTakes = [], publicBaseUrl }) {
+export function PlayerCommentaryCard({
+  item,
+  twitterTakes = [],
+  publicBaseUrl,
+  onExpand,
+  onZoomChart,
+}) {
   if (!item) return null
 
   const playerLinkId = item.player_api_id || item.player_id
   const loanTeam = item.loan_team || item.loan_team_name
   const photo = item.player_photo
-  const charts = [
-    { url: item.match_card_url, alt: 'Match Performance Summary' },
-    { url: item.stat_table_url, alt: 'Recent Match Stats' },
+
+  // Inline view shows a slim chart set so the card stays scannable. The
+  // expanded drawer surfaces ALL the charts at full size.
+  const inlineCharts = [
     { url: item.radar_chart_url, alt: 'Performance Radar' },
     { url: item.trend_chart_url, alt: 'Season Rating Trend' },
-    { url: item.rating_graph_url, alt: 'Rating Graph' },
-    { url: item.minutes_graph_url, alt: 'Minutes Graph' },
   ].filter((c) => c.url)
+
+  const handleExpand = () => {
+    if (onExpand) {
+      onExpand({ item, twitterTakes })
+    }
+  }
+
+  const handleChartClick = (chart) => {
+    if (onZoomChart) {
+      onZoomChart({
+        url: chart.url,
+        alt: chart.alt,
+        caption: `${item.player_name} — ${chart.alt}`,
+      })
+    }
+  }
 
   return (
     <article
-      className="tl-card-hover rounded-xl mb-5 sm:mb-6"
+      className="tl-card-hover rounded-xl mb-5 sm:mb-6 lg:mb-0 relative"
       style={{ background: 'var(--tl-section)' }}
     >
+      {/* Expand affordance — top-right corner. Only renders when an
+          onExpand handler is provided. */}
+      {onExpand && (
+        <button
+          type="button"
+          onClick={handleExpand}
+          aria-label={`Expand ${item.player_name || 'player'} details`}
+          className="absolute top-3 right-3 z-10 inline-flex items-center justify-center h-9 w-9 rounded-full text-[var(--tl-text-muted)] hover:text-[var(--tl-text)] hover:bg-[var(--tl-card)] transition-colors"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </button>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-12 gap-0">
         {/* LEFT — identity, stats, narrative, tweets, CTA */}
-        <div className="md:col-span-7 p-5 sm:p-6 md:p-7">
-          <div className="flex items-start gap-4 mb-4">
+        <div className="md:col-span-7 p-5 sm:p-6 md:p-7 lg:p-8">
+          <div className="flex items-start gap-4 mb-4 pr-12">
             {photo ? (
               <img
                 src={photo}
                 alt={item.player_name || 'Player'}
-                className="h-14 w-14 sm:h-16 sm:w-16 rounded-full object-cover bg-[var(--tl-card)] flex-shrink-0"
+                className="h-16 w-16 sm:h-18 sm:w-18 lg:h-20 lg:w-20 rounded-full object-cover bg-[var(--tl-card)] flex-shrink-0"
               />
             ) : (
-              <div className="h-14 w-14 sm:h-16 sm:w-16 rounded-full bg-[var(--tl-card)] flex items-center justify-center text-[var(--tl-text-muted)] text-xs font-bold flex-shrink-0">
+              <div className="h-16 w-16 sm:h-18 sm:w-18 lg:h-20 lg:w-20 rounded-full bg-[var(--tl-card)] flex items-center justify-center text-[var(--tl-text-muted)] text-sm font-bold flex-shrink-0">
                 {(item.player_name || '?').slice(0, 1)}
               </div>
             )}
@@ -133,16 +169,16 @@ export function PlayerCommentaryCard({ item, twitterTakes = [], publicBaseUrl })
                   to={`/players/${playerLinkId}`}
                   className="block"
                 >
-                  <h3 className="tl-headline text-lg sm:text-xl text-[var(--tl-text)] m-0 break-words hover:text-[var(--tl-primary)] transition-colors">
+                  <h3 className="tl-headline text-lg sm:text-xl lg:text-2xl text-[var(--tl-text)] m-0 break-words hover:text-[var(--tl-primary)] transition-colors">
                     {item.player_name}
                   </h3>
                 </Link>
               ) : (
-                <h3 className="tl-headline text-lg sm:text-xl text-[var(--tl-text)] m-0 break-words">
+                <h3 className="tl-headline text-lg sm:text-xl lg:text-2xl text-[var(--tl-text)] m-0 break-words">
                   {item.player_name}
                 </h3>
               )}
-              <div className="flex flex-wrap items-center gap-2 mt-1.5">
+              <div className="flex flex-wrap items-center gap-2 mt-2">
                 <StatusPill
                   status={item.pathway_status}
                   level={item.current_level}
@@ -193,16 +229,26 @@ export function PlayerCommentaryCard({ item, twitterTakes = [], publicBaseUrl })
             />
           )}
 
-          {/* Inline tweets about this player */}
+          {/* Inline tweets about this player — capped at 2 in the inline
+              view; the drawer surfaces the full list. */}
           {twitterTakes && twitterTakes.length > 0 && (
             <div className="mb-4">
               <p className="tl-eyebrow m-0 mb-2">
                 Twitter &middot; about {item.player_name}
               </p>
               <div className="space-y-3">
-                {twitterTakes.slice(0, 3).map((tweet, idx) => (
+                {twitterTakes.slice(0, 2).map((tweet, idx) => (
                   <TweetCard key={tweet.id || idx} tweet={tweet} />
                 ))}
+                {twitterTakes.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={handleExpand}
+                    className="text-[11px] font-semibold text-[var(--tl-primary)] hover:underline"
+                  >
+                    + {twitterTakes.length - 2} more in expanded view
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -217,21 +263,40 @@ export function PlayerCommentaryCard({ item, twitterTakes = [], publicBaseUrl })
           )}
         </div>
 
-        {/* RIGHT — chart images stack. Hidden on mobile if charts are absent. */}
-        {charts.length > 0 && (
+        {/* RIGHT — slim inline chart set (radar + trend). The full chart
+            set lives in the expanded drawer. Each chart is clickable to
+            open a lightbox at native resolution. */}
+        {inlineCharts.length > 0 && (
           <div
-            className="md:col-span-5 p-5 sm:p-6 md:p-7 space-y-4 border-t md:border-t-0 md:border-l border-[var(--tl-divider)]"
+            className="md:col-span-5 p-5 sm:p-6 md:p-7 lg:p-8 space-y-4 border-t md:border-t-0 md:border-l border-[var(--tl-divider)]"
             style={{ background: 'var(--tl-card)' }}
           >
-            {charts.map((c, idx) => (
-              <img
+            {inlineCharts.map((c, idx) => (
+              <button
                 key={idx}
-                src={c.url}
-                alt={c.alt}
-                loading="lazy"
-                className="block w-full h-auto rounded-md"
-              />
+                type="button"
+                onClick={() => handleChartClick(c)}
+                aria-label={`Zoom ${c.alt}`}
+                className="block w-full cursor-zoom-in p-0 border-0 bg-transparent hover:opacity-90 transition-opacity"
+              >
+                <img
+                  src={c.url}
+                  alt={c.alt}
+                  loading="lazy"
+                  className="block w-full h-auto rounded-md"
+                />
+              </button>
             ))}
+            {/* Subtle hint that the card has more behind the expand button. */}
+            {(item.match_card_url || item.stat_table_url || item.rating_graph_url) && (
+              <button
+                type="button"
+                onClick={handleExpand}
+                className="block w-full text-[11px] font-semibold text-[var(--tl-text-muted)] hover:text-[var(--tl-primary)] mt-2 text-center"
+              >
+                Click expand for match summary, stat table, and more &rarr;
+              </button>
+            )}
           </div>
         )}
       </div>
