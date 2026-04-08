@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>GOL Analytics Chat — {{ exported_date }}</title>
+  <style>
+    /* The Academy Watch — Tactical Lens (GOL Chat Export)
+       Dark navy base with primary royal-blue accents. Single-column layout
+       designed for A4/Letter PDF output via WeasyPrint. Styling intentionally
+       mirrors newsletter_email.html so the exported chat feels like the same
+       brand family. */
+    body {
+      margin: 0;
+      padding: 0;
+      background: #0b1326;
+      color: #e2e8f0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+    }
+
+    .wrapper {
+      width: 100%;
+      background: #0b1326;
+      padding: 24px 0;
+    }
+
+    .main {
+      max-width: 640px;
+      margin: 0 auto;
+      background: #0b1326;
+    }
+
+    .content {
+      padding: 36px 32px 44px;
+      color: #e2e8f0;
+    }
+
+    /* Masthead */
+    .brand {
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #2563EB;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      font-size: 26px;
+      margin: 0 0 10px;
+      color: #f1f5f9;
+      font-family: 'Manrope', 'Inter', sans-serif;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .meta {
+      font-size: 12px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      margin-bottom: 18px;
+      font-weight: 500;
+    }
+
+    .divider {
+      width: 32px;
+      height: 2px;
+      background: #2563EB;
+      margin: 10px 0 26px;
+    }
+
+    /* Chat turns */
+    .turn {
+      margin: 0 0 20px;
+    }
+
+    .turn-user {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .user-bubble {
+      display: inline-block;
+      max-width: 82%;
+      background: #2563EB;
+      color: #ffffff;
+      padding: 12px 16px;
+      border-radius: 14px 14px 4px 14px;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .user-bubble .speaker {
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      opacity: 0.85;
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+
+    .assistant-card {
+      background: #131b2e;
+      border-radius: 12px;
+      padding: 18px 20px;
+      border-left: 3px solid #2563EB;
+    }
+
+    .assistant-card .speaker {
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.6px;
+      color: #2563EB;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .assistant-body {
+      font-size: 14px;
+      color: #e2e8f0;
+      line-height: 1.65;
+    }
+
+    .assistant-body p {
+      margin: 0 0 10px;
+    }
+
+    .assistant-body p:last-child {
+      margin-bottom: 0;
+    }
+
+    .assistant-body h1,
+    .assistant-body h2,
+    .assistant-body h3,
+    .assistant-body h4 {
+      color: #f1f5f9;
+      font-family: 'Manrope', 'Inter', sans-serif;
+      font-weight: 700;
+      margin: 14px 0 6px;
+      line-height: 1.3;
+    }
+
+    .assistant-body h1 { font-size: 18px; }
+    .assistant-body h2 { font-size: 16px; }
+    .assistant-body h3 { font-size: 14px; }
+
+    .assistant-body ul,
+    .assistant-body ol {
+      margin: 6px 0 10px;
+      padding-left: 22px;
+    }
+
+    .assistant-body li {
+      margin: 3px 0;
+    }
+
+    .assistant-body a {
+      color: #60a5fa;
+      text-decoration: none;
+      border-bottom: 1px solid rgba(96, 165, 250, 0.4);
+    }
+
+    .assistant-body code {
+      background: #222a3d;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+
+    .assistant-body pre {
+      background: #222a3d;
+      padding: 12px 14px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 12px;
+      color: #cbd5e1;
+      margin: 8px 0;
+    }
+
+    .assistant-body blockquote {
+      border-left: 2px solid rgba(37, 99, 235, 0.4);
+      padding-left: 12px;
+      margin: 8px 0;
+      color: #cbd5e1;
+      font-style: italic;
+    }
+
+    /* Data cards */
+    .data-card {
+      background: #222a3d;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-top: 14px;
+    }
+
+    .data-card .description {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: #94a3b8;
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+
+    /* Tables */
+    table.gol-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      color: #e2e8f0;
+    }
+
+    table.gol-table th {
+      text-align: left;
+      padding: 8px 10px;
+      background: #2563EB;
+      color: #ffffff;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.8px;
+      border-bottom: none;
+    }
+
+    table.gol-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #2d3449;
+      color: #e2e8f0;
+    }
+
+    table.gol-table tr:nth-child(even) td {
+      background: #1a2235;
+    }
+
+    table.gol-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Chart image */
+    .chart-image {
+      display: block;
+      width: 100%;
+      max-width: 560px;
+      height: auto;
+      margin: 0 auto;
+      border-radius: 6px;
+    }
+
+    /* Number card (scalar display) */
+    .number-card {
+      text-align: center;
+      padding: 10px 0 4px;
+    }
+
+    .number-card .value {
+      font-family: 'Manrope', 'Inter', sans-serif;
+      font-size: 36px;
+      font-weight: 800;
+      color: #60a5fa;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+    }
+
+    .number-card .label {
+      display: block;
+      margin-top: 6px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
+    /* List display */
+    .data-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: gol-list;
+    }
+
+    .data-list li {
+      counter-increment: gol-list;
+      padding: 6px 0 6px 28px;
+      position: relative;
+      font-size: 13px;
+      color: #e2e8f0;
+      border-bottom: 1px solid #2d3449;
+    }
+
+    .data-list li::before {
+      content: counter(gol-list);
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 20px;
+      height: 20px;
+      background: #2563EB;
+      color: #ffffff;
+      border-radius: 50%;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 20px;
+    }
+
+    .data-list li:last-child {
+      border-bottom: none;
+    }
+
+    /* Dict display (key → value grid) */
+    .data-dict {
+      margin: 0;
+    }
+
+    .data-dict .dict-row {
+      display: table;
+      width: 100%;
+      padding: 6px 0;
+      border-bottom: 1px solid #2d3449;
+    }
+
+    .data-dict .dict-row:last-child {
+      border-bottom: none;
+    }
+
+    .data-dict .dict-key {
+      display: table-cell;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #94a3b8;
+      font-weight: 600;
+      width: 40%;
+      padding-right: 12px;
+    }
+
+    .data-dict .dict-value {
+      display: table-cell;
+      font-size: 13px;
+      color: #e2e8f0;
+      text-align: right;
+      font-weight: 600;
+    }
+
+    /* Empty / error data card */
+    .data-empty {
+      color: #94a3b8;
+      font-style: italic;
+      font-size: 12px;
+    }
+
+    /* Footer */
+    .footer {
+      margin-top: 28px;
+      padding-top: 18px;
+      border-top: 1px solid #1a2235;
+      text-align: center;
+      color: #94a3b8;
+      font-size: 11px;
+    }
+
+    .footer .brand-line {
+      color: #60a5fa;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrapper">
+    <div class="main">
+      <div class="content">
+        <div class="brand">THE ACADEMY WATCH</div>
+        <h1>GOL Analytics Chat</h1>
+        <div class="meta">Exported {{ exported_date }}</div>
+        <div class="divider"></div>
+
+        {% for msg in messages %}
+          {% if msg.role == 'user' %}
+            <div class="turn turn-user">
+              <div class="user-bubble">
+                <span class="speaker">You</span>
+                {{ msg.content_html|safe }}
+              </div>
+            </div>
+          {% else %}
+            <div class="turn turn-assistant">
+              <div class="assistant-card">
+                <span class="speaker">GOL</span>
+                {% if msg.content_html %}
+                  <div class="assistant-body">{{ msg.content_html|safe }}</div>
+                {% endif %}
+
+                {% for card in msg.data_cards %}
+                  <div class="data-card">
+                    {% if card.description %}
+                      <div class="description">{{ card.description }}</div>
+                    {% endif %}
+
+                    {% if card.kind == 'chart' %}
+                      <img class="chart-image" src="{{ card.chart_image_data_uri }}" alt="{{ card.description or 'Chart' }}" />
+                      {% if card.table_columns and card.rendered_rows %}
+                        <table class="gol-table" style="margin-top:12px;">
+                          <thead>
+                            <tr>
+                              {% for col in card.table_columns %}<th>{{ col }}</th>{% endfor %}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for row in card.rendered_rows %}
+                              <tr>
+                                {% for cell in row %}<td>{{ cell|safe }}</td>{% endfor %}
+                              </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      {% endif %}
+
+                    {% elif card.kind == 'table' %}
+                      <table class="gol-table">
+                        <thead>
+                          <tr>
+                            {% for col in card.columns %}<th>{{ col }}</th>{% endfor %}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for row in card.rendered_rows %}
+                            <tr>
+                              {% for cell in row %}<td>{{ cell|safe }}</td>{% endfor %}
+                            </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                      {% if card.truncated %}
+                        <div class="data-empty" style="margin-top:8px;">Showing first {{ card.rendered_rows|length }} of {{ card.total_rows }} rows.</div>
+                      {% endif %}
+
+                    {% elif card.kind == 'number' %}
+                      <div class="number-card">
+                        <div class="value">{{ card.value }}</div>
+                        {% if card.label %}<span class="label">{{ card.label }}</span>{% endif %}
+                      </div>
+
+                    {% elif card.kind == 'list' %}
+                      <ol class="data-list">
+                        {% for item in card.items %}<li>{{ item }}</li>{% endfor %}
+                      </ol>
+
+                    {% elif card.kind == 'dict' %}
+                      <div class="data-dict">
+                        {% for key, value in card.data.items() %}
+                          <div class="dict-row">
+                            <span class="dict-key">{{ key }}</span>
+                            <span class="dict-value">{{ value if value is not none else '–' }}</span>
+                          </div>
+                        {% endfor %}
+                      </div>
+
+                    {% elif card.kind == 'error' %}
+                      <div class="data-empty">{{ card.error }}</div>
+
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+
+        <div class="footer">
+          <a href="{{ site_url }}" class="brand-line" style="text-decoration:none;color:#60a5fa;">THE ACADEMY WATCH</a>
+          <div style="margin-top:4px;">Generated by GOL Analytics · {{ exported_date }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>

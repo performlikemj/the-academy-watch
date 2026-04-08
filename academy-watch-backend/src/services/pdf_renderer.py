@@ -23,8 +23,28 @@ dependencies on the routes module.
 
 from __future__ import annotations
 
+import base64
+import html as html_lib
+import logging
+import os
 import re
 from datetime import date, datetime
+from typing import Any, Iterable
+
+logger = logging.getLogger(__name__)
+
+# Public origin used to absolutize links inside the exported chat PDF so that
+# ``/players/123`` inside an LLM response becomes a clickable link when the
+# PDF is opened outside the browser. Falls back to the production host if the
+# env var isn't set so local dev exports still produce reachable links.
+_DEFAULT_PUBLIC_BASE_URL = "https://theacademywatch.com"
+
+
+def _public_base_url() -> str:
+    base = (os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_API_BASE_URL") or "").strip()
+    if not base:
+        base = _DEFAULT_PUBLIC_BASE_URL
+    return base.rstrip("/")
 
 
 # Print stylesheet injected before </head> prior to handing HTML to WeasyPrint.
@@ -191,3 +211,461 @@ def build_pdf_filename(
         parts.append(date_part)
     parts.append(f"issue-{int(newsletter_id)}")
     return "-".join(parts) + ".pdf"
+
+
+# ---------------------------------------------------------------------------
+# GOL chat export
+# ---------------------------------------------------------------------------
+
+# Columns that the frontend/backend treat as internal plumbing and should
+# never appear in an exported artifact. Mirrors the HIDDEN_COLUMNS list in
+# `academy-watch-frontend/src/components/gol/exportChat.js`.
+_GOL_HIDDEN_COLUMNS = {"player_api_id"}
+
+
+_REL_HREF_PATTERN = re.compile(
+    r'(<a\b[^>]*\bhref=")(/[^"#][^"]*)"',
+    flags=re.IGNORECASE,
+)
+
+# Recognises bare ``http(s)://…`` URLs so that plain-text cells (e.g. a
+# DataFrame column containing a tweet URL) get wrapped in a clickable
+# anchor. Deliberately narrow: we only match URLs that stand alone in a
+# text context, and we rely on the caller to apply this to already-escaped
+# text so there's no HTML-injection risk.
+_BARE_URL_PATTERN = re.compile(
+    r"(https?://[^\s<>\"'()]+[^\s<>\"'().,;!?])",
+    flags=re.IGNORECASE,
+)
+
+
+def _absolutize_links(html: str, base_url: str) -> str:
+    """Rewrite root-relative ``href="/..."`` links to use ``base_url``.
+
+    WeasyPrint turns any ``<a href>`` into a clickable PDF link annotation,
+    but if the href is relative the link is effectively dead once the PDF
+    leaves the browser. This helper rewrites only root-relative hrefs
+    (``/players/123``) — fragment-only (``#section``), scheme-relative
+    (``//cdn...``) and already-absolute hrefs are left alone.
+    """
+    if not html or not base_url:
+        return html
+    base = base_url.rstrip("/")
+
+    def _replace(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        path = match.group(2)
+        return f'{prefix}{base}{path}"'
+
+    return _REL_HREF_PATTERN.sub(_replace, html)
+
+
+def _markdown_to_html(text: str) -> str:
+    """Render GOL markdown content to safe HTML.
+
+    Uses ``markdown-it-py`` with a GFM-like preset so tables, autolinks and
+    strikethrough work. If ``linkify-it-py`` is installed we also turn bare
+    ``https://…`` URLs (including tweet / x.com links) into clickable
+    anchors. Any relative links emitted by the LLM are absolutized to the
+    public origin so they remain clickable once the PDF leaves the browser.
+
+    The renderer degrades gracefully in three stages:
+      1. markdown-it + linkify  (production, best fidelity)
+      2. markdown-it alone      (explicit ``[text](url)`` still works)
+      3. plain escape + wrap    (last resort so the PDF is never broken)
+    """
+    if not text:
+        return ""
+
+    rendered: str | None = None
+    try:
+        from markdown_it import MarkdownIt  # type: ignore
+
+        # linkify-it-py is optional. The ``gfm-like`` preset enables the
+        # linkify rule by default; if the backing module is missing,
+        # md.render() itself raises, so we must explicitly *disable*
+        # linkify when linkify-it-py isn't importable.
+        try:
+            import linkify_it  # type: ignore  # noqa: F401
+
+            has_linkify = True
+        except ImportError:
+            has_linkify = False
+
+        md = MarkdownIt("gfm-like")
+        if has_linkify:
+            md.options["linkify"] = True
+        else:
+            md.disable("linkify")
+        rendered = md.render(text)
+    except Exception:
+        logger.warning("markdown-it-py unavailable, falling back to plain wrap")
+
+    if rendered is None:
+        escaped = (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        # Post-process the escaped plain text to wrap bare http(s) URLs in
+        # anchors — important for the fallback path because without
+        # markdown-it we'd otherwise lose every link.
+        escaped = _BARE_URL_PATTERN.sub(
+            lambda m: f'<a href="{m.group(1)}">{m.group(1)}</a>',
+            escaped,
+        )
+        paragraphs = [p.strip() for p in escaped.split("\n\n") if p.strip()]
+        rendered = "\n".join(
+            f"<p>{p.replace(chr(10), '<br/>')}</p>" for p in paragraphs
+        )
+
+    return _absolutize_links(rendered, _public_base_url())
+
+
+def _filter_hidden_columns(
+    columns: list[str], rows: list[list[Any]]
+) -> tuple[list[str], list[list[Any]]]:
+    """Drop any column whose header is in the internal-only allowlist."""
+    visible_indices = [
+        idx for idx, col in enumerate(columns) if col not in _GOL_HIDDEN_COLUMNS
+    ]
+    filtered_cols = [columns[idx] for idx in visible_indices]
+    filtered_rows = [
+        [row[idx] if idx < len(row) else None for idx in visible_indices]
+        for row in rows
+    ]
+    return filtered_cols, filtered_rows
+
+
+# Column-name patterns that identify "link anchor" cells and the ID column
+# that should be used to build the destination URL. The first entry that
+# matches both a name column and an id column wins; the id column is
+# subsequently hidden from the visible output so stakeholders don't see raw
+# API ids in the exported table.
+_LINK_RULES: list[tuple[tuple[str, ...], tuple[str, ...], str]] = [
+    # (name column candidates, id column candidates, url path prefix)
+    (
+        ("player_name", "player", "name"),
+        ("player_api_id", "player_id"),
+        "/players/",
+    ),
+    (
+        (
+            "team_name",
+            "club_name",
+            "loan_club",
+            "loan_team",
+            "loan_team_name",
+            "parent_club",
+            "academy_club",
+            "current_club_name",
+            "origin_club_name",
+        ),
+        ("team_api_id", "club_api_id", "team_id"),
+        "/teams/",
+    ),
+]
+
+
+def _build_linkified_table(
+    raw_columns: list[str],
+    raw_rows: list[list[Any]],
+) -> tuple[list[str], list[list[str]]]:
+    """Return (visible_columns, rendered_rows) for a GOL table card.
+
+    Each cell in ``rendered_rows`` is an HTML-safe string. Cells under
+    linkable name columns are wrapped in ``<a href>`` tags pointing at the
+    public site, using the corresponding ID column from the raw row. The ID
+    columns themselves are then hidden from the visible output, joining the
+    standard hidden-column allowlist.
+    """
+    base_url = _public_base_url()
+
+    # Work out which columns should become link anchors and which columns
+    # provide the IDs for them. A single table can have both player and
+    # team links.
+    name_to_id_idx: dict[int, tuple[int, str]] = {}
+    extra_hidden_indices: set[int] = set()
+    lower_cols = [c.lower() for c in raw_columns]
+    for name_candidates, id_candidates, prefix in _LINK_RULES:
+        name_idx = next(
+            (i for i, c in enumerate(lower_cols) if c in name_candidates),
+            None,
+        )
+        id_idx = next(
+            (i for i, c in enumerate(lower_cols) if c in id_candidates),
+            None,
+        )
+        if name_idx is not None and id_idx is not None:
+            name_to_id_idx[name_idx] = (id_idx, prefix)
+            extra_hidden_indices.add(id_idx)
+
+    # Build the visible column list (hidden columns + id columns used for
+    # links are removed). We keep the original indices so we can still read
+    # the id cell when rendering.
+    visible_indices = [
+        i
+        for i, col in enumerate(raw_columns)
+        if col not in _GOL_HIDDEN_COLUMNS and i not in extra_hidden_indices
+    ]
+    visible_columns = [raw_columns[i] for i in visible_indices]
+
+    def _fmt(cell: Any) -> str:
+        if cell is None:
+            return "\u2013"
+        escaped = html_lib.escape(str(cell))
+        # Wrap bare http(s) URLs (e.g. tweet/x.com links sitting in a
+        # DataFrame column) in an anchor so they're clickable in the PDF.
+        return _BARE_URL_PATTERN.sub(
+            lambda m: f'<a href="{m.group(1)}">{m.group(1)}</a>',
+            escaped,
+        )
+
+    rendered_rows: list[list[str]] = []
+    for row in raw_rows:
+        out_row: list[str] = []
+        for i in visible_indices:
+            cell = row[i] if i < len(row) else None
+            link_info = name_to_id_idx.get(i)
+            if link_info is not None:
+                id_idx, prefix = link_info
+                id_value = row[id_idx] if id_idx < len(row) else None
+                if id_value is not None and cell is not None:
+                    href = f"{base_url}{prefix}{html_lib.escape(str(id_value))}"
+                    out_row.append(
+                        f'<a href="{href}">{_fmt(cell)}</a>'
+                    )
+                    continue
+            out_row.append(_fmt(cell))
+        rendered_rows.append(out_row)
+
+    return visible_columns, rendered_rows
+
+
+def _normalize_gol_data_card(card: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert a raw SSE ``data_card`` payload into a flat dict the Jinja2
+    template can iterate over.
+
+    The SSE shape is::
+
+        {
+          "type": "analysis_result",
+          "payload": {
+            "result_type": "table" | "scalar" | "list" | "dict" | "error",
+            "display":     "table" | "bar_chart" | "line_chart" | "number" | "list" | ...,
+            "columns":     [...],   # table / chart only
+            "rows":        [...],   # table / chart only
+            "value":       ...,     # scalar only
+            "items":       [...],   # list only
+            "data":        {...},   # dict only
+            "error":       str,     # error only
+            "meta":        {"description": str},
+            "total_rows":  int,
+            "truncated":   bool,
+          }
+        }
+
+    Chart renderings are produced eagerly here so the returned dict carries a
+    ``chart_image_data_uri`` ready to splice into an ``<img src>`` tag.
+    """
+    if not isinstance(card, dict):
+        return None
+    payload = card.get("payload") or {}
+    if not isinstance(payload, dict):
+        return None
+
+    result_type = payload.get("result_type")
+    display = payload.get("display")
+    meta = payload.get("meta") or {}
+    description = meta.get("description") if isinstance(meta, dict) else None
+
+    # Charts. The backend sandbox emits bar/line charts as tables with a
+    # ``display`` hint, so we detect them from display rather than
+    # result_type. Render the PNG via the generic matplotlib helpers and
+    # embed it as a data URI. We also keep the raw table data so a small
+    # summary table can appear beneath the chart — useful for stakeholders
+    # who want the numbers behind the picture.
+    if display in ("bar_chart", "line_chart"):
+        columns = payload.get("columns") or []
+        rows = payload.get("rows") or []
+        if not columns or not rows:
+            return {
+                "kind": "empty",
+                "description": description,
+            }
+
+        # The chart is rendered from the numeric-first cells, so we use the
+        # hidden-column-filtered copy for matplotlib. The summary table
+        # under the chart, however, is linkified like a regular table card.
+        chart_columns, chart_rows = _filter_hidden_columns(columns, rows)
+        try:
+            from src.services.chart_renderer import (
+                render_generic_bar_chart,
+                render_generic_line_chart,
+            )
+
+            renderer = (
+                render_generic_bar_chart
+                if display == "bar_chart"
+                else render_generic_line_chart
+            )
+            png_bytes = renderer(chart_columns, chart_rows, title=description or None)
+            data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+        except Exception:
+            logger.exception("Failed to render GOL chart; falling back to table")
+            visible_cols, rendered_rows = _build_linkified_table(columns, rows)
+            return {
+                "kind": "table",
+                "description": description,
+                "columns": visible_cols,
+                "rendered_rows": rendered_rows,
+                "total_rows": payload.get("total_rows"),
+                "truncated": bool(payload.get("truncated")),
+            }
+
+        # Keep the numeric summary table alongside the chart only when it's
+        # small enough to be useful — more than ~8 rows and it starts to
+        # overwhelm the chart visually.
+        if len(rows) <= 8:
+            visible_cols, rendered_rows = _build_linkified_table(columns, rows)
+        else:
+            visible_cols, rendered_rows = None, None
+        return {
+            "kind": "chart",
+            "description": description,
+            "chart_image_data_uri": data_uri,
+            "table_columns": visible_cols,
+            "rendered_rows": rendered_rows,
+        }
+
+    # Tables.
+    if result_type == "table" or display == "table":
+        columns = payload.get("columns") or []
+        rows = payload.get("rows") or []
+        visible_cols, rendered_rows = _build_linkified_table(columns, rows)
+        return {
+            "kind": "table",
+            "description": description,
+            "columns": visible_cols,
+            "rendered_rows": rendered_rows,
+            "total_rows": payload.get("total_rows"),
+            "truncated": bool(payload.get("truncated")),
+        }
+
+    # Scalars.
+    if result_type == "scalar" or display == "number":
+        columns = payload.get("columns") or []
+        label = columns[0] if columns else None
+        return {
+            "kind": "number",
+            "description": description,
+            "label": label,
+            "value": payload.get("value"),
+        }
+
+    # Lists.
+    if result_type == "list":
+        return {
+            "kind": "list",
+            "description": description,
+            "items": [str(item) for item in (payload.get("items") or [])],
+        }
+
+    # Dicts.
+    if result_type == "dict":
+        data = payload.get("data") or {}
+        return {
+            "kind": "dict",
+            "description": description,
+            "data": data if isinstance(data, dict) else {},
+        }
+
+    # Errors.
+    if result_type == "error":
+        return {
+            "kind": "error",
+            "description": description,
+            "error": payload.get("error") or "Analysis error",
+        }
+
+    return None
+
+
+def _normalize_gol_messages(
+    messages: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Filter + normalize the raw client-side message list for templating.
+
+    - Drops empty assistant messages (tool-call placeholders with no text
+      and no data cards).
+    - Renders markdown bodies to HTML once, so the template can simply
+      ``{{ content_html | safe }}``.
+    - Normalizes every data card to a flat dict keyed by ``kind``.
+    """
+    normalized: list[dict[str, Any]] = []
+    for msg in messages or []:
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        content = (msg.get("content") or "").strip()
+        raw_cards = msg.get("dataCards") or msg.get("data_cards") or []
+        cards: list[dict[str, Any]] = []
+        if role == "assistant":
+            for raw in raw_cards:
+                norm = _normalize_gol_data_card(raw)
+                if norm is not None:
+                    cards.append(norm)
+            if not content and not cards:
+                # Skip loading placeholders that carry neither text nor data.
+                continue
+        normalized.append(
+            {
+                "role": role,
+                "content_html": _markdown_to_html(content) if content else "",
+                "data_cards": cards if role == "assistant" else [],
+            }
+        )
+    return normalized
+
+
+def render_gol_chat_pdf(messages: list[dict[str, Any]]) -> tuple[bytes, str]:
+    """Render a GOL chat transcript to a PDF.
+
+    Parameters
+    ----------
+    messages:
+        The client-side message array (role / content / dataCards) as sent
+        by the frontend chat state.
+
+    Returns
+    -------
+    tuple[bytes, str]
+        PDF bytes and a suggested download filename.
+    """
+    # Imported lazily to match the behaviour of html_to_pdf — avoids import
+    # errors when WeasyPrint's system libraries aren't installed in dev.
+    from flask import render_template, request
+
+    normalized = _normalize_gol_messages(messages)
+    exported_date = datetime.utcnow().strftime("%d %B %Y")
+    html = render_template(
+        "gol_chat_export.html",
+        messages=normalized,
+        exported_date=exported_date,
+        site_url=_public_base_url(),
+    )
+
+    try:
+        base_url = request.url_root
+    except RuntimeError:
+        base_url = None
+
+    pdf_bytes = html_to_pdf(html, base_url=base_url)
+    filename = (
+        "gol-chat-"
+        + datetime.utcnow().strftime("%Y-%m-%d-%H%M%S")
+        + ".pdf"
+    )
+    return pdf_bytes, filename
