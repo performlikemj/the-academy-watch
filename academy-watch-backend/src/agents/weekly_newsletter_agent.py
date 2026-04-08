@@ -1516,7 +1516,9 @@ def _generate_player_charts(player_api_id: int, player_name: str,
             player_api_id, 'match_card', stat_keys, 'week',
             week_start=ws, week_end=we)
         if card_data and card_data.get('fixtures'):
-            charts['match_card_url'] = render_chart_to_base64('match_card', card_data, 500, 200)
+            # Wider canvas (760×220) so the five-stat row doesn't crowd
+            # itself — see render_match_cards_summary.
+            charts['match_card_url'] = render_chart_to_base64('match_card', card_data, 760, 220)
     except Exception:
         pass
 

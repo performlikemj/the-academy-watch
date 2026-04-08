@@ -406,14 +406,18 @@ def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
 
     Returns (league_api_id, league_name) or None.
 
-    Priority (intentionally current-club first for ALL statuses, not just
-    on_loan): the league we compare a player against in the radar must be the
-    league he is *currently* playing in. A loanee at Barrow → League Two. A
-    first-team breakthrough at Forest → Premier League. Falling back to fixture
-    raw_json or parent-club lookups can mis-attribute a player's stats to the
-    wrong league (e.g. a Barrow loanee with stale Forest U21 fixtures showing
-    "Premier League Avg" in his radar), so we drop to those fallbacks only if
-    the current club itself has no league row.
+    Priority (intentionally current-club ONLY): the league we compare a
+    player against in the radar must be the league he is *currently*
+    playing in. A loanee at Barrow → League Two. A first-team breakthrough
+    at Forest → Premier League.
+
+    We deliberately do NOT fall back to the parent academy club if the
+    current club has no league row in our DB. That fallback is the literal
+    source of "Barrow loanee compared to Premier League" — the parent club
+    (Forest) is in the PL, so the radar would silently use PL averages
+    even though the player is in League Two. It's better to render no
+    league overlay (the chart says "League comparison unavailable for X")
+    than to mis-attribute the comparison to the wrong league.
     """
     from src.models.league import Team, League
     from src.models.tracked_player import TrackedPlayer
@@ -447,17 +451,15 @@ def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
             if result:
                 return result
 
-        # 3. Most recent fixture's raw_json league
+        # 3. Most recent fixture's raw_json league for this player. Only
+        #    used as a last sanity-check fallback because for limited-
+        #    coverage leagues (League Two etc.) FixturePlayerStats may be
+        #    empty entirely.
         result = _league_from_fixtures(player_api_id)
         if result:
             return result
 
-        # 4. Last resort: parent academy club
-        team = Team.query.filter_by(id=tp.team_id).first()
-        result = _league_from_team(team)
-        if result:
-            return result
-
+    # Intentionally NO parent-club fallback — see docstring.
     return None
 
 
