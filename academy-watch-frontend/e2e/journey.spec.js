@@ -157,7 +157,7 @@ test.describe('Player Journey', () => {
         // These tests require admin authentication
         // They test the sync functionality
         
-        test.skip('should be able to trigger journey sync as admin', async ({ page }) => {
+        test.skip('should be able to trigger journey sync as admin', async ({ page: _page }) => {
             // TODO: Implement admin auth helper
             // This test would:
             // 1. Login as admin

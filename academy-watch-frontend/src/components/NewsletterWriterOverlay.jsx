@@ -341,7 +341,7 @@ export function WriterSummarySection({
  * Embedded within the player's section in the newsletter
  */
 export function PlayerWriterCommentary({
-  playerId,
+  playerId: _playerId,
   playerName,
   commentaries = [],
   onSubscribe,
@@ -525,9 +525,7 @@ function PlayerCommentarySection({
     return items
   }, [playerCommentaries])
 
-  if (allPlayerComments.length === 0) return null
-
-  // Group by player
+  // Hooks must run unconditionally — group by player BEFORE the early return.
   const groupedByPlayer = useMemo(() => {
     const groups = {}
     allPlayerComments.forEach(c => {
@@ -545,6 +543,8 @@ function PlayerCommentarySection({
     })
     return Object.values(groups)
   }, [allPlayerComments])
+
+  if (allPlayerComments.length === 0) return null
 
   return (
     <div className={cn('space-y-4', className)}>
@@ -687,7 +687,7 @@ export function getPlayerCommentaries(commentaries, playerId) {
  */
 export function InlinePlayerWriteups({
   playerId,
-  playerName,
+  playerName: _playerName,
   className
 }) {
   const navigate = useNavigate()
@@ -826,7 +826,7 @@ export function WriterHeaderSection({ className }) {
  */
 export function PlayerWriteupsSection({ className }) {
   const navigate = useNavigate()
-  const { commentaries, activeWriterIds, writers } = useWriterCommentaries()
+  const { commentaries, activeWriterIds, writers: _writers } = useWriterCommentaries()
 
   const handleSubscribe = useCallback((writerId) => {
     navigate(`/journalists/${writerId}`)

@@ -329,7 +329,7 @@ export function AdminNewsletters() {
                 return
             }
 
-            const result = await APIService.adminNewsletterBulkPublish(idsToPublish, publish)
+            const _result = await APIService.adminNewsletterBulkPublish(idsToPublish, publish)
 
             const successText = `${idsToPublish.length} newsletter(s) ${publish ? 'published' : 'unpublished'}`
             setMessage({ type: 'success', text: successText })
@@ -525,7 +525,7 @@ export function AdminNewsletters() {
         try {
             setSeedingTop5(true)
             const req = buildSeedTop5Request({ season: seedYear, dryRun: seedTop5DryRun })
-            const result = await APIService.request(req.endpoint, req.options, { admin: req.admin })
+            const _result = await APIService.request(req.endpoint, req.options, { admin: req.admin })
 
             setMessage({
                 type: 'success',

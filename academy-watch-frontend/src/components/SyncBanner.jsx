@@ -8,7 +8,7 @@ const LOGO_CYCLE_INTERVAL = 2_000
 
 export default function SyncBanner() {
   const [syncing, setSyncing] = useState(false)
-  const [message, setMessage] = useState('')
+  const [_message, setMessage] = useState('')
   const [progress, setProgress] = useState(null)
   const [teams, setTeams] = useState([])
   const [activeIndex, setActiveIndex] = useState(0)

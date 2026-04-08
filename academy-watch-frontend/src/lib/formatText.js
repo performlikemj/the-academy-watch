@@ -19,7 +19,7 @@ function isBulletLine(line) {
   }
   
   // Check for numbered lists (1. 2. etc)
-  if (/^\d+[\.\)]\s/.test(trimmed)) {
+  if (/^\d+[.)]\s/.test(trimmed)) {
     return true
   }
   
@@ -38,7 +38,7 @@ function extractBulletContent(line) {
   }
   
   // Handle numbered lists
-  const numberedMatch = trimmed.match(/^\d+[\.\)]\s*(.*)/)
+  const numberedMatch = trimmed.match(/^\d+[.)]\s*(.*)/)
   if (numberedMatch) {
     return numberedMatch[1]
   }

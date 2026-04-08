@@ -402,10 +402,18 @@ def _league_from_fixtures(player_api_id: int) -> Optional[Tuple[int, str]]:
 
 
 def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
-    """Resolve a player's league from their tracked team.
+    """Resolve a player's league from their tracked club.
 
     Returns (league_api_id, league_name) or None.
-    Tries: loan club Team row → fixture raw_json → parent club Team row.
+
+    Priority (intentionally current-club first for ALL statuses, not just
+    on_loan): the league we compare a player against in the radar must be the
+    league he is *currently* playing in. A loanee at Barrow → League Two. A
+    first-team breakthrough at Forest → Premier League. Falling back to fixture
+    raw_json or parent-club lookups can mis-attribute a player's stats to the
+    wrong league (e.g. a Barrow loanee with stale Forest U21 fixtures showing
+    "Premier League Avg" in his radar), so we drop to those fallbacks only if
+    the current club itself has no league row.
     """
     from src.models.league import Team, League
     from src.models.tracked_player import TrackedPlayer
@@ -424,19 +432,27 @@ def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
         .first()
     )
     if tp:
-        # For on-loan players, resolve league from their current (loan) club
-        if tp.status == 'on_loan' and tp.current_club_api_id:
+        # 1. Current club via DB id (canonical relationship)
+        if tp.current_club_db_id:
+            team = Team.query.filter_by(id=tp.current_club_db_id).first()
+            result = _league_from_team(team)
+            if result:
+                return result
+
+        # 2. Current club via API id (fallback when current_club_db_id wasn't
+        #    populated by the classifier — common for older records)
+        if tp.current_club_api_id:
             team = Team.query.filter_by(team_id=tp.current_club_api_id).first()
             result = _league_from_team(team)
             if result:
                 return result
 
-        # Fallback: extract league from the player's actual fixture data
+        # 3. Most recent fixture's raw_json league
         result = _league_from_fixtures(player_api_id)
         if result:
             return result
 
-        # Last resort: parent club
+        # 4. Last resort: parent academy club
         team = Team.query.filter_by(id=tp.team_id).first()
         result = _league_from_team(team)
         if result:
@@ -491,8 +507,11 @@ def get_radar_chart_data(
         (f.get("stats", {}).get("minutes") or 0) for f in fixtures_data
     )
 
-    # Resolve league: prefer the league from actual fixture data over DB lookups
-    league_info = _league_from_fixture_dicts(fixtures_data) or resolve_player_league(player_id)
+    # Resolve league: prefer the canonical current-club league from DB so the
+    # comparison is always against the player's actual league, even when
+    # fixture data is sparse or mis-attributed. Fixture-dict league is a
+    # sanity-check fallback only.
+    league_info = resolve_player_league(player_id) or _league_from_fixture_dicts(fixtures_data)
     league_name = None
     league_peers = 0
     league_avg: Dict[str, float] = {}

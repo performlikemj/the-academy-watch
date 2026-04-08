@@ -36,15 +36,18 @@
     crossorigin="anonymous" referrerpolicy="no-referrer" />
   <style>
     :root {
-      color-scheme: light dark;
+      color-scheme: dark;
     }
 
+    /* The Academy Watch — Tactical Lens (Editorial). Dark navy editorial
+       newsletter, royal-blue accents, Manrope/Inter typography. Tonal layering
+       via background tier shifts; sectioning never relies on 1px borders. */
     body {
       margin: 0;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
       line-height: 1.5;
-      color: #0a0a0a;
-      background: #fafafa;
+      color: #e2e8f0;
+      background: #0b1326;
     }
 
     .container {
@@ -872,6 +875,416 @@
     .dark .commentary-content a {
       color: #c084fc;
     }
+
+    /* ----------------------------------------------------------------------
+       The Academy Watch — Tactical Lens override block
+       Establishes the editorial dark navy palette as the canonical look.
+       Overrides the legacy light/dark CSS above so the web newsletter
+       matches the email and the Stitch mockup.
+       ---------------------------------------------------------------------- */
+
+    body, .container {
+      background: #0b1326;
+      color: #e2e8f0;
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    .title {
+      color: #f1f5f9;
+      font-family: 'Manrope', 'Inter', sans-serif;
+      font-weight: 800;
+      font-size: 32px;
+      letter-spacing: -0.02em;
+    }
+
+    .title-logo {
+      background: #222a3d;
+    }
+
+    .meta {
+      color: #94a3b8;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      font-weight: 500;
+    }
+
+    .summary {
+      color: #cbd5e1;
+      font-size: 17px;
+      font-style: italic;
+      line-height: 1.7;
+      border-left: 2px solid rgba(37, 99, 235, 0.3);
+      padding-left: 18px;
+      max-width: 70ch;
+    }
+
+    .highlights, .by-numbers, .fan-pulse {
+      background: #131b2e;
+      border: none;
+      color: #cbd5e1;
+      border-radius: 8px;
+    }
+
+    .highlights h3, .by-numbers h3, .fan-pulse h3 {
+      color: #94a3b8;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      font-weight: 700;
+      font-family: 'Manrope', 'Inter', sans-serif;
+    }
+
+    .sections h2 {
+      color: #94a3b8;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      font-weight: 800;
+      font-family: 'Manrope', 'Inter', sans-serif;
+      margin-top: 36px;
+      margin-bottom: 16px;
+    }
+
+    .item {
+      background: #131b2e;
+      border: none;
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 20px 22px;
+      margin-bottom: 18px;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px rgba(37, 99, 235, 0.08);
+    }
+
+    .player {
+      color: #f1f5f9;
+      font-family: 'Manrope', 'Inter', sans-serif;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+
+    .loan-team {
+      color: #94a3b8;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: 600;
+    }
+
+    .player-photo, .team-logo, .opponent-logo {
+      background: #222a3d;
+    }
+
+    .match-row {
+      border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+    }
+
+    .match-opponent {
+      color: #f1f5f9;
+    }
+
+    .match-meta {
+      color: #94a3b8;
+    }
+
+    .match-result.win {
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+    }
+
+    .match-result.draw {
+      background: rgba(148, 163, 184, 0.18);
+      color: #cbd5e1;
+    }
+
+    .match-result.loss {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+    }
+
+    .matches-section {
+      background: #222a3d;
+      border: none;
+      border-radius: 6px;
+    }
+
+    .matches-header {
+      color: #94a3b8;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      font-weight: 700;
+    }
+
+    .stats {
+      color: #cbd5e1;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .player-stats-grid {
+      background: #222a3d;
+    }
+
+    .stat-group {
+      background: #2d3449;
+      border: none;
+    }
+
+    .stat-group h5 {
+      color: #94a3b8;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+    }
+
+    .stat-label {
+      color: #94a3b8;
+    }
+
+    .stat-value {
+      color: #f1f5f9;
+      font-weight: 700;
+    }
+
+    .position-badge {
+      background: #2d3449;
+      color: #cbd5e1;
+    }
+
+    .upcoming-fixtures {
+      background: #222a3d;
+      border-left-color: #2563EB;
+      border-radius: 6px;
+      padding: 14px 16px;
+    }
+
+    .upcoming-title {
+      color: #94a3b8;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      font-weight: 700;
+    }
+
+    .upcoming-list {
+      color: #cbd5e1;
+    }
+
+    .upcoming-list strong {
+      color: #f1f5f9;
+    }
+
+    .upcoming-empty {
+      background: #222a3d;
+      border-left-color: #475569;
+      color: #94a3b8;
+    }
+
+    .commentary {
+      background: #222a3d !important;
+      border-left: 3px solid #2563EB !important;
+      border-radius: 8px;
+    }
+
+    .commentary-byline {
+      color: #94a3b8 !important;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      font-weight: 700;
+    }
+
+    .commentary-content {
+      color: #e2e8f0 !important;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .commentary-content a {
+      color: #2563EB !important;
+    }
+
+    .applaud-btn {
+      color: #94a3b8;
+    }
+
+    .applaud-btn.applauded {
+      color: #2563EB;
+    }
+
+    a {
+      color: #2563EB;
+    }
+
+    .footer-links {
+      background: #131b2e;
+      border: none;
+      color: #94a3b8;
+      border-radius: 8px;
+    }
+
+    .footer-links a {
+      color: #2563EB;
+    }
+
+    .support-callout {
+      background: #131b2e;
+      border: none;
+      border-radius: 8px;
+    }
+
+    .generic-link {
+      background: #222a3d;
+      color: #e2e8f0 !important;
+      border: 1px solid rgba(148, 163, 184, 0.15);
+    }
+
+    .generic-link:hover {
+      background: #2d3449;
+      border-color: rgba(37, 99, 235, 0.4);
+    }
+
+    /* Native X tweet card — used inline within player commentary cards
+       (twitter_takes_by_player) and in the team-level Twitter section
+       (twitter_takes). Must look like a tweet, not a generic 💬 quote. */
+    .player-tweets {
+      margin-top: 18px;
+    }
+
+    .player-tweets-header {
+      font-size: 10px;
+      color: #94a3b8;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 10px;
+    }
+
+    .tweet-card {
+      background: #222a3d;
+      border-radius: 8px;
+      padding: 16px 18px;
+      margin: 0 0 12px;
+    }
+
+    .tweet-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .tweet-author {
+      font-weight: 700;
+      font-size: 13px;
+      color: #f1f5f9;
+    }
+
+    .tweet-handle {
+      color: #2563EB;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .tweet-x-icon {
+      margin-left: auto;
+      color: #94a3b8;
+      font-weight: 800;
+      font-size: 16px;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .tweet-body {
+      font-size: 14px;
+      color: #e2e8f0;
+      line-height: 1.55;
+      margin: 0 0 12px;
+    }
+
+    .tweet-meta {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .tweet-meta a {
+      margin-left: auto;
+      color: #2563EB;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .team-twitter {
+      margin-top: 36px;
+    }
+
+    .team-twitter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+    }
+
+    .team-twitter h2,
+    .community-takes h2 {
+      color: #94a3b8;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      font-weight: 800;
+      font-family: 'Manrope', 'Inter', sans-serif;
+      margin-top: 36px;
+      margin-bottom: 16px;
+    }
+
+    .community-takes {
+      margin-top: 36px;
+    }
+
+    .community-take {
+      background: #131b2e;
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-bottom: 12px;
+    }
+
+    .community-take-body {
+      font-size: 14px;
+      color: #e2e8f0;
+      line-height: 1.6;
+      margin: 0 0 10px;
+    }
+
+    .community-take-meta {
+      font-size: 11px;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+
+    .community-take-player {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 8px;
+      background: rgba(148, 163, 184, 0.12);
+      border-radius: 4px;
+      color: #cbd5e1;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-weight: 700;
+    }
+
+    .community-take-meta a {
+      margin-left: 8px;
+      color: #2563EB;
+      text-decoration: none;
+    }
   </style>
 </head>
 
@@ -1405,6 +1818,29 @@
         </div>
         {% endfor %}
         {% endif %}
+
+        {# Inline tweets about this player (twitter_takes_by_player) #}
+        {% set _tweet_pid = it.player_api_id or it.player_id %}
+        {% if _tweet_pid and twitter_takes_by_player and _tweet_pid in twitter_takes_by_player %}
+        <div class="player-tweets">
+          <div class="player-tweets-header">Twitter &middot; about {{ it.player_name }}</div>
+          {% for tweet in twitter_takes_by_player[_tweet_pid][:3] %}
+          <div class="tweet-card">
+            <div class="tweet-card-header">
+              <span class="tweet-author">{{ tweet.source_author or 'Unknown' }}</span>
+              {% if tweet.source_platform %}<span class="tweet-handle">{{ tweet.source_platform }}</span>{% endif %}
+              <span class="tweet-x-icon">𝕏</span>
+            </div>
+            <p class="tweet-body">{{ tweet.content }}</p>
+            <div class="tweet-meta">
+              {% if tweet.upvotes and tweet.upvotes > 0 %}<span>&hearts; {{ tweet.upvotes }}</span>{% endif %}
+              {% if tweet.original_posted_at %}<span>{{ tweet.original_posted_at[:10] }}</span>{% endif %}
+              {% if tweet.source_url %}<a href="{{ tweet.source_url }}" target="_blank" rel="noopener">View on X &rarr;</a>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </article>
       {% endif %}
       {% endfor %}
@@ -1427,6 +1863,50 @@
       </div>
     </div>
     {% endfor %}
+    {% endif %}
+
+    {# Around the Squad — Twitter (team-level tweets without a player_id) #}
+    {% set _team_tweets = twitter_takes|rejectattr('player_id')|list if twitter_takes else [] %}
+    {% if _team_tweets %}
+    <section class="team-twitter">
+      <h2>Around the Squad &middot; Twitter</h2>
+      <div class="team-twitter-grid">
+        {% for tweet in _team_tweets %}
+        <div class="tweet-card">
+          <div class="tweet-card-header">
+            <span class="tweet-author">{{ tweet.source_author or 'Unknown' }}</span>
+            {% if tweet.source_platform %}<span class="tweet-handle">{{ tweet.source_platform }}</span>{% endif %}
+            <span class="tweet-x-icon">𝕏</span>
+          </div>
+          <p class="tweet-body">{{ tweet.content }}</p>
+          <div class="tweet-meta">
+            {% if tweet.upvotes and tweet.upvotes > 0 %}<span>&hearts; {{ tweet.upvotes }}</span>{% endif %}
+            {% if tweet.original_posted_at %}<span>{{ tweet.original_posted_at[:10] }}</span>{% endif %}
+            {% if tweet.source_url %}<a href="{{ tweet.source_url }}" target="_blank" rel="noopener">View on X &rarr;</a>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {# Community Takes (non-Twitter sources only — reddit, submission, editor) #}
+    {% set _non_twitter_takes = community_takes|rejectattr('source_type', 'equalto', 'twitter')|list if community_takes else [] %}
+    {% if _non_twitter_takes %}
+    <section class="community-takes">
+      <h2>Community Takes</h2>
+      {% for take in _non_twitter_takes %}
+      <div class="community-take">
+        <p class="community-take-body">{{ take.content }}</p>
+        <div class="community-take-meta">
+          &mdash; {{ take.source_author }}
+          {% if take.source_platform %} &middot; {{ take.source_platform }}{% endif %}
+          {% if take.player_name %}<span class="community-take-player">{{ take.player_name }}</span>{% endif %}
+          {% if take.source_url %}<a href="{{ take.source_url }}" target="_blank" rel="noopener">&rarr;</a>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </section>
     {% endif %}
 
     {% if by_numbers %}

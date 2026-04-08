@@ -10,8 +10,8 @@ import { useAuthUI } from '@/context/AuthContext'
 
 export function WriterLogin() {
     const navigate = useNavigate()
-    const location = useLocation()
-    const { syncAuth } = useAuthUI() // Assuming syncAuth is available or I need to access context directly
+    const _location = useLocation()
+    const { syncAuth: _syncAuth } = useAuthUI() // Assuming syncAuth is available or I need to access context directly
     // Actually useAuthUI exposes openLoginModal etc. I might need to access the raw context or just rely on the global event listener in App.jsx
     // App.jsx listens to 'auth-change' event. APIService.verifyAuthCode triggers it?
     // Let's check APIService.verifyAuthCode.
@@ -41,7 +41,7 @@ export function WriterLogin() {
         setLoading(true)
         setError('')
         try {
-            const response = await APIService.verifyAuthCode(email, code)
+            const _response = await APIService.verifyAuthCode(email, code)
             // The APIService usually dispatches an event or updates local storage.
             // If it returns the token/user, we might need to manually trigger update if App.jsx doesn't catch it automatically from this specific call if it's different.
             // But APIService.verifyAuthCode usually handles storage.
