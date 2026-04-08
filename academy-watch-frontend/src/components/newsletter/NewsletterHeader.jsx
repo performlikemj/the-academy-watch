@@ -16,20 +16,20 @@ export function NewsletterHeader({
   editionLabel = 'Pipeline Update',
 }) {
   return (
-    <header className="mb-10 sm:mb-12">
-      <div className="flex items-start gap-4">
+    <header className="mb-8 sm:mb-10">
+      <div className="flex items-start gap-4 sm:gap-5">
         {teamLogo && (
           <img
             src={teamLogo}
             alt={teamName ? `${teamName} crest` : 'Team crest'}
-            className="h-12 w-12 sm:h-14 sm:w-14 rounded-full object-cover bg-[var(--tl-card)] flex-shrink-0"
+            className="h-14 w-14 sm:h-16 sm:w-16 rounded-full object-cover bg-[var(--tl-card)] flex-shrink-0"
           />
         )}
-        <div className="flex-1 min-w-0 space-y-2">
+        <div className="flex-1 min-w-0 space-y-1.5">
           <p className="tl-eyebrow m-0 text-[var(--tl-primary)]">
             The Academy Watch &middot; {editionLabel}
           </p>
-          <h1 className="tl-headline text-3xl sm:text-4xl md:text-5xl text-[var(--tl-text)] m-0 leading-tight break-words">
+          <h1 className="tl-headline text-2xl sm:text-3xl md:text-4xl text-[var(--tl-text)] m-0 leading-[1.15] break-words">
             {title}
           </h1>
           {(range || teamName) && (

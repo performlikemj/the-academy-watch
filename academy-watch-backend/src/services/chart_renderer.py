@@ -18,22 +18,42 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import Polygon
 import numpy as np
 
-# Chart styling constants
+# Chart styling constants — Tactical Lens dark theme.
+# These charts are embedded in newsletter cards over a deep navy background;
+# light surfaces would look like islands of glare. The figure facecolor and
+# axes facecolor are both set to TL_CARD so the chart blends into the
+# surrounding card. Text is light slate (`gray` token, kept for backwards
+# compat with existing render functions).
 CHART_COLORS = {
-    'primary': '#7c3aed',      # Violet
-    'success': '#10b981',      # Green
-    'warning': '#f59e0b',      # Amber
-    'danger': '#ef4444',       # Red
-    'info': '#3b82f6',         # Blue
-    'gray': '#6b7280',
+    'primary': '#60a5fa',      # Royal blue (brighter for dark bg)
+    'success': '#4ade80',      # Green
+    'warning': '#fbbf24',      # Amber
+    'danger': '#f87171',       # Red
+    'info': '#38bdf8',         # Sky
+    'gray': '#cbd5e1',         # Light slate — used for ALL labels/titles
+    'gray_dim': '#94a3b8',     # Muted slate for secondary labels
 }
 
+# Tactical Lens surface tiers — used as facecolor for figures and axes so
+# the chart drawing area blends into the card background instead of being
+# a white rectangle on a dark page.
+TL_CARD = '#222a3d'
+TL_INNER = '#2d3449'
+TL_GRID = '#475569'
+TL_TEXT = '#e2e8f0'
+
 POSITION_COLORS = {
-    'Forward': '#ef4444',
-    'Midfielder': '#3b82f6',
-    'Defender': '#10b981',
-    'Goalkeeper': '#f59e0b',
+    'Forward': '#f87171',
+    'Midfielder': '#60a5fa',
+    'Defender': '#4ade80',
+    'Goalkeeper': '#fbbf24',
 }
+
+# Standard DPI bumped from 100 → 150 for crisp retina rendering. The figure
+# pixel dimensions in newsletters stay valid because we still divide width/
+# height by 100 for the figsize argument (logical inches). matplotlib then
+# rasterises at 150dpi, producing a 1.5× sharper PNG at the same display size.
+DPI = 150
 
 # Directory to store generated chart images
 CHARTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'static', 'charts')
@@ -58,7 +78,7 @@ def generate_chart_id(block: dict, player_id: Optional[int], week_start: Optiona
     return hashlib.md5(key.encode()).hexdigest()[:12]
 
 
-def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400) -> bytes:
+def render_radar_chart(data: Dict[str, Any], width: int = 480, height: int = 480) -> bytes:
     """
     Render a radar/spider chart as PNG bytes.
 
@@ -81,9 +101,13 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
     if not radar_data:
         return _render_empty_chart("No data available", width, height)
 
-    # Setup figure
-    fig = plt.figure(figsize=(width/100, height/100), dpi=100)
+    # Setup figure with dark Tactical Lens facecolor so the polar plot blends
+    # into the surrounding player card. The axes facecolor must also be set
+    # explicitly — savefig facecolor only paints the area outside the axes.
+    fig = plt.figure(figsize=(width/100, height/100), dpi=DPI)
+    fig.patch.set_facecolor(TL_CARD)
     ax = fig.add_subplot(111, polar=True)
+    ax.set_facecolor(TL_CARD)
 
     # Prepare data
     categories = [item.get('label', item.get('stat', '')) for item in radar_data]
@@ -100,7 +124,7 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
         position_group_label = data.get('position_group_label', 'Position')
         position_category = _group_to_category(data.get('position_group', 'CM'))
         color = POSITION_COLORS.get(position_category, CHART_COLORS['primary'])
-        avg_color = '#94a3b8'
+        avg_color = '#94a3b8'  # Muted slate dashes for league avg overlay
 
         player_values = [item.get('player_normalized', 0) for item in radar_data]
         avg_values = [item.get('league_avg_normalized') for item in radar_data]
@@ -158,19 +182,26 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
         league_peers = 0
         position_group_label = None
 
-    # Configure axes
+    # Configure axes — light slate labels + dark grid lines that are visible
+    # against the deep navy facecolor without being noisy.
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(categories, size=8, color=CHART_COLORS['gray'])
     ax.set_ylim(0, 100)
     ax.set_yticks([25, 50, 75, 100])
-    ax.set_yticklabels(['25%', '50%', '75%', '100%'], size=6, color=CHART_COLORS['gray'])
+    ax.set_yticklabels(['25%', '50%', '75%', '100%'], size=6, color=CHART_COLORS['gray_dim'])
     ax.set_rlabel_position(30)
+    ax.tick_params(colors=CHART_COLORS['gray'])
+    ax.grid(color=TL_GRID, alpha=0.45, linewidth=0.8)
+    # Polar plot's outer ring spine
+    for spine in ax.spines.values():
+        spine.set_color(TL_GRID)
+        spine.set_alpha(0.6)
 
     # Title
     title = f"{player_name}"
     if matches_count:
         title += f" - {matches_count} match{'es' if matches_count != 1 else ''}"
-    ax.set_title(title, size=10, color=CHART_COLORS['gray'], y=1.1, fontweight='bold')
+    ax.set_title(title, size=11, color=TL_TEXT, y=1.1, fontweight='bold')
 
     # Footer — always explain what the chart is showing. When league averages
     # are unavailable for the player's league, say so explicitly rather than
@@ -191,11 +222,11 @@ def render_radar_chart(data: Dict[str, Any], width: int = 400, height: int = 400
                 "League comparison unavailable. "
                 "Showing player-only per 90 stats normalised to peak axis."
             )
-        fig.text(0.5, -0.02, footer, ha='center', fontsize=7, color=CHART_COLORS['gray'])
+        fig.text(0.5, -0.02, footer, ha='center', fontsize=8, color=CHART_COLORS['gray_dim'])
 
     # Convert to bytes
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white', edgecolor='none')
+    plt.savefig(buf, format='png', bbox_inches='tight', facecolor=TL_CARD, edgecolor='none')
     plt.close(fig)
     buf.seek(0)
     return buf.read()
@@ -210,75 +241,84 @@ def _group_to_category(group: str) -> str:
     }.get(group, 'Midfielder')
 
 
-def render_bar_chart(data: Dict[str, Any], width: int = 500, height: int = 300) -> bytes:
+def render_bar_chart(data: Dict[str, Any], width: int = 560, height: int = 320) -> bytes:
     """
     Render a bar chart as PNG bytes.
-    
+
     Args:
         data: Chart data from the API including 'data' array with match stats
         width: Image width in pixels
         height: Image height in pixels
-        
+
     Returns:
         PNG image as bytes
     """
     bar_data = data.get('data', [])
     stat_keys = data.get('stat_keys', ['goals', 'assists', 'rating'])
     player_name = data.get('player', {}).get('name', 'Player')
-    
+
     if not bar_data:
         return _render_empty_chart("No data available", width, height)
-    
-    # Setup figure
-    fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=100)
-    
+
+    # Setup figure with dark Tactical Lens facecolor.
+    fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=DPI)
+    fig.patch.set_facecolor(TL_CARD)
+    ax.set_facecolor(TL_CARD)
+
     # Prepare data
     matches = [d.get('match', d.get('date', ''))[:20] for d in bar_data]
     x = np.arange(len(matches))
     width_bar = 0.8 / len(stat_keys)
-    
-    colors = [CHART_COLORS['primary'], CHART_COLORS['success'], CHART_COLORS['info'], 
+
+    colors = [CHART_COLORS['primary'], CHART_COLORS['success'], CHART_COLORS['info'],
               CHART_COLORS['warning'], CHART_COLORS['danger']]
-    
+
     # Plot bars for each stat
     for i, stat in enumerate(stat_keys):
         values = [d.get(stat, 0) or 0 for d in bar_data]
         offset = (i - len(stat_keys)/2 + 0.5) * width_bar
-        bars = ax.bar(x + offset, values, width_bar, label=stat.replace('_', ' ').title(),
-                      color=colors[i % len(colors)], alpha=0.8)
-    
-    # Configure axes
+        ax.bar(x + offset, values, width_bar, label=stat.replace('_', ' ').title(),
+               color=colors[i % len(colors)], alpha=0.85)
+
+    # Configure axes — light slate labels on dark, subtle grid.
     ax.set_xlabel('Match', fontsize=9, color=CHART_COLORS['gray'])
     ax.set_ylabel('Value', fontsize=9, color=CHART_COLORS['gray'])
     ax.set_xticks(x)
-    ax.set_xticklabels(matches, rotation=45, ha='right', fontsize=7)
-    ax.legend(loc='upper right', fontsize=8)
-    ax.set_title(f"{player_name} - Per Match Stats", fontsize=10, fontweight='bold', color=CHART_COLORS['gray'])
-    
-    # Style
+    ax.set_xticklabels(matches, rotation=45, ha='right', fontsize=7, color=CHART_COLORS['gray'])
+    legend = ax.legend(loc='upper right', fontsize=8, facecolor=TL_INNER, edgecolor=TL_GRID, labelcolor=TL_TEXT)
+    if legend is not None:
+        legend.get_frame().set_alpha(0.85)
+    ax.set_title(f"{player_name} - Per Match Stats", fontsize=11, fontweight='bold', color=TL_TEXT)
+
+    # Style — hide top/right spines, dark grid lines, light tick marks.
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_color(TL_GRID)
+    ax.spines['left'].set_color(TL_GRID)
     ax.tick_params(colors=CHART_COLORS['gray'])
-    
+    ax.yaxis.label.set_color(CHART_COLORS['gray'])
+    ax.xaxis.label.set_color(CHART_COLORS['gray'])
+    ax.grid(True, axis='y', alpha=0.25, color=TL_GRID, linewidth=0.6)
+
     plt.tight_layout()
-    
+
     # Convert to bytes
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white', edgecolor='none')
+    plt.savefig(buf, format='png', bbox_inches='tight', facecolor=TL_CARD, edgecolor='none')
     plt.close(fig)
     buf.seek(0)
     return buf.read()
 
 
-def render_line_chart(data: Dict[str, Any], width: int = 500, height: int = 300) -> bytes:
+def render_line_chart(data: Dict[str, Any], width: int = 560, height: int = 320) -> bytes:
     """
     Render a line chart as PNG bytes.
-    
+
     Args:
         data: Chart data from the API including 'data' array with time series stats
         width: Image width in pixels
         height: Image height in pixels
-        
+
     Returns:
         PNG image as bytes
     """
@@ -302,17 +342,19 @@ def render_line_chart(data: Dict[str, Any], width: int = 500, height: int = 300)
         return _render_empty_chart(
             f"No {', '.join(stat_keys)} data available", width, height,
         )
-    
-    # Setup figure
-    fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=100)
-    
+
+    # Setup figure with dark Tactical Lens facecolor.
+    fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=DPI)
+    fig.patch.set_facecolor(TL_CARD)
+    ax.set_facecolor(TL_CARD)
+
     # Prepare data
     dates = [d.get('date', '')[:10] for d in line_data]
     x = np.arange(len(dates))
-    
+
     colors = [CHART_COLORS['primary'], CHART_COLORS['success'], CHART_COLORS['info'],
               CHART_COLORS['warning'], CHART_COLORS['danger']]
-    
+
     # Plot line for each stat, skipping missing/zero values
     for i, stat in enumerate(stat_keys):
         raw_values = [d.get(stat) for d in line_data]
@@ -324,27 +366,33 @@ def render_line_chart(data: Dict[str, Any], width: int = 500, height: int = 300)
             else:
                 values.append(float('nan'))
         ax.plot(x, values, 'o-', label=stat.replace('_', ' ').title(),
-                color=colors[i % len(colors)], linewidth=2, markersize=6)
-    
-    # Configure axes
+                color=colors[i % len(colors)], linewidth=2.2, markersize=6)
+
+    # Configure axes — light slate labels + dark grid lines.
     ax.set_xlabel('Date', fontsize=9, color=CHART_COLORS['gray'])
     ax.set_ylabel('Value', fontsize=9, color=CHART_COLORS['gray'])
     ax.set_xticks(x)
-    ax.set_xticklabels(dates, rotation=45, ha='right', fontsize=7)
-    ax.legend(loc='upper right', fontsize=8)
-    ax.set_title(f"{player_name} - Performance Trend", fontsize=10, fontweight='bold', color=CHART_COLORS['gray'])
-    
+    ax.set_xticklabels(dates, rotation=45, ha='right', fontsize=7, color=CHART_COLORS['gray'])
+    legend = ax.legend(loc='upper right', fontsize=8, facecolor=TL_INNER, edgecolor=TL_GRID, labelcolor=TL_TEXT)
+    if legend is not None:
+        legend.get_frame().set_alpha(0.85)
+    ax.set_title(f"{player_name} - Performance Trend", fontsize=11, fontweight='bold', color=TL_TEXT)
+
     # Style
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_color(TL_GRID)
+    ax.spines['left'].set_color(TL_GRID)
     ax.tick_params(colors=CHART_COLORS['gray'])
-    ax.grid(True, alpha=0.3)
-    
+    ax.yaxis.label.set_color(CHART_COLORS['gray'])
+    ax.xaxis.label.set_color(CHART_COLORS['gray'])
+    ax.grid(True, alpha=0.3, color=TL_GRID, linewidth=0.6)
+
     plt.tight_layout()
-    
+
     # Convert to bytes
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white', edgecolor='none')
+    plt.savefig(buf, format='png', bbox_inches='tight', facecolor=TL_CARD, edgecolor='none')
     plt.close(fig)
     buf.seek(0)
     return buf.read()
@@ -383,34 +431,37 @@ def render_match_cards_summary(data: Dict[str, Any], width: int = 500, height: i
     draws = sum(1 for f in fixtures if f['home_team']['score'] == f['away_team']['score'])
     losses = len(fixtures) - wins - draws
     
-    # Setup figure
-    fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=100)
+    # Setup figure with dark Tactical Lens facecolor.
+    fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=DPI)
+    fig.patch.set_facecolor(TL_CARD)
+    ax.set_facecolor(TL_CARD)
     ax.axis('off')
-    
+
     # Title
-    ax.text(0.5, 0.95, f"{player_name} - {len(fixtures)} Match Summary", 
-            fontsize=11, fontweight='bold', ha='center', transform=ax.transAxes,
-            color=CHART_COLORS['gray'])
-    
-    # Stats in a row
+    ax.text(0.5, 0.95, f"{player_name} - {len(fixtures)} Match Summary",
+            fontsize=12, fontweight='bold', ha='center', transform=ax.transAxes,
+            color=TL_TEXT)
+
+    # Stats in a row — use brighter primary tones for highlights, light slate
+    # for neutral values, since the background is now dark navy.
     stats = [
-        (f"{total_minutes}'", "Minutes", CHART_COLORS['gray']),
-        (f"{total_goals}", "Goals", CHART_COLORS['success'] if total_goals else CHART_COLORS['gray']),
-        (f"{total_assists}", "Assists", CHART_COLORS['info'] if total_assists else CHART_COLORS['gray']),
+        (f"{total_minutes}'", "Minutes", TL_TEXT),
+        (f"{total_goals}", "Goals", CHART_COLORS['success'] if total_goals else CHART_COLORS['gray_dim']),
+        (f"{total_assists}", "Assists", CHART_COLORS['info'] if total_assists else CHART_COLORS['gray_dim']),
         (f"{avg_rating:.1f}" if avg_rating else "-", "Avg Rating", CHART_COLORS['warning']),
         (f"{wins}W {draws}D {losses}L", "Results", CHART_COLORS['primary']),
     ]
-    
+
     x_positions = np.linspace(0.1, 0.9, len(stats))
     for i, (value, label, color) in enumerate(stats):
-        ax.text(x_positions[i], 0.55, str(value), fontsize=16, fontweight='bold', 
+        ax.text(x_positions[i], 0.55, str(value), fontsize=17, fontweight='bold',
                 ha='center', transform=ax.transAxes, color=color)
-        ax.text(x_positions[i], 0.3, label, fontsize=9, ha='center', 
+        ax.text(x_positions[i], 0.3, label, fontsize=9, ha='center',
                 transform=ax.transAxes, color=CHART_COLORS['gray'])
-    
+
     # Convert to bytes
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white', edgecolor='none')
+    plt.savefig(buf, format='png', bbox_inches='tight', facecolor=TL_CARD, edgecolor='none')
     plt.close(fig)
     buf.seek(0)
     return buf.read()
@@ -439,10 +490,12 @@ def render_stat_table(data: Dict[str, Any], width: int = 500, height: int = 250)
     # Limit rows for image size
     display_data = table_data[:6]  # Show max 6 matches
     
-    # Setup figure
-    fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=100)
+    # Setup figure with dark Tactical Lens facecolor.
+    fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=DPI)
+    fig.patch.set_facecolor(TL_CARD)
+    ax.set_facecolor(TL_CARD)
     ax.axis('off')
-    
+
     # Build table data
     headers = ['Date', 'Opponent', 'Result', 'Min', 'G', 'A', 'Rating']
     rows = []
@@ -456,7 +509,7 @@ def render_stat_table(data: Dict[str, Any], width: int = 500, height: int = 250)
             str(d.get('assists', 0) or 0),
             f"{d.get('rating', 0):.1f}" if d.get('rating') else '-',
         ])
-    
+
     # Add totals row if we have totals
     if totals:
         rows.append([
@@ -466,7 +519,7 @@ def render_stat_table(data: Dict[str, Any], width: int = 500, height: int = 250)
             str(totals.get('assists', 0)),
             '-',
         ])
-    
+
     # Create table
     table = ax.table(
         cellText=rows,
@@ -475,48 +528,65 @@ def render_stat_table(data: Dict[str, Any], width: int = 500, height: int = 250)
         loc='center',
         colWidths=[0.15, 0.2, 0.1, 0.1, 0.08, 0.08, 0.1]
     )
-    
+
     # Style table
     table.auto_set_font_size(False)
     table.set_fontsize(8)
     table.scale(1.2, 1.5)
-    
-    # Header styling
+
+    # Header styling — primary blue with white text. Body cells get the
+    # tier-3 inner background so the table reads as a card-on-card.
     for i, key in enumerate(headers):
-        table[(0, i)].set_facecolor(CHART_COLORS['primary'])
-        table[(0, i)].set_text_props(color='white', fontweight='bold')
-    
+        cell = table[(0, i)]
+        cell.set_facecolor(CHART_COLORS['primary'])
+        cell.set_text_props(color='#0b1326', fontweight='bold')
+        cell.set_edgecolor(TL_GRID)
+
+    # Body row styling — dark cells with light text.
+    body_count = len(rows) - (1 if totals else 0)
+    for r in range(1, body_count + 1):
+        for c in range(len(headers)):
+            cell = table[(r, c)]
+            cell.set_facecolor(TL_INNER)
+            cell.set_text_props(color=TL_TEXT)
+            cell.set_edgecolor(TL_GRID)
+
     # Totals row styling
     if totals and rows:
         for i in range(len(headers)):
-            table[(len(rows), i)].set_facecolor('#f3f4f6')
-            table[(len(rows), i)].set_text_props(fontweight='bold')
-    
+            cell = table[(len(rows), i)]
+            cell.set_facecolor('#1a2235')  # slightly darker than TL_INNER
+            cell.set_text_props(fontweight='bold', color=CHART_COLORS['primary'])
+            cell.set_edgecolor(TL_GRID)
+
     # Title
     title = f"{player_name} - {matches_count} Match Stats"
     if len(table_data) > 6:
         title += f" (showing {len(display_data)})"
-    ax.set_title(title, fontsize=10, fontweight='bold', color=CHART_COLORS['gray'], y=0.95)
-    
+    ax.set_title(title, fontsize=11, fontweight='bold', color=TL_TEXT, y=0.95)
+
     plt.tight_layout()
-    
+
     # Convert to bytes
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white', edgecolor='none')
+    plt.savefig(buf, format='png', bbox_inches='tight', facecolor=TL_CARD, edgecolor='none')
     plt.close(fig)
     buf.seek(0)
     return buf.read()
 
 
 def _render_empty_chart(message: str, width: int, height: int) -> bytes:
-    """Render an empty chart placeholder with a message."""
-    fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=100)
+    """Render an empty chart placeholder with a message — dark Tactical Lens
+    surface so it blends into the surrounding card."""
+    fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=DPI)
+    fig.patch.set_facecolor(TL_CARD)
+    ax.set_facecolor(TL_CARD)
     ax.axis('off')
     ax.text(0.5, 0.5, message, fontsize=12, ha='center', va='center',
             color=CHART_COLORS['gray'], transform=ax.transAxes)
-    
+
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', facecolor='#f9fafb', edgecolor='none')
+    plt.savefig(buf, format='png', bbox_inches='tight', facecolor=TL_CARD, edgecolor='none')
     plt.close(fig)
     buf.seek(0)
     return buf.read()

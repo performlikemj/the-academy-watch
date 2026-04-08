@@ -2094,12 +2094,46 @@ def lint_and_enrich(news: dict) -> dict:
         if it.get('stats')  # Only include items that have stats
     ]
 
-    # by-numbers blocks
-    mins_leaders = sorted(items, key=lambda x: int(x.get('stats',{}).get('minutes',0) or 0), reverse=True)[:3]
-    ga_leaders = sorted(items, key=lambda x: (int(x.get('stats',{}).get('goals',0) or 0) + int(x.get('stats',{}).get('assists',0) or 0)), reverse=True)[:3]
+    # by-numbers blocks — extended with rating, key passes, clean sheets so the
+    # newsletter "By the Numbers" row can show 4-5 callouts on desktop instead
+    # of just 2. Each list is filtered to items that actually have the metric
+    # so we don't surface spurious zeros.
+    def _stat(it, key, cast=int):
+        try:
+            return cast(it.get('stats', {}).get(key) or 0)
+        except (TypeError, ValueError):
+            return cast(0)
+
+    mins_leaders = sorted(items, key=lambda x: _stat(x, 'minutes'), reverse=True)[:3]
+    ga_leaders = sorted(items, key=lambda x: _stat(x, 'goals') + _stat(x, 'assists'), reverse=True)[:3]
+    rating_pool = [i for i in items if (i.get('stats', {}).get('rating') or 0)]
+    rating_leaders = sorted(rating_pool, key=lambda x: _stat(x, 'rating', float), reverse=True)[:3]
+    key_passes_pool = [i for i in items if (i.get('stats', {}).get('passes_key') or 0)]
+    key_passes_leaders = sorted(key_passes_pool, key=lambda x: _stat(x, 'passes_key'), reverse=True)[:3]
+    clean_sheets_pool = [i for i in items if (i.get('stats', {}).get('clean_sheets') or 0)]
+    clean_sheets_leaders = sorted(clean_sheets_pool, key=lambda x: _stat(x, 'clean_sheets'), reverse=True)[:3]
+
     news["by_numbers"] = {
-        "minutes_leaders": [{"player": _display_name(i.get("player_name")), "minutes": int(i.get("stats",{}).get("minutes",0) or 0)} for i in mins_leaders],
-        "ga_leaders": [{"player": _display_name(i.get("player_name")), "g": int(i.get("stats",{}).get("goals",0) or 0), "a": int(i.get("stats",{}).get("assists",0) or 0)} for i in ga_leaders],
+        "minutes_leaders": [
+            {"player": _display_name(i.get("player_name")), "minutes": _stat(i, 'minutes')}
+            for i in mins_leaders
+        ],
+        "ga_leaders": [
+            {"player": _display_name(i.get("player_name")), "g": _stat(i, 'goals'), "a": _stat(i, 'assists')}
+            for i in ga_leaders
+        ],
+        "rating_leaders": [
+            {"player": _display_name(i.get("player_name")), "rating": round(_stat(i, 'rating', float), 1)}
+            for i in rating_leaders
+        ],
+        "key_passes_leaders": [
+            {"player": _display_name(i.get("player_name")), "key_passes": _stat(i, 'passes_key')}
+            for i in key_passes_leaders
+        ],
+        "clean_sheets_leaders": [
+            {"player": _display_name(i.get("player_name")), "clean_sheets": _stat(i, 'clean_sheets')}
+            for i in clean_sheets_leaders
+        ],
     }
 
     return news
