@@ -159,3 +159,76 @@ nav a:hover {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* ----------------------------------------------------------------------
+ * The Academy Watch — Tactical Lens (Newsletter)
+ * Newsletter-scoped editorial palette. Wraps the React newsletter view
+ * only — the rest of the app keeps its warm burgundy/beige theme.
+ * Components inside use bg-[var(--tl-section)] etc. — no Tailwind config
+ * change required, no risk to other pages.
+ * ---------------------------------------------------------------------- */
+.newsletter-tactical-lens {
+  --tl-page: #0b1326;
+  --tl-section: #131b2e;
+  --tl-card: #222a3d;
+  --tl-inner: #2d3449;
+  --tl-primary: #2563eb;
+  --tl-primary-soft: rgba(37, 99, 235, 0.15);
+  --tl-text: #f1f5f9;
+  --tl-text-body: #e2e8f0;
+  --tl-text-muted: #94a3b8;
+  --tl-text-faint: #64748b;
+  --tl-success: #4ade80;
+  --tl-success-soft: rgba(74, 222, 128, 0.15);
+  --tl-danger: #f87171;
+  --tl-danger-soft: rgba(248, 113, 113, 0.15);
+  --tl-neutral-soft: rgba(148, 163, 184, 0.18);
+  --tl-divider: rgba(148, 163, 184, 0.08);
+  --tl-ghost-border: rgba(241, 245, 249, 0.12);
+
+  background-color: var(--tl-page);
+  color: var(--tl-text-body);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.newsletter-tactical-lens .tl-headline {
+  font-family: 'Manrope', 'Inter', sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.newsletter-tactical-lens .tl-eyebrow {
+  font-family: 'Manrope', 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--tl-text-muted);
+}
+
+/* Native X-style tweet card surface — used by TweetCard.jsx in both inline
+ * (per-player) and team-level Twitter section. */
+.newsletter-tactical-lens .tl-tweet {
+  background: var(--tl-card);
+  border-radius: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--tl-ghost-border);
+}
+
+/* Player commentary card hover lift — desktop only. Subtle, no glow. */
+@media (min-width: 768px) {
+  .newsletter-tactical-lens .tl-card-hover {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .newsletter-tactical-lens .tl-card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px rgba(37, 99, 235, 0.08);
+  }
+}
+
+/* Hide the global app's BMC link inside newsletter content (legacy rule
+ * already exists for `.newsletter-content`; mirror for the new wrapper). */
+.newsletter-tactical-lens a[href*="buymeacoffee"] {
+  display: none !important;
+}
