@@ -6,33 +6,49 @@
   <title>GOL Analytics Chat — {{ exported_date }}</title>
   <style>
     /* The Academy Watch — Tactical Lens (GOL Chat Export)
-       Dark navy base with primary royal-blue accents. Single-column layout
-       designed for A4/Letter PDF output via WeasyPrint. Styling intentionally
-       mirrors newsletter_email.html so the exported chat feels like the same
-       brand family. */
+       Dark navy base with primary royal-blue accents. Uses landscape A4
+       because GOL responses are data-dense (wide player stat tables with
+       10+ columns) and portrait's ~575px content width is too cramped. */
+    @page {
+      size: A4 landscape;
+      margin: 14mm 16mm 18mm 16mm;
+      @bottom-center {
+        content: "The Academy Watch · GOL Analytics · Page " counter(page) " of " counter(pages);
+        font-family: 'Inter', 'DejaVu Sans', sans-serif;
+        font-size: 9pt;
+        color: #64748b;
+      }
+    }
+
+    html, body {
+      background: #0b1326 !important;
+      color-adjust: exact;
+    }
+
     body {
       margin: 0;
       padding: 0;
-      background: #0b1326;
       color: #e2e8f0;
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       line-height: 1.6;
     }
 
+    /* Full-page single column: no horizontal centering, no max-width.
+       Tables are what need the room, and the prose column is constrained
+       separately via .assistant-body max-width below for readability. */
     .wrapper {
       width: 100%;
       background: #0b1326;
-      padding: 24px 0;
+      padding: 18px 0;
     }
 
     .main {
-      max-width: 640px;
-      margin: 0 auto;
+      width: 100%;
       background: #0b1326;
     }
 
     .content {
-      padding: 36px 32px 44px;
+      padding: 18px 16px 26px;
       color: #e2e8f0;
     }
 
@@ -73,23 +89,30 @@
 
     /* Chat turns */
     .turn {
-      margin: 0 0 20px;
+      margin: 0 0 18px;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
+    /* WeasyPrint's flex support is limited — use text-align for right
+       alignment of the user bubble instead. ``display: inline-block``
+       lets the bubble shrink to its content up to ``max-width``. */
     .turn-user {
-      display: flex;
-      justify-content: flex-end;
+      text-align: right;
     }
 
     .user-bubble {
       display: inline-block;
-      max-width: 82%;
+      max-width: 75%;
       background: #2563EB;
       color: #ffffff;
       padding: 12px 16px;
       border-radius: 14px 14px 4px 14px;
       font-size: 14px;
       line-height: 1.55;
+      text-align: left;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
 
     .user-bubble .speaker {
@@ -120,13 +143,19 @@
     }
 
     .assistant-body {
-      font-size: 14px;
+      font-size: 13.5px;
       color: #e2e8f0;
       line-height: 1.65;
+      /* Keep prose narrower than the full landscape width for reading
+         comfort — ~75ch is the sweet spot. Data cards below are siblings
+         and are NOT constrained by this rule. */
+      max-width: 75ch;
     }
 
     .assistant-body p {
       margin: 0 0 10px;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
 
     .assistant-body p:last-child {
@@ -194,43 +223,60 @@
     .data-card {
       background: #222a3d;
       border-radius: 8px;
-      padding: 14px 16px;
-      margin-top: 14px;
+      padding: 12px 14px;
+      margin-top: 12px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      /* Override the prose column width — data cards should use the
+         full assistant-card width, even when they happen to sit next to
+         a narrow markdown paragraph. */
+      max-width: none;
     }
 
     .data-card .description {
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 1.2px;
+      letter-spacing: 1.1px;
       color: #94a3b8;
       margin-bottom: 10px;
       font-weight: 600;
     }
 
-    /* Tables */
+    /* Tables — CRITICAL: table-layout: fixed forces columns to share the
+       container width equally, so a 10-column table can never blow
+       through the right margin. word-wrap on cells lets long strings
+       ("SHOTS ON TARGET", long player names) wrap inside their column
+       instead of forcing the column wider. */
     table.gol-table {
       width: 100%;
+      table-layout: fixed;
       border-collapse: collapse;
-      font-size: 12px;
+      font-size: 10.5px;
       color: #e2e8f0;
     }
 
     table.gol-table th {
       text-align: left;
-      padding: 8px 10px;
+      padding: 6px 7px;
       background: #2563EB;
       color: #ffffff;
       font-weight: 700;
       text-transform: uppercase;
-      font-size: 10px;
-      letter-spacing: 0.8px;
+      font-size: 9px;
+      letter-spacing: 0.6px;
       border-bottom: none;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      vertical-align: bottom;
     }
 
     table.gol-table td {
-      padding: 8px 10px;
+      padding: 5px 7px;
       border-bottom: 1px solid #2d3449;
       color: #e2e8f0;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      vertical-align: top;
     }
 
     table.gol-table tr:nth-child(even) td {
@@ -239,6 +285,12 @@
 
     table.gol-table tr:last-child td {
       border-bottom: none;
+    }
+
+    table.gol-table a {
+      color: #93c5fd;
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(147, 197, 253, 0.45);
     }
 
     /* Chart image */

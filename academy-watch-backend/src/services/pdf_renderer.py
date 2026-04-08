@@ -633,6 +633,12 @@ def _normalize_gol_messages(
 def render_gol_chat_pdf(messages: list[dict[str, Any]]) -> tuple[bytes, str]:
     """Render a GOL chat transcript to a PDF.
 
+    Calls WeasyPrint directly rather than going through :func:`html_to_pdf`
+    because the GOL template owns its own ``@page`` rule (landscape A4, to
+    give data tables enough horizontal room) — the newsletter print CSS
+    injected by :func:`html_to_pdf` forces portrait A4 and would override
+    it.
+
     Parameters
     ----------
     messages:
@@ -644,8 +650,9 @@ def render_gol_chat_pdf(messages: list[dict[str, Any]]) -> tuple[bytes, str]:
     tuple[bytes, str]
         PDF bytes and a suggested download filename.
     """
-    # Imported lazily to match the behaviour of html_to_pdf — avoids import
-    # errors when WeasyPrint's system libraries aren't installed in dev.
+    # Imported lazily to avoid import errors when WeasyPrint's system
+    # libraries aren't installed in dev.
+    from weasyprint import HTML  # type: ignore
     from flask import render_template, request
 
     normalized = _normalize_gol_messages(messages)
@@ -662,7 +669,7 @@ def render_gol_chat_pdf(messages: list[dict[str, Any]]) -> tuple[bytes, str]:
     except RuntimeError:
         base_url = None
 
-    pdf_bytes = html_to_pdf(html, base_url=base_url)
+    pdf_bytes = HTML(string=html, base_url=base_url).write_pdf()
     filename = (
         "gol-chat-"
         + datetime.utcnow().strftime("%Y-%m-%d-%H%M%S")
