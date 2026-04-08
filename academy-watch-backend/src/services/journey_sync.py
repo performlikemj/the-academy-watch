@@ -29,6 +29,50 @@ from src.utils.academy_classifier import (
 logger = logging.getLogger(__name__)
 
 
+# Regex to extract a specific level token from a club name.
+# Ordered so longer / more specific tokens match first (U23 before U2, etc).
+_CLUB_NAME_LEVEL_RE = re.compile(
+    r'\b(U15|U16|U17|U18|U19|U21|U23|Reserves?|Development|Youth|Academy|II|B)\b',
+    re.IGNORECASE,
+)
+
+
+def _derive_current_level_from_club_name(
+    club_name: Optional[str], fallback: str = 'First Team'
+) -> str:
+    """Infer a player's level from their destination club name.
+
+    Used on the transfer-override path in _update_journey_aggregates so a
+    return to a youth/reserve team does not get mislabelled as First Team.
+    Before this helper existed the override path hardcoded 'First Team',
+    which caused players whose journey was overridden to a '<Club> U21'
+    destination to be classified as first_team at the parent club
+    (see the O. Hammond incident).
+
+    >>> _derive_current_level_from_club_name('Nottingham Forest U21')
+    'U21'
+    >>> _derive_current_level_from_club_name('Arsenal Reserves')
+    'Reserve'
+    >>> _derive_current_level_from_club_name('Nottingham Forest')
+    'First Team'
+    """
+    if not club_name:
+        return fallback
+    match = _CLUB_NAME_LEVEL_RE.search(club_name)
+    if not match:
+        return fallback
+    token = match.group(1).lower()
+    mapping = {
+        'u15': 'U15', 'u16': 'U16', 'u17': 'U17',
+        'u18': 'U18', 'u19': 'U19', 'u21': 'U21', 'u23': 'U23',
+        'reserve': 'Reserve', 'reserves': 'Reserve',
+        'ii': 'Reserve', 'b': 'Reserve',
+        'youth': 'U18', 'academy': 'U18',
+        'development': 'U21',
+    }
+    return mapping.get(token, fallback)
+
+
 class JourneySyncService:
     """Service for syncing player journey data from API-Football"""
     
@@ -876,43 +920,90 @@ class JourneySyncService:
 
         # Cross-reference transfers: if the most recent transfer goes to a
         # DIFFERENT club than what stats show, override current_club.
-        # Handles both permanent transfers and loans where the player's
-        # stats still show the old club (e.g., Endrick: stats show Real Madrid
-        # but he's on loan at Lyon).
-        if transfers:
-            most_recent_transfer = None
-            for t in sorted(transfers, key=lambda x: x.get('date', ''), reverse=True):
-                transfer_type = (t.get('type') or '').strip().lower()
-                if transfer_type in LOAN_RETURN_TYPES:
-                    # Most recent move is a loan return — player is back at parent.
-                    dest = t.get('teams', {}).get('in', {})
+        # Handles cases like "stats still show Real Madrid but player is on
+        # loan at Lyon" — where the transfer is NEWER than the stats window.
+        #
+        # Safety rules (added after the O. Hammond incident, where a stale
+        # 2024 "N/A" return-from-loan transfer was letting the override
+        # overwrite much more recent 2025 entries at a different club):
+        #
+        #   1. Skip the override when the most recent transfer is OLDER
+        #      than the latest domestic journey-entry date. Stats entries
+        #      that post-date the transfer are authoritative — the player
+        #      has moved on since the recorded transfer.
+        #   2. Skip N/A-typed transfers entirely. API-Football uses "N/A"
+        #      for loan-returns they cannot cleanly classify; they are
+        #      too ambiguous to drive aggregation.
+        #   3. Never hardcode current_level='First Team'. Derive the level
+        #      from the destination club name so a return to a youth /
+        #      reserve team is not mislabelled.
+        if transfers and domestic_entries:
+            sorted_transfers = sorted(
+                transfers, key=lambda x: x.get('date', ''), reverse=True
+            )
+            most_recent_transfer = sorted_transfers[0] if sorted_transfers else None
+
+            # Compute latest domestic-entry date for the staleness check.
+            # Prefer explicit transfer_date on entries; fall back to a
+            # start-of-season proxy when entries have no recorded date.
+            dated_entries = [
+                e.transfer_date for e in domestic_entries if e.transfer_date
+            ]
+            if dated_entries:
+                latest_entry_date = max(dated_entries)
+            else:
+                latest_entry_season = max(e.season for e in domestic_entries)
+                latest_entry_date = f'{latest_entry_season}-07-01'
+
+            if most_recent_transfer:
+                transfer_type_raw = (most_recent_transfer.get('type') or '').strip()
+                transfer_type = transfer_type_raw.lower()
+                transfer_date = most_recent_transfer.get('date', '') or ''
+                dest = most_recent_transfer.get('teams', {}).get('in', {}) or {}
+
+                stale_override = bool(
+                    latest_entry_date and transfer_date
+                    and transfer_date < latest_entry_date
+                )
+                ambiguous_type = transfer_type in ('n/a', '')
+
+                if stale_override:
+                    logger.info(
+                        'Journey %d: skipping transfer override — most recent transfer %s older than latest entry %s',
+                        journey.id, transfer_date, latest_entry_date,
+                    )
+                elif ambiguous_type:
+                    logger.info(
+                        'Journey %d: skipping ambiguous transfer override (type=%r date=%s)',
+                        journey.id, transfer_type_raw, transfer_date,
+                    )
+                elif transfer_type in LOAN_RETURN_TYPES:
+                    # Loan return: player is back at parent club.
                     if (dest.get('id') and dest.get('name')
                             and dest['id'] != journey.current_club_api_id):
+                        derived_level = _derive_current_level_from_club_name(dest.get('name'))
                         logger.info(
-                            'Journey %d: loan return → updating current_club to %s (%s)',
-                            journey.id, dest['name'], t.get('date'),
+                            'Journey %d: loan return → updating current_club to %s (level=%s, %s)',
+                            journey.id, dest['name'], derived_level, transfer_date,
                         )
                         journey.current_club_api_id = dest['id']
                         journey.current_club_name = dest['name']
-                        journey.current_level = 'First Team'
-                    break
-                most_recent_transfer = t
-                break
-
-            if most_recent_transfer:
-                transfer_type = (most_recent_transfer.get('type') or '').strip().lower()
-                dest = most_recent_transfer.get('teams', {}).get('in', {})
-                if (dest.get('id') and dest.get('name')
-                        and dest['id'] != journey.current_club_api_id):
-                    logger.info(
-                        'Journey %d: overriding current_club from transfer %s → %s (%s, type=%s)',
-                        journey.id, journey.current_club_name, dest['name'],
-                        most_recent_transfer.get('date'), transfer_type,
-                    )
-                    journey.current_club_api_id = dest['id']
-                    journey.current_club_name = dest['name']
-                    if not is_new_loan_transfer(transfer_type):
-                        journey.current_level = 'First Team'
+                        journey.current_level = derived_level
+                else:
+                    # Permanent or unspecified non-loan-return transfer.
+                    if (dest.get('id') and dest.get('name')
+                            and dest['id'] != journey.current_club_api_id):
+                        logger.info(
+                            'Journey %d: overriding current_club from transfer %s → %s (%s, type=%s)',
+                            journey.id, journey.current_club_name, dest['name'],
+                            transfer_date, transfer_type,
+                        )
+                        journey.current_club_api_id = dest['id']
+                        journey.current_club_name = dest['name']
+                        if not is_new_loan_transfer(transfer_type):
+                            journey.current_level = _derive_current_level_from_club_name(
+                                dest.get('name')
+                            )
 
         # Find first team debut
         first_team_entries = [e for e in entries if e.level == 'First Team' and not e.is_international]
