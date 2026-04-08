@@ -928,23 +928,30 @@ def get_newsletters():
         payload: list[dict] = []
         for newsletter in newsletters:
             row = newsletter.to_dict()
+            # The LIST endpoint must NOT return the heavy fields. Each
+            # newsletter carries ~6 base64-encoded chart PNGs per player AND
+            # the pre-rendered HTML inside both `content` and
+            # `structured_content` (which Newsletter.to_dict() includes as
+            # raw strings). For ~10 newsletters this combines into a 25-30
+            # MB payload that takes 30-40 seconds to download, making the
+            # newsletter list page (and the focused-view URL that gates on
+            # the LIST loading) effectively unusable.
+            #
+            # Strip:
+            #  - the raw `content` and `structured_content` strings (the
+            #    largest contributors — ~2 MB EACH per newsletter)
+            #  - the chart_url base64s nested inside enriched_content
+            #  - the `rendered` field (also ~MB of embedded HTML)
+            #
+            # Detail consumers must call GET /newsletters/<id> for the full
+            # content including charts.
+            row.pop('content', None)
+            row.pop('structured_content', None)
             try:
                 enriched = _load_newsletter_json(newsletter)
-                # The LIST endpoint must NOT return the full enriched_content —
-                # each newsletter carries ~6 base64-encoded chart PNGs per
-                # player which add ~2 MB / newsletter. With 10+ newsletters
-                # this turns into a 25-30 MB payload that takes 30-40 seconds
-                # to download even on fast connections, which made the
-                # newsletter list page (and the focused-view URL that gates
-                # on it) effectively unusable. Strip the chart URLs and any
-                # embedded HTML before serialising. Detail consumers should
-                # call GET /newsletters/<id> for the full content.
                 row['enriched_content'] = _strip_heavy_fields_for_list(enriched)
             except Exception:
                 row['enriched_content'] = None
-            # Skip `row['rendered']` entirely — the rendered web/email HTML
-            # blobs also embed the chart images and add several MB. The
-            # focused-view detail endpoint still returns them.
             payload.append(row)
         return jsonify(payload)
     except Exception as e:
