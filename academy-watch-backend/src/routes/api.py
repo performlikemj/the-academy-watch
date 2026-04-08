@@ -948,8 +948,10 @@ def get_newsletters():
             row.pop('content', None)
             row.pop('structured_content', None)
             try:
-                enriched = _load_newsletter_json(newsletter)
-                row['enriched_content'] = _strip_heavy_fields_for_list(enriched)
+                # Use the slim loader (no lint_and_enrich, no YouTube link
+                # injection — those add ~700ms per newsletter and aren't
+                # needed by the LIST view). Charts are stripped inside.
+                row['enriched_content'] = _load_newsletter_json_slim(newsletter)
             except Exception:
                 row['enriched_content'] = None
             payload.append(row)
@@ -2906,6 +2908,27 @@ _HEAVY_CHART_FIELDS = (
     'rating_graph_url',
     'minutes_graph_url',
 )
+
+
+def _load_newsletter_json_slim(n: Newsletter) -> dict | None:
+    """Fast path for the LIST endpoint: parse structured_content but skip
+    the expensive lint_and_enrich + YouTube-link injection that the full
+    `_load_newsletter_json` does, then strip the heavy chart base64s.
+
+    The full loader costs ~700ms per newsletter (parses 2MB+ JSON, runs
+    Player.query for sofascore enrichment, runs NewsletterPlayerYoutubeLink
+    queries). For the LIST endpoint × 11 newsletters that compounds to
+    ~8s. The LIST view doesn't need any of the enrichment — it only renders
+    excerpts and reading time from the text body.
+    """
+    try:
+        raw = n.structured_content or n.content or "{}"
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return None
+        return _strip_heavy_fields_for_list(data)
+    except Exception:
+        return None
 
 
 def _strip_heavy_fields_for_list(enriched: dict | None) -> dict | None:
