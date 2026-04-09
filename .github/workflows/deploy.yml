@@ -16,6 +16,15 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # Frontend-only changes are handled by the faster `deploy-frontend.yml`
+    # workflow, which skips the backend container rebuild and the scheduled
+    # job updates. Mixed PRs (touching both backend and frontend files)
+    # still run this full workflow because they fall outside paths-ignore.
+    # To disable the fast path entirely, delete `deploy-frontend.yml` and
+    # remove this paths-ignore block.
+    paths-ignore:
+      - 'academy-watch-frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
     inputs:
       skip_security_checks:
