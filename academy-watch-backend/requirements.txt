@@ -77,7 +77,7 @@ sse-starlette==3.0.2
 starlette==1.0.0
 stripe==14.0.1
 tqdm==4.67.3
-types-requests==2.32.4.20250611
+types-requests==2.33.0.20260408
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.5.0
