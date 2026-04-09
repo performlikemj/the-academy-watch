@@ -7281,6 +7281,167 @@ def admin_bulk_delete_newsletters():
         return jsonify(_safe_error_payload(e, 'Failed to delete newsletters. Please try again later.')), 500
 
 
+@api_bp.route('/admin/newsletters/<int:newsletter_id>/refresh-radar-charts', methods=['POST'])
+@require_api_key
+def admin_refresh_newsletter_radar_charts(newsletter_id: int):
+    """Surgically re-render the radar chart PNGs inside an unsent newsletter.
+
+    Use case: a radar bug (e.g. wrong league comparison) was baked into a
+    newsletter draft. Re-running the full generator would re-fetch tweets and
+    other curated content. This endpoint walks the stored structured_content,
+    re-renders ONLY the radar PNGs from current chart-data, and re-runs the
+    Jinja template variants — leaving every other field (commentaries,
+    tweets, summaries, hits, etc.) untouched.
+
+    Refuses to operate on `email_sent=True` newsletters unless `force=true`
+    is passed.
+
+    Query params:
+      - dry_run=true   — preview the new league_name/peers per chart without writing
+      - player_id=N    — limit to a single player_api_id
+      - force=true     — allow refresh on already-sent newsletters
+
+    Returns: per-player {player_id, player_name, new_league_name, new_peers,
+    new_png_bytes} plus a top-level updated_count and write status.
+    """
+    try:
+        nl = Newsletter.query.get_or_404(newsletter_id)
+
+        force = request.args.get('force', '').lower() in ('1', 'true', 'yes', 'on')
+        if nl.email_sent and not force:
+            return jsonify({
+                'error': 'newsletter already email_sent; pass ?force=true to override',
+                'newsletter_id': newsletter_id,
+            }), 409
+
+        dry_run = request.args.get('dry_run', '').lower() in ('1', 'true', 'yes', 'on')
+        only_player_id = request.args.get('player_id', type=int)
+
+        # Parse the stored JSON. structured_content is the canonical column;
+        # the legacy `content` column also stores the same JSON.
+        sc_str = nl.structured_content or nl.content
+        if not sc_str:
+            return jsonify({'error': 'newsletter has no structured_content'}), 400
+        try:
+            parsed = json.loads(sc_str)
+        except json.JSONDecodeError as e:
+            return jsonify({'error': f'structured_content is not valid JSON: {e}'}), 500
+
+        # Walk the parsed tree and collect every dict that looks like a player
+        # item with a baked radar chart. We don't hard-code the path because
+        # items live under sections[N].subsections[N].items[N] today but the
+        # exact nesting can change.
+        targets: list[dict] = []
+
+        def _collect(obj):
+            if isinstance(obj, dict):
+                if 'player_id' in obj and 'radar_chart_url' in obj:
+                    pid = obj.get('player_id')
+                    if only_player_id is None or (pid and int(pid) == only_player_id):
+                        targets.append(obj)
+                for v in obj.values():
+                    _collect(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    _collect(item)
+
+        _collect(parsed)
+
+        if not targets:
+            return jsonify({
+                'newsletter_id': newsletter_id,
+                'updated_count': 0,
+                'players': [],
+                'message': 'no player items with radar_chart_url found',
+            })
+
+        # Lazy imports — keep the route module light at import time.
+        from src.routes.journalist import _fetch_chart_data_for_rendering
+        from src.services.chart_renderer import render_chart_to_base64
+        from src.agents.weekly_agent import _render_variants
+
+        team_name = nl.team.name if nl.team else None
+
+        results: list[dict] = []
+        any_failed = False
+        for item in targets:
+            pid = item.get('player_id')
+            pname = item.get('player_name')
+            entry: dict = {
+                'player_id': pid,
+                'player_name': pname,
+                'new_league_name': None,
+                'new_peers': None,
+                'new_png_bytes': None,
+                'updated': False,
+                'error': None,
+            }
+            try:
+                radar_data = _fetch_chart_data_for_rendering(
+                    pid, 'radar', [], 'season')
+                if not radar_data or not radar_data.get('data'):
+                    entry['error'] = 'no radar data returned'
+                    results.append(entry)
+                    continue
+
+                entry['new_league_name'] = radar_data.get('league_name')
+                entry['new_peers'] = radar_data.get('league_peers')
+
+                new_url = render_chart_to_base64('radar', radar_data, 400, 400)
+                entry['new_png_bytes'] = len(new_url)
+
+                if not dry_run:
+                    item['radar_chart_url'] = new_url
+                    entry['updated'] = True
+            except Exception as e:  # noqa: BLE001
+                any_failed = True
+                entry['error'] = f'{type(e).__name__}: {e}'
+            results.append(entry)
+
+        if dry_run:
+            return jsonify({
+                'newsletter_id': newsletter_id,
+                'dry_run': True,
+                'updated_count': 0,
+                'inspected_count': len(results),
+                'players': results,
+            })
+
+        # Re-render the Jinja variants from the (now updated) parsed JSON.
+        # _render_variants is a pure transform — it doesn't re-fetch anything.
+        try:
+            variants = _render_variants(parsed, team_name)
+            parsed['rendered'] = variants
+        except Exception as e:  # noqa: BLE001
+            logger.exception('refresh-radar-charts: re-render variants failed')
+            return jsonify({
+                'error': f'failed to re-render Jinja variants: {e}',
+                'players': results,
+            }), 500
+
+        new_json = json.dumps(parsed, ensure_ascii=False)
+        nl.content = new_json
+        nl.structured_content = new_json
+        try:
+            db.session.commit()
+        except Exception as e:  # noqa: BLE001
+            db.session.rollback()
+            logger.exception('refresh-radar-charts: commit failed')
+            return jsonify({'error': f'commit failed: {e}'}), 500
+
+        updated_count = sum(1 for r in results if r.get('updated'))
+        return jsonify({
+            'newsletter_id': newsletter_id,
+            'updated_count': updated_count,
+            'inspected_count': len(results),
+            'any_failed': any_failed,
+            'players': results,
+        })
+    except Exception as e:
+        logger.exception('admin_refresh_newsletter_radar_charts failed')
+        return jsonify(_safe_error_payload(e, 'Failed to refresh radar charts. Please try again later.')), 500
+
+
 @api_bp.route('/admin/newsletters/send-digests', methods=['POST'])
 @require_api_key
 def admin_send_digest_emails():
