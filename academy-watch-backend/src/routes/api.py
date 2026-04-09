@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, make_response, render_template, Response, current_app, g, send_file
+from werkzeug.exceptions import HTTPException
 from src.models.league import db, League, Team, Newsletter, UserSubscription, EmailToken, PlayerFlag, FLAG_CATEGORIES, FLAG_STATUSES, AdminSetting, NewsletterComment, UserAccount, NewsletterPlayerYoutubeLink, NewsletterCommentary, Player, JournalistTeamAssignment, CommentaryApplause, TeamTrackingRequest, StripeSubscription, NewsletterDigestQueue, JournalistSubscription, BackgroundJob, TeamSubreddit, RedditPost, TeamAlias, ManualPlayerSubmission, CommunityTake, AcademyAppearance, PlayerComment, PlayerLink, _as_utc
 from src.models.tracked_player import TrackedPlayer
 from src.models.sponsor import Sponsor
@@ -7437,6 +7438,10 @@ def admin_refresh_newsletter_radar_charts(newsletter_id: int):
             'any_failed': any_failed,
             'players': results,
         })
+    except HTTPException:
+        # Let Flask render 404/etc. normally — get_or_404 raises NotFound and
+        # we don't want to swallow it as a generic 500.
+        raise
     except Exception as e:
         logger.exception('admin_refresh_newsletter_radar_charts failed')
         return jsonify(_safe_error_payload(e, 'Failed to refresh radar charts. Please try again later.')), 500
