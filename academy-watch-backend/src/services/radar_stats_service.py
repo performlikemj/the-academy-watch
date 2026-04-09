@@ -421,14 +421,20 @@ def fetch_league_position_averages(
 
 
 def _league_from_fixture_dicts(fixtures_data: List[dict]) -> Optional[Tuple[int, str]]:
-    """Extract league from in-memory fixture dicts (most recent first).
+    """Extract a domestic-league classification from in-memory fixture dicts.
 
-    Uses league_id/league_name fields added by _get_season_stats.
+    Walks fixtures in date-DESC order and returns the first one whose
+    `league_type == 'League'` — cup/friendly matches are skipped because
+    their peer averages are meaningless for radar comparison.
+
+    Relies on `league_type` being populated by `_get_season_stats` and
+    `_get_player_week_stats` (extracted from `fixture.raw_json.league.type`).
     """
     for f in reversed(fixtures_data):  # most recent last in list
         lid = f.get("league_id")
         lname = f.get("league_name")
-        if lid and lname:
+        ltype = (f.get("league_type") or "").strip()
+        if lid and lname and ltype == "League":
             return int(lid), lname
     return None
 
@@ -437,12 +443,19 @@ def _league_from_fixtures(
     player_api_id: int,
     current_club_api_id: Optional[int] = None,
 ) -> Optional[Tuple[int, str]]:
-    """Extract league from the player's most recent fixture raw_json.
+    """Extract a domestic-league classification from the player's fixtures.
 
-    If `current_club_api_id` is provided, only fixtures the player played
-    *for that club* are considered — this stops a Forest U21 PL2 fixture
-    from leaking into the radar of a player who is currently on loan at a
-    lower-tier club.
+    Walks the player's fixtures in date-DESC order and returns the first
+    one whose `raw_json.league.type == 'League'` — i.e. a domestic
+    competition. Cup and friendly matches are skipped because their
+    "peer averages" are meaningless (only a handful of players play
+    400+ cup minutes per season, so the overlay would compare against
+    2-5 peers).
+
+    If `current_club_api_id` is provided, only fixtures the player
+    played *for that club* are considered — this stops a Forest U21
+    PL2 fixture from leaking into the radar of a player who is
+    currently on loan at a lower-tier club.
     """
     import json
     from src.models.weekly import Fixture, FixturePlayerStats
@@ -458,18 +471,28 @@ def _league_from_fixtures(
     if current_club_api_id:
         query = query.filter(FixturePlayerStats.team_api_id == current_club_api_id)
 
-    row = query.order_by(Fixture.date_utc.desc()).first()
-    if not row or not row.raw_json:
-        return None
-    try:
-        data = json.loads(row.raw_json)
-        league = data.get("league") or {}
-        league_id = league.get("id")
-        league_name = league.get("name")
-        if league_id and league_name:
-            return int(league_id), league_name
-    except (json.JSONDecodeError, ValueError, TypeError):
-        pass
+    # Walk date-DESC and pick the first "League"-type match. Limit to a
+    # reasonable slice so we don't scan the player's entire history — if
+    # the most recent 50 fixtures are all cups, the player genuinely
+    # isn't in a domestic league and None is the right answer.
+    rows = query.order_by(Fixture.date_utc.desc()).limit(50).all()
+    for row in rows:
+        if not row or not row.raw_json:
+            continue
+        try:
+            data = json.loads(row.raw_json)
+            league = data.get("league") or {}
+            league_type = (league.get("type") or "").strip()
+            # Only accept domestic League competitions. Cup / Friendly
+            # skipped — peer averages are meaningless for those.
+            if league_type != "League":
+                continue
+            league_id = league.get("id")
+            league_name = league.get("name")
+            if league_id and league_name:
+                return int(league_id), league_name
+        except (json.JSONDecodeError, ValueError, TypeError):
+            continue
     return None
 
 
