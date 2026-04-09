@@ -85,4 +85,4 @@ uvicorn==0.35.0
 weasyprint==62.3
 webencodings==0.5.1
 Werkzeug==3.1.8
-wrapt==1.17.3
+wrapt==2.1.2
