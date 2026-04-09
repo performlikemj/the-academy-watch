@@ -551,36 +551,35 @@ def resolve_player_league(
         if current_team:
             current_api_id = current_team.team_id
 
-    # First-team players are at the parent academy club by definition —
-    # BUT "first_team" is a journey/squad-level label that doesn't always
-    # mean the player actually plays senior matches. Clubs like Manchester
+    # First-team senior-minutes gate.
+    # "first_team" is a journey/squad-level label that doesn't always mean
+    # the player actually plays senior matches. Clubs like Manchester
     # United tag academy goalkeepers and some U21 players with
     # current_level='First Team' for squad numbering purposes, even though
-    # their actual matches are in U21/PL2. Blindly falling back to the
-    # parent senior league for those players mis-compares their U21 stats
-    # against senior PL averages.
+    # their actual matches are in U21/PL2 or at a loan club. PR #106's
+    # classifier hygiene also writes current_club_api_id=parent_api_id for
+    # those players, so just checking "current_club set?" doesn't
+    # distinguish "genuinely at parent" from "tagged-as-first-team but
+    # actually elsewhere".
     #
-    # Gate the fallback on "has the player actually played at least one
-    # senior match for the parent club this season?" — checked via
-    # FixturePlayerStats, where team_api_id is the team the player played
-    # FOR in that fixture. If they have senior appearances, use the parent
-    # league. If not, return None (no overlay) — the chart self-normalises
-    # to player peak and at least doesn't lie about the comparison league.
+    # Whenever a first_team TrackedPlayer's current_club_api_id is either
+    # unset OR points at the parent club itself, verify they have at least
+    # 90 minutes (one full senior match) of FixturePlayerStats at
+    # team_api_id=parent this season. If not, clear current_api_id so the
+    # radar returns None — no overlay is better than a fictional "Premier
+    # League Avg" comparison against averages they've never competed
+    # against. Row existence alone isn't enough: bench calls to senior
+    # cup matches (FA Cup, League Cup) produce rows with minutes=0.
     #
-    # Loanees still don't fall back to parent (see docstring). Academy
-    # players are excluded because their matches are in separate U18/U21
-    # leagues we don't have comparison data for.
-    if not current_api_id and tp.status == 'first_team' and tp.team:
+    # Loanees / sold players are unaffected — they have current_club_api_id
+    # pointing at a different club and don't hit this gate.
+    if (
+        tp.status == 'first_team'
+        and tp.team
+        and (current_api_id is None or current_api_id == tp.team.team_id)
+    ):
         from sqlalchemy import func as _sa_func
         from src.models.weekly import FixturePlayerStats, Fixture
-        # Sum of minutes played for the parent senior team this season.
-        # "Row exists" isn't enough because youth GKs regularly get
-        # bench-called for senior cup matches (FA Cup, League Cup) with
-        # 0 minutes — those produce a FixturePlayerStats row with
-        # team_api_id=parent and minutes=0. Without a minutes threshold,
-        # an academy GK on loan at a League Two club gets "Premier
-        # League Avg" because of 3 bench rows. Require at least one full
-        # senior match (>=90 minutes) to count as genuinely first-team.
         senior_minutes = db.session.query(
             _sa_func.coalesce(_sa_func.sum(FixturePlayerStats.minutes), 0)
         ).join(
@@ -593,6 +592,11 @@ def resolve_player_league(
 
         if senior_minutes >= 90:
             current_api_id = tp.team.team_id
+        else:
+            # Genuine senior football hasn't happened — don't claim
+            # parent-club league. Let the player fall through to the
+            # fixture-based fallback (or return None).
+            current_api_id = None
 
     if current_api_id:
         # 1. Ground truth via API-Football (cached).
