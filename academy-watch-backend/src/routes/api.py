@@ -6089,10 +6089,65 @@ def admin_update_team_tracking(team_id: int):
                 response['seed_error'] = str(seed_err)
 
         return jsonify(response)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception('admin_update_team_tracking failed')
         db.session.rollback()
         return jsonify(_safe_error_payload(e, 'Failed to update team tracking')), 500
+
+
+@api_bp.route('/admin/teams/<int:team_id>/verify', methods=['POST'])
+@require_api_key
+def admin_verify_team(team_id: int):
+    """Idempotent verify-and-repair pipeline for a single tracked team.
+
+    The canonical "make this team's TrackedPlayer data correct" entry point.
+    Re-runs every consistency check we know about (currently: classifier
+    re-derivation via refresh_and_heal, plus a structured audit covering
+    NULL current_club fields and parent-league drift) and returns a
+    structured report. Safe to run repeatedly — every step is idempotent.
+
+    Body (all optional):
+      {
+        "force_resync_journeys": false,  # re-pull journeys from API-Football
+        "dry_run": false                 # audit-only, no repair writes
+      }
+
+    Returns:
+      {
+        "team_db_id": int, "team_api_id": int, "team_name": str,
+        "dry_run": bool, "force_resync_journeys": bool,
+        "pre_audit":  { ...consistency snapshot before repair... },
+        "repair":     { "total": int, "updated": int, ... },
+        "post_audit": { ...consistency snapshot after repair... }
+      }
+
+    Use this after shipping a classifier/radar fix to flush every tracked
+    team's data through the new logic. Pre/post audit makes diff obvious.
+    """
+    try:
+        # Validate the team exists up-front so we return a proper 404 instead
+        # of a generic 500.
+        team = Team.query.get_or_404(team_id)
+
+        data = request.get_json(silent=True) or {}
+        force_resync_journeys = bool(data.get('force_resync_journeys', False))
+        dry_run = bool(data.get('dry_run', False))
+
+        from src.services.team_verify import verify_and_repair_team
+        report = verify_and_repair_team(
+            team_db_id=team.id,
+            force_resync_journeys=force_resync_journeys,
+            dry_run=dry_run,
+        )
+        return jsonify(report)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception('admin_verify_team failed')
+        db.session.rollback()
+        return jsonify(_safe_error_payload(e, 'Failed to verify team. Please try again later.')), 500
 
 
 @api_bp.route('/admin/teams/<int:team_id>/name', methods=['PUT'])
