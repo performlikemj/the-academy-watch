@@ -127,6 +127,67 @@ def _cache_set(key: Tuple, data: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# In-memory cache for team→domestic-league lookups via API-Football
+# ---------------------------------------------------------------------------
+_team_league_cache: Dict[Tuple[int, int], Tuple[float, Optional[Tuple[int, str]]]] = {}
+_TEAM_LEAGUE_CACHE_TTL = 24 * 3600  # 24 hours; league membership is stable across a season
+
+
+def _team_league_from_api(team_api_id: int, season: int) -> Optional[Tuple[int, str]]:
+    """Ground-truth lookup of a team's primary domestic league via API-Football.
+
+    Used as the *first* step in resolve_player_league so we don't trust local
+    teams.league_id, which can drift (cup competitions, promotion/relegation,
+    teams first ingested via a friendly mean a single FK can disagree with
+    reality). Returns (league_api_id, league_name) for the first domestic
+    "League"-type competition the team is in for that season, or None if the
+    API is unavailable / the team has no domestic league. Result (including
+    None) is cached in-process for 24h.
+    """
+    if not team_api_id or not season:
+        return None
+
+    key = (int(team_api_id), int(season))
+    entry = _team_league_cache.get(key)
+    if entry and (time.time() - entry[0]) < _TEAM_LEAGUE_CACHE_TTL:
+        return entry[1]
+
+    api_key = os.getenv("API_FOOTBALL_KEY")
+    if not api_key:
+        logger.debug(
+            "API_FOOTBALL_KEY not set — cannot resolve team %s league via API", team_api_id
+        )
+        return None
+
+    try:
+        from src.api_football_client import APIFootballClient
+        client = APIFootballClient(api_key=api_key)
+        resp = client._make_request("leagues", {"team": team_api_id, "season": season})
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Failed to resolve team %s league via API-Football: %s", team_api_id, e
+        )
+        # Don't cache failures — let the next call retry.
+        return None
+
+    leagues = (resp or {}).get("response", []) or []
+
+    # Prefer first "League"-type domestic competition; skip Cups, Friendlies, etc.
+    resolved: Optional[Tuple[int, str]] = None
+    for league_entry in leagues:
+        league_info = (league_entry or {}).get("league", {}) or {}
+        if league_info.get("type") == "League":
+            lid = league_info.get("id")
+            lname = league_info.get("name")
+            if lid and lname:
+                resolved = (int(lid), str(lname))
+                break
+
+    _team_league_cache[key] = (time.time(), resolved)
+    return resolved
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -372,21 +433,32 @@ def _league_from_fixture_dicts(fixtures_data: List[dict]) -> Optional[Tuple[int,
     return None
 
 
-def _league_from_fixtures(player_api_id: int) -> Optional[Tuple[int, str]]:
-    """Extract league from the player's most recent fixture raw_json."""
+def _league_from_fixtures(
+    player_api_id: int,
+    current_club_api_id: Optional[int] = None,
+) -> Optional[Tuple[int, str]]:
+    """Extract league from the player's most recent fixture raw_json.
+
+    If `current_club_api_id` is provided, only fixtures the player played
+    *for that club* are considered — this stops a Forest U21 PL2 fixture
+    from leaking into the radar of a player who is currently on loan at a
+    lower-tier club.
+    """
     import json
     from src.models.weekly import Fixture, FixturePlayerStats
 
-    row = (
+    query = (
         db.session.query(Fixture.raw_json)
         .join(FixturePlayerStats, FixturePlayerStats.fixture_id == Fixture.id)
         .filter(
             FixturePlayerStats.player_api_id == player_api_id,
             Fixture.raw_json.isnot(None),
         )
-        .order_by(Fixture.date_utc.desc())
-        .first()
     )
+    if current_club_api_id:
+        query = query.filter(FixturePlayerStats.team_api_id == current_club_api_id)
+
+    row = query.order_by(Fixture.date_utc.desc()).first()
     if not row or not row.raw_json:
         return None
     try:
@@ -401,8 +473,11 @@ def _league_from_fixtures(player_api_id: int) -> Optional[Tuple[int, str]]:
     return None
 
 
-def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
-    """Resolve a player's league from their tracked club.
+def resolve_player_league(
+    player_api_id: int,
+    season: Optional[int] = None,
+) -> Optional[Tuple[int, str]]:
+    """Resolve a player's current-league for the radar comparison.
 
     Returns (league_api_id, league_name) or None.
 
@@ -411,16 +486,33 @@ def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
     playing in. A loanee at Barrow → League Two. A first-team breakthrough
     at Forest → Premier League.
 
-    We deliberately do NOT fall back to the parent academy club if the
-    current club has no league row in our DB. That fallback is the literal
-    source of "Barrow loanee compared to Premier League" — the parent club
-    (Forest) is in the PL, so the radar would silently use PL averages
-    even though the player is in League Two. It's better to render no
-    league overlay (the chart says "League comparison unavailable for X")
-    than to mis-attribute the comparison to the wrong league.
+    Resolution order:
+      1. API-Football `/leagues?team=...&season=...` for the player's
+         current_club_api_id. This is ground truth and bypasses any local
+         data drift (`teams.league_id` can be wrong if the team was first
+         ingested via a cup competition or hasn't been re-keyed after
+         promotion/relegation). Cached in-process for 24h.
+      2. Local Team→League join as a safety net when the API is unreachable
+         or returns nothing.
+      3. The player's most-recent FixturePlayerStats fixture, scoped to
+         their current club so we don't accidentally surface a parent-club
+         fixture's league.
+
+    We deliberately do NOT fall back to the parent academy club if all
+    three steps fail. That fallback is the literal source of "Barrow
+    loanee compared to Premier League" — the parent club (Forest) is in
+    the PL, so the radar would silently use PL averages even though the
+    player is in League Two. It's better to render no league overlay
+    (the chart says "League comparison unavailable for X") than to
+    mis-attribute the comparison to the wrong league.
     """
     from src.models.league import Team, League
     from src.models.tracked_player import TrackedPlayer
+
+    if season is None:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        season = now.year if now.month >= 7 else now.year - 1
 
     def _league_from_team(team: "Team") -> Optional[Tuple[int, str]]:
         if not team or not team.league_id:
@@ -435,29 +527,39 @@ def resolve_player_league(player_api_id: int) -> Optional[Tuple[int, str]]:
         .filter_by(player_api_id=player_api_id, is_active=True)
         .first()
     )
-    if tp:
-        # 1. Current club via DB id (canonical relationship)
-        if tp.current_club_db_id:
-            team = Team.query.filter_by(id=tp.current_club_db_id).first()
-            result = _league_from_team(team)
-            if result:
-                return result
+    if not tp:
+        # No TrackedPlayer → no current club known → no comparison.
+        return None
 
-        # 2. Current club via API id (fallback when current_club_db_id wasn't
-        #    populated by the classifier — common for older records)
-        if tp.current_club_api_id:
-            team = Team.query.filter_by(team_id=tp.current_club_api_id).first()
-            result = _league_from_team(team)
-            if result:
-                return result
+    # Determine the player's current-club API id. Prefer current_club_api_id
+    # (set directly by the classifier from API-Football), fall back to
+    # current_club_db_id → Team.team_id for older records that only have the
+    # local FK populated.
+    current_api_id: Optional[int] = tp.current_club_api_id
+    if not current_api_id and tp.current_club_db_id:
+        current_team = Team.query.filter_by(id=tp.current_club_db_id).first()
+        if current_team:
+            current_api_id = current_team.team_id
 
-        # 3. Most recent fixture's raw_json league for this player. Only
-        #    used as a last sanity-check fallback because for limited-
-        #    coverage leagues (League Two etc.) FixturePlayerStats may be
-        #    empty entirely.
-        result = _league_from_fixtures(player_api_id)
+    if current_api_id:
+        # 1. Ground truth via API-Football (cached).
+        api_result = _team_league_from_api(current_api_id, season)
+        if api_result:
+            return api_result
+
+        # 2. Local DB safety net — used only if the API is unavailable or
+        #    the team has no domestic league in API-Football for this season.
+        team = Team.query.filter_by(team_id=current_api_id).first()
+        result = _league_from_team(team)
         if result:
             return result
+
+    # 3. Last-resort: scan the player's most recent FixturePlayerStats row
+    #    *scoped to their current club* so we never surface a parent-club
+    #    fixture's league.
+    result = _league_from_fixtures(player_api_id, current_club_api_id=current_api_id)
+    if result:
+        return result
 
     # Intentionally NO parent-club fallback — see docstring.
     return None
@@ -509,11 +611,14 @@ def get_radar_chart_data(
         (f.get("stats", {}).get("minutes") or 0) for f in fixtures_data
     )
 
-    # Resolve league: prefer the canonical current-club league from DB so the
-    # comparison is always against the player's actual league, even when
-    # fixture data is sparse or mis-attributed. Fixture-dict league is a
-    # sanity-check fallback only.
-    league_info = resolve_player_league(player_id) or _league_from_fixture_dicts(fixtures_data)
+    # Resolve league: prefer the canonical current-club league (API-Football
+    # ground truth, then local DB) so the comparison is always against the
+    # player's actual league, even when fixture data is sparse or mis-
+    # attributed. Fixture-dict league is a sanity-check fallback only.
+    league_info = (
+        resolve_player_league(player_id, season=season)
+        or _league_from_fixture_dicts(fixtures_data)
+    )
     league_name = None
     league_peers = 0
     league_avg: Dict[str, float] = {}
