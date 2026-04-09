@@ -11044,10 +11044,20 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                     api_client=_api,
                     latest_season=_get_latest_season(journey.id, parent_api_id=parent_api_id, parent_club_name=team.name) if journey else None,
                 )
-                if existing.status != new_status or existing.current_club_api_id != new_loan_id:
+                # Resolve the local Team FK so consumers that prefer
+                # current_club_db_id (radar comparison, journey badges,
+                # team-loans-out filters) don't have to do their own join.
+                new_db_id = None
+                if new_loan_id:
+                    target_team = Team.query.filter_by(team_id=new_loan_id).first()
+                    new_db_id = target_team.id if target_team else None
+                if (existing.status != new_status
+                        or existing.current_club_api_id != new_loan_id
+                        or existing.current_club_db_id != new_db_id):
                     existing.status = new_status
                     existing.current_club_api_id = new_loan_id
                     existing.current_club_name = new_loan_name
+                    existing.current_club_db_id = new_db_id
                 skipped += 1
                 continue
 
@@ -11083,6 +11093,13 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
             if journey and journey.current_level:
                 current_level = journey.current_level
 
+            # Resolve the local Team FK alongside the API id so newly seeded
+            # rows have current_club_db_id populated from day one.
+            current_club_db_id_val = None
+            if current_club_api_id:
+                target_team_row = Team.query.filter_by(team_id=current_club_api_id).first()
+                current_club_db_id_val = target_team_row.id if target_team_row else None
+
             tp = TrackedPlayer(
                 player_api_id=pid,
                 player_name=player_name,
@@ -11096,6 +11113,7 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                 current_level=current_level,
                 current_club_api_id=current_club_api_id,
                 current_club_name=current_club_name,
+                current_club_db_id=current_club_db_id_val,
                 data_source='api-football',
                 data_depth='full_stats',
                 journey_id=journey.id if journey else None,

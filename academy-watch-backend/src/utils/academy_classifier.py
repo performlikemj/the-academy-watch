@@ -156,9 +156,14 @@ def derive_player_status(
         (status, current_club_api_id, current_club_name)
         where status is one of 'academy', 'first_team', 'on_loan'
     """
-    # No current club info → assume still at academy
+    # No current club info → trust current_level. A first-team player who
+    # was promoted internally (academy → first team) will have NULL
+    # journey.current_club_api_id because there's no transfer event to
+    # write it from, but their current_level is still 'First Team'. The
+    # post-process at the end of classify_tracked_player will then
+    # populate current_club_api_id/name from the parent academy club.
     if not current_club_api_id:
-        return ('academy', None, None)
+        return (_base_status(current_level), None, None)
 
     # 1. International duty is never a loan
     if is_international_level(current_level):
@@ -196,12 +201,17 @@ def derive_player_status_with_reasoning(
     reasoning: List[Dict] = []
 
     if not current_club_api_id:
+        base = _base_status(current_level)
         reasoning.append({
             'rule': 'no_current_club', 'result': 'match',
             'check': 'current_club_api_id is null',
-            'detail': 'No current club info — defaulting to academy',
+            'detail': (
+                f'No current club info — falling back to current_level '
+                f'"{current_level}" → status="{base}". Will be populated '
+                f'from parent club by post-process if status is first_team.'
+            ),
         })
-        return 'academy', None, None, reasoning
+        return base, None, None, reasoning
     reasoning.append({
         'rule': 'no_current_club', 'result': 'pass',
         'check': 'current_club_api_id is not null',
@@ -571,6 +581,29 @@ def classify_tracked_player(
             status = 'released'
             loan_id = None
             loan_name = None
+
+    # ── Step 4: first-team current-club default ───────────────────────
+    # If the classifier resolved status='first_team' but left
+    # current_club_api_id/name unset (no transfer event ever wrote them —
+    # the player was promoted academy → first team internally), default to
+    # the parent academy club. The parent IS the player's current club for
+    # first-team status by definition. Keeping these fields NULL is what
+    # breaks downstream consumers (radar comparison league, journey
+    # "current club" badge, team-loans-out filters) — see PR #104 for the
+    # radar-side defensive fix.
+    if status == 'first_team' and not loan_id:
+        loan_id = parent_api_id
+        loan_name = parent_club_name
+        if with_reasoning:
+            reasoning.append({
+                'rule': 'first_team_parent_default',
+                'result': 'match',
+                'check': "status='first_team' and current_club_api_id is None",
+                'detail': (
+                    f'Defaulted current_club to parent academy club '
+                    f'{parent_api_id} ({parent_club_name})'
+                ),
+            })
 
     if with_reasoning:
         return (status, loan_id, loan_name, reasoning)
