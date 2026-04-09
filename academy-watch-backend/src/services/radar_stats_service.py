@@ -571,16 +571,27 @@ def resolve_player_league(
     # players are excluded because their matches are in separate U18/U21
     # leagues we don't have comparison data for.
     if not current_api_id and tp.status == 'first_team' and tp.team:
+        from sqlalchemy import func as _sa_func
         from src.models.weekly import FixturePlayerStats, Fixture
-        has_senior_this_season = db.session.query(FixturePlayerStats.id).join(
+        # Sum of minutes played for the parent senior team this season.
+        # "Row exists" isn't enough because youth GKs regularly get
+        # bench-called for senior cup matches (FA Cup, League Cup) with
+        # 0 minutes — those produce a FixturePlayerStats row with
+        # team_api_id=parent and minutes=0. Without a minutes threshold,
+        # an academy GK on loan at a League Two club gets "Premier
+        # League Avg" because of 3 bench rows. Require at least one full
+        # senior match (>=90 minutes) to count as genuinely first-team.
+        senior_minutes = db.session.query(
+            _sa_func.coalesce(_sa_func.sum(FixturePlayerStats.minutes), 0)
+        ).join(
             Fixture, FixturePlayerStats.fixture_id == Fixture.id,
         ).filter(
             FixturePlayerStats.player_api_id == player_api_id,
             FixturePlayerStats.team_api_id == tp.team.team_id,
             Fixture.season == season,
-        ).limit(1).first() is not None
+        ).scalar() or 0
 
-        if has_senior_this_season:
+        if senior_minutes >= 90:
             current_api_id = tp.team.team_id
 
     if current_api_id:
