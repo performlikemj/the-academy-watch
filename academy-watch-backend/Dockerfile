@@ -25,6 +25,19 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Bundle the Tactical Lens brand fonts (Inter + Manrope, both SIL OFL 1.1)
+# so WeasyPrint resolves them when rendering newsletters and the GOL chat
+# PDF, instead of falling all the way down the font-family stack to
+# DejaVu Sans (the only sans-serif fonts-dejavu-core ships). Without these
+# fonts, character widths and heading metrics differ from how the same
+# template renders in subscribers' email clients (where the stack falls
+# back to Apple SF / Segoe UI / Roboto). Bundling them produces a PDF
+# that visually matches the email.
+COPY fonts/ /usr/share/fonts/truetype/theacademywatch/
+RUN fc-cache -f /usr/share/fonts/truetype/theacademywatch/ \
+    && fc-list | grep -qi "Inter" \
+    && fc-list | grep -qi "Manrope"
+
 # Clear matplotlib font cache so it discovers the newly installed fonts
 RUN rm -rf /root/.cache/matplotlib
 
