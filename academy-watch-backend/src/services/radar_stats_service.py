@@ -522,9 +522,19 @@ def resolve_player_league(
             return None
         return league.league_id, league.name
 
+    # A player can have multiple active TrackedPlayer rows (one per parent
+    # academy club they've passed through — e.g. J. Fletcher has rows under
+    # both Manchester United and a former club). Without an ordering hint,
+    # SQLAlchemy's .first() picks an implementation-defined row, which can
+    # silently surface a stale 'released' row instead of the live
+    # 'first_team' / 'on_loan' row at the player's current parent. Order by
+    # updated_at DESC so the most recently classified row wins. (Mirrors the
+    # ordering used by routes/journalist.py:get_chart_data when it resolves
+    # current_club_api_id.)
     tp = (
         TrackedPlayer.query
         .filter_by(player_api_id=player_api_id, is_active=True)
+        .order_by(TrackedPlayer.updated_at.desc())
         .first()
     )
     if not tp:
