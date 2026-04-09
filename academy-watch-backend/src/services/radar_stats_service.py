@@ -541,6 +541,18 @@ def resolve_player_league(
         if current_team:
             current_api_id = current_team.team_id
 
+    # First-team players are at the parent academy club by definition. The
+    # loan classifier only populates current_club_api_id from transfer
+    # entries, so a first-team player who never had an explicit transfer
+    # event (academy → first-team promotion) will have NULL current_club_*.
+    # Falling back to the parent club is correct ONLY for status='first_team'
+    # — for loanees we explicitly do NOT do this (see the "Barrow loanee
+    # compared to Premier League" guard in the docstring above). Academy
+    # players are also excluded because they play in U18/U21/PL2 leagues
+    # that are separate from the parent's senior league.
+    if not current_api_id and tp.status == 'first_team' and tp.team:
+        current_api_id = tp.team.team_id
+
     if current_api_id:
         # 1. Ground truth via API-Football (cached).
         api_result = _team_league_from_api(current_api_id, season)
