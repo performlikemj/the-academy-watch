@@ -64,10 +64,12 @@ export function NewsletterView({
 
   return (
     <div className="newsletter-tactical-lens min-h-full">
-      {/* Wide canvas — uses up to 1280px on big monitors. The text-heavy
-          editorial blocks below cap themselves at ~68ch internally for
-          readability. */}
-      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-10 py-8 sm:py-10 lg:py-12">
+      {/* Wide canvas — fills the parent column up to 1360px. The parent
+          shell (NewslettersPage in App.jsx) gives the detail view its own
+          1440px-wide column with no sidebar so this canvas can stretch.
+          Text-heavy editorial blocks below cap themselves at ~68ch
+          internally for readability — see line 79. */}
+      <div className="max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-12 py-8 sm:py-10 lg:py-12">
         <NewsletterHeader
           title={obj.title || newsletter?.title}
           range={obj.range}

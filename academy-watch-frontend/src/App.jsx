@@ -8683,10 +8683,29 @@ function NewslettersPage() {
 
 
   return (
-    <div className="max-w-[1400px] mx-auto py-6 px-4 sm:px-6 lg:px-8">
-      <div className="flex flex-col lg:flex-row gap-6">
-        {/* Main Content */}
-        <div className="flex-1 min-w-0 max-w-4xl py-6 sm:px-0 overflow-hidden">
+    <div
+      className={
+        focusedViewActive
+          ? 'max-w-[1440px] mx-auto py-6 px-4 sm:px-6 lg:px-8'
+          : 'max-w-[1400px] mx-auto py-6 px-4 sm:px-6 lg:px-8'
+      }
+    >
+      <div
+        className={
+          focusedViewActive
+            ? 'flex flex-col gap-6'
+            : 'flex flex-col lg:flex-row gap-6'
+        }
+      >
+        {/* Main Content — full width in detail view, capped + flanked by
+            SponsorSidebar in list view. */}
+        <div
+          className={
+            focusedViewActive
+              ? 'flex-1 min-w-0 w-full py-6 sm:px-0'
+              : 'flex-1 min-w-0 max-w-4xl py-6 sm:px-0 overflow-hidden'
+          }
+        >
           <div className="text-center mb-8">
             <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-4">
               Published Newsletters
@@ -9362,12 +9381,18 @@ function NewslettersPage() {
           )}
         </div>
 
-        {/* Sponsor Sidebar - visible on larger screens */}
-        <SponsorSidebar className="hidden lg:block" />
+        {/* Sponsor Sidebar - list view only, visible on larger screens.
+            Detail view drops the sidebar entirely so the newsletter can
+            use the full canvas — sponsor moves to a footer band below. */}
+        {!focusedViewActive && (
+          <SponsorSidebar className="hidden lg:block" />
+        )}
       </div>
 
-      {/* Mobile Sponsor Strip - visible on smaller screens */}
-      <div className="lg:hidden pb-6">
+      {/* Sponsor Strip — full width below content. In list view this is
+          mobile-only (sidebar handles desktop). In detail view it's the
+          sole sponsor surface, shown at every width. */}
+      <div className={focusedViewActive ? 'pb-6' : 'lg:hidden pb-6'}>
         <SponsorStrip />
       </div>
     </div >

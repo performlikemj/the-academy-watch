@@ -133,7 +133,7 @@ export function PlayerCommentaryCard({
 
   return (
     <article
-      className="tl-card-hover rounded-xl mb-5 sm:mb-6 lg:mb-0 relative"
+      className="tl-card-hover rounded-xl mb-5 sm:mb-6 lg:mb-0 relative @container"
       style={{ background: 'var(--tl-section)' }}
     >
       {/* Expand affordance — top-right corner. Only renders when an
@@ -149,12 +149,17 @@ export function PlayerCommentaryCard({
         </button>
       )}
 
-      <div className={hasCharts ? 'grid grid-cols-1 md:grid-cols-12 gap-0' : ''}>
+      {/* Internal split is container-query driven — at @[560px] of CARD
+          width (not viewport width), narrative + charts go side-by-side
+          7/5. Below that, charts stack below narrative full-width. This
+          decouples the card from parent grid breakpoints so a 3-up grid
+          on a 1536px viewport (each card ~460px) auto-stacks correctly. */}
+      <div className={hasCharts ? 'grid grid-cols-1 @[560px]:grid-cols-12 gap-0' : ''}>
         {/* LEFT — identity, stats, narrative, tweets, CTA */}
         <div
           className={
             hasCharts
-              ? 'md:col-span-7 min-w-0 p-5 sm:p-6 md:p-7 lg:p-8'
+              ? '@[560px]:col-span-7 min-w-0 p-5 sm:p-6 md:p-7 lg:p-8'
               : 'min-w-0 p-5 sm:p-6 md:p-7 lg:p-8'
           }
         >
@@ -275,7 +280,7 @@ export function PlayerCommentaryCard({
             open a lightbox at native resolution. */}
         {hasCharts && (
           <div
-            className="md:col-span-5 p-5 sm:p-6 md:p-7 lg:p-8 space-y-4 border-t md:border-t-0 md:border-l border-[var(--tl-divider)]"
+            className="@[560px]:col-span-5 p-5 sm:p-6 md:p-7 lg:p-8 space-y-4 border-t @[560px]:border-t-0 @[560px]:border-l border-[var(--tl-divider)]"
             style={{ background: 'var(--tl-card)' }}
           >
             {inlineCharts.map((c, idx) => (

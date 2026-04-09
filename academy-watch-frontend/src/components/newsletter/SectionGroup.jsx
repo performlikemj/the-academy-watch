@@ -13,9 +13,14 @@ import { PlayerCommentaryCard } from './PlayerCommentaryCard'
  * If we ignore subsections we silently drop entire sections of players —
  * exactly what was happening before this fix.
  *
- * Layout: when a (sub)section has 2+ players, render the cards in a
- * 2-column grid at lg+ (1024px+) so wide monitors don't show lonely
- * single cards with empty space on either side.
+ * Layout: scales with section size and viewport.
+ *   - 1 player  → single full-width card
+ *   - 2 players → 2-column grid at lg+ (1024px+)
+ *   - 3+ players → 2-column at lg, 3-column at 2xl (1536px+)
+ * The PlayerCommentaryCard uses container queries internally, so it
+ * gracefully restacks its photo+narrative / charts split when its own
+ * width drops below ~560px (which is what happens to a 3-up card on a
+ * 1536-1700px viewport).
  *
  * Props:
  *   - onExpand({ item, twitterTakes }) — fired when a card's expand button
@@ -25,9 +30,11 @@ import { PlayerCommentaryCard } from './PlayerCommentaryCard'
  */
 function PlayerGrid({ items, twitterTakesByPlayer, publicBaseUrl, onExpand, onZoomChart }) {
   const gridClass =
-    items.length > 1
-      ? 'grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6'
-      : 'grid grid-cols-1'
+    items.length >= 3
+      ? 'grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-5 lg:gap-6 2xl:gap-7'
+      : items.length === 2
+        ? 'grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6'
+        : 'grid grid-cols-1'
   return (
     <div className={gridClass}>
       {items.map((item, idx) => {
