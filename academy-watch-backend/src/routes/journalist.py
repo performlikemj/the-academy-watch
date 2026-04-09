@@ -1059,10 +1059,30 @@ def get_chart_data():
         
         # Validate stat keys
         stat_keys = [k for k in stat_keys if k in ALL_STAT_KEYS]
-        
+
+        # Resolve the player's current club so all chart fixtures are scoped
+        # to it. Loanee at Barrow → only Barrow fixtures. First-team player at
+        # Forest → only Forest fixtures. Without this filter the radar would
+        # average a loanee's lower-tier appearances together with their
+        # parent-club U21 appearances — and the league overlay would be
+        # picked from whichever fixture happened to be most recent.
+        # (Mirrors _fetch_chart_data_for_rendering's scoping for newsletters.)
+        current_club_api_id: int | None = None
+        try:
+            tp_for_scope = (
+                TrackedPlayer.query
+                .filter_by(player_api_id=player_id, is_active=True)
+                .order_by(TrackedPlayer.updated_at.desc())
+                .first()
+            )
+            if tp_for_scope and tp_for_scope.current_club_api_id:
+                current_club_api_id = tp_for_scope.current_club_api_id
+        except Exception:
+            pass
+
         # Get fixtures data based on date range
         fixtures_data = []
-        
+
         if date_range == 'week':
             week_start = request.args.get('week_start')
             week_end = request.args.get('week_end')
@@ -1071,25 +1091,28 @@ def get_chart_data():
                 try:
                     start_date = datetime.fromisoformat(week_start).date() if isinstance(week_start, str) else week_start
                     end_date = datetime.fromisoformat(week_end).date() if isinstance(week_end, str) else week_end
-                    fixtures_data = _get_player_week_stats(player_id, start_date, end_date)
+                    fixtures_data = _get_player_week_stats(player_id, start_date, end_date,
+                                                           current_club_api_id=current_club_api_id)
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Invalid date format: {e}")
             else:
                 return jsonify({'error': 'week_start and week_end required for date_range=week'}), 400
-        
+
         elif date_range == 'month':
             from datetime import timedelta
             end_date = datetime.now(timezone.utc).date()
             start_date = end_date - timedelta(days=30)
-            fixtures_data = _get_player_week_stats(player_id, start_date, end_date)
-        
+            fixtures_data = _get_player_week_stats(player_id, start_date, end_date,
+                                                   current_club_api_id=current_club_api_id)
+
         elif date_range == 'season':
             # Get current season (assume July-June cycle)
             now_utc = datetime.now(timezone.utc)
             current_year = now_utc.year
             current_month = now_utc.month
             season = current_year if current_month >= 7 else current_year - 1
-            fixtures_data = _get_season_stats(player_id, season)
+            fixtures_data = _get_season_stats(player_id, season,
+                                              current_club_api_id=current_club_api_id)
         
         # Get player info
         player_info = None
