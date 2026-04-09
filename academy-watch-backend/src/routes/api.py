@@ -11252,6 +11252,23 @@ def _run_seed_team_process(job_id, team_id, max_age=30, sync_journeys=True, year
             update_job(job_id, current_player=f'Seeding {team.name}...')
             result = _seed_single_team(team, max_age=max_age,
                                        sync_journeys=sync_journeys, years=years)
+
+            # Phase 3: Consistency audit — surfaces any rows that didn't
+            # end up in a clean state after seed+classify, so a newly
+            # tracked team gets a "clean data" guarantee (or a clear
+            # report of what needs operator attention). Read-only —
+            # _seed_single_team already runs the classifier, so we don't
+            # need a second repair pass here.
+            update_job(job_id, current_player=f'Auditing {team.name}...')
+            try:
+                from src.services.team_verify import audit_team_consistency
+                audit = audit_team_consistency(team.id)
+                result['audit'] = audit
+            except Exception as audit_err:
+                logger.warning('Post-seed audit failed for team %s: %s',
+                               team.name, audit_err)
+                result['audit_error'] = str(audit_err)
+
             update_job(job_id, status='completed', progress=1, total=1,
                        results=result,
                        completed_at=datetime.now(timezone.utc).isoformat())
@@ -11334,11 +11351,36 @@ def _run_seed_teams_process(job_id, team_db_ids, max_age=30, sync_journeys=True,
                 try:
                     team_result = _seed_single_team(team, max_age=max_age,
                                                      sync_journeys=sync_journeys, years=years)
-                    results['teams'][team.name] = {
+                    team_summary = {
                         'created': team_result.get('created', 0),
                         'skipped': team_result.get('skipped', 0),
                         'candidates': team_result.get('candidates_found', 0),
                     }
+                    # Post-seed audit — same "clean data guarantee" as the
+                    # single-team worker. Per-team audit summary keeps the
+                    # bulk job result small; callers can re-run per-team
+                    # verify to get full row details.
+                    try:
+                        from src.services.team_verify import audit_team_consistency
+                        audit = audit_team_consistency(team.id)
+                        team_summary['audit'] = {
+                            'total_active': audit.get('total_active'),
+                            'ok': audit.get('ok'),
+                            'suspect_total': audit.get('suspect_total'),
+                            'suspect_first_team_null_current_club': audit
+                                .get('suspect_first_team_null_current_club', {}).get('count'),
+                            'suspect_loanee_null_current_club': audit
+                                .get('suspect_loanee_null_current_club', {}).get('count'),
+                            'suspect_db_id_unresolved': audit
+                                .get('suspect_db_id_unresolved', {}).get('count'),
+                            'parent_league_drift': audit
+                                .get('parent_league', {}).get('drift'),
+                        }
+                    except Exception as audit_err:
+                        logger.warning('Post-seed audit failed for team %s: %s',
+                                       team.name, audit_err)
+                        team_summary['audit_error'] = str(audit_err)
+                    results['teams'][team.name] = team_summary
                 except Exception as team_err:
                     logger.warning('seed_teams: failed for %s: %s', team.name, team_err)
                     results['errors'].append(f'{team.name}: {team_err}')
