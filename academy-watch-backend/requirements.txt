@@ -35,7 +35,7 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 jiter==0.10.0
 jsonschema==4.25.0
-jsonschema-specifications==2025.4.1
+jsonschema-specifications==2025.9.1
 kiwisolver==1.4.9
 limits==5.8.0
 linkify-it-py==2.1.0
