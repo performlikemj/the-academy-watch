@@ -555,6 +555,7 @@ def _get_player_week_stats(player_id: int, week_start, week_end,
             # Extract league info from raw_json for radar chart league resolution
             _league_id = None
             _league_name = None
+            _league_type = None
             if fixture.raw_json:
                 try:
                     import json as _json
@@ -562,6 +563,7 @@ def _get_player_week_stats(player_id: int, week_start, week_end,
                     _lg = _raw.get("league") or {}
                     _league_id = _lg.get("id")
                     _league_name = _lg.get("name")
+                    _league_type = _lg.get("type")
                 except (ValueError, TypeError):
                     pass
 
@@ -571,6 +573,7 @@ def _get_player_week_stats(player_id: int, week_start, week_end,
                 'competition': fixture.competition_name,
                 'league_id': _league_id,
                 'league_name': _league_name,
+                'league_type': _league_type,
                 'home_team': {
                     'name': home_name,
                     'logo': home_logo,
@@ -771,6 +774,7 @@ def _get_season_stats(player_id: int, season: int = None,
             # Extract league info from raw_json for radar chart league resolution
             _league_id = None
             _league_name = None
+            _league_type = None
             if fixture.raw_json:
                 try:
                     import json as _json
@@ -778,6 +782,7 @@ def _get_season_stats(player_id: int, season: int = None,
                     _lg = _raw.get("league") or {}
                     _league_id = _lg.get("id")
                     _league_name = _lg.get("name")
+                    _league_type = _lg.get("type")
                 except (ValueError, TypeError):
                     pass
 
@@ -787,6 +792,7 @@ def _get_season_stats(player_id: int, season: int = None,
                 'competition': fixture.competition_name,
                 'league_id': _league_id,
                 'league_name': _league_name,
+                'league_type': _league_type,
                 'home_team': {
                     'name': home_name,
                     'logo': home_logo,
