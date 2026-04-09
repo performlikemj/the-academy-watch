@@ -1060,13 +1060,21 @@ def get_chart_data():
         # Validate stat keys
         stat_keys = [k for k in stat_keys if k in ALL_STAT_KEYS]
 
-        # Resolve the player's current club so all chart fixtures are scoped
-        # to it. Loanee at Barrow → only Barrow fixtures. First-team player at
-        # Forest → only Forest fixtures. Without this filter the radar would
-        # average a loanee's lower-tier appearances together with their
-        # parent-club U21 appearances — and the league overlay would be
-        # picked from whichever fixture happened to be most recent.
-        # (Mirrors _fetch_chart_data_for_rendering's scoping for newsletters.)
+        # Resolve the player's current club so chart fixtures for LOANEES are
+        # scoped to the loan/buying club. Loanee at Barrow → only Barrow
+        # fixtures. This protects against the original "parent-club U21
+        # fixtures leaking into the radar" bug (see PR #101 and the
+        # Osong/Fleetwood investigation).
+        #
+        # We deliberately do NOT scope for status='first_team' or 'academy'.
+        # A "First Team" player's current_club_api_id points at the parent
+        # senior team, but academy-level players classified as first-team
+        # (e.g. ManU youth GKs on the first-team sheet) have their actual
+        # FixturePlayerStats records under a youth team_api_id — scoping to
+        # the senior team's id returns zero fixtures and makes the radar
+        # empty. For these statuses we pull all fixtures and let the
+        # league-resolution logic in resolve_player_league (which uses
+        # API-Football as the source of truth) handle the overlay.
         current_club_api_id: int | None = None
         try:
             tp_for_scope = (
@@ -1075,7 +1083,9 @@ def get_chart_data():
                 .order_by(TrackedPlayer.updated_at.desc())
                 .first()
             )
-            if tp_for_scope and tp_for_scope.current_club_api_id:
+            if (tp_for_scope
+                    and tp_for_scope.current_club_api_id
+                    and tp_for_scope.status in ('on_loan', 'sold')):
                 current_club_api_id = tp_for_scope.current_club_api_id
         except Exception:
             pass
@@ -1799,10 +1809,18 @@ def _fetch_chart_data_for_rendering(player_id: int, chart_type: str, stat_keys: 
 
         from datetime import date, timedelta
 
-        # Resolve the player's current club so all chart fixtures are scoped to
-        # it. Loanee at Barrow → only Barrow fixtures. First-team player at
-        # Forest → only Forest fixtures. None means "no filter" (public API
-        # callers that don't go through this internal helper).
+        # Scope chart fixtures to the current club ONLY for loanees / sold
+        # players — those are the cases where fixture leakage from the
+        # parent club is a real bug (see PR #101 and the Osong/Fleetwood
+        # investigation). For status='first_team' or 'academy', the
+        # TrackedPlayer's current_club_api_id points at the parent senior
+        # team, but academy-level players classified as first-team have
+        # their actual FixturePlayerStats records under a youth
+        # team_api_id. Scoping to the senior team returns zero fixtures
+        # and makes the radar empty. For those statuses we leave
+        # current_club_api_id=None so all fixtures are pulled, and the
+        # league overlay still comes from resolve_player_league (which
+        # uses API-Football as the source of truth).
         current_club_api_id = None
         try:
             tp = (
@@ -1811,7 +1829,7 @@ def _fetch_chart_data_for_rendering(player_id: int, chart_type: str, stat_keys: 
                 .order_by(TrackedPlayer.updated_at.desc())
                 .first()
             )
-            if tp and tp.current_club_api_id:
+            if tp and tp.current_club_api_id and tp.status in ('on_loan', 'sold'):
                 current_club_api_id = tp.current_club_api_id
         except Exception:
             pass
