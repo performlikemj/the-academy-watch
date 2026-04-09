@@ -1,0 +1,112 @@
+# Fast frontend-only deployment for The Academy Watch
+#
+# This workflow exists as a TEMPORARY escape hatch for rapid iteration on
+# UI / frontend designs. It deploys only the React/Vite app to Azure
+# Static Web App and skips the ~6 minute backend container rebuild +
+# Container App update that the full `deploy.yml` workflow does.
+#
+# When you no longer need the fast iteration loop:
+#   1. Delete this file
+#   2. Remove the `paths-ignore` block from `.github/workflows/deploy.yml`
+# That restores the original full-checks-on-every-push behaviour exactly.
+#
+# Required secrets (already configured for the full deploy workflow):
+#   AZURE_CREDENTIALS     - Service principal JSON
+#   SWA_DEPLOYMENT_TOKEN  - Static Web App deployment token
+
+name: Deploy Frontend (fast)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'academy-watch-frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+# Only one frontend deploy may run at a time. If a second commit lands
+# while one is still in progress, the in-flight run is cancelled and the
+# newer one takes its place — there's no value in deploying yesterday's
+# bundle after today's commit lands.
+concurrency:
+  group: deploy-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SUBSCRIPTION_ID: 63ceeeac-fe3f-4bcb-b6d2-b7aa7fd6bf52
+  RESOURCE_GROUP: rg-loan-army-westus2
+  APP_BACKEND: ca-loan-army-backend
+
+jobs:
+  deploy-frontend:
+    name: Deploy Frontend (no backend rebuild)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set subscription
+        run: az account set --subscription "${{ env.SUBSCRIPTION_ID }}"
+
+      - name: Get backend FQDN
+        id: get-fqdn
+        run: |
+          FQDN=$(az containerapp show \
+            -g "${{ env.RESOURCE_GROUP }}" \
+            -n "${{ env.APP_BACKEND }}" \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          if [ -z "$FQDN" ]; then
+            echo "::error::Failed to fetch backend FQDN — refusing to ship a frontend bundle with an empty VITE_API_BASE"
+            exit 1
+          fi
+          echo "fqdn=$FQDN" >> $GITHUB_OUTPUT
+          echo "Backend FQDN: $FQDN"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: academy-watch-frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: academy-watch-frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: academy-watch-frontend
+        env:
+          VITE_API_BASE: https://${{ steps.get-fqdn.outputs.fqdn }}/api
+        run: |
+          echo "Building with VITE_API_BASE=$VITE_API_BASE"
+          pnpm run build
+
+      - name: Deploy to Azure Static Web App
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: 'upload'
+          app_location: 'academy-watch-frontend/dist'
+          skip_app_build: true
+          skip_api_build: true
+
+      - name: Print summary
+        run: |
+          echo "## Fast Frontend Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend: deployed to Azure Static Web App" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend FQDN baked in: ${{ steps.get-fqdn.outputs.fqdn }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Skipped: backend container rebuild, scheduled job updates, RLS security checks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_For full backend+frontend deploys (with security checks), push backend changes or run \`Deploy\` workflow manually._" >> $GITHUB_STEP_SUMMARY
