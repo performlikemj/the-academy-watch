@@ -223,6 +223,19 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
             tp.current_level = journey.current_level
             changed = True
 
+        # Resolve and write the local Team FK alongside the API id, so
+        # downstream consumers that prefer current_club_db_id (e.g. radar
+        # comparison resolution, team-loans-out filters, journey badges)
+        # don't have to do their own join. None is allowed when the API
+        # id points at a club we haven't ingested locally yet.
+        new_db_id = None
+        if new_loan_id:
+            target_team = Team.query.filter_by(team_id=new_loan_id).first()
+            new_db_id = target_team.id if target_team else None
+        if tp.current_club_db_id != new_db_id:
+            tp.current_club_db_id = new_db_id
+            changed = True
+
         if changed:
             updated += 1
             # Track loan club changes for fixture sync cascade
