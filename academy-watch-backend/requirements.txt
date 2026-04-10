@@ -45,7 +45,7 @@ MarkupSafe==3.0.2
 matplotlib==3.10.8
 mcp==1.12.3
 mdurl==0.1.2
-numpy==2.4.0
+numpy==2.4.4
 pandas==2.2.3
 openai==1.109.1
 openai-agents==0.13.6
