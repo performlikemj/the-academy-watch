@@ -12,6 +12,9 @@ import logging
 gol_bp = Blueprint('gol', __name__)
 logger = logging.getLogger(__name__)
 
+# Admin users get a different model for the GOL assistant
+_ADMIN_GOL_MODEL = 'z-ai/glm-5.1'
+
 
 @gol_bp.route('/gol/chat', methods=['POST'])
 @limiter.limit("20/minute")
@@ -30,9 +33,23 @@ def gol_chat():
     history = data.get('history', [])
     session_id = data.get('session_id', '')
 
+    # Detect admin callers to route them to the admin model
+    model_override = None
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        try:
+            from src.auth import _user_serializer
+            token_data = _user_serializer().loads(
+                auth_header.split(' ', 1)[1], max_age=60 * 60 * 24 * 30
+            )
+            if (token_data or {}).get('role') == 'admin':
+                model_override = _ADMIN_GOL_MODEL
+        except Exception:
+            pass  # Non-admin or invalid token — use default model
+
     try:
         from src.services.gol_service import GolService
-        service = GolService()
+        service = GolService(model_override=model_override)
     except Exception as e:
         logger.error(f"Failed to initialize GolService: {e}")
         return jsonify({'error': 'Chat service unavailable'}), 503

@@ -397,7 +397,7 @@ class GolService:
 
     _df_cache = None  # Class-level singleton
 
-    def __init__(self, session_id: str | None = None):
+    def __init__(self, session_id: str | None = None, model_override: str | None = None):
         provider = os.getenv('GOL_PROVIDER', 'openai')
         if provider == 'openrouter':
             api_key = os.getenv('OPENROUTER_API_KEY')
@@ -416,7 +416,7 @@ class GolService:
             if not api_key:
                 raise RuntimeError("OPENAI_API_KEY not configured")
             self.client = OpenAI(api_key=api_key)
-        self.model = os.getenv('GOL_MODEL', 'gpt-4.1-mini')
+        self.model = model_override or os.getenv('GOL_MODEL', 'gpt-4.1-mini')
         self._session_id = session_id
         if GolService._df_cache is None:
             GolService._df_cache = DataFrameCache()
