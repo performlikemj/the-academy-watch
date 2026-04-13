@@ -2037,7 +2037,7 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
             team.name, _stale_check_err,
         )
 
-    groups: Dict[str, list] = {'first_team': [], 'on_loan': [], 'academy': []}
+    groups: Dict[str, list] = {'first_team': [], 'on_loan': [], 'academy': [], 'returned': []}
 
     # Thresholds for reclassifying first-team players with minimal involvement back to academy
     ACADEMY_THRESHOLD_MINUTES = 200  # ~2 full matches
@@ -2133,6 +2133,49 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
         "skipped_players": _filter_skipped_names,
     })
 
+    # Detect recent loan returns and move them out of on_loan into returned
+    try:
+        recent_returns = _detect_recent_loan_returns(
+            team_db_id=team.id, parent_api_id=team.team_id,
+            week_start=start, week_end=end,
+        )
+        on_loan_pids = {p['player_api_id'] for p in groups['on_loan']}
+        returned_pids: set[int] = set()
+        for ret in recent_returns:
+            pid = ret['player_api_id']
+            if pid in returned_pids:
+                continue
+            returned_pids.add(pid)
+            tp = ret['tp']
+            player_dict = {
+                'player_api_id': pid,
+                'player_name': tp.player_name,
+                'player_full_name': tp.player_name,
+                'photo_url': tp.photo_url,
+                'position': tp.position,
+                'age': tp.age,
+                'returned_from_club_name': ret['returned_from_club_name'],
+                'returned_from_club_api_id': ret['returned_from_club_api_id'],
+                'return_date': ret['return_date'],
+                'pathway_status': 'returned',
+                'parent_team_name': team.name,
+                'parent_team_api_id': team.team_id,
+                'journey_id': tp.journey_id,
+            }
+            groups['returned'].append(player_dict)
+        # Remove returned players from on_loan to avoid duplication
+        if returned_pids:
+            groups['on_loan'] = [
+                p for p in groups['on_loan']
+                if p.get('player_api_id') not in returned_pids
+            ]
+            _nl_dbg("pipeline.loan_returns", {
+                "returned_count": len(groups['returned']),
+                "returned_players": [r['player_name'] for r in groups['returned']],
+            })
+    except Exception as _ret_err:
+        logger.warning('newsletter: loan return detection failed (non-fatal): %s', _ret_err)
+
     has_active = len(tracked) > 0
 
     report = {
@@ -2144,6 +2187,70 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
     }
     db.session.commit()
     return report
+
+
+def _detect_recent_loan_returns(
+    team_db_id: int,
+    parent_api_id: int,
+    week_start: date,
+    week_end: date,
+    lookback_days: int = 14,
+) -> list[dict]:
+    """Find players who returned from loan within the newsletter's date window.
+
+    Scans ALL active TrackedPlayers (including those still marked on_loan if
+    status refresh hasn't run) for loan-return transfers landing at the parent club.
+    """
+    from src.api_football_client import LOAN_RETURN_TYPES
+    from src.utils.academy_classifier import flatten_transfers
+
+    tracked = TrackedPlayer.query.filter(
+        TrackedPlayer.team_id == team_db_id,
+        TrackedPlayer.is_active.is_(True),
+    ).all()
+
+    player_ids = [tp.player_api_id for tp in tracked if tp.player_api_id]
+    if not player_ids:
+        return []
+
+    raw_map = api_client.batch_get_player_transfers(player_ids)
+    window_start = week_start - timedelta(days=lookback_days)
+    tp_by_pid = {tp.player_api_id: tp for tp in tracked}
+
+    seen: dict[int, dict] = {}  # player_api_id → best return info
+    for pid, raw in raw_map.items():
+        for t in flatten_transfers(raw):
+            t_type = (t.get('type') or '').strip().lower()
+            if t_type not in LOAN_RETURN_TYPES:
+                continue
+            dest = (t.get('teams') or {}).get('in') or {}
+            source = (t.get('teams') or {}).get('out') or {}
+            if dest.get('id') != parent_api_id:
+                continue
+            t_date_str = t.get('date', '')
+            if not t_date_str:
+                continue
+            try:
+                t_date = date.fromisoformat(t_date_str)
+            except (ValueError, TypeError):
+                continue
+            if not (window_start <= t_date <= week_end):
+                continue
+            tp = tp_by_pid.get(pid)
+            if not tp:
+                continue
+            # Keep the most recent return per player
+            if pid not in seen or t_date_str > seen[pid]['return_date']:
+                seen[pid] = {
+                    'player_api_id': pid,
+                    'player_name': tp.player_name,
+                    'returned_from_club_name': source.get('name'),
+                    'returned_from_club_api_id': source.get('id'),
+                    'return_date': t_date_str,
+                    'tp': tp,
+                }
+
+    return list(seen.values())
 
 
 def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, end: date, season: int) -> None:
@@ -2634,6 +2741,85 @@ def _build_academy_report_item(player: dict, hits: list[dict[str, Any]], *, week
         "matches": [],
     }
     return item
+
+
+def _build_returned_from_loan_item(
+    player: dict, hits: list[dict[str, Any]], *,
+    week_start: date, week_end: date, season: int,
+) -> dict:
+    """Build a report item for a player who recently returned from loan."""
+    from src.models.weekly import Fixture, FixturePlayerStats
+    from sqlalchemy import func
+
+    display_name = to_initial_last(
+        _strip_text(player.get("player_full_name"))
+        or _strip_text(player.get("player_name"))
+    ) or _strip_text(player.get("player_name")) or ""
+    full_name = _strip_text(player.get("player_full_name")) or display_name
+    loan_club = player.get("returned_from_club_name") or "loan"
+    return_date = player.get("return_date") or ""
+    loan_club_api_id = player.get("returned_from_club_api_id")
+
+    # Query loan spell stats (this season at the loan club)
+    spell_summary = ""
+    if loan_club_api_id:
+        season_start = date(season, 8, 1)
+        row = db.session.query(
+            func.count(FixturePlayerStats.id).label('apps'),
+            func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label('mins'),
+            func.coalesce(func.sum(FixturePlayerStats.goals), 0).label('goals'),
+            func.coalesce(func.sum(FixturePlayerStats.assists), 0).label('assists'),
+        ).join(Fixture, FixturePlayerStats.fixture_id == Fixture.id).filter(
+            FixturePlayerStats.player_api_id == player.get("player_api_id"),
+            FixturePlayerStats.team_api_id == loan_club_api_id,
+            Fixture.date_utc >= season_start,
+        ).first()
+
+        if row and row.apps > 0:
+            parts = [f"{row.apps} appearances", f"{row.mins} minutes"]
+            if row.goals:
+                parts.append(f"{row.goals} goal{'s' if row.goals != 1 else ''}")
+            if row.assists:
+                parts.append(f"{row.assists} assist{'s' if row.assists != 1 else ''}")
+            spell_summary = f"During the loan spell: {', '.join(parts)}."
+
+    # Build narrative
+    date_fmt = ""
+    if return_date:
+        try:
+            dt = date.fromisoformat(return_date)
+            date_fmt = dt.strftime("%B %-d")
+        except (ValueError, TypeError):
+            date_fmt = return_date
+
+    paragraphs = [
+        _ensure_period(
+            f"{display_name} returned from loan at {loan_club}"
+            + (f" ({date_fmt})" if date_fmt else "")
+        ),
+    ]
+    if spell_summary:
+        paragraphs.append(spell_summary)
+
+    links = _build_links_from_hits(hits)
+
+    return {
+        "player_name": display_name or full_name,
+        "player_full_name": full_name,
+        "loan_team": loan_club,
+        "loan_team_name": loan_club,
+        "loan_team_api_id": loan_club_api_id,
+        "player_id": player.get("player_api_id"),
+        "player_api_id": player.get("player_api_id"),
+        "player_photo": player.get("photo_url"),
+        "can_fetch_stats": False,
+        "pathway_status": "returned",
+        "return_date": return_date,
+        "stats": {"minutes": 0, "goals": 0, "assists": 0, "yellows": 0, "reds": 0},
+        "week_summary": "\n\n".join(paragraphs),
+        "links": links,
+        "matches": [],
+    }
 
 
 def _format_matches_for_item(matches: list | None) -> list[dict]:
@@ -3197,11 +3383,12 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
             return
         player_meta_by_key[key] = meta
 
-    all_players = groups.get("on_loan", []) + groups.get("first_team", []) + groups.get("academy", [])
+    all_players = groups.get("on_loan", []) + groups.get("first_team", []) + groups.get("academy", []) + groups.get("returned", [])
 
     player_items: list[dict[str, Any]] = []
     first_team_items: list[dict[str, Any]] = []
     on_loan_items: list[dict[str, Any]] = []
+    returned_items: list[dict[str, Any]] = []
     academy_items: list[dict[str, Any]] = []
     brave_ctx: dict[str, Any] = {}
 
@@ -3289,8 +3476,17 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
             item = _build_academy_report_item(player, hits, week_start=week_start, week_end=week_end)
             academy_items.append(item)
 
+        returned_items: list[dict[str, Any]] = []
+        for player in groups.get("returned", []):
+            hits = _extract_hits_for_loanee(player, hits_by_player)
+            item = _build_returned_from_loan_item(
+                player, hits, week_start=week_start, week_end=week_end,
+                season=season_start_year,
+            )
+            returned_items.append(item)
+
         # Flat list for summary generation and post-processing
-        player_items = first_team_items + on_loan_items + academy_items
+        player_items = first_team_items + on_loan_items + returned_items + academy_items
 
         missing_summaries = sum(1 for item in player_items if not _strip_text(item.get("week_summary")))
         _nl_dbg(
@@ -3421,6 +3617,8 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
             sections.append({"title": "On Loan", "subsections": subsections})
         else:
             sections.append({"title": "On Loan", "items": on_loan_items})
+    if returned_items:
+        sections.append({"title": "Returned from Loan", "items": returned_items})
     if academy_items:
         subsections = _group_items_by(academy_items, "current_level", fallback="Academy")
         if len(subsections) > 1:
