@@ -3286,6 +3286,18 @@ def generate_team_weekly_newsletter(team_db_id: int, target_date: date, force_re
         issue_date=target_date,
         newsletter_type="weekly",
     )
+
+    # Optional Twitter/X enrichment (feature-flagged)
+    if os.getenv("ENABLE_TWITTER_ENRICHMENT", "").lower() in ("1", "true"):
+        try:
+            from src.services.twitter_enrichment_service import TwitterEnrichmentService
+            twitter = TwitterEnrichmentService()
+            if twitter.is_configured():
+                result = twitter.enrich_newsletter(row.id, team_db_id)
+                _nl_dbg("[twitter_enrichment]", result)
+        except Exception as exc:
+            _nl_dbg("[twitter_enrichment] failed", str(exc))
+
     return row.to_dict()
 BRAVE_LOCALIZATION_BY_ISO = {
     "GB": {"country": "GB", "search_lang": "en", "ui_lang": "en-GB"},
