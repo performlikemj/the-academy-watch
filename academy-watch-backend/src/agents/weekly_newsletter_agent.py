@@ -1747,6 +1747,209 @@ def _monday_range(target: date) -> tuple[date, date]:
     end = start + timedelta(days=6)
     return start, end
 
+
+def _sync_team_fixtures_for_week(
+    team_db_id: int,
+    week_start: date,
+    week_end: date,
+    season: int,
+    *,
+    delay: float = 0.1,
+) -> dict:
+    """Pre-sync fixture stats from API-Football for a team's tracked players.
+
+    Runs before newsletter composition so the enrichment queries have data.
+    Groups players by loan club to minimise API calls (one team-fixtures call
+    per club, one fixture-players call per fixture with missing stats).
+
+    Skips lineup/formation data to avoid circular imports with api.py.
+    """
+    import time as _time
+    from collections import defaultdict
+    from src.models.weekly import Fixture, FixturePlayerStats
+
+    _sync_log = logging.getLogger("newsletter.pre_sync")
+
+    team = Team.query.get(team_db_id)
+    if not team:
+        _sync_log.warning("pre-sync: team db_id=%d not found", team_db_id)
+        return {"synced": 0, "error": "team not found"}
+
+    tracked = TrackedPlayer.query.filter(
+        TrackedPlayer.team_id == team_db_id,
+        TrackedPlayer.is_active.is_(True),
+        TrackedPlayer.status.notin_(["released", "sold"]),
+    ).all()
+
+    if not tracked:
+        return {"synced": 0, "teams_checked": 0, "fixtures_checked": 0}
+
+    # Group players by the club they currently play for
+    club_players: dict[int, list[int]] = defaultdict(list)  # {club_api_id: [player_api_id, ...]}
+    for tp in tracked:
+        if tp.status == "on_loan" and tp.current_club_api_id:
+            club_players[tp.current_club_api_id].append(tp.player_api_id)
+        elif tp.status in ("first_team", "academy"):
+            parent = Team.query.get(tp.team_id) if tp.team_id else None
+            if parent and parent.team_id:
+                club_players[parent.team_id].append(tp.player_api_id)
+
+    if not club_players:
+        return {"synced": 0, "teams_checked": 0, "fixtures_checked": 0}
+
+    season_start_str = f"{season}-08-01"
+    week_end_str = week_end.isoformat()
+
+    total_synced = 0
+    total_fixtures = 0
+
+    for club_api_id, player_api_ids in club_players.items():
+        player_id_set = set(player_api_ids)
+        try:
+            fixtures_raw = api_client.get_fixtures_for_team_cached(
+                club_api_id, season, season_start_str, week_end_str,
+            )
+        except Exception as exc:
+            _sync_log.warning("pre-sync: fixture fetch failed for club %d: %s", club_api_id, exc)
+            continue
+
+        # Filter to finished fixtures within the newsletter week
+        finished_in_week = []
+        for fx in fixtures_raw:
+            fx_info = fx.get("fixture", {})
+            status = fx_info.get("status", {}).get("short", "")
+            if status not in ("FT", "AET", "PEN"):
+                continue
+            fx_date_str = fx_info.get("date", "")
+            if not fx_date_str:
+                continue
+            try:
+                fx_date = datetime.fromisoformat(fx_date_str.replace("Z", "+00:00")).date()
+            except (ValueError, TypeError):
+                continue
+            if week_start <= fx_date <= week_end:
+                finished_in_week.append(fx)
+
+        for fx in finished_in_week:
+            fx_info = fx.get("fixture", {})
+            fixture_id_api = fx_info.get("id")
+            if not fixture_id_api:
+                continue
+
+            total_fixtures += 1
+
+            # Get or create Fixture row
+            existing_fixture = Fixture.query.filter_by(fixture_id_api=fixture_id_api).first()
+            if not existing_fixture:
+                teams_data = fx.get("teams", {})
+                goals_data = fx.get("goals", {})
+                league_data = fx.get("league", {})
+                existing_fixture = Fixture(
+                    fixture_id_api=fixture_id_api,
+                    date_utc=datetime.fromisoformat(
+                        fx_info.get("date", "").replace("Z", "+00:00")
+                    ) if fx_info.get("date") else None,
+                    season=season,
+                    competition_name=league_data.get("name"),
+                    home_team_api_id=teams_data.get("home", {}).get("id"),
+                    away_team_api_id=teams_data.get("away", {}).get("id"),
+                    home_goals=goals_data.get("home"),
+                    away_goals=goals_data.get("away"),
+                )
+                db.session.add(existing_fixture)
+                db.session.flush()
+
+            # Check which tracked players already have stats for this fixture
+            existing_stats = FixturePlayerStats.query.filter(
+                FixturePlayerStats.fixture_id == existing_fixture.id,
+                FixturePlayerStats.player_api_id.in_(player_id_set),
+            ).all()
+            existing_player_ids = {s.player_api_id for s in existing_stats}
+            missing = player_id_set - existing_player_ids
+            if not missing:
+                continue
+
+            # Fetch /fixtures/players once for this fixture
+            try:
+                team_blocks = api_client.get_fixture_players(fixture_id_api)
+            except Exception as exc:
+                _sync_log.warning("pre-sync: fixture-players failed for %d: %s", fixture_id_api, exc)
+                continue
+
+            if not team_blocks:
+                continue
+
+            for team_block in team_blocks:
+                for p in team_block.get("players", []):
+                    pinfo = p.get("player") or {}
+                    pid = pinfo.get("id")
+                    if pid not in missing:
+                        continue
+
+                    statistics = p.get("statistics") or []
+                    if not statistics:
+                        continue
+                    st = statistics[0]
+
+                    games = st.get("games", {}) or {}
+                    goals_obj = st.get("goals", {}) or {}
+                    cards = st.get("cards", {}) or {}
+                    shots = st.get("shots", {}) or {}
+                    passes = st.get("passes", {}) or {}
+                    tackles = st.get("tackles", {}) or {}
+                    duels = st.get("duels", {}) or {}
+                    dribbles = st.get("dribbles", {}) or {}
+                    fouls = st.get("fouls", {}) or {}
+                    penalty = st.get("penalty", {}) or {}
+
+                    minutes = games.get("minutes", 0) or 0
+
+                    if minutes > 0 or games.get("substitute") is not None:
+                        fps = FixturePlayerStats(
+                            fixture_id=existing_fixture.id,
+                            player_api_id=pid,
+                            team_api_id=club_api_id,
+                            minutes=minutes,
+                            position=games.get("position"),
+                            rating=games.get("rating"),
+                            captain=bool(games.get("captain")),
+                            substitute=bool(games.get("substitute")),
+                            goals=goals_obj.get("total", 0) or 0,
+                            assists=goals_obj.get("assists", 0) or 0,
+                            yellows=cards.get("yellow", 0) or 0,
+                            reds=cards.get("red", 0) or 0,
+                            shots_total=shots.get("total"),
+                            shots_on=shots.get("on"),
+                            passes_total=passes.get("total"),
+                            passes_key=passes.get("key"),
+                            tackles_total=tackles.get("total"),
+                            duels_won=duels.get("won"),
+                            duels_total=duels.get("total"),
+                            dribbles_success=dribbles.get("success"),
+                            saves=goals_obj.get("saves"),
+                            goals_conceded=goals_obj.get("conceded"),
+                            fouls_drawn=fouls.get("drawn"),
+                            fouls_committed=fouls.get("committed"),
+                            penalty_saved=penalty.get("saved"),
+                        )
+                        db.session.add(fps)
+                        total_synced += 1
+
+                    missing.discard(pid)
+
+            if delay > 0:
+                _time.sleep(delay)
+
+        db.session.commit()
+
+    result = {
+        "synced": total_synced,
+        "teams_checked": len(club_players),
+        "fixtures_checked": total_fixtures,
+    }
+    _sync_log.info("pre-sync complete for team %s (db_id=%d): %s", team.name, team_db_id, result)
+    return result
+
 def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, start: date, end: date) -> Dict[str, Any]:
     """Fetch a grouped report from TrackedPlayer.
 
@@ -2897,7 +3100,7 @@ def persist_newsletter(team_db_id: int, content_json_str: str, week_start: date,
         raise
     return newsletter
 
-def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_refresh: bool = False) -> dict:
+def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_refresh: bool = False, skip_sync: bool = False) -> dict:
     """Compose (but do not persist) a weekly newsletter.
     Returns a dict with keys: content_json (str), week_start (date), week_end (date), season_start_year (int).
     """
@@ -2928,6 +3131,14 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
     except Exception:
         pass
     api_client._prime_team_cache(season_start_year)
+
+    # Pre-step: sync fixture stats for the target week so enrichment has data
+    if not skip_sync and os.getenv("AUTO_SYNC_FIXTURES_BEFORE_NEWSLETTER", "true").lower() in ("1", "true"):
+        try:
+            sync_result = _sync_team_fixtures_for_week(team_db_id, week_start, week_end, season_start_year)
+            _nl_dbg("Pre-sync result:", sync_result)
+        except Exception as sync_err:
+            logger.warning("newsletter pre-sync failed (non-fatal): %s", sync_err)
 
     # Fetch report via pipeline tool
     _nl_dbg("Compose for team:", team_db_id, "week:", week_start, week_end, "season:", season_start_year)

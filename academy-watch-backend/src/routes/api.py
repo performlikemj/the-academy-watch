@@ -1866,8 +1866,9 @@ def generate_newsletter():
         target_date = data.get('target_date')  # Format: YYYY-MM-DD
         newsletter_type = data.get('type', 'weekly')
         force_refresh = data.get('force_refresh', False)
-        
-        logger.info(f"📝 Request data: team_id={team_id}, target_date={target_date}, type={newsletter_type}, force_refresh={force_refresh}")
+        skip_sync = data.get('skip_sync', False)
+
+        logger.info(f"📝 Request data: team_id={team_id}, target_date={target_date}, type={newsletter_type}, force_refresh={force_refresh}, skip_sync={skip_sync}")
         
         if not team_id:
             logger.warning("❌ Missing team_id in request")
@@ -1937,8 +1938,8 @@ def generate_newsletter():
                 raise
 
             try:
-                logger.info(f"🚀 Calling compose_team_weekly_newsletter(team_id={team_id}, target_date={target_date}, force_refresh={force_refresh})")
-                composed = compose_team_weekly_newsletter(team_id, target_date, force_refresh=force_refresh)
+                logger.info(f"🚀 Calling compose_team_weekly_newsletter(team_id={team_id}, target_date={target_date}, force_refresh={force_refresh}, skip_sync={skip_sync})")
+                composed = compose_team_weekly_newsletter(team_id, target_date, force_refresh=force_refresh, skip_sync=skip_sync)
                 logger.info("✅ Newsletter composed successfully")
                 logger.info(f"📊 Composed data keys: {list(composed.keys())}")
             except Exception as compose_error:
@@ -8069,8 +8070,8 @@ def admin_check_pending_games(team_id: int):
         # 3. Group players by loan team API ID
         loan_team_map = {} # api_id -> list of TrackedPlayer objects
         for loan in active_loans:
-            if loan.borrowing_team and loan.borrowing_team.team_id:
-                api_id = loan.borrowing_team.team_id
+            if loan.current_club_api_id:
+                api_id = loan.current_club_api_id
                 if api_id not in loan_team_map:
                     loan_team_map[api_id] = []
                 loan_team_map[api_id].append(loan)
@@ -8116,7 +8117,7 @@ def admin_check_pending_games(team_id: int):
                     for player in players:
                         detailed_pending_games.append({
                             'player_name': player.player_name,
-                            'loan_team': player.loan_team_name,
+                            'loan_team': player.current_club_name,
                             'opponent': opponent,
                             'date': fixture_date_str,
                             'league': league,
@@ -8230,8 +8231,8 @@ def admin_check_newsletter_readiness():
             # Group players by loan team API ID
             loan_team_map = {}
             for loan in active_loans:
-                if loan.borrowing_team and loan.borrowing_team.team_id:
-                    api_id = loan.borrowing_team.team_id
+                if loan.current_club_api_id:
+                    api_id = loan.current_club_api_id
                     if api_id not in loan_team_map:
                         loan_team_map[api_id] = []
                     loan_team_map[api_id].append(loan)
@@ -8269,7 +8270,7 @@ def admin_check_newsletter_readiness():
                             for player in players:
                                 pending_games.append({
                                     'player_name': player.player_name,
-                                    'loan_team': player.loan_team_name,
+                                    'loan_team': player.current_club_name,
                                     'opponent': opponent,
                                     'date': fixture_date_str,
                                 })
