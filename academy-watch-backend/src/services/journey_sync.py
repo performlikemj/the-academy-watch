@@ -901,7 +901,7 @@ class JourneySyncService:
             journey.origin_club_name = earliest.club_name
         journey.origin_year = earliest.season
 
-        # Find current club: latest season, highest priority, most recent transfer
+        # Find current club: latest season, highest priority, most recent transfer.
         if domestic_entries:
             latest_season = max(e.season for e in domestic_entries)
             latest_entries = [e for e in domestic_entries if e.season == latest_season]
@@ -909,6 +909,23 @@ class JourneySyncService:
             journey.current_club_api_id = current.club_api_id
             journey.current_club_name = current.club_name
             journey.current_level = current.level
+
+            # Guard: if the winning entry has 0 minutes (e.g. a League Cup squad
+            # registration), check whether a sibling entry at the same club's
+            # youth team has real playing time.  If so, the player's actual level
+            # is the youth team, not the first-team registration.
+            if (current.minutes or 0) == 0 and current.level == 'First Team':
+                club_stem = strip_youth_suffix(current.club_name or '')
+                youth_at_same_club = [
+                    e for e in latest_entries
+                    if e is not current
+                    and e.is_youth
+                    and (e.minutes or 0) > 0
+                    and strip_youth_suffix(e.club_name or '') == club_stem
+                ]
+                if youth_at_same_club:
+                    best_youth = max(youth_at_same_club, key=lambda e: e.minutes or 0)
+                    journey.current_level = best_youth.level
         else:
             # Only international entries exist — use them as fallback
             latest_season = max(e.season for e in entries)
