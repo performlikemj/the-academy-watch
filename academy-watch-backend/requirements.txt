@@ -64,7 +64,7 @@ pyparsing==3.3.2
 pytest==9.0.3
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
-python-multipart==0.0.24
+python-multipart==0.0.26
 referencing==0.37.0
 requests==2.33.1
 RestrictedPython==8.1
