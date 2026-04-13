@@ -92,6 +92,12 @@ class FeederService:
         if season is None:
             season = self.api.current_season_start_year
 
+        # Auto-resolve primary league to exclude youth/reserve players
+        if league_api_id is None:
+            team_row = Team.query.filter_by(team_id=team_api_id).first()
+            if team_row and team_row.league:
+                league_api_id = team_row.league.league_id
+
         # Fetch squad from API-Football (paginated)
         squad_players = self._fetch_squad(team_api_id, season, league_api_id=league_api_id)
 
