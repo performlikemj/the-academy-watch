@@ -4033,6 +4033,12 @@ def delete_newsletter(newsletter_id: int):
 
         NewsletterDigestQueue.query.filter_by(newsletter_id=newsletter.id).delete(synchronize_session=False)
 
+        # Unlink nullable FK references before deleting
+        CommunityTake.query.filter_by(newsletter_id=newsletter.id).update(
+            {'newsletter_id': None}, synchronize_session=False)
+        PlayerFlag.query.filter_by(newsletter_id=newsletter.id).update(
+            {'newsletter_id': None}, synchronize_session=False)
+
         Newsletter.query.filter_by(id=newsletter_id).delete(synchronize_session=False)
         db.session.commit()
 
