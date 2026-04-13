@@ -59,7 +59,7 @@ pydantic==2.12.2
 pydantic-settings==2.10.1
 pydantic_core==2.46.0
 pydyf==0.12.1
-Pygments==2.19.2
+Pygments==2.20.0
 pyparsing==3.3.2
 pytest==9.0.3
 python-dateutil==2.9.0.post0
