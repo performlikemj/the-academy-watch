@@ -1963,6 +1963,23 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
     if not team:
         raise ValueError(f"Team DB id {parent_team_db_id} not found")
 
+    # Re-sync journeys and reclassify all tracked players BEFORE building
+    # the newsletter.  This ensures returned-from-loan players have their
+    # status updated and the "Returned from Loan" section has fresh data.
+    try:
+        from src.services.transfer_heal_service import refresh_and_heal
+        heal_result = refresh_and_heal(
+            team_id=parent_team_db_id,
+            resync_journeys=True,
+            cascade_fixtures=False,  # skip fixture sync — newsletter doesn't need it
+        )
+        _nl_dbg("pipeline.pre_refresh", heal_result)
+    except Exception as _heal_err:
+        logger.warning(
+            'newsletter: pre-generation status refresh failed (non-fatal): %s',
+            _heal_err,
+        )
+
     api_client.set_season_year(season_start_year)
     api_client._prime_team_cache(season_start_year)
 
