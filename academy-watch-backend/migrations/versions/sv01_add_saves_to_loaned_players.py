@@ -5,13 +5,12 @@ Revises: w2x3y4z5a6b7
 Create Date: 2025-11-30
 
 """
-from alembic import op
-import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = 'sv01_add_saves'
-down_revision = 'w2x3y4z5a6b7'
+revision = "sv01_add_saves"
+down_revision = "w2x3y4z5a6b7"
 branch_labels = None
 depends_on = None
 
@@ -33,5 +32,4 @@ def upgrade():
 
 
 def downgrade():
-    op.drop_column('loaned_players', 'saves')
-
+    op.drop_column("loaned_players", "saves")

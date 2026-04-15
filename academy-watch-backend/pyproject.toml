@@ -1,0 +1,42 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",   # line too long — handled by line-length=120
+    "E402",   # module-import-not-at-top — Flask deferred imports are a pattern
+    "E741",   # ambiguous variable name — false positives on l, O, I
+    "F841",   # unused variable — often intentional in tests
+    "B007",   # unused loop variable — use _name convention, not blocking
+    "B017",   # assert-raises too broad — test style preference
+    "B904",   # raise-without-from — incremental cleanup
+    "B905",   # zip-without-strict — incremental cleanup
+    "SIM102", # collapsible-if — readability preference
+    "SIM103", # needless-bool — readability preference
+    "SIM105", # suppressible-exception — contextlib.suppress not always clearer
+    "SIM108", # ternary operator — readability preference
+    "SIM116", # if-else-to-dict — readability preference
+    "SIM117", # multiple-with-statements — readability preference
+    "SIM118", # dict.keys() — readability preference
+    "B019",   # cached-instance-method — incremental cleanup
+    "B023",   # function-uses-loop-variable — incremental cleanup (mostly closures)
+    "B025",   # duplicate-try-block-exception — incremental cleanup
+    "E722",   # bare-except — incremental cleanup
+    "F402",   # import-shadowed-by-loop-var — pre-existing
+    "F811",   # redefined-while-unused — pre-existing
+    "F823",   # undefined-local — pre-existing, needs triage
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Pre-existing real bugs in the codebase, tracked for separate triage.
+# DO NOT add to this list without opening an issue to fix the underlying bug.
+"src/agents/weekly_newsletter_agent.py" = ["F821"]  # undefined `team` at line 2684
+"src/routes/api.py" = ["F821"]  # undefined `loaned` + missing `TeamProfile` import
+"src/routes/journey.py" = ["F821"]  # undefined `loan` variable
+"src/scripts/backfill_tracked_player_stats.py" = ["F821"]  # references deleted AcademyPlayer model — script is dead code
+
+[tool.ruff.lint.isort]
+known-first-party = ["admin", "agents", "config", "data", "mcp", "models", "routes", "services", "utils"]

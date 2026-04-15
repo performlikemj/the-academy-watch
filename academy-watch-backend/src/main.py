@@ -1,49 +1,44 @@
 import json
 import os
 import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from flask import Flask, send_from_directory, jsonify
-from src.models.league import db, League, Team, Newsletter, UserSubscription
-import src.models.weekly  # Ensure weekly models are registered with SQLAlchemy
-import src.models.journey  # Ensure journey models are registered with SQLAlchemy
-import src.models.cohort   # Ensure cohort models are registered with SQLAlchemy
-import src.models.formation  # Ensure formation models are registered with SQLAlchemy
-import src.models.api_cache  # Ensure API cache models are registered with SQLAlchemy
-import src.models.tracked_player  # Ensure TrackedPlayer model is registered with SQLAlchemy
+import logging
+
+import dotenv
+from flask import Flask, jsonify, send_from_directory
+from flask_cors import CORS
+from flask_migrate import Migrate
+from flask_talisman import Talisman
+from sqlalchemy.engine.url import URL, make_url
+from werkzeug.exceptions import HTTPException
+
+from src.extensions import limiter
+from src.models.league import League, Newsletter, Team, UserSubscription, db
 from src.models.tracked_player import TrackedPlayer
+from src.routes.academy import academy_bp
 from src.routes.api import api_bp, require_api_key
 from src.routes.auth_routes import auth_bp
-from src.routes.journalist import journalist_bp
-from src.routes.newsletter_deadline import newsletter_deadline_bp
-from src.routes.community_takes import community_takes_bp
-from src.routes.academy import academy_bp
-from src.routes.journey import journey_bp
 from src.routes.cohort import cohort_bp
-from src.routes.gol import gol_bp
-from src.routes.formation import formation_bp
-from src.routes.teams import teams_bp
-from src.routes.feeder import feeder_bp
+from src.routes.community_takes import community_takes_bp
 from src.routes.curator import curator_bp
+from src.routes.feeder import feeder_bp
+from src.routes.formation import formation_bp
+from src.routes.gol import gol_bp
+from src.routes.journalist import journalist_bp
+from src.routes.journey import journey_bp
+from src.routes.newsletter_deadline import newsletter_deadline_bp
 from src.routes.players import players_bp
-import logging
-from sqlalchemy.engine.url import make_url, URL
-from flask_migrate import Migrate
-import dotenv
-from flask_cors import CORS
-from flask_talisman import Talisman
-from werkzeug.exceptions import HTTPException
-from src.extensions import limiter
+from src.routes.teams import teams_bp
+
 dotenv.load_dotenv(dotenv.find_dotenv())
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 logger.info("🚀 Starting Flask application...")
 
-app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
+app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), "static"))
 cors_origins_env = os.getenv("CORS_ALLOW_ORIGINS", "")
 allowed_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()]
 
@@ -52,18 +47,18 @@ if allowed_origins:
 else:
     # Safe default if not set; you can remove this to force explicit config
     CORS(app, resources={r"/api/*": {"origins": "*"}})
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
 
 env_mode = os.getenv("FLASK_ENV") or "development"
 is_prod = env_mode.lower() in ("prod", "production", "stage", "staging")
 
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE='Strict' if is_prod else 'Lax',
+    SESSION_COOKIE_SAMESITE="Strict" if is_prod else "Lax",
     SESSION_COOKIE_SECURE=is_prod,
     REMEMBER_COOKIE_HTTPONLY=True,
     REMEMBER_COOKIE_SECURE=is_prod,
-    PREFERRED_URL_SCHEME='https' if is_prod else 'http',
+    PREFERRED_URL_SCHEME="https" if is_prod else "http",
     JSONIFY_PRETTYPRINT_REGULAR=False,
     PROPAGATE_EXCEPTIONS=False,
 )
@@ -73,6 +68,8 @@ logger.info(f"🔑 Secret key configured: {'Yes' if app.config['SECRET_KEY'] els
 
 # Suppress repetitive MCP notification validation logs but keep the first one
 _seen_mcp_validation = False
+
+
 class _MCPValidationFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         global _seen_mcp_validation
@@ -83,34 +80,35 @@ class _MCPValidationFilter(logging.Filter):
             _seen_mcp_validation = True
         return True
 
+
 root_logger = logging.getLogger()
 root_logger.addFilter(_MCPValidationFilter())
 for name in ("mcp", "agents.mcp", "mcp.shared.session", "mcp.client"):
     logging.getLogger(name).setLevel(logging.WARNING)
 
-app.register_blueprint(journey_bp, url_prefix='/api')
-app.register_blueprint(players_bp, url_prefix='/api')
-app.register_blueprint(api_bp, url_prefix='/api')
-app.register_blueprint(auth_bp, url_prefix='/api')
-app.register_blueprint(journalist_bp, url_prefix='/api')
-app.register_blueprint(newsletter_deadline_bp, url_prefix='/api')
-app.register_blueprint(community_takes_bp, url_prefix='/api')
-app.register_blueprint(academy_bp, url_prefix='/api')
-app.register_blueprint(cohort_bp, url_prefix='/api')
-app.register_blueprint(gol_bp, url_prefix='/api')
-app.register_blueprint(formation_bp, url_prefix='/api')
-app.register_blueprint(teams_bp, url_prefix='/api')
-app.register_blueprint(feeder_bp, url_prefix='/api')
-app.register_blueprint(curator_bp, url_prefix='/api')
+app.register_blueprint(journey_bp, url_prefix="/api")
+app.register_blueprint(players_bp, url_prefix="/api")
+app.register_blueprint(api_bp, url_prefix="/api")
+app.register_blueprint(auth_bp, url_prefix="/api")
+app.register_blueprint(journalist_bp, url_prefix="/api")
+app.register_blueprint(newsletter_deadline_bp, url_prefix="/api")
+app.register_blueprint(community_takes_bp, url_prefix="/api")
+app.register_blueprint(academy_bp, url_prefix="/api")
+app.register_blueprint(cohort_bp, url_prefix="/api")
+app.register_blueprint(gol_bp, url_prefix="/api")
+app.register_blueprint(formation_bp, url_prefix="/api")
+app.register_blueprint(teams_bp, url_prefix="/api")
+app.register_blueprint(feeder_bp, url_prefix="/api")
+app.register_blueprint(curator_bp, url_prefix="/api")
 
 csp = {
-    'default-src': ["'self'"],
-    'img-src': ["'self'", "data:", "https:"],
-    'script-src': ["'self'"],
-    'style-src': ["'self'", "'unsafe-inline'", "https:"],
-    'font-src': ["'self'", "data:", "https:"],
-    'connect-src': ["'self'", "https:"],
-    'frame-ancestors': ["'none'"],
+    "default-src": ["'self'"],
+    "img-src": ["'self'", "data:", "https:"],
+    "script-src": ["'self'"],
+    "style-src": ["'self'", "'unsafe-inline'", "https:"],
+    "font-src": ["'self'", "data:", "https:"],
+    "connect-src": ["'self'", "https:"],
+    "frame-ancestors": ["'none'"],
 }
 
 Talisman(
@@ -120,21 +118,23 @@ Talisman(
     strict_transport_security=is_prod,
     session_cookie_secure=is_prod,
     session_cookie_http_only=True,
-    referrer_policy='strict-origin-when-cross-origin',
+    referrer_policy="strict-origin-when-cross-origin",
 )
 
 limiter.init_app(app)
 
 # Load curator API key from Azure Key Vault (falls back to env var)
 from src.utils.keyvault import load_secret
-curator_key = load_secret('CURATOR_API_KEY')
+
+curator_key = load_secret("CURATOR_API_KEY")
 if curator_key:
-    app.config['CURATOR_API_KEY'] = curator_key
+    app.config["CURATOR_API_KEY"] = curator_key
 else:
     logger.warning("CURATOR_API_KEY not configured; curator endpoints will be unavailable")
 
 # Initialize email service for background job support
 from src.services.email_service import email_service
+
 email_service.init_app(app)
 
 
@@ -171,6 +171,7 @@ def _build_db_uri_from_components() -> str:
     )
     return url.render_as_string(hide_password=False)
 
+
 # Database setup
 if is_prod and os.getenv("SQLALCHEMY_DATABASE_URI"):
     raw_uri = os.getenv("SQLALCHEMY_DATABASE_URI", "")
@@ -190,18 +191,19 @@ else:
     logger.info("🗄️ Using PostgreSQL components from DB_* environment variables (dev/default)")
 
 app.config["SQLALCHEMY_DATABASE_URI"] = db_uri
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # Connection pool settings for resilience against transaction aborts
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_pre_ping': True,  # Test connections before use, discard stale/aborted ones
-    'pool_recycle': 300,    # Recycle connections every 5 minutes
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,  # Test connections before use, discard stale/aborted ones
+    "pool_recycle": 300,  # Recycle connections every 5 minutes
 }
 db.init_app(app)
+
 
 @app.teardown_appcontext
 def shutdown_session(exception=None):
     """Ensure database session is properly cleaned up after each request.
-    
+
     This prevents 'transaction is aborted' errors from propagating to subsequent
     requests when using PostgreSQL with connection pooling.
     """
@@ -212,54 +214,58 @@ def shutdown_session(exception=None):
             pass
     db.session.remove()
 
+
 @app.errorhandler(HTTPException)
 def handle_http_exception(exc: HTTPException):
     response = exc.get_response()
     payload = {
-        'error': exc.description or exc.name,
-        'code': exc.code,
+        "error": exc.description or exc.name,
+        "code": exc.code,
     }
     response.data = json.dumps(payload)
-    response.content_type = 'application/json'
+    response.content_type = "application/json"
     return response
 
+
 # Debug endpoint - requires admin authentication
-@app.route('/api/debug/database', methods=['GET'])
+@app.route("/api/debug/database", methods=["GET"])
 @require_api_key
 def debug_database():
     """Debug endpoint to check database state. Requires admin authentication."""
     try:
         stats = {
-            'tables': {
-                'leagues': League.query.count(),
-                'teams': Team.query.count(),
-                'active_teams': Team.query.filter_by(is_active=True).count(),
-                'tracked_players': TrackedPlayer.query.count(),
-                'active_tracked_players': TrackedPlayer.query.filter_by(is_active=True).count(),
-                'newsletters': Newsletter.query.count(),
-                'subscriptions': UserSubscription.query.count()
+            "tables": {
+                "leagues": League.query.count(),
+                "teams": Team.query.count(),
+                "active_teams": Team.query.filter_by(is_active=True).count(),
+                "tracked_players": TrackedPlayer.query.count(),
+                "active_tracked_players": TrackedPlayer.query.filter_by(is_active=True).count(),
+                "newsletters": Newsletter.query.count(),
+                "subscriptions": UserSubscription.query.count(),
             }
         }
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Debug database check failed: {e}")
-        return jsonify({'error': 'Database check failed'}), 500
+        return jsonify({"error": "Database check failed"}), 500
 
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
 def serve(path):
     static_folder_path = app.static_folder
     if static_folder_path is None:
-            return "Static folder not configured", 404
+        return "Static folder not configured", 404
 
     if path != "" and os.path.exists(os.path.join(static_folder_path, path)):
         return send_from_directory(static_folder_path, path)
     else:
-        index_path = os.path.join(static_folder_path, 'index.html')
+        index_path = os.path.join(static_folder_path, "index.html")
         if os.path.exists(index_path):
-            return send_from_directory(static_folder_path, 'index.html')
+            return send_from_directory(static_folder_path, "index.html")
         else:
             return "index.html not found", 404
+
 
 migrate = Migrate(app, db)
 
@@ -269,15 +275,14 @@ migrate = Migrate(app, db)
 def backfill_unsubscribe_tokens():
     """Backfill unsubscribe_token for all subscriptions that don't have one."""
     import uuid
-    subs_without_token = UserSubscription.query.filter(
-        UserSubscription.unsubscribe_token.is_(None)
-    ).all()
-    
+
+    subs_without_token = UserSubscription.query.filter(UserSubscription.unsubscribe_token.is_(None)).all()
+
     count = 0
     for sub in subs_without_token:
         sub.unsubscribe_token = str(uuid.uuid4())
         count += 1
-    
+
     db.session.commit()
     print(f"✅ Backfilled {count} subscription(s) with unsubscribe tokens")
 
@@ -287,29 +292,38 @@ def seed_teams_cmd():
     """Seed academy players for all tracked teams with < 20 players.
     Uses journey sync for proper academy classification. Max age 30.
     """
+    from sqlalchemy import func
+
     from src.models.tracked_player import TrackedPlayer
     from src.routes.api import _seed_single_team
-    from sqlalchemy import func
 
     max_age = 30
     min_threshold = 20
 
-    teams_with_counts = db.session.query(
-        Team, func.count(TrackedPlayer.id).label('count')
-    ).outerjoin(
-        TrackedPlayer, (Team.id == TrackedPlayer.team_id) & (TrackedPlayer.is_active == True)
-    ).filter(Team.is_tracked == True
-    ).group_by(Team.id).having(func.count(TrackedPlayer.id) < min_threshold
-    ).order_by(Team.name).all()
+    teams_with_counts = (
+        db.session.query(Team, func.count(TrackedPlayer.id).label("count"))
+        .outerjoin(TrackedPlayer, (Team.id == TrackedPlayer.team_id) & (TrackedPlayer.is_active))
+        .filter(Team.is_tracked)
+        .group_by(Team.id)
+        .having(func.count(TrackedPlayer.id) < min_threshold)
+        .order_by(Team.name)
+        .all()
+    )
 
     print(f"Seeding {len(teams_with_counts)} teams with < {min_threshold} players (max_age={max_age})", flush=True)
 
     for i, (team, current_count) in enumerate(teams_with_counts):
-        print(f"[{i+1}/{len(teams_with_counts)}] {team.name} (api={team.team_id}, current={current_count})...", flush=True)
+        print(
+            f"[{i + 1}/{len(teams_with_counts)}] {team.name} (api={team.team_id}, current={current_count})...",
+            flush=True,
+        )
         try:
             result = _seed_single_team(team, sync_journeys=True, max_age=max_age, years=4)
-            print(f"  => created={result.get('created', 0)}, skipped={result.get('skipped', 0)}, "
-                  f"candidates={result.get('candidates_found', 0)}, journeys_synced={result.get('journeys_synced', 0)}", flush=True)
+            print(
+                f"  => created={result.get('created', 0)}, skipped={result.get('skipped', 0)}, "
+                f"candidates={result.get('candidates_found', 0)}, journeys_synced={result.get('journeys_synced', 0)}",
+                flush=True,
+            )
         except Exception as e:
             print(f"  => FAILED: {e}", flush=True)
 
@@ -336,7 +350,7 @@ def reclass_journeys_cmd():
     errors = 0
     for i, journey in enumerate(journeys):
         if (i + 1) % 100 == 0:
-            print(f"  [{i+1}/{total}] ...", flush=True)
+            print(f"  [{i + 1}/{total}] ...", flush=True)
         try:
             entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
             if not entries:
@@ -346,8 +360,8 @@ def reclass_journeys_cmd():
 
             # Reset youth entries to 'academy' so classification starts fresh
             for e in entries:
-                if e.is_youth and not e.is_international and e.entry_type in ('academy', 'development', 'integration'):
-                    e.entry_type = 'academy'
+                if e.is_youth and not e.is_international and e.entry_type in ("academy", "development", "integration"):
+                    e.entry_type = "academy"
 
             # Fetch transfers (hits DB cache first, then API if needed)
             transfers = svc._get_player_transfers(journey.player_api_id)
@@ -357,11 +371,21 @@ def reclass_journeys_cmd():
 
             # Re-run level classification for entries that may have wrong level (U17 fix)
             for e in entries:
-                new_level = svc._classify_level(e.club_name, e.league_name or '')
+                new_level = svc._classify_level(e.club_name, e.league_name or "")
                 if new_level != e.level:
                     e.level = new_level
-                    e.is_youth = new_level in ('U15', 'U16', 'U17', 'U18', 'U19', 'U21', 'U23', 'Reserve', 'International Youth')
-                    e.entry_type = svc._classify_entry_type(new_level, e.league_name or '')
+                    e.is_youth = new_level in (
+                        "U15",
+                        "U16",
+                        "U17",
+                        "U18",
+                        "U19",
+                        "U21",
+                        "U23",
+                        "Reserve",
+                        "International Youth",
+                    )
+                    e.entry_type = svc._classify_entry_type(new_level, e.league_name or "")
 
             # Recompute academy_club_ids and update TrackedPlayer rows
             svc._compute_academy_club_ids(journey, entries, transfers=transfers)
@@ -398,7 +422,7 @@ if __name__ == "__main__":
 
         # Optional stats
         total_leagues = League.query.count()
-        total_teams   = Team.query.count()
+        total_teams = Team.query.count()
         logger.info(f"📊 DB has {total_teams} teams, {total_leagues} leagues")
 
     debug_env = os.getenv("FLASK_DEBUG")

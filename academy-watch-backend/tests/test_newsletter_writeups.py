@@ -1,9 +1,9 @@
-import pytest
-from datetime import date
-from unittest.mock import MagicMock
-from src.models.league import db, Team, NewsletterCommentary
-import src.agents.weekly_newsletter_agent as agent
 import json
+from datetime import date
+
+import src.agents.weekly_newsletter_agent as agent
+from src.models.league import NewsletterCommentary, Team, db
+
 
 def test_compose_newsletter_with_writeups(app, monkeypatch):
     # Setup DB
@@ -24,7 +24,7 @@ def test_compose_newsletter_with_writeups(app, monkeypatch):
         week_start_date=week_start,
         week_end_date=week_end,
         is_active=True,
-        position=0
+        position=0,
     )
     c2 = NewsletterCommentary(
         team_id=team.id,
@@ -35,7 +35,7 @@ def test_compose_newsletter_with_writeups(app, monkeypatch):
         week_start_date=week_start,
         week_end_date=week_end,
         is_active=True,
-        position=0
+        position=0,
     )
     c3 = NewsletterCommentary(
         team_id=team.id,
@@ -47,7 +47,7 @@ def test_compose_newsletter_with_writeups(app, monkeypatch):
         week_start_date=week_start,
         week_end_date=week_end,
         is_active=True,
-        position=0
+        position=0,
     )
     db.session.add_all([c1, c2, c3])
     db.session.commit()
@@ -64,15 +64,15 @@ def test_compose_newsletter_with_writeups(app, monkeypatch):
                 "loan_team": "Loan Team",
                 "can_fetch_stats": True,
                 "totals": {"minutes": 90},
-                "matches": []
+                "matches": [],
             }
-        ]
+        ],
     }
     monkeypatch.setattr(agent, "fetch_weekly_report_tool", lambda *args: mock_report)
-    
+
     # Mock brave context to avoid network calls
     monkeypatch.setattr(agent, "brave_context_for_team_and_loans", lambda *args, **kwargs: {})
-    
+
     # Mock LLM to avoid calls
     monkeypatch.setattr(agent, "ENV_ENABLE_GROQ_SUMMARIES", False)
 
@@ -84,29 +84,29 @@ def test_compose_newsletter_with_writeups(app, monkeypatch):
     # Call compose
     # Use a date within the week
     target_date = date(2025, 11, 5)
-    
+
     # Ensure _monday_range returns the expected week
     # 2025-11-03 is a Monday.
     # If agent._monday_range is correct, passing 2025-11-05 (Wednesday) should return (2025-11-03, 2025-11-09)
-    
+
     result = agent.compose_team_weekly_newsletter(team.id, target_date)
-    
+
     content = json.loads(result["content_json"])
-    
+
     # Assertions
     assert "intro_commentary" in content
     assert len(content["intro_commentary"]) == 1
     assert content["intro_commentary"][0]["content"] == "<p>Intro content</p>"
-    
+
     assert "summary_commentary" in content
     assert len(content["summary_commentary"]) == 1
     assert content["summary_commentary"][0]["content"] == "<p>Summary content</p>"
-    
+
     assert "player_commentary_map" in content
     # JSON keys are strings, so "123"
     assert "123" in content["player_commentary_map"]
     assert content["player_commentary_map"]["123"][0]["content"] == "<p>Player content</p>"
-    
+
     # Assert Internet section is gone
     section_titles = [s["title"] for s in content["sections"]]
     assert "What the Internet is Saying" not in section_titles

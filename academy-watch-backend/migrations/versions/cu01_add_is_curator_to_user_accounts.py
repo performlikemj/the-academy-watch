@@ -5,21 +5,23 @@ Revises: pl01
 Create Date: 2026-03-11
 
 """
-from alembic import op
+
 import sqlalchemy as sa
+from alembic import op
 from migrations._migration_helpers import add_column_safe
 
-
 # revision identifiers, used by Alembic.
-revision = 'cu01'
-down_revision = 'pl01'
+revision = "cu01"
+down_revision = "pl01"
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
-    add_column_safe('user_accounts', sa.Column('is_curator', sa.Boolean(), nullable=False, server_default=sa.text('false')))
+    add_column_safe(
+        "user_accounts", sa.Column("is_curator", sa.Boolean(), nullable=False, server_default=sa.text("false"))
+    )
 
 
 def downgrade():
-    op.drop_column('user_accounts', 'is_curator')
+    op.drop_column("user_accounts", "is_curator")

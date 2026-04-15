@@ -22,7 +22,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +47,11 @@ class TwitterApiError(Exception):
 
 # ── Data classes ─────────────────────────────────────────────────────────────
 
+
 @dataclass
 class PlayerContext:
     """Search context for a player, derived from newsletter content."""
+
     player_name: str
     player_api_id: int
     full_name: str
@@ -64,6 +66,7 @@ class PlayerContext:
 @dataclass
 class ScoredTweet:
     """A candidate tweet with a relevance score."""
+
     tweet_id: str
     text: str
     created_at: str
@@ -104,16 +107,25 @@ _FOOTBALL_CONTEXT = re.compile(
 )
 
 _OFFICIAL_ACCOUNT = re.compile(
-    r"(?:FC|Town|City|United|Rovers|Wanderers|Albion|County|official)$", re.I,
+    r"(?:FC|Town|City|United|Rovers|Wanderers|Albion|County|official)$",
+    re.I,
 )
 
 _MEDIA_SUBSTRINGS = {
-    "bbc", "skysports", "talksport", "theathletic", "espn", "efl",
-    "premierleague", "guardian", "telegraph",
+    "bbc",
+    "skysports",
+    "talksport",
+    "theathletic",
+    "espn",
+    "efl",
+    "premierleague",
+    "guardian",
+    "telegraph",
 }
 
 
 # ── Service ──────────────────────────────────────────────────────────────────
+
 
 class TwitterEnrichmentService:
     """Search → hard gates → score → persist as pending."""
@@ -122,7 +134,9 @@ class TwitterEnrichmentService:
         self._token = (bearer_token or os.getenv("TWITTER_BEARER_TOKEN", "")).strip()
         self._max_per_player = int(os.getenv("TWITTER_MAX_PER_PLAYER", "3"))
         self._use_archive = os.getenv("TWITTER_USE_ARCHIVE", "true").lower() in (
-            "1", "true", "yes",
+            "1",
+            "true",
+            "yes",
         )
 
     def is_configured(self) -> bool:
@@ -172,25 +186,32 @@ class TwitterEnrichmentService:
         }
 
     def search_player_tweets(
-        self, player_name: str, club: str, start: str, end: str,
+        self,
+        player_name: str,
+        club: str,
+        start: str,
+        end: str,
     ) -> list[dict]:
         """Ad-hoc search for scripts and tests."""
         ctx = PlayerContext(
-            player_name=player_name, player_api_id=0,
-            full_name=player_name, club=club,
+            player_name=player_name,
+            player_api_id=0,
+            full_name=player_name,
+            club=club,
             club_aliases=self._club_aliases(club),
         )
         raw = self._search(ctx, start, end)
         return [
-            {"text": t.text, "url": t.url, "author": t.author_username,
-             "score": t.score, "reasons": t.score_reasons}
+            {"text": t.text, "url": t.url, "author": t.author_username, "score": t.score, "reasons": t.score_reasons}
             for t in self._gate_and_score(raw, ctx)
         ]
 
     # ── Context extraction ───────────────────────────────────────────────
 
     def _extract_player_contexts(
-        self, content: dict, parent_team: str,
+        self,
+        content: dict,
+        parent_team: str,
     ) -> list[PlayerContext]:
         contexts: list[PlayerContext] = []
         for section in content.get("sections") or []:
@@ -220,12 +241,12 @@ class TwitterEnrichmentService:
         return PlayerContext(
             player_name=name,
             player_api_id=item.get("player_api_id") or item.get("player_id") or 0,
-            full_name=full, club=club,
+            full_name=full,
+            club=club,
             club_aliases=self._club_aliases(club),
             minutes=stats.get("minutes", 0) if isinstance(stats, dict) else 0,
             match_notes=notes,
-            opponents=[m.group(1).strip() for n in notes
-                       for m in [re.search(r"vs\s+([^:]+)", n, re.I)] if m],
+            opponents=[m.group(1).strip() for n in notes for m in [re.search(r"vs\s+([^:]+)", n, re.I)] if m],
             parent_team=parent_team,
         )
 
@@ -271,13 +292,17 @@ class TwitterEnrichmentService:
 
     def _api_call(self, query: str, start: str, end: str) -> dict | None:
         endpoint = _SEARCH_ALL if self._use_archive else _SEARCH_RECENT
-        params = urllib.parse.urlencode({
-            "query": query, "max_results": 25,
-            "tweet.fields": "created_at,public_metrics,author_id",
-            "expansions": "author_id",
-            "user.fields": "username,name,description,verified",
-            "start_time": start, "end_time": end,
-        })
+        params = urllib.parse.urlencode(
+            {
+                "query": query,
+                "max_results": 25,
+                "tweet.fields": "created_at,public_metrics,author_id",
+                "expansions": "author_id",
+                "user.fields": "username,name,description,verified",
+                "start_time": start,
+                "end_time": end,
+            }
+        )
         req = urllib.request.Request(
             f"{endpoint}?{params}",
             headers={"Authorization": f"Bearer {self._token}"},
@@ -303,7 +328,9 @@ class TwitterEnrichmentService:
     # ── Hard gates + scoring ─────────────────────────────────────────────
 
     def _gate_and_score(
-        self, raw: list[dict], ctx: PlayerContext,
+        self,
+        raw: list[dict],
+        ctx: PlayerContext,
     ) -> list[ScoredTweet]:
         candidates: list[ScoredTweet] = []
         for t in raw:
@@ -330,19 +357,21 @@ class TwitterEnrichmentService:
             metrics = t.get("public_metrics") or {}
             score, reasons = self._score(text, user, metrics, ctx)
 
-            candidates.append(ScoredTweet(
-                tweet_id=t.get("id", ""),
-                text=text,
-                created_at=t.get("created_at", ""),
-                url=f"https://x.com/{username}/status/{t.get('id', '')}",
-                author_username=username,
-                author_name=user.get("name", ""),
-                likes=metrics.get("like_count", 0),
-                retweets=metrics.get("retweet_count", 0),
-                quotes=metrics.get("quote_count", 0),
-                score=score,
-                score_reasons=reasons,
-            ))
+            candidates.append(
+                ScoredTweet(
+                    tweet_id=t.get("id", ""),
+                    text=text,
+                    created_at=t.get("created_at", ""),
+                    url=f"https://x.com/{username}/status/{t.get('id', '')}",
+                    author_username=username,
+                    author_name=user.get("name", ""),
+                    likes=metrics.get("like_count", 0),
+                    retweets=metrics.get("retweet_count", 0),
+                    quotes=metrics.get("quote_count", 0),
+                    score=score,
+                    score_reasons=reasons,
+                )
+            )
 
         candidates.sort(key=lambda c: c.score, reverse=True)
         return candidates[: self._max_per_player]
@@ -356,43 +385,55 @@ class TwitterEnrichmentService:
         tl = text.lower()
 
         if _OFFICIAL_ACCOUNT.search(uname):
-            s += 5; r.append(f"official (@{uname})")
+            s += 5
+            r.append(f"official (@{uname})")
         if any(m in uname.lower() for m in _MEDIA_SUBSTRINGS):
-            s += 4; r.append("media")
+            s += 4
+            r.append("media")
         if any(w in bio for w in ("football", "soccer", "efl", "journalist", "sport")):
-            s += 2; r.append("football bio")
+            s += 2
+            r.append("football bio")
 
         last = ctx.full_name.split()[-1].lower() if ctx.full_name else ""
         if last and last in tl:
-            s += 3; r.append("player named")
+            s += 3
+            r.append("player named")
 
         fc = _FOOTBALL_CONTEXT.findall(text)
         if len(fc) >= 2:
-            s += 2; r.append(f"match context ({len(fc)})")
+            s += 2
+            r.append(f"match context ({len(fc)})")
 
         for opp in ctx.opponents:
             if opp.lower() in tl:
-                s += 2; r.append(f"opponent ({opp})"); break
+                s += 2
+                r.append(f"opponent ({opp})")
+                break
 
         eng = (metrics.get("like_count") or 0) + (metrics.get("retweet_count") or 0) * 2
         bonus = min(5, eng // 10)
         if bonus:
-            s += bonus; r.append(f"engagement ({eng})")
+            s += bonus
+            r.append(f"engagement ({eng})")
 
         return s, " + ".join(r) if r else "base"
 
     # ── Persistence ──────────────────────────────────────────────────────
 
     def _persist(
-        self, tweets: list[ScoredTweet], newsletter_id: int,
-        team_db_id: int, ctx: PlayerContext,
+        self,
+        tweets: list[ScoredTweet],
+        newsletter_id: int,
+        team_db_id: int,
+        ctx: PlayerContext,
     ) -> int:
         from src.models.league import CommunityTake, db
 
         created = 0
         for tw in tweets:
             if CommunityTake.query.filter_by(
-                newsletter_id=newsletter_id, source_url=tw.url,
+                newsletter_id=newsletter_id,
+                source_url=tw.url,
             ).first():
                 continue
 
@@ -403,25 +444,26 @@ class TwitterEnrichmentService:
                 except (ValueError, TypeError):
                     pass
 
-            db.session.add(CommunityTake(
-                source_type="twitter",
-                source_author=f"@{tw.author_username}",
-                source_url=tw.url,
-                source_platform="Twitter/X",
-                content=tw.text,
-                player_id=ctx.player_api_id or None,
-                player_name=ctx.player_name,
-                team_id=team_db_id,
-                newsletter_id=newsletter_id,
-                status="pending",
-                upvotes=tw.score,
-                original_posted_at=posted_at,
-                scraped_at=datetime.now(timezone.utc),
-            ))
+            db.session.add(
+                CommunityTake(
+                    source_type="twitter",
+                    source_author=f"@{tw.author_username}",
+                    source_url=tw.url,
+                    source_platform="Twitter/X",
+                    content=tw.text,
+                    player_id=ctx.player_api_id or None,
+                    player_name=ctx.player_name,
+                    team_id=team_db_id,
+                    newsletter_id=newsletter_id,
+                    status="pending",
+                    upvotes=tw.score,
+                    original_posted_at=posted_at,
+                    scraped_at=datetime.now(UTC),
+                )
+            )
             created += 1
 
         if created:
             db.session.commit()
-            logger.info("Twitter: %s → %d candidates (newsletter %d)",
-                        ctx.player_name, created, newsletter_id)
+            logger.info("Twitter: %s → %d candidates (newsletter %d)", ctx.player_name, created, newsletter_id)
         return created

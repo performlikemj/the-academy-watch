@@ -5,24 +5,26 @@ Revises: 10c2d4e6f8ab
 Create Date: 2025-09-22 11:05:00.000000
 
 """
-from alembic import op
-import sqlalchemy as sa
-from datetime import datetime, timezone
 
+from datetime import UTC, datetime
+
+import sqlalchemy as sa
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = '11d3f5b7c9da'
-down_revision = '10c2d4e6f8ab'
+revision = "11d3f5b7c9da"
+down_revision = "10c2d4e6f8ab"
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
     connection = op.get_bind()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
-    loan_rows = connection.execute(sa.text(
-        """
+    loan_rows = connection.execute(
+        sa.text(
+            """
         SELECT DISTINCT
             player_id,
             player_name,
@@ -31,15 +33,13 @@ def upgrade():
         FROM loaned_players
         WHERE player_id IS NOT NULL
         """
-    )).fetchall()
+        )
+    ).fetchall()
 
     if not loan_rows:
         return
 
-    existing_ids = {
-        row[0]
-        for row in connection.execute(sa.text("SELECT player_id FROM players"))
-    }
+    existing_ids = {row[0] for row in connection.execute(sa.text("SELECT player_id FROM players"))}
 
     insert_stmt = sa.text(
         """
@@ -84,15 +84,15 @@ def upgrade():
         connection.execute(
             insert_stmt,
             {
-                'player_id': player_id,
-                'name': name,
-                'firstname': firstname,
-                'lastname': lastname,
-                'nationality': nationality,
-                'age': age,
-                'created_at': now,
-                'updated_at': now,
-            }
+                "player_id": player_id,
+                "name": name,
+                "firstname": firstname,
+                "lastname": lastname,
+                "nationality": nationality,
+                "age": age,
+                "created_at": now,
+                "updated_at": now,
+            },
         )
 
 

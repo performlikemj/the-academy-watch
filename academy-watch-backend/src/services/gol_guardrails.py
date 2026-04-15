@@ -32,13 +32,14 @@ def _is_enabled() -> bool:
     if _ENABLED is not None:
         return _ENABLED
 
-    if not os.getenv('GUARDRAILS_ENABLED', '').lower() in ('1', 'true', 'yes'):
+    if os.getenv("GUARDRAILS_ENABLED", "").lower() not in ("1", "true", "yes"):
         logger.info("Guardrails disabled (set GUARDRAILS_ENABLED=true to enable)")
         _ENABLED = False
         return False
 
     try:
         import guardrails  # noqa: F401
+
         _ENABLED = True
         logger.info("Guardrails AI enabled")
     except ImportError:
@@ -61,11 +62,26 @@ def _get_input_guard():
         DetectJailbreak(on_fail="exception"),
         RestrictToTopic(
             valid_topics=[
-                "football", "soccer", "players", "academies",
-                "loans", "transfers", "premier league", "statistics",
-                "teams", "managers", "coaches", "matches", "fixtures",
-                "goals", "assists", "ratings", "performance",
-                "career", "youth development", "scouting",
+                "football",
+                "soccer",
+                "players",
+                "academies",
+                "loans",
+                "transfers",
+                "premier league",
+                "statistics",
+                "teams",
+                "managers",
+                "coaches",
+                "matches",
+                "fixtures",
+                "goals",
+                "assists",
+                "ratings",
+                "performance",
+                "career",
+                "youth development",
+                "scouting",
             ],
             disable_llm=True,
             on_fail="exception",
@@ -81,7 +97,7 @@ def _get_output_guard():
         return _output_guard
 
     from guardrails import Guard
-    from guardrails.hub import ToxicLanguage, ProfanityFree, DetectPII
+    from guardrails.hub import DetectPII, ProfanityFree, ToxicLanguage
 
     _output_guard = Guard(name="gol_output").use_many(
         ToxicLanguage(threshold=0.7, on_fail="fix"),

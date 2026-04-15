@@ -17,62 +17,62 @@ Usage:
     python scripts/seed_academy_leagues.py
 """
 
-import sys
 import os
+import sys
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # Import the Flask app instance
-from src.main import app
-from src.models.league import db, AcademyLeague, Team
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from src.main import app
+from src.models.league import AcademyLeague, db
 
 # Youth leagues to seed
 YOUTH_LEAGUES = [
     {
-        'api_league_id': 706,
-        'name': 'Premier League 2 - Division One',
-        'country': 'England',
-        'level': 'U23',
-        'season': 2024,
+        "api_league_id": 706,
+        "name": "Premier League 2 - Division One",
+        "country": "England",
+        "level": "U23",
+        "season": 2024,
     },
     {
-        'api_league_id': 707,
-        'name': 'Premier League 2 - Division Two',
-        'country': 'England',
-        'level': 'U23',
-        'season': 2024,
+        "api_league_id": 707,
+        "name": "Premier League 2 - Division Two",
+        "country": "England",
+        "level": "U23",
+        "season": 2024,
     },
     {
-        'api_league_id': 703,
-        'name': 'U18 Premier League',
-        'country': 'England',
-        'level': 'U18',
-        'season': 2024,
+        "api_league_id": 703,
+        "name": "U18 Premier League",
+        "country": "England",
+        "level": "U18",
+        "season": 2024,
     },
     {
-        'api_league_id': 708,
-        'name': 'Professional Development League',
-        'country': 'England',
-        'level': 'U21',
-        'season': 2024,
+        "api_league_id": 708,
+        "name": "Professional Development League",
+        "country": "England",
+        "level": "U21",
+        "season": 2024,
     },
     {
-        'api_league_id': 775,
-        'name': 'UEFA Youth League',
-        'country': 'Europe',
-        'level': 'U21',
-        'season': 2024,
+        "api_league_id": 775,
+        "name": "UEFA Youth League",
+        "country": "Europe",
+        "level": "U21",
+        "season": 2024,
     },
     {
-        'api_league_id': 718,
-        'name': 'FA Youth Cup',
-        'country': 'England',
-        'level': 'U18',
-        'season': 2024,
+        "api_league_id": 718,
+        "name": "FA Youth Cup",
+        "country": "England",
+        "level": "U18",
+        "season": 2024,
     },
 ]
 
@@ -89,9 +89,7 @@ def seed_leagues(dry_run: bool = False):
 
         for league_data in YOUTH_LEAGUES:
             # Check if already exists
-            existing = AcademyLeague.query.filter_by(
-                api_league_id=league_data['api_league_id']
-            ).first()
+            existing = AcademyLeague.query.filter_by(api_league_id=league_data["api_league_id"]).first()
 
             if existing:
                 skipped.append(f"{league_data['name']} (ID: {league_data['api_league_id']}) - already exists")
@@ -103,15 +101,15 @@ def seed_leagues(dry_run: bool = False):
 
             # Create new league
             league = AcademyLeague(
-                api_league_id=league_data['api_league_id'],
-                name=league_data['name'],
-                country=league_data['country'],
-                level=league_data['level'],
-                season=league_data.get('season'),
+                api_league_id=league_data["api_league_id"],
+                name=league_data["name"],
+                country=league_data["country"],
+                level=league_data["level"],
+                season=league_data.get("season"),
                 is_active=True,
                 sync_enabled=True,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
             )
 
             db.session.add(league)
@@ -152,13 +150,12 @@ def seed_leagues(dry_run: bool = False):
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description='Seed academy/youth leagues')
-    parser.add_argument('--dry-run', action='store_true',
-                        help='Print what would be done without making changes')
+    parser = argparse.ArgumentParser(description="Seed academy/youth leagues")
+    parser.add_argument("--dry-run", action="store_true", help="Print what would be done without making changes")
 
     args = parser.parse_args()
     seed_leagues(dry_run=args.dry_run)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

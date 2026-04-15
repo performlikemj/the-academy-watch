@@ -1,9 +1,7 @@
-import os
-import sys
-import pytest
 from types import SimpleNamespace
 
-from src.agents.weekly_agent import lint_and_enrich, _display_name, _render_variants, _canonicalize_name
+import pytest
+from src.agents.weekly_agent import _canonicalize_name, _display_name, _render_variants, lint_and_enrich
 
 
 @pytest.fixture(autouse=True)
@@ -39,35 +37,37 @@ def _fake_newsletter():
     return {
         "title": "Test",
         "range": ["2022-10-03", "2022-10-09"],
-        "sections": [{
-            "title": "Active Loans",
-            "items": [
-                {
-                    "player_name": "\tCharlie Gerard Richard Wellens\n",
-                    "loan_team": "Oldham",
-                    "week_summary": "Used as substitute in two National League draws.",
-                    "stats": {"minutes": 0, "goals": 0, "assists": 0, "yellows": 0, "reds": 0},
-                    "match_notes": ["Came on in 2-2 draw"],
-                    "links": []
-                },
-                {
-                    "player_name": "\u00c1lvaro Fern\u00e1ndez",
-                    "loan_team": "Preston",
-                    "week_summary": "Started both matches, two assists.",
-                    "stats": {"minutes": 180, "goals": 0, "assists": 2, "yellows": 1, "reds": 0},
-                    "match_notes": ["Assist vs West Brom", "Assist at Norwich"],
-                    "links": []
-                },
-                {
-                    "player_name": "E. Galbraith",
-                    "loan_team": "Salford City",
-                    "week_summary": "Scored winner at Northampton.",
-                    "stats": {"minutes": 90, "goals": 1, "assists": 0, "yellows": 0, "reds": 0},
-                    "match_notes": ["1-0 away win"],
-                    "links": []
-                }
-            ]
-        }]
+        "sections": [
+            {
+                "title": "Active Loans",
+                "items": [
+                    {
+                        "player_name": "\tCharlie Gerard Richard Wellens\n",
+                        "loan_team": "Oldham",
+                        "week_summary": "Used as substitute in two National League draws.",
+                        "stats": {"minutes": 0, "goals": 0, "assists": 0, "yellows": 0, "reds": 0},
+                        "match_notes": ["Came on in 2-2 draw"],
+                        "links": [],
+                    },
+                    {
+                        "player_name": "\u00c1lvaro Fern\u00e1ndez",
+                        "loan_team": "Preston",
+                        "week_summary": "Started both matches, two assists.",
+                        "stats": {"minutes": 180, "goals": 0, "assists": 2, "yellows": 1, "reds": 0},
+                        "match_notes": ["Assist vs West Brom", "Assist at Norwich"],
+                        "links": [],
+                    },
+                    {
+                        "player_name": "E. Galbraith",
+                        "loan_team": "Salford City",
+                        "week_summary": "Scored winner at Northampton.",
+                        "stats": {"minutes": 90, "goals": 1, "assists": 0, "yellows": 0, "reds": 0},
+                        "match_notes": ["1-0 away win"],
+                        "links": [],
+                    },
+                ],
+            }
+        ],
     }
 
 
@@ -82,7 +82,7 @@ def test_lint_rewrites_unused_substitute_and_builds_highlights():
     items = news["sections"][0]["items"]
     wellens = next(i for i in items if "Wellens" in i["player_name"])
     assert "Unused substitute" in wellens["week_summary"] or "unused substitute" in wellens["week_summary"].lower()
-    assert any("Unused substitute" in n or "unused substitute" in n.lower() for n in wellens["match_notes"]) 
+    assert any("Unused substitute" in n or "unused substitute" in n.lower() for n in wellens["match_notes"])
 
     # Highlights choose top performers (Fernandez should be first with 2A, 180')
     assert news["highlights"][0].startswith("Á. Fernández")
@@ -91,7 +91,6 @@ def test_lint_rewrites_unused_substitute_and_builds_highlights():
     assert news["by_numbers"]["minutes_leaders"][0]["minutes"] == 180
     ga_agg = news["by_numbers"]["ga_leaders"][0]
     assert ga_agg["g"] + ga_agg["a"] >= 2
-
 
 
 def test_render_variants_omits_stats_for_link_only_section():
@@ -219,7 +218,7 @@ def test_lint_and_enrich_persists_player_profile(app, stub_api_client):
     captured = {}
 
     def fake_get_player_by_id(player_id, season=None):
-        captured['called'] = True
+        captured["called"] = True
         return {
             "player": {
                 "id": player_id,
@@ -264,7 +263,7 @@ def test_lint_and_enrich_persists_player_profile(app, stub_api_client):
 
 
 def test_lint_and_enrich_uses_cached_player_profile(app, stub_api_client):
-    from src.models.league import db, Player  # noqa: E402
+    from src.models.league import Player, db  # noqa: E402
 
     player = Player(
         player_id=202,
@@ -306,7 +305,7 @@ def test_lint_and_enrich_uses_cached_player_profile(app, stub_api_client):
 
 
 def test_lint_and_enrich_persists_team_profile(app, stub_api_client):
-    from src.models.league import db, Team, LoanedPlayer, TeamProfile
+    from src.models.league import LoanedPlayer, Team, TeamProfile, db
 
     parent_team = Team(team_id=1, name="Parent FC", country="England", season=2024, is_active=True)
     loan_team = Team(team_id=500, name="Loan FC", country="England", season=2024, is_active=True)
@@ -343,7 +342,7 @@ def test_lint_and_enrich_persists_team_profile(app, stub_api_client):
                 "city": "Loan City",
                 "capacity": 10000,
                 "surface": "grass",
-                "image": f"https://media.example.com/venues/900.png",
+                "image": "https://media.example.com/venues/900.png",
             },
         }
 
@@ -376,7 +375,7 @@ def test_lint_and_enrich_persists_team_profile(app, stub_api_client):
 
 
 def test_lint_and_enrich_uses_cached_team_profile(app, stub_api_client):
-    from src.models.league import db, Team, LoanedPlayer, TeamProfile
+    from src.models.league import LoanedPlayer, Team, TeamProfile, db
 
     parent_team = Team(team_id=2, name="Parent Two", country="England", season=2024, is_active=True)
     loan_team = Team(team_id=600, name="Loan Cached", country="England", season=2024, is_active=True)
@@ -459,24 +458,26 @@ def test_match_notes_with_explicit_attribution():
     news = {
         "title": "Test",
         "range": ["2024-10-21", "2024-10-27"],
-        "sections": [{
-            "title": "Active Loans",
-            "items": [
-                {
-                    "player_name": "J. Sancho",
-                    "loan_team": "Chelsea",
-                    "week_summary": "Scored and assisted in victory over Arsenal.",
-                    "stats": {"minutes": 90, "goals": 1, "assists": 1, "yellows": 0, "reds": 0},
-                    "match_notes": ["1 goal vs Arsenal", "1 assist vs Arsenal"],
-                    "links": []
-                },
-            ]
-        }]
+        "sections": [
+            {
+                "title": "Active Loans",
+                "items": [
+                    {
+                        "player_name": "J. Sancho",
+                        "loan_team": "Chelsea",
+                        "week_summary": "Scored and assisted in victory over Arsenal.",
+                        "stats": {"minutes": 90, "goals": 1, "assists": 1, "yellows": 0, "reds": 0},
+                        "match_notes": ["1 goal vs Arsenal", "1 assist vs Arsenal"],
+                        "links": [],
+                    },
+                ],
+            }
+        ],
     }
-    
+
     enriched = lint_and_enrich(news)
     item = enriched["sections"][0]["items"][0]
-    
+
     # Verify match_notes contain explicit opponent attribution
     match_notes = item.get("match_notes", [])
     assert len(match_notes) >= 2
@@ -490,25 +491,27 @@ def test_match_notes_prevent_misattribution():
     news = {
         "title": "Test",
         "range": ["2024-10-21", "2024-10-27"],
-        "sections": [{
-            "title": "Active Loans",
-            "items": [
-                {
-                    "player_name": "H. Amass",
-                    "loan_team": "QPR", 
-                    "week_summary": "Played two matches this week.",
-                    "stats": {"minutes": 180, "goals": 0, "assists": 1, "yellows": 0, "reds": 0},
-                    # This should clearly show the assist was vs West Brom, not vs Man City
-                    "match_notes": ["90 minutes vs West Brom", "1 assist vs West Brom", "90 minutes vs Man City"],
-                    "links": []
-                },
-            ]
-        }]
+        "sections": [
+            {
+                "title": "Active Loans",
+                "items": [
+                    {
+                        "player_name": "H. Amass",
+                        "loan_team": "QPR",
+                        "week_summary": "Played two matches this week.",
+                        "stats": {"minutes": 180, "goals": 0, "assists": 1, "yellows": 0, "reds": 0},
+                        # This should clearly show the assist was vs West Brom, not vs Man City
+                        "match_notes": ["90 minutes vs West Brom", "1 assist vs West Brom", "90 minutes vs Man City"],
+                        "links": [],
+                    },
+                ],
+            }
+        ],
     }
-    
+
     enriched = lint_and_enrich(news)
     item = enriched["sections"][0]["items"][0]
-    
+
     # Verify the assist is clearly attributed to West Brom
     match_notes = item.get("match_notes", [])
     assist_note = next((note for note in match_notes if "assist" in note.lower()), None)
@@ -522,33 +525,35 @@ def test_comprehensive_match_notes_format():
     news = {
         "title": "Test",
         "range": ["2024-10-21", "2024-10-27"],
-        "sections": [{
-            "title": "Active Loans",
-            "items": [
-                {
-                    "player_name": "M. Mount",
-                    "loan_team": "Brighton",
-                    "week_summary": "Outstanding week with goal and assist.",
-                    "stats": {"minutes": 90, "goals": 1, "assists": 1, "yellows": 0, "reds": 0},
-                    # Comprehensive match notes with all performance details
-                    "match_notes": [
-                        "1 goal vs Liverpool",
-                        "1 assist vs Liverpool", 
-                        "vs Liverpool: 1G, 1A, Rating: 8.5, 3/5 shots on target, 4 key passes, 7/10 dribbles, 5 tackles"
-                    ],
-                    "links": []
-                },
-            ]
-        }]
+        "sections": [
+            {
+                "title": "Active Loans",
+                "items": [
+                    {
+                        "player_name": "M. Mount",
+                        "loan_team": "Brighton",
+                        "week_summary": "Outstanding week with goal and assist.",
+                        "stats": {"minutes": 90, "goals": 1, "assists": 1, "yellows": 0, "reds": 0},
+                        # Comprehensive match notes with all performance details
+                        "match_notes": [
+                            "1 goal vs Liverpool",
+                            "1 assist vs Liverpool",
+                            "vs Liverpool: 1G, 1A, Rating: 8.5, 3/5 shots on target, 4 key passes, 7/10 dribbles, 5 tackles",
+                        ],
+                        "links": [],
+                    },
+                ],
+            }
+        ],
     }
-    
+
     enriched = lint_and_enrich(news)
     item = enriched["sections"][0]["items"][0]
-    
+
     # Verify comprehensive match notes are preserved
     match_notes = item.get("match_notes", [])
     assert len(match_notes) >= 1
-    
+
     # Find the comprehensive summary note
     comprehensive_note = next((note for note in match_notes if "Rating:" in note), None)
     assert comprehensive_note is not None
@@ -561,61 +566,63 @@ def test_season_context_structure():
     news = {
         "title": "Test",
         "range": ["2024-10-21", "2024-10-27"],
-        "sections": [{
-            "title": "Active Loans",
-            "items": [
-                {
-                    "player_name": "A. Player",
-                    "loan_team": "Test FC",
-                    "week_summary": "Good performance.",
-                    "stats": {"minutes": 90, "goals": 1, "assists": 0, "yellows": 0, "reds": 0},
-                    "match_notes": ["1 goal vs Opponent"],
-                    # Season context data structure
-                    "season_context": {
-                        "season_stats": {
-                            "games_played": 12,
-                            "minutes": 1020,
-                            "goals": 5,
-                            "assists": 3,
-                            "avg_rating": 7.2,
-                            "clean_sheets": 4
+        "sections": [
+            {
+                "title": "Active Loans",
+                "items": [
+                    {
+                        "player_name": "A. Player",
+                        "loan_team": "Test FC",
+                        "week_summary": "Good performance.",
+                        "stats": {"minutes": 90, "goals": 1, "assists": 0, "yellows": 0, "reds": 0},
+                        "match_notes": ["1 goal vs Opponent"],
+                        # Season context data structure
+                        "season_context": {
+                            "season_stats": {
+                                "games_played": 12,
+                                "minutes": 1020,
+                                "goals": 5,
+                                "assists": 3,
+                                "avg_rating": 7.2,
+                                "clean_sheets": 4,
+                            },
+                            "recent_form": [
+                                {"goals": 1, "assists": 0, "minutes": 90},
+                                {"goals": 0, "assists": 1, "minutes": 90},
+                                {"goals": 1, "assists": 0, "minutes": 75},
+                            ],
+                            "trends": {
+                                "goals_per_90": 0.44,
+                                "assists_per_90": 0.26,
+                                "goals_last_5": 3,
+                                "g_a_last_5": 5,
+                            },
                         },
-                        "recent_form": [
-                            {"goals": 1, "assists": 0, "minutes": 90},
-                            {"goals": 0, "assists": 1, "minutes": 90},
-                            {"goals": 1, "assists": 0, "minutes": 75},
-                        ],
-                        "trends": {
-                            "goals_per_90": 0.44,
-                            "assists_per_90": 0.26,
-                            "goals_last_5": 3,
-                            "g_a_last_5": 5
-                        }
+                        "links": [],
                     },
-                    "links": []
-                },
-            ]
-        }]
+                ],
+            }
+        ],
     }
-    
+
     enriched = lint_and_enrich(news)
     item = enriched["sections"][0]["items"][0]
-    
+
     # Verify season context is preserved
     season_context = item.get("season_context")
     assert season_context is not None
-    
+
     # Check structure
     assert "season_stats" in season_context
     assert "recent_form" in season_context
     assert "trends" in season_context
-    
+
     # Check season stats
     season_stats = season_context["season_stats"]
     assert season_stats["games_played"] == 12
     assert season_stats["goals"] == 5
     assert season_stats["assists"] == 3
-    
+
     # Check trends
     trends = season_context["trends"]
     assert "goals_per_90" in trends

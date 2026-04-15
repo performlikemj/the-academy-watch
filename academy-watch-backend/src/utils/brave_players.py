@@ -2,27 +2,29 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 import time
-import os
-import json
 from dataclasses import dataclass
-from typing import Dict, List
 from urllib.parse import unquote, urlparse
 
-from src.mcp.brave import BraveApiError, brave_search
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
+from src.mcp.brave import BraveApiError, brave_search
+
 logger = logging.getLogger(__name__)
 
 # Groq SDK is lazy-loaded in _get_groq_client() to reduce cold start time
+
 
 def _get_groq_client():
     """Get Groq client with lazy import to reduce cold start time."""
     try:
         from groq import Groq  # Lazy import - only loaded when actually needed
-        api_key = os.getenv('GROQ_API_KEY')
+
+        api_key = os.getenv("GROQ_API_KEY")
         if api_key:
             return Groq(api_key=api_key)
     except ImportError:  # pragma: no cover - optional dependency
@@ -31,12 +33,13 @@ def _get_groq_client():
         pass
     return None
 
+
 @dataclass(slots=True)
 class BravePlayerCollection:
     """Normalized payload returned after querying Brave."""
 
-    rows: List[Dict[str, str]]
-    results: List[Dict[str, str]]
+    rows: list[dict[str, str]]
+    results: list[dict[str, str]]
     query: str
 
 
@@ -45,7 +48,7 @@ def _read_output_text(resp) -> str:
     txt = getattr(resp, "output_text", None)
     if txt:
         return txt
-    chunks: List[str] = []
+    chunks: list[str] = []
     for item in getattr(resp, "output", []) or []:
         for part in getattr(item, "content", []) or []:
             text = getattr(part, "text", None)
@@ -114,7 +117,11 @@ def collect_players_from_brave(
 
     logger.info(
         "[brave-loans] query='%s' since=%s until=%s limit=%s strict=%s",
-        effective_query, since, until, result_limit, strict_range,
+        effective_query,
+        since,
+        until,
+        result_limit,
+        strict_range,
     )
     try:
         search_results = brave_search(
@@ -145,19 +152,21 @@ def collect_players_from_brave(
         except Exception:
             search_results = []
 
-    wiki_titles: List[str] = []
+    wiki_titles: list[str] = []
     unique_titles: set[str] = set()
-    normalized_results: List[Dict[str, str]] = []
+    normalized_results: list[dict[str, str]] = []
     for item in search_results:
         title = (item.get("title") or "").strip()
         url = (item.get("url") or "").strip()
         snippet = (item.get("snippet") or "").strip()
         if title or url or snippet:
-            normalized_results.append({
-                "title": title,
-                "url": url,
-                "snippet": snippet,
-            })
+            normalized_results.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "snippet": snippet,
+                }
+            )
         # Collect potential candidates directly from the web (non-Wikipedia)
         # We will parse titles/snippets for loan phrases and extract (player, loan_team)
         # Examples: "Club sign Player on loan", "Player joins Club on loan", "Player loaned to Club"
@@ -175,14 +184,24 @@ def collect_players_from_brave(
 
     logger.info(
         "[brave-loans] brave_results=%s candidates_to_parse=%s",
-        len(search_results), len(wiki_titles),
+        len(search_results),
+        len(wiki_titles),
     )
 
     # Heuristic patterns
     patterns = [
-        re.compile(r"^(?P<player>[A-Z][\w'\-]+(?:\s[A-Z][\w'\-]+){0,3})\s+(joins|signs for|signs with|moves to)\s+(?P<club>[^\.,]+)\s+(on\s+a?\s*)?loan", re.IGNORECASE),
-        re.compile(r"(?P<player>[A-Z][\w'\-]+(?:\s[A-Z][\w'\-]+){0,3}).{0,40}?loan(?:ed)?\s+to\s+(?P<club>[^\.,]+)", re.IGNORECASE),
-        re.compile(r"(sign|loan)(?:s|ed)?\s+(?P<player>[A-Z][\w'\-]+(?:\s[A-Z][\w'\-]+){0,3}).{0,40}?on\s+loan\s+to\s+(?P<club>[^\.,]+)", re.IGNORECASE),
+        re.compile(
+            r"^(?P<player>[A-Z][\w'\-]+(?:\s[A-Z][\w'\-]+){0,3})\s+(joins|signs for|signs with|moves to)\s+(?P<club>[^\.,]+)\s+(on\s+a?\s*)?loan",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"(?P<player>[A-Z][\w'\-]+(?:\s[A-Z][\w'\-]+){0,3}).{0,40}?loan(?:ed)?\s+to\s+(?P<club>[^\.,]+)",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"(sign|loan)(?:s|ed)?\s+(?P<player>[A-Z][\w'\-]+(?:\s[A-Z][\w'\-]+){0,3}).{0,40}?on\s+loan\s+to\s+(?P<club>[^\.,]+)",
+            re.IGNORECASE,
+        ),
     ]
 
     def _extract_player_club(title_text: str, snippet_text: str) -> tuple[str | None, str | None]:
@@ -190,25 +209,25 @@ def collect_players_from_brave(
         for pat in patterns:
             m = pat.search(combined)
             if m:
-                player = (m.group('player') or '').strip()
-                club = (m.group('club') or '').strip()
+                player = (m.group("player") or "").strip()
+                club = (m.group("club") or "").strip()
                 if player and club:
                     return player, club
         # fallback: try simple "Player - Club on loan" in title
         m = re.search(r"^(?P<player>[^\-\|]+?)\s+[-|]\s+(?P<club>.+?)\s+on\s+loan", title_text, re.IGNORECASE)
         if m:
-            return m.group('player').strip(), m.group('club').strip()
+            return m.group("player").strip(), m.group("club").strip()
         return None, None
 
     # --- Pydantic schemas for structured output ---
     class TitleScoreModel(BaseModel):
-        model_config = ConfigDict(extra='forbid')
+        model_config = ConfigDict(extra="forbid")
         relevant: bool = Field(...)
         confidence: float = Field(...)
         reason: str = Field(...)
 
     class ExtractedRowModel(BaseModel):
-        model_config = ConfigDict(extra='forbid')
+        model_config = ConfigDict(extra="forbid")
         player_name: str
         loan_team: str
         season_year: int = Field(...)
@@ -216,8 +235,8 @@ def collect_players_from_brave(
         evidence: str = Field(...)
 
     class ExtractedRowsModel(BaseModel):
-        model_config = ConfigDict(extra='forbid')
-        rows: List[ExtractedRowModel] = Field(default_factory=list)
+        model_config = ConfigDict(extra="forbid")
+        rows: list[ExtractedRowModel] = Field(default_factory=list)
 
     # --- Stage 1: LLM scoring of titles/snippets (cheap filter) ---
     try:
@@ -228,7 +247,7 @@ def collect_players_from_brave(
     def _get_client():
         if OpenAI is None:
             return None
-        api_key = os.getenv('OPENAI_API_KEY')
+        api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             return None
         try:
@@ -286,11 +305,8 @@ def collect_players_from_brave(
                         {"role": "user", "content": user},
                     ],
                     response_format={
-                        'type': 'json_schema',
-                        "json_schema": {
-                            "name": 'loan_title_score',
-                            "schema": TitleScoreModel.model_json_schema()
-                        }
+                        "type": "json_schema",
+                        "json_schema": {"name": "loan_title_score", "schema": TitleScoreModel.model_json_schema()},
                     },
                     max_tokens=200,
                 )
@@ -322,11 +338,8 @@ def collect_players_from_brave(
                             {"role": "user", "content": user},
                         ],
                         response_format={
-                            "type": 'json_schema',
-                            "json_schema": {
-                                "name": 'loan_title_score',
-                                "schema": TitleScoreModel.model_json_schema()
-                            }
+                            "type": "json_schema",
+                            "json_schema": {"name": "loan_title_score", "schema": TitleScoreModel.model_json_schema()},
                         },
                         max_tokens=200,
                     )
@@ -369,11 +382,8 @@ def collect_players_from_brave(
                         {"role": "user", "content": user},
                     ],
                     response_format={
-                        'type': 'json_schema',
-                        "json_schema": {
-                            "name": 'loan_title_score',
-                            "schema": TitleScoreModel.model_json_schema()
-                        }
+                        "type": "json_schema",
+                        "json_schema": {"name": "loan_title_score", "schema": TitleScoreModel.model_json_schema()},
                     },
                 )
                 content = resp.choices[0].message.content or ""
@@ -399,7 +409,7 @@ def collect_players_from_brave(
             logger.debug("[brave-loans] title score OpenAI fallback failed: %s", exc)
             return False, 0.0, f"error: {exc}"
 
-    def _extract_from_text_with_llm(client, text: str, team: str, season: int) -> List[Dict[str, str]]:
+    def _extract_from_text_with_llm(client, text: str, team: str, season: int) -> list[dict[str, str]]:
         if client is None:
             return []
         # Trim input aggressively
@@ -408,7 +418,8 @@ def collect_players_from_brave(
             # keep first chunk and lines that contain keywords
             head = trimmed[:2500]
             tail_lines = [
-                line for line in re.split(r"[\r\n]+", trimmed)
+                line
+                for line in re.split(r"[\r\n]+", trimmed)
                 if any(k in line.lower() for k in (" loan", "loaned", " loanee", team.lower()))
             ]
             tail = "\n".join(tail_lines)[:1500]
@@ -419,10 +430,7 @@ def collect_players_from_brave(
             "Return rows with player_name, loan_team, season_year (if visible, otherwise infer from provided season), "
             "confidence (0-1), and a short evidence span."
         )
-        user = (
-            f"Team: {team}\nSeason: {season}\nText:\n{trimmed}\n"
-            "Respond with JSON matching the schema."
-        )
+        user = f"Team: {team}\nSeason: {season}\nText:\n{trimmed}\nRespond with JSON matching the schema."
         if hasattr(client, "responses"):
             try:
                 model_name = os.getenv("BRAVE_LLM_MODEL", "gpt-4.1-mini")
@@ -433,29 +441,28 @@ def collect_players_from_brave(
                         {"role": "user", "content": user},
                     ],
                     response_format={
-                        "type": 'json_schema',
-                        "json_schema": {
-                            "name": 'loan_rows',
-                            "schema": ExtractedRowsModel.model_json_schema()
-                        }
+                        "type": "json_schema",
+                        "json_schema": {"name": "loan_rows", "schema": ExtractedRowsModel.model_json_schema()},
                     },
                 )
                 content = _read_output_text(resp)
                 if content.strip():
                     parsed = ExtractedRowsModel.model_validate(json.loads(content))
-                    out: List[Dict[str, str]] = []
+                    out: list[dict[str, str]] = []
                     for r in parsed.rows:
                         player = (r.player_name or "").strip()
                         club = (r.loan_team or "").strip()
                         if not player or not club:
                             continue
-                        out.append({
-                            "player_name": player,
-                            "loan_team": club,
-                            "season_year": int(r.season_year or season),
-                            "confidence": float(r.confidence or 0.0),
-                            "evidence": (r.evidence or "").strip(),
-                        })
+                        out.append(
+                            {
+                                "player_name": player,
+                                "loan_team": club,
+                                "season_year": int(r.season_year or season),
+                                "confidence": float(r.confidence or 0.0),
+                                "evidence": (r.evidence or "").strip(),
+                            }
+                        )
                     logger.info(
                         "[brave-loans] page extract parsed rows (Responses)=%s",
                         len(out),
@@ -473,11 +480,8 @@ def collect_players_from_brave(
                         {"role": "user", "content": user},
                     ],
                     response_format={
-                        "type": 'json_schema',
-                        "json_schema": {
-                            "name": 'loan_rows',
-                            "schema": ExtractedRowsModel.model_json_schema()
-                        }
+                        "type": "json_schema",
+                        "json_schema": {"name": "loan_rows", "schema": ExtractedRowsModel.model_json_schema()},
                     },
                     max_tokens=600,
                 )
@@ -489,19 +493,21 @@ def collect_players_from_brave(
                 if content.strip():
                     data = json.loads(content)
                     parsed = ExtractedRowsModel.model_validate(data)
-                    out: List[Dict[str, str]] = []
+                    out: list[dict[str, str]] = []
                     for r in parsed.rows:
                         player = (r.player_name or "").strip()
                         club = (r.loan_team or "").strip()
                         if not player or not club:
                             continue
-                        out.append({
-                            "player_name": player,
-                            "loan_team": club,
-                            "season_year": int(r.season_year or season),
-                            "confidence": float(r.confidence or 0.0),
-                            "evidence": (r.evidence or "").strip(),
-                        })
+                        out.append(
+                            {
+                                "player_name": player,
+                                "loan_team": club,
+                                "season_year": int(r.season_year or season),
+                                "confidence": float(r.confidence or 0.0),
+                                "evidence": (r.evidence or "").strip(),
+                            }
+                        )
                     logger.info(
                         "[brave-loans] page extract parsed rows (Chat)=%s",
                         len(out),
@@ -512,7 +518,7 @@ def collect_players_from_brave(
 
         return []
 
-    rows: List[Dict[str, str]] = []
+    rows: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     openai_client = _get_client()
     groq_client = _get_groq_client()
@@ -524,29 +530,29 @@ def collect_players_from_brave(
     regex_rows = 0
     llm_rows_total = 0
     for item in normalized_results:
-        title = item.get('title') or ''
-        snippet = item.get('snippet') or ''
-        url = item.get('url') or ''
-        if 'loan' not in (title.lower() + ' ' + snippet.lower()):
+        title = item.get("title") or ""
+        snippet = item.get("snippet") or ""
+        url = item.get("url") or ""
+        if "loan" not in (title.lower() + " " + snippet.lower()):
             continue
         player, club = _extract_player_club(title, snippet)
         if not player or not club:
             # Stage 1: score title/snippet and shortlisting
             rel, score, reason = _score_title_detail(llm_client, title, snippet, team_name, season_year)
-            host = ''
+            host = ""
             try:
                 host = urlparse(url).netloc.lower()
             except Exception:
-                host = ''
+                host = ""
             is_allowed = True
             logger.info(
                 "[brave-loans] LLM score title=%s host=%s rel=%s score=%.2f allowed=%s reason=%s",
-                (title[:80] + '…') if len(title) > 80 else title,
+                (title[:80] + "…") if len(title) > 80 else title,
                 host,
                 rel,
                 score,
                 is_allowed,
-                (reason[:120] + '…') if len(reason) > 120 else reason,
+                (reason[:120] + "…") if len(reason) > 120 else reason,
             )
             if (not rel) or score < 0.40:
                 logger.info("[brave-loans] skip: low score or not relevant")
@@ -554,9 +560,10 @@ def collect_players_from_brave(
             # Stage 2: fetch page text and extract via LLM (cap pages per team)
             try:
                 import requests  # local import
+
                 session = requests.Session()
-                ua = os.getenv('BRAVE_CRAWL_USER_AGENT') or 'AcademyWatchBot/1.0 (+https://theacademywatch.com)'
-                session.headers.update({'User-Agent': ua, 'Accept': 'text/html,application/xhtml+xml'})
+                ua = os.getenv("BRAVE_CRAWL_USER_AGENT") or "AcademyWatchBot/1.0 (+https://theacademywatch.com)"
+                session.headers.update({"User-Agent": ua, "Accept": "text/html,application/xhtml+xml"})
                 logger.info("[brave-loans] fetching article url=%s", url)
                 resp = session.get(url, timeout=10)
                 if resp.status_code in (429, 403):
@@ -570,28 +577,30 @@ def collect_players_from_brave(
                 text = re.sub(r"\s+", " ", text)
                 # guard band
                 text = text.strip()[:12000]
-                logger.info("[brave-loans] fetched bytes=%s trimmed_len=%s", len(html or ''), len(text))
+                logger.info("[brave-loans] fetched bytes=%s trimmed_len=%s", len(html or ""), len(text))
             except Exception as exc:
                 logger.debug("[brave-loans] fetch error for %s: %s", url, exc)
                 continue
             llm_rows = _extract_from_text_with_llm(llm_client, text, team_name, season_year)
             logger.info("[brave-loans] LLM extracted rows=%s from url=%s", len(llm_rows), url)
             for r in llm_rows:
-                key = (r['player_name'].lower(), r['loan_team'].lower())
+                key = (r["player_name"].lower(), r["loan_team"].lower())
                 if key in seen:
                     continue
                 seen.add(key)
-                rows.append({
-                    'player_name': r['player_name'],
-                    'loan_team': r['loan_team'],
-                    'season_year': int(r.get('season_year') or season_year),
-                    'parent_club': team_name,
-                    'source': url,
-                    'source_title': title,
-                    'source_snippet': snippet,
-                    'confidence': float(r.get('confidence') or 0.0),
-                    'evidence': r.get('evidence') or '',
-                })
+                rows.append(
+                    {
+                        "player_name": r["player_name"],
+                        "loan_team": r["loan_team"],
+                        "season_year": int(r.get("season_year") or season_year),
+                        "parent_club": team_name,
+                        "source": url,
+                        "source_title": title,
+                        "source_snippet": snippet,
+                        "confidence": float(r.get("confidence") or 0.0),
+                        "evidence": r.get("evidence") or "",
+                    }
+                )
                 llm_rows_total += 1
             # small delay between article fetches
             time.sleep(0.15)
@@ -601,20 +610,25 @@ def collect_players_from_brave(
         if key in seen:
             continue
         seen.add(key)
-        rows.append({
-            'player_name': player,
-            'loan_team': club,
-            'season_year': season_year,
-            'parent_club': team_name,
-            'source': url,
-            'source_title': title,
-            'source_snippet': snippet,
-        })
+        rows.append(
+            {
+                "player_name": player,
+                "loan_team": club,
+                "season_year": season_year,
+                "parent_club": team_name,
+                "source": url,
+                "source_title": title,
+                "source_snippet": snippet,
+            }
+        )
         regex_rows += 1
 
     logger.info(
         "[brave-loans] extracted_rows=%s (regex=%s, llm=%s) for query='%s'",
-        len(rows), regex_rows, llm_rows_total, effective_query,
+        len(rows),
+        regex_rows,
+        llm_rows_total,
+        effective_query,
     )
     return BravePlayerCollection(rows=rows, results=normalized_results, query=effective_query)
 

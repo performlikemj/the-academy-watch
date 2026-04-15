@@ -28,12 +28,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.models.league import db, Team, League  # noqa: E402
-from src.models.tracked_player import TrackedPlayer  # noqa: E402
+from datetime import UTC
+
 from src.models.journey import PlayerJourney  # noqa: E402,F401  # mapper init
+from src.models.league import League, Team, db  # noqa: E402
+from src.models.tracked_player import TrackedPlayer  # noqa: E402
 from src.services.radar_stats_service import (  # noqa: E402
-    resolve_player_league,
     _team_league_from_api,
+    resolve_player_league,
 )
 
 dotenv.load_dotenv(dotenv.find_dotenv())
@@ -140,31 +142,29 @@ def _verdict(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--team", default="Nottingham Forest",
-                    help="Parent club name (ILIKE match). Default: Nottingham Forest")
-    ap.add_argument("--team-api-id", type=int, default=None,
-                    help="Parent club API-Football ID (overrides --team if set)")
-    ap.add_argument("--season", type=int, default=None,
-                    help="Season for league resolution. Defaults to current Jul-Jun cycle.")
-    ap.add_argument("--only-suspect", action="store_true",
-                    help="Only print rows flagged SUSPECT or NO_LEAGUE.")
+    ap.add_argument(
+        "--team", default="Nottingham Forest", help="Parent club name (ILIKE match). Default: Nottingham Forest"
+    )
+    ap.add_argument(
+        "--team-api-id", type=int, default=None, help="Parent club API-Football ID (overrides --team if set)"
+    )
+    ap.add_argument(
+        "--season", type=int, default=None, help="Season for league resolution. Defaults to current Jul-Jun cycle."
+    )
+    ap.add_argument("--only-suspect", action="store_true", help="Only print rows flagged SUSPECT or NO_LEAGUE.")
     args = ap.parse_args()
 
     app = _make_app()
     with app.app_context():
         team = _resolve_team(args.team, args.team_api_id)
         print("=" * 100)
-        print(
-            f"VERIFY radar league resolution for: {team.name}  "
-            f"(Team.id={team.id}, team_api_id={team.team_id})"
-        )
+        print(f"VERIFY radar league resolution for: {team.name}  (Team.id={team.id}, team_api_id={team.team_id})")
         if args.season:
             print(f"Season: {args.season}")
         print("=" * 100)
 
         tracked = (
-            TrackedPlayer.query
-            .filter(TrackedPlayer.team_id == team.id, TrackedPlayer.is_active.is_(True))
+            TrackedPlayer.query.filter(TrackedPlayer.team_id == team.id, TrackedPlayer.is_active.is_(True))
             .order_by(TrackedPlayer.status, TrackedPlayer.player_name)
             .all()
         )
@@ -231,17 +231,16 @@ def main() -> None:
                 print(f"      resolve_player_league → {resolved}")
                 print(f"      local teams.league_id → {local}")
                 if tp.current_club_api_id:
-                    api_lookup = _team_league_from_api(
-                        tp.current_club_api_id, args.season or _default_season()
-                    )
+                    api_lookup = _team_league_from_api(tp.current_club_api_id, args.season or _default_season())
                     print(f"      API-Football says   → {api_lookup}")
 
         print("\nDONE")
 
 
 def _default_season() -> int:
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
+    from datetime import datetime
+
+    now = datetime.now(UTC)
     return now.year if now.month >= 7 else now.year - 1
 
 

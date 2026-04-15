@@ -6,10 +6,10 @@ gunicorn workers by storing job state in the database.
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from src.models.league import db, BackgroundJob
+from src.models.league import BackgroundJob, db
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +28,12 @@ def create_background_job(job_type: str) -> str:
     job_id = str(uuid4())
     try:
         job = BackgroundJob(
-            id=job_id,
-            job_type=job_type,
-            status='running',
-            progress=0,
-            total=0,
-            started_at=datetime.now(timezone.utc)
+            id=job_id, job_type=job_type, status="running", progress=0, total=0, started_at=datetime.now(UTC)
         )
         db.session.add(job)
         db.session.commit()
     except Exception as e:
-        logger.error(f'Failed to create background job: {e}')
+        logger.error(f"Failed to create background job: {e}")
         db.session.rollback()
     return job_id
 
@@ -58,31 +53,31 @@ def update_job(job_id: str, **kwargs) -> None:
     try:
         job = db.session.get(BackgroundJob, job_id)
         if job:
-            if 'progress' in kwargs:
-                job.progress = kwargs['progress']
-            if 'total' in kwargs:
-                job.total = kwargs['total']
-            if 'current_player' in kwargs:
-                job.current_player = kwargs.get('current_player')
-            if 'status' in kwargs:
-                job.status = kwargs['status']
-            if 'error' in kwargs:
-                job.error = kwargs.get('error')
-            if 'results' in kwargs:
-                results = kwargs.get('results')
+            if "progress" in kwargs:
+                job.progress = kwargs["progress"]
+            if "total" in kwargs:
+                job.total = kwargs["total"]
+            if "current_player" in kwargs:
+                job.current_player = kwargs.get("current_player")
+            if "status" in kwargs:
+                job.status = kwargs["status"]
+            if "error" in kwargs:
+                job.error = kwargs.get("error")
+            if "results" in kwargs:
+                results = kwargs.get("results")
                 if results is not None:
                     job.results_json = json.dumps(results)
-            if 'completed_at' in kwargs:
-                completed = kwargs.get('completed_at')
+            if "completed_at" in kwargs:
+                completed = kwargs.get("completed_at")
                 if isinstance(completed, str):
-                    job.completed_at = datetime.fromisoformat(completed.replace('Z', '+00:00'))
+                    job.completed_at = datetime.fromisoformat(completed.replace("Z", "+00:00"))
                 else:
                     job.completed_at = completed
             # Always bump updated_at so stale-job detection sees recent activity
-            job.updated_at = datetime.now(timezone.utc)
+            job.updated_at = datetime.now(UTC)
             db.session.commit()
     except Exception as e:
-        logger.error(f'Failed to update background job {job_id}: {e}')
+        logger.error(f"Failed to update background job {job_id}: {e}")
         db.session.rollback()
 
 
@@ -100,25 +95,25 @@ def get_job(job_id: str) -> dict | None:
     try:
         job = db.session.get(BackgroundJob, job_id)
         if job:
-            if job.status == 'running':
-                last_active = (job.updated_at or job.started_at or job.created_at)
-                elapsed = datetime.now(timezone.utc) - last_active.replace(tzinfo=timezone.utc)
+            if job.status == "running":
+                last_active = job.updated_at or job.started_at or job.created_at
+                elapsed = datetime.now(UTC) - last_active.replace(tzinfo=UTC)
                 if elapsed > STALE_JOB_TIMEOUT:
                     logger.warning(
-                        f'Job {job_id} stale ({elapsed}), auto-marking failed. '
-                        f'Last progress: {job.progress}/{job.total} on {job.current_player}'
+                        f"Job {job_id} stale ({elapsed}), auto-marking failed. "
+                        f"Last progress: {job.progress}/{job.total} on {job.current_player}"
                     )
-                    job.status = 'failed'
+                    job.status = "failed"
                     job.error = (
-                        f'Stale job auto-failed after {elapsed}. '
-                        f'Worker likely died at {job.current_player} '
-                        f'(progress {job.progress}/{job.total}).'
+                        f"Stale job auto-failed after {elapsed}. "
+                        f"Worker likely died at {job.current_player} "
+                        f"(progress {job.progress}/{job.total})."
                     )
-                    job.completed_at = datetime.now(timezone.utc)
+                    job.completed_at = datetime.now(UTC)
                     db.session.commit()
             return job.to_dict()
     except Exception as e:
-        logger.error(f'Failed to get background job {job_id}: {e}')
+        logger.error(f"Failed to get background job {job_id}: {e}")
         db.session.rollback()
     return None
 
@@ -133,16 +128,16 @@ def cancel_job(job_id: str) -> bool:
     """
     try:
         job = db.session.get(BackgroundJob, job_id)
-        if job and job.status == 'running':
-            job.status = 'cancelled'
-            job.error = 'Cancelled by admin'
-            job.completed_at = datetime.now(timezone.utc)
+        if job and job.status == "running":
+            job.status = "cancelled"
+            job.error = "Cancelled by admin"
+            job.completed_at = datetime.now(UTC)
             db.session.commit()
-            logger.info('Job %s cancelled', job_id)
+            logger.info("Job %s cancelled", job_id)
             return True
         return False
     except Exception as e:
-        logger.error('Failed to cancel job %s: %s', job_id, e)
+        logger.error("Failed to cancel job %s: %s", job_id, e)
         db.session.rollback()
         return False
 
@@ -157,7 +152,7 @@ def is_job_cancelled(job_id: str) -> bool:
         job = db.session.get(BackgroundJob, job_id)
         if job:
             db.session.refresh(job)
-            return job.status == 'cancelled'
+            return job.status == "cancelled"
     except Exception:
         pass
     return False
@@ -175,27 +170,25 @@ def has_running_job(job_type: str) -> bool:
         True if a non-stale running job of this type exists.
     """
     try:
-        job = (
-            BackgroundJob.query
-            .filter_by(job_type=job_type, status='running')
-            .first()
-        )
+        job = BackgroundJob.query.filter_by(job_type=job_type, status="running").first()
         if not job:
             return False
         last_active = job.updated_at or job.started_at or job.created_at
-        elapsed = datetime.now(timezone.utc) - last_active.replace(tzinfo=timezone.utc)
+        elapsed = datetime.now(UTC) - last_active.replace(tzinfo=UTC)
         if elapsed > STALE_JOB_TIMEOUT:
             logger.warning(
-                'Job type %s stale (%s), auto-marking failed.', job_type, elapsed,
+                "Job type %s stale (%s), auto-marking failed.",
+                job_type,
+                elapsed,
             )
-            job.status = 'failed'
-            job.error = f'Stale job auto-failed after {elapsed}'
-            job.completed_at = datetime.now(timezone.utc)
+            job.status = "failed"
+            job.error = f"Stale job auto-failed after {elapsed}"
+            job.completed_at = datetime.now(UTC)
             db.session.commit()
             return False
         return True
     except Exception as e:
-        logger.error('Failed to check running job for type %s: %s', job_type, e)
+        logger.error("Failed to check running job for type %s: %s", job_type, e)
         return False
 
 

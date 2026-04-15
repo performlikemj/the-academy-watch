@@ -26,7 +26,7 @@ def load_secret(secret_name: str, vault_url: str | None = None) -> str | None:
     if secret_name in _secret_cache:
         return _secret_cache[secret_name]
 
-    vault_url = vault_url or os.getenv('AZURE_KEY_VAULT_URL')
+    vault_url = vault_url or os.getenv("AZURE_KEY_VAULT_URL")
 
     if vault_url:
         try:
@@ -45,8 +45,7 @@ def load_secret(secret_name: str, vault_url: str | None = None) -> str | None:
                 logger.warning("Secret '%s' exists in Key Vault but has no value", secret_name)
         except ImportError:
             logger.warning(
-                "azure-identity or azure-keyvault-secrets not installed; "
-                "falling back to env var for '%s'",
+                "azure-identity or azure-keyvault-secrets not installed; falling back to env var for '%s'",
                 secret_name,
             )
         except Exception as e:

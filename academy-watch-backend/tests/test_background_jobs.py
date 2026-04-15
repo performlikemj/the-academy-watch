@@ -1,11 +1,10 @@
 """Tests for background job utilities extracted to src/utils/background_jobs.py."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from flask import Flask
-
-from src.models.league import db, BackgroundJob
+from src.models.league import BackgroundJob, db
 
 
 @pytest.fixture
@@ -14,8 +13,8 @@ def job_app():
     app = Flask(__name__)
     app.config.update(
         TESTING=True,
-        SECRET_KEY='test-secret-key',
-        SQLALCHEMY_DATABASE_URI='sqlite:///:memory:',
+        SECRET_KEY="test-secret-key",
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
     )
 
@@ -41,7 +40,7 @@ class TestCreateBackgroundJob:
         from src.utils.background_jobs import create_background_job
 
         with job_app.app_context():
-            job_id = create_background_job('test_job')
+            job_id = create_background_job("test_job")
             assert job_id is not None
             assert len(job_id) == 36  # UUID format
 
@@ -50,12 +49,12 @@ class TestCreateBackgroundJob:
         from src.utils.background_jobs import create_background_job
 
         with job_app.app_context():
-            job_id = create_background_job('sync_fixtures')
+            job_id = create_background_job("sync_fixtures")
 
             job = db.session.get(BackgroundJob, job_id)
             assert job is not None
-            assert job.job_type == 'sync_fixtures'
-            assert job.status == 'running'
+            assert job.job_type == "sync_fixtures"
+            assert job.status == "running"
             assert job.progress == 0
             assert job.total == 0
 
@@ -64,9 +63,9 @@ class TestCreateBackgroundJob:
         from src.utils.background_jobs import create_background_job
 
         with job_app.app_context():
-            before = datetime.now(timezone.utc)
-            job_id = create_background_job('test')
-            after = datetime.now(timezone.utc)
+            before = datetime.now(UTC)
+            job_id = create_background_job("test")
+            after = datetime.now(UTC)
 
             job = db.session.get(BackgroundJob, job_id)
             assert job.started_at is not None
@@ -81,7 +80,7 @@ class TestUpdateJob:
         from src.utils.background_jobs import create_background_job, update_job
 
         with job_app.app_context():
-            job_id = create_background_job('test')
+            job_id = create_background_job("test")
             update_job(job_id, progress=50, total=100)
 
             job = db.session.get(BackgroundJob, job_id)
@@ -93,41 +92,41 @@ class TestUpdateJob:
         from src.utils.background_jobs import create_background_job, update_job
 
         with job_app.app_context():
-            job_id = create_background_job('test')
-            update_job(job_id, status='completed')
+            job_id = create_background_job("test")
+            update_job(job_id, status="completed")
 
             job = db.session.get(BackgroundJob, job_id)
-            assert job.status == 'completed'
+            assert job.status == "completed"
 
     def test_update_job_current_player(self, job_app):
         """Should update current_player field."""
         from src.utils.background_jobs import create_background_job, update_job
 
         with job_app.app_context():
-            job_id = create_background_job('test')
-            update_job(job_id, current_player='John Doe')
+            job_id = create_background_job("test")
+            update_job(job_id, current_player="John Doe")
 
             job = db.session.get(BackgroundJob, job_id)
-            assert job.current_player == 'John Doe'
+            assert job.current_player == "John Doe"
 
     def test_update_job_error(self, job_app):
         """Should update error field."""
         from src.utils.background_jobs import create_background_job, update_job
 
         with job_app.app_context():
-            job_id = create_background_job('test')
-            update_job(job_id, error='Something went wrong')
+            job_id = create_background_job("test")
+            update_job(job_id, error="Something went wrong")
 
             job = db.session.get(BackgroundJob, job_id)
-            assert job.error == 'Something went wrong'
+            assert job.error == "Something went wrong"
 
     def test_update_job_results_json(self, job_app):
         """Should update results_json field."""
         from src.utils.background_jobs import create_background_job, update_job
 
         with job_app.app_context():
-            job_id = create_background_job('test')
-            update_job(job_id, results={'processed': 10, 'errors': []})
+            job_id = create_background_job("test")
+            update_job(job_id, results={"processed": 10, "errors": []})
 
             job = db.session.get(BackgroundJob, job_id)
             assert '"processed": 10' in job.results_json
@@ -137,8 +136,8 @@ class TestUpdateJob:
         from src.utils.background_jobs import create_background_job, update_job
 
         with job_app.app_context():
-            job_id = create_background_job('test')
-            completed = datetime.now(timezone.utc)
+            job_id = create_background_job("test")
+            completed = datetime.now(UTC)
             update_job(job_id, completed_at=completed)
 
             job = db.session.get(BackgroundJob, job_id)
@@ -149,8 +148,8 @@ class TestUpdateJob:
         from src.utils.background_jobs import create_background_job, update_job
 
         with job_app.app_context():
-            job_id = create_background_job('test')
-            update_job(job_id, completed_at='2024-01-15T10:30:00Z')
+            job_id = create_background_job("test")
+            update_job(job_id, completed_at="2024-01-15T10:30:00Z")
 
             job = db.session.get(BackgroundJob, job_id)
             assert job.completed_at is not None
@@ -162,7 +161,7 @@ class TestUpdateJob:
 
         with job_app.app_context():
             # Should not raise
-            update_job('nonexistent-job-id', status='completed')
+            update_job("nonexistent-job-id", status="completed")
 
 
 class TestGetJob:
@@ -173,31 +172,31 @@ class TestGetJob:
         from src.utils.background_jobs import create_background_job, get_job
 
         with job_app.app_context():
-            job_id = create_background_job('test')
+            job_id = create_background_job("test")
             result = get_job(job_id)
 
             assert result is not None
             assert isinstance(result, dict)
-            assert result['id'] == job_id
-            assert result['type'] == 'test'  # Model uses 'type' not 'job_type'
-            assert result['status'] == 'running'
+            assert result["id"] == job_id
+            assert result["type"] == "test"  # Model uses 'type' not 'job_type'
+            assert result["status"] == "running"
 
     def test_get_job_nonexistent_returns_none(self, job_app):
         """Should return None for nonexistent job ID."""
         from src.utils.background_jobs import get_job
 
         with job_app.app_context():
-            result = get_job('nonexistent-id')
+            result = get_job("nonexistent-id")
             assert result is None
 
     def test_get_job_includes_progress(self, job_app):
         """Should include progress in returned dict."""
-        from src.utils.background_jobs import create_background_job, update_job, get_job
+        from src.utils.background_jobs import create_background_job, get_job, update_job
 
         with job_app.app_context():
-            job_id = create_background_job('test')
+            job_id = create_background_job("test")
             update_job(job_id, progress=75, total=100)
 
             result = get_job(job_id)
-            assert result['progress'] == 75
-            assert result['total'] == 100
+            assert result["progress"] == 75
+            assert result["total"] == 100

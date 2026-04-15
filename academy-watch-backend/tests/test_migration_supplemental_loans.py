@@ -3,7 +3,6 @@ import types
 from contextlib import contextmanager
 from datetime import datetime
 
-import pytest
 import sqlalchemy as sa
 from alembic import op as alembic_op
 from alembic.migration import MigrationContext
@@ -101,12 +100,12 @@ def _prepare_base_tables(metadata):
 def _skip_sofascore_lookup(conn):
     """Patch the SQLAlchemy connection so sofascore lookups return empty results."""
     original_execute = conn.execute
-    state = {'skipped': False}
+    state = {"skipped": False}
 
     def fake_execute(self, clauseelement, *multiparams, **params):
         sql_text = str(clauseelement)
-        if "SELECT player_id FROM players WHERE sofascore_id" in sql_text and not state['skipped']:
-            state['skipped'] = True
+        if "SELECT player_id FROM players WHERE sofascore_id" in sql_text and not state["skipped"]:
+            state["skipped"] = True
             return original_execute(sa.text("SELECT player_id FROM players WHERE 1=0"))
         return original_execute(clauseelement, *multiparams, **params)
 
@@ -173,10 +172,7 @@ def test_upgrade_reuses_existing_player_when_sofascore_matches(sqlite_memory_eng
         assert player_count == 1, "No duplicate players should be created for shared sofascore_id"
 
         loan_row = conn.execute(
-            sa.text(
-                "SELECT player_id, migration_source FROM loaned_players "
-                "WHERE player_name = 'Joe Hugill'"
-            )
+            sa.text("SELECT player_id, migration_source FROM loaned_players WHERE player_name = 'Joe Hugill'")
         ).one()
         assert loan_row.player_id == existing_player_id
         assert loan_row.migration_source == "supplemental_loan"
@@ -239,10 +235,7 @@ def test_upgrade_handles_sofascore_conflict_even_if_lookup_skipped(sqlite_memory
         assert len(player_rows) == 1
 
         loan_row = conn.execute(
-            sa.text(
-                "SELECT player_id, migration_source FROM loaned_players "
-                "WHERE player_name = 'Joe Hugill'"
-            )
+            sa.text("SELECT player_id, migration_source FROM loaned_players WHERE player_name = 'Joe Hugill'")
         ).one()
         assert loan_row.player_id == player_rows[0][0]
         assert loan_row.migration_source == "supplemental_loan"

@@ -9,25 +9,24 @@ directly, without depending on AcademyPlayer rows.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import text
-from src.models.league import db, Team
-from src.models.tracked_player import TrackedPlayer
-from src.models.journey import PlayerJourney
 from src.api_football_client import APIFootballClient
+from src.models.journey import PlayerJourney
+from src.models.league import Team, db
+from src.models.tracked_player import TrackedPlayer
 from src.services.journey_sync import JourneySyncService
 from src.utils.academy_classifier import (
+    _get_latest_season,
     classify_tracked_player,
     flatten_transfers,
-    _get_latest_season,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
-                     cascade_fixtures=True):
+def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_fixtures=True):
     """Re-derive statuses for tracked players, detecting loan club changes.
 
     Args:
@@ -63,10 +62,7 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
     api_client = APIFootballClient()
     player_api_ids = [tp.player_api_id for tp in players if tp.player_api_id]
     raw_transfers_map = api_client.batch_get_player_transfers(player_api_ids)
-    transfers_map = {
-        pid: flatten_transfers(raw)
-        for pid, raw in raw_transfers_map.items()
-    }
+    transfers_map = {pid: flatten_transfers(raw) for pid, raw in raw_transfers_map.items()}
 
     # Batch pre-fetch squads for loan + parent clubs.
     # Squads that fail to fetch are tracked in `failed_squad_clubs` so we can
@@ -87,26 +83,27 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
         pt = _team_cache[tp.team_id]
         if pt:
             parent_club_ids.add(pt.team_id)
-    for club_id in (loan_club_ids | parent_club_ids):
+    for club_id in loan_club_ids | parent_club_ids:
         try:
             squad = api_client.get_team_players(club_id)
             squad_members_by_club[club_id] = {
-                int(e['player']['id']) for e in squad
-                if e and e.get('player', {}).get('id')
+                int(e["player"]["id"]) for e in squad if e and e.get("player", {}).get("id")
             }
         except Exception as exc:
             failed_squad_clubs.add(club_id)
             logger.warning(
-                'transfer-heal: squad fetch failed for club %d: %s — '
-                'classification will be SKIPPED for players at this club',
-                club_id, exc,
+                "transfer-heal: squad fetch failed for club %d: %s — "
+                "classification will be SKIPPED for players at this club",
+                club_id,
+                exc,
             )
 
     if failed_squad_clubs:
         logger.warning(
-            'transfer-heal: %d squad fetch(es) failed (clubs=%s); affected '
-            'players will have their status left untouched.',
-            len(failed_squad_clubs), sorted(failed_squad_clubs),
+            "transfer-heal: %d squad fetch(es) failed (clubs=%s); affected "
+            "players will have their status left untouched.",
+            len(failed_squad_clubs),
+            sorted(failed_squad_clubs),
         )
 
     # Also track players whose transfer batch came back empty in a way that
@@ -114,15 +111,15 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
     # cannot distinguish a real empty list from a failed fetch for a
     # batch-call, so we only flag players we received NO key for at all.
     transfer_fetch_missing = {
-        tp.player_api_id for tp in players
-        if tp.player_api_id and tp.player_api_id not in raw_transfers_map
+        tp.player_api_id for tp in players if tp.player_api_id and tp.player_api_id not in raw_transfers_map
     }
     if transfer_fetch_missing:
         logger.warning(
-            'transfer-heal: %d player(s) missing from transfer batch response — '
-            'their classification will be SKIPPED to avoid basing it on partial data. '
-            'player_api_ids=%s',
-            len(transfer_fetch_missing), sorted(transfer_fetch_missing),
+            "transfer-heal: %d player(s) missing from transfer batch response — "
+            "their classification will be SKIPPED to avoid basing it on partial data. "
+            "player_api_ids=%s",
+            len(transfer_fetch_missing),
+            sorted(transfer_fetch_missing),
         )
 
     # Process each player
@@ -140,17 +137,16 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
                         tp.journey_id = journey.id
             except Exception as sync_err:
                 logger.warning(
-                    'transfer-heal: journey resync failed for player %d: %s',
-                    tp.player_api_id, sync_err,
+                    "transfer-heal: journey resync failed for player %d: %s",
+                    tp.player_api_id,
+                    sync_err,
                 )
 
         if not journey:
             if tp.journey_id:
                 journey = db.session.get(PlayerJourney, tp.journey_id)
             if not journey:
-                journey = PlayerJourney.query.filter_by(
-                    player_api_id=tp.player_api_id
-                ).first()
+                journey = PlayerJourney.query.filter_by(player_api_id=tp.player_api_id).first()
 
         if not journey:
             continue
@@ -166,14 +162,17 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
         # the row untouched over writing a guess.
         player_parent_id = parent_team.team_id
         player_loan_id = tp.current_club_api_id
-        if (player_parent_id in failed_squad_clubs
-                or (player_loan_id and player_loan_id in failed_squad_clubs)
-                or tp.player_api_id in transfer_fetch_missing):
+        if (
+            player_parent_id in failed_squad_clubs
+            or (player_loan_id and player_loan_id in failed_squad_clubs)
+            or tp.player_api_id in transfer_fetch_missing
+        ):
             skipped_by_failed_prefetch += 1
             logger.info(
-                'transfer-heal: skipping player %d (%s) — prefetch incomplete '
-                '(parent_squad_failed=%s loan_squad_failed=%s transfers_missing=%s)',
-                tp.player_api_id, tp.player_name,
+                "transfer-heal: skipping player %d (%s) — prefetch incomplete "
+                "(parent_squad_failed=%s loan_squad_failed=%s transfers_missing=%s)",
+                tp.player_api_id,
+                tp.player_name,
                 player_parent_id in failed_squad_clubs,
                 bool(player_loan_id and player_loan_id in failed_squad_clubs),
                 tp.player_api_id in transfer_fetch_missing,
@@ -202,8 +201,9 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
         # fields are frozen until explicitly unpinned.
         if tp.pinned_parent:
             logger.info(
-                'transfer-heal: skipping status update for pinned player %d (%s)',
-                tp.player_api_id, tp.player_name,
+                "transfer-heal: skipping status update for pinned player %d (%s)",
+                tp.player_api_id,
+                tp.player_name,
             )
             continue
 
@@ -240,14 +240,16 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
             updated += 1
             # Track loan club changes for fixture sync cascade
             if new_loan_id and new_loan_id != old_loan_id:
-                players_changed.append({
-                    'player_api_id': tp.player_api_id,
-                    'player_name': tp.player_name,
-                    'team_id': tp.team_id,
-                    'old_current_club_api_id': old_loan_id,
-                    'new_current_club_api_id': new_loan_id,
-                    'new_loan_club': new_loan_name,
-                })
+                players_changed.append(
+                    {
+                        "player_api_id": tp.player_api_id,
+                        "player_name": tp.player_name,
+                        "team_id": tp.team_id,
+                        "old_current_club_api_id": old_loan_id,
+                        "new_current_club_api_id": new_loan_id,
+                        "new_loan_club": new_loan_name,
+                    }
+                )
 
     if not dry_run:
         db.session.commit()
@@ -258,34 +260,40 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
     fixture_syncs_triggered = 0
     if not dry_run and cascade_fixtures and players_changed:
         from src.routes.api import _sync_player_club_fixtures
-        now = datetime.now(timezone.utc)
+
+        now = datetime.now(UTC)
         season = now.year if now.month >= 8 else now.year - 1
 
         for pc in players_changed:
             try:
                 synced = _sync_player_club_fixtures(
-                    player_id=pc['player_api_id'],
-                    loan_team_api_id=pc['new_current_club_api_id'],
+                    player_id=pc["player_api_id"],
+                    loan_team_api_id=pc["new_current_club_api_id"],
                     season=season,
-                    player_name=pc.get('player_name'),
+                    player_name=pc.get("player_name"),
                 )
                 fixture_syncs_triggered += 1
                 logger.info(
-                    'transfer-heal: synced %d fixtures for player %d (%s) '
-                    'at new club %s (api_id=%d)',
-                    synced, pc['player_api_id'], pc.get('player_name'),
-                    pc['new_loan_club'], pc['new_current_club_api_id'],
+                    "transfer-heal: synced %d fixtures for player %d (%s) at new club %s (api_id=%d)",
+                    synced,
+                    pc["player_api_id"],
+                    pc.get("player_name"),
+                    pc["new_loan_club"],
+                    pc["new_current_club_api_id"],
                 )
             except Exception as exc:
                 logger.error(
-                    'transfer-heal: fixture sync failed for player %d at club %d: %s',
-                    pc['player_api_id'], pc['new_current_club_api_id'], exc,
+                    "transfer-heal: fixture sync failed for player %d at club %d: %s",
+                    pc["player_api_id"],
+                    pc["new_current_club_api_id"],
+                    exc,
                 )
 
     # Clean up stale academy-origin rows superseded by owning-club rows
     if not dry_run:
         try:
-            stale = db.session.execute(text("""
+            stale = db.session.execute(
+                text("""
                 UPDATE tracked_players SET is_active = false
                 WHERE id IN (
                     SELECT a.id FROM tracked_players a
@@ -297,20 +305,21 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False,
                       AND a.status = 'on_loan'
                       AND b.status IN ('first_team', 'sold', 'released')
                 )
-            """))
+            """)
+            )
             stale_count = stale.rowcount
             if stale_count:
                 db.session.commit()
-                logger.info('transfer-heal: deactivated %d stale duplicate rows', stale_count)
+                logger.info("transfer-heal: deactivated %d stale duplicate rows", stale_count)
         except Exception as exc:
-            logger.warning('transfer-heal: stale row cleanup failed: %s', exc)
+            logger.warning("transfer-heal: stale row cleanup failed: %s", exc)
 
     return {
-        'total': len(players),
-        'updated': updated,
-        'journeys_resynced': journeys_resynced,
-        'players_changed': players_changed,
-        'fixture_syncs_triggered': fixture_syncs_triggered,
-        'skipped_by_failed_prefetch': skipped_by_failed_prefetch,
-        'failed_squad_clubs': sorted(failed_squad_clubs),
+        "total": len(players),
+        "updated": updated,
+        "journeys_resynced": journeys_resynced,
+        "players_changed": players_changed,
+        "fixture_syncs_triggered": fixture_syncs_triggered,
+        "skipped_by_failed_prefetch": skipped_by_failed_prefetch,
+        "failed_squad_clubs": sorted(failed_squad_clubs),
     }

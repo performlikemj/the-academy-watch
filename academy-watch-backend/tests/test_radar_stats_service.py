@@ -1,24 +1,22 @@
 """Unit tests for the radar stats service (per-90 / league comparison logic)."""
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from src.services.radar_stats_service import (
-    formation_position_to_group,
-    get_primary_formation_position,
-    compute_player_per90,
-    get_radar_chart_data,
-    _extract_player_per90_from_api,
     POSITION_STAT_AXES,
     STAT_LABELS,
-    MIN_MINUTES_LEAGUE,
+    _extract_player_per90_from_api,
+    compute_player_per90,
+    formation_position_to_group,
+    get_primary_formation_position,
+    get_radar_chart_data,
 )
-from src.utils.formation_roles import POSITION_GROUPS, POSITION_GROUP_LABELS
-
+from src.utils.formation_roles import POSITION_GROUP_LABELS, POSITION_GROUPS
 
 # ---------------------------------------------------------------------------
 # formation_position_to_group
 # ---------------------------------------------------------------------------
+
 
 class TestFormationPositionToGroup:
     def test_known_positions(self):
@@ -47,6 +45,7 @@ class TestFormationPositionToGroup:
 # ---------------------------------------------------------------------------
 # get_primary_formation_position
 # ---------------------------------------------------------------------------
+
 
 class TestGetPrimaryFormationPosition:
     def test_basic_mode(self):
@@ -77,6 +76,7 @@ class TestGetPrimaryFormationPosition:
 # ---------------------------------------------------------------------------
 # compute_player_per90
 # ---------------------------------------------------------------------------
+
 
 class TestComputePlayerPer90:
     def test_basic_per90(self):
@@ -112,6 +112,7 @@ class TestComputePlayerPer90:
 # ---------------------------------------------------------------------------
 # _extract_player_per90_from_api
 # ---------------------------------------------------------------------------
+
 
 class TestExtractPlayerPer90FromApi:
     def test_basic_extraction(self):
@@ -159,6 +160,7 @@ class TestExtractPlayerPer90FromApi:
 # get_radar_chart_data (with mocked dependencies)
 # ---------------------------------------------------------------------------
 
+
 class TestGetRadarChartData:
     @patch("src.services.radar_stats_service.resolve_player_league")
     @patch("src.services.radar_stats_service.fetch_league_position_averages")
@@ -167,26 +169,42 @@ class TestGetRadarChartData:
         mock_fetch.return_value = {
             "Defender": {
                 "averages": {
-                    "tackles_total": 2.0, "tackles_interceptions": 1.0,
-                    "passes_key": 0.5, "dribbles_success": 0.8,
-                    "duels_won": 4.0, "passes_total": 40.0, "tackles_blocks": 0.5,
+                    "tackles_total": 2.0,
+                    "tackles_interceptions": 1.0,
+                    "passes_key": 0.5,
+                    "dribbles_success": 0.8,
+                    "duels_won": 4.0,
+                    "passes_total": 40.0,
+                    "tackles_blocks": 0.5,
                 },
                 "maximums": {
-                    "tackles_total": 5.0, "tackles_interceptions": 3.0,
-                    "passes_key": 2.0, "dribbles_success": 2.5,
-                    "duels_won": 9.0, "passes_total": 70.0, "tackles_blocks": 2.0,
+                    "tackles_total": 5.0,
+                    "tackles_interceptions": 3.0,
+                    "passes_key": 2.0,
+                    "dribbles_success": 2.5,
+                    "duels_won": 9.0,
+                    "passes_total": 70.0,
+                    "tackles_blocks": 2.0,
                 },
                 "player_count": 85,
             },
         }
 
         fixtures = [
-            {"stats": {
-                "minutes": 90, "tackles_total": 3, "tackles_interceptions": 2,
-                "passes_key": 1, "dribbles_success": 1, "duels_won": 5,
-                "passes_total": 50, "tackles_blocks": 1,
-                "formation_position": "LB", "position": "D",
-            }},
+            {
+                "stats": {
+                    "minutes": 90,
+                    "tackles_total": 3,
+                    "tackles_interceptions": 2,
+                    "passes_key": 1,
+                    "dribbles_success": 1,
+                    "duels_won": 5,
+                    "passes_total": 50,
+                    "tackles_blocks": 1,
+                    "formation_position": "LB",
+                    "position": "D",
+                }
+            },
         ]
 
         result = get_radar_chart_data(player_id=123, fixtures_data=fixtures)
@@ -222,6 +240,7 @@ class TestGetRadarChartData:
 # Coverage checks
 # ---------------------------------------------------------------------------
 
+
 class TestPositionGroupsCoverage:
     def test_all_groups_have_stat_axes(self):
         for group in POSITION_GROUP_LABELS:
@@ -234,8 +253,13 @@ class TestPositionGroupsCoverage:
 
     def test_all_formation_roles_mapped(self):
         from src.utils.formation_roles import (
-            _DEF_ROLES, _CM_ROLES, _DM_ROLES, _AM_ROLES, _FWD_ROLES,
+            _AM_ROLES,
+            _CM_ROLES,
+            _DEF_ROLES,
+            _DM_ROLES,
+            _FWD_ROLES,
         )
+
         all_roles = {"GK"}
         for table in [_DEF_ROLES, _CM_ROLES, _DM_ROLES, _AM_ROLES, _FWD_ROLES]:
             for width_map in table.values():

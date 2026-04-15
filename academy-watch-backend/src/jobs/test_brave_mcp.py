@@ -1,13 +1,14 @@
+import argparse
+import asyncio
+import json
+import logging
 import os
 import sys
-import json
-import asyncio
-import argparse
-import logging
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     import dotenv  # type: ignore
+
     dotenv.load_dotenv(dotenv.find_dotenv())
 except Exception:
     pass
@@ -25,17 +26,17 @@ def _freshness_str(val: str | None, *, fallback: str = "pw") -> str:
     return "".join(ch for ch in v if ch.isprintable())
 
 
-async def _call_tool(server: MCPServerStdio, tool_name: str, args: Dict[str, Any]) -> List[Dict[str, Any]]:
+async def _call_tool(server: MCPServerStdio, tool_name: str, args: dict[str, Any]) -> list[dict[str, Any]]:
     """Call tool and normalize output; on freshness enum errors, retry with shorthand 'pw'."""
     res = await _call_tool_raw(server, tool_name, args)
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     if isinstance(res, dict) and isinstance(res.get("content"), list):
         items = [r for r in res.get("content") if isinstance(r, dict)]
     elif isinstance(res, list):
         items = [r for r in res if isinstance(r, dict)]
 
     # Decode Brave MCP text payloads that embed JSON in the 'text' field
-    decoded: List[Dict[str, Any]] = []
+    decoded: list[dict[str, Any]] = []
     for it in items:
         if it.get("type") == "text" and isinstance(it.get("text"), str):
             txt = it.get("text")
@@ -49,7 +50,8 @@ async def _call_tool(server: MCPServerStdio, tool_name: str, args: Dict[str, Any
         decoded.append(it)
     return decoded
 
-async def _call_tool_raw(server: MCPServerStdio, tool_name: str, args: Dict[str, Any]):
+
+async def _call_tool_raw(server: MCPServerStdio, tool_name: str, args: dict[str, Any]):
     try:
         return await server.session.call_tool(tool_name, args)
     except Exception as e:
@@ -111,12 +113,15 @@ async def main() -> int:
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--show-args", action="store_true", help="Print exact request args sent to MCP")
     parser.add_argument("--full", action="store_true", help="Print all returned items instead of top 3 samples")
-    parser.add_argument("--describe", action="store_true", help="List tools and input schema summary before running queries")
+    parser.add_argument(
+        "--describe", action="store_true", help="List tools and input schema summary before running queries"
+    )
     parser.add_argument("--raw", action="store_true", help="Also print a compact preview of raw MCP responses")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO if args.debug else logging.WARNING,
-                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO if args.debug else logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
 
     freshness = _freshness_str(args.freshness)
 
@@ -128,7 +133,9 @@ async def main() -> int:
     async with server:
         # Canary ping with safe freshness shorthand
         try:
-            await server.session.call_tool("brave_web_search", {"query": "site:uefa.com match report", "count": 1, "freshness": "pw"})
+            await server.session.call_tool(
+                "brave_web_search", {"query": "site:uefa.com match report", "count": 1, "freshness": "pw"}
+            )
         except Exception as e:
             print(f"Ping failed: {e}", file=sys.stderr)
             return 3
@@ -160,8 +167,13 @@ async def main() -> int:
             "safesearch": "moderate",
         }
 
-        out: Dict[str, Any] = {"query": args.query, "freshness": freshness, "country": args.country,
-                                "search_lang": args.search_lang, "ui_lang": args.ui_lang}
+        out: dict[str, Any] = {
+            "query": args.query,
+            "freshness": freshness,
+            "country": args.country,
+            "search_lang": args.search_lang,
+            "ui_lang": args.ui_lang,
+        }
 
         if args.tool in ("web", "both"):
             web_req = {**common, "result_filter": ["discussions", "web"]}
@@ -173,7 +185,11 @@ async def main() -> int:
             if args.raw:
                 raw_web = await _call_tool_raw(server, "brave_web_search", web_req)
                 preview = raw_web[:1] if isinstance(raw_web, list) else raw_web
-                print(json.dumps({"tool": "brave_web_search", "raw_preview": _to_jsonable(preview)}, ensure_ascii=False, indent=2))
+                print(
+                    json.dumps(
+                        {"tool": "brave_web_search", "raw_preview": _to_jsonable(preview)}, ensure_ascii=False, indent=2
+                    )
+                )
 
         if args.tool in ("news", "both"):
             news_req = {**common, "result_filter": ["news"]}
@@ -185,7 +201,13 @@ async def main() -> int:
             if args.raw:
                 raw_news = await _call_tool_raw(server, "brave_news_search", news_req)
                 preview = raw_news[:1] if isinstance(raw_news, list) else raw_news
-                print(json.dumps({"tool": "brave_news_search", "raw_preview": _to_jsonable(preview)}, ensure_ascii=False, indent=2))
+                print(
+                    json.dumps(
+                        {"tool": "brave_news_search", "raw_preview": _to_jsonable(preview)},
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
 
         print(json.dumps(out, ensure_ascii=False, indent=2))
         # non-zero exit if absolutely nothing returned
@@ -195,5 +217,3 @@ async def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
-
-

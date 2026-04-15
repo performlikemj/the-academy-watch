@@ -55,8 +55,8 @@ def grid_to_role(formation: str | None, grid: str | None) -> str | None:
     group_idx = row - 1  # 1-based index into the formation groups (excl GK)
     num_groups = total_rows - 1  # number of formation groups (excl GK)
 
-    is_def = (group_idx == 1)
-    is_fwd = (group_idx == num_groups)
+    is_def = group_idx == 1
+    is_fwd = group_idx == num_groups
     # Everything between first and last group is midfield
     is_mid = not is_def and not is_fwd
 
@@ -69,15 +69,24 @@ def grid_to_role(formation: str | None, grid: str | None) -> str | None:
         mid_layer_index = group_idx - 2  # 0-based within mid layers
 
     return _map_role(
-        row_width, col, is_def, is_mid, is_fwd,
-        mid_layer_index, total_mid_layers,
+        row_width,
+        col,
+        is_def,
+        is_mid,
+        is_fwd,
+        mid_layer_index,
+        total_mid_layers,
     )
 
 
 def _map_role(
-    width: int, col: int,
-    is_def: bool, is_mid: bool, is_fwd: bool,
-    mid_layer_index: int, total_mid_layers: int,
+    width: int,
+    col: int,
+    is_def: bool,
+    is_mid: bool,
+    is_fwd: bool,
+    mid_layer_index: int,
+    total_mid_layers: int,
 ) -> str:
     """Map a position within a row to a role label."""
 
@@ -146,19 +155,41 @@ POSITION_GROUPS = {
     # Goalkeeper
     "GK": "GK",
     # Centre-backs
-    "CB": "CB", "LCB": "CB", "RCB": "CB",
+    "CB": "CB",
+    "LCB": "CB",
+    "RCB": "CB",
     # Full-backs / wing-backs
-    "LB": "FB", "RB": "FB", "LWB": "FB", "RWB": "FB",
+    "LB": "FB",
+    "RB": "FB",
+    "LWB": "FB",
+    "RWB": "FB",
     # Defensive midfield
-    "CDM": "DM", "LCDM": "DM", "RCDM": "DM", "LDM": "DM", "RDM": "DM", "DM": "DM",
+    "CDM": "DM",
+    "LCDM": "DM",
+    "RCDM": "DM",
+    "LDM": "DM",
+    "RDM": "DM",
+    "DM": "DM",
     # Central midfield
-    "CM": "CM", "LCM": "CM", "RCM": "CM",
+    "CM": "CM",
+    "LCM": "CM",
+    "RCM": "CM",
     # Attacking midfield
-    "CAM": "AM", "LAM": "AM", "RAM": "AM", "AM": "AM",
+    "CAM": "AM",
+    "LAM": "AM",
+    "RAM": "AM",
+    "AM": "AM",
     # Wingers
-    "LW": "W", "RW": "W", "LM": "W", "RM": "W",
+    "LW": "W",
+    "RW": "W",
+    "LM": "W",
+    "RM": "W",
     # Strikers
-    "ST": "ST", "LST": "ST", "RST": "ST", "CF": "ST", "FWD": "ST",
+    "ST": "ST",
+    "LST": "ST",
+    "RST": "ST",
+    "CF": "ST",
+    "FWD": "ST",
 }
 
 # Fallback: map broad API-Football position codes (G/D/M/F) to a group

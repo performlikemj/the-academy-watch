@@ -3,11 +3,10 @@
 import hashlib
 import json
 import logging
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-
 from src.models.league import db
 
 logger = logging.getLogger(__name__)
@@ -27,7 +26,7 @@ class APICache(db.Model):
     endpoint = db.Column(db.String(100), nullable=False)
     params_hash = db.Column(db.String(64), nullable=False)
     response_json = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(UTC))
     expires_at = db.Column(db.DateTime, nullable=False)
 
     __table_args__ = (
@@ -49,14 +48,14 @@ class APICache(db.Model):
     def get_cached(cls, endpoint: str, params: dict | None) -> dict | None:
         """Return cached response dict if a fresh entry exists, else None."""
         h = cls._hash_params(params)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         row = cls.query.filter_by(endpoint=endpoint, params_hash=h).first()
         if row is None:
             return None
         # Check expiry – treat naive timestamps as UTC
         expires = row.expires_at
         if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
+            expires = expires.replace(tzinfo=UTC)
         if expires < now:
             return None
         try:
@@ -68,7 +67,7 @@ class APICache(db.Model):
     def set_cached(cls, endpoint: str, params: dict | None, response: dict, ttl_seconds: int) -> None:
         """Insert or update the cache row for the given endpoint+params."""
         h = cls._hash_params(params)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         from datetime import timedelta
 
         expires = now + timedelta(seconds=ttl_seconds)
@@ -120,7 +119,7 @@ class APICache(db.Model):
     @classmethod
     def cleanup_expired(cls) -> int:
         """Delete all expired rows.  Returns count of deleted rows."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         count = cls.query.filter(cls.expires_at < now).delete()
         db.session.commit()
         return count
@@ -163,9 +162,7 @@ class APIUsageDaily(db.Model):
     endpoint = db.Column(db.String(100), nullable=False)
     call_count = db.Column(db.Integer, nullable=False, default=0)
 
-    __table_args__ = (
-        db.UniqueConstraint("date", "endpoint", name="uq_api_usage_daily_date_endpoint"),
-    )
+    __table_args__ = (db.UniqueConstraint("date", "endpoint", name="uq_api_usage_daily_date_endpoint"),)
 
     @classmethod
     def increment(cls, endpoint: str) -> None:
@@ -183,10 +180,7 @@ class APIUsageDaily(db.Model):
             db.session.rollback()
             # Race: another worker inserted – do raw UPDATE for atomicity
             db.session.execute(
-                text(
-                    "UPDATE api_usage_daily SET call_count = call_count + 1 "
-                    "WHERE date = :d AND endpoint = :e"
-                ),
+                text("UPDATE api_usage_daily SET call_count = call_count + 1 WHERE date = :d AND endpoint = :e"),
                 {"d": today, "e": endpoint},
             )
             db.session.commit()

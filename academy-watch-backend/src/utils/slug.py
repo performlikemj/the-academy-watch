@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Optional
 
 from flask import abort
 
 
-def slugify_label(value: Optional[str]) -> str:
+def slugify_label(value: str | None) -> str:
     """Convert a string to a URL-safe slug."""
     if not value:
         return ""
@@ -21,7 +20,7 @@ def slugify_label(value: Optional[str]) -> str:
 
 def generate_unique_team_slug(
     name: str,
-    country: Optional[str],
+    country: str | None,
     team_id: int,
     existing_slugs: set[str],
 ) -> str:
@@ -57,11 +56,7 @@ def resolve_team_by_identifier(identifier: str):
         if team:
             return team
         # Also try as an API team_id for robustness
-        team = (
-            Team.query.filter_by(team_id=int(identifier), is_active=True)
-            .order_by(Team.season.desc())
-            .first()
-        )
+        team = Team.query.filter_by(team_id=int(identifier), is_active=True).order_by(Team.season.desc()).first()
         if team:
             return team
         abort(404)
@@ -71,18 +66,10 @@ def resolve_team_by_identifier(identifier: str):
     if not profile:
         abort(404)
 
-    team = (
-        Team.query.filter_by(team_id=profile.team_id, is_active=True)
-        .order_by(Team.season.desc())
-        .first()
-    )
+    team = Team.query.filter_by(team_id=profile.team_id, is_active=True).order_by(Team.season.desc()).first()
     if not team:
         # Fallback: any season
-        team = (
-            Team.query.filter_by(team_id=profile.team_id)
-            .order_by(Team.season.desc())
-            .first()
-        )
+        team = Team.query.filter_by(team_id=profile.team_id).order_by(Team.season.desc()).first()
     if not team:
         abort(404)
 

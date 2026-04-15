@@ -1,6 +1,6 @@
 from datetime import date
 
-from src.models.league import db, Team, Newsletter, NewsletterCommentary
+from src.models.league import Newsletter, NewsletterCommentary, Team, db
 
 
 def _team(name="Team", api_id=33, season=2025):

@@ -16,15 +16,15 @@ Usage:
     python -m src.jobs.run_full_rebuild [--skip-clean]
 """
 
-import sys
 import logging
+import sys
 
 from src.main import app
 from src.models.league import db
 from src.utils.background_jobs import create_background_job, update_job
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
 def run(skip_clean=False):
@@ -35,24 +35,28 @@ def run(skip_clean=False):
     except Exception:
         pass
 
-    logger.info('Full rebuild starting. skip_clean=%s', skip_clean)
+    logger.info("Full rebuild starting. skip_clean=%s", skip_clean)
 
     # Create a background job record for tracking
-    job_id = create_background_job('full_rebuild')
-    logger.info('Job ID: %s', job_id)
+    job_id = create_background_job("full_rebuild")
+    logger.info("Job ID: %s", job_id)
 
     try:
-        run_rebuild_process(job_id, 'full_rebuild', {
-            'skip_clean': skip_clean,
-        })
-        logger.info('Full rebuild completed successfully.')
+        run_rebuild_process(
+            job_id,
+            "full_rebuild",
+            {
+                "skip_clean": skip_clean,
+            },
+        )
+        logger.info("Full rebuild completed successfully.")
     except Exception as e:
-        logger.error('Full rebuild failed: %s', e)
-        update_job(job_id, status='failed', error=str(e))
+        logger.error("Full rebuild failed: %s", e)
+        update_job(job_id, status="failed", error=str(e))
         raise
 
 
-if __name__ == '__main__':
-    skip_clean = '--skip-clean' in sys.argv
+if __name__ == "__main__":
+    skip_clean = "--skip-clean" in sys.argv
     with app.app_context():
         run(skip_clean=skip_clean)
