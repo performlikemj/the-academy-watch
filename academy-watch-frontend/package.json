@@ -83,7 +83,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "dotenv": "^16.6.1",
     "eslint": "^9.25.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^17.5.0",
     "pg": "^8.20.0",
