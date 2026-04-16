@@ -413,7 +413,7 @@ def run(dry_run=False, start_phase=1):
     ]
 
     api_heavy_phases = {"players", "statuses", "formations"}
-    for num, name, func in phases:
+    for num, name, phase_func in phases:
         if num < start_phase:
             logger.info(f"Skipping phase {num} ({name})")
             continue
@@ -424,7 +424,7 @@ def run(dry_run=False, start_phase=1):
             logger.info(f"Cooling down 60s before phase {num}...")
             time.sleep(60)
         try:
-            results[name] = func(dry_run=dry_run)
+            results[name] = phase_func(dry_run=dry_run)
         except Exception as e:
             logger.error(f"Phase {num} ({name}) failed: {e}")
             results[name] = f"ERROR: {e}"

@@ -2666,7 +2666,7 @@ def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -
                     if fixture:
                         # Resolve opponent for academy matches (youth team fixtures)
                         acad_team_id = tp.current_club_api_id or (
-                            team.team_id if hasattr(tp, "team") and tp.team else None
+                            team.team_id if hasattr(tp, "team") and tp.team else None  # noqa: F821 — team defined at top of fetch_pipeline_report_tool()
                         )
                         is_home = fixture.home_team_api_id == acad_team_id if acad_team_id else True
                         opp_api_id = (
@@ -3964,16 +3964,3 @@ COUNTRY_FALLBACKS = {
     "CO": ["ES"],
     "JP": ["US"],
 }
-
-
-def resolve_localization_for_country(iso_code: str | None, *, default: dict[str, str] | None = None) -> dict[str, str]:
-    default_loc = default or LOCALIZATION_DEFAULT
-    if not iso_code:
-        return dict(default_loc)
-    code = iso_code.upper()
-    if code in BRAVE_LOCALIZATION_BY_ISO:
-        return dict(BRAVE_LOCALIZATION_BY_ISO[code])
-    for fallback in COUNTRY_FALLBACKS.get(code, []):
-        if fallback in BRAVE_LOCALIZATION_BY_ISO:
-            return dict(BRAVE_LOCALIZATION_BY_ISO[fallback])
-    return dict(default_loc)
