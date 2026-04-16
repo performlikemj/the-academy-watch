@@ -47,7 +47,7 @@
     "@tiptap/extension-link": "^2.10.6",
     "@tiptap/react": "^2.10.6",
     "@tiptap/starter-kit": "^2.10.6",
-    "agentation": "^2.2.0",
+    "agentation": "^3.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
