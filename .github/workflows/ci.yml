@@ -34,3 +34,23 @@ jobs:
       - name: Build
         working-directory: academy-watch-frontend
         run: pnpm build
+
+  backend-lint:
+    name: Backend Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff lint
+        run: ruff check academy-watch-backend
+
+      - name: Run ruff format check
+        run: ruff format --check academy-watch-backend
