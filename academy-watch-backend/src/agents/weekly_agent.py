@@ -1520,12 +1520,6 @@ async def generate_weekly_newsletter_with_mcp(
     return await generate_weekly_newsletter(team_db_id, target_date, force_refresh)
 
 
-def generate_weekly_newsletter_with_mcp_sync(
-    team_db_id: int, target_date: date, force_refresh: bool = False
-) -> dict[str, Any]:
-    return asyncio.run(generate_weekly_newsletter(team_db_id, target_date, force_refresh))
-
-
 # ------------------------
 # Lint + enrichment helpers
 # ------------------------

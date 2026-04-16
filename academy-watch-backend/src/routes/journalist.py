@@ -206,8 +206,6 @@ def get_writer_available_players(user_id: int) -> list:
     )
 
     # Also include TrackedPlayer records for assigned parent clubs
-    from src.models.tracked_player import TrackedPlayer
-
     if parent_team_ids:
         tracked = TrackedPlayer.query.filter(
             TrackedPlayer.is_active,

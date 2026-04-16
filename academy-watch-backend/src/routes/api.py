@@ -71,6 +71,7 @@ from src.models.league import (
     StripeSubscription,
     Team,
     TeamAlias,
+    TeamProfile,
     TeamSubreddit,
     TeamTrackingRequest,
     UserAccount,
@@ -5601,6 +5602,8 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
     from src.models.tracked_player import TrackedPlayer
     from src.models.weekly import Fixture, FixturePlayerStats
 
+    api_client = APIFootballClient()
+
     try:
         dry_run = data.get("dry_run", False)
 
@@ -5667,8 +5670,6 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                 progress=0,
                 current_player=f"Syncing {total_players} players from {team.name}...",
             )
-
-        api_client = APIFootballClient()
 
         results = []
         total_synced = 0
@@ -5822,9 +5823,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
             results.append(player_result)
 
             if job_id and idx % 5 == 0:
-                _update_job(
-                    job_id, progress=idx + 1, current_player=f"{loaned.player_name} ({player_result['synced']} new)"
-                )
+                _update_job(job_id, progress=idx + 1, current_player=f"{p_name} ({player_result['synced']} new)")
 
         final_result = {
             "team_id": team_id,

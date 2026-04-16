@@ -25,18 +25,8 @@ ignore = [
     "B023",   # function-uses-loop-variable — incremental cleanup (mostly closures)
     "B025",   # duplicate-try-block-exception — incremental cleanup
     "E722",   # bare-except — incremental cleanup
-    "F402",   # import-shadowed-by-loop-var — pre-existing
-    "F811",   # redefined-while-unused — pre-existing
-    "F823",   # undefined-local — pre-existing, needs triage
 ]
 
-[tool.ruff.lint.per-file-ignores]
-# Pre-existing real bugs in the codebase, tracked for separate triage.
-# DO NOT add to this list without opening an issue to fix the underlying bug.
-"src/agents/weekly_newsletter_agent.py" = ["F821"]  # undefined `team` at line 2684
-"src/routes/api.py" = ["F821"]  # undefined `loaned` + missing `TeamProfile` import
-"src/routes/journey.py" = ["F821"]  # undefined `loan` variable
-"src/scripts/backfill_tracked_player_stats.py" = ["F821"]  # references deleted AcademyPlayer model — script is dead code
 
 [tool.ruff.lint.isort]
 known-first-party = ["admin", "agents", "config", "data", "mcp", "models", "routes", "services", "utils"]

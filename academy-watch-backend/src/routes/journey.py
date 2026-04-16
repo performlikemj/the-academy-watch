@@ -94,8 +94,8 @@ def get_loan_journey(loaned_player_id):
     return jsonify(
         {
             "loaned_player_id": loaned_player_id,
-            "player_id": loan.player_id,
-            "player_name": loan.player_name,
+            "player_id": tp.player_api_id,
+            "player_name": tp.player_name,
             **journey_data,
         }
     )
