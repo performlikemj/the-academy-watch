@@ -205,6 +205,10 @@ Key variables (see `academy-watch-backend/env.template` for full list):
 - **Quality bar:** Lint/typecheck must pass before marking work complete
 - **Trivial tasks** (<15 min, single file): Log one-liner in CONTINUITY.md's Trivial Log
 
+### Harness
+
+Run `~/bin/harness-check --project . --scope staged` before every commit. Pre-commit hooks enforce this automatically (ruff lint, ruff format, secret scan). See `rules/harness.md` for the full protocol. Auto-fix: `~/bin/harness-check --project . --scope staged --fix`. If hooks are missing: `~/bin/harness-install .`
+
 ### Ralph Autonomous Mode
 
 When running via `./scripts/ralph/ralph.sh`:

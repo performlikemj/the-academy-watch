@@ -4,8 +4,9 @@ Revision ID: z5a6b7c8d9e0
 Revises: 196536e958f5
 Create Date: 2025-11-21 00:00:00.000000
 """
-from alembic import op
+
 import sqlalchemy as sa
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "z5a6b7c8d9e0"
@@ -32,6 +33,7 @@ def upgrade():
         "newsletter_commentary",
         sa.Column("is_premium", sa.Boolean(), nullable=False, server_default=sa.text("true")),
     )
+
 
 def downgrade():
     op.drop_column("newsletter_commentary", "is_premium")

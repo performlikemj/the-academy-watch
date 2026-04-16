@@ -8,12 +8,11 @@ code-interpreter tool for querying The Academy Watch database.
 import json
 import logging
 import os
-from typing import Generator
+from collections.abc import Generator
+from datetime import UTC
 
 from openai import OpenAI
 from sqlalchemy import func
-
-from src.models.league import db
 from src.models.tracked_player import TrackedPlayer
 from src.services.gol_dataframes import DataFrameCache
 from src.services.gol_sandbox import execute_analysis
@@ -398,9 +397,9 @@ class GolService:
     _df_cache = None  # Class-level singleton
 
     def __init__(self, session_id: str | None = None, model_override: str | None = None):
-        provider = os.getenv('GOL_PROVIDER', 'openai')
-        if provider == 'openrouter':
-            api_key = os.getenv('OPENROUTER_API_KEY')
+        provider = os.getenv("GOL_PROVIDER", "openai")
+        if provider == "openrouter":
+            api_key = os.getenv("OPENROUTER_API_KEY")
             if not api_key:
                 raise RuntimeError("OPENROUTER_API_KEY not configured")
             self.client = OpenAI(
@@ -412,11 +411,11 @@ class GolService:
                 },
             )
         else:
-            api_key = os.getenv('OPENAI_API_KEY')
+            api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
                 raise RuntimeError("OPENAI_API_KEY not configured")
             self.client = OpenAI(api_key=api_key)
-        self.model = model_override or os.getenv('GOL_MODEL', 'gpt-4.1-mini')
+        self.model = model_override or os.getenv("GOL_MODEL", "gpt-4.1-mini")
         self._session_id = session_id
         if GolService._df_cache is None:
             GolService._df_cache = DataFrameCache()
@@ -436,12 +435,13 @@ class GolService:
         """
         try:
             # Inject current date and season into system prompt
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc)
+            from datetime import datetime
+
+            now = datetime.now(UTC)
             season_int = now.year if now.month >= 8 else now.year - 1
             season_label = f"{season_int}/{str(season_int + 1)[-2:]}"
             system_content = SYSTEM_PROMPT.format(
-                today=now.strftime('%d %B %Y'),
+                today=now.strftime("%d %B %Y"),
                 season_label=season_label,
                 season_int=season_int,
             )
@@ -514,17 +514,21 @@ class GolService:
                 assistant_tool_calls = []
                 for idx in sorted(tool_calls_buffer.keys()):
                     tc = tool_calls_buffer[idx]
-                    assistant_tool_calls.append({
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": tc["function"],
-                    })
+                    assistant_tool_calls.append(
+                        {
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": tc["function"],
+                        }
+                    )
 
-                messages.append({
-                    "role": "assistant",
-                    "content": content_buffer or None,
-                    "tool_calls": assistant_tool_calls,
-                })
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": content_buffer or None,
+                        "tool_calls": assistant_tool_calls,
+                    }
+                )
 
                 for idx in sorted(tool_calls_buffer.keys()):
                     tc = tool_calls_buffer[idx]
@@ -540,22 +544,24 @@ class GolService:
                     result = self._execute_tool(func_name, args)
 
                     # Only emit data card for successful results
-                    if result.get('result_type') != 'error':
+                    if result.get("result_type") != "error":
                         try:
                             json.dumps(result)  # Pre-validate serialization
                         except TypeError as ser_err:
                             logger.error(
                                 "data_card serialization failed: %s | result_type=%s keys=%s",
-                                ser_err, result.get('result_type'), list(result.keys()),
+                                ser_err,
+                                result.get("result_type"),
+                                list(result.keys()),
                             )
                             for k, v in result.items():
                                 if not isinstance(v, (str, int, float, bool, list, dict, type(None))):
                                     logger.error("  key=%s type=%s", k, type(v).__name__)
-                            result = {'result_type': 'error', 'error': 'Result could not be serialized'}
+                            result = {"result_type": "error", "error": "Result could not be serialized"}
                         yield {"event": "data_card", "data": {"type": "analysis_result", "payload": result}}
 
                     # Sanitize error details before sending to LLM
-                    llm_result = self._sanitize_for_llm(result) if result.get('result_type') == 'error' else result
+                    llm_result = self._sanitize_for_llm(result) if result.get("result_type") == "error" else result
 
                     # Add tool result to messages for LLM context
                     try:
@@ -563,14 +569,17 @@ class GolService:
                     except TypeError as ser_err:
                         logger.error(
                             "LLM tool result serialization failed: %s | result_type=%s",
-                            ser_err, llm_result.get('result_type'),
+                            ser_err,
+                            llm_result.get("result_type"),
                         )
-                        tool_content = json.dumps({'result_type': 'error', 'error': 'Result could not be serialized'})
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": tool_content,
-                    })
+                        tool_content = json.dumps({"result_type": "error", "error": "Result could not be serialized"})
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": tool_content,
+                        }
+                    )
 
                 # Emit history entries so the frontend can replay them next turn
                 history_entries = [
@@ -596,14 +605,14 @@ class GolService:
     @staticmethod
     def _sanitize_for_llm(result: dict) -> dict:
         """Sanitize error for LLM context — helpful enough to retry, no raw stacktraces."""
-        raw = result.get('error', '')
-        if 'import' in raw.lower():
+        raw = result.get("error", "")
+        if "import" in raw.lower():
             hint = "Import statements are not allowed. pd and np are already available."
-        elif 'KeyError' in raw or 'not in index' in raw.lower():
+        elif "KeyError" in raw or "not in index" in raw.lower():
             hint = "A column name was not found. Check available columns in the DataFrame descriptions."
-        elif 'merge' in raw.lower() or 'join' in raw.lower():
+        elif "merge" in raw.lower() or "join" in raw.lower():
             hint = "Merge/join failed. Check that join keys exist in both DataFrames."
-        elif 'timed out' in raw.lower():
+        elif "timed out" in raw.lower():
             hint = "The query took too long. Simplify the analysis or reduce the data scope."
         else:
             hint = "The code could not be executed. Try a simpler approach."
@@ -625,6 +634,7 @@ class GolService:
         try:
             if name == "run_analysis":
                 from flask import current_app
+
                 code = args.get("code", "")
                 display = args.get("display", "table")
                 description = args.get("description", "")
@@ -648,33 +658,33 @@ class GolService:
         lookup = GolPlayerLookup(current_app._get_current_object())
         return lookup.lookup(name, team=team, session_id=self._session_id)
 
-
-
     def _tool_search_web(self, query: str) -> dict:
         """Search the web using Brave Search API."""
         import requests as req
 
-        api_key = os.getenv('BRAVE_SEARCH_KEY')
+        api_key = os.getenv("BRAVE_SEARCH_KEY")
         if not api_key:
             return {"error": "Web search not configured"}
 
         try:
             resp = req.get(
-                'https://api.search.brave.com/res/v1/web/search',
-                headers={'X-Subscription-Token': api_key, 'Accept': 'application/json'},
-                params={'q': query, 'count': 3},
+                "https://api.search.brave.com/res/v1/web/search",
+                headers={"X-Subscription-Token": api_key, "Accept": "application/json"},
+                params={"q": query, "count": 3},
                 timeout=10,
             )
             resp.raise_for_status()
             data = resp.json()
 
             results = []
-            for item in data.get('web', {}).get('results', [])[:3]:
-                results.append({
-                    'title': item.get('title'),
-                    'url': item.get('url'),
-                    'description': item.get('description'),
-                })
+            for item in data.get("web", {}).get("results", [])[:3]:
+                results.append(
+                    {
+                        "title": item.get("title"),
+                        "url": item.get("url"),
+                        "description": item.get("description"),
+                    }
+                )
 
             return {"results": results}
 
@@ -686,17 +696,19 @@ class GolService:
         """Generate conversation starter suggestions based on recent data."""
         suggestions = []
 
-        recent_players = TrackedPlayer.query.filter_by(
-            status='on_loan', is_active=True
-        ).order_by(func.random()).limit(2).all()
+        recent_players = (
+            TrackedPlayer.query.filter_by(status="on_loan", is_active=True).order_by(func.random()).limit(2).all()
+        )
 
         for p in recent_players:
             suggestions.append(f"How is {p.player_name} doing at {p.current_club_name}?")
 
-        suggestions.extend([
-            "Which Big 6 academy is producing the most first-team players?",
-            "Who are the top-performing loan players this season?",
-            "Who are the hidden gems among loan players right now?",
-        ])
+        suggestions.extend(
+            [
+                "Which Big 6 academy is producing the most first-team players?",
+                "Who are the top-performing loan players this season?",
+                "Who are the hidden gems among loan players right now?",
+            ]
+        )
 
         return suggestions[:4]

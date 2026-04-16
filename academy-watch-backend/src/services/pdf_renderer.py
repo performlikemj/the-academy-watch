@@ -28,8 +28,9 @@ import html as html_lib
 import logging
 import os
 import re
+from collections.abc import Iterable
 from datetime import date, datetime
-from typing import Any, Iterable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -305,11 +306,7 @@ def _markdown_to_html(text: str) -> str:
         logger.warning("markdown-it-py unavailable, falling back to plain wrap")
 
     if rendered is None:
-        escaped = (
-            text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-        )
+        escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         # Post-process the escaped plain text to wrap bare http(s) URLs in
         # anchors — important for the fallback path because without
         # markdown-it we'd otherwise lose every link.
@@ -318,25 +315,16 @@ def _markdown_to_html(text: str) -> str:
             escaped,
         )
         paragraphs = [p.strip() for p in escaped.split("\n\n") if p.strip()]
-        rendered = "\n".join(
-            f"<p>{p.replace(chr(10), '<br/>')}</p>" for p in paragraphs
-        )
+        rendered = "\n".join(f"<p>{p.replace(chr(10), '<br/>')}</p>" for p in paragraphs)
 
     return _absolutize_links(rendered, _public_base_url())
 
 
-def _filter_hidden_columns(
-    columns: list[str], rows: list[list[Any]]
-) -> tuple[list[str], list[list[Any]]]:
+def _filter_hidden_columns(columns: list[str], rows: list[list[Any]]) -> tuple[list[str], list[list[Any]]]:
     """Drop any column whose header is in the internal-only allowlist."""
-    visible_indices = [
-        idx for idx, col in enumerate(columns) if col not in _GOL_HIDDEN_COLUMNS
-    ]
+    visible_indices = [idx for idx, col in enumerate(columns) if col not in _GOL_HIDDEN_COLUMNS]
     filtered_cols = [columns[idx] for idx in visible_indices]
-    filtered_rows = [
-        [row[idx] if idx < len(row) else None for idx in visible_indices]
-        for row in rows
-    ]
+    filtered_rows = [[row[idx] if idx < len(row) else None for idx in visible_indices] for row in rows]
     return filtered_cols, filtered_rows
 
 
@@ -407,9 +395,7 @@ def _build_linkified_table(
     # links are removed). We keep the original indices so we can still read
     # the id cell when rendering.
     visible_indices = [
-        i
-        for i, col in enumerate(raw_columns)
-        if col not in _GOL_HIDDEN_COLUMNS and i not in extra_hidden_indices
+        i for i, col in enumerate(raw_columns) if col not in _GOL_HIDDEN_COLUMNS and i not in extra_hidden_indices
     ]
     visible_columns = [raw_columns[i] for i in visible_indices]
 
@@ -435,9 +421,7 @@ def _build_linkified_table(
                 id_value = row[id_idx] if id_idx < len(row) else None
                 if id_value is not None and cell is not None:
                     href = f"{base_url}{prefix}{html_lib.escape(str(id_value))}"
-                    out_row.append(
-                        f'<a href="{href}">{_fmt(cell)}</a>'
-                    )
+                    out_row.append(f'<a href="{href}">{_fmt(cell)}</a>')
                     continue
             out_row.append(_fmt(cell))
         rendered_rows.append(out_row)
@@ -507,11 +491,7 @@ def _normalize_gol_data_card(card: dict[str, Any]) -> dict[str, Any] | None:
                 render_generic_line_chart,
             )
 
-            renderer = (
-                render_generic_bar_chart
-                if display == "bar_chart"
-                else render_generic_line_chart
-            )
+            renderer = render_generic_bar_chart if display == "bar_chart" else render_generic_line_chart
             png_bytes = renderer(chart_columns, chart_rows, title=description or None)
             data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
         except Exception:
@@ -655,8 +635,8 @@ def render_gol_chat_pdf(messages: list[dict[str, Any]]) -> tuple[bytes, str]:
     """
     # Imported lazily to avoid import errors when WeasyPrint's system
     # libraries aren't installed in dev.
-    from weasyprint import HTML  # type: ignore
     from flask import render_template, request
+    from weasyprint import HTML  # type: ignore
 
     normalized = _normalize_gol_messages(messages)
     exported_date = datetime.utcnow().strftime("%d %B %Y")
@@ -673,9 +653,5 @@ def render_gol_chat_pdf(messages: list[dict[str, Any]]) -> tuple[bytes, str]:
         base_url = None
 
     pdf_bytes = HTML(string=html, base_url=base_url).write_pdf()
-    filename = (
-        "gol-chat-"
-        + datetime.utcnow().strftime("%Y-%m-%d-%H%M%S")
-        + ".pdf"
-    )
+    filename = "gol-chat-" + datetime.utcnow().strftime("%Y-%m-%d-%H%M%S") + ".pdf"
     return pdf_bytes, filename

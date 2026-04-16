@@ -72,9 +72,7 @@ def test_upgrade_adds_journalist_profile_fields(sqlite_memory_engine):
     metadata.create_all(engine)
 
     # New migration should add missing columns
-    migration = importlib.import_module(
-        "migrations.versions.z5a6b7c8d9e0_add_journalist_profile_fields"
-    )
+    migration = importlib.import_module("migrations.versions.z5a6b7c8d9e0_add_journalist_profile_fields")
 
     with alembic_ops(engine):
         migration.upgrade()

@@ -49,7 +49,9 @@ class DataFrameCache:
             engine = db.engine
             frames = {}
 
-            frames['teams'] = self._load_query(engine, """
+            frames["teams"] = self._load_query(
+                engine,
+                """
                 SELECT
                     t.id, t.team_id, t.name, t.country,
                     l.name AS league_name,
@@ -57,9 +59,12 @@ class DataFrameCache:
                 FROM teams t
                 LEFT JOIN leagues l ON t.league_id = l.id
                 WHERE t.season = (SELECT MAX(season) FROM teams)
-            """)
+            """,
+            )
 
-            frames['tracked'] = self._load_query(engine, """
+            frames["tracked"] = self._load_query(
+                engine,
+                """
                 SELECT
                     tp.player_api_id, tp.player_name, tp.position,
                     tp.nationality, tp.age, tp.team_id,
@@ -72,9 +77,12 @@ class DataFrameCache:
                 LEFT JOIN teams t ON tp.team_id = t.id
                 LEFT JOIN player_journeys pj ON tp.journey_id = pj.id
                 WHERE tp.is_active = true
-            """)
+            """,
+            )
 
-            frames['journeys'] = self._load_query(engine, """
+            frames["journeys"] = self._load_query(
+                engine,
+                """
                 SELECT
                     player_api_id, player_name, nationality, birth_date,
                     origin_club_name, origin_year,
@@ -84,9 +92,12 @@ class DataFrameCache:
                     total_loan_apps, total_goals, total_assists,
                     academy_club_ids
                 FROM player_journeys
-            """)
+            """,
+            )
 
-            frames['journey_entries'] = self._load_query(engine, """
+            frames["journey_entries"] = self._load_query(
+                engine,
+                """
                 SELECT
                     je.journey_id,
                     pj.player_api_id,
@@ -96,9 +107,12 @@ class DataFrameCache:
                     je.assists, je.minutes
                 FROM player_journey_entries je
                 JOIN player_journeys pj ON je.journey_id = pj.id
-            """)
+            """,
+            )
 
-            frames['cohorts'] = self._load_query(engine, """
+            frames["cohorts"] = self._load_query(
+                engine,
+                """
                 SELECT
                     c.id, c.team_api_id,
                     COALESCE(c.team_name, t.name) AS team_name,
@@ -112,9 +126,12 @@ class DataFrameCache:
                     AND t.season = (SELECT MAX(season) FROM teams)
                 LEFT JOIN leagues t_league ON t.league_id = t_league.id
                 WHERE c.total_players > 0
-            """)
+            """,
+            )
 
-            frames['cohort_members'] = self._load_query(engine, """
+            frames["cohort_members"] = self._load_query(
+                engine,
+                """
                 SELECT
                     cohort_id, player_api_id, player_name, position,
                     nationality, current_club_name, current_level,
@@ -123,28 +140,40 @@ class DataFrameCache:
                     total_clubs, total_loan_spells, journey_synced
                 FROM cohort_members
                 WHERE journey_synced = true
-            """)
+            """,
+            )
 
-            frames['fixtures'] = self._load_query(engine, """
+            frames["fixtures"] = self._load_query(
+                engine,
+                """
                 SELECT
                     id, fixture_id_api, date_utc, season,
                     competition_name,
                     home_team_api_id, away_team_api_id,
                     home_goals, away_goals
                 FROM fixtures
-            """)
+            """,
+            )
 
-            frames['team_profiles'] = self._load_query(engine, """
+            frames["team_profiles"] = self._load_query(
+                engine,
+                """
                 SELECT team_id, name, country, logo_url
                 FROM team_profiles
-            """)
+            """,
+            )
 
-            frames['players'] = self._load_query(engine, """
+            frames["players"] = self._load_query(
+                engine,
+                """
                 SELECT player_id AS player_api_id, name AS player_name
                 FROM players
-            """)
+            """,
+            )
 
-            frames['fixture_stats'] = self._load_query(engine, """
+            frames["fixture_stats"] = self._load_query(
+                engine,
+                """
                 SELECT
                     fs.fixture_id, fs.player_api_id, fs.team_api_id,
                     f.season, f.date_utc, f.competition_name,
@@ -158,7 +187,8 @@ class DataFrameCache:
                     fs.dribbles_success, fs.fouls_drawn, fs.fouls_committed
                 FROM fixture_player_stats fs
                 JOIN fixtures f ON fs.fixture_id = f.id
-            """)
+            """,
+            )
 
             return frames
 

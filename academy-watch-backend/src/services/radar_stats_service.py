@@ -9,7 +9,8 @@ import logging
 import os
 import time
 from collections import Counter
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC
+from typing import Any
 
 from src.models.league import db
 from src.utils.formation_roles import (
@@ -24,37 +25,75 @@ logger = logging.getLogger(__name__)
 # Position-specific stat axes (ordered list of stat keys per group)
 # ---------------------------------------------------------------------------
 
-POSITION_STAT_AXES: Dict[str, List[str]] = {
+POSITION_STAT_AXES: dict[str, list[str]] = {
     "ST": [
-        "goals", "assists", "shots_on", "passes_key",
-        "dribbles_success", "duels_won", "fouls_drawn",
+        "goals",
+        "assists",
+        "shots_on",
+        "passes_key",
+        "dribbles_success",
+        "duels_won",
+        "fouls_drawn",
     ],
     "W": [
-        "dribbles_success", "passes_key", "assists", "goals",
-        "shots_on", "duels_won", "tackles_total",
+        "dribbles_success",
+        "passes_key",
+        "assists",
+        "goals",
+        "shots_on",
+        "duels_won",
+        "tackles_total",
     ],
     "AM": [
-        "passes_key", "assists", "dribbles_success", "goals",
-        "shots_total", "passes_total", "duels_won",
+        "passes_key",
+        "assists",
+        "dribbles_success",
+        "goals",
+        "shots_total",
+        "passes_total",
+        "duels_won",
     ],
     "CM": [
-        "passes_total", "passes_key", "tackles_total",
-        "tackles_interceptions", "duels_won", "assists", "dribbles_success",
+        "passes_total",
+        "passes_key",
+        "tackles_total",
+        "tackles_interceptions",
+        "duels_won",
+        "assists",
+        "dribbles_success",
     ],
     "DM": [
-        "tackles_total", "tackles_interceptions", "tackles_blocks",
-        "duels_won", "passes_total", "passes_key", "fouls_committed",
+        "tackles_total",
+        "tackles_interceptions",
+        "tackles_blocks",
+        "duels_won",
+        "passes_total",
+        "passes_key",
+        "fouls_committed",
     ],
     "FB": [
-        "tackles_total", "tackles_interceptions", "passes_key",
-        "dribbles_success", "duels_won", "passes_total", "tackles_blocks",
+        "tackles_total",
+        "tackles_interceptions",
+        "passes_key",
+        "dribbles_success",
+        "duels_won",
+        "passes_total",
+        "tackles_blocks",
     ],
     "CB": [
-        "tackles_total", "tackles_interceptions", "tackles_blocks",
-        "duels_won", "passes_total", "passes_key", "fouls_committed",
+        "tackles_total",
+        "tackles_interceptions",
+        "tackles_blocks",
+        "duels_won",
+        "passes_total",
+        "passes_key",
+        "fouls_committed",
     ],
     "GK": [
-        "saves", "goals_conceded", "passes_total", "passes_key",
+        "saves",
+        "goals_conceded",
+        "passes_total",
+        "passes_key",
     ],
 }
 
@@ -65,7 +104,7 @@ _INVERTED_STATS = {"goals_conceded", "fouls_committed"}
 _RAW_AVERAGE_STATS = {"rating", "passes_accuracy"}
 
 # Human-readable labels
-STAT_LABELS: Dict[str, str] = {
+STAT_LABELS: dict[str, str] = {
     "goals": "Goals",
     "assists": "Assists",
     "shots_total": "Shots",
@@ -111,29 +150,29 @@ _GROUP_TO_BROAD_POSITION = {
 # ---------------------------------------------------------------------------
 # In-memory cache for league position averages
 # ---------------------------------------------------------------------------
-_league_cache: Dict[Tuple[int, int], Tuple[float, dict]] = {}
+_league_cache: dict[tuple[int, int], tuple[float, dict]] = {}
 _LEAGUE_CACHE_TTL = 24 * 3600  # 24 hours (API response cached 7 days anyway)
 
 
-def _cache_get(key: Tuple) -> Optional[dict]:
+def _cache_get(key: tuple) -> dict | None:
     entry = _league_cache.get(key)
     if entry and (time.time() - entry[0]) < _LEAGUE_CACHE_TTL:
         return entry[1]
     return None
 
 
-def _cache_set(key: Tuple, data: dict) -> None:
+def _cache_set(key: tuple, data: dict) -> None:
     _league_cache[key] = (time.time(), data)
 
 
 # ---------------------------------------------------------------------------
 # In-memory cache for team→domestic-league lookups via API-Football
 # ---------------------------------------------------------------------------
-_team_league_cache: Dict[Tuple[int, int], Tuple[float, Optional[Tuple[int, str]]]] = {}
+_team_league_cache: dict[tuple[int, int], tuple[float, tuple[int, str] | None]] = {}
 _TEAM_LEAGUE_CACHE_TTL = 24 * 3600  # 24 hours; league membership is stable across a season
 
 
-def _team_league_from_api(team_api_id: int, season: int) -> Optional[Tuple[int, str]]:
+def _team_league_from_api(team_api_id: int, season: int) -> tuple[int, str] | None:
     """Ground-truth lookup of a team's primary domestic league via API-Football.
 
     Used as the *first* step in resolve_player_league so we don't trust local
@@ -154,26 +193,23 @@ def _team_league_from_api(team_api_id: int, season: int) -> Optional[Tuple[int, 
 
     api_key = os.getenv("API_FOOTBALL_KEY")
     if not api_key:
-        logger.debug(
-            "API_FOOTBALL_KEY not set — cannot resolve team %s league via API", team_api_id
-        )
+        logger.debug("API_FOOTBALL_KEY not set — cannot resolve team %s league via API", team_api_id)
         return None
 
     try:
         from src.api_football_client import APIFootballClient
+
         client = APIFootballClient(api_key=api_key)
         resp = client._make_request("leagues", {"team": team_api_id, "season": season})
     except Exception as e:  # noqa: BLE001
-        logger.warning(
-            "Failed to resolve team %s league via API-Football: %s", team_api_id, e
-        )
+        logger.warning("Failed to resolve team %s league via API-Football: %s", team_api_id, e)
         # Don't cache failures — let the next call retry.
         return None
 
     leagues = (resp or {}).get("response", []) or []
 
     # Prefer first "League"-type domestic competition; skip Cups, Friendlies, etc.
-    resolved: Optional[Tuple[int, str]] = None
+    resolved: tuple[int, str] | None = None
     for league_entry in leagues:
         league_info = (league_entry or {}).get("league", {}) or {}
         if league_info.get("type") == "League":
@@ -191,10 +227,11 @@ def _team_league_from_api(team_api_id: int, season: int) -> Optional[Tuple[int, 
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def formation_position_to_group(
-    formation_position: Optional[str],
-    fallback_position: Optional[str] = None,
-) -> Optional[str]:
+    formation_position: str | None,
+    fallback_position: str | None = None,
+) -> str | None:
     """Map a formation_position label (e.g. 'LW') to a position group key (e.g. 'W')."""
     if formation_position:
         group = POSITION_GROUPS.get(formation_position.upper())
@@ -205,7 +242,7 @@ def formation_position_to_group(
     return None
 
 
-def get_primary_formation_position(fixtures_data: List[dict]) -> Tuple[Optional[str], int, int]:
+def get_primary_formation_position(fixtures_data: list[dict]) -> tuple[str | None, int, int]:
     """Determine a player's most-played formation_position from fixture data."""
     counter: Counter = Counter()
     for f in fixtures_data:
@@ -221,12 +258,12 @@ def get_primary_formation_position(fixtures_data: List[dict]) -> Tuple[Optional[
     return most_common[0], most_common[1], sum(counter.values())
 
 
-def compute_player_per90(fixtures_data: List[dict]) -> Dict[str, float]:
+def compute_player_per90(fixtures_data: list[dict]) -> dict[str, float]:
     """Compute per-90-minute stats for a single player from their fixture data."""
     total_minutes = 0
-    totals: Dict[str, float] = {}
-    rating_values: List[float] = []
-    accuracy_values: List[float] = []
+    totals: dict[str, float] = {}
+    rating_values: list[float] = []
+    accuracy_values: list[float] = []
 
     for f in fixtures_data:
         stats = f.get("stats", {})
@@ -259,7 +296,7 @@ def compute_player_per90(fixtures_data: List[dict]) -> Dict[str, float]:
     if total_minutes <= 0:
         return {}
 
-    result: Dict[str, float] = {}
+    result: dict[str, float] = {}
     for key, total in totals.items():
         result[key] = round((total / total_minutes) * 90, 3)
 
@@ -275,7 +312,8 @@ def compute_player_per90(fixtures_data: List[dict]) -> Dict[str, float]:
 # League-wide position averages from API-Football
 # ---------------------------------------------------------------------------
 
-def _extract_player_per90_from_api(stat_block: dict) -> Optional[Dict[str, float]]:
+
+def _extract_player_per90_from_api(stat_block: dict) -> dict[str, float] | None:
     """Extract per-90 stats from a single API-Football player statistics block.
 
     Returns None if the player doesn't meet the minimum minutes threshold.
@@ -322,7 +360,7 @@ def _extract_player_per90_from_api(stat_block: dict) -> Optional[Dict[str, float
 def fetch_league_position_averages(
     league_api_id: int,
     season: int,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Fetch per-90 averages for all positions in a league from API-Football.
 
     Returns:
@@ -351,7 +389,7 @@ def fetch_league_position_averages(
     client = APIFootballClient(api_key=api_key)
 
     # Collect per-90 stats grouped by broad position
-    position_stats: Dict[str, List[Dict[str, float]]] = {
+    position_stats: dict[str, list[dict[str, float]]] = {
         "Goalkeeper": [],
         "Defender": [],
         "Midfielder": [],
@@ -361,11 +399,14 @@ def fetch_league_position_averages(
     page = 1
     while True:
         try:
-            resp = client._make_request("players", {
-                "league": league_api_id,
-                "season": season,
-                "page": page,
-            })
+            resp = client._make_request(
+                "players",
+                {
+                    "league": league_api_id,
+                    "season": season,
+                    "page": page,
+                },
+            )
         except Exception as e:
             logger.error(f"API error fetching league {league_api_id} page {page}: {e}")
             break
@@ -390,15 +431,15 @@ def fetch_league_position_averages(
         page += 1
 
     # Aggregate: compute mean and max per stat per position
-    result: Dict[str, Dict[str, Any]] = {}
+    result: dict[str, dict[str, Any]] = {}
     for pos, players in position_stats.items():
         if not players:
             result[pos] = {"averages": {}, "maximums": {}, "player_count": 0}
             continue
 
         all_stats = players[0].keys()
-        averages: Dict[str, float] = {}
-        maximums: Dict[str, float] = {}
+        averages: dict[str, float] = {}
+        maximums: dict[str, float] = {}
 
         for stat in all_stats:
             values = [p[stat] for p in players if p.get(stat) is not None]
@@ -414,13 +455,12 @@ def fetch_league_position_averages(
 
     _cache_set(cache_key, result)
     logger.info(
-        f"League {league_api_id} season {season}: "
-        + ", ".join(f"{p}={d['player_count']}" for p, d in result.items())
+        f"League {league_api_id} season {season}: " + ", ".join(f"{p}={d['player_count']}" for p, d in result.items())
     )
     return result
 
 
-def _league_from_fixture_dicts(fixtures_data: List[dict]) -> Optional[Tuple[int, str]]:
+def _league_from_fixture_dicts(fixtures_data: list[dict]) -> tuple[int, str] | None:
     """Extract a domestic-league classification from in-memory fixture dicts.
 
     Walks fixtures in date-DESC order and returns the first one whose
@@ -441,8 +481,8 @@ def _league_from_fixture_dicts(fixtures_data: List[dict]) -> Optional[Tuple[int,
 
 def _league_from_fixtures(
     player_api_id: int,
-    current_club_api_id: Optional[int] = None,
-) -> Optional[Tuple[int, str]]:
+    current_club_api_id: int | None = None,
+) -> tuple[int, str] | None:
     """Extract a domestic-league classification from the player's fixtures.
 
     Walks the player's fixtures in date-DESC order and returns the first
@@ -458,6 +498,7 @@ def _league_from_fixtures(
     currently on loan at a lower-tier club.
     """
     import json
+
     from src.models.weekly import Fixture, FixturePlayerStats
 
     query = (
@@ -498,8 +539,8 @@ def _league_from_fixtures(
 
 def resolve_player_league(
     player_api_id: int,
-    season: Optional[int] = None,
-) -> Optional[Tuple[int, str]]:
+    season: int | None = None,
+) -> tuple[int, str] | None:
     """Resolve a player's current-league for the radar comparison.
 
     Returns (league_api_id, league_name) or None.
@@ -529,15 +570,16 @@ def resolve_player_league(
     (the chart says "League comparison unavailable for X") than to
     mis-attribute the comparison to the wrong league.
     """
-    from src.models.league import Team, League
+    from src.models.league import League, Team
     from src.models.tracked_player import TrackedPlayer
 
     if season is None:
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
+        from datetime import datetime
+
+        now = datetime.now(UTC)
         season = now.year if now.month >= 7 else now.year - 1
 
-    def _league_from_team(team: "Team") -> Optional[Tuple[int, str]]:
+    def _league_from_team(team: "Team") -> tuple[int, str] | None:
         if not team or not team.league_id:
             return None
         league = League.query.filter_by(id=team.league_id).first()
@@ -555,8 +597,7 @@ def resolve_player_league(
     # ordering used by routes/journalist.py:get_chart_data when it resolves
     # current_club_api_id.)
     tp = (
-        TrackedPlayer.query
-        .filter_by(player_api_id=player_api_id, is_active=True)
+        TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
         .order_by(TrackedPlayer.updated_at.desc())
         .first()
     )
@@ -568,7 +609,7 @@ def resolve_player_league(
     # (set directly by the classifier from API-Football), fall back to
     # current_club_db_id → Team.team_id for older records that only have the
     # local FK populated.
-    current_api_id: Optional[int] = tp.current_club_api_id
+    current_api_id: int | None = tp.current_club_api_id
     if not current_api_id and tp.current_club_db_id:
         current_team = Team.query.filter_by(id=tp.current_club_db_id).first()
         if current_team:
@@ -596,22 +637,24 @@ def resolve_player_league(
     #
     # Loanees / sold players are unaffected — they have current_club_api_id
     # pointing at a different club and don't hit this gate.
-    if (
-        tp.status == 'first_team'
-        and tp.team
-        and (current_api_id is None or current_api_id == tp.team.team_id)
-    ):
+    if tp.status == "first_team" and tp.team and (current_api_id is None or current_api_id == tp.team.team_id):
         from sqlalchemy import func as _sa_func
-        from src.models.weekly import FixturePlayerStats, Fixture
-        senior_minutes = db.session.query(
-            _sa_func.coalesce(_sa_func.sum(FixturePlayerStats.minutes), 0)
-        ).join(
-            Fixture, FixturePlayerStats.fixture_id == Fixture.id,
-        ).filter(
-            FixturePlayerStats.player_api_id == player_api_id,
-            FixturePlayerStats.team_api_id == tp.team.team_id,
-            Fixture.season == season,
-        ).scalar() or 0
+        from src.models.weekly import Fixture, FixturePlayerStats
+
+        senior_minutes = (
+            db.session.query(_sa_func.coalesce(_sa_func.sum(FixturePlayerStats.minutes), 0))
+            .join(
+                Fixture,
+                FixturePlayerStats.fixture_id == Fixture.id,
+            )
+            .filter(
+                FixturePlayerStats.player_api_id == player_api_id,
+                FixturePlayerStats.team_api_id == tp.team.team_id,
+                Fixture.season == season,
+            )
+            .scalar()
+            or 0
+        )
 
         if senior_minutes >= 90:
             current_api_id = tp.team.team_id
@@ -649,22 +692,23 @@ def resolve_player_league(
 # Main radar chart builder
 # ---------------------------------------------------------------------------
 
+
 def get_radar_chart_data(
     player_id: int,
-    fixtures_data: List[dict],
-    stat_keys: Optional[List[str]] = None,
-    season: Optional[int] = None,
-) -> Dict[str, Any]:
+    fixtures_data: list[dict],
+    stat_keys: list[str] | None = None,
+    season: int | None = None,
+) -> dict[str, Any]:
     """Build the full radar chart response for a player.
 
     Compares the player's per-90 stats against the league-wide position
     average. Both values are normalized to 0-100 where 100 = the best
     performer at that position in the league.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     if season is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         season = now.year if now.month >= 7 else now.year - 1
 
     # Determine primary position
@@ -687,22 +731,17 @@ def get_radar_chart_data(
 
     # Compute player per-90
     player_per90 = compute_player_per90(fixtures_data)
-    total_minutes = sum(
-        (f.get("stats", {}).get("minutes") or 0) for f in fixtures_data
-    )
+    total_minutes = sum((f.get("stats", {}).get("minutes") or 0) for f in fixtures_data)
 
     # Resolve league: prefer the canonical current-club league (API-Football
     # ground truth, then local DB) so the comparison is always against the
     # player's actual league, even when fixture data is sparse or mis-
     # attributed. Fixture-dict league is a sanity-check fallback only.
-    league_info = (
-        resolve_player_league(player_id, season=season)
-        or _league_from_fixture_dicts(fixtures_data)
-    )
+    league_info = resolve_player_league(player_id, season=season) or _league_from_fixture_dicts(fixtures_data)
     league_name = None
     league_peers = 0
-    league_avg: Dict[str, float] = {}
-    league_max: Dict[str, float] = {}
+    league_avg: dict[str, float] = {}
+    league_max: dict[str, float] = {}
 
     if league_info:
         league_api_id, league_name = league_info
@@ -718,9 +757,7 @@ def get_radar_chart_data(
     # When no league data exists, self-normalize so the radar still shows
     # the shape of the player's stats rather than a dot in the center.
     if not has_league_data:
-        player_max_val = max(
-            (player_per90.get(k, 0.0) for k in stat_keys), default=0.0
-        )
+        player_max_val = max((player_per90.get(k, 0.0) for k in stat_keys), default=0.0)
     else:
         player_max_val = 0.0  # unused when league data exists
 
@@ -750,14 +787,16 @@ def get_radar_chart_data(
         if stat_key not in _RAW_AVERAGE_STATS:
             label += " Per 90"
 
-        data_items.append({
-            "stat": stat_key,
-            "label": label,
-            "player_per90": round(p90_val, 2),
-            "player_normalized": player_norm,
-            "league_avg_per90": round(avg_val, 2),
-            "league_avg_normalized": avg_norm if has_league_data else None,
-        })
+        data_items.append(
+            {
+                "stat": stat_key,
+                "label": label,
+                "player_per90": round(p90_val, 2),
+                "player_normalized": player_norm,
+                "league_avg_per90": round(avg_val, 2),
+                "league_avg_normalized": avg_norm if has_league_data else None,
+            }
+        )
 
     return {
         "chart_type": "radar",

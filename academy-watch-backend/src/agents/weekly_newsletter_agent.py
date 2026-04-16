@@ -1,42 +1,44 @@
+import json
 import logging
 import os
-import json
 import re
 import uuid
-import requests
-from urllib.parse import urlparse, urlunparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, timedelta, datetime, timezone
-from typing import Any, Dict, List, Annotated, Optional
-from pydantic import BaseModel, Field
-from agents import (
-    set_default_openai_client
-)
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, Optional
+from urllib.parse import urlparse, urlunparse
+
+import requests
 from openai import OpenAI  # OpenAI Agents SDK
+
+from agents import set_default_openai_client
+
 try:  # Optional Groq dependency for newsletter summaries
     from groq import Groq
 except ImportError:  # pragma: no cover
     Groq = None
-from src.models.league import db, Team, Newsletter, AdminSetting, NewsletterCommentary
-from src.models.tracked_player import TrackedPlayer
-from src.models.journey import PlayerJourney, PlayerJourneyEntry, derive_journey_context
-from src.api_football_client import APIFootballClient
+import dotenv
+from src.agents.weekly_agent import (
+    _apply_player_lookup,
+    _normalize_player_key,
+    _render_variants,
+    _set_latest_player_lookup,
+    to_initial_last,
+)
 from src.agents.weekly_agent import (
     lint_and_enrich as legacy_lint_and_enrich,
-    _apply_player_lookup,
-    _set_latest_player_lookup,
-    _normalize_player_key,
-    to_initial_last,
-    _render_variants,
 )
-from src.utils.newsletter_slug import compose_newsletter_public_slug
-from src.services.graph_service import GraphService
+from src.api_football_client import APIFootballClient
 
 # If you have an MCP client already for Brave (Model Context Protocol), import it here.
 # This is a thin wrapper that exposes a Python function brave_search(query: str, since: str, until: str) -> List[dict]
 from src.mcp.brave import brave_search  # implement this wrapper to call your MCP tool
-from .weekly_agent import get_league_localization
-import dotenv
+from src.models.journey import PlayerJourney, PlayerJourneyEntry, derive_journey_context
+from src.models.league import AdminSetting, Newsletter, NewsletterCommentary, Team, db
+from src.models.tracked_player import TrackedPlayer
+from src.services.graph_service import GraphService
+from src.utils.newsletter_slug import compose_newsletter_public_slug
+
 dotenv.load_dotenv(dotenv.find_dotenv())
 
 # client = OpenAI(
@@ -57,6 +59,7 @@ _GROQ_CLIENT: Optional["Groq"] = None
 # a departed player ended up in a live newsletter.
 NEWSLETTER_JOURNEY_STALE_DAYS = 14
 
+
 def _get_groq_client() -> Groq:
     global _GROQ_CLIENT
     if _GROQ_CLIENT is not None:
@@ -66,6 +69,7 @@ def _get_groq_client() -> Groq:
         raise RuntimeError("GROQ_API_KEY is not configured")
     _GROQ_CLIENT = Groq(api_key=api_key)
     return _GROQ_CLIENT
+
 
 # Always-on debug output during development
 def _nl_dbg(*args):
@@ -106,7 +110,8 @@ def _coerce_text(value: Any, *, fallback: str = "") -> str:
 def _strip_text(value: Any, *, fallback: str = "") -> str:
     return _coerce_text(value, fallback=fallback).strip()
 
-# 
+
+#
 # Feature toggles (soft ranking, site boosts, cup synonyms)
 # Default to conservative behavior: only cup synonyms enabled by default to improve recall.
 ENV_SOFT_RANK = os.getenv("BRAVE_SOFT_RANK", "1").lower() in ("1", "true", "yes")
@@ -164,8 +169,9 @@ COUNTRY_FALLBACKS = {
     "MX": ["ES", "US"],
     "AR": ["ES"],
     "CO": ["ES"],
-    "JP": ["US"]
+    "JP": ["US"],
 }
+
 
 def resolve_localization_for_country(iso_code: str | None, default: dict[str, str] | None = None) -> dict[str, str]:
     base = dict(default or LOCALIZATION_DEFAULT)
@@ -188,7 +194,7 @@ def _enforce_player_metadata(
     if not isinstance(content, dict):
         return content
 
-    sections = content.get('sections')
+    sections = content.get("sections")
     if not isinstance(sections, list):
         return content
 
@@ -205,47 +211,47 @@ def _enforce_player_metadata(
             if not isinstance(item, dict):
                 continue
             meta = None
-            pid = item.get('player_id')
+            pid = item.get("player_id")
             try:
                 pid_int = int(pid)
             except (TypeError, ValueError):
                 pid_int = None
-            player_key = _normalize_player_key(item.get('player_name'))
+            player_key = _normalize_player_key(item.get("player_name"))
             if pid_int is not None and pid_int in meta_by_pid:
                 meta = meta_by_pid[pid_int]
             else:
                 if player_key:
                     meta = meta_by_key.get(player_key)
 
-            explicit_can_fetch = item.get('can_fetch_stats')
+            explicit_can_fetch = item.get("can_fetch_stats")
             if explicit_can_fetch is False:
                 can_track = False
             elif explicit_can_fetch is True:
                 can_track = True
             else:
-                can_track = bool(meta.get('can_fetch_stats', True) if meta else True)
-            item['can_fetch_stats'] = can_track
+                can_track = bool(meta.get("can_fetch_stats", True) if meta else True)
+            item["can_fetch_stats"] = can_track
             if not can_track:
-                item.pop('stats', None)
+                item.pop("stats", None)
 
             if meta:
-                sofa = meta.get('sofascore_player_id')
-                if sofa and not item.get('sofascore_player_id'):
-                    item['sofascore_player_id'] = sofa
+                sofa = meta.get("sofascore_player_id")
+                if sofa and not item.get("sofascore_player_id"):
+                    item["sofascore_player_id"] = sofa
 
             is_untracked = not can_track
             if is_untracked:
                 if pid_int is not None:
                     meta_pid = meta_by_pid.get(pid_int)
-                    if (meta_pid and meta_pid.get('can_fetch_stats', True)) or pid_int in tracked_pids:
+                    if (meta_pid and meta_pid.get("can_fetch_stats", True)) or pid_int in tracked_pids:
                         continue
                 if player_key:
                     meta_key = meta_by_key.get(player_key)
-                    if (meta_key and meta_key.get('can_fetch_stats', True)) or player_key in tracked_keys:
+                    if (meta_key and meta_key.get("can_fetch_stats", True)) or player_key in tracked_keys:
                         continue
 
-                if not _strip_text(item.get('week_summary')):
-                    item['week_summary'] = UNTRACKED_MESSAGE
+                if not _strip_text(item.get("week_summary")):
+                    item["week_summary"] = UNTRACKED_MESSAGE
                 manual_player_items.append(item)
                 continue
 
@@ -261,32 +267,32 @@ def _enforce_player_metadata(
             continue
 
         # Handle sections with subsections (On Loan, Academy Rising)
-        if 'subsections' in sec and isinstance(sec['subsections'], list):
-            title = _strip_text(sec.get('title')).lower()
-            if title == 'what the internet is saying':
+        if "subsections" in sec and isinstance(sec["subsections"], list):
+            title = _strip_text(sec.get("title")).lower()
+            if title == "what the internet is saying":
                 continue
-            for sub in sec['subsections']:
-                raw_items = sub.get('items')
+            for sub in sec["subsections"]:
+                raw_items = sub.get("items")
                 if isinstance(raw_items, list):
-                    sub['items'] = _process_item_list(raw_items)
+                    sub["items"] = _process_item_list(raw_items)
             # Keep section even if some subsections are empty
-            sec['subsections'] = [s for s in sec['subsections'] if s.get('items')]
-            if sec['subsections']:
+            sec["subsections"] = [s for s in sec["subsections"] if s.get("items")]
+            if sec["subsections"]:
                 new_sections.append(sec)
             continue
 
-        raw_items = sec.get('items')
+        raw_items = sec.get("items")
         if not isinstance(raw_items, list):
             continue
-        title = _strip_text(sec.get('title')).lower()
-        if title == 'what the internet is saying':
+        title = _strip_text(sec.get("title")).lower()
+        if title == "what the internet is saying":
             for item in raw_items:
                 if not isinstance(item, dict):
                     continue
-                links = item.get('links')
+                links = item.get("links")
                 if not isinstance(links, list):
                     continue
-                key = _normalize_player_key(item.get('player_name'))
+                key = _normalize_player_key(item.get("player_name"))
                 if not key:
                     continue
                 bucket = internet_links.setdefault(key, [])
@@ -295,30 +301,31 @@ def _enforce_player_metadata(
 
         filtered_items = _process_item_list(raw_items)
         if filtered_items:
-            sec['items'] = filtered_items
+            sec["items"] = filtered_items
             new_sections.append(sec)
 
     if manual_player_items:
-        new_sections.append({'title': 'Manual Player Entries', 'items': manual_player_items})
+        new_sections.append({"title": "Manual Player Entries", "items": manual_player_items})
 
     if internet_links:
+
         def _all_items_in_section(sec):
             """Yield all items from a section, whether flat or subsectioned."""
-            if 'subsections' in sec and isinstance(sec.get('subsections'), list):
-                for sub in sec['subsections']:
-                    yield from (sub.get('items') or [])
+            if "subsections" in sec and isinstance(sec.get("subsections"), list):
+                for sub in sec["subsections"]:
+                    yield from (sub.get("items") or [])
             else:
-                yield from (sec.get('items') if isinstance(sec.get('items'), list) else [])
+                yield from (sec.get("items") if isinstance(sec.get("items"), list) else [])
 
         for sec in new_sections:
             for item in _all_items_in_section(sec):
                 if not isinstance(item, dict):
                     continue
-                key = _normalize_player_key(item.get('player_name'))
+                key = _normalize_player_key(item.get("player_name"))
                 if not key or key not in internet_links:
                     continue
 
-                existing = item.get('links') if isinstance(item.get('links'), list) else []
+                existing = item.get("links") if isinstance(item.get("links"), list) else []
                 merged: list[Any] = []
                 seen: set[str] = set()
 
@@ -327,7 +334,7 @@ def _enforce_player_metadata(
                         url = _strip_text(link)
                         payload = url
                     elif isinstance(link, dict):
-                        url = _strip_text(link.get('url'))
+                        url = _strip_text(link.get("url"))
                         if not url:
                             return
                         payload = {k: v for k, v in link.items()}
@@ -344,12 +351,13 @@ def _enforce_player_metadata(
                     _push(link)
 
                 if merged:
-                    item['links'] = merged[:LINKS_MAX_PER_ITEM]
-                elif 'links' in item:
-                    item['links'] = []
+                    item["links"] = merged[:LINKS_MAX_PER_ITEM]
+                elif "links" in item:
+                    item["links"] = []
 
-    content['sections'] = new_sections
+    content["sections"] = new_sections
     return content
+
 
 # Cup synonyms to improve recall for competition names in headlines
 CUP_SYNONYMS = {
@@ -358,22 +366,25 @@ CUP_SYNONYMS = {
     "League Cup": ["Carabao Cup", "EFL Cup"],
 }
 
+
 def _admin_bool(key: str, default: bool) -> bool:
     try:
         row = db.session.query(AdminSetting).filter_by(key=key).first()
         if row and row.value_json:
-            return _strip_text(row.value_json).lower() in ("1","true","yes","y")
+            return _strip_text(row.value_json).lower() in ("1", "true", "yes", "y")
     except Exception:
         pass
     return default
 
+
 def _get_flags() -> dict:
     return {
-        'soft_rank': _admin_bool('brave_soft_rank', ENV_SOFT_RANK),
-        'site_boost': _admin_bool('brave_site_boost', ENV_SITE_BOOST),
-        'cup_synonyms': _admin_bool('brave_cup_synonyms', ENV_USE_CUP_SYNS),
-        'strict_range': _admin_bool('search_strict_range', ENV_STRICT_RANGE),
+        "soft_rank": _admin_bool("brave_soft_rank", ENV_SOFT_RANK),
+        "site_boost": _admin_bool("brave_site_boost", ENV_SITE_BOOST),
+        "cup_synonyms": _admin_bool("brave_cup_synonyms", ENV_USE_CUP_SYNS),
+        "strict_range": _admin_bool("search_strict_range", ENV_STRICT_RANGE),
     }
+
 
 def expand_competition_terms(comp: str, *, use_synonyms: bool) -> list[str]:
     base = [comp] if comp else []
@@ -381,13 +392,20 @@ def expand_competition_terms(comp: str, *, use_synonyms: bool) -> list[str]:
         return base
     return base + CUP_SYNONYMS.get(comp, [])
 
+
 # Optional site boosts (only used if SITE_BOOST is enabled)
 SITE_BOOSTS_BY_COUNTRY = {
     "GB": [
-        "bbc.co.uk/sport", "yorkshirepost.co.uk", "manchesterworld.uk",
+        "bbc.co.uk/sport",
+        "yorkshirepost.co.uk",
+        "manchesterworld.uk",
         # club sites
-        "chelseafc.com", "nottinghamforest.co.uk", "rotherhamunited.co.uk",
-        "cheltenhamtownfc.com", "doncasterroversfc.co.uk", "walsallfc.co.uk",
+        "chelseafc.com",
+        "nottinghamforest.co.uk",
+        "rotherhamunited.co.uk",
+        "cheltenhamtownfc.com",
+        "doncasterroversfc.co.uk",
+        "walsallfc.co.uk",
         "carlisleunited.co.uk",
     ]
 }
@@ -402,12 +420,15 @@ RANK_WEIGHTS = {
 }
 NOISY_HOST_SNIPS = ("fandom.com", "ea.com/games/ea-sports-fc")
 
+
 def _strip_diacritics(s: str) -> str:
     try:
         import unicodedata
+
         return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
     except Exception:
         return s
+
 
 def _parse_any_date(s: str):
     if not s or not isinstance(s, str):
@@ -415,22 +436,28 @@ def _parse_any_date(s: str):
     st = _strip_text(s)
     try:
         from datetime import datetime
-        iso = st.replace('Z', '+00:00')
+
+        iso = st.replace("Z", "+00:00")
         return datetime.fromisoformat(iso)
     except Exception:
         pass
     try:
         from email.utils import parsedate_to_datetime
+
         return parsedate_to_datetime(st)
     except Exception:
         pass
     try:
         from datetime import date as _date
+
         return _date.fromisoformat(st[:10])
     except Exception:
         return None
 
-def _score_hit(hit: dict, player_last: str, team_l: str, opponent: str | None, country: str, site_boost_flag: bool) -> int:
+
+def _score_hit(
+    hit: dict, player_last: str, team_l: str, opponent: str | None, country: str, site_boost_flag: bool
+) -> int:
     try:
         url = (hit.get("url") or "").lower()
         title = (hit.get("title") or "").lower()
@@ -452,6 +479,7 @@ def _score_hit(hit: dict, player_last: str, team_l: str, opponent: str | None, c
         return score
     except Exception:
         return 0
+
 
 def _gentle_filter(hit: dict, player_last: str, team_l: str) -> bool:
     # Keep transfers and match-intent pages; drop generic listicles if they lack both player+team
@@ -659,7 +687,9 @@ def _ensure_period(text: str) -> str:
     return stripped + "."
 
 
-def _build_player_summary(item: dict, loanee: dict | None, stats: dict, match_phrase: str | None, hits: list[dict[str, Any]]) -> tuple[str, str, str | None]:
+def _build_player_summary(
+    item: dict, loanee: dict | None, stats: dict, match_phrase: str | None, hits: list[dict[str, Any]]
+) -> tuple[str, str, str | None]:
     player_display = _strip_text(item.get("player_name")) or (
         _strip_text(loanee.get("player_name")) if isinstance(loanee, dict) else ""
     )
@@ -669,9 +699,13 @@ def _build_player_summary(item: dict, loanee: dict | None, stats: dict, match_ph
         or (_strip_text(loanee.get("loan_team_name")) if isinstance(loanee, dict) else "")
         or "his loan side"
     )
-    can_track = bool(item.get("can_fetch_stats", loanee.get("can_fetch_stats", True) if isinstance(loanee, dict) else True))
+    can_track = bool(
+        item.get("can_fetch_stats", loanee.get("can_fetch_stats", True) if isinstance(loanee, dict) else True)
+    )
 
-    matches = loanee.get("matches") if isinstance(loanee, dict) else item.get("matches") if isinstance(item, dict) else []
+    matches = (
+        loanee.get("matches") if isinstance(loanee, dict) else item.get("matches") if isinstance(item, dict) else []
+    )
     played_matches = [m for m in matches or [] if isinstance(m, dict) and m.get("played") is not False]
     match_count = len(played_matches) or len([m for m in matches or [] if isinstance(m, dict)])
     multi_match_week = match_count > 1
@@ -683,17 +717,11 @@ def _build_player_summary(item: dict, loanee: dict | None, stats: dict, match_ph
     # Check if player was in matchday squad by looking at role field
     # role can be: 'startXI', 'substitutes', or None (not in squad)
     def _was_in_squad(match_list: list) -> bool:
-        for m in match_list or []:
-            if isinstance(m, dict) and m.get("role") in ("startXI", "substitutes"):
-                return True
-        return False
-    
+        return any(isinstance(m, dict) and m.get("role") in ("startXI", "substitutes") for m in match_list or [])
+
     def _was_unused_sub(match_list: list) -> bool:
-        for m in match_list or []:
-            if isinstance(m, dict) and m.get("role") == "substitutes":
-                return True
-        return False
-    
+        return any(isinstance(m, dict) and m.get("role") == "substitutes" for m in match_list or [])
+
     was_in_squad = _was_in_squad(matches)
     was_unused_sub = _was_unused_sub(matches)
 
@@ -775,7 +803,7 @@ def _build_player_summary(item: dict, loanee: dict | None, stats: dict, match_ph
     summary_parts = [base_sentence]
     if article_sentence:
         summary_parts.append(article_sentence)
-    summary_text = " ".join(filter(None, ( _strip_text(part) for part in summary_parts )))
+    summary_text = " ".join(filter(None, (_strip_text(part) for part in summary_parts)))
 
     headline_fragments: list[str] = []
     if can_track:
@@ -1004,6 +1032,7 @@ TEAM_SUMMARY_SYSTEM_PROMPT = (
     "Write like you're teasing the best bits to a fellow fan, not reading a match report."
 )
 
+
 def _summarize_player_with_groq(
     loanee: dict,
     stats: dict,
@@ -1018,17 +1047,19 @@ def _summarize_player_with_groq(
     for m in (loanee.get("matches") or [])[:3]:
         if isinstance(m, dict):
             player_match = m.get("player") or {}
-            matches_data.append({
-                "opponent": m.get("opponent"),
-                "competition": m.get("competition"),
-                "position": player_match.get("position"),  # G/D/M/F for THIS match
-                "role": m.get("role"),  # 'startXI', 'substitutes', or None (not in squad)
-                "goals": player_match.get("goals", 0),
-                "assists": player_match.get("assists", 0),
-                "minutes": player_match.get("minutes", 0),
-                "result": m.get("result"),
-            })
-    
+            matches_data.append(
+                {
+                    "opponent": m.get("opponent"),
+                    "competition": m.get("competition"),
+                    "position": player_match.get("position"),  # G/D/M/F for THIS match
+                    "role": m.get("role"),  # 'startXI', 'substitutes', or None (not in squad)
+                    "goals": player_match.get("goals", 0),
+                    "assists": player_match.get("assists", 0),
+                    "minutes": player_match.get("minutes", 0),
+                    "result": m.get("result"),
+                }
+            )
+
     payload = {
         "player": {
             "name": loanee.get("player_full_name") or loanee.get("player_name"),
@@ -1116,7 +1147,10 @@ def _summarize_team_with_groq(
     }
     if draft_summary:
         payload["draft_summary"] = draft_summary
-    _llm_dbg("team.start", {"team": team_name, "model": model, "players": len(player_items), "has_draft": bool(draft_summary)})
+    _llm_dbg(
+        "team.start",
+        {"team": team_name, "model": model, "players": len(player_items), "has_draft": bool(draft_summary)},
+    )
     try:
         response = client.chat.completions.create(
             model=model,
@@ -1141,7 +1175,11 @@ def _summarize_team_with_groq(
 
 
 def _build_player_report_item(loanee: dict, hits: list[dict[str, Any]], *, week_start: date, week_end: date) -> dict:
-    display_name = to_initial_last(_strip_text(loanee.get("player_full_name")) or _strip_text(loanee.get("player_name"))) or _strip_text(loanee.get("player_name")) or ""
+    display_name = (
+        to_initial_last(_strip_text(loanee.get("player_full_name")) or _strip_text(loanee.get("player_name")))
+        or _strip_text(loanee.get("player_name"))
+        or ""
+    )
     full_name = _strip_text(loanee.get("player_full_name")) or _strip_text(loanee.get("player_name")) or display_name
     loan_team = _strip_text(loanee.get("loan_team_name") or loanee.get("loan_team") or "their loan side")
     can_track = bool(loanee.get("can_fetch_stats", True))
@@ -1176,29 +1214,20 @@ def _build_player_report_item(loanee: dict, hits: list[dict[str, Any]], *, week_
     # role can be: 'startXI', 'substitutes', or None (not in squad)
     def _player_was_in_squad(match_list: list) -> bool:
         """Check if player was in at least one matchday squad this week."""
-        for m in match_list or []:
-            if isinstance(m, dict) and m.get("role") in ("startXI", "substitutes"):
-                return True
-        return False
-    
+        return any(isinstance(m, dict) and m.get("role") in ("startXI", "substitutes") for m in match_list or [])
+
     def _player_started_match(match_list: list) -> bool:
         """Check if player started (was in starting XI) in any match this week."""
-        for m in match_list or []:
-            if isinstance(m, dict) and m.get("role") == "startXI":
-                return True
-        return False
-    
+        return any(isinstance(m, dict) and m.get("role") == "startXI" for m in match_list or [])
+
     def _player_was_unused_sub(match_list: list) -> bool:
         """Check if player was on the bench but didn't play in any match."""
-        for m in match_list or []:
-            if isinstance(m, dict) and m.get("role") == "substitutes":
-                return True
-        return False
-    
+        return any(isinstance(m, dict) and m.get("role") == "substitutes" for m in match_list or [])
+
     was_in_squad = _player_was_in_squad(matches)
     started_match = _player_started_match(matches)
     was_unused_sub = _player_was_unused_sub(matches)
-    
+
     if not can_track:
         base_sentence = f"{UNTRACKED_MESSAGE} {display_name} is currently with {loan_team}."
         paragraphs.append(_ensure_period(base_sentence))
@@ -1261,7 +1290,9 @@ def _build_player_report_item(loanee: dict, hits: list[dict[str, Any]], *, week_
         paragraphs.append(_ensure_period(sentence))
 
     season_context = loanee.get("season_context") or {}
-    season_sentence = _season_context_sentence(full_name, season_context.get("season_stats"), season_context.get("trends"))
+    season_sentence = _season_context_sentence(
+        full_name, season_context.get("season_stats"), season_context.get("trends")
+    )
     if season_sentence:
         paragraphs.append(season_sentence)
 
@@ -1273,7 +1304,9 @@ def _build_player_report_item(loanee: dict, hits: list[dict[str, Any]], *, week_
     if should_use_llm:
         try:
             try:
-                llm_summary = _summarize_player_with_groq(loanee, stats_src, season_context, links, draft_summary=draft_summary)
+                llm_summary = _summarize_player_with_groq(
+                    loanee, stats_src, season_context, links, draft_summary=draft_summary
+                )
             except TypeError:
                 llm_summary = _summarize_player_with_groq(loanee, stats_src, season_context, links)
         except Exception as groq_error:
@@ -1357,22 +1390,24 @@ def _build_player_report_item(loanee: dict, hits: list[dict[str, Any]], *, week_
             formatted_notes.append(_ensure_period(f"{comp} vs {opponent}: {score_text}"))
             # Build structured match data with opponent visuals and per-match stats
             player_stats_this_match = match.get("player") or {}
-            structured_matches.append({
-                "opponent": opponent,
-                "opponent_id": match.get("opponent_id"),
-                "opponent_logo": match.get("opponent_logo"),
-                "competition": comp,
-                "date": match.get("date"),
-                "home": match.get("home"),
-                "score": match.get("score"),
-                "result": match.get("result"),
-                "played": match.get("played"),
-                "role": match.get("role"),  # 'startXI', 'substitutes', or None (not in squad)
-                "position": player_stats_this_match.get("position"),  # Position played THIS match
-                "goals": player_stats_this_match.get("goals", 0),
-                "assists": player_stats_this_match.get("assists", 0),
-                "minutes": player_stats_this_match.get("minutes", 0),
-            })
+            structured_matches.append(
+                {
+                    "opponent": opponent,
+                    "opponent_id": match.get("opponent_id"),
+                    "opponent_logo": match.get("opponent_logo"),
+                    "competition": comp,
+                    "date": match.get("date"),
+                    "home": match.get("home"),
+                    "score": match.get("score"),
+                    "result": match.get("result"),
+                    "played": match.get("played"),
+                    "role": match.get("role"),  # 'startXI', 'substitutes', or None (not in squad)
+                    "position": player_stats_this_match.get("position"),  # Position played THIS match
+                    "goals": player_stats_this_match.get("goals", 0),
+                    "assists": player_stats_this_match.get("assists", 0),
+                    "minutes": player_stats_this_match.get("minutes", 0),
+                }
+            )
         if formatted_notes:
             item["match_notes"] = formatted_notes
         if structured_matches:
@@ -1400,7 +1435,9 @@ def _build_player_report_item(loanee: dict, hits: list[dict[str, Any]], *, week_
     return item
 
 
-def _compose_team_summary_from_player_items(team_name: str, week_range: list[str] | tuple[str, str], player_items: list[dict[str, Any]]) -> str:
+def _compose_team_summary_from_player_items(
+    team_name: str, week_range: list[str] | tuple[str, str], player_items: list[dict[str, Any]]
+) -> str:
     if not player_items:
         return f"No academy pipeline updates for {team_name} this week."
 
@@ -1422,7 +1459,9 @@ def _compose_team_summary_from_player_items(team_name: str, week_range: list[str
     total_assists = sum(_to_int(item.get("stats", {}).get("assists")) for item in player_items)
     total_minutes = sum(_to_int(item.get("stats", {}).get("minutes")) for item in player_items)
 
-    summary_text += _ensure_period(f" Combined output: {total_goals} {_pluralize(total_goals, 'goal')}, {total_assists} {_pluralize(total_assists, 'assist')} and {total_minutes} {_pluralize(total_minutes, 'minute')}.")
+    summary_text += _ensure_period(
+        f" Combined output: {total_goals} {_pluralize(total_goals, 'goal')}, {total_assists} {_pluralize(total_assists, 'assist')} and {total_minutes} {_pluralize(total_minutes, 'minute')}."
+    )
     if ENV_ENABLE_GROQ_SUMMARIES and ENV_ENABLE_GROQ_TEAM_SUMMARIES:
         try:
             try:
@@ -1436,7 +1475,9 @@ def _compose_team_summary_from_player_items(team_name: str, week_range: list[str
             _llm_dbg("team.summary.groq", {"team": team_name, "players": len(player_items)})
             return llm_summary
 
-    fallback_reason = "llm_disabled" if not (ENV_ENABLE_GROQ_SUMMARIES and ENV_ENABLE_GROQ_TEAM_SUMMARIES) else "llm_empty"
+    fallback_reason = (
+        "llm_disabled" if not (ENV_ENABLE_GROQ_SUMMARIES and ENV_ENABLE_GROQ_TEAM_SUMMARIES) else "llm_empty"
+    )
     _llm_dbg(
         "team.summary.fallback",
         {
@@ -1448,8 +1489,7 @@ def _compose_team_summary_from_player_items(team_name: str, week_range: list[str
     return summary_text
 
 
-def _generate_player_charts(player_api_id: int, player_name: str,
-                            week_start, week_end) -> dict:
+def _generate_player_charts(player_api_id: int, player_name: str, week_start, week_end) -> dict:
     """Generate platform data charts for a player's newsletter section.
 
     Returns a dict of base64 data-URI strings keyed by chart type.
@@ -1471,27 +1511,26 @@ def _generate_player_charts(player_api_id: int, player_name: str,
 
     # Stat keys for non-radar charts (stat table, bar, line).
     # Radar charts auto-select axes via the radar_stats_service.
-    stat_keys = ['goals', 'assists', 'passes_key', 'tackles_total', 'duels_won', 'minutes']
-    ws = week_start.isoformat() if hasattr(week_start, 'isoformat') else str(week_start)
-    we = week_end.isoformat() if hasattr(week_end, 'isoformat') else str(week_end)
+    stat_keys = ["goals", "assists", "passes_key", "tackles_total", "duels_won", "minutes"]
+    ws = week_start.isoformat() if hasattr(week_start, "isoformat") else str(week_start)
+    we = week_end.isoformat() if hasattr(week_end, "isoformat") else str(week_end)
 
     # 1. Radar chart (season-level) — pass no stat_keys so the service
     #    auto-selects position-appropriate axes via formation_position
     try:
-        radar_data = _fetch_chart_data_for_rendering(
-            player_api_id, 'radar', [], 'season')
-        if radar_data and radar_data.get('data'):
-            charts['radar_chart_url'] = render_chart_to_base64('radar', radar_data, 400, 400)
+        radar_data = _fetch_chart_data_for_rendering(player_api_id, "radar", [], "season")
+        if radar_data and radar_data.get("data"):
+            charts["radar_chart_url"] = render_chart_to_base64("radar", radar_data, 400, 400)
     except Exception:
         pass
 
     # 2. Stat table (week data)
     try:
         table_data = _fetch_chart_data_for_rendering(
-            player_api_id, 'stat_table', stat_keys, 'week',
-            week_start=ws, week_end=we)
-        if table_data and table_data.get('data'):
-            charts['stat_table_url'] = render_chart_to_base64('stat_table', table_data, 500, 250)
+            player_api_id, "stat_table", stat_keys, "week", week_start=ws, week_end=we
+        )
+        if table_data and table_data.get("data"):
+            charts["stat_table_url"] = render_chart_to_base64("stat_table", table_data, 500, 250)
     except Exception:
         pass
 
@@ -1501,24 +1540,23 @@ def _generate_player_charts(player_api_id: int, player_name: str,
     #    like League Two / National League where API-Football never populates
     #    `rating`).
     try:
-        trend_data = _fetch_chart_data_for_rendering(
-            player_api_id, 'line', ['rating'], 'season')
-        if trend_data and trend_data.get('data'):
-            ratings = [d.get('rating') for d in trend_data['data']]
+        trend_data = _fetch_chart_data_for_rendering(player_api_id, "line", ["rating"], "season")
+        if trend_data and trend_data.get("data"):
+            ratings = [d.get("rating") for d in trend_data["data"]]
             if any(r is not None and r > 0 for r in ratings):
-                charts['trend_chart_url'] = render_chart_to_base64('line', trend_data, 500, 300)
+                charts["trend_chart_url"] = render_chart_to_base64("line", trend_data, 500, 300)
     except Exception:
         pass
 
     # 4. Match performance card (week data)
     try:
         card_data = _fetch_chart_data_for_rendering(
-            player_api_id, 'match_card', stat_keys, 'week',
-            week_start=ws, week_end=we)
-        if card_data and card_data.get('fixtures'):
+            player_api_id, "match_card", stat_keys, "week", week_start=ws, week_end=we
+        )
+        if card_data and card_data.get("fixtures"):
             # Wider canvas (760×220) so the five-stat row doesn't crowd
             # itself — see render_match_cards_summary.
-            charts['match_card_url'] = render_chart_to_base64('match_card', card_data, 760, 220)
+            charts["match_card_url"] = render_chart_to_base64("match_card", card_data, 760, 220)
     except Exception:
         pass
 
@@ -1631,10 +1669,14 @@ def _apply_stat_driven_summaries(content: dict, report: dict, brave_ctx: dict) -
 
                 if canonical_pid:
                     try:
-                        rating_graph = graph_service.generate_player_rating_graph(canonical_pid, item.get("player_name"))
+                        rating_graph = graph_service.generate_player_rating_graph(
+                            canonical_pid, item.get("player_name")
+                        )
                         if rating_graph:
                             item["rating_graph_url"] = rating_graph
-                        minutes_graph = graph_service.generate_player_minutes_graph(canonical_pid, item.get("player_name"))
+                        minutes_graph = graph_service.generate_player_minutes_graph(
+                            canonical_pid, item.get("player_name")
+                        )
                         if minutes_graph:
                             item["minutes_graph_url"] = minutes_graph
                     except Exception as e:
@@ -1647,8 +1689,7 @@ def _apply_stat_driven_summaries(content: dict, report: dict, brave_ctx: dict) -
                             ws = range_info[0] if len(range_info) > 0 else None
                             we = range_info[1] if len(range_info) > 1 else None
                             if ws and we:
-                                charts = _generate_player_charts(
-                                    canonical_pid, item.get("player_name"), ws, we)
+                                charts = _generate_player_charts(canonical_pid, item.get("player_name"), ws, we)
                                 if charts:
                                     item.update(charts)
                         except Exception as e:
@@ -1718,7 +1759,8 @@ def _apply_stat_driven_summaries(content: dict, report: dict, brave_ctx: dict) -
                 item["week_summary"] = summary_text
             player_entries.append(
                 {
-                    "player": item.get("player_name") or (loanee.get("player_name") if isinstance(loanee, dict) else ""),
+                    "player": item.get("player_name")
+                    or (loanee.get("player_name") if isinstance(loanee, dict) else ""),
                     "headline": headline_text,
                     "score": _impact_score(stats),
                     "article_title": article_title,
@@ -1766,6 +1808,7 @@ def _sync_team_fixtures_for_week(
     """
     import time as _time
     from collections import defaultdict
+
     from src.models.weekly import Fixture, FixturePlayerStats
 
     _sync_log = logging.getLogger("newsletter.pre_sync")
@@ -1807,7 +1850,10 @@ def _sync_team_fixtures_for_week(
         player_id_set = set(player_api_ids)
         try:
             fixtures_raw = api_client.get_fixtures_for_team_cached(
-                club_api_id, season, season_start_str, week_end_str,
+                club_api_id,
+                season,
+                season_start_str,
+                week_end_str,
             )
         except Exception as exc:
             _sync_log.warning("pre-sync: fixture fetch failed for club %d: %s", club_api_id, exc)
@@ -1846,9 +1892,9 @@ def _sync_team_fixtures_for_week(
                 league_data = fx.get("league", {})
                 existing_fixture = Fixture(
                     fixture_id_api=fixture_id_api,
-                    date_utc=datetime.fromisoformat(
-                        fx_info.get("date", "").replace("Z", "+00:00")
-                    ) if fx_info.get("date") else None,
+                    date_utc=datetime.fromisoformat(fx_info.get("date", "").replace("Z", "+00:00"))
+                    if fx_info.get("date")
+                    else None,
                     season=season,
                     competition_name=league_data.get("name"),
                     home_team_api_id=teams_data.get("home", {}).get("id"),
@@ -1950,14 +1996,16 @@ def _sync_team_fixtures_for_week(
     _sync_log.info("pre-sync complete for team %s (db_id=%d): %s", team.name, team_db_id, result)
     return result
 
-def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, start: date, end: date) -> Dict[str, Any]:
+
+def fetch_pipeline_report_tool(
+    parent_team_db_id: int, season_start_year: int, start: date, end: date
+) -> dict[str, Any]:
     """Fetch a grouped report from TrackedPlayer.
 
     Returns a report dict with:
       - groups.first_team, groups.on_loan, groups.academy  (player dicts)
       - parent_team, season, range, has_tracked_players
     """
-    from src.models.weekly import Fixture, FixturePlayerStats
 
     team = Team.query.get(parent_team_db_id)
     if not team:
@@ -1968,6 +2016,7 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
     # status updated and the "Returned from Loan" section has fresh data.
     try:
         from src.services.transfer_heal_service import refresh_and_heal
+
         heal_result = refresh_and_heal(
             team_id=parent_team_db_id,
             resync_journeys=True,
@@ -1976,7 +2025,7 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
         _nl_dbg("pipeline.pre_refresh", heal_result)
     except Exception as _heal_err:
         logger.warning(
-            'newsletter: pre-generation status refresh failed (non-fatal): %s',
+            "newsletter: pre-generation status refresh failed (non-fatal): %s",
             _heal_err,
         )
 
@@ -1987,7 +2036,7 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
     tracked = TrackedPlayer.query.filter(
         TrackedPlayer.team_id == parent_team_db_id,
         TrackedPlayer.is_active.is_(True),
-        TrackedPlayer.status.notin_(['released', 'sold']),
+        TrackedPlayer.status.notin_(["released", "sold"]),
     ).all()
 
     # Pre-flight: warn loudly about any player whose linked PlayerJourney
@@ -1996,65 +2045,73 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
     # data is exactly how a departed player ends up in a live newsletter, and
     # the pipeline previously did not surface this at all.
     try:
-        _now = datetime.now(timezone.utc)
+        _now = datetime.now(UTC)
         _stale_threshold = timedelta(days=NEWSLETTER_JOURNEY_STALE_DAYS)
         _journey_ids = [tp.journey_id for tp in tracked if tp.journey_id]
-        _journey_map: Dict[int, PlayerJourney] = {}
+        _journey_map: dict[int, PlayerJourney] = {}
         if _journey_ids:
-            _journey_map = {
-                j.id: j for j in PlayerJourney.query.filter(
-                    PlayerJourney.id.in_(_journey_ids)
-                ).all()
-            }
-        _stale_entries: List[Dict[str, Any]] = []
-        _missing_journeys: List[Dict[str, Any]] = []
+            _journey_map = {j.id: j for j in PlayerJourney.query.filter(PlayerJourney.id.in_(_journey_ids)).all()}
+        _stale_entries: list[dict[str, Any]] = []
+        _missing_journeys: list[dict[str, Any]] = []
         for tp in tracked:
             journey = _journey_map.get(tp.journey_id) if tp.journey_id else None
             if journey is None:
-                _missing_journeys.append({
-                    'player_api_id': tp.player_api_id,
-                    'player_name': tp.player_name,
-                    'status': tp.status,
-                })
+                _missing_journeys.append(
+                    {
+                        "player_api_id": tp.player_api_id,
+                        "player_name": tp.player_name,
+                        "status": tp.status,
+                    }
+                )
                 continue
             last_synced = journey.last_synced_at
             if last_synced is None:
-                _stale_entries.append({
-                    'player_api_id': tp.player_api_id,
-                    'player_name': tp.player_name,
-                    'status': tp.status,
-                    'last_synced_at': None,
-                    'stale_days': None,
-                })
+                _stale_entries.append(
+                    {
+                        "player_api_id": tp.player_api_id,
+                        "player_name": tp.player_name,
+                        "status": tp.status,
+                        "last_synced_at": None,
+                        "stale_days": None,
+                    }
+                )
                 continue
             if last_synced.tzinfo is None:
-                last_synced = last_synced.replace(tzinfo=timezone.utc)
+                last_synced = last_synced.replace(tzinfo=UTC)
             age = _now - last_synced
             if age > _stale_threshold:
-                _stale_entries.append({
-                    'player_api_id': tp.player_api_id,
-                    'player_name': tp.player_name,
-                    'status': tp.status,
-                    'last_synced_at': last_synced.isoformat(),
-                    'stale_days': age.days,
-                })
+                _stale_entries.append(
+                    {
+                        "player_api_id": tp.player_api_id,
+                        "player_name": tp.player_name,
+                        "status": tp.status,
+                        "last_synced_at": last_synced.isoformat(),
+                        "stale_days": age.days,
+                    }
+                )
         if _stale_entries or _missing_journeys:
             logger.warning(
-                'newsletter pre-flight: team=%s (db_id=%d) has %d stale journey(s) '
-                '(>%dd) and %d player(s) missing a linked journey. '
-                'Consider running POST /admin/tracked-players/refresh-statuses '
-                '{team_id:%d} before publishing. stale=%s missing=%s',
-                team.name, parent_team_db_id, len(_stale_entries),
-                NEWSLETTER_JOURNEY_STALE_DAYS, len(_missing_journeys),
-                parent_team_db_id, _stale_entries, _missing_journeys,
+                "newsletter pre-flight: team=%s (db_id=%d) has %d stale journey(s) "
+                "(>%dd) and %d player(s) missing a linked journey. "
+                "Consider running POST /admin/tracked-players/refresh-statuses "
+                "{team_id:%d} before publishing. stale=%s missing=%s",
+                team.name,
+                parent_team_db_id,
+                len(_stale_entries),
+                NEWSLETTER_JOURNEY_STALE_DAYS,
+                len(_missing_journeys),
+                parent_team_db_id,
+                _stale_entries,
+                _missing_journeys,
             )
     except Exception as _stale_check_err:
         logger.warning(
-            'newsletter pre-flight staleness check failed for team=%s: %s',
-            team.name, _stale_check_err,
+            "newsletter pre-flight staleness check failed for team=%s: %s",
+            team.name,
+            _stale_check_err,
         )
 
-    groups: Dict[str, list] = {'first_team': [], 'on_loan': [], 'academy': [], 'returned': []}
+    groups: dict[str, list] = {"first_team": [], "on_loan": [], "academy": [], "returned": []}
 
     # Thresholds for reclassifying first-team players with minimal involvement back to academy
     ACADEMY_THRESHOLD_MINUTES = 200  # ~2 full matches
@@ -2068,139 +2125,149 @@ def fetch_pipeline_report_tool(parent_team_db_id: int, season_start_year: int, s
 
     for tp in tracked:
         # A1: Filter non-academy products out of newsletter
-        if not _is_academy_product(tp.player_api_id, team.team_id, data_source=tp.data_source, birth_date=tp.birth_date):
+        if not _is_academy_product(
+            tp.player_api_id, team.team_id, data_source=tp.data_source, birth_date=tp.birth_date
+        ):
             _filter_skipped += 1
             _filter_skipped_names.append(f"{tp.player_name} (src={tp.data_source})")
             continue
 
         player_dict = {
-            'is_academy_product': True,
-            'player_api_id': tp.player_api_id,
-            'player_id': tp.player_api_id,
-            'player_name': tp.player_name,
-            'player_full_name': tp.player_name,
-            'photo_url': tp.photo_url,
-            'position': tp.position,
-            'nationality': tp.nationality,
-            'age': tp.age,
-            'pathway_status': tp.status,
-            'current_level': tp.current_level,
-            'parent_team_name': team.name,
-            'parent_team_api_id': team.team_id,
-            'can_fetch_stats': tp.data_depth == 'full_stats',
-            'journey_id': tp.journey_id,
-            'journey_context': derive_journey_context(tp.journey_id, tp.status) if tp.journey_id else None,
+            "is_academy_product": True,
+            "player_api_id": tp.player_api_id,
+            "player_id": tp.player_api_id,
+            "player_name": tp.player_name,
+            "player_full_name": tp.player_name,
+            "photo_url": tp.photo_url,
+            "position": tp.position,
+            "nationality": tp.nationality,
+            "age": tp.age,
+            "pathway_status": tp.status,
+            "current_level": tp.current_level,
+            "parent_team_name": team.name,
+            "parent_team_api_id": team.team_id,
+            "can_fetch_stats": tp.data_depth == "full_stats",
+            "journey_id": tp.journey_id,
+            "journey_context": derive_journey_context(tp.journey_id, tp.status) if tp.journey_id else None,
         }
 
-        if tp.status == 'on_loan':
+        if tp.status == "on_loan":
             from src.utils.team_resolver import resolve_team_name
-            loan_club = tp.current_club_name or (resolve_team_name(tp.current_club_api_id) if tp.current_club_api_id else None)
-            player_dict['loan_team_name'] = loan_club
-            player_dict['loan_team_api_id'] = tp.current_club_api_id
-            player_dict['loan_team'] = loan_club
-            player_dict['can_fetch_stats'] = tp.data_depth != 'profile_only'
+
+            loan_club = tp.current_club_name or (
+                resolve_team_name(tp.current_club_api_id) if tp.current_club_api_id else None
+            )
+            player_dict["loan_team_name"] = loan_club
+            player_dict["loan_team_api_id"] = tp.current_club_api_id
+            player_dict["loan_team"] = loan_club
+            player_dict["can_fetch_stats"] = tp.data_depth != "profile_only"
             # Get weekly stats from FixturePlayerStats
             _enrich_on_loan_stats(player_dict, tp, start, end, season_start_year)
             # Fallback: derive loan league from Team record if not set from match data
-            if not player_dict.get('loan_league_name') and tp.current_club_api_id:
+            if not player_dict.get("loan_league_name") and tp.current_club_api_id:
                 loan_team_row = Team.query.filter_by(team_id=tp.current_club_api_id).first()
                 if loan_team_row and loan_team_row.league:
-                    player_dict['loan_league_name'] = loan_team_row.league.name
-            groups['on_loan'].append(player_dict)
+                    player_dict["loan_league_name"] = loan_team_row.league.name
+            groups["on_loan"].append(player_dict)
 
-        elif tp.status == 'first_team':
+        elif tp.status == "first_team":
             # Enrich first — we need season_totals to decide classification
             _enrich_first_team_stats(player_dict, tp, team, start, end, season_start_year)
 
             # A2: Reclassify to academy if minimal first-team involvement
-            st = player_dict.get('season_totals') or {}
-            season_mins = st.get('minutes', 0)
-            season_apps = st.get('appearances', 0)
+            st = player_dict.get("season_totals") or {}
+            season_mins = st.get("minutes", 0)
+            season_apps = st.get("appearances", 0)
 
             if season_mins < ACADEMY_THRESHOLD_MINUTES and season_apps < ACADEMY_THRESHOLD_APPS:
                 # Academy player with a brief first-team cameo
-                player_dict['pathway_status'] = 'academy'
-                player_dict['loan_team_name'] = f"{team.name} {tp.current_level or 'Academy'}"
-                player_dict['loan_team'] = player_dict['loan_team_name']
+                player_dict["pathway_status"] = "academy"
+                player_dict["loan_team_name"] = f"{team.name} {tp.current_level or 'Academy'}"
+                player_dict["loan_team"] = player_dict["loan_team_name"]
                 if season_mins > 0:
-                    player_dict['first_team_cameo'] = True
+                    player_dict["first_team_cameo"] = True
                 _enrich_academy_stats(player_dict, tp, season_start_year)
-                groups['academy'].append(player_dict)
+                groups["academy"].append(player_dict)
             else:
-                player_dict['loan_team_name'] = team.name
-                player_dict['loan_team'] = team.name
-                player_dict['loan_team_api_id'] = team.team_id
-                groups['first_team'].append(player_dict)
+                player_dict["loan_team_name"] = team.name
+                player_dict["loan_team"] = team.name
+                player_dict["loan_team_api_id"] = team.team_id
+                groups["first_team"].append(player_dict)
 
-        elif tp.status == 'academy':
-            player_dict['loan_team_name'] = f"{team.name} {tp.current_level or 'Academy'}"
-            player_dict['loan_team'] = player_dict['loan_team_name']
+        elif tp.status == "academy":
+            player_dict["loan_team_name"] = f"{team.name} {tp.current_level or 'Academy'}"
+            player_dict["loan_team"] = player_dict["loan_team_name"]
             _enrich_academy_stats(player_dict, tp, season_start_year)
-            groups['academy'].append(player_dict)
+            groups["academy"].append(player_dict)
 
     _filter_included = _filter_total - _filter_skipped
-    _nl_dbg("pipeline.filter_breakdown", {
-        "team": team.name,
-        "total_active_tracked": _filter_total,
-        "skipped_not_academy_product": _filter_skipped,
-        "included_in_newsletter": _filter_included,
-        "on_loan": len(groups['on_loan']),
-        "first_team": len(groups['first_team']),
-        "academy": len(groups['academy']),
-        "skipped_players": _filter_skipped_names,
-    })
+    _nl_dbg(
+        "pipeline.filter_breakdown",
+        {
+            "team": team.name,
+            "total_active_tracked": _filter_total,
+            "skipped_not_academy_product": _filter_skipped,
+            "included_in_newsletter": _filter_included,
+            "on_loan": len(groups["on_loan"]),
+            "first_team": len(groups["first_team"]),
+            "academy": len(groups["academy"]),
+            "skipped_players": _filter_skipped_names,
+        },
+    )
 
     # Detect recent loan returns and move them out of on_loan into returned
     try:
         recent_returns = _detect_recent_loan_returns(
-            team_db_id=team.id, parent_api_id=team.team_id,
-            week_start=start, week_end=end,
+            team_db_id=team.id,
+            parent_api_id=team.team_id,
+            week_start=start,
+            week_end=end,
         )
-        on_loan_pids = {p['player_api_id'] for p in groups['on_loan']}
+        on_loan_pids = {p["player_api_id"] for p in groups["on_loan"]}
         returned_pids: set[int] = set()
         for ret in recent_returns:
-            pid = ret['player_api_id']
+            pid = ret["player_api_id"]
             if pid in returned_pids:
                 continue
             returned_pids.add(pid)
-            tp = ret['tp']
+            tp = ret["tp"]
             player_dict = {
-                'player_api_id': pid,
-                'player_name': tp.player_name,
-                'player_full_name': tp.player_name,
-                'photo_url': tp.photo_url,
-                'position': tp.position,
-                'age': tp.age,
-                'returned_from_club_name': ret['returned_from_club_name'],
-                'returned_from_club_api_id': ret['returned_from_club_api_id'],
-                'return_date': ret['return_date'],
-                'pathway_status': 'returned',
-                'parent_team_name': team.name,
-                'parent_team_api_id': team.team_id,
-                'journey_id': tp.journey_id,
+                "player_api_id": pid,
+                "player_name": tp.player_name,
+                "player_full_name": tp.player_name,
+                "photo_url": tp.photo_url,
+                "position": tp.position,
+                "age": tp.age,
+                "returned_from_club_name": ret["returned_from_club_name"],
+                "returned_from_club_api_id": ret["returned_from_club_api_id"],
+                "return_date": ret["return_date"],
+                "pathway_status": "returned",
+                "parent_team_name": team.name,
+                "parent_team_api_id": team.team_id,
+                "journey_id": tp.journey_id,
             }
-            groups['returned'].append(player_dict)
+            groups["returned"].append(player_dict)
         # Remove returned players from on_loan to avoid duplication
         if returned_pids:
-            groups['on_loan'] = [
-                p for p in groups['on_loan']
-                if p.get('player_api_id') not in returned_pids
-            ]
-            _nl_dbg("pipeline.loan_returns", {
-                "returned_count": len(groups['returned']),
-                "returned_players": [r['player_name'] for r in groups['returned']],
-            })
+            groups["on_loan"] = [p for p in groups["on_loan"] if p.get("player_api_id") not in returned_pids]
+            _nl_dbg(
+                "pipeline.loan_returns",
+                {
+                    "returned_count": len(groups["returned"]),
+                    "returned_players": [r["player_name"] for r in groups["returned"]],
+                },
+            )
     except Exception as _ret_err:
-        logger.warning('newsletter: loan return detection failed (non-fatal): %s', _ret_err)
+        logger.warning("newsletter: loan return detection failed (non-fatal): %s", _ret_err)
 
     has_active = len(tracked) > 0
 
     report = {
-        'parent_team': {'db_id': team.id, 'id': team.team_id, 'name': team.name},
-        'season': season_start_year,
-        'range': [start.isoformat(), end.isoformat()],
-        'has_tracked_players': has_active,
-        'groups': groups,
+        "parent_team": {"db_id": team.id, "id": team.team_id, "name": team.name},
+        "season": season_start_year,
+        "range": [start.isoformat(), end.isoformat()],
+        "has_tracked_players": has_active,
+        "groups": groups,
     }
     db.session.commit()
     return report
@@ -2237,14 +2304,14 @@ def _detect_recent_loan_returns(
     seen: dict[int, dict] = {}  # player_api_id → best return info
     for pid, raw in raw_map.items():
         for t in flatten_transfers(raw):
-            t_type = (t.get('type') or '').strip().lower()
+            t_type = (t.get("type") or "").strip().lower()
             if t_type not in LOAN_RETURN_TYPES:
                 continue
-            dest = (t.get('teams') or {}).get('in') or {}
-            source = (t.get('teams') or {}).get('out') or {}
-            if dest.get('id') != parent_api_id:
+            dest = (t.get("teams") or {}).get("in") or {}
+            source = (t.get("teams") or {}).get("out") or {}
+            if dest.get("id") != parent_api_id:
                 continue
-            t_date_str = t.get('date', '')
+            t_date_str = t.get("date", "")
             if not t_date_str:
                 continue
             try:
@@ -2257,14 +2324,14 @@ def _detect_recent_loan_returns(
             if not tp:
                 continue
             # Keep the most recent return per player
-            if pid not in seen or t_date_str > seen[pid]['return_date']:
+            if pid not in seen or t_date_str > seen[pid]["return_date"]:
                 seen[pid] = {
-                    'player_api_id': pid,
-                    'player_name': tp.player_name,
-                    'returned_from_club_name': source.get('name'),
-                    'returned_from_club_api_id': source.get('id'),
-                    'return_date': t_date_str,
-                    'tp': tp,
+                    "player_api_id": pid,
+                    "player_name": tp.player_name,
+                    "returned_from_club_name": source.get("name"),
+                    "returned_from_club_api_id": source.get("id"),
+                    "return_date": t_date_str,
+                    "tp": tp,
                 }
 
     return list(seen.values())
@@ -2272,39 +2339,48 @@ def _detect_recent_loan_returns(
 
 def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, end: date, season: int) -> None:
     """Enrich an on-loan player dict with weekly FixturePlayerStats."""
-    from src.models.weekly import Fixture, FixturePlayerStats
     import logging
-    _enrich_logger = logging.getLogger('newsletter.enrich')
+
+    from src.models.weekly import Fixture, FixturePlayerStats
+
+    _enrich_logger = logging.getLogger("newsletter.enrich")
 
     # Guard: skip if player_api_id is missing
     if not tp.player_api_id:
-        _enrich_logger.warning(f"[ENRICH-LOAN] player_api_id is null for tp.id={getattr(tp, 'id', '?')} ({tp.player_name})")
-        player_dict['totals'] = {}
-        player_dict['matches'] = []
+        _enrich_logger.warning(
+            f"[ENRICH-LOAN] player_api_id is null for tp.id={getattr(tp, 'id', '?')} ({tp.player_name})"
+        )
+        player_dict["totals"] = {}
+        player_dict["matches"] = []
         return
 
     try:
         _enrich_logger.info(f"[ENRICH-LOAN] player={tp.player_api_id} ({tp.player_name}) range={start}..{end}")
-        stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
-            Fixture, FixturePlayerStats.fixture_id == Fixture.id
-        ).filter(
-            FixturePlayerStats.player_api_id == tp.player_api_id,
-            db.func.date(Fixture.date_utc) >= start,
-            db.func.date(Fixture.date_utc) <= end,
-        ).all()
+        stats_rows = (
+            db.session.query(FixturePlayerStats, Fixture)
+            .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+            .filter(
+                FixturePlayerStats.player_api_id == tp.player_api_id,
+                db.func.date(Fixture.date_utc) >= start,
+                db.func.date(Fixture.date_utc) <= end,
+            )
+            .all()
+        )
         _enrich_logger.info(f"[ENRICH-LOAN] player={tp.player_api_id} found {len(stats_rows)} rows")
 
         if not stats_rows:
-            any_ever = db.session.query(db.func.count(FixturePlayerStats.id)).filter(
-                FixturePlayerStats.player_api_id == tp.player_api_id
-            ).scalar()
+            any_ever = (
+                db.session.query(db.func.count(FixturePlayerStats.id))
+                .filter(FixturePlayerStats.player_api_id == tp.player_api_id)
+                .scalar()
+            )
             _enrich_logger.warning(
                 f"[ENRICH-LOAN] 0 weekly rows for {tp.player_name} (api_id={tp.player_api_id}) "
                 f"in {start}..{end}. Total rows in DB: {any_ever}. "
                 f"current_club_api_id={tp.current_club_api_id}"
             )
 
-        totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
+        totals = {"minutes": 0, "goals": 0, "assists": 0, "yellows": 0, "reds": 0, "saves": 0}
         matches = []
         for row, fixture in stats_rows:
             raw_minutes = row.minutes or 0
@@ -2316,17 +2392,18 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             # 45 so the newsletter doesn't falsely report 0'.
             is_limited_coverage = raw_minutes == 0 and (row_goals > 0 or row_assists > 0)
             effective_minutes = 45 if is_limited_coverage else raw_minutes
-            totals['minutes'] += effective_minutes
-            totals['goals'] += row_goals
-            totals['assists'] += row_assists
-            totals['yellows'] += row.yellows or 0
-            totals['reds'] += row.reds or 0
-            totals['saves'] += getattr(row, 'saves', 0) or 0
+            totals["minutes"] += effective_minutes
+            totals["goals"] += row_goals
+            totals["assists"] += row_assists
+            totals["yellows"] += row.yellows or 0
+            totals["reds"] += row.reds or 0
+            totals["saves"] += getattr(row, "saves", 0) or 0
             if fixture:
                 is_home = fixture.home_team_api_id == tp.current_club_api_id
                 opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
                 # Resolve opponent name + logo via centralized resolver (Team → TeamProfile → API)
                 from src.utils.team_resolver import resolve_team_name_and_logo
+
                 opp_name, opp_logo = resolve_team_name_and_logo(opp_api_id, season)
                 # Determine W/D/L from fixture score + player team perspective
                 home_goals = fixture.home_goals
@@ -2336,109 +2413,131 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
                     player_team_goals = home_goals if is_home else away_goals
                     opp_goals = away_goals if is_home else home_goals
                     if player_team_goals > opp_goals:
-                        result = 'W'
+                        result = "W"
                     elif player_team_goals == opp_goals:
-                        result = 'D'
+                        result = "D"
                     else:
-                        result = 'L'
-                matches.append({
-                    'opponent': opp_name,
-                    'opponent_id': opp_api_id,
-                    'opponent_logo': opp_logo,
-                    'competition': getattr(fixture, 'competition_name', None),
-                    'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
-                    'home': is_home,
-                    'score': {'home': home_goals, 'away': away_goals},
-                    'result': result,
-                    'played': effective_minutes > 0 or row_goals > 0 or row_assists > 0,
-                    'role': ('substitutes' if row.substitute else 'startXI') if effective_minutes > 0 else ('substitutes' if row.substitute else None),
-                    'player': {
-                        'position': getattr(row, 'position', None),
-                        'goals': row_goals,
-                        'assists': row_assists,
-                        'minutes': effective_minutes,
-                    },
-                })
-        player_dict['totals'] = totals
-        player_dict['matches'] = matches
+                        result = "L"
+                matches.append(
+                    {
+                        "opponent": opp_name,
+                        "opponent_id": opp_api_id,
+                        "opponent_logo": opp_logo,
+                        "competition": getattr(fixture, "competition_name", None),
+                        "date": fixture.date_utc.isoformat() if fixture.date_utc else None,
+                        "home": is_home,
+                        "score": {"home": home_goals, "away": away_goals},
+                        "result": result,
+                        "played": effective_minutes > 0 or row_goals > 0 or row_assists > 0,
+                        "role": ("substitutes" if row.substitute else "startXI")
+                        if effective_minutes > 0
+                        else ("substitutes" if row.substitute else None),
+                        "player": {
+                            "position": getattr(row, "position", None),
+                            "goals": row_goals,
+                            "assists": row_assists,
+                            "minutes": effective_minutes,
+                        },
+                    }
+                )
+        player_dict["totals"] = totals
+        player_dict["matches"] = matches
         # Derive loan league name from match competitions for newsletter grouping
-        league_names = [m.get('competition') for m in matches if m.get('competition')]
+        league_names = [m.get("competition") for m in matches if m.get("competition")]
         if league_names:
             from collections import Counter
-            player_dict['loan_league_name'] = Counter(league_names).most_common(1)[0][0]
+
+            player_dict["loan_league_name"] = Counter(league_names).most_common(1)[0][0]
 
         # Season-level totals for context (full season, no week filter)
         try:
             season_start = date(season, 8, 1)
             season_end = date(season + 1, 6, 30)
-            season_rows = db.session.query(FixturePlayerStats).join(
-                Fixture, FixturePlayerStats.fixture_id == Fixture.id
-            ).filter(
-                FixturePlayerStats.player_api_id == tp.player_api_id,
-                db.func.date(Fixture.date_utc) >= season_start,
-                db.func.date(Fixture.date_utc) <= season_end,
-            ).all()
+            season_rows = (
+                db.session.query(FixturePlayerStats)
+                .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+                .filter(
+                    FixturePlayerStats.player_api_id == tp.player_api_id,
+                    db.func.date(Fixture.date_utc) >= season_start,
+                    db.func.date(Fixture.date_utc) <= season_end,
+                )
+                .all()
+            )
             if season_rows:
-                player_dict['season_totals'] = {
-                    'minutes': sum(r.minutes or 0 for r in season_rows),
-                    'goals': sum(r.goals or 0 for r in season_rows),
-                    'assists': sum(r.assists or 0 for r in season_rows),
-                    'appearances': sum(1 for r in season_rows if (r.minutes or 0) > 0),
+                player_dict["season_totals"] = {
+                    "minutes": sum(r.minutes or 0 for r in season_rows),
+                    "goals": sum(r.goals or 0 for r in season_rows),
+                    "assists": sum(r.assists or 0 for r in season_rows),
+                    "appearances": sum(1 for r in season_rows if (r.minutes or 0) > 0),
                 }
         except Exception:
             pass
 
         # Wire season_context so _build_player_report_item and Groq get real season data
-        if player_dict.get('season_totals'):
-            player_dict['season_context'] = {
-                'season_stats': player_dict['season_totals'],
+        if player_dict.get("season_totals"):
+            player_dict["season_context"] = {
+                "season_stats": player_dict["season_totals"],
             }
 
     except Exception as e:
         import traceback
+
         _enrich_logger.error(f"[ENRICH-LOAN] ERROR player={tp.player_api_id}: {e}\n{traceback.format_exc()}")
-        player_dict['totals'] = {}
-        player_dict['matches'] = []
+        player_dict["totals"] = {}
+        player_dict["matches"] = []
 
 
-def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team", start: date, end: date, season: int) -> None:
+def _enrich_first_team_stats(
+    player_dict: dict, tp: "TrackedPlayer", team: "Team", start: date, end: date, season: int
+) -> None:
     """Enrich a first-team player dict with parent club FixturePlayerStats."""
-    from src.models.weekly import Fixture, FixturePlayerStats
     import logging
-    _enrich_logger = logging.getLogger('newsletter.enrich')
+
+    from src.models.weekly import Fixture, FixturePlayerStats
+
+    _enrich_logger = logging.getLogger("newsletter.enrich")
 
     # Guard: skip if player_api_id is missing
     if not tp.player_api_id:
-        _enrich_logger.warning(f"[ENRICH-FT] player_api_id is null for tp.id={getattr(tp, 'id', '?')} ({tp.player_name})")
-        player_dict['totals'] = {}
-        player_dict['matches'] = []
+        _enrich_logger.warning(
+            f"[ENRICH-FT] player_api_id is null for tp.id={getattr(tp, 'id', '?')} ({tp.player_name})"
+        )
+        player_dict["totals"] = {}
+        player_dict["matches"] = []
         return
 
     try:
-        _enrich_logger.info(f"[ENRICH-FT] player={tp.player_api_id} ({tp.player_name}) team_api={team.team_id} range={start}..{end}")
-        stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
-            Fixture, FixturePlayerStats.fixture_id == Fixture.id
-        ).filter(
-            FixturePlayerStats.player_api_id == tp.player_api_id,
-            db.func.date(Fixture.date_utc) >= start,
-            db.func.date(Fixture.date_utc) <= end,
-            db.or_(
-                Fixture.home_team_api_id == team.team_id,
-                Fixture.away_team_api_id == team.team_id,
-            ),
-        ).all()
+        _enrich_logger.info(
+            f"[ENRICH-FT] player={tp.player_api_id} ({tp.player_name}) team_api={team.team_id} range={start}..{end}"
+        )
+        stats_rows = (
+            db.session.query(FixturePlayerStats, Fixture)
+            .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+            .filter(
+                FixturePlayerStats.player_api_id == tp.player_api_id,
+                db.func.date(Fixture.date_utc) >= start,
+                db.func.date(Fixture.date_utc) <= end,
+                db.or_(
+                    Fixture.home_team_api_id == team.team_id,
+                    Fixture.away_team_api_id == team.team_id,
+                ),
+            )
+            .all()
+        )
         _enrich_logger.info(f"[ENRICH-FT] player={tp.player_api_id} found {len(stats_rows)} rows")
 
         if not stats_rows:
-            any_ever = db.session.query(db.func.count(FixturePlayerStats.id)).filter(
-                FixturePlayerStats.player_api_id == tp.player_api_id
-            ).scalar()
+            any_ever = (
+                db.session.query(db.func.count(FixturePlayerStats.id))
+                .filter(FixturePlayerStats.player_api_id == tp.player_api_id)
+                .scalar()
+            )
             _enrich_logger.warning(
                 f"[ENRICH-FT] 0 weekly rows for {tp.player_name} (api_id={tp.player_api_id}) "
                 f"in {start}..{end}. Total rows in DB: {any_ever}."
             )
 
-        totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
+        totals = {"minutes": 0, "goals": 0, "assists": 0, "yellows": 0, "reds": 0, "saves": 0}
         matches = []
         for row, fixture in stats_rows:
             raw_minutes = row.minutes or 0
@@ -2448,16 +2547,17 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
             # scored/assisted but minutes=0, estimate 45 so we don't show 0'.
             is_limited_coverage = raw_minutes == 0 and (row_goals > 0 or row_assists > 0)
             effective_minutes = 45 if is_limited_coverage else raw_minutes
-            totals['minutes'] += effective_minutes
-            totals['goals'] += row_goals
-            totals['assists'] += row_assists
-            totals['yellows'] += row.yellows or 0
-            totals['reds'] += row.reds or 0
-            totals['saves'] += getattr(row, 'saves', 0) or 0
+            totals["minutes"] += effective_minutes
+            totals["goals"] += row_goals
+            totals["assists"] += row_assists
+            totals["yellows"] += row.yellows or 0
+            totals["reds"] += row.reds or 0
+            totals["saves"] += getattr(row, "saves", 0) or 0
             if fixture:
                 is_home = fixture.home_team_api_id == team.team_id
                 opp_api_id = fixture.away_team_api_id if is_home else fixture.home_team_api_id
                 from src.utils.team_resolver import resolve_team_name_and_logo
+
                 opp_name, opp_logo = resolve_team_name_and_logo(opp_api_id, season)
                 home_goals = fixture.home_goals
                 away_goals = fixture.away_goals
@@ -2466,35 +2566,39 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
                     player_team_goals = home_goals if is_home else away_goals
                     opp_goals = away_goals if is_home else home_goals
                     if player_team_goals > opp_goals:
-                        result = 'W'
+                        result = "W"
                     elif player_team_goals == opp_goals:
-                        result = 'D'
+                        result = "D"
                     else:
-                        result = 'L'
-                matches.append({
-                    'opponent': opp_name,
-                    'opponent_id': opp_api_id,
-                    'opponent_logo': opp_logo,
-                    'competition': getattr(fixture, 'competition_name', None),
-                    'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
-                    'home': is_home,
-                    'score': {'home': home_goals, 'away': away_goals},
-                    'result': result,
-                    'played': effective_minutes > 0 or row_goals > 0 or row_assists > 0,
-                    'role': ('substitutes' if row.substitute else 'startXI') if effective_minutes > 0 else ('substitutes' if row.substitute else None),
-                    'player': {
-                        'position': getattr(row, 'position', None),
-                        'goals': row_goals,
-                        'assists': row_assists,
-                        'minutes': effective_minutes,
-                    },
-                })
-        player_dict['totals'] = totals
-        player_dict['matches'] = matches
+                        result = "L"
+                matches.append(
+                    {
+                        "opponent": opp_name,
+                        "opponent_id": opp_api_id,
+                        "opponent_logo": opp_logo,
+                        "competition": getattr(fixture, "competition_name", None),
+                        "date": fixture.date_utc.isoformat() if fixture.date_utc else None,
+                        "home": is_home,
+                        "score": {"home": home_goals, "away": away_goals},
+                        "result": result,
+                        "played": effective_minutes > 0 or row_goals > 0 or row_assists > 0,
+                        "role": ("substitutes" if row.substitute else "startXI")
+                        if effective_minutes > 0
+                        else ("substitutes" if row.substitute else None),
+                        "player": {
+                            "position": getattr(row, "position", None),
+                            "goals": row_goals,
+                            "assists": row_assists,
+                            "minutes": effective_minutes,
+                        },
+                    }
+                )
+        player_dict["totals"] = totals
+        player_dict["matches"] = matches
     except Exception as e:
-        _nl_dbg('_enrich_first_team_stats error:', str(e))
-        player_dict['totals'] = {}
-        player_dict['matches'] = []
+        _nl_dbg("_enrich_first_team_stats error:", str(e))
+        player_dict["totals"] = {}
+        player_dict["matches"] = []
 
     # Season-level stats from journey entries — stored separately, never overwrites weekly totals
     if tp.journey_id:
@@ -2502,22 +2606,22 @@ def _enrich_first_team_stats(player_dict: dict, tp: "TrackedPlayer", team: "Team
             entries = PlayerJourneyEntry.query.filter(
                 PlayerJourneyEntry.journey_id == tp.journey_id,
                 PlayerJourneyEntry.season == season,
-                PlayerJourneyEntry.entry_type == 'first_team',
+                PlayerJourneyEntry.entry_type == "first_team",
             ).all()
             if entries:
-                player_dict['season_totals'] = {
-                    'minutes': sum(e.minutes or 0 for e in entries),
-                    'goals': sum(e.goals or 0 for e in entries),
-                    'assists': sum(e.assists or 0 for e in entries),
-                    'appearances': sum(1 for e in entries if (e.minutes or 0) > 0),
+                player_dict["season_totals"] = {
+                    "minutes": sum(e.minutes or 0 for e in entries),
+                    "goals": sum(e.goals or 0 for e in entries),
+                    "assists": sum(e.assists or 0 for e in entries),
+                    "appearances": sum(1 for e in entries if (e.minutes or 0) > 0),
                 }
         except Exception:
             pass
 
     # Wire season_context so _build_player_report_item and Groq get real season data
-    if player_dict.get('season_totals'):
-        player_dict['season_context'] = {
-            'season_stats': player_dict['season_totals'],
+    if player_dict.get("season_totals"):
+        player_dict["season_context"] = {
+            "season_stats": player_dict["season_totals"],
         }
 
 
@@ -2529,72 +2633,86 @@ def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -
     """
     from src.models.weekly import Fixture, FixturePlayerStats
 
-    player_dict['totals'] = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
-    player_dict['matches'] = []
-    player_dict['_stats_source'] = 'academy_season'
+    player_dict["totals"] = {"minutes": 0, "goals": 0, "assists": 0, "yellows": 0, "reds": 0, "saves": 0}
+    player_dict["matches"] = []
+    player_dict["_stats_source"] = "academy_season"
 
     # Try FixturePlayerStats first (match-level data from youth fixture sync)
     if tp.player_api_id:
         try:
             season_start = date(season, 8, 1)
             season_end = date(season + 1, 6, 30)
-            stats_rows = db.session.query(FixturePlayerStats, Fixture).join(
-                Fixture, FixturePlayerStats.fixture_id == Fixture.id
-            ).filter(
-                FixturePlayerStats.player_api_id == tp.player_api_id,
-                db.func.date(Fixture.date_utc) >= season_start,
-                db.func.date(Fixture.date_utc) <= season_end,
-            ).all()
+            stats_rows = (
+                db.session.query(FixturePlayerStats, Fixture)
+                .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+                .filter(
+                    FixturePlayerStats.player_api_id == tp.player_api_id,
+                    db.func.date(Fixture.date_utc) >= season_start,
+                    db.func.date(Fixture.date_utc) <= season_end,
+                )
+                .all()
+            )
 
             if stats_rows:
-                totals = {'minutes': 0, 'goals': 0, 'assists': 0, 'yellows': 0, 'reds': 0, 'saves': 0}
+                totals = {"minutes": 0, "goals": 0, "assists": 0, "yellows": 0, "reds": 0, "saves": 0}
                 matches = []
                 for row, fixture in stats_rows:
-                    totals['minutes'] += row.minutes or 0
-                    totals['goals'] += row.goals or 0
-                    totals['assists'] += row.assists or 0
-                    totals['yellows'] += row.yellows or 0
-                    totals['reds'] += row.reds or 0
-                    totals['saves'] += getattr(row, 'saves', 0) or 0
+                    totals["minutes"] += row.minutes or 0
+                    totals["goals"] += row.goals or 0
+                    totals["assists"] += row.assists or 0
+                    totals["yellows"] += row.yellows or 0
+                    totals["reds"] += row.reds or 0
+                    totals["saves"] += getattr(row, "saves", 0) or 0
                     if fixture:
                         # Resolve opponent for academy matches (youth team fixtures)
-                        acad_team_id = tp.current_club_api_id or (team.team_id if hasattr(tp, 'team') and tp.team else None)
+                        acad_team_id = tp.current_club_api_id or (
+                            team.team_id if hasattr(tp, "team") and tp.team else None
+                        )
                         is_home = fixture.home_team_api_id == acad_team_id if acad_team_id else True
-                        opp_api_id = (fixture.away_team_api_id if is_home else fixture.home_team_api_id) if acad_team_id else None
+                        opp_api_id = (
+                            (fixture.away_team_api_id if is_home else fixture.home_team_api_id)
+                            if acad_team_id
+                            else None
+                        )
                         opp_name, opp_logo = None, None
                         if opp_api_id:
                             from src.utils.team_resolver import resolve_team_name_and_logo
+
                             opp_name, opp_logo = resolve_team_name_and_logo(opp_api_id, season)
-                        matches.append({
-                            'opponent': opp_name,
-                            'opponent_id': opp_api_id,
-                            'opponent_logo': opp_logo,
-                            'competition': getattr(fixture, 'competition_name', None),
-                            'date': fixture.date_utc.isoformat() if fixture.date_utc else None,
-                            'home': is_home,
-                            'played': (row.minutes or 0) > 0,
-                            'role': ('substitutes' if row.substitute else 'startXI') if (row.minutes or 0) > 0 else ('substitutes' if row.substitute else None),
-                            'player': {
-                                'position': getattr(row, 'position', None),
-                                'goals': row.goals or 0,
-                                'assists': row.assists or 0,
-                                'minutes': row.minutes or 0,
-                            },
-                        })
-                player_dict['season_totals'] = {
-                    'minutes': totals['minutes'],
-                    'goals': totals['goals'],
-                    'assists': totals['assists'],
-                    'appearances': sum(1 for r, _ in stats_rows if (r.minutes or 0) > 0),
+                        matches.append(
+                            {
+                                "opponent": opp_name,
+                                "opponent_id": opp_api_id,
+                                "opponent_logo": opp_logo,
+                                "competition": getattr(fixture, "competition_name", None),
+                                "date": fixture.date_utc.isoformat() if fixture.date_utc else None,
+                                "home": is_home,
+                                "played": (row.minutes or 0) > 0,
+                                "role": ("substitutes" if row.substitute else "startXI")
+                                if (row.minutes or 0) > 0
+                                else ("substitutes" if row.substitute else None),
+                                "player": {
+                                    "position": getattr(row, "position", None),
+                                    "goals": row.goals or 0,
+                                    "assists": row.assists or 0,
+                                    "minutes": row.minutes or 0,
+                                },
+                            }
+                        )
+                player_dict["season_totals"] = {
+                    "minutes": totals["minutes"],
+                    "goals": totals["goals"],
+                    "assists": totals["assists"],
+                    "appearances": sum(1 for r, _ in stats_rows if (r.minutes or 0) > 0),
                 }
-                player_dict['_stats_source'] = 'fixture_stats'
-                if player_dict.get('season_totals'):
-                    player_dict['season_context'] = {
-                        'season_stats': player_dict['season_totals'],
+                player_dict["_stats_source"] = "fixture_stats"
+                if player_dict.get("season_totals"):
+                    player_dict["season_context"] = {
+                        "season_stats": player_dict["season_totals"],
                     }
                 return
         except Exception as e:
-            _nl_dbg('_enrich_academy_stats fixture query error:', str(e))
+            _nl_dbg("_enrich_academy_stats fixture query error:", str(e))
 
     # Fallback: season totals from PlayerJourneyEntry
     if not tp.journey_id:
@@ -2607,23 +2725,29 @@ def _enrich_academy_stats(player_dict: dict, tp: "TrackedPlayer", season: int) -
             PlayerJourneyEntry.is_youth.is_(True),
         ).all()
         if entries:
-            player_dict['season_totals'] = {
-                'minutes': sum(e.minutes or 0 for e in entries),
-                'goals': sum(e.goals or 0 for e in entries),
-                'assists': sum(e.assists or 0 for e in entries),
-                'appearances': sum(1 for e in entries if (e.minutes or 0) > 0),
+            player_dict["season_totals"] = {
+                "minutes": sum(e.minutes or 0 for e in entries),
+                "goals": sum(e.goals or 0 for e in entries),
+                "assists": sum(e.assists or 0 for e in entries),
+                "appearances": sum(1 for e in entries if (e.minutes or 0) > 0),
             }
-            if player_dict.get('season_totals'):
-                player_dict['season_context'] = {
-                    'season_stats': player_dict['season_totals'],
+            if player_dict.get("season_totals"):
+                player_dict["season_context"] = {
+                    "season_stats": player_dict["season_totals"],
                 }
     except Exception as e:
-        _nl_dbg('_enrich_academy_stats error:', str(e))
+        _nl_dbg("_enrich_academy_stats error:", str(e))
 
 
-def _build_first_team_report_item(player: dict, hits: list[dict[str, Any]], *, week_start: date, week_end: date) -> dict:
+def _build_first_team_report_item(
+    player: dict, hits: list[dict[str, Any]], *, week_start: date, week_end: date
+) -> dict:
     """Build a report item for a first-team graduate. Same dict shape as loan items."""
-    display_name = to_initial_last(_strip_text(player.get("player_full_name")) or _strip_text(player.get("player_name"))) or _strip_text(player.get("player_name")) or ""
+    display_name = (
+        to_initial_last(_strip_text(player.get("player_full_name")) or _strip_text(player.get("player_name")))
+        or _strip_text(player.get("player_name"))
+        or ""
+    )
     full_name = _strip_text(player.get("player_full_name")) or display_name
     parent_team = _strip_text(player.get("parent_team_name") or player.get("loan_team") or "the first team")
     stats_src = player.get("totals") or {}
@@ -2657,17 +2781,19 @@ def _build_first_team_report_item(player: dict, hits: list[dict[str, Any]], *, w
             sentence += f", finishing with {_combine_phrases(stat_phrases)}"
         paragraphs.append(_ensure_period(sentence))
     elif minutes == 0 and match_count > 0:
-        paragraphs.append(_ensure_period(f"{display_name} was in the matchday squad for {parent_team} but did not feature"))
+        paragraphs.append(
+            _ensure_period(f"{display_name} was in the matchday squad for {parent_team} but did not feature")
+        )
     else:
         paragraphs.append(_ensure_period(f"{display_name} did not feature for {parent_team} this week"))
 
     # Add season context from season_totals if available
     season_totals = player.get("season_totals")
     if season_totals and season_totals.get("minutes", 0) > 0:
-        st_mins = season_totals['minutes']
-        st_goals = season_totals.get('goals', 0)
-        st_assists = season_totals.get('assists', 0)
-        st_apps = season_totals.get('appearances', 0)
+        st_mins = season_totals["minutes"]
+        st_goals = season_totals.get("goals", 0)
+        st_assists = season_totals.get("assists", 0)
+        st_apps = season_totals.get("appearances", 0)
         season_parts = [f"{st_mins} minutes"]
         if st_apps:
             season_parts[0] = f"{st_apps} appearances ({st_mins} minutes)"
@@ -2706,7 +2832,11 @@ def _build_first_team_report_item(player: dict, hits: list[dict[str, Any]], *, w
 
 def _build_academy_report_item(player: dict, hits: list[dict[str, Any]], *, week_start: date, week_end: date) -> dict:
     """Build a lightweight report item for an academy player (season-level stats)."""
-    display_name = to_initial_last(_strip_text(player.get("player_full_name")) or _strip_text(player.get("player_name"))) or _strip_text(player.get("player_name")) or ""
+    display_name = (
+        to_initial_last(_strip_text(player.get("player_full_name")) or _strip_text(player.get("player_name")))
+        or _strip_text(player.get("player_name"))
+        or ""
+    )
     full_name = _strip_text(player.get("player_full_name")) or display_name
     level = player.get("current_level") or "Academy"
     parent_team = _strip_text(player.get("parent_team_name") or "the academy")
@@ -2761,17 +2891,22 @@ def _build_academy_report_item(player: dict, hits: list[dict[str, Any]], *, week
 
 
 def _build_returned_from_loan_item(
-    player: dict, hits: list[dict[str, Any]], *,
-    week_start: date, week_end: date, season: int,
+    player: dict,
+    hits: list[dict[str, Any]],
+    *,
+    week_start: date,
+    week_end: date,
+    season: int,
 ) -> dict:
     """Build a report item for a player who recently returned from loan."""
-    from src.models.weekly import Fixture, FixturePlayerStats
     from sqlalchemy import func
+    from src.models.weekly import Fixture, FixturePlayerStats
 
-    display_name = to_initial_last(
-        _strip_text(player.get("player_full_name"))
+    display_name = (
+        to_initial_last(_strip_text(player.get("player_full_name")) or _strip_text(player.get("player_name")))
         or _strip_text(player.get("player_name"))
-    ) or _strip_text(player.get("player_name")) or ""
+        or ""
+    )
     full_name = _strip_text(player.get("player_full_name")) or display_name
     loan_club = player.get("returned_from_club_name") or "loan"
     return_date = player.get("return_date") or ""
@@ -2781,16 +2916,21 @@ def _build_returned_from_loan_item(
     spell_summary = ""
     if loan_club_api_id:
         season_start = date(season, 8, 1)
-        row = db.session.query(
-            func.count(FixturePlayerStats.id).label('apps'),
-            func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label('mins'),
-            func.coalesce(func.sum(FixturePlayerStats.goals), 0).label('goals'),
-            func.coalesce(func.sum(FixturePlayerStats.assists), 0).label('assists'),
-        ).join(Fixture, FixturePlayerStats.fixture_id == Fixture.id).filter(
-            FixturePlayerStats.player_api_id == player.get("player_api_id"),
-            FixturePlayerStats.team_api_id == loan_club_api_id,
-            Fixture.date_utc >= season_start,
-        ).first()
+        row = (
+            db.session.query(
+                func.count(FixturePlayerStats.id).label("apps"),
+                func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label("mins"),
+                func.coalesce(func.sum(FixturePlayerStats.goals), 0).label("goals"),
+                func.coalesce(func.sum(FixturePlayerStats.assists), 0).label("assists"),
+            )
+            .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+            .filter(
+                FixturePlayerStats.player_api_id == player.get("player_api_id"),
+                FixturePlayerStats.team_api_id == loan_club_api_id,
+                Fixture.date_utc >= season_start,
+            )
+            .first()
+        )
 
         if row and row.apps > 0:
             parts = [f"{row.apps} appearances", f"{row.mins} minutes"]
@@ -2810,10 +2950,7 @@ def _build_returned_from_loan_item(
             date_fmt = return_date
 
     paragraphs = [
-        _ensure_period(
-            f"{display_name} returned from loan at {loan_club}"
-            + (f" ({date_fmt})" if date_fmt else "")
-        ),
+        _ensure_period(f"{display_name} returned from loan at {loan_club}" + (f" ({date_fmt})" if date_fmt else "")),
     ]
     if spell_summary:
         paragraphs.append(spell_summary)
@@ -2848,26 +2985,30 @@ def _format_matches_for_item(matches: list | None) -> list[dict]:
         if not isinstance(match, dict):
             continue
         player_stats = match.get("player") or {}
-        formatted.append({
-            "opponent": match.get("opponent"),
-            "opponent_id": match.get("opponent_id"),
-            "opponent_logo": match.get("opponent_logo"),
-            "competition": match.get("competition"),
-            "date": match.get("date"),
-            "home": match.get("home"),
-            "score": match.get("score"),
-            "result": match.get("result"),
-            "played": match.get("played"),
-            "role": match.get("role"),
-            "position": player_stats.get("position"),
-            "goals": player_stats.get("goals", 0),
-            "assists": player_stats.get("assists", 0),
-            "minutes": player_stats.get("minutes", 0),
-        })
+        formatted.append(
+            {
+                "opponent": match.get("opponent"),
+                "opponent_id": match.get("opponent_id"),
+                "opponent_logo": match.get("opponent_logo"),
+                "competition": match.get("competition"),
+                "date": match.get("date"),
+                "home": match.get("home"),
+                "score": match.get("score"),
+                "result": match.get("result"),
+                "played": match.get("played"),
+                "role": match.get("role"),
+                "position": player_stats.get("position"),
+                "goals": player_stats.get("goals", 0),
+                "assists": player_stats.get("assists", 0),
+                "minutes": player_stats.get("minutes", 0),
+            }
+        )
     return formatted
 
 
-def brave_context_for_team_and_loans(team_name: str, report: Dict[str, Any], *, default_loc: Dict[str, str]) -> Dict[str, List[Dict[str, Any]]]:
+def brave_context_for_team_and_loans(
+    team_name: str, report: dict[str, Any], *, default_loc: dict[str, str]
+) -> dict[str, list[dict[str, Any]]]:
     # Build a small set of targeted queries for context enrichment.
     # We avoid embedding date ranges inside the query text and rely on the
     # Brave API 'freshness' parameter, then strictly post-filter by date.
@@ -2880,12 +3021,12 @@ def brave_context_for_team_and_loans(team_name: str, report: Dict[str, Any], *, 
 
     groups = report.get("groups", {})
 
-    q_meta: Dict[str, Dict[str, str]] = {}
+    q_meta: dict[str, dict[str, str]] = {}
     flags = _get_flags()
-    soft_rank = flags['soft_rank']
-    site_boost = flags['site_boost']
-    use_cup_syns = flags['cup_synonyms']
-    strict_range = flags['strict_range']
+    soft_rank = flags["soft_rank"]
+    site_boost = flags["site_boost"]
+    use_cup_syns = flags["cup_synonyms"]
+    strict_range = flags["strict_range"]
 
     # Search for on_loan + first_team players (skip academy — minimal web coverage)
     search_players = groups.get("on_loan", []) + groups.get("first_team", [])
@@ -2950,12 +3091,12 @@ def brave_context_for_team_and_loans(team_name: str, report: Dict[str, Any], *, 
                         "loan_team_api_id": loan_team_api_id,
                     }
 
-    results: Dict[str, List[Dict[str, Any]]] = {}
+    results: dict[str, list[dict[str, Any]]] = {}
     _nl_dbg(f"Brave context week start={start} end={end} players={len(search_players)} queries={len(queries)}")
 
-    loc_cache: Dict[str, Dict[str, str]] = {}
+    loc_cache: dict[str, dict[str, str]] = {}
 
-    def _loc_for_meta(meta: Dict[str, Any]) -> Dict[str, str]:
+    def _loc_for_meta(meta: dict[str, Any]) -> dict[str, str]:
         key = (meta.get("loan_team_country") or "").upper()
         if key:
             if key not in loc_cache:
@@ -2967,13 +3108,13 @@ def brave_context_for_team_and_loans(team_name: str, report: Dict[str, Any], *, 
         if api_id:
             try:
                 team = Team.query.filter(Team.team_id == int(api_id)).order_by(Team.updated_at.desc()).first()
-                if team and getattr(team, 'country', None):
+                if team and getattr(team, "country", None):
                     fallback_key = team.country.upper()
             except Exception:
                 fallback_key = None
 
         if not fallback_key:
-            fallback_key = ''
+            fallback_key = ""
 
         if fallback_key not in loc_cache:
             loc_cache[fallback_key] = resolve_localization_for_country(fallback_key or None, default=default_loc)
@@ -2985,15 +3126,31 @@ def brave_context_for_team_and_loans(team_name: str, report: Dict[str, Any], *, 
             _nl_dbg(f"Searching (freshness, strict={strict_range}):", q)
             meta = q_meta.get(q, {})
             locale = _loc_for_meta(meta)
-            hits = brave_search(query=q, since=start, until=end, count=8, strict_range=strict_range,
-                                country=locale["country"], search_lang=locale["search_lang"], ui_lang=locale["ui_lang"])
+            hits = brave_search(
+                query=q,
+                since=start,
+                until=end,
+                count=8,
+                strict_range=strict_range,
+                country=locale["country"],
+                search_lang=locale["search_lang"],
+                ui_lang=locale["ui_lang"],
+            )
             # Optional site boost: add 1–2 site‑scoped queries for better local coverage
             if site_boost:
                 for site in SITE_BOOSTS_BY_COUNTRY.get(default_loc["country"], [])[:2]:
                     q_site = f"{q} site:{site}"
                     _nl_dbg("  Boost site query:", q_site)
-                    extra = brave_search(query=q_site, since=start, until=end, count=6, strict_range=strict_range,
-                                         country=locale["country"], search_lang=locale["search_lang"], ui_lang=locale["ui_lang"])
+                    extra = brave_search(
+                        query=q_site,
+                        since=start,
+                        until=end,
+                        count=6,
+                        strict_range=strict_range,
+                        country=locale["country"],
+                        search_lang=locale["search_lang"],
+                        ui_lang=locale["ui_lang"],
+                    )
                     hits.extend(extra)
 
             # Gentle post-filter and soft ranking per query if enabled
@@ -3014,7 +3171,10 @@ def brave_context_for_team_and_loans(team_name: str, report: Dict[str, Any], *, 
             # Soft rank
             if soft_rank:
                 try:
-                    filtered_hits.sort(key=lambda h: _score_hit(h, player_last, team_l, opponent, locale["country"], site_boost), reverse=True)
+                    filtered_hits.sort(
+                        key=lambda h: _score_hit(h, player_last, team_l, opponent, locale["country"], site_boost),
+                        reverse=True,
+                    )
                     # Log top picks rationale
                     for h in filtered_hits[:2]:
                         sc = _score_hit(h, player_last, team_l, opponent, locale["country"], site_boost)
@@ -3041,8 +3201,16 @@ def brave_context_for_team_and_loans(team_name: str, report: Dict[str, Any], *, 
                 _nl_dbg("Searching (open):", q)
                 meta = q_meta.get(q, {})
                 locale = _loc_for_meta(meta)
-                hits = brave_search(query=q, since="", until="", count=8, strict_range=False,
-                                     country=locale["country"], search_lang=locale["search_lang"], ui_lang=locale["ui_lang"])
+                hits = brave_search(
+                    query=q,
+                    since="",
+                    until="",
+                    count=8,
+                    strict_range=False,
+                    country=locale["country"],
+                    search_lang=locale["search_lang"],
+                    ui_lang=locale["ui_lang"],
+                )
                 _nl_dbg(" -> hits:", len(hits))
                 results[q] = hits[:5]
             except Exception as e:
@@ -3073,7 +3241,7 @@ def brave_context_for_team_and_loans(team_name: str, report: Dict[str, Any], *, 
             # Filter per-query hits based on ok_urls
             for q, arr in list(results.items()):
                 filtered = []
-                for h in (arr or []):
+                for h in arr or []:
                     url_value = _strip_text(h.get("url"))
                     if url_value and url_value in ok_urls:
                         filtered.append(h)
@@ -3085,6 +3253,7 @@ def brave_context_for_team_and_loans(team_name: str, report: Dict[str, Any], *, 
 
     return results
 
+
 # ---- URL validation helpers ----
 def _normalize_url(u: str) -> str:
     try:
@@ -3094,6 +3263,7 @@ def _normalize_url(u: str) -> str:
         return urlunparse((p.scheme, netloc, p.path or "", p.params or "", p.query or "", ""))
     except Exception:
         return u
+
 
 def _url_ok(u: str, *, timeout: float = 6.0) -> bool:
     if not u or not isinstance(u, str):
@@ -3116,6 +3286,7 @@ def _url_ok(u: str, *, timeout: float = 6.0) -> bool:
         return False
     except Exception:
         return False
+
 
 def _check_urls_batch(urls: list[str], *, timeout: float = 6.0, max_workers: int = 8) -> dict[str, bool]:
     out: dict[str, bool] = {}
@@ -3213,7 +3384,15 @@ def _sanitize_links_in_content(obj: dict) -> dict:
         pass
     return obj
 
-def persist_newsletter(team_db_id: int, content_json_str: str, week_start: date, week_end: date, issue_date: date, newsletter_type: str = "weekly") -> Newsletter:
+
+def persist_newsletter(
+    team_db_id: int,
+    content_json_str: str,
+    week_start: date,
+    week_end: date,
+    issue_date: date,
+    newsletter_type: str = "weekly",
+) -> Newsletter:
     # Reset any prior failed transaction to avoid InFailedSqlTransaction
     try:
         db.session.rollback()
@@ -3229,19 +3408,19 @@ def persist_newsletter(team_db_id: int, content_json_str: str, week_start: date,
 
     # Log sample stats before rendering
     try:
-        sections = parsed.get('sections', [])
+        sections = parsed.get("sections", [])
         if sections:
             first_section = sections[0]
-            items = first_section.get('items', [])
+            items = first_section.get("items", [])
             if items:
                 first_item = items[0]
                 stats_snapshot = {
-                    "player": first_item.get('player_name'),
-                    "stats_keys": list(first_item.get('stats', {}).keys()),
-                    "position": first_item.get('stats', {}).get('position'),
-                    "rating": first_item.get('stats', {}).get('rating'),
-                    "shots": first_item.get('stats', {}).get('shots_total'),
-                    "passes": first_item.get('stats', {}).get('passes_total'),
+                    "player": first_item.get("player_name"),
+                    "stats_keys": list(first_item.get("stats", {}).keys()),
+                    "position": first_item.get("stats", {}).get("position"),
+                    "rating": first_item.get("stats", {}).get("rating"),
+                    "shots": first_item.get("stats", {}).get("shots_total"),
+                    "passes": first_item.get("stats", {}).get("passes_total"),
                 }
                 _nl_dbg("[persist_newsletter] sample_item_stats", stats_snapshot)
     except Exception as e:
@@ -3251,29 +3430,30 @@ def persist_newsletter(team_db_id: int, content_json_str: str, week_start: date,
     try:
         _nl_dbg("[persist_newsletter] rendering_variants", {"team": team_name})
         variants = _render_variants(parsed, team_name)
-        web_html = variants.get('web_html', '') or ''
+        web_html = variants.get("web_html", "") or ""
         render_meta = {
             "web_html_len": len(web_html),
-            "email_html_len": len(variants.get('email_html', '') or ''),
+            "email_html_len": len(variants.get("email_html", "") or ""),
             "has_expanded_stats": any(token in web_html for token in ("Shots", "Saves", "Key Passes")),
         }
         _nl_dbg("[persist_newsletter] rendered_variants", render_meta)
-        parsed['rendered'] = variants
+        parsed["rendered"] = variants
         content_json_str = json.dumps(parsed, ensure_ascii=False)
     except Exception as e:
         # Non-fatal; continue without rendered variants
         _nl_dbg("[persist_newsletter] render_variants_error", str(e))
         import traceback
+
         traceback.print_exc()
         pass
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     placeholder_slug = f"tmp-{uuid.uuid4().hex}"
     newsletter = Newsletter(
         team_id=team_db_id,
         newsletter_type=newsletter_type,
         title=title,
-        content=content_json_str,           # store JSON with rendered variants
+        content=content_json_str,  # store JSON with rendered variants
         structured_content=content_json_str,
         public_slug=placeholder_slug,
         week_start_date=week_start,
@@ -3303,7 +3483,10 @@ def persist_newsletter(team_db_id: int, content_json_str: str, week_start: date,
         raise
     return newsletter
 
-def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_refresh: bool = False, skip_sync: bool = False) -> dict:
+
+def compose_team_weekly_newsletter(
+    team_db_id: int, target_date: date, force_refresh: bool = False, skip_sync: bool = False
+) -> dict:
     """Compose (but do not persist) a weekly newsletter.
     Returns a dict with keys: content_json (str), week_start (date), week_end (date), season_start_year (int).
     """
@@ -3312,10 +3495,10 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
 
     # Derive season from the week we are processing (European season starts Aug 1)
     season_start_year = week_start.year if week_start.month >= 8 else week_start.year - 1
-    
+
     if force_refresh:
         api_client.clear_stats_cache(season=season_start_year)
-        
+
     api_client.set_season_year(season_start_year)
     try:
         # Log current season view on the client after setting
@@ -3329,7 +3512,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
                 "api_client.current_season": getattr(api_client, "current_season", None),
                 "api_client.current_season_start_year": getattr(api_client, "current_season_start_year", None),
                 "api_client.current_season_end_year": getattr(api_client, "current_season_end_year", None),
-            }
+            },
         )
     except Exception:
         pass
@@ -3353,7 +3536,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
                 "report.season": report.get("season"),
                 "report.range": report.get("range"),
                 "has_tracked_players": report.get("has_tracked_players"),
-            }
+            },
         )
     except Exception:
         pass
@@ -3400,7 +3583,12 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
             return
         player_meta_by_key[key] = meta
 
-    all_players = groups.get("on_loan", []) + groups.get("first_team", []) + groups.get("academy", []) + groups.get("returned", [])
+    all_players = (
+        groups.get("on_loan", [])
+        + groups.get("first_team", [])
+        + groups.get("academy", [])
+        + groups.get("returned", [])
+    )
 
     player_items: list[dict[str, Any]] = []
     first_team_items: list[dict[str, Any]] = []
@@ -3441,13 +3629,17 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
                     alt = to_initial_last(full_name)
                     if alt and alt != display:
                         _register_alias(alt, entry)
-            for alias in filter(None, [primary_name, full_name, display, to_initial_last(full_name or primary_name or "")]):
+            for alias in filter(
+                None, [primary_name, full_name, display, to_initial_last(full_name or primary_name or "")]
+            ):
                 _register_meta(alias, meta_entry)
 
         _set_latest_player_lookup(player_lookup)
 
         # Brave context
-        brave_ctx = brave_context_for_team_and_loans(report["parent_team"]["name"], report, default_loc=LOCALIZATION_DEFAULT)
+        brave_ctx = brave_context_for_team_and_loans(
+            report["parent_team"]["name"], report, default_loc=LOCALIZATION_DEFAULT
+        )
         try:
             total_links = sum(len(v) for v in brave_ctx.values())
             _nl_dbg("Search contexts:", len(brave_ctx), "total links:", total_links)
@@ -3464,9 +3656,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
             # Generate platform data charts for players with stats coverage
             if item.get("can_fetch_stats") and item.get("player_id"):
                 try:
-                    charts = _generate_player_charts(
-                        item["player_id"], item.get("player_name"),
-                        week_start, week_end)
+                    charts = _generate_player_charts(item["player_id"], item.get("player_name"), week_start, week_end)
                     if charts:
                         item.update(charts)
                 except Exception as e:
@@ -3479,9 +3669,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
             # Generate platform data charts for first-team players with stats
             if item.get("can_fetch_stats") and item.get("player_id"):
                 try:
-                    charts = _generate_player_charts(
-                        item["player_id"], item.get("player_name"),
-                        week_start, week_end)
+                    charts = _generate_player_charts(item["player_id"], item.get("player_name"), week_start, week_end)
                     if charts:
                         item.update(charts)
                 except Exception as e:
@@ -3497,7 +3685,10 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
         for player in groups.get("returned", []):
             hits = _extract_hits_for_loanee(player, hits_by_player)
             item = _build_returned_from_loan_item(
-                player, hits, week_start=week_start, week_end=week_end,
+                player,
+                hits,
+                week_start=week_start,
+                week_end=week_end,
                 season=season_start_year,
             )
             returned_items.append(item)
@@ -3533,47 +3724,55 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
     # This ensures we find commentaries even if they are linked to an older season's team record
     current_team = Team.query.get(team_db_id)
     api_team_id = current_team.team_id if current_team else None
-    
-    print(f"\n{'='*60}")
-    print(f"[COMMENTARY QUERY DEBUG - ROBUST MODE]")
-    print(f"{'='*60}")
-    print(f"Searching for commentaries with:")
+
+    print(f"\n{'=' * 60}")
+    print("[COMMENTARY QUERY DEBUG - ROBUST MODE]")
+    print(f"{'=' * 60}")
+    print("Searching for commentaries with:")
     print(f"  API Team ID: {api_team_id} (derived from DB ID {team_db_id})")
     print(f"  week_start_date: {week_start}")
     print(f"  week_end_date: {week_end}")
-    print(f"  is_active: True")
-    print(f"{'='*60}\n")
-    
+    print("  is_active: True")
+    print(f"{'=' * 60}\n")
+
     if api_team_id:
-        commentaries = db.session.query(NewsletterCommentary)\
-            .join(Team, NewsletterCommentary.team_id == Team.id)\
+        commentaries = (
+            db.session.query(NewsletterCommentary)
+            .join(Team, NewsletterCommentary.team_id == Team.id)
             .filter(
                 Team.team_id == api_team_id,
                 NewsletterCommentary.week_start_date == week_start,
                 NewsletterCommentary.week_end_date == week_end,
-                NewsletterCommentary.is_active == True
-            )\
-            .order_by(NewsletterCommentary.position.asc(), NewsletterCommentary.created_at.asc())\
+                NewsletterCommentary.is_active,
+            )
+            .order_by(NewsletterCommentary.position.asc(), NewsletterCommentary.created_at.asc())
             .all()
+        )
     else:
         print("[ERROR] Could not resolve API Team ID, falling back to simple query")
-        commentaries = NewsletterCommentary.query.filter(
-            NewsletterCommentary.team_id == team_db_id,
-            NewsletterCommentary.week_start_date == week_start,
-            NewsletterCommentary.week_end_date == week_end,
-            NewsletterCommentary.is_active == True
-        ).order_by(NewsletterCommentary.position.asc(), NewsletterCommentary.created_at.asc()).all()
-    
+        commentaries = (
+            NewsletterCommentary.query.filter(
+                NewsletterCommentary.team_id == team_db_id,
+                NewsletterCommentary.week_start_date == week_start,
+                NewsletterCommentary.week_end_date == week_end,
+                NewsletterCommentary.is_active,
+            )
+            .order_by(NewsletterCommentary.position.asc(), NewsletterCommentary.created_at.asc())
+            .all()
+        )
+
     print(f"[COMMENTARY QUERY RESULT] Found {len(commentaries)} matching commentaries")
-    
+
     # Show ALL commentaries in DB for debugging
-    all_commentaries = NewsletterCommentary.query.filter(NewsletterCommentary.is_active == True).all()
+    all_commentaries = NewsletterCommentary.query.filter(NewsletterCommentary.is_active).all()
     print(f"\n[ALL ACTIVE COMMENTARIES IN DB] Total: {len(all_commentaries)}")
     for ac in all_commentaries:
         # Resolve team info for debug
         t = Team.query.get(ac.team_id)
         t_info = f"API:{t.team_id}/S:{t.season}" if t else "Unknown"
-        print(f"  ID:{ac.id} | TeamDB:{ac.team_id}({t_info}) | Week:{ac.week_start_date} to {ac.week_end_date} | Title:{ac.title}")
+        print(
+            f"  ID:{ac.id} | TeamDB:{ac.team_id}({t_info}) | Week:{ac.week_start_date} to {ac.week_end_date} | Title:{ac.title}"
+        )
     print("")
 
     intro_commentary = []
@@ -3582,20 +3781,22 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
 
     for c in commentaries:
         c_dict = c.to_dict()
-        if c.commentary_type == 'intro':
+        if c.commentary_type == "intro":
             intro_commentary.append(c_dict)
-        elif c.commentary_type == 'summary':
+        elif c.commentary_type == "summary":
             summary_commentary.append(c_dict)
-        elif c.commentary_type == 'player' and c.player_id:
+        elif c.commentary_type == "player" and c.player_id:
             if c.player_id not in player_commentary_map:
                 player_commentary_map[c.player_id] = []
             player_commentary_map[c.player_id].append(c_dict)
 
     print(f"[DEBUG] Found {len(commentaries)} active commentaries for team {team_db_id} week {week_start}-{week_end}")
-    print(f"[DEBUG] Intro: {len(intro_commentary)}, Summary: {len(summary_commentary)}, Player-specific: {sum(len(v) for v in player_commentary_map.values())}")
+    print(
+        f"[DEBUG] Intro: {len(intro_commentary)}, Summary: {len(summary_commentary)}, Player-specific: {sum(len(v) for v in player_commentary_map.values())}"
+    )
     if player_commentary_map:
         print(f"[DEBUG] Player IDs with commentary: {list(player_commentary_map.keys())}")
-        
+
         # Inject commentary into player items
         for item in player_items:
             pid = item.get("player_id")
@@ -3614,6 +3815,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
     def _group_items_by(items: list[dict], key: str, fallback: str = "Other") -> list[dict[str, Any]]:
         """Group items into subsections by a given key."""
         from collections import OrderedDict
+
         groups_map: OrderedDict[str, list] = OrderedDict()
         for item in items:
             label = item.get(key) or fallback
@@ -3652,8 +3854,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
         if "subsections" in sec:
             toc_entry["count"] = sum(len(sub["items"]) for sub in sec["subsections"])
             toc_entry["subsections"] = [
-                {"label": sub["label"], "count": len(sub["items"])}
-                for sub in sec["subsections"]
+                {"label": sub["label"], "count": len(sub["items"])} for sub in sec["subsections"]
             ]
         else:
             toc_entry["count"] = len(sec.get("items", []))
@@ -3699,6 +3900,7 @@ def compose_team_weekly_newsletter(team_db_id: int, target_date: date, force_ref
         "season_start_year": season_start_year,
     }
 
+
 def generate_team_weekly_newsletter(team_db_id: int, target_date: date, force_refresh: bool = False) -> dict:
     """Compose and persist a weekly newsletter; returns row.to_dict().
     Used by batch jobs. For API routes, prefer composing then persisting at the route level.
@@ -3717,6 +3919,7 @@ def generate_team_weekly_newsletter(team_db_id: int, target_date: date, force_re
     if os.getenv("ENABLE_TWITTER_ENRICHMENT", "").lower() in ("1", "true"):
         try:
             from src.services.twitter_enrichment_service import TwitterEnrichmentService
+
             twitter = TwitterEnrichmentService()
             if twitter.is_configured():
                 result = twitter.enrich_newsletter(row.id, team_db_id)
@@ -3725,6 +3928,8 @@ def generate_team_weekly_newsletter(team_db_id: int, target_date: date, force_re
             _nl_dbg("[twitter_enrichment] failed", str(exc))
 
     return row.to_dict()
+
+
 BRAVE_LOCALIZATION_BY_ISO = {
     "GB": {"country": "GB", "search_lang": "en", "ui_lang": "en-GB"},
     "IE": {"country": "IE", "search_lang": "en", "ui_lang": "en-IE"},
@@ -3759,6 +3964,7 @@ COUNTRY_FALLBACKS = {
     "CO": ["ES"],
     "JP": ["US"],
 }
+
 
 def resolve_localization_for_country(iso_code: str | None, *, default: dict[str, str] | None = None) -> dict[str, str]:
     default_loc = default or LOCALIZATION_DEFAULT

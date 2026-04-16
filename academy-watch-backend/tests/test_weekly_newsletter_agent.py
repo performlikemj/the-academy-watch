@@ -30,9 +30,7 @@ def test_multi_match_minutes_not_tied_to_single_score(monkeypatch):
         ],
     }
 
-    item = agent._build_player_report_item(
-        loanee, hits=[], week_start=date(2025, 11, 3), week_end=date(2025, 11, 9)
-    )
+    item = agent._build_player_report_item(loanee, hits=[], week_start=date(2025, 11, 3), week_end=date(2025, 11, 9))
     summary = item["week_summary"].lower()
 
     assert "across 2 matches" in summary
@@ -120,9 +118,7 @@ def test_upcoming_fixtures_carried_into_player_item(monkeypatch):
         "upcoming_fixtures": upcoming,
     }
 
-    item = agent._build_player_report_item(
-        loanee, hits=[], week_start=date(2025, 11, 3), week_end=date(2025, 11, 9)
-    )
+    item = agent._build_player_report_item(loanee, hits=[], week_start=date(2025, 11, 3), week_end=date(2025, 11, 9))
 
     assert item.get("upcoming_fixtures") == upcoming
 
@@ -161,9 +157,7 @@ def test_llm_too_short_falls_back_to_template(monkeypatch):
         },
     }
 
-    item = agent._build_player_report_item(
-        loanee, hits=[], week_start=date(2025, 11, 17), week_end=date(2025, 11, 23)
-    )
+    item = agent._build_player_report_item(loanee, hits=[], week_start=date(2025, 11, 17), week_end=date(2025, 11, 23))
 
     summary = item["week_summary"]
     assert len(summary) > 40  # not just "H."
@@ -173,8 +167,8 @@ def test_llm_too_short_falls_back_to_template(monkeypatch):
 def test_limited_coverage_minutes_estimation():
     """Players with goals/assists but minutes=0 (limited-coverage leagues) should
     show estimated minutes (45) rather than 0 in the newsletter."""
-    from unittest.mock import MagicMock, patch
     from datetime import date as _date
+    from unittest.mock import MagicMock, patch
 
     # Simulate a FixturePlayerStats row with 0 minutes but goals
     mock_row = MagicMock()
@@ -184,7 +178,7 @@ def test_limited_coverage_minutes_estimation():
     mock_row.yellows = 0
     mock_row.reds = 0
     mock_row.saves = 0
-    mock_row.position = 'F'
+    mock_row.position = "F"
     mock_row.substitute = False
 
     mock_fixture = MagicMock()
@@ -192,19 +186,20 @@ def test_limited_coverage_minutes_estimation():
     mock_fixture.away_team_api_id = 1234
     mock_fixture.home_goals = 2
     mock_fixture.away_goals = 0
-    mock_fixture.competition_name = 'National League'
+    mock_fixture.competition_name = "National League"
     mock_fixture.date_utc = None
 
     mock_tp = MagicMock()
     mock_tp.player_api_id = 42
-    mock_tp.player_name = 'Test Player'
+    mock_tp.player_name = "Test Player"
     mock_tp.current_club_api_id = 999
 
     player_dict = {}
 
-    with patch('src.agents.weekly_newsletter_agent.db') as mock_db, \
-         patch('src.utils.team_resolver.resolve_team_name_and_logo',
-               return_value=('Loan Club', None)):
+    with (
+        patch("src.agents.weekly_newsletter_agent.db") as mock_db,
+        patch("src.utils.team_resolver.resolve_team_name_and_logo", return_value=("Loan Club", None)),
+    ):
         mock_query = MagicMock()
         mock_query.join.return_value = mock_query
         mock_query.filter.return_value = mock_query
@@ -217,19 +212,21 @@ def test_limited_coverage_minutes_estimation():
         mock_db.or_ = MagicMock()
 
         agent._enrich_on_loan_stats(
-            player_dict, mock_tp,
+            player_dict,
+            mock_tp,
             start=_date(2025, 4, 1),
             end=_date(2025, 4, 7),
             season=2024,
         )
 
     # Should have estimated 45 minutes due to limited coverage
-    assert player_dict['totals']['minutes'] == 45, \
+    assert player_dict["totals"]["minutes"] == 45, (
         f"Expected 45 estimated minutes, got {player_dict['totals']['minutes']}"
-    assert player_dict['totals']['goals'] == 1
+    )
+    assert player_dict["totals"]["goals"] == 1
     # Match played flag should be True
-    assert len(player_dict['matches']) == 1
-    assert player_dict['matches'][0]['played'] is True
-    assert player_dict['matches'][0]['player']['minutes'] == 45
+    assert len(player_dict["matches"]) == 1
+    assert player_dict["matches"][0]["played"] is True
+    assert player_dict["matches"][0]["player"]["minutes"] == 45
     # Player team is home (api_id=999), home_goals=2, away_goals=0 → W
-    assert player_dict['matches'][0]['result'] == 'W'
+    assert player_dict["matches"][0]["result"] == "W"

@@ -213,8 +213,9 @@ def get_default_youth_league_map() -> dict[int, str]:
     return {entry["fallback_id"]: entry["name"] for entry in DEFAULT_YOUTH_LEAGUES}
 
 
-def resolve_youth_leagues(api_client=None, explicit_league_ids: list[int] | None = None,
-                          country: str | None = None) -> list[dict[str, Any]]:
+def resolve_youth_leagues(
+    api_client=None, explicit_league_ids: list[int] | None = None, country: str | None = None
+) -> list[dict[str, Any]]:
     """Resolve youth leagues dynamically with static fallback defaults.
 
     Args:
@@ -320,7 +321,6 @@ def build_academy_league_seed_rows(api_client=None, season: int | None = None) -
             }
         )
     return rows
-
 
 
 def resolve_youth_team_for_parent(

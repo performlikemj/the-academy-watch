@@ -4,14 +4,15 @@ Backfill academy_club_ids for all existing PlayerJourney records.
 Usage:
     flask shell < scripts/backfill_academy_ids.py
 """
-from src.models.league import db
+
 from src.models.journey import PlayerJourney
+from src.models.league import db
 from src.services.journey_sync import JourneySyncService
 
 sync_service = JourneySyncService()
 
 journeys = PlayerJourney.query.filter(
-    (PlayerJourney.academy_club_ids.is_(None)) | (PlayerJourney.academy_club_ids == None)
+    (PlayerJourney.academy_club_ids.is_(None)) | (PlayerJourney.academy_club_ids is None)
 ).all()
 
 print(f"Found {len(journeys)} journeys to backfill")

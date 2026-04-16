@@ -7,17 +7,17 @@ Create Date: 2026-02-12
 Adds tables for named rebuild configuration presets with audit trail.
 Seeds a default "Big 6 Standard" config from current hardcoded values.
 """
-from alembic import op
-import sqlalchemy as sa
-from sqlalchemy import text
-import json
-from datetime import datetime, timezone
-from migrations._migration_helpers import table_exists
 
+import json
+
+import sqlalchemy as sa
+from alembic import op
+from migrations._migration_helpers import table_exists
+from sqlalchemy import text
 
 # revision identifiers, used by Alembic.
-revision = 'rc01'
-down_revision = 'ts01'
+revision = "rc01"
+down_revision = "ts01"
 branch_labels = None
 depends_on = None
 
@@ -49,34 +49,32 @@ DEFAULT_CONFIG = {
 
 
 def upgrade():
-    if not table_exists('rebuild_configs'):
+    if not table_exists("rebuild_configs"):
         op.create_table(
-            'rebuild_configs',
-            sa.Column('id', sa.Integer(), primary_key=True),
-            sa.Column('name', sa.String(100), unique=True, nullable=False),
-            sa.Column('is_active', sa.Boolean(), nullable=False, server_default='false'),
-            sa.Column('config_json', sa.Text(), nullable=False),
-            sa.Column('notes', sa.Text()),
-            sa.Column('created_at', sa.DateTime()),
-            sa.Column('updated_at', sa.DateTime()),
+            "rebuild_configs",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("name", sa.String(100), unique=True, nullable=False),
+            sa.Column("is_active", sa.Boolean(), nullable=False, server_default="false"),
+            sa.Column("config_json", sa.Text(), nullable=False),
+            sa.Column("notes", sa.Text()),
+            sa.Column("created_at", sa.DateTime()),
+            sa.Column("updated_at", sa.DateTime()),
         )
 
-    if not table_exists('rebuild_config_logs'):
+    if not table_exists("rebuild_config_logs"):
         op.create_table(
-            'rebuild_config_logs',
-            sa.Column('id', sa.Integer(), primary_key=True),
-            sa.Column('config_id', sa.Integer(), sa.ForeignKey('rebuild_configs.id'), nullable=False),
-            sa.Column('action', sa.String(20), nullable=False),
-            sa.Column('diff_json', sa.Text()),
-            sa.Column('snapshot_json', sa.Text()),
-            sa.Column('created_at', sa.DateTime()),
+            "rebuild_config_logs",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("config_id", sa.Integer(), sa.ForeignKey("rebuild_configs.id"), nullable=False),
+            sa.Column("action", sa.String(20), nullable=False),
+            sa.Column("diff_json", sa.Text()),
+            sa.Column("snapshot_json", sa.Text()),
+            sa.Column("created_at", sa.DateTime()),
         )
 
     # Seed default config (skip if already exists)
     conn = op.get_bind()
-    existing = conn.execute(text(
-        "SELECT 1 FROM rebuild_configs WHERE name = 'Big 6 Standard'"
-    )).scalar()
+    existing = conn.execute(text("SELECT 1 FROM rebuild_configs WHERE name = 'Big 6 Standard'")).scalar()
 
     if not existing:
         config_str = json.dumps(DEFAULT_CONFIG)
@@ -86,9 +84,9 @@ def upgrade():
                 "VALUES (:name, true, :config, :notes, NOW(), NOW())"
             ),
             {
-                'name': 'Big 6 Standard',
-                'config': config_str,
-                'notes': 'Default configuration seeded from hardcoded values.',
+                "name": "Big 6 Standard",
+                "config": config_str,
+                "notes": "Default configuration seeded from hardcoded values.",
             },
         )
         conn.execute(
@@ -97,12 +95,12 @@ def upgrade():
                 "VALUES ((SELECT id FROM rebuild_configs WHERE name = :name), 'created', :snapshot, NOW())"
             ),
             {
-                'name': 'Big 6 Standard',
-                'snapshot': config_str,
+                "name": "Big 6 Standard",
+                "snapshot": config_str,
             },
         )
 
 
 def downgrade():
-    op.drop_table('rebuild_config_logs')
-    op.drop_table('rebuild_configs')
+    op.drop_table("rebuild_config_logs")
+    op.drop_table("rebuild_configs")

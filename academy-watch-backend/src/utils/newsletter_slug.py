@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
 
 from src.utils.slug import slugify_label as _slugify_label
 
@@ -12,12 +11,12 @@ __all__ = ["compose_newsletter_public_slug"]
 
 def compose_newsletter_public_slug(
     *,
-    team_name: Optional[str],
-    newsletter_type: Optional[str],
-    week_start: Optional[date],
-    week_end: Optional[date],
-    issue_date: Optional[date],
-    identifier: Optional[int],
+    team_name: str | None,
+    newsletter_type: str | None,
+    week_start: date | None,
+    week_end: date | None,
+    issue_date: date | None,
+    identifier: int | None,
 ) -> str:
     """Generate a deterministic slug for newsletter URLs.
 
@@ -50,4 +49,3 @@ def compose_newsletter_public_slug(
 
     slug = "-".join(segments)
     return slug[:200]
-

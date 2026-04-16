@@ -9,85 +9,85 @@ content aggregation:
 - community_takes: Curated takes from Reddit, Twitter, user submissions, or editor
 - quick_take_submissions: User-submitted takes pending moderation
 """
-from alembic import op
-import sqlalchemy as sa
-from migrations._migration_helpers import table_exists, create_index_safe
 
+import sqlalchemy as sa
+from alembic import op
+from migrations._migration_helpers import create_index_safe, table_exists
 
 # revision identifiers, used by Alembic.
-revision = 'aw02'
-down_revision = 'aw01'
+revision = "aw02"
+down_revision = "aw01"
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
-    if not table_exists('community_takes'):
+    if not table_exists("community_takes"):
         op.create_table(
-            'community_takes',
-            sa.Column('id', sa.Integer(), nullable=False),
-            sa.Column('source_type', sa.String(20), nullable=False),
-            sa.Column('source_url', sa.String(500), nullable=True),
-            sa.Column('source_author', sa.String(100), nullable=False),
-            sa.Column('source_platform', sa.String(50), nullable=True),
-            sa.Column('content', sa.Text(), nullable=False),
-            sa.Column('player_id', sa.Integer(), nullable=True),
-            sa.Column('player_name', sa.String(100), nullable=True),
-            sa.Column('team_id', sa.Integer(), nullable=True),
-            sa.Column('newsletter_id', sa.Integer(), nullable=True),
-            sa.Column('status', sa.String(20), nullable=False, server_default='pending'),
-            sa.Column('curated_by', sa.Integer(), nullable=True),
-            sa.Column('curated_at', sa.DateTime(), nullable=True),
-            sa.Column('rejection_reason', sa.String(255), nullable=True),
-            sa.Column('scraped_at', sa.DateTime(), nullable=True),
-            sa.Column('original_posted_at', sa.DateTime(), nullable=True),
-            sa.Column('upvotes', sa.Integer(), nullable=False, server_default='0'),
-            sa.Column('created_at', sa.DateTime(), nullable=True),
-            sa.Column('updated_at', sa.DateTime(), nullable=True),
-            sa.PrimaryKeyConstraint('id'),
-            sa.ForeignKeyConstraint(['team_id'], ['teams.id']),
-            sa.ForeignKeyConstraint(['newsletter_id'], ['newsletters.id']),
-            sa.ForeignKeyConstraint(['curated_by'], ['user_accounts.id']),
+            "community_takes",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("source_type", sa.String(20), nullable=False),
+            sa.Column("source_url", sa.String(500), nullable=True),
+            sa.Column("source_author", sa.String(100), nullable=False),
+            sa.Column("source_platform", sa.String(50), nullable=True),
+            sa.Column("content", sa.Text(), nullable=False),
+            sa.Column("player_id", sa.Integer(), nullable=True),
+            sa.Column("player_name", sa.String(100), nullable=True),
+            sa.Column("team_id", sa.Integer(), nullable=True),
+            sa.Column("newsletter_id", sa.Integer(), nullable=True),
+            sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
+            sa.Column("curated_by", sa.Integer(), nullable=True),
+            sa.Column("curated_at", sa.DateTime(), nullable=True),
+            sa.Column("rejection_reason", sa.String(255), nullable=True),
+            sa.Column("scraped_at", sa.DateTime(), nullable=True),
+            sa.Column("original_posted_at", sa.DateTime(), nullable=True),
+            sa.Column("upvotes", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("created_at", sa.DateTime(), nullable=True),
+            sa.Column("updated_at", sa.DateTime(), nullable=True),
+            sa.PrimaryKeyConstraint("id"),
+            sa.ForeignKeyConstraint(["team_id"], ["teams.id"]),
+            sa.ForeignKeyConstraint(["newsletter_id"], ["newsletters.id"]),
+            sa.ForeignKeyConstraint(["curated_by"], ["user_accounts.id"]),
         )
 
-    create_index_safe('ix_community_takes_status', 'community_takes', ['status'])
-    create_index_safe('ix_community_takes_player', 'community_takes', ['player_id'])
-    create_index_safe('ix_community_takes_team', 'community_takes', ['team_id'])
+    create_index_safe("ix_community_takes_status", "community_takes", ["status"])
+    create_index_safe("ix_community_takes_player", "community_takes", ["player_id"])
+    create_index_safe("ix_community_takes_team", "community_takes", ["team_id"])
 
-    if not table_exists('quick_take_submissions'):
+    if not table_exists("quick_take_submissions"):
         op.create_table(
-            'quick_take_submissions',
-            sa.Column('id', sa.Integer(), nullable=False),
-            sa.Column('submitter_name', sa.String(100), nullable=True),
-            sa.Column('submitter_email', sa.String(255), nullable=True),
-            sa.Column('player_id', sa.Integer(), nullable=True),
-            sa.Column('player_name', sa.String(100), nullable=False),
-            sa.Column('team_id', sa.Integer(), nullable=True),
-            sa.Column('content', sa.Text(), nullable=False),
-            sa.Column('status', sa.String(20), nullable=False, server_default='pending'),
-            sa.Column('reviewed_by', sa.Integer(), nullable=True),
-            sa.Column('reviewed_at', sa.DateTime(), nullable=True),
-            sa.Column('rejection_reason', sa.String(255), nullable=True),
-            sa.Column('community_take_id', sa.Integer(), nullable=True),
-            sa.Column('ip_hash', sa.String(64), nullable=True),
-            sa.Column('user_agent', sa.String(512), nullable=True),
-            sa.Column('created_at', sa.DateTime(), nullable=True),
-            sa.Column('updated_at', sa.DateTime(), nullable=True),
-            sa.PrimaryKeyConstraint('id'),
-            sa.ForeignKeyConstraint(['team_id'], ['teams.id']),
-            sa.ForeignKeyConstraint(['reviewed_by'], ['user_accounts.id']),
-            sa.ForeignKeyConstraint(['community_take_id'], ['community_takes.id']),
+            "quick_take_submissions",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("submitter_name", sa.String(100), nullable=True),
+            sa.Column("submitter_email", sa.String(255), nullable=True),
+            sa.Column("player_id", sa.Integer(), nullable=True),
+            sa.Column("player_name", sa.String(100), nullable=False),
+            sa.Column("team_id", sa.Integer(), nullable=True),
+            sa.Column("content", sa.Text(), nullable=False),
+            sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
+            sa.Column("reviewed_by", sa.Integer(), nullable=True),
+            sa.Column("reviewed_at", sa.DateTime(), nullable=True),
+            sa.Column("rejection_reason", sa.String(255), nullable=True),
+            sa.Column("community_take_id", sa.Integer(), nullable=True),
+            sa.Column("ip_hash", sa.String(64), nullable=True),
+            sa.Column("user_agent", sa.String(512), nullable=True),
+            sa.Column("created_at", sa.DateTime(), nullable=True),
+            sa.Column("updated_at", sa.DateTime(), nullable=True),
+            sa.PrimaryKeyConstraint("id"),
+            sa.ForeignKeyConstraint(["team_id"], ["teams.id"]),
+            sa.ForeignKeyConstraint(["reviewed_by"], ["user_accounts.id"]),
+            sa.ForeignKeyConstraint(["community_take_id"], ["community_takes.id"]),
         )
 
-    create_index_safe('ix_quick_take_submissions_status', 'quick_take_submissions', ['status'])
-    create_index_safe('ix_quick_take_submissions_ip', 'quick_take_submissions', ['ip_hash'])
+    create_index_safe("ix_quick_take_submissions_status", "quick_take_submissions", ["status"])
+    create_index_safe("ix_quick_take_submissions_ip", "quick_take_submissions", ["ip_hash"])
 
 
 def downgrade():
-    op.drop_index('ix_quick_take_submissions_ip', 'quick_take_submissions')
-    op.drop_index('ix_quick_take_submissions_status', 'quick_take_submissions')
-    op.drop_table('quick_take_submissions')
-    op.drop_index('ix_community_takes_team', 'community_takes')
-    op.drop_index('ix_community_takes_player', 'community_takes')
-    op.drop_index('ix_community_takes_status', 'community_takes')
-    op.drop_table('community_takes')
+    op.drop_index("ix_quick_take_submissions_ip", "quick_take_submissions")
+    op.drop_index("ix_quick_take_submissions_status", "quick_take_submissions")
+    op.drop_table("quick_take_submissions")
+    op.drop_index("ix_community_takes_team", "community_takes")
+    op.drop_index("ix_community_takes_player", "community_takes")
+    op.drop_index("ix_community_takes_status", "community_takes")
+    op.drop_table("community_takes")

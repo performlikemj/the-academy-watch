@@ -1,12 +1,14 @@
 """
 Service to parse unstructured text (match reports, stats pages) into structured stats using Groq/LLM.
 """
+
 import json
-import os
 import logging
+import os
 from functools import lru_cache
-from typing import Dict, Any, Optional
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -15,24 +17,27 @@ try:
 except ImportError:
     Groq = None
 
+
 class FixturePlayerStats(BaseModel):
     """Structured stats for a player in a fixture."""
-    model_config = ConfigDict(extra='ignore')
-    
-    minutes: Optional[int] = Field(None, description="Minutes played")
-    goals: Optional[int] = Field(None, description="Goals scored")
-    assists: Optional[int] = Field(None, description="Assists made")
-    shots_total: Optional[int] = Field(None, description="Total shots")
-    shots_on: Optional[int] = Field(None, description="Shots on target")
-    passes_total: Optional[int] = Field(None, description="Total passes")
-    passes_key: Optional[int] = Field(None, description="Key passes")
-    tackles_total: Optional[int] = Field(None, description="Total tackles")
-    duels_total: Optional[int] = Field(None, description="Total duels")
-    duels_won: Optional[int] = Field(None, description="Duels won")
-    dribbles_attempts: Optional[int] = Field(None, description="Dribble attempts")
-    dribbles_success: Optional[int] = Field(None, description="Successful dribbles")
-    rating: Optional[str] = Field(None, description="Match rating (e.g. '7.5')")
-    position: Optional[str] = Field(None, description="Position played (e.g. 'F', 'M', 'D', 'G')")
+
+    model_config = ConfigDict(extra="ignore")
+
+    minutes: int | None = Field(None, description="Minutes played")
+    goals: int | None = Field(None, description="Goals scored")
+    assists: int | None = Field(None, description="Assists made")
+    shots_total: int | None = Field(None, description="Total shots")
+    shots_on: int | None = Field(None, description="Shots on target")
+    passes_total: int | None = Field(None, description="Total passes")
+    passes_key: int | None = Field(None, description="Key passes")
+    tackles_total: int | None = Field(None, description="Total tackles")
+    duels_total: int | None = Field(None, description="Total duels")
+    duels_won: int | None = Field(None, description="Duels won")
+    dribbles_attempts: int | None = Field(None, description="Dribble attempts")
+    dribbles_success: int | None = Field(None, description="Successful dribbles")
+    rating: str | None = Field(None, description="Match rating (e.g. '7.5')")
+    position: str | None = Field(None, description="Position played (e.g. 'F', 'M', 'D', 'G')")
+
 
 SYSTEM_PROMPT = (
     "You are a sports data extractor. Extract detailed football player statistics from the provided text snippet "
@@ -42,18 +47,20 @@ SYSTEM_PROMPT = (
     "Be conservative: do not hallucinate stats."
 )
 
+
 @lru_cache(maxsize=1)
-def _get_groq_client() -> Optional[Groq]:
-    api_key = os.getenv('GROQ_API_KEY')
+def _get_groq_client() -> Groq | None:
+    api_key = os.getenv("GROQ_API_KEY")
     if api_key and Groq is not None:
         return Groq(api_key=api_key)
     return None
+
 
 def parse_stats_from_text(
     text: str,
     player_name: str,
     team_name: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Parse unstructured text to extract stats for a specific player.
     """
@@ -70,19 +77,19 @@ def parse_stats_from_text(
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile", # Using a capable model for extraction
+            model="llama-3.3-70b-versatile",  # Using a capable model for extraction
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
             response_format={"type": "json_object"},
-            temperature=0.1, # Low temperature for factual extraction
+            temperature=0.1,  # Low temperature for factual extraction
         )
-        
+
         content = response.choices[0].message.content
         if not content:
             return {}
-            
+
         data = json.loads(content)
         # Validate with Pydantic (optional, but good for sanitization)
         stats = FixturePlayerStats(**data)

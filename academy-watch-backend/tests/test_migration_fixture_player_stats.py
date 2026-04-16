@@ -25,9 +25,7 @@ def alembic_ops(engine):
 
 
 def _load_migration_module():
-    return importlib.import_module(
-        "migrations.versions.h1i2j3k4l5m6_expand_player_stats_comprehensive"
-    )
+    return importlib.import_module("migrations.versions.h1i2j3k4l5m6_expand_player_stats_comprehensive")
 
 
 def _prepare_base_tables(metadata):

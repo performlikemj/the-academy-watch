@@ -4,13 +4,12 @@ Revision ID: sc01_stats_coverage
 Revises: a5632964f34c
 Create Date: 2025-12-01
 """
-from alembic import op
-import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = 'sc01_stats_coverage'
-down_revision = 'a5632964f34c'
+revision = "sc01_stats_coverage"
+down_revision = "a5632964f34c"
 branch_labels = None
 depends_on = None
 
@@ -32,17 +31,4 @@ def upgrade():
 
 
 def downgrade():
-    op.drop_column('loaned_players', 'stats_coverage')
-
-
-
-
-
-
-
-
-
-
-
-
-
+    op.drop_column("loaned_players", "stats_coverage")

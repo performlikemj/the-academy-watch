@@ -10,30 +10,29 @@ academy players in addition to loan tracking:
 - current_level: 'U18' | 'U21' | 'U23' | 'Reserve' | 'Senior'
 - data_depth: 'full_stats' | 'events_only' | 'profile_only'
 """
-from alembic import op
+
 import sqlalchemy as sa
+from alembic import op
 from migrations._migration_helpers import add_column_safe
 
-
 # revision identifiers, used by Alembic.
-revision = 'aw01'
-down_revision = 'em01'
+revision = "aw01"
+down_revision = "em01"
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
-    add_column_safe('loaned_players',
-                    sa.Column('pathway_status', sa.String(20), nullable=False,
-                              server_default='on_loan'))
-    add_column_safe('loaned_players',
-                    sa.Column('current_level', sa.String(20), nullable=True))
-    add_column_safe('loaned_players',
-                    sa.Column('data_depth', sa.String(20), nullable=False,
-                              server_default='full_stats'))
+    add_column_safe(
+        "loaned_players", sa.Column("pathway_status", sa.String(20), nullable=False, server_default="on_loan")
+    )
+    add_column_safe("loaned_players", sa.Column("current_level", sa.String(20), nullable=True))
+    add_column_safe(
+        "loaned_players", sa.Column("data_depth", sa.String(20), nullable=False, server_default="full_stats")
+    )
 
 
 def downgrade():
-    op.drop_column('loaned_players', 'data_depth')
-    op.drop_column('loaned_players', 'current_level')
-    op.drop_column('loaned_players', 'pathway_status')
+    op.drop_column("loaned_players", "data_depth")
+    op.drop_column("loaned_players", "current_level")
+    op.drop_column("loaned_players", "pathway_status")

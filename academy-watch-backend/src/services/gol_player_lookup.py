@@ -14,15 +14,15 @@ import re
 import threading
 from datetime import date
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from sqlalchemy import func
 from src.api_football_client import APIFootballClient
 from src.models.journey import PlayerJourney
 from src.models.league import Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.journey_sync import JourneySyncService
 from src.utils.academy_classifier import classify_tracked_player
-from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +163,9 @@ class GolPlayerLookup:
 
             # Create or update a tracked record for the selected parent team.
             try:
-                tracked = self._upsert_tracked_player(player_id=player_id, player_block=best, journey=journey, team=parent_team)
+                tracked = self._upsert_tracked_player(
+                    player_id=player_id, player_block=best, journey=journey, team=parent_team
+                )
             except Exception as exc:
                 db.session.rollback()
                 logger.exception("Failed to persist tracked player for %s", player_id)
@@ -177,6 +179,7 @@ class GolPlayerLookup:
 
             # Ensure GOL cache is refreshed next query.
             from src.services.gol_dataframes import DataFrameCache
+
             DataFrameCache.invalidate()
 
             return {
@@ -184,7 +187,7 @@ class GolPlayerLookup:
                 "player_name": tracked.player_name,
                 "team": tracked.team.name if tracked.team else parent_team.name,
                 "message": f"Added {tracked.player_name} to the database.\n"
-                           f"Current club: {journey.current_club_name if journey else 'unknown'}.",
+                f"Current club: {journey.current_club_name if journey else 'unknown'}.",
                 "rate_limited": False,
             }
 
@@ -214,14 +217,18 @@ class GolPlayerLookup:
 
         tracked = TrackedPlayer.query.filter(
             func.lower(TrackedPlayer.player_name) == target,
-            TrackedPlayer.is_active == True,
+            TrackedPlayer.is_active,
         ).first()
         if not tracked:
             like = f"%{name.strip()}%"
-            tracked = TrackedPlayer.query.filter(
-                TrackedPlayer.player_name.ilike(like),
-                TrackedPlayer.is_active == True,
-            ).order_by(TrackedPlayer.player_name).first()
+            tracked = (
+                TrackedPlayer.query.filter(
+                    TrackedPlayer.player_name.ilike(like),
+                    TrackedPlayer.is_active,
+                )
+                .order_by(TrackedPlayer.player_name)
+                .first()
+            )
 
         if tracked:
             team = tracked.team.name if tracked.team else ""
@@ -235,9 +242,11 @@ class GolPlayerLookup:
             func.lower(PlayerJourney.player_name) == target,
         ).first()
         if not journey:
-            journey = PlayerJourney.query.filter(
-                PlayerJourney.player_name.ilike(f"%{name.strip()}%")
-            ).order_by(PlayerJourney.player_name).first()
+            journey = (
+                PlayerJourney.query.filter(PlayerJourney.player_name.ilike(f"%{name.strip()}%"))
+                .order_by(PlayerJourney.player_name)
+                .first()
+            )
 
         if journey:
             return {
@@ -248,7 +257,7 @@ class GolPlayerLookup:
 
         return None
 
-    def _pick_best_match(self, rows: List[Dict[str, Any]], name: str, team: str | None) -> dict | None:
+    def _pick_best_match(self, rows: list[dict[str, Any]], name: str, team: str | None) -> dict | None:
         """Choose the best API-Football row by fuzzy name + optional team match."""
         wanted_name = self._normalize(name)
         wanted_team = self._normalize(team or "")
@@ -305,19 +314,21 @@ class GolPlayerLookup:
         syncer = JourneySyncService(self.api_client)
         return syncer.sync_player(player_id, force_full=False)
 
-    def _resolve_parent_team(self, player_row: dict, team_hint: str | None) -> Optional[Team]:
+    def _resolve_parent_team(self, player_row: dict, team_hint: str | None) -> Team | None:
         """Resolve the academy/parent team row for the requested player."""
         # 1) explicit team filter by name
         if team_hint:
             matched = Team.query.filter(Team.name.ilike(f"%{team_hint.strip()}%"))
-            matched = matched.filter(Team.is_active == True)
+            matched = matched.filter(Team.is_active)
             resolved = matched.order_by(Team.season.desc()).first()
             if resolved:
                 return resolved
 
             try:
                 team_api_id = int(team_hint)
-                resolved = Team.query.filter_by(team_id=team_api_id, is_active=True).order_by(Team.season.desc()).first()
+                resolved = (
+                    Team.query.filter_by(team_id=team_api_id, is_active=True).order_by(Team.season.desc()).first()
+                )
                 if resolved:
                     return resolved
             except (TypeError, ValueError):
@@ -325,7 +336,7 @@ class GolPlayerLookup:
 
         # 2) use stats team from API row (best available)
         candidate_ids = []
-        for stat in (player_row.get("statistics") or []):
+        for stat in player_row.get("statistics") or []:
             team_block = stat.get("team") or {}
             tid = team_block.get("id")
             if isinstance(tid, int):
@@ -338,10 +349,12 @@ class GolPlayerLookup:
                 return resolved
 
         # 3) fallback to most recent tracked team if all else fails
-        latest_team = Team.query.filter(Team.is_active == True).order_by(Team.season.desc()).first()
+        latest_team = Team.query.filter(Team.is_active).order_by(Team.season.desc()).first()
         return latest_team
 
-    def _upsert_tracked_player(self, player_id: int, player_block: dict, journey: PlayerJourney | None, team: Team) -> TrackedPlayer:
+    def _upsert_tracked_player(
+        self, player_id: int, player_block: dict, journey: PlayerJourney | None, team: Team
+    ) -> TrackedPlayer:
         """Create or refresh a TrackedPlayer row for this player and parent team."""
         player = player_block.get("player") or {}
         bio = player.get("birth") or {}
@@ -370,7 +383,7 @@ class GolPlayerLookup:
         position = player.get("position")
         if not position:
             # position may be in the first statistics block
-            for stat in (player_block.get("statistics") or []):
+            for stat in player_block.get("statistics") or []:
                 games = stat.get("games") or {}
                 position = games.get("position")
                 if position:
@@ -393,8 +406,8 @@ class GolPlayerLookup:
             existing.current_club_api_id = current_club_api_id
             existing.current_club_name = current_club_name
             existing.journey_id = journey.id if journey else existing.journey_id
-            existing.data_source = 'api-football'
-            existing.data_depth = 'full_stats'
+            existing.data_source = "api-football"
+            existing.data_depth = "full_stats"
             db.session.add(existing)
             db.session.commit()
             return existing
@@ -412,8 +425,8 @@ class GolPlayerLookup:
             current_level=current_level,
             current_club_api_id=current_club_api_id,
             current_club_name=current_club_name,
-            data_source='api-football',
-            data_depth='full_stats',
+            data_source="api-football",
+            data_depth="full_stats",
             journey_id=journey.id if journey else None,
             is_active=True,
         )

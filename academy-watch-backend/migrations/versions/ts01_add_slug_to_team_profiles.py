@@ -7,17 +7,18 @@ Create Date: 2026-02-09
 Adds a unique slug column to team_profiles, backfills from existing names
 with collision handling (append country, then team_id).
 """
-from alembic import op
-import sqlalchemy as sa
-from sqlalchemy import text
+
 import re
 import unicodedata
-from migrations._migration_helpers import column_exists, index_exists
 
+import sqlalchemy as sa
+from alembic import op
+from migrations._migration_helpers import column_exists, index_exists
+from sqlalchemy import text
 
 # revision identifiers, used by Alembic.
-revision = 'ts01'
-down_revision = 'aw10'
+revision = "ts01"
+down_revision = "aw10"
 branch_labels = None
 depends_on = None
 
@@ -32,15 +33,13 @@ def _slugify(value):
 
 
 def upgrade():
-    if not column_exists('team_profiles', 'slug'):
+    if not column_exists("team_profiles", "slug"):
         # 1. Add nullable slug column
-        op.add_column('team_profiles', sa.Column('slug', sa.String(200), nullable=True))
+        op.add_column("team_profiles", sa.Column("slug", sa.String(200), nullable=True))
 
         # 2. Backfill slugs from existing names
         conn = op.get_bind()
-        profiles = conn.execute(text(
-            "SELECT team_id, name, country FROM team_profiles ORDER BY team_id"
-        )).fetchall()
+        profiles = conn.execute(text("SELECT team_id, name, country FROM team_profiles ORDER BY team_id")).fetchall()
 
         used_slugs = set()
         for p in profiles:
@@ -58,16 +57,16 @@ def upgrade():
             used_slugs.add(slug)
             conn.execute(
                 text("UPDATE team_profiles SET slug = :slug WHERE team_id = :tid"),
-                {'slug': slug, 'tid': p.team_id},
+                {"slug": slug, "tid": p.team_id},
             )
 
         # 3. Set NOT NULL and add unique index
-        op.alter_column('team_profiles', 'slug', nullable=False)
+        op.alter_column("team_profiles", "slug", nullable=False)
 
-    if not index_exists('ix_team_profiles_slug'):
-        op.create_index('ix_team_profiles_slug', 'team_profiles', ['slug'], unique=True)
+    if not index_exists("ix_team_profiles_slug"):
+        op.create_index("ix_team_profiles_slug", "team_profiles", ["slug"], unique=True)
 
 
 def downgrade():
-    op.drop_index('ix_team_profiles_slug', 'team_profiles')
-    op.drop_column('team_profiles', 'slug')
+    op.drop_index("ix_team_profiles_slug", "team_profiles")
+    op.drop_column("team_profiles", "slug")

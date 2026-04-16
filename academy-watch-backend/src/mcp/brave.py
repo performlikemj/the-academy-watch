@@ -1,8 +1,9 @@
-from typing import List, Dict, Any, Tuple
 import os
-import requests
-from datetime import datetime, date, timezone
+from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
+from typing import Any
+
+import requests
 
 BASE_URL = "https://api.search.brave.com/res/v1"
 WEB_ENDPOINT = f"{BASE_URL}/web/search"
@@ -18,6 +19,7 @@ _DEF_HEADERS = {
 
 _DEBUG_BRAVE = os.getenv("BRAVE_DEBUG", "0").lower() in ("1", "true", "yes", "on")
 
+
 class BraveApiError(Exception):
     pass
 
@@ -31,7 +33,8 @@ def _dbg(msg: str):
     except Exception:
         pass
 
-def _headers() -> Dict[str, str]:
+
+def _headers() -> dict[str, str]:
     token = os.getenv("BRAVE_API_KEY", "").strip()
     if not token:
         raise BraveApiError("BRAVE_API_KEY is not set")
@@ -40,7 +43,7 @@ def _headers() -> Dict[str, str]:
     return h
 
 
-def _split_range(freshness: str) -> Tuple[str, str]:
+def _split_range(freshness: str) -> tuple[str, str]:
     """Accepts a `YYYY-MM-DDtoYYYY-MM-DD` string and returns (since, until).
     Falls back to ("", "") if malformed.
     """
@@ -53,9 +56,9 @@ def _split_range(freshness: str) -> Tuple[str, str]:
     return "", ""
 
 
-def _normalize_items(kind: str, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _normalize_items(kind: str, data: dict[str, Any]) -> list[dict[str, Any]]:
     # Brave returns rich objects; we normalize a small subset for the newsletter pipeline
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     items = []
     try:
         if kind == "web":
@@ -76,17 +79,24 @@ def _normalize_items(kind: str, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         url = (r.get("url") or r.get("link") or "").strip()
         if not url:
             continue
-        out.append({
-            "title": r.get("title") or r.get("name") or "",
-            "url": url,
-            "snippet": r.get("description") or r.get("snippet") or "",
-            "date": r.get("date") or r.get("published") or r.get("published_date") or r.get("age") or r.get("page_age") or "",
-            "source": kind,
-        })
+        out.append(
+            {
+                "title": r.get("title") or r.get("name") or "",
+                "url": url,
+                "snippet": r.get("description") or r.get("snippet") or "",
+                "date": r.get("date")
+                or r.get("published")
+                or r.get("published_date")
+                or r.get("age")
+                or r.get("page_age")
+                or "",
+                "source": kind,
+            }
+        )
     return out
 
 
-def _search_once(endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
+def _search_once(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
     try:
         _dbg(
             f"HTTP GET {endpoint} q={params.get('q')!r} freshness={params.get('freshness')} count={params.get('count')}"
@@ -113,9 +123,9 @@ def brave_search(
     country: str = "GB",
     search_lang: str = "en",
     ui_lang: str = "en-GB",
-    result_filter: List[str] | None = None,
+    result_filter: list[str] | None = None,
     strict_range: bool = False,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Query Brave Search API for both Web and News results within a date window.
     Returns merged, de-duplicated results with fields: title, url, snippet, date, source (web|news).
@@ -170,7 +180,7 @@ def brave_search(
 
     # Merge & de-dup by URL
     seen: set[str] = set()
-    merged: List[Dict[str, Any]] = []
+    merged: list[dict[str, Any]] = []
     for lst in (web_items, news_items):
         for r in lst:
             u = r.get("url")
@@ -189,13 +199,13 @@ def brave_search(
             # ISO-like
             try:
                 # Normalize 'Z' suffix
-                iso = st.replace('Z', '+00:00')
+                iso = st.replace("Z", "+00:00")
                 dt = datetime.fromisoformat(iso)
-                return (dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).date()
+                return (dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)).date()
             except Exception:
                 pass
             # First 10 chars as YYYY-MM-DD
-            if len(st) >= 10 and st[4] == '-' and st[7] == '-':
+            if len(st) >= 10 and st[4] == "-" and st[7] == "-":
                 try:
                     return date.fromisoformat(st[:10])
                 except Exception:
@@ -205,9 +215,9 @@ def brave_search(
                 dt = parsedate_to_datetime(st)
                 if dt:
                     if dt.tzinfo:
-                        dt = dt.astimezone(timezone.utc)
+                        dt = dt.astimezone(UTC)
                     else:
-                        dt = dt.replace(tzinfo=timezone.utc)
+                        dt = dt.replace(tzinfo=UTC)
                     return dt.date()
             except Exception:
                 pass
@@ -220,9 +230,9 @@ def brave_search(
             s_date = e_date = None
 
         if s_date and e_date:
-            filtered: List[Dict[str, Any]] = []
+            filtered: list[dict[str, Any]] = []
             for r in merged:
-                d = _parse_dt(r.get('date') or '')
+                d = _parse_dt(r.get("date") or "")
                 if d and s_date <= d <= e_date:
                     filtered.append(r)
             merged = filtered

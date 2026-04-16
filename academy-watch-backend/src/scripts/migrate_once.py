@@ -5,8 +5,7 @@ from pathlib import Path
 import dotenv
 from flask import Flask
 from flask_migrate import Migrate, upgrade
-from sqlalchemy.engine.url import make_url
-from sqlalchemy.engine.url import URL
+from sqlalchemy.engine.url import URL, make_url
 
 # Ensure project root is on sys.path so 'src.*' imports resolve when run as a file
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

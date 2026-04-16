@@ -6,14 +6,13 @@ and calculates "where are they now" analytics.
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional
-from sqlalchemy import or_
+from datetime import UTC, datetime
 
-from src.models.league import db
+from sqlalchemy import or_
+from src.api_football_client import APIFootballClient
 from src.models.cohort import AcademyCohort, CohortMember
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
-from src.api_football_client import APIFootballClient
+from src.models.league import db
 from src.services.journey_sync import JourneySyncService
 from src.utils.academy_classifier import classify_tracked_player, strip_youth_suffix
 
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 class CohortService:
     """Service for discovering and managing academy cohorts"""
 
-    def __init__(self, api_client: Optional[APIFootballClient] = None):
+    def __init__(self, api_client: APIFootballClient | None = None):
         self.api = api_client or APIFootballClient()
 
     def discover_cohort(
@@ -61,12 +60,10 @@ class CohortService:
 
         # Check for existing cohort (idempotent)
         existing = AcademyCohort.query.filter_by(
-            team_api_id=team_api_id,
-            league_api_id=league_api_id,
-            season=season
+            team_api_id=team_api_id, league_api_id=league_api_id, season=season
         ).first()
 
-        if existing and existing.sync_status != 'failed':
+        if existing and existing.sync_status != "failed":
             # Allow re-seeding if cohort has no members (API may have
             # returned nothing on a previous attempt due to rate limits
             # or transient errors).
@@ -80,14 +77,11 @@ class CohortService:
             # Create or reset cohort
             if existing:
                 cohort = existing
-                cohort.sync_status = 'seeding'
+                cohort.sync_status = "seeding"
                 cohort.sync_error = None
             else:
                 cohort = AcademyCohort(
-                    team_api_id=team_api_id,
-                    league_api_id=league_api_id,
-                    season=season,
-                    sync_status='seeding'
+                    team_api_id=team_api_id, league_api_id=league_api_id, season=season, sync_status="seeding"
                 )
                 db.session.add(cohort)
                 db.session.flush()
@@ -98,42 +92,38 @@ class CohortService:
             players_added = 0
 
             while page <= total_pages:
-                response = self.api._make_request('players', {
-                    'team': query_team_id,
-                    'league': league_api_id,
-                    'season': season,
-                    'page': page
-                })
+                response = self.api._make_request(
+                    "players", {"team": query_team_id, "league": league_api_id, "season": season, "page": page}
+                )
 
-                paging = response.get('paging', {})
-                total_pages = paging.get('total', 1)
+                paging = response.get("paging", {})
+                total_pages = paging.get("total", 1)
 
                 # Set team/league info from first response
                 if page == 1:
-                    results = response.get('response', [])
+                    results = response.get("response", [])
                     if results:
                         first_player = results[0]
-                        stats = first_player.get('statistics', [{}])
+                        stats = first_player.get("statistics", [{}])
                         if stats:
                             stat = stats[0]
-                            team_info = stat.get('team', {})
-                            league_info = stat.get('league', {})
-                            cohort.team_name = team_info.get('name')
-                            cohort.team_logo = team_info.get('logo')
-                            cohort.league_name = league_info.get('name')
+                            team_info = stat.get("team", {})
+                            league_info = stat.get("league", {})
+                            cohort.team_name = team_info.get("name")
+                            cohort.team_logo = team_info.get("logo")
+                            cohort.league_name = league_info.get("name")
 
-                for player_data in response.get('response', []):
-                    player = player_data.get('player', {})
-                    stats_list = player_data.get('statistics', [])
+                for player_data in response.get("response", []):
+                    player = player_data.get("player", {})
+                    stats_list = player_data.get("statistics", [])
 
-                    player_api_id = player.get('id')
+                    player_api_id = player.get("id")
                     if not player_api_id:
                         continue
 
                     # Check for existing member (for re-seeding failed cohorts)
                     existing_member = CohortMember.query.filter_by(
-                        cohort_id=cohort.id,
-                        player_api_id=player_api_id
+                        cohort_id=cohort.id, player_api_id=player_api_id
                     ).first()
                     if existing_member:
                         continue
@@ -146,21 +136,21 @@ class CohortService:
                     position = None
                     if stats_list:
                         stat = stats_list[0]
-                        games = stat.get('games', {})
-                        goals_data = stat.get('goals', {})
-                        appearances = games.get('appearences') or games.get('appearances') or 0
-                        goals = goals_data.get('total') or 0
-                        assists = goals_data.get('assists') or 0
-                        minutes = games.get('minutes') or 0
-                        position = games.get('position')
+                        games = stat.get("games", {})
+                        goals_data = stat.get("goals", {})
+                        appearances = games.get("appearences") or games.get("appearances") or 0
+                        goals = goals_data.get("total") or 0
+                        assists = goals_data.get("assists") or 0
+                        minutes = games.get("minutes") or 0
+                        position = games.get("position")
 
                     member = CohortMember(
                         cohort_id=cohort.id,
                         player_api_id=player_api_id,
-                        player_name=player.get('name'),
-                        player_photo=player.get('photo'),
-                        nationality=player.get('nationality'),
-                        birth_date=player.get('birth', {}).get('date'),
+                        player_name=player.get("name"),
+                        player_photo=player.get("photo"),
+                        nationality=player.get("nationality"),
+                        birth_date=player.get("birth", {}).get("date"),
                         position=position,
                         appearances_in_cohort=appearances,
                         goals_in_cohort=goals,
@@ -187,9 +177,9 @@ class CohortService:
                 cohort.team_name = fallback_team_name
             if not cohort.league_name and fallback_league_name:
                 cohort.league_name = fallback_league_name
-            cohort.seeded_at = datetime.now(timezone.utc)
+            cohort.seeded_at = datetime.now(UTC)
             if cohort.total_players == 0:
-                cohort.sync_status = 'no_data'
+                cohort.sync_status = "no_data"
                 cohort.sync_error = (
                     f"No cohort players returned for query_team={query_team_id}, "
                     f"league={league_api_id}, season={season}"
@@ -205,7 +195,7 @@ class CohortService:
                 )
                 return cohort
 
-            cohort.sync_status = 'seeded'
+            cohort.sync_status = "seeded"
             db.session.commit()
 
             logger.info(f"Discovered cohort id={cohort.id}: {players_added} players")
@@ -217,12 +207,10 @@ class CohortService:
 
             try:
                 cohort = AcademyCohort.query.filter_by(
-                    team_api_id=team_api_id,
-                    league_api_id=league_api_id,
-                    season=season
+                    team_api_id=team_api_id, league_api_id=league_api_id, season=season
                 ).first()
                 if cohort:
-                    cohort.sync_status = 'failed'
+                    cohort.sync_status = "failed"
                     cohort.sync_error = str(e)
                     db.session.commit()
             except Exception:
@@ -249,13 +237,13 @@ class CohortService:
 
         logger.info(f"Syncing journeys for cohort {cohort_id} ({cohort.team_name} {cohort.season})")
 
-        cohort.sync_status = 'syncing_journeys'
+        cohort.sync_status = "syncing_journeys"
         db.session.commit()
 
         journey_service = JourneySyncService(self.api)
         members = CohortMember.query.filter(
             CohortMember.cohort_id == cohort_id,
-            or_(CohortMember.journey_synced == False, CohortMember.journey_id.is_(None)),
+            or_(not CohortMember.journey_synced, CohortMember.journey_id.is_(None)),
         ).all()
 
         current_year = datetime.now().year
@@ -274,17 +262,15 @@ class CohortService:
                     member.total_clubs = journey.total_clubs
 
                     # Count loan spells
-                    loan_entries = PlayerJourneyEntry.query.filter_by(
-                        journey_id=journey.id,
-                        entry_type='loan'
-                    ).count()
+                    loan_entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id, entry_type="loan").count()
                     member.total_loan_spells = loan_entries
 
                     # Derive current status
                     member.current_status = self._derive_status(
-                        journey, current_year,
+                        journey,
+                        current_year,
                         parent_api_id=cohort.team_api_id,
-                        parent_club_name=cohort.team_name or '',
+                        parent_club_name=cohort.team_name or "",
                     )
 
                     member.journey_synced = True
@@ -306,15 +292,15 @@ class CohortService:
         total_members = CohortMember.query.filter_by(cohort_id=cohort_id).count()
         synced_members = CohortMember.query.filter_by(cohort_id=cohort_id, journey_synced=True).count()
         if total_members == 0:
-            cohort.sync_status = 'no_data'
+            cohort.sync_status = "no_data"
         elif synced_members == total_members:
-            cohort.sync_status = 'complete'
-            cohort.journeys_synced_at = datetime.now(timezone.utc)
+            cohort.sync_status = "complete"
+            cohort.journeys_synced_at = datetime.now(UTC)
         elif synced_members == 0:
-            cohort.sync_status = 'failed'
+            cohort.sync_status = "failed"
         else:
-            cohort.sync_status = 'partial'
-            cohort.journeys_synced_at = datetime.now(timezone.utc)
+            cohort.sync_status = "partial"
+            cohort.journeys_synced_at = datetime.now(UTC)
         db.session.commit()
 
         logger.info(f"Journey sync complete for cohort {cohort_id}")
@@ -329,10 +315,10 @@ class CohortService:
         members = CohortMember.query.filter_by(cohort_id=cohort_id).all()
 
         cohort.total_players = len(members)
-        cohort.players_first_team = sum(1 for m in members if m.current_status == 'first_team')
-        cohort.players_on_loan = sum(1 for m in members if m.current_status == 'on_loan')
-        cohort.players_still_academy = sum(1 for m in members if m.current_status == 'academy')
-        cohort.players_released = sum(1 for m in members if m.current_status in ('released', 'sold'))
+        cohort.players_first_team = sum(1 for m in members if m.current_status == "first_team")
+        cohort.players_on_loan = sum(1 for m in members if m.current_status == "on_loan")
+        cohort.players_still_academy = sum(1 for m in members if m.current_status == "academy")
+        cohort.players_released = sum(1 for m in members if m.current_status in ("released", "sold"))
 
         db.session.commit()
         logger.info(f"Refreshed stats for cohort {cohort_id}: {cohort.total_players} players")
@@ -342,7 +328,7 @@ class CohortService:
         journey: PlayerJourney,
         current_year: int,
         parent_api_id: int = 0,
-        parent_club_name: str = '',
+        parent_club_name: str = "",
     ) -> str:
         """Derive current_status from a player's journey data.
 
@@ -352,11 +338,11 @@ class CohortService:
         - Inactivity-based release (config-driven)
         """
         if not journey:
-            return 'unknown'
+            return "unknown"
 
-        latest_entry = PlayerJourneyEntry.query.filter_by(
-            journey_id=journey.id
-        ).order_by(PlayerJourneyEntry.season.desc()).first()
+        latest_entry = (
+            PlayerJourneyEntry.query.filter_by(journey_id=journey.id).order_by(PlayerJourneyEntry.season.desc()).first()
+        )
 
         status, _, _ = classify_tracked_player(
             current_club_api_id=journey.current_club_api_id,

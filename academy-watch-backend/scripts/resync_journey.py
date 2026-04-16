@@ -19,25 +19,25 @@ Environment:
     Requires DB_* variables for database and API_FOOTBALL_KEY for API access.
 """
 
+import argparse
 import os
 import sys
-import argparse
 
 # Add the src directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Re-sync player journey data')
-    parser.add_argument('player_ids', nargs='*', type=int, help='API-Football player IDs to sync')
-    parser.add_argument('--all', action='store_true', help='Re-sync all existing journeys')
-    parser.add_argument('--incremental', action='store_true', help='Only sync new/current seasons (skip force_full)')
+    parser = argparse.ArgumentParser(description="Re-sync player journey data")
+    parser.add_argument("player_ids", nargs="*", type=int, help="API-Football player IDs to sync")
+    parser.add_argument("--all", action="store_true", help="Re-sync all existing journeys")
+    parser.add_argument("--incremental", action="store_true", help="Only sync new/current seasons (skip force_full)")
     args = parser.parse_args()
 
     if not args.player_ids and not args.all:
-        parser.error('Provide player IDs or use --all')
+        parser.error("Provide player IDs or use --all")
 
-    from src.main import app, db
+    from src.main import app
     from src.models.journey import PlayerJourney
     from src.services.journey_sync import JourneySyncService
 
@@ -67,12 +67,12 @@ def main():
                 print(f"  First team apps: {journey.total_first_team_apps}, Loan apps: {journey.total_loan_apps}")
                 success += 1
             else:
-                error = journey.sync_error if journey else 'sync returned None'
+                error = journey.sync_error if journey else "sync returned None"
                 print(f"  FAILED: {error}")
                 failed += 1
 
         print(f"\nDone: {success} synced, {failed} failed")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

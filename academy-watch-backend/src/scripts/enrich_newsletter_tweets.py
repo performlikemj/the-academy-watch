@@ -10,6 +10,7 @@ Usage:
 Requires TWITTER_BEARER_TOKEN in environment or .env file.
 Optional: TWITTER_DEBUG=1 for verbose output.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,15 +22,20 @@ def main() -> int:
         description="Enrich a newsletter with Twitter/X content.",
     )
     parser.add_argument(
-        "--newsletter-id", type=int, required=True,
+        "--newsletter-id",
+        type=int,
+        required=True,
         help="Database ID of the newsletter to enrich.",
     )
     parser.add_argument(
-        "--team-id", type=int, default=None,
+        "--team-id",
+        type=int,
+        default=None,
         help="Database ID of the parent team. Auto-detected from newsletter if omitted.",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Search and filter tweets but do not persist CommunityTake rows.",
     )
     args = parser.parse_args()
@@ -54,24 +60,27 @@ def main() -> int:
         service = TwitterEnrichmentService()
         if not service.is_configured():
             print(
-                "TWITTER_BEARER_TOKEN not set or too short. "
-                "Set it in the environment or .env file.",
+                "TWITTER_BEARER_TOKEN not set or too short. Set it in the environment or .env file.",
                 file=sys.stderr,
             )
             return 1
 
-        print(f"Enriching newsletter {args.newsletter_id} "
-              f"({newsletter.week_start_date} → {newsletter.week_end_date}) "
-              f"for team {team_id}")
+        print(
+            f"Enriching newsletter {args.newsletter_id} "
+            f"({newsletter.week_start_date} → {newsletter.week_end_date}) "
+            f"for team {team_id}"
+        )
 
         if args.dry_run:
             print("DRY RUN — tweets will be searched and filtered but not persisted.")
             import json
+
             content = newsletter.content
             if isinstance(content, str):
                 content = json.loads(content)
             contexts = service._extract_player_contexts(
-                content, newsletter.team.name if newsletter.team else "",
+                content,
+                newsletter.team.name if newsletter.team else "",
             )
             for ctx in contexts:
                 start = f"{newsletter.week_start_date.isoformat()}T00:00:00Z"
@@ -81,8 +90,7 @@ def main() -> int:
                 print(f"\n  {ctx.player_name} ({ctx.full_name}, {ctx.club})")
                 print(f"    Raw: {len(raw)} | Quality: {len(quality)}")
                 for tw in quality:
-                    print(f"    [{tw.score}] @{tw.author_username}: "
-                          f'"{tw.text[:80]}..." ({tw.accept_reason})')
+                    print(f'    [{tw.score}] @{tw.author_username}: "{tw.text[:80]}..." ({tw.accept_reason})')
             return 0
 
         result = service.enrich_newsletter(args.newsletter_id, team_id)
