@@ -55,7 +55,7 @@ pillow==12.2.0
 pluggy==1.6.0
 psycopg==3.3.3
 psycopg-binary==3.3.3
-pydantic==2.13.1
+pydantic==2.13.3
 pydantic-settings==2.14.0
 pydantic_core==2.46.3
 pydyf==0.12.1
