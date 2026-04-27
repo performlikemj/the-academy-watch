@@ -21,7 +21,7 @@ Flask-Migrate==4.1.0
 Flask-SQLAlchemy==3.1.1
 flask-talisman==1.1.0
 fonttools==4.62.1
-greenlet==3.4.0
+greenlet==3.5.0
 griffe==2.0.2
 groq==1.2.0
 gunicorn==25.3.0
