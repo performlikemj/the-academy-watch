@@ -53,7 +53,7 @@ ordered-set==4.1.0
 packaging==26.2
 pillow==12.2.0
 pluggy==1.6.0
-psycopg==3.3.3
+psycopg==3.3.4
 psycopg-binary==3.3.4
 pydantic==2.13.3
 pydantic-settings==2.14.0
