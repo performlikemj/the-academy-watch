@@ -80,7 +80,7 @@ tqdm==4.67.3
 types-requests==2.33.0.20260508
 typing-inspection==0.4.2
 typing_extensions==4.15.0
-urllib3==2.6.3
+urllib3==2.7.0
 uvicorn==0.46.0
 weasyprint==68.1
 webencodings==0.5.1
