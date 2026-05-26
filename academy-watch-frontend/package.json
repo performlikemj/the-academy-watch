@@ -44,7 +44,7 @@
     "@radix-ui/react-tooltip": "^1.2.6",
     "@stripe/stripe-js": "^9.7.0",
     "@tailwindcss/vite": "^4.3.0",
-    "@tiptap/extension-link": "^3.23.4",
+    "@tiptap/extension-link": "^3.23.6",
     "@tiptap/react": "^3.23.6",
     "@tiptap/starter-kit": "^3.23.6",
     "agentation": "^3.0.2",
