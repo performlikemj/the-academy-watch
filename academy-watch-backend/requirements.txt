@@ -76,7 +76,7 @@ SQLAlchemy==2.0.50
 sse-starlette==3.4.4
 starlette==1.2.1
 stripe==15.2.0
-tqdm==4.67.3
+tqdm==4.68.2
 types-requests==2.33.0.20260518
 typing-inspection==0.4.2
 typing_extensions==4.15.0
