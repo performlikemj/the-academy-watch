@@ -8,7 +8,7 @@ import shutil
 import threading
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import wraps
 from io import BytesIO
 from typing import Any
@@ -49,6 +49,7 @@ from src.models.league import (
     FLAG_CATEGORIES,
     FLAG_STATUSES,
     AcademyAppearance,
+    AcademyPlayerSeasonStats,
     AdminSetting,
     BackgroundJob,
     CommentaryApplause,
@@ -3116,14 +3117,19 @@ def _plain_text_from_news(data: dict, meta: Newsletter) -> str:
             pname = it.get("player_name") or ""
             loan_team = it.get("loan_team") or it.get("loan_team_name") or ""
             wsum = it.get("week_summary") or ""
-            stats = it.get("stats") or {}
-            stat_str = (
-                f"{int(stats.get('minutes', 0))}’ | "
-                f"{int(stats.get('goals', 0))}G {int(stats.get('assists', 0))}A | "
-                f"{int(stats.get('yellows', 0))}Y {int(stats.get('reds', 0))}R"
-            )
-            lines.append(f"• {pname} ({loan_team}) – {wsum}")
-            lines.append(f"  {stat_str}")
+            stats = it.get("stats")
+            if loan_team:
+                lines.append(f"• {pname} ({loan_team}) – {wsum}")
+            else:
+                # Academy Watch items have no loan club — label by level instead
+                lines.append(f"• {pname} ({it.get('current_level') or 'Academy'}) – {wsum}")
+            if isinstance(stats, dict) and stats:
+                stat_str = (
+                    f"{int(stats.get('minutes', 0))}’ | "
+                    f"{int(stats.get('goals', 0))}G {int(stats.get('assists', 0))}A | "
+                    f"{int(stats.get('yellows', 0))}Y {int(stats.get('reds', 0))}R"
+                )
+                lines.append(f"  {stat_str}")
             # Add graph URLs for markdown (Reddit)
             if it.get("rating_graph_url"):
                 graph_url = _absolute_url(it["rating_graph_url"])
@@ -3526,6 +3532,337 @@ def _build_twitter_takes_by_player(community_takes: list[dict]) -> dict[int, lis
     return grouped
 
 
+# --- Newsletter email presentation helpers (Deliverable: email rebuild) ---
+# All helpers are best-effort: they must never raise during a render.
+
+_INJURY_LOOKUP_CAP = 12
+
+
+def _iter_newsletter_items(sections: list | None) -> list[dict]:
+    """Flatten section (and subsection) items into a single list of dicts."""
+    items: list[dict] = []
+    for sec in sections or []:
+        if not isinstance(sec, dict):
+            continue
+        for sub in sec.get("subsections") or []:
+            if isinstance(sub, dict):
+                items.extend(it for it in (sub.get("items") or []) if isinstance(it, dict))
+        items.extend(it for it in (sec.get("items") or []) if isinstance(it, dict))
+    return items
+
+
+def _coerce_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _coerce_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _item_stats(it: dict) -> dict:
+    stats = it.get("stats")
+    return stats if isinstance(stats, dict) else {}
+
+
+def _build_form_glyphs(recent_form: list | None) -> list[dict]:
+    """Derive last-5 form glyphs (oldest -> newest) from recent_form entries.
+
+    Each glyph: {'state': 'contrib'|'played'|'bench', 'title': str}.
+    """
+    entries = [e for e in (recent_form or []) if isinstance(e, dict)]
+    if not entries:
+        return []
+
+    def _entry_dt(e: dict) -> datetime | None:
+        raw = e.get("date")
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+        # Normalize naive datetimes to UTC so mixed naive/aware lists sort
+        # without raising TypeError.
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed
+
+    if all(_entry_dt(e) is not None for e in entries):
+        ordered = sorted(entries, key=_entry_dt)
+    else:
+        # recent_form is stored newest-first; flip to oldest-first
+        ordered = list(reversed(entries))
+
+    glyphs: list[dict] = []
+    for e in ordered[-5:]:
+        minutes = _coerce_int(e.get("minutes"))
+        goals = _coerce_int(e.get("goals"))
+        assists = _coerce_int(e.get("assists"))
+        if minutes <= 0:
+            state = "bench"
+        elif goals + assists > 0:
+            state = "contrib"
+        else:
+            state = "played"
+        date_label = str(e.get("date") or "")[:10]
+        glyphs.append({"state": state, "title": f"{date_label} · {minutes}' · {goals}G {assists}A"})
+    return glyphs
+
+
+_FEATURED_CARD_CAP = 10
+
+
+def _build_featured_items(items: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Items with a non-empty stats dict and minutes > 0, ordered by rating
+    desc (nulls last), then G+A desc, then minutes desc. Each gets a
+    precomputed `form_glyphs` list.
+
+    Returns (featured, overflow): at most _FEATURED_CARD_CAP full cards, with
+    the remainder reduced to compact overflow rows
+    ({player_name, player_api_id, loan_team_name, line}) so a busy week never
+    blows past Gmail's 102KB clip limit.
+    """
+    featured = []
+    for it in items:
+        s = it.get("stats")
+        # Only items carrying real stats qualify — excludes 'What the
+        # Internet is Saying' link items and agent-emitted Academy Watch rows.
+        if not (isinstance(s, dict) and s):
+            continue
+        if _coerce_int(s.get("minutes")) <= 0:
+            continue
+        enriched = dict(it)
+        try:
+            enriched["form_glyphs"] = _build_form_glyphs(it.get("recent_form"))
+        except Exception:
+            enriched["form_glyphs"] = []
+        featured.append(enriched)
+
+    def _sort_key(it: dict):
+        s = _item_stats(it)
+        rating = _coerce_float(s.get("rating"))
+        ga = _coerce_int(s.get("goals")) + _coerce_int(s.get("assists"))
+        minutes = _coerce_int(s.get("minutes"))
+        return (0 if rating is not None else 1, -(rating or 0.0), -ga, -minutes)
+
+    featured.sort(key=_sort_key)
+
+    overflow: list[dict] = []
+    for it in featured[_FEATURED_CARD_CAP:]:
+        s = _item_stats(it)
+        line = f"{_coerce_int(s.get('minutes'))}' · {_coerce_int(s.get('goals'))}G {_coerce_int(s.get('assists'))}A"
+        overflow.append(
+            {
+                "player_name": it.get("player_name") or "Player",
+                "player_api_id": it.get("player_api_id") or it.get("player_id"),
+                "loan_team_name": it.get("loan_team_name") or it.get("loan_team") or "",
+                "line": line,
+            }
+        )
+    return featured[:_FEATURED_CARD_CAP], overflow
+
+
+def _build_week_numbers(items: list[dict]) -> dict:
+    """Compute weekly stat leaders from per-item stats. Best rating requires
+    at least 45 minutes played."""
+    minutes_leader = None
+    ga_leader = None
+    best_rating = None
+    max_minutes = 0
+    for it in items:
+        s = _item_stats(it)
+        if not s:
+            continue
+        name = it.get("player_name") or ""
+        minutes = _coerce_int(s.get("minutes"))
+        ga = _coerce_int(s.get("goals")) + _coerce_int(s.get("assists"))
+        rating = _coerce_float(s.get("rating"))
+        max_minutes = max(max_minutes, minutes)
+        if minutes > 0 and (minutes_leader is None or minutes > minutes_leader["value"]):
+            minutes_leader = {"player": name, "value": minutes}
+        if ga > 0 and (ga_leader is None or ga > ga_leader["value"]):
+            ga_leader = {"player": name, "value": ga}
+        if rating is not None and minutes >= 45 and (best_rating is None or rating > best_rating["value"]):
+            best_rating = {"player": name, "value": round(rating, 1)}
+    return {
+        "minutes_leader": minutes_leader,
+        "ga_leader": ga_leader,
+        "best_rating": best_rating,
+        "max_minutes": max_minutes,
+    }
+
+
+def _lookup_recent_injury(player_api_id: Any, week_start, week_end, season: int | None = None) -> str | None:
+    """Best-effort injury reason for a player whose most recent injury record
+    falls within [week_start - 7d, week_end + 1d]. Never raises."""
+    try:
+        records = api_client.get_player_injuries(int(player_api_id), season=season) or []
+    except Exception:
+        return None
+    window_start = week_start - timedelta(days=7)
+    window_end = week_end + timedelta(days=1)
+    best_reason = None
+    best_date = None
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        raw_date = (rec.get("fixture") or {}).get("date")
+        try:
+            fixture_date = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00")).date()
+        except (TypeError, ValueError):
+            continue
+        if fixture_date < window_start or fixture_date > window_end:
+            continue
+        reason = ((rec.get("player") or {}).get("reason") or "").strip()
+        if reason and (best_date is None or fixture_date > best_date):
+            best_reason = reason
+            best_date = fixture_date
+    return best_reason
+
+
+def _squad_watch_reason_from_summary(week_summary: str) -> tuple[str, str]:
+    """Text heuristics on week_summary -> (reason, reason_kind)."""
+    lowered = (week_summary or "").lower()
+    if "unused" in lowered:
+        return "Unused sub", "unused"
+    if any(
+        phrase in lowered
+        for phrase in ("not in the matchday squad", "not in matchday squad", "not selected", "not in the squad")
+    ):
+        return "Not in squad", "omitted"
+    if "unavailable" in lowered:
+        return "Unavailable", "omitted"
+    if any(phrase in lowered for phrase in ("injured", "out injured", "injury")):
+        return "Injured", "injury"
+    return "No minutes", "none"
+
+
+_INJURY_LOOKUP_MAX_AGE_DAYS = 45
+
+
+def _build_squad_watch(items: list[dict], n: Newsletter) -> list[dict]:
+    """Zero-minute items (with real stats dicts) and a short reason for the
+    bench/omitted/injured state. Injury lookups capped at _INJURY_LOOKUP_CAP,
+    skipped entirely for archived newsletters (> 45 days old) where text
+    heuristics are good enough."""
+    squad: list[dict] = []
+    injury_budget = _INJURY_LOOKUP_CAP
+    week_start = getattr(n, "week_start_date", None)
+    week_end = getattr(n, "week_end_date", None)
+    # Season the newsletter week falls in (European seasons start in July).
+    season = None
+    if week_start:
+        season = week_start.year if week_start.month >= 7 else week_start.year - 1
+    lookups_enabled = bool(week_start and week_end)
+    if lookups_enabled and (date.today() - week_end).days > _INJURY_LOOKUP_MAX_AGE_DAYS:
+        lookups_enabled = False  # archived issue — don't burn API calls
+    for it in items:
+        s = it.get("stats")
+        # Stats-less items (internet-link or academy rows) are not squad
+        # members who failed to play — keep them out of SQUAD WATCH.
+        if not (isinstance(s, dict) and s):
+            continue
+        if _coerce_int(s.get("minutes")) > 0:
+            continue
+        player_api_id = it.get("player_api_id") or it.get("player_id")
+        reason = None
+        kind = "none"
+        if player_api_id and lookups_enabled and injury_budget > 0:
+            injury_budget -= 1
+            try:
+                injury_reason = _lookup_recent_injury(player_api_id, week_start, week_end, season=season)
+            except Exception:
+                injury_reason = None
+            if injury_reason:
+                reason, kind = injury_reason, "injury"
+        if not reason:
+            reason, kind = _squad_watch_reason_from_summary(it.get("week_summary") or "")
+        squad.append(
+            {
+                "player_name": it.get("player_name") or "Unknown",
+                "player_api_id": player_api_id,
+                "loan_team_name": it.get("loan_team_name") or it.get("loan_team") or "",
+                "reason": reason,
+                "reason_kind": kind,
+            }
+        )
+    return squad
+
+
+def _build_academy_watch(n: Newsletter) -> list[dict]:
+    """Top 8 season-to-date youth-competition stat lines for this team's
+    academy players. Latest season is chosen PER PLAYER (and within that
+    season the row with the most minutes, i.e. the primary competition) —
+    mirroring _academy_watch_for_team in api_football_client.py — so a
+    player whose stats stop at an earlier season still shows up."""
+    if not n.team_id:
+        return []
+    try:
+        rows = (
+            db.session.query(AcademyPlayerSeasonStats, TrackedPlayer.current_level, TrackedPlayer.id)
+            .join(
+                TrackedPlayer,
+                or_(
+                    AcademyPlayerSeasonStats.tracked_player_id == TrackedPlayer.id,
+                    AcademyPlayerSeasonStats.player_api_id == TrackedPlayer.player_api_id,
+                ),
+            )
+            .filter(
+                TrackedPlayer.team_id == n.team_id,
+                TrackedPlayer.status == "academy",
+                TrackedPlayer.is_active.is_(True),
+            )
+            .all()
+        )
+    except Exception:
+        logger.warning("academy_watch query failed for newsletter %s", n.id, exc_info=True)
+        return []
+    if not rows:
+        return []
+
+    # Latest season per player; within that season prefer the row with the
+    # most minutes (the player's primary competition).
+    best_by_player: dict[int, tuple[Any, Any]] = {}
+    for stats, level, tp_id in rows:
+        if tp_id is None:
+            continue
+        # Skip empty stat lines — an email row with "0 apps · 0G 0A · 0'"
+        # is noise, not signal.
+        if not (stats.minutes or 0) and not (stats.appearances or 0):
+            continue
+        current = best_by_player.get(tp_id)
+        if current is None or ((stats.season or 0), (stats.minutes or 0)) > (
+            (current[0].season or 0),
+            (current[0].minutes or 0),
+        ):
+            best_by_player[tp_id] = (stats, level)
+
+    entries: list[dict] = []
+    for stats, level in best_by_player.values():
+        rating = _coerce_float(stats.rating)
+        entries.append(
+            {
+                "player_name": stats.player_name,
+                "player_api_id": stats.player_api_id,
+                "level": level,
+                "competition": stats.league_name,
+                "apps": stats.appearances or 0,
+                "goals": stats.goals or 0,
+                "assists": stats.assists or 0,
+                "minutes": stats.minutes or 0,
+                "rating": round(rating, 1) if rating is not None else None,
+            }
+        )
+    entries.sort(key=lambda e: -(e["minutes"] or 0))
+    return entries[:8]
+
+
 def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
     data = _load_newsletter_json(n) or {}
     team_logo = data.get("team_logo")
@@ -3592,6 +3929,29 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
                 )
                 academy_appearances = [a.to_dict() for a in appearances]
 
+    # Email presentation extras — all best-effort, never block a render.
+    flat_items = _iter_newsletter_items(data.get("sections"))
+    try:
+        featured_items, featured_overflow = _build_featured_items(flat_items)
+    except Exception:
+        logger.warning("featured_items build failed for newsletter %s", n.id, exc_info=True)
+        featured_items, featured_overflow = [], []
+    try:
+        week_numbers = _build_week_numbers(flat_items)
+    except Exception:
+        logger.warning("week_numbers build failed for newsletter %s", n.id, exc_info=True)
+        week_numbers = {"minutes_leader": None, "ga_leader": None, "best_rating": None, "max_minutes": 0}
+    try:
+        squad_watch = _build_squad_watch(flat_items, n)
+    except Exception:
+        logger.warning("squad_watch build failed for newsletter %s", n.id, exc_info=True)
+        squad_watch = []
+    try:
+        academy_watch = _build_academy_watch(n)
+    except Exception:
+        logger.warning("academy_watch build failed for newsletter %s", n.id, exc_info=True)
+        academy_watch = []
+
     context: dict[str, Any] = {
         "embed_image": _embed_image,
         "meta": n,
@@ -3618,6 +3978,13 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
         "submit_take_url": submit_take_url,
         "flag_base_url": flag_base_url,
         "academy_appearances": academy_appearances,
+        "featured_items": featured_items,
+        "featured_overflow": featured_overflow,
+        "squad_watch": squad_watch,
+        "week_numbers": week_numbers,
+        "academy_watch": academy_watch,
+        # CAN-SPAM: physical postal address rendered in the email footer.
+        "postal_address": os.getenv("EMAIL_POSTAL_ADDRESS", "").strip(),
     }
     context["social_meta"] = _compute_newsletter_social_meta(n, context)
     return context
@@ -3943,15 +4310,19 @@ def preview_newsletter_custom(newsletter_id: int):
 def render_newsletter(newsletter_id: int, fmt: str):
     try:
         n = Newsletter.query.get_or_404(newsletter_id)
-        data = _load_newsletter_json(n) or {}
-        context = _newsletter_render_context(n)
+        # Only the HTML formats need the full render context (commentaries,
+        # injury lookups, academy queries) — the txt branch and the invalid-
+        # format 400 must not pay for it.
         if fmt in ("html", "web"):
+            context = _newsletter_render_context(n)
             html = render_template("newsletter_web.html", **context)
             return Response(html, mimetype="text/html")
         if fmt in ("email", "email.html"):
+            context = _newsletter_render_context(n)
             html = render_template("newsletter_email.html", **context)
             return Response(html, mimetype="text/html")
         if fmt in ("txt", "text"):
+            data = _load_newsletter_json(n) or {}
             text = _plain_text_from_news(data, n)
             return Response(text, mimetype="text/plain; charset=utf-8")
         return jsonify({"error": "Unsupported format. Use html, email, or text"}), 400

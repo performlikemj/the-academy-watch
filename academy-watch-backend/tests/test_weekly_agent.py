@@ -128,9 +128,13 @@ def test_render_variants_omits_stats_for_link_only_section():
     email_html = variants["email_html"]
 
     assert web_html.count('class="stats"') == 1
-    assert email_html.count('class="stats"') == 1
     assert "J. Sancho" in web_html
-    assert "J. Sancho" in email_html
+    # Rebuilt email template: the played item renders as a featured card with
+    # a stat ribbon, while link-only items (no stats dict) are excluded from
+    # both the featured cards and SQUAD WATCH by design.
+    assert "A. Example" in email_html
+    assert "Mins" in email_html
+    assert "J. Sancho" not in email_html
 
 
 def test_render_variants_shows_upcoming_fixtures_in_web_html():

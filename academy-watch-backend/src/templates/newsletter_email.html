@@ -2,1265 +2,724 @@
 <html lang="en">
 
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{{ title or 'Academy Pipeline Update' }}</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
-    integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
-    crossorigin="anonymous" referrerpolicy="no-referrer" />
-  <style>
-    /* The Academy Watch — Tactical Lens (Editorial)
-       Email-safe rewrite of the newsletter palette. Dark navy base with
-       primary royal-blue accents. No 1px solid borders for sectioning —
-       boundaries come from background tier shifts. Manrope headlines, Inter
-       body, both web-fontable for clients that load remote fonts. */
-    body {
-      margin: 0;
-      padding: 0;
-      background: #0b1326;
-      color: #e2e8f0;
-    }
-
-    .wrapper {
-      width: 100%;
-      table-layout: fixed;
-      background: #0b1326;
-      padding: 24px 0;
-    }
-
-    .main {
-      width: 100%;
-      max-width: 600px;
-      margin: 0 auto;
-      background: #0b1326;
-      border-radius: 12px;
-      overflow: hidden;
-    }
-
-    .content {
-      padding: 36px 32px 44px;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      color: #e2e8f0;
-      line-height: 1.65;
-    }
-
-    .brand {
-      font-size: 11px;
-      letter-spacing: 3px;
-      text-transform: uppercase;
-      color: #2563EB;
-      font-weight: 700;
-      margin-bottom: 12px;
-    }
-
-    h1 {
-      font-size: 28px;
-      margin: 0 0 12px;
-      color: #f1f5f9;
-      font-family: 'Manrope', 'Inter', sans-serif;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-
-    .meta {
-      font-size: 12px;
-      color: #94a3b8;
-      text-transform: uppercase;
-      letter-spacing: 1.2px;
-      margin-bottom: 18px;
-      font-weight: 500;
-    }
-
-    .divider {
-      width: 32px;
-      height: 2px;
-      background: #2563EB;
-      margin: 10px 0 22px;
-    }
-
-    .summary {
-      font-size: 15px;
-      color: #cbd5e1;
-      margin: 12px 0 22px;
-      font-style: italic;
-      line-height: 1.7;
-      border-left: 2px solid rgba(37, 99, 235, 0.3);
-      padding-left: 14px;
-    }
-
-    .title-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin: 0 0 12px;
-    }
-
-    .title-logo {
-      width: 50px;
-      height: 50px;
-      border-radius: 50%;
-      object-fit: cover;
-      background: #222a3d;
-      display: block;
-    }
-
-    .highlights {
-      background: #131b2e;
-      border-radius: 8px;
-      padding: 16px 18px;
-    }
-
-    .highlights strong {
-      display: block;
-      font-size: 11px;
-      letter-spacing: 2px;
-      margin-bottom: 8px;
-      text-transform: uppercase;
-      color: #94a3b8;
-      font-weight: 700;
-    }
-
-    .highlights ul {
-      margin: 0;
-      padding-left: 18px;
-      color: #cbd5e1;
-    }
-
-    h2 {
-      font-size: 11px;
-      margin: 44px 0 20px;
-      text-transform: uppercase;
-      letter-spacing: 3px;
-      color: #94a3b8;
-      font-weight: 800;
-      font-family: 'Manrope', 'Inter', sans-serif;
-    }
-
-    h3 {
-      font-size: 13px;
-      margin: 32px 0 16px;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      color: #cbd5e1;
-      padding-bottom: 6px;
-      font-family: 'Manrope', 'Inter', sans-serif;
-      font-weight: 700;
-    }
-
-    .toc {
-      background: #131b2e;
-      border-radius: 8px;
-      padding: 14px 18px;
-      margin: 18px 0 24px;
-    }
-
-    .toc-title {
-      font-size: 11px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: #94a3b8;
-      margin-bottom: 10px;
-      font-weight: 700;
-    }
-
-    .toc-item {
-      display: block;
-      color: #e2e8f0;
-      text-decoration: none;
-      font-size: 14px;
-      padding: 4px 0;
-    }
-
-    .toc-item:hover {
-      color: #2563EB;
-    }
-
-    .toc-count {
-      color: #64748b;
-      font-size: 12px;
-    }
-
-    .toc-subs {
-      padding-left: 16px;
-      font-size: 12px;
-      color: #64748b;
-      margin-top: 2px;
-    }
-
-    .item {
-      background: #131b2e;
-      border-radius: 10px;
-      padding: 24px 22px;
-      margin-bottom: 26px;
-    }
-
-    .item-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .player-block {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .player-photo {
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      object-fit: cover;
-      background: #222a3d;
-      display: block;
-    }
-
-    .player {
-      font-weight: 800;
-      font-size: 17px;
-      color: #f1f5f9;
-      font-family: 'Manrope', 'Inter', sans-serif;
-      letter-spacing: -0.01em;
-    }
-
-    .loan-team {
-      font-size: 11px;
-      letter-spacing: 1.2px;
-      text-transform: uppercase;
-      color: #94a3b8;
-      margin-top: 4px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-weight: 600;
-    }
-
-    .team-logo {
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      object-fit: cover;
-      background: #222a3d;
-      display: block;
-    }
-
-    .opponent-logo {
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      object-fit: cover;
-      background: #222a3d;
-      margin-right: 8px;
-      flex-shrink: 0;
-    }
-
-    .match-row {
-      display: flex;
-      align-items: center;
-      padding: 12px 0;
-      border-bottom: 1px solid rgba(148, 163, 184, 0.06);
-    }
-
-    .match-row:last-child {
-      border-bottom: none;
-    }
-
-    .match-info {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .match-opponent {
-      font-weight: 600;
-      font-size: 13px;
-      color: #f1f5f9;
-    }
-
-    .match-meta {
-      font-size: 11px;
-      color: #94a3b8;
-    }
-
-    .match-result {
-      font-weight: 800;
-      font-size: 12px;
-      padding: 3px 9px;
-      border-radius: 4px;
-      margin-left: 8px;
-      letter-spacing: 0.3px;
-    }
-
-    .match-result.win {
-      background: rgba(34, 197, 94, 0.15);
-      color: #4ade80;
-    }
-
-    .match-result.draw {
-      background: rgba(148, 163, 184, 0.18);
-      color: #cbd5e1;
-    }
-
-    .match-result.loss {
-      background: rgba(239, 68, 68, 0.15);
-      color: #f87171;
-    }
-
-    .matches-section {
-      margin: 20px 0;
-      padding: 18px 20px;
-      background: #222a3d;
-      border-radius: 8px;
-    }
-
-    .matches-header {
-      font-size: 10px;
-      text-transform: uppercase;
-      color: #94a3b8;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      margin-bottom: 12px;
-    }
-
-    .stats {
-      font-family: 'Inter', sans-serif;
-      font-size: 13px;
-      color: #cbd5e1;
-      margin: 20px 0;
-      font-weight: 500;
-    }
-
-    .notes {
-      margin: 10px 0 0 20px;
-      color: #cbd5e1;
-    }
-
-    .notes li {
-      margin-bottom: 4px;
-    }
-
-    .item p {
-      color: #cbd5e1;
-      margin: 10px 0;
-    }
-
-    .sofascore-card {
-      margin: 14px 0 0;
-    }
-
-    .sofascore-card iframe {
-      border: 0;
-    }
-
-    a {
-      color: #2563EB;
-      text-decoration: none;
-    }
-
-    .footer {
-      margin-top: 32px;
-      font-size: 12px;
-      color: #94a3b8;
-      line-height: 1.6;
-      padding-top: 18px;
-    }
-
-    .footer a {
-      color: #2563EB;
-    }
-
-    /* Native X tweet card — used inline within player commentary cards
-       (twitter_takes_by_player) and in the team-level Twitter section
-       (twitter_takes). Must look like a tweet, not a generic 💬 quote. */
-    .tweet-card {
-      background: #222a3d;
-      border-radius: 8px;
-      padding: 14px 16px;
-      margin: 12px 0 4px;
-    }
-
-    .tweet-card-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-
-    .tweet-author {
-      font-weight: 700;
-      font-size: 13px;
-      color: #f1f5f9;
-    }
-
-    .tweet-handle {
-      color: #2563EB;
-      font-size: 12px;
-      font-weight: 500;
-    }
-
-    .tweet-x-icon {
-      margin-left: auto;
-      color: #94a3b8;
-      font-weight: 800;
-      font-size: 14px;
-      font-family: 'Inter', sans-serif;
-    }
-
-    .tweet-body {
-      font-size: 14px;
-      color: #e2e8f0;
-      line-height: 1.5;
-      margin: 0 0 10px;
-    }
-
-    .tweet-meta {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      font-size: 11px;
-      color: #94a3b8;
-    }
-
-    .tweet-meta a {
-      margin-left: auto;
-      color: #2563EB;
-      font-weight: 600;
-      text-decoration: none;
-    }
-
-    /* Expanded statistics grid — explicit 2-col so it can't overflow at the
-       600px container width that Outlook desktop loves. Dark theme tier-3
-       cards over a tier-2 well, generous interior padding so the grid no
-       longer feels stuffed. */
-    .expanded-stats {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 14px;
-      margin: 22px 0;
-      padding: 18px;
-      background: #222a3d;
-      border-radius: 10px;
-    }
-
-    .es-card {
-      background: #2d3449;
-      border-radius: 8px;
-      padding: 14px 16px;
-    }
-
-    .es-header {
-      margin: 0 0 10px;
-      font-size: 10px;
-      text-transform: uppercase;
-      color: #94a3b8;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-    }
-
-    .es-rows {
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-    }
-
-    .es-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 13px;
-    }
-
-    .es-label {
-      color: #94a3b8;
-    }
-
-    .es-value {
-      font-weight: 700;
-      color: #f1f5f9;
-    }
-
-    /* Tactical Lens callout / pill / badge utilities */
-    .pill {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-    }
-
-    .pill-primary {
-      background: rgba(37, 99, 235, 0.15);
-      color: #60a5fa;
-    }
-
-    .pill-muted {
-      background: rgba(148, 163, 184, 0.12);
-      color: #94a3b8;
-    }
-
-    @media (prefers-color-scheme: light) {
-      body {
-        background: #f7f7f7;
-        color: #111;
-      }
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<meta name="supported-color-schemes" content="dark" />
+<meta name="x-apple-disable-message-reformatting" />
+<title>{{ title or 'The Academy Watch' }}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet" />
+<style>
+body { margin: 0; padding: 0; background-color: #0b1326; -webkit-font-smoothing: antialiased; }
+table { border-collapse: collapse; }
+img { border: 0; outline: none; text-decoration: none; }
+a { color: #60a5fa; }
+</style>
 </head>
 
-<body>
-  <table role="presentation" class="wrapper" cellspacing="0" cellpadding="0" border="0">
-    <tr>
-      <td align="center">
-        <table role="presentation" class="main" cellspacing="0" cellpadding="0" border="0">
-          <tr>
-            <td class="content">
-              <div class="brand">THE ACADEMY WATCH</div>
-              <div class="title-row">
-                {% if team_logo %}
-                <img class="title-logo" src="{{ team_logo }}" alt="{{ team_name or 'Team' }} crest" />
-                {% endif %}
-                <h1>{{ title }}</h1>
-              </div>
-              <div class="meta">
-                {% if team_name %}<span>{{ team_name }}</span>{% if range %} · {% endif %}{% endif %}
-                {% if range %}<span>{{ range[0] }} – {{ range[1] }}</span>{% endif %}
-              </div>
-              <div class="divider"></div>
+{#- ------------------------------------------------------------------
+Derived data. The context builder (_newsletter_render_context) supplies
+featured_items / squad_watch / week_numbers / academy_watch. Every block
+below degrades gracefully when those keys are absent (preview renders via
+weekly_agent._build_template_context don't include them).
+------------------------------------------------------------------- -#}
+{%- set _flat = [] -%}
+{%- for sec in (sections if sections is defined and sections else []) if sec is mapping -%}
+{%- for sub in (sec.get('subsections') or []) if sub is mapping -%}
+{%- for it in (sub.get('items') or []) if it is mapping -%}
+{%- set _ = _flat.append(it) -%}
+{%- endfor -%}
+{%- endfor -%}
+{%- for it in (sec.get('items') or []) if it is mapping -%}
+{%- set _ = _flat.append(it) -%}
+{%- endfor -%}
+{%- endfor -%}
 
-              {% if summary %}
-              <p class="summary">{{ summary }}</p>
-              {% endif %}
+{%- if featured_items is defined and featured_items is not none -%}
+{%- set _featured = featured_items -%}
+{%- else -%}
+{%- set _featured = [] -%}
+{%- for it in _flat -%}
+{%- set _s = it.get('stats') -%}
+{%- if _featured|length < 10 and _s is mapping and _s and (_s.get('minutes') or 0)|int > 0 -%}
+{%- set _ = _featured.append(it) -%}
+{%- endif -%}
+{%- endfor -%}
+{%- endif -%}
 
-              {% if highlights %}
-              <div class="highlights">
-                <strong>Highlights</strong>
-                <ul>
-                  {% for h in highlights %}
-                  <li>{{ h }}</li>
-                  {% endfor %}
-                </ul>
-              </div>
-              {% endif %}
+{%- if squad_watch is defined and squad_watch is not none -%}
+{%- set _squad = squad_watch -%}
+{%- else -%}
+{%- set _squad = [] -%}
+{%- for it in _flat -%}
+{%- set _s = it.get('stats') -%}
+{%- if _s is mapping and _s and (_s.get('minutes') or 0)|int <= 0 -%}
+{%- set _ws = (it.get('week_summary') or '')|lower -%}
+{%- if 'unused' in _ws -%}
+{%- set _reason = 'Unused sub' -%}{%- set _kind = 'unused' -%}
+{%- elif 'not in the matchday squad' in _ws -%}
+{%- set _reason = 'Not in squad' -%}{%- set _kind = 'omitted' -%}
+{%- else -%}
+{%- set _reason = 'No minutes' -%}{%- set _kind = 'none' -%}
+{%- endif -%}
+{%- set _ = _squad.append({'player_name': it.get('player_name'), 'player_api_id': it.get('player_api_id') or it.get('player_id'), 'loan_team_name': it.get('loan_team_name') or it.get('loan_team'), 'reason': _reason, 'reason_kind': _kind}) -%}
+{%- endif -%}
+{%- endfor -%}
+{%- endif -%}
 
-              {# Headlines / Snippets Section #}
-              {% if headlines_commentary %}
-              <div style="margin:28px 0;">
-                <h2 style="margin-bottom:14px;">Journalist Headlines</h2>
-                {% for article in headlines_commentary %}
-                <div
-                  style="background:#131b2e;border-radius:8px;padding:18px;margin-bottom:12px;">
-                  <div
-                    style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;">
-                    {{ article.type }} Commentary
-                  </div>
-                  <h3 style="margin:0 0 6px 0;font-size:17px;color:#f1f5f9;border:none;padding:0;text-transform:none;letter-spacing:-0.01em;">{{ article.title }}</h3>
-                  <div style="font-size:12px;color:#94a3b8;margin-bottom:10px;">by {{ article.author_name }}</div>
-                  <p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:0 0 12px 0;">
-                    {{ article.snippet }}
-                  </p>
-                  <a href="{{ article.read_more_url }}" target="_blank" rel="noopener"
-                    style="display:inline-block;font-size:12px;font-weight:700;color:#2563EB;text-decoration:none;text-transform:uppercase;letter-spacing:1px;">
-                    Read full analysis &rarr;
-                  </a>
-                </div>
-                {% endfor %}
-              </div>
-              {% endif %}
+{%- set wn = week_numbers if week_numbers is defined and week_numbers is mapping else {} -%}
+{%- set _academy_watch = academy_watch if academy_watch is defined and academy_watch else [] -%}
+{%- set _academy_apps = academy_appearances if academy_appearances is defined and academy_appearances else [] -%}
+{%- set _nl_id = meta.id if meta is defined and meta and meta.id is defined else '' -%}
 
-              {# Introduction Commentary #}
-              {% if intro_commentary %}
-              {% for commentary in intro_commentary %}
-              <div
-                style="background:#222a3d;border-left:3px solid #2563EB;border-radius:8px;padding:16px;margin:16px 0;">
-                <div
-                  style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;">
-                  <span>From the editor &middot; {{ commentary.author_name }}</span>
-                </div>
-                <div style="color:#e2e8f0;line-height:1.7;font-size:14px;">
-                  {{ commentary.content|safe }}
-                </div>
-              </div>
-              {% endfor %}
-              {% endif %}
+{#- Preheader: top performer + win count -#}
+{%- set _win_count = [] -%}
+{%- for it in _featured -%}
+{%- for m in (it.get('matches') or []) if m is mapping and m.get('result') == 'W' -%}
+{%- set _ = _win_count.append(1) -%}
+{%- endfor -%}
+{%- endfor -%}
+{%- set _pre_bits = [] -%}
+{%- if wn.get('ga_leader') -%}
+{%- set _ = _pre_bits.append(wn.ga_leader.player ~ ' ' ~ wn.ga_leader.value ~ ' G+A this week') -%}
+{%- elif wn.get('minutes_leader') -%}
+{%- set _ = _pre_bits.append(wn.minutes_leader.player ~ ' played ' ~ wn.minutes_leader.value ~ " minutes") -%}
+{%- endif -%}
+{%- if _win_count -%}
+{%- set _ = _pre_bits.append(_win_count|length ~ ' win' ~ ('s' if _win_count|length != 1 else '') ~ ' across the loan army') -%}
+{%- endif -%}
+{%- if not _pre_bits and summary is defined and summary -%}
+{%- set _ = _pre_bits.append(summary[:140]) -%}
+{%- endif -%}
 
-              {% if by_numbers %}
-              <div class="highlights" style="margin-top:24px;">
-                <strong>By the numbers</strong>
-                <div style="margin-top:10px;color:#e6e6e6;">
-                  {% if by_numbers.minutes_leaders %}
-                  <p style="margin:8px 0;">
-                    <strong style="color:#ffffff;">Minutes leaders:</strong>
-                    {% for row in by_numbers.minutes_leaders %}
-                    {{ row.player }} ({{ row.minutes }}'){% if not loop.last %}, {% endif %}
-                    {% endfor %}
-                  </p>
-                  {% endif %}
-                  {% if by_numbers.ga_leaders %}
-                  <p style="margin:8px 0;">
-                    <strong style="color:#ffffff;">G+A leaders:</strong>
-                    {% for row in by_numbers.ga_leaders %}
-                    {{ row.player }} ({{ row.g }}G {{ row.a }}A){% if not loop.last %}, {% endif %}
-                    {% endfor %}
-                  </p>
-                  {% endif %}
-                </div>
-              </div>
-              {% endif %}
+{#- Macro: last-5 form glyphs (table-based so Outlook/Word renders them; decorative) -#}
+{%- macro glyph_row(glyphs) -%}
+<table role="presentation" cellpadding="0" cellspacing="0" aria-hidden="true">
+<tr>
+{%- for g in glyphs if g is mapping -%}
+{%- if not loop.first -%}<td width="3" style="font-size:0;">&nbsp;</td>{%- endif -%}
+{%- if g.get('state') == 'contrib' -%}
+<td width="7" height="16" bgcolor="#4ade80" title="{{ g.get('title') or '' }}" style="width:7px;height:16px;font-size:0;line-height:0;">&nbsp;</td>
+{%- elif g.get('state') == 'bench' -%}
+<td width="7" height="16" bgcolor="#2a3145" title="{{ g.get('title') or '' }}" style="width:7px;height:16px;font-size:0;line-height:0;">&nbsp;</td>
+{%- else -%}
+<td width="7" height="16" bgcolor="#64748b" title="{{ g.get('title') or '' }}" style="width:7px;height:16px;font-size:0;line-height:0;">&nbsp;</td>
+{%- endif -%}
+{%- endfor -%}
+</tr>
+</table>
+{%- endmacro -%}
 
-              {# Table of Contents #}
-              {% if toc and toc|length > 1 %}
-              <div class="toc">
-                <div class="toc-title">In This Issue</div>
-                {% for entry in toc %}
-                <a class="toc-item" href="#section-{{ entry.section|lower|replace(' ', '-') }}">
-                  {{ entry.section }} <span class="toc-count">({{ entry.count }})</span>
-                </a>
-                {% if entry.subsections %}
-                <div class="toc-subs">
-                  {% for sub in entry.subsections %}
-                  {{ sub.label }} ({{ sub.count }}){% if not loop.last %} · {% endif %}
-                  {% endfor %}
-                </div>
-                {% endif %}
-                {% endfor %}
-              </div>
-              {% endif %}
+{#- Macro: compact native-style tweet card -#}
+{%- macro tweet_card(tweet) -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;">
+<tr>
+<td style="background-color:#222a3d;border-radius:8px;padding:12px 14px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="font-family:Inter,Arial,sans-serif;font-size:12px;font-weight:700;color:#f1f5f9;">{{ tweet.source_author or 'Unknown' }}{% if tweet.source_platform %} <span style="color:#60a5fa;font-weight:500;">{{ tweet.source_platform }}</span>{% endif %}</td>
+<td align="right" style="font-family:Inter,Arial,sans-serif;font-size:13px;font-weight:800;color:#94a3b8;">&#120143;</td>
+</tr>
+</table>
+<div style="font-family:Inter,Arial,sans-serif;font-size:13px;line-height:1.55;color:#e2e8f0;margin-top:6px;">{{ tweet.content }}</div>
+<div style="font-family:Inter,Arial,sans-serif;font-size:11px;color:#94a3b8;margin-top:8px;">
+{%- if tweet.upvotes and tweet.upvotes > 0 %}&hearts; {{ tweet.upvotes }} &nbsp;{% endif -%}
+{%- if tweet.original_posted_at %}{{ tweet.original_posted_at[:10] }} &nbsp;{% endif -%}
+{%- if tweet.source_url %}<a href="{{ tweet.source_url }}" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:none;font-weight:600;">View on X &rarr;</a>{% endif -%}
+</div>
+</td>
+</tr>
+</table>
+{%- endmacro -%}
 
-              {% for sec in sections %}
-              <h2 id="section-{{ sec.title|lower|replace(' ', '-') }}">{{ sec.title }}</h2>
-              {# Flatten subsections into items list with header markers #}
-              {% set ns = namespace(flat_items=[]) %}
-              {% if sec.subsections is defined and sec.subsections %}
-                {% for sub in sec.subsections %}
-                  {% set ns.flat_items = ns.flat_items + [{'_subsection_header': sub.label}] + (sub.get('items', []) or []) %}
-                {% endfor %}
-              {% else %}
-                {% if sec is mapping and sec.get is defined %}
-                  {% set ns.flat_items = sec.get('items', []) or [] %}
-                {% elif sec is mapping %}
-                  {% set ns.flat_items = sec['items'] if 'items' in sec else [] %}
-                {% endif %}
-              {% endif %}
-              {% for it in ns.flat_items if it is mapping %}
-              {% if it.get is defined and it.get('_subsection_header') %}
-              <h3 id="sub-{{ it._subsection_header|lower|replace(' ', '-') }}">{{ it._subsection_header }}</h3>
-              {% else %}
-              <div class="item">
-                <div class="item-header">
-                  <div class="player-block">
-                    {% if it.player_photo %}
-                    <img class="player-photo" src="{{ it.player_photo }}" alt="{{ it.player_name }} headshot" />
-                    {% endif %}
-                    <div>
-                      {% set player_link_id = it.player_api_id or it.player_id %}
-                      {% if player_link_id and public_base_url %}
-                      <a href="{{ public_base_url }}/players/{{ player_link_id }}" class="player"
-                         style="color:#ffffff;text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.3);"
-                         target="_blank" rel="noopener">{{ it.player_name }}</a>
-                      {% else %}
-                      <div class="player">{{ it.player_name }}</div>
-                      {% endif %}
-                      {% if flag_base_url and player_link_id %}
-                      <a href="{{ flag_base_url }}?player_id={{ player_link_id }}&player_name={{ it.player_name|urlencode }}&team_name={{ team_name|urlencode }}&newsletter_id={{ meta.id }}&source=newsletter"
-                         style="font-size:10px;color:#6b7280;text-decoration:none;margin-left:4px;"
-                         title="Report incorrect data" target="_blank" rel="noopener">[Report]</a>
-                      {% endif %}
-                      <div class="loan-team">
-                        {% if it.loan_team_logo %}
-                        <img class="team-logo" src="{{ it.loan_team_logo }}"
-                          alt="{{ (it.loan_team or it.loan_team_name) }} logo" />
-                        {% endif %}
-                        {% set pstatus = it.get('pathway_status', '') if it.get is defined else '' %}
-                        {% if pstatus == 'first_team' %}
-                        <span>{{ it.loan_team or it.loan_team_name }} (First Team)</span>
-                        {% elif pstatus == 'academy' %}
-                        <span>{{ it.get('current_level', 'Academy') if it.get is defined else 'Academy' }} · {{ it.loan_team or it.loan_team_name }}</span>
-                        {% else %}
-                        <span>{{ it.loan_team or it.loan_team_name }}</span>
-                        {% endif %}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                {% set can_track = it.can_fetch_stats if it.can_fetch_stats is defined else True %}
-                {% if can_track and it.stats is defined and it.stats is not none %}
-                {% set s = it.stats or {} %}
-                <div class="stats">
-                  {{ s.get('minutes', 0)|int }}'
-                  {# Position-specific stats (API-Football returns: Goalkeeper, Defender, Midfielder, Attacker, Forward)
-                  #}
-                  {% set pos = s.get('position', '') %}
-                  {% if pos in ['G', 'Goalkeeper'] %}
-                  {# Goalkeeper: Show saves and goals conceded #}
-                  · {{ s.get('saves', 0)|int }} Saves · {{ s.get('goals_conceded', 0)|int }} Conceded
-                  {% elif pos in ['D', 'Defender'] %}
-                  {# Defender: Show tackles, interceptions, then G+A if any #}
-                  {% if s.get('tackles_total') or s.get('tackles_interceptions') %}
-                  · {{ s.get('tackles_total', 0)|int }}T {{ s.get('tackles_interceptions', 0)|int }}I
-                  {% endif %}
-                  {% if s.get('goals', 0)|int > 0 or s.get('assists', 0)|int > 0 %}
-                  · {{ s.get('goals', 0)|int }}G {{ s.get('assists', 0)|int }}A
-                  {% endif %}
-                  {% elif pos in ['M', 'Midfielder'] %}
-                  {# Midfielder: Show G+A and key passes #}
-                  · {{ s.get('goals', 0)|int }}G {{ s.get('assists', 0)|int }}A
-                  {% if s.get('passes_key') %}
-                  · {{ s.get('passes_key', 0)|int }} Key Passes
-                  {% endif %}
-                  {% else %}
-                  {# Forward/Attacker or unknown: Show G+A and shots #}
-                  · {{ s.get('goals', 0)|int }}G {{ s.get('assists', 0)|int }}A
-                  {% if s.get('shots_total') %}
-                  · {{ s.get('shots_total', 0)|int }} Shots
-                  {% endif %}
-                  {% endif %}
-                  {% if s.get('rating') %}
-                  · <span
-                    style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:linear-gradient(135deg,#fbbf24 0%,#f59e0b 100%);color:#fff;border-radius:20px;font-weight:700;font-size:14px;">⭐
-                    {{ "%.1f"|format(s.get('rating')|float) }}</span>
-                  {% endif %}
-                  {% if s.get('position') %}
-                  <span
-                    style="display:inline-block;padding:2px 8px;background:#e5e7eb;color:#374151;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;">{{
-                    s.get('position') }}</span>
-                  {% endif %}
-                </div>
+{#- Macro: section eyebrow heading -#}
+{%- macro section_heading(label) -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:30px 0 14px;">
+<tr>
+<td style="font-family:Manrope,Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#94a3b8;white-space:nowrap;padding-right:10px;">{{ label }}</td>
+<td width="100%" style="border-top:1px solid #2a3145;font-size:0;line-height:0;">&nbsp;</td>
+</tr>
+</table>
+{%- endmacro -%}
 
-                {# Expanded Statistics Grid for Email — explicit 2-column
-                   layout (no auto-fit) so it can't overflow at 600px in
-                   Outlook. Dark theme cards over a tier-2 well. #}
-                {% set has_expanded_stats = s.get('shots_total') or s.get('passes_total') or s.get('tackles_total') or
-                s.get('duels_total') %}
-                {% if has_expanded_stats %}
-                <div class="expanded-stats">
-                  {% if s.get('shots_total') or s.get('dribbles_attempts') or s.get('offsides') %}
-                  <div class="es-card">
-                    <div class="es-header">Attacking</div>
-                    <div class="es-rows">
-                      {% if s.get('shots_total') %}
-                      <div class="es-row"><span class="es-label">Shots</span><span class="es-value">{{ s.get('shots_total') }} ({{ s.get('shots_on', 0) }} on)</span></div>
-                      {% endif %}
-                      {% if s.get('dribbles_attempts') %}
-                      <div class="es-row"><span class="es-label">Dribbles</span><span class="es-value">{{ s.get('dribbles_success', 0) }}/{{ s.get('dribbles_attempts') }}</span></div>
-                      {% endif %}
-                      {% if s.get('offsides') %}
-                      <div class="es-row"><span class="es-label">Offsides</span><span class="es-value">{{ s.get('offsides') }}</span></div>
-                      {% endif %}
-                    </div>
-                  </div>
-                  {% endif %}
+<body style="margin:0;padding:0;background-color:#0b1326;">
+{%- if _pre_bits %}
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{{ _pre_bits|join(' · ') }}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+{%- endif %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#0b1326" style="background-color:#0b1326;">
+<tr>
+<td align="center" style="padding:24px 10px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;">
 
-                  {% if s.get('passes_total') or s.get('passes_key') %}
-                  <div class="es-card">
-                    <div class="es-header">Passing</div>
-                    <div class="es-rows">
-                      {% if s.get('passes_total') %}
-                      <div class="es-row"><span class="es-label">Passes</span><span class="es-value">{{ s.get('passes_total') }}</span></div>
-                      {% endif %}
-                      {% if s.get('passes_key') %}
-                      <div class="es-row"><span class="es-label">Key passes</span><span class="es-value">{{ s.get('passes_key') }}</span></div>
-                      {% endif %}
-                      {% if s.get('passes_accuracy') %}
-                      <div class="es-row"><span class="es-label">Accuracy</span><span class="es-value">{{ s.get('passes_accuracy') }}</span></div>
-                      {% endif %}
-                    </div>
-                  </div>
-                  {% endif %}
+{# ============ 2. MASTHEAD ============ #}
+<tr>
+<td style="padding:8px 4px 0;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="font-family:Manrope,Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#94a3b8;padding-bottom:10px;">The Academy Watch</td>
+<td align="right" style="font-family:Inter,Arial,sans-serif;font-size:12px;font-weight:600;padding-bottom:10px;">
+{%- if web_url is defined and web_url %}<a href="{{ web_url }}" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:none;">View on web &rarr;</a>{% endif -%}
+</td>
+</tr>
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+{%- if team_logo is defined and team_logo %}
+<td width="44" valign="middle" style="padding-right:12px;">
+<img src="{{ team_logo }}" width="36" height="36" alt="{{ team_name or 'Team' }} crest" style="display:block;width:36px;height:36px;border-radius:50%;background-color:#222a3d;" />
+</td>
+{%- endif %}
+<td valign="middle">
+<div style="font-family:Manrope,Arial,sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.02em;line-height:1.25;color:#f1f5f9;">{{ title or 'Weekly Loan Update' }}</div>
+</td>
+</tr>
+</table>
+{%- if range is defined and range and range[0] and range[1] %}
+<div style="margin-top:10px;">
+<span style="display:inline-block;background-color:#131b2e;border-radius:9999px;padding:4px 12px;font-family:Inter,Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;">{{ range[0] }} &ndash; {{ range[1] }}{% if team_name is defined and team_name %} &middot; {{ team_name }}{% endif %}</span>
+</div>
+{%- endif %}
+</td>
+</tr>
 
-                  {% if s.get('tackles_total') or s.get('tackles_interceptions') %}
-                  <div class="es-card">
-                    <div class="es-header">Defending</div>
-                    <div class="es-rows">
-                      {% if s.get('tackles_total') %}
-                      <div class="es-row"><span class="es-label">Tackles</span><span class="es-value">{{ s.get('tackles_total') }}</span></div>
-                      {% endif %}
-                      {% if s.get('tackles_interceptions') %}
-                      <div class="es-row"><span class="es-label">Interceptions</span><span class="es-value">{{ s.get('tackles_interceptions') }}</span></div>
-                      {% endif %}
-                      {% if s.get('tackles_blocks') %}
-                      <div class="es-row"><span class="es-label">Blocks</span><span class="es-value">{{ s.get('tackles_blocks') }}</span></div>
-                      {% endif %}
-                    </div>
-                  </div>
-                  {% endif %}
+{# ============ 3. EDITOR'S NOTE ============ #}
+{%- if summary is defined and summary %}
+<tr>
+<td style="padding:22px 4px 0;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="border-left:3px solid #2563EB;padding-left:14px;font-family:Inter,Arial,sans-serif;font-size:15px;font-style:italic;line-height:1.65;color:#cbd5e1;">{{ summary }}</td>
+</tr>
+</table>
+</td>
+</tr>
+{%- endif %}
+{%- if intro_commentary is defined and intro_commentary %}
+{%- for commentary in intro_commentary %}
+<tr>
+<td style="padding:14px 4px 0;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="background-color:#131b2e;border-left:3px solid #2563EB;border-radius:8px;padding:14px 16px;">
+<div style="font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#94a3b8;margin-bottom:8px;">From the editor &middot; {{ commentary.author_name or 'The Academy Watch' }}</div>
+<div style="font-family:Inter,Arial,sans-serif;font-size:14px;line-height:1.65;color:#e2e8f0;">{{ (commentary.content or '')|striptags }}</div>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+{%- endfor %}
+{%- endif %}
 
-                  {% if s.get('duels_total') %}
-                  <div class="es-card">
-                    <div class="es-header">Duels</div>
-                    <div class="es-rows">
-                      <div class="es-row"><span class="es-label">Won</span><span class="es-value">{{ s.get('duels_won', 0) }}/{{ s.get('duels_total') }}</span></div>
-                    </div>
-                  </div>
-                  {% endif %}
+{# ============ Journalist headlines (preview/snippet mode) ============ #}
+{%- if headlines_commentary is defined and headlines_commentary %}
+<tr>
+<td style="padding:0 4px;">
+{{ section_heading('JOURNALIST HEADLINES') }}
+{%- for article in headlines_commentary %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
+<tr>
+<td style="background-color:#131b2e;border-radius:8px;padding:14px 16px;">
+<div style="font-family:Manrope,Arial,sans-serif;font-size:15px;font-weight:800;color:#f1f5f9;">{{ article.title }}</div>
+<div style="font-family:Inter,Arial,sans-serif;font-size:11px;color:#94a3b8;margin:4px 0 8px;">by {{ article.author_name }}</div>
+<div style="font-family:Inter,Arial,sans-serif;font-size:13px;line-height:1.6;color:#cbd5e1;">{{ article.snippet }}</div>
+{%- if article.read_more_url %}
+<div style="margin-top:8px;"><a href="{{ article.read_more_url }}" target="_blank" rel="noopener" style="font-family:Inter,Arial,sans-serif;font-size:12px;font-weight:700;color:#60a5fa;text-decoration:none;">Read full analysis &rarr;</a></div>
+{%- endif %}
+</td>
+</tr>
+</table>
+{%- endfor %}
+</td>
+</tr>
+{%- endif %}
 
-                  {% if s.get('position') in ['G', 'Goalkeeper'] and (s.get('saves') or s.get('goals_conceded')) %}
-                  <div class="es-card">
-                    <div class="es-header">Goalkeeper</div>
-                    <div class="es-rows">
-                      {% if s.get('saves') is not none %}
-                      <div class="es-row"><span class="es-label">Saves</span><span class="es-value">{{ s.get('saves') }}</span></div>
-                      {% endif %}
-                      {% if s.get('goals_conceded') is not none %}
-                      <div class="es-row"><span class="es-label">Conceded</span><span class="es-value">{{ s.get('goals_conceded') }}</span></div>
-                      {% endif %}
-                    </div>
-                  </div>
-                  {% endif %}
+{# ============ 4. THE WEEK IN NUMBERS ============ #}
+{%- set num_cells = [] -%}
+{%- if wn.get('minutes_leader') -%}
+{%- set _ = num_cells.append({'label': 'Minutes leader', 'big': wn.minutes_leader.value ~ "'", 'name': wn.minutes_leader.player, 'pct': 100}) -%}
+{%- endif -%}
+{%- if wn.get('ga_leader') -%}
+{%- set _ = num_cells.append({'label': 'Top G+A', 'big': wn.ga_leader.value ~ ' G+A', 'name': wn.ga_leader.player, 'pct': [(wn.ga_leader.value|int) * 20, 100]|min}) -%}
+{%- endif -%}
+{%- if wn.get('best_rating') -%}
+{%- set _ = num_cells.append({'label': 'Best rating', 'big': '%.1f'|format(wn.best_rating.value|float), 'name': wn.best_rating.player, 'pct': [(wn.best_rating.value|float * 10)|round|int, 100]|min}) -%}
+{%- endif -%}
+{%- if not num_cells and by_numbers is defined and by_numbers is mapping -%}
+{%- set _ml = (by_numbers.get('minutes_leaders') or []) -%}
+{%- if _ml and _ml[0] is mapping -%}
+{%- set _ = num_cells.append({'label': 'Minutes leader', 'big': (_ml[0].get('minutes') or 0) ~ "'", 'name': _ml[0].get('player') or '', 'pct': 100}) -%}
+{%- endif -%}
+{%- set _gl = (by_numbers.get('ga_leaders') or []) -%}
+{%- if _gl and _gl[0] is mapping -%}
+{%- set _ga_val = (_gl[0].get('g') or 0)|int + (_gl[0].get('a') or 0)|int -%}
+{%- set _ = num_cells.append({'label': 'Top G+A', 'big': (_gl[0].get('g') or 0) ~ 'G ' ~ (_gl[0].get('a') or 0) ~ 'A', 'name': _gl[0].get('player') or '', 'pct': [_ga_val * 20, 100]|min}) -%}
+{%- endif -%}
+{%- endif -%}
+{%- if num_cells %}
+<tr>
+<td style="padding:0 0;">
+{{ section_heading('THE WEEK IN NUMBERS') }}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+{%- for cell in num_cells %}
+<td width="{{ (100 / num_cells|length)|round|int }}%" valign="top" style="padding:0 4px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td align="center" style="background-color:#131b2e;border-radius:8px;padding:14px 10px;">
+<div style="font-family:Manrope,Arial,sans-serif;font-size:20px;font-weight:800;color:#60a5fa;">{{ cell.big }}</div>
+<div style="font-family:Inter,Arial,sans-serif;font-size:13px;font-weight:700;color:#f1f5f9;margin-top:4px;">{{ cell.name }}</div>
+<div style="font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#94a3b8;margin-top:4px;">{{ cell.label }}</div>
+{%- set _pct = [[cell.pct|int, 2]|max, 100]|min %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;">
+<tr>
+<td width="{{ _pct }}%" height="4" bgcolor="#2563EB" style="font-size:0;line-height:0;">&nbsp;</td>
+<td height="4" bgcolor="#2a3145" style="font-size:0;line-height:0;">&nbsp;</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</td>
+{%- endfor %}
+</tr>
+</table>
+</td>
+</tr>
+{%- endif %}
 
-                  {% if s.get('fouls_committed') or s.get('fouls_drawn') or s.get('yellows', 0)|int > 0 or s.get('reds', 0)|int > 0 %}
-                  <div class="es-card">
-                    <div class="es-header">Discipline</div>
-                    <div class="es-rows">
-                      {% if s.get('fouls_committed') %}
-                      <div class="es-row"><span class="es-label">Fouls</span><span class="es-value">{{ s.get('fouls_committed') }}</span></div>
-                      {% endif %}
-                      {% if s.get('fouls_drawn') %}
-                      <div class="es-row"><span class="es-label">Fouled</span><span class="es-value">{{ s.get('fouls_drawn') }}</span></div>
-                      {% endif %}
-                      {% if s.get('yellows', 0)|int > 0 or s.get('reds', 0)|int > 0 %}
-                      <div class="es-row"><span class="es-label">Cards</span><span class="es-value">{{ s.get('yellows', 0)|int }}Y {{ s.get('reds', 0)|int }}R</span></div>
-                      {% endif %}
-                    </div>
-                  </div>
-                  {% endif %}
-                </div>
-                {% endif %}
-                {% elif not can_track %}
-                <div class="stats unavailable" style="color: #666; font-style: italic;">
-                  ℹ️ We can’t track detailed stats for this player yet.
-                </div>
-                {% endif %}
-                {% if it.week_summary %}
-                <p>{{ it.week_summary }}</p>
-                {% endif %}
+{# ============ 5. FEATURED: THIS WEEK'S LOAN ARMY ============ #}
+{%- if _featured %}
+<tr>
+<td style="padding:0 4px;">
+{{ section_heading("THIS WEEK'S LOAN ARMY") }}
+</td>
+</tr>
+{%- for it in _featured %}
+{%- set s = it.get('stats') if it.get('stats') is mapping else {} %}
+<tr>
+<td style="padding:0 4px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="background-color:#131b2e;border-radius:10px;padding:18px;">
 
-                {# Fixtures Section (Upcoming & Results) - Shows next week's fixtures #}
-                {% if it.upcoming_fixtures and it.upcoming_fixtures|length > 0 %}
-                <div
-                  style="margin:14px 0;padding:14px 16px;background:#222a3d;border-left:3px solid #2563EB;border-radius:6px;">
-                  <div
-                    style="font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:10px;text-transform:uppercase;letter-spacing:1.5px;">
-                    Coming Up Next</div>
-                  <div style="font-size:13px;color:#e5e7eb;">
-                    {% for fixture in it.upcoming_fixtures %}
-                    {% set is_completed = fixture.status == 'completed' and fixture.result %}
-                    {% if is_completed %}
-                      {% if fixture.result == 'W' %}
-                        {% set border_color = '#22c55e' %}
-                        {% set badge_bg = '#22c55e' %}
-                      {% elif fixture.result == 'L' %}
-                        {% set border_color = '#ef4444' %}
-                        {% set badge_bg = '#ef4444' %}
-                      {% else %}
-                        {% set border_color = '#6b7280' %}
-                        {% set badge_bg = '#6b7280' %}
-                      {% endif %}
-                    {% else %}
-                      {% set border_color = '#2a3040' %}
-                    {% endif %}
-                    <div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid {{ border_color }};{% if loop.last %}border-bottom:none;{% endif %}">
-                      {% if fixture.opponent_logo %}
-                      <img src="{{ fixture.opponent_logo }}" alt="{{ fixture.opponent }}" 
-                           style="width:24px;height:24px;border-radius:50%;object-fit:cover;background:#222a3d;flex-shrink:0;" />
-                      {% endif %}
-                      <div style="flex:1;">
-                        <div style="font-weight:600;color:#f3f4f6;">
-                          {{ 'vs' if fixture.is_home else '@' }} {{ fixture.opponent }}
-                          {% if is_completed %}
-                          <span style="margin-left:8px;font-weight:700;">{{ fixture.team_score }}-{{ fixture.opponent_score }}</span>
-                          {% endif %}
-                        </div>
-                        <div style="font-size:11px;color:#9ca3af;">{{ fixture.competition }}{% if fixture.date %} • {{ fixture.date[:10] }}{% endif %}</div>
-                      </div>
-                      {% if is_completed %}
-                      <span style="background:{{ badge_bg }};color:white;font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;">{{ fixture.result }}</span>
-                      {% endif %}
-                    </div>
-                    {% endfor %}
-                    {% set has_upcoming = it.upcoming_fixtures|selectattr('status', 'undefined')|list|length > 0 or it.upcoming_fixtures|selectattr('status', 'ne', 'completed')|list|length > 0 %}
-                    {% if has_upcoming %}
-                    <div style="color:#9ca3af;font-size:11px;margin-top:8px;font-style:italic;">
-                      Results will appear in next week's edition.
-                    </div>
-                    {% endif %}
-                  </div>
-                </div>
-                {% elif it.can_fetch_stats %}
-                <div
-                  style="margin:14px 0;padding:12px 14px;background:#222a3d;border-left:3px solid #475569;border-radius:6px;">
-                  <div style="font-size:12px;color:#94a3b8;font-style:italic;">No fixtures scheduled for the following week
-                  </div>
-                </div>
-                {% endif %}
+{# header row: photo · name + club · level pill #}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+{%- if it.get('player_photo') %}
+<td width="54" valign="middle" style="padding-right:12px;">
+<img src="{{ it.player_photo }}" width="44" height="44" alt="{{ it.get('player_name') or 'Player' }} headshot" style="display:block;width:44px;height:44px;border-radius:50%;background-color:#222a3d;" />
+</td>
+{%- endif %}
+<td valign="middle">
+{%- set player_link_id = it.get('player_api_id') or it.get('player_id') %}
+{%- if player_link_id and public_base_url is defined and public_base_url %}
+<a href="{{ public_base_url }}/players/{{ player_link_id }}" target="_blank" rel="noopener" style="font-family:Manrope,Arial,sans-serif;font-size:17px;font-weight:800;letter-spacing:-0.01em;color:#f1f5f9;text-decoration:none;border-bottom:1px solid #2a3145;">{{ it.get('player_name') or 'Player' }}</a>
+{%- else %}
+<span style="font-family:Manrope,Arial,sans-serif;font-size:17px;font-weight:800;letter-spacing:-0.01em;color:#f1f5f9;">{{ it.get('player_name') or 'Player' }}</span>
+{%- endif %}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:5px;">
+<tr>
+{%- if it.get('loan_team_logo') %}
+<td width="20" valign="middle" style="padding-right:6px;">
+<img src="{{ it.loan_team_logo }}" width="16" height="16" alt="{{ it.get('loan_team_name') or it.get('loan_team') or 'Club' }} logo" style="display:block;width:16px;height:16px;border-radius:50%;background-color:#222a3d;" />
+</td>
+{%- endif %}
+<td valign="middle" style="font-family:Inter,Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;">{{ it.get('loan_team_name') or it.get('loan_team') or '' }}</td>
+</tr>
+</table>
+</td>
+{%- if it.get('current_level') %}
+<td valign="top" align="right">
+<span style="display:inline-block;background-color:#222a3d;border-radius:4px;padding:3px 8px;font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#60a5fa;">{{ it.current_level }}</span>
+</td>
+{%- endif %}
+</tr>
+</table>
 
-                {% if it.matches %}
-                <div class="matches-section">
-                  <div class="matches-header">⚽ This Week's Matches</div>
-                  {% for match in it.matches %}
-                  <div class="match-row">
-                    {% if match.opponent_logo %}
-                    <img class="opponent-logo" src="{{ match.opponent_logo }}" alt="{{ match.opponent }}" />
-                    {% endif %}
-                    <div class="match-info">
-                      <span class="match-opponent">vs {{ match.opponent }}</span>
-                      <span class="match-meta">{{ match.competition }}{% if match.home %} (H){% else %} (A){% endif %}</span>
-                    </div>
-                    {% if match.score %}
-                    {% set home_goals = match.score.home|default(0) %}
-                    {% set away_goals = match.score.away|default(0) %}
-                    {% if match.result == 'W' %}
-                    <span class="match-result win">{{ home_goals }}-{{ away_goals }}</span>
-                    {% elif match.result == 'D' %}
-                    <span class="match-result draw">{{ home_goals }}-{{ away_goals }}</span>
-                    {% else %}
-                    <span class="match-result loss">{{ home_goals }}-{{ away_goals }}</span>
-                    {% endif %}
-                    {% endif %}
-                  </div>
-                  {% endfor %}
-                </div>
-                {% elif it.match_notes %}
-                <ul class="notes">
-                  {% for n in it.match_notes %}
-                  <li>{{ n }}</li>
-                  {% endfor %}
-                </ul>
-                {% endif %}
-                {% if it.links %}
-                <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-                  {% for link in it.links %}
-                  {% set link_url = link if link is string else link.url %}
-                  {% set link_title = link.title if link is mapping and link.title else ('Link ' ~ loop.index) %}
-                  {% set is_youtube = 'youtube.com' in link_url or 'youtu.be' in link_url %}
-                  {% if link_url %}
-                  {% if is_youtube %}
-                  <a href="{{ link_url }}" target="_blank" rel="noopener"
-                    style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:6px;background:#ff0000;color:#ffffff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:600;border:1px solid #ff0000;">
-                    <i class="fab fa-youtube"
-                      style="width:18px;height:18px;display:inline-block;vertical-align:middle;font-size:18px;"></i>
-                    <span>{{ link_title }}</span>
-                  </a>
-                  {% else %}
-                  <a href="{{ link_url }}" target="_blank" rel="noopener"
-                    style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:6px;background:#2a2a2a;color:#ffffff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:500;border:1px solid #3a3a3a;">
-                    <span>{{ link_title }}</span>
-                  </a>
-                  {% endif %}
-                  {% endif %}
-                  {% endfor %}
-                </div>
-                {% endif %}
-                {% if it.rating_graph_url %}
-                <div style="margin-top:12px;">
-                  <img src="{{ embed_image(it.rating_graph_url) }}" alt="Rating Graph"
-                    style="max-width:100%;border-radius:6px;display:block;" />
-                </div>
-                {% endif %}
-                {% if it.minutes_graph_url %}
-                <div style="margin-top:12px;">
-                  <img src="{{ embed_image(it.minutes_graph_url) }}" alt="Minutes Graph"
-                    style="max-width:100%;border-radius:6px;display:block;" />
-                </div>
-                {% endif %}
-                {# Platform Data Visuals #}
-                {% if it.match_card_url %}
-                <div style="margin-top:12px;">
-                  <img src="{{ embed_image(it.match_card_url) }}" alt="Match Performance Summary"
-                    style="max-width:100%;border-radius:6px;display:block;" />
-                </div>
-                {% endif %}
-                {% if it.radar_chart_url %}
-                <div style="margin-top:12px;">
-                  <img src="{{ embed_image(it.radar_chart_url) }}" alt="Performance Radar"
-                    style="max-width:100%;border-radius:6px;display:block;" />
-                </div>
-                {% endif %}
-                {% if it.stat_table_url %}
-                <div style="margin-top:12px;">
-                  <img src="{{ embed_image(it.stat_table_url) }}" alt="Recent Match Stats"
-                    style="max-width:100%;border-radius:6px;display:block;" />
-                </div>
-                {% endif %}
-                {% if it.trend_chart_url %}
-                <div style="margin-top:12px;">
-                  <img src="{{ embed_image(it.trend_chart_url) }}" alt="Season Trend"
-                    style="max-width:100%;border-radius:6px;display:block;" />
-                </div>
-                {% endif %}
-                {# Player Page CTA #}
-                {% set player_link_id = it.player_api_id or it.player_id %}
-                {% if player_link_id and public_base_url %}
-                <div style="margin-top:14px;text-align:center;">
-                  <a href="{{ public_base_url }}/players/{{ player_link_id }}"
-                     style="display:inline-block;padding:10px 20px;background:#2563EB;color:#ffffff;
-                            text-decoration:none;border-radius:6px;font-size:12px;font-weight:700;
-                            letter-spacing:1px;text-transform:uppercase;"
-                     target="_blank" rel="noopener">
-                    View full player profile &rarr;
-                  </a>
-                </div>
-                {% endif %}
-                {% if it.sofascore_player_id %}
-                <div class="sofascore-card" style="margin-top:12px;">
-                  <div style="font-size:14px;font-family:Arial,sans-serif;font-weight:600;margin-bottom:6px;">Sofascore
-                    for {{ it.player_name or 'this player' }}</div>
-                  {% if sofascore_image_template %}
-                  {% set img_src = sofascore_image_template.replace('{id}', it.sofascore_player_id|string) %}
-                  <a href="https://widgets.sofascore.com/embed/player/{{ it.sofascore_player_id }}?widgetTheme=dark"
-                    target="_blank" rel="noopener">
-                    <img src="{{ img_src }}" alt="Sofascore player chart"
-                      style="max-width:320px;width:100%;height:auto;border:0;display:block;" />
-                  </a>
-                  <div style="font-size:12px;font-family:Arial,sans-serif;text-align:left;margin-top:6px;">
-                    Player stats provided by <a target="_blank" href="https://sofascore.com/" rel="noopener"
-                      style="color:#ffffff;">Sofascore</a>
-                  </div>
-                  {% else %}
-                  <!-- fallback: many email clients block iframes; optionally set SOFASCORE_IMAGE_TEMPLATE to use an image snapshot -->
-                  <a href="https://widgets.sofascore.com/embed/player/{{ it.sofascore_player_id }}?widgetTheme=dark"
-                    target="_blank" rel="noopener" style="font-size:12px;">View Sofascore player card</a>
-                  {% endif %}
-                </div>
-                {% endif %}
+{# result chips #}
+{%- set _matches = (it.get('matches') or []) %}
+{%- if _matches %}
+<div style="margin-top:12px;">
+{%- for match in _matches[:4] if match is mapping %}
+{%- set _score = match.get('score') if match.get('score') is mapping else {} %}
+{%- set _comp = match.get('competition') or '' %}
+{%- set _words = _comp.split() %}
+{%- set _comp_abbr = (_words|map('first')|join('')|upper) if _words|length > 1 else (_comp[:3]|upper) %}
+{%- if match.get('result') == 'W' %}
+<span style="display:inline-block;background-color:#143124;color:#4ade80;border-radius:4px;padding:4px 8px;margin:0 6px 6px 0;font-family:Inter,Arial,sans-serif;font-size:11px;font-weight:700;">W {{ _score.get('home', 0) }}-{{ _score.get('away', 0) }} v {{ match.get('opponent') or '?' }}{% if _comp_abbr %} &middot; {{ _comp_abbr }}{% endif %}</span>
+{%- elif match.get('result') == 'D' %}
+<span style="display:inline-block;background-color:#222a3d;color:#cbd5e1;border-radius:4px;padding:4px 8px;margin:0 6px 6px 0;font-family:Inter,Arial,sans-serif;font-size:11px;font-weight:700;">D {{ _score.get('home', 0) }}-{{ _score.get('away', 0) }} v {{ match.get('opponent') or '?' }}{% if _comp_abbr %} &middot; {{ _comp_abbr }}{% endif %}</span>
+{%- else %}
+<span style="display:inline-block;background-color:#34191d;color:#f87171;border-radius:4px;padding:4px 8px;margin:0 6px 6px 0;font-family:Inter,Arial,sans-serif;font-size:11px;font-weight:700;">L {{ _score.get('home', 0) }}-{{ _score.get('away', 0) }} v {{ match.get('opponent') or '?' }}{% if _comp_abbr %} &middot; {{ _comp_abbr }}{% endif %}</span>
+{%- endif %}
+{%- endfor %}
+</div>
+{%- endif %}
 
-                {# Player Commentary #}
-                {% if it.player_id and player_commentary_map and it.player_id in player_commentary_map %}
-                {% for commentary in player_commentary_map[it.player_id] %}
-                <div
-                  style="background:#222a3d;border-left:3px solid #2563EB;border-radius:8px;padding:16px;margin:12px 0 0;">
-                  <div
-                    style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;">
-                    <span>Commentary &middot; {{ commentary.author_name }}</span>
-                  </div>
-                  <div style="color:#e2e8f0;line-height:1.7;font-size:14px;">
-                    {{ commentary.content|safe }}
-                  </div>
-                </div>
-                {% endfor %}
-                {% endif %}
+{# stat ribbon: MINS · GOALS · ASSISTS · RATING #}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
+<tr>
+<td align="center" width="25%" style="background-color:#222a3d;border-radius:8px 0 0 8px;border-right:1px solid #2a3145;padding:10px 4px;">
+<div style="font-family:Inter,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;">Mins</div>
+<div style="font-family:Manrope,Arial,sans-serif;font-size:18px;font-weight:800;color:#f1f5f9;margin-top:2px;">{{ (s.get('minutes') or 0)|int }}'</div>
+</td>
+<td align="center" width="25%" style="background-color:#222a3d;border-right:1px solid #2a3145;padding:10px 4px;">
+<div style="font-family:Inter,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;">Goals</div>
+<div style="font-family:Manrope,Arial,sans-serif;font-size:18px;font-weight:800;color:#f1f5f9;margin-top:2px;">{{ (s.get('goals') or 0)|int }}</div>
+</td>
+<td align="center" width="25%" style="background-color:#222a3d;border-right:1px solid #2a3145;padding:10px 4px;">
+<div style="font-family:Inter,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;">Assists</div>
+<div style="font-family:Manrope,Arial,sans-serif;font-size:18px;font-weight:800;color:#f1f5f9;margin-top:2px;">{{ (s.get('assists') or 0)|int }}</div>
+</td>
+<td align="center" width="25%" style="background-color:#222a3d;border-radius:0 8px 8px 0;padding:10px 4px;">
+<div style="font-family:Inter,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;">Rating</div>
+<div style="font-family:Manrope,Arial,sans-serif;font-size:18px;font-weight:800;color:{% if s.get('rating') and s.get('rating')|float >= 7.0 %}#4ade80{% else %}#f1f5f9{% endif %};margin-top:2px;">{% if s.get('rating') %}{{ '%.1f'|format(s.get('rating')|float) }}{% else %}&mdash;{% endif %}</div>
+</td>
+</tr>
+</table>
 
-                {# Inline tweets about this player (twitter_takes_by_player). #}
-                {% set _tweet_pid = it.player_api_id or it.player_id %}
-                {% if _tweet_pid and twitter_takes_by_player and _tweet_pid in twitter_takes_by_player %}
-                <div style="margin-top:14px;">
-                  <div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">
-                    Twitter &middot; about {{ it.player_name }}
-                  </div>
-                  {% for tweet in twitter_takes_by_player[_tweet_pid][:3] %}
-                  <div class="tweet-card">
-                    <div class="tweet-card-header">
-                      <span class="tweet-author">{{ tweet.source_author or 'Unknown' }}</span>
-                      {% if tweet.source_platform %}<span class="tweet-handle">{{ tweet.source_platform }}</span>{% endif %}
-                      <span class="tweet-x-icon">𝕏</span>
-                    </div>
-                    <p class="tweet-body">{{ tweet.content }}</p>
-                    <div class="tweet-meta">
-                      {% if tweet.upvotes and tweet.upvotes > 0 %}<span>&hearts; {{ tweet.upvotes }}</span>{% endif %}
-                      {% if tweet.original_posted_at %}<span>{{ tweet.original_posted_at[:10] }}</span>{% endif %}
-                      {% if tweet.source_url %}<a href="{{ tweet.source_url }}" target="_blank" rel="noopener">View on X &rarr;</a>{% endif %}
-                    </div>
-                  </div>
-                  {% endfor %}
-                </div>
-                {% endif %}
-              </div>
-              {% endif %}
-              {% endfor %}
-              {% endfor %}
+{# form glyphs (last 5, oldest -> newest) #}
+{%- set glyphs = it.get('form_glyphs') %}
+{%- if not glyphs and it.get('recent_form') %}
+{%- set glyphs = [] %}
+{%- for m in (it.get('recent_form') or [])[:5]|reverse %}
+{%- if m is mapping %}
+{%- set _gm = (m.get('minutes') or 0)|int %}
+{%- set _gg = (m.get('goals') or 0)|int %}
+{%- set _ga = (m.get('assists') or 0)|int %}
+{%- set _ = glyphs.append({'state': 'bench' if _gm == 0 else ('contrib' if (_gg + _ga) > 0 else 'played'), 'title': ((m.get('date') or '')|string)[:10] ~ ' · ' ~ _gm ~ "' · " ~ _gg ~ 'G ' ~ _ga ~ 'A'}) %}
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- if glyphs %}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:12px;">
+<tr>
+<td valign="middle" style="font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#94a3b8;padding-right:10px;">Form</td>
+<td valign="middle">{{ glyph_row(glyphs) }}</td>
+</tr>
+</table>
+{%- endif %}
 
-              {# Summary Commentary #}
-              {% if summary_commentary %}
-              {% for commentary in summary_commentary %}
-              <div
-                style="background:#222a3d;border-left:3px solid #2563EB;border-radius:8px;padding:16px;margin:24px 0;">
-                <div
-                  style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;">
-                  <span>Editor's note &middot; {{ commentary.author_name }}</span>
-                </div>
-                <div style="color:#e2e8f0;line-height:1.7;font-size:14px;">
-                  {{ commentary.content|safe }}
-                </div>
-              </div>
-              {% endfor %}
-              {% endif %}
+{# week summary #}
+{%- if it.get('week_summary') %}
+<div style="font-family:Inter,Arial,sans-serif;font-size:15px;line-height:1.6;color:#cbd5e1;margin-top:12px;">{{ it.week_summary }}</div>
+{%- endif %}
 
-              {# Academy Update Section #}
-              {% if academy_appearances %}
-              <div style="margin-top:32px;">
-                <h2 style="margin-bottom:14px;">Academy</h2>
-                <div style="background:#131b2e;border-radius:8px;padding:18px;">
-                  {% for app in academy_appearances %}
-                  <div style="display:flex;align-items:center;gap:12px;padding:10px 0;{% if not loop.last %}border-bottom:1px solid rgba(148,163,184,0.08);{% endif %}">
-                    <div style="flex:1;">
-                      <div style="font-weight:700;color:#f1f5f9;font-size:14px;">{{ app.player_name }}</div>
-                      <div style="color:#94a3b8;font-size:12px;margin-top:2px;">
-                        {{ app.home_team }} vs {{ app.away_team }}
-                        {% if app.competition %} &middot; {{ app.competition }}{% endif %}
-                      </div>
-                    </div>
-                    <div style="text-align:right;">
-                      {% if app.started %}
-                      <span class="pill" style="background:rgba(34,197,94,0.15);color:#4ade80;">Started</span>
-                      {% else %}
-                      <span class="pill pill-muted">Sub</span>
-                      {% endif %}
-                      {% if app.goals > 0 or app.assists > 0 %}
-                      <div style="color:#60a5fa;font-size:13px;font-weight:700;margin-top:4px;">
-                        {% if app.goals > 0 %}{{ app.goals }}G{% endif %}
-                        {% if app.goals > 0 and app.assists > 0 %} {% endif %}
-                        {% if app.assists > 0 %}{{ app.assists }}A{% endif %}
-                      </div>
-                      {% endif %}
-                    </div>
-                  </div>
-                  {% endfor %}
-                  <div style="color:#64748b;font-size:11px;margin-top:14px;font-style:italic;">
-                    Youth league coverage may have limited stats availability.
-                  </div>
-                </div>
-              </div>
-              {% endif %}
+{# extended-stat chips (max 4, only when > 0) #}
+{%- set chips = [] %}
+{%- if (s.get('passes_key') or 0)|int > 0 %}{% set _ = chips.append((s.get('passes_key')|int)|string ~ ' key pass' ~ ('es' if s.get('passes_key')|int != 1 else '')) %}{% endif %}
+{%- if (s.get('duels_total') or 0)|int > 0 %}{% set _ = chips.append(((s.get('duels_won') or 0)|int)|string ~ '/' ~ (s.get('duels_total')|int)|string ~ ' duels') %}{% endif %}
+{%- if (s.get('tackles_total') or 0)|int > 0 %}{% set _ = chips.append((s.get('tackles_total')|int)|string ~ ' tackle' ~ ('s' if s.get('tackles_total')|int != 1 else '')) %}{% endif %}
+{%- if (s.get('dribbles_success') or 0)|int > 0 %}{% set _ = chips.append((s.get('dribbles_success')|int)|string ~ '/' ~ ((s.get('dribbles_attempts') or 0)|int)|string ~ ' dribbles') %}{% endif %}
+{%- if (s.get('saves') or 0)|int > 0 %}{% set _ = chips.append((s.get('saves')|int)|string ~ ' save' ~ ('s' if s.get('saves')|int != 1 else '')) %}{% endif %}
+{%- if (s.get('shots_on') or 0)|int > 0 %}{% set _ = chips.append((s.get('shots_on')|int)|string ~ ' on target') %}{% endif %}
+{%- if chips %}
+<div style="margin-top:10px;">
+{%- for chip in chips[:4] %}
+<span style="display:inline-block;background-color:#222a3d;border-radius:9999px;padding:4px 10px;margin:0 6px 6px 0;font-family:Inter,Arial,sans-serif;font-size:11px;font-weight:600;color:#94a3b8;">{{ chip }}</span>
+{%- endfor %}
+</div>
+{%- endif %}
 
-              {# Around the Squad — Twitter (team-level tweets, NOT tied to a
-                 specific player. Per-player tweets are rendered inline within
-                 each player commentary card via twitter_takes_by_player.) #}
-                {% set _team_tweets = twitter_takes|rejectattr('player_id')|list if twitter_takes else [] %}
-              {% if _team_tweets %}
-              <div style="margin-top:32px;">
-                <h2 style="margin-bottom:14px;">Around the Squad &middot; Twitter</h2>
-                {% for tweet in _team_tweets %}
-                <div class="tweet-card">
-                  <div class="tweet-card-header">
-                    <span class="tweet-author">{{ tweet.source_author or 'Unknown' }}</span>
-                    {% if tweet.source_platform %}<span class="tweet-handle">{{ tweet.source_platform }}</span>{% endif %}
-                    <span class="tweet-x-icon">𝕏</span>
-                  </div>
-                  <p class="tweet-body">{{ tweet.content }}</p>
-                  <div class="tweet-meta">
-                    {% if tweet.upvotes and tweet.upvotes > 0 %}<span>&hearts; {{ tweet.upvotes }}</span>{% endif %}
-                    {% if tweet.original_posted_at %}<span>{{ tweet.original_posted_at[:10] }}</span>{% endif %}
-                    {% if tweet.source_url %}<a href="{{ tweet.source_url }}" target="_blank" rel="noopener">View on X &rarr;</a>{% endif %}
-                  </div>
-                </div>
-                {% endfor %}
-              </div>
-              {% endif %}
+{# next fixture (single compact line, no filler when absent) #}
+{%- set _next = [] %}
+{%- for fx in (it.get('upcoming_fixtures') or []) if fx is mapping and fx.get('status') != 'completed' %}
+{%- if not _next %}{% set _ = _next.append(fx) %}{% endif %}
+{%- endfor %}
+{%- if _next %}
+{%- set fx = _next[0] %}
+<div style="font-family:Inter,Arial,sans-serif;font-size:12px;color:#94a3b8;margin-top:10px;"><span style="font-weight:700;color:#60a5fa;">Next:</span> {{ 'vs' if fx.get('is_home') else '@' }} {{ fx.get('opponent') or 'TBC' }}{% if fx.get('competition') %} &middot; {{ fx.competition }}{% endif %}{% if fx.get('date') %} &middot; {{ (fx.get('date')|string)[:10] }}{% endif %}</div>
+{%- endif %}
 
-              {# Community Takes (non-Twitter sources only). Twitter takes
-                 are rendered above either inline-per-player or in the
-                 team-level Twitter section, not duplicated here. #}
-              {% set _non_twitter_takes = community_takes|rejectattr('source_type', 'equalto', 'twitter')|list if community_takes else [] %}
-              {% if _non_twitter_takes %}
-              <div style="margin-top:32px;">
-                <h2 style="margin-bottom:14px;">Community Takes</h2>
-                {% for take in _non_twitter_takes %}
-                <div style="background:#131b2e;border-radius:8px;padding:16px;margin-bottom:10px;">
-                  <div style="display:flex;align-items:flex-start;gap:12px;">
-                    <div style="font-size:18px;flex-shrink:0;color:#2563EB;">"</div>
-                    <div style="flex:1;">
-                      <p style="color:#e2e8f0;font-size:14px;line-height:1.6;margin:0 0 10px;">
-                        {{ take.content }}
-                      </p>
-                      <div style="font-size:11px;color:#94a3b8;font-weight:500;">
-                        &mdash; {{ take.source_author }}
-                        {% if take.source_platform %} &middot; {{ take.source_platform }}{% endif %}
-                        {% if take.player_name %}
-                        <span class="pill pill-muted" style="margin-left:8px;">{{ take.player_name }}</span>
-                        {% endif %}
-                        {% if take.source_url %}
-                        <a href="{{ take.source_url }}" target="_blank" rel="noopener" style="margin-left:8px;color:#2563EB;text-decoration:none;">&rarr;</a>
-                        {% endif %}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                {% endfor %}
-              </div>
-              {% endif %}
+{# player commentary #}
+{%- if it.get('player_id') and player_commentary_map is defined and player_commentary_map and it.get('player_id') in player_commentary_map %}
+{%- for commentary in player_commentary_map[it.player_id][:2] %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
+<tr>
+<td style="background-color:#222a3d;border-left:3px solid #2563EB;border-radius:8px;padding:12px 14px;">
+<div style="font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;">Commentary &middot; {{ commentary.author_name or 'Staff' }}</div>
+<div style="font-family:Inter,Arial,sans-serif;font-size:13px;line-height:1.6;color:#e2e8f0;">{{ (commentary.content or '')|striptags }}</div>
+</td>
+</tr>
+</table>
+{%- endfor %}
+{%- endif %}
 
-              {% if fan_pulse %}
-              <div class="highlights" style="margin-top:24px;">
-                <strong>Fan pulse</strong>
-                <ul style="margin:10px 0 0;color:#e6e6e6;">
-                  {% for fp in fan_pulse %}
-                  <li style="margin-bottom:8px;">
-                    "{{ fp.quote }}" — {{ fp.forum }}{% if fp.url %} (<a href="{{ fp.url }}" target="_blank"
-                      rel="noopener" style="color:#ffffff;">source</a>){% endif %}
-                  </li>
-                  {% endfor %}
-                </ul>
-              </div>
-              {% endif %}
+{# tweets about this player #}
+{%- set _tweet_pid = it.get('player_api_id') or it.get('player_id') %}
+{%- if _tweet_pid and twitter_takes_by_player is defined and twitter_takes_by_player and _tweet_pid in twitter_takes_by_player %}
+{%- for tweet in twitter_takes_by_player[_tweet_pid][:2] %}
+{{ tweet_card(tweet) }}
+{%- endfor %}
+{%- endif %}
 
-              <div class="footer">
-                {% if web_url %}
-                <div
-                  style="text-align:center;margin:0 0 20px;padding:18px;background:#131b2e;border-radius:8px;">
-                  <p style="margin:0 0 10px;color:#f1f5f9;font-weight:700;font-size:14px;font-family:'Manrope','Inter',sans-serif;letter-spacing:-0.01em;">Better experience on web</p>
-                  <a href="{{ web_url }}" target="_blank" rel="noopener"
-                    style="display:inline-block;padding:10px 22px;background:#ffffff;color:#0b1326;text-decoration:none;border-radius:9999px;font-weight:700;font-size:12px;font-family:'Inter',sans-serif;text-transform:uppercase;letter-spacing:1px;">
-                    View on web &rarr;
-                  </a>
-                </div>
-                {% endif %}
+{# charts live on the web version — never inline base64 in email #}
+{%- if web_url is defined and web_url and (it.get('rating_graph_url') or it.get('minutes_graph_url') or it.get('match_card_url') or it.get('radar_chart_url') or it.get('stat_table_url') or it.get('trend_chart_url')) %}
+<div style="margin-top:12px;"><a href="{{ web_url }}" target="_blank" rel="noopener" style="font-family:Inter,Arial,sans-serif;font-size:12px;font-weight:700;color:#60a5fa;text-decoration:none;">Full charts on the web version &rarr;</a></div>
+{%- endif %}
 
-                {# Share Your Take CTA #}
-                {% if submit_take_url %}
-                <div style="text-align:center;margin:0 0 20px;padding:18px;background:#131b2e;border-radius:8px;">
-                  <p style="margin:0 0 10px;color:#f1f5f9;font-weight:700;font-size:14px;font-family:'Manrope','Inter',sans-serif;letter-spacing:-0.01em;">Got a take on a player?</p>
-                  <a href="{{ submit_take_url }}" target="_blank" rel="noopener"
-                    style="display:inline-block;padding:10px 22px;background:#2563EB;color:#ffffff;text-decoration:none;border-radius:9999px;font-weight:700;font-size:12px;font-family:'Inter',sans-serif;text-transform:uppercase;letter-spacing:1px;">
-                    Share your take
-                  </a>
-                  <p style="margin:10px 0 0;font-size:11px;color:#94a3b8;">Your take could be featured in our next newsletter.</p>
-                </div>
-                {% endif %}
+</td>
+</tr>
+</table>
+</td>
+</tr>
+{%- endfor %}
+{%- endif %}
 
-                <div class="support-cta" style="text-align:center;margin:0 0 18px;">
-                  <a href="https://www.buymeacoffee.com/TheAcademyWatch" target="_blank" rel="noopener">
-                    <img src="{{ bmc_button_url or 'https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png' }}"
-                         alt="Buy me a coffee"
-                         style="height:42px;border-radius:8px;" />
-                  </a>
-                  <div style="font-size:11px;color:#94a3b8;margin-top:8px;">Enjoying the newsletter? A coffee keeps it going.</div>
-                </div>
-                {% if flag_base_url %}
-                <div style="text-align:center;margin:0 0 18px;padding:14px;background:#131b2e;border-radius:8px;">
-                  <p style="margin:0 0 4px;font-size:11px;color:#94a3b8;">Spot something wrong?</p>
-                  <a href="{{ flag_base_url }}?team_name={{ team_name|urlencode }}&newsletter_id={{ meta.id }}&source=newsletter"
-                     target="_blank" rel="noopener"
-                     style="font-size:12px;color:#2563EB;text-decoration:none;font-weight:600;">
-                    Report a data correction &rarr;
-                  </a>
-                </div>
-                {% endif %}
-                {% if unsubscribe_url %}
-                <p>
-                  If you no longer want these updates{% if team_name %} for {{ team_name }}{% endif %},
-                  <a href="{{ unsubscribe_url }}" target="_blank" rel="noopener">unsubscribe instantly</a>.
-                </p>
-                {% if manage_url %}
-                <p><a href="{{ manage_url }}" target="_blank" rel="noopener">Manage other subscription preferences</a>.
-                </p>
-                {% endif %}
-                {% elif manage_url %}
-                <p>
-                  Manage or unsubscribe from future updates{% if team_name %} for {{ team_name }}{% endif %}
-                  at <a href="{{ manage_url }}" target="_blank" rel="noopener">your subscription settings</a>.
-                </p>
-                {% endif %}
-                <p style="text-align:center;">You are receiving this email because you subscribed to The Academy Watch
-                  newsletters.</p>
+{# ============ 5b. ALSO ON THE PITCH (featured overflow, compact rows) ============ #}
+{%- set _overflow = featured_overflow if featured_overflow is defined and featured_overflow else [] %}
+{%- if _overflow %}
+<tr>
+<td style="padding:0 4px;">
+{{ section_heading('ALSO ON THE PITCH') }}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="background-color:#131b2e;border-radius:10px;padding:6px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+{%- for row in _overflow if row is mapping %}
+<tr>
+<td valign="middle" style="padding:10px 0;{% if not loop.last %}border-bottom:1px solid #2a3145;{% endif %}">
+{%- if row.get('player_api_id') and public_base_url is defined and public_base_url %}
+<a href="{{ public_base_url }}/players/{{ row.player_api_id }}" target="_blank" rel="noopener" style="font-family:Inter,Arial,sans-serif;font-size:13px;font-weight:700;color:#f1f5f9;text-decoration:none;">{{ row.get('player_name') or 'Player' }}</a>
+{%- else %}
+<span style="font-family:Inter,Arial,sans-serif;font-size:13px;font-weight:700;color:#f1f5f9;">{{ row.get('player_name') or 'Player' }}</span>
+{%- endif %}
+{%- if row.get('loan_team_name') %}
+<span style="font-family:Inter,Arial,sans-serif;font-size:12px;color:#94a3b8;"> &middot; {{ row.loan_team_name }}</span>
+{%- endif %}
+</td>
+<td valign="middle" align="right" style="padding:10px 0;{% if not loop.last %}border-bottom:1px solid #2a3145;{% endif %}">
+<span style="display:inline-block;background-color:#222a3d;color:#94a3b8;border-radius:4px;padding:3px 8px;font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.5px;">{{ row.get('line') or '' }}</span>
+</td>
+</tr>
+{%- endfor %}
+</table>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+{%- endif %}
 
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
+{# ============ 6. SQUAD WATCH ============ #}
+{%- if _squad %}
+<tr>
+<td style="padding:0 4px;">
+{{ section_heading('SQUAD WATCH') }}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="background-color:#131b2e;border-radius:10px;padding:6px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+{%- for row in _squad[:20] if row is mapping %}
+<tr>
+<td valign="middle" style="padding:10px 0;{% if not loop.last %}border-bottom:1px solid #2a3145;{% endif %}">
+{%- if row.get('player_api_id') and public_base_url is defined and public_base_url %}
+<a href="{{ public_base_url }}/players/{{ row.player_api_id }}" target="_blank" rel="noopener" style="font-family:Inter,Arial,sans-serif;font-size:13px;font-weight:700;color:#f1f5f9;text-decoration:none;">{{ row.get('player_name') or 'Player' }}</a>
+{%- else %}
+<span style="font-family:Inter,Arial,sans-serif;font-size:13px;font-weight:700;color:#f1f5f9;">{{ row.get('player_name') or 'Player' }}</span>
+{%- endif %}
+{%- if row.get('loan_team_name') %}
+<span style="font-family:Inter,Arial,sans-serif;font-size:12px;color:#94a3b8;"> &middot; {{ row.loan_team_name }}</span>
+{%- endif %}
+</td>
+<td valign="middle" align="right" style="padding:10px 0;{% if not loop.last %}border-bottom:1px solid #2a3145;{% endif %}">
+{%- if row.get('reason_kind') == 'injury' %}
+<span style="display:inline-block;background-color:#34191d;color:#f87171;border-radius:4px;padding:3px 8px;font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;">{{ row.get('reason') or 'Injured' }}</span>
+{%- else %}
+<span style="display:inline-block;background-color:#222a3d;color:#94a3b8;border-radius:4px;padding:3px 8px;font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;">{{ row.get('reason') or 'No minutes' }}</span>
+{%- endif %}
+</td>
+</tr>
+{%- endfor %}
+</table>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+{%- endif %}
+
+{# ============ 7. ACADEMY WATCH ============ #}
+{%- if _academy_apps or _academy_watch %}
+<tr>
+<td style="padding:0 4px;">
+{{ section_heading('ACADEMY WATCH') }}
+
+{%- if _academy_apps %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
+<tr>
+<td style="background-color:#131b2e;border-radius:10px;padding:6px 16px;">
+{%- for app in _academy_apps[:10] if app is mapping %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td valign="middle" style="padding:10px 0;{% if not loop.last %}border-bottom:1px solid #2a3145;{% endif %}">
+<div style="font-family:Inter,Arial,sans-serif;font-size:13px;font-weight:700;color:#f1f5f9;">{{ app.get('player_name') or 'Player' }}</div>
+<div style="font-family:Inter,Arial,sans-serif;font-size:11px;color:#94a3b8;margin-top:2px;">{{ app.get('home_team') or '' }} vs {{ app.get('away_team') or '' }}{% if app.get('competition') %} &middot; {{ app.competition }}{% endif %}</div>
+</td>
+<td valign="middle" align="right" style="padding:10px 0;{% if not loop.last %}border-bottom:1px solid #2a3145;{% endif %}">
+{%- if app.get('started') %}
+<span style="display:inline-block;background-color:#143124;color:#4ade80;border-radius:4px;padding:3px 8px;font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;">Started</span>
+{%- else %}
+<span style="display:inline-block;background-color:#222a3d;color:#94a3b8;border-radius:4px;padding:3px 8px;font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;">Sub</span>
+{%- endif %}
+{%- if (app.get('goals') or 0) > 0 or (app.get('assists') or 0) > 0 %}
+<div style="font-family:Inter,Arial,sans-serif;font-size:12px;font-weight:700;color:#60a5fa;margin-top:4px;">{% if (app.get('goals') or 0) > 0 %}{{ app.goals }}G{% endif %}{% if (app.get('goals') or 0) > 0 and (app.get('assists') or 0) > 0 %} {% endif %}{% if (app.get('assists') or 0) > 0 %}{{ app.assists }}A{% endif %}</div>
+{%- endif %}
+</td>
+</tr>
+</table>
+{%- endfor %}
+</td>
+</tr>
+</table>
+{%- endif %}
+
+{%- if _academy_watch %}
+<div style="font-family:Inter,Arial,sans-serif;font-size:11px;color:#64748b;margin:0 0 8px;">Season to date in youth competitions</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="background-color:#131b2e;border-radius:10px;padding:6px 16px;">
+{%- for row in _academy_watch if row is mapping %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td valign="middle" style="padding:10px 0;{% if not loop.last %}border-bottom:1px solid #2a3145;{% endif %}">
+<span style="font-family:Inter,Arial,sans-serif;font-size:13px;font-weight:700;color:#f1f5f9;">{{ row.get('player_name') or 'Player' }}</span>
+{%- if row.get('level') or row.get('competition') %}
+<span style="display:inline-block;background-color:#222a3d;border-radius:4px;padding:2px 7px;margin-left:8px;font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:#60a5fa;">{% if row.get('level') %}{{ row.level }}{% endif %}{% if row.get('level') and row.get('competition') %} &middot; {% endif %}{% if row.get('competition') %}{{ row.competition }}{% endif %}</span>
+{%- endif %}
+<div style="font-family:Inter,Arial,sans-serif;font-size:11px;color:#94a3b8;margin-top:3px;">{{ (row.get('apps') or 0)|int }} apps &middot; {{ (row.get('goals') or 0)|int }}G {{ (row.get('assists') or 0)|int }}A &middot; {{ (row.get('minutes') or 0)|int }}'</div>
+</td>
+<td valign="middle" align="right" style="padding:10px 0;{% if not loop.last %}border-bottom:1px solid #2a3145;{% endif %}">
+{%- if row.get('rating') and row.get('rating')|float >= 7.0 %}
+<span style="display:inline-block;background-color:#2b2417;color:#fbbf24;border-radius:4px;padding:3px 8px;font-family:Manrope,Arial,sans-serif;font-size:12px;font-weight:800;">{{ '%.1f'|format(row.rating|float) }}</span>
+{%- endif %}
+</td>
+</tr>
+</table>
+{%- endfor %}
+</td>
+</tr>
+</table>
+{%- endif %}
+</td>
+</tr>
+{%- endif %}
+
+{# ============ 8. AROUND THE SQUAD / COMMUNITY / FAN PULSE ============ #}
+{%- set _team_tweets = twitter_takes|rejectattr('player_id')|list if twitter_takes is defined and twitter_takes else [] %}
+{%- if _team_tweets %}
+<tr>
+<td style="padding:0 4px;">
+{{ section_heading('AROUND THE SQUAD') }}
+{%- for tweet in _team_tweets[:2] %}
+{{ tweet_card(tweet) }}
+{%- endfor %}
+</td>
+</tr>
+{%- endif %}
+
+{%- set _non_twitter_takes = community_takes|rejectattr('source_type', 'equalto', 'twitter')|list if community_takes is defined and community_takes else [] %}
+{%- if _non_twitter_takes %}
+<tr>
+<td style="padding:0 4px;">
+{{ section_heading('COMMUNITY TAKES') }}
+{%- for take in _non_twitter_takes[:3] %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
+<tr>
+<td style="background-color:#131b2e;border-radius:8px;padding:14px 16px;">
+<div style="font-family:Inter,Arial,sans-serif;font-size:13px;line-height:1.6;color:#e2e8f0;">&ldquo;{{ take.content }}&rdquo;</div>
+<div style="font-family:Inter,Arial,sans-serif;font-size:11px;color:#94a3b8;margin-top:8px;">&mdash; {{ take.source_author or 'Anonymous' }}{% if take.source_platform %} &middot; {{ take.source_platform }}{% endif %}{% if take.player_name %} &middot; on {{ take.player_name }}{% endif %}{% if take.source_url %} &nbsp;<a href="{{ take.source_url }}" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:none;">&rarr;</a>{% endif %}</div>
+</td>
+</tr>
+</table>
+{%- endfor %}
+</td>
+</tr>
+{%- endif %}
+
+{%- if fan_pulse is defined and fan_pulse %}
+<tr>
+<td style="padding:0 4px;">
+{{ section_heading('FAN PULSE') }}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="background-color:#131b2e;border-radius:10px;padding:6px 16px;">
+{%- for fp in fan_pulse if fp is mapping %}
+<div style="font-family:Inter,Arial,sans-serif;font-size:13px;line-height:1.6;color:#cbd5e1;padding:10px 0;{% if not loop.last %}border-bottom:1px solid #2a3145;{% endif %}">&ldquo;{{ fp.get('quote') or '' }}&rdquo; <span style="color:#94a3b8;">&mdash; {{ fp.get('forum') or 'fan forum' }}</span>{% if fp.get('url') %} <a href="{{ fp.url }}" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:none;">&rarr;</a>{% endif %}</div>
+{%- endfor %}
+</td>
+</tr>
+</table>
+</td>
+</tr>
+{%- endif %}
+
+{%- if summary_commentary is defined and summary_commentary %}
+{%- for commentary in summary_commentary %}
+<tr>
+<td style="padding:20px 4px 0;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td style="background-color:#131b2e;border-left:3px solid #2563EB;border-radius:8px;padding:14px 16px;">
+<div style="font-family:Inter,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#94a3b8;margin-bottom:8px;">Editor's note &middot; {{ commentary.author_name or 'The Academy Watch' }}</div>
+<div style="font-family:Inter,Arial,sans-serif;font-size:14px;line-height:1.65;color:#e2e8f0;">{{ (commentary.content or '')|striptags }}</div>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+{%- endfor %}
+{%- endif %}
+
+{# ============ 9. FOOTER ============ #}
+<tr>
+<td style="padding:32px 4px 8px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td align="center" style="background-color:#131b2e;border-radius:10px;padding:24px 18px;">
+{%- if web_url is defined and web_url %}
+<a href="{{ web_url }}" target="_blank" rel="noopener" style="display:inline-block;background-color:#ffffff;color:#0b1326;border-radius:9999px;padding:11px 24px;font-family:Inter,Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-decoration:none;">View on web &rarr;</a>
+{%- endif %}
+{%- if submit_take_url is defined and submit_take_url %}
+<div style="margin-top:14px;">
+<a href="{{ submit_take_url }}" target="_blank" rel="noopener" style="display:inline-block;background-color:#2563EB;color:#ffffff;border-radius:9999px;padding:11px 24px;font-family:Inter,Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-decoration:none;">Got a take?</a>
+<div style="font-family:Inter,Arial,sans-serif;font-size:11px;color:#94a3b8;margin-top:8px;">Your take could be featured in next week's edition.</div>
+</div>
+{%- endif %}
+<div style="margin-top:18px;">
+<a href="https://www.buymeacoffee.com/TheAcademyWatch" target="_blank" rel="noopener">
+<img src="{{ bmc_button_url if bmc_button_url is defined and bmc_button_url else 'https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png' }}" alt="Buy me a coffee" height="40" style="height:40px;border-radius:8px;" />
+</a>
+<div style="font-family:Inter,Arial,sans-serif;font-size:11px;color:#94a3b8;margin-top:8px;">Enjoying the newsletter? A coffee keeps it going.</div>
+</div>
+</td>
+</tr>
+</table>
+
+{%- if flag_base_url is defined and flag_base_url %}
+<div style="text-align:center;margin-top:16px;font-family:Inter,Arial,sans-serif;font-size:11px;color:#94a3b8;">Spot something wrong? <a href="{{ flag_base_url }}?team_name={{ (team_name or '')|urlencode }}&newsletter_id={{ _nl_id }}&source=newsletter" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:none;font-weight:600;">Report a data correction &rarr;</a></div>
+{%- endif %}
+
+<div style="text-align:center;margin-top:18px;font-family:Inter,Arial,sans-serif;font-size:11px;line-height:1.7;color:#94a3b8;">
+{%- if unsubscribe_url is defined and unsubscribe_url %}
+<div>If you no longer want these updates{% if team_name is defined and team_name %} for {{ team_name }}{% endif %}, <a href="{{ unsubscribe_url }}" target="_blank" rel="noopener" style="color:#60a5fa;">unsubscribe instantly</a>.</div>
+{%- endif %}
+{%- if manage_url is defined and manage_url %}
+<div><a href="{{ manage_url }}" target="_blank" rel="noopener" style="color:#60a5fa;">Manage subscription preferences</a></div>
+{%- endif %}
+<div style="margin-top:10px;">You're receiving this because you subscribed to The Academy Watch newsletters.</div>
+{%- if postal_address is defined and postal_address %}
+<div style="margin-top:6px;font-family:Inter,Arial,sans-serif;font-size:11px;color:#64748b;">{{ postal_address }}</div>
+{%- endif %}
+</div>
+</td>
+</tr>
+
+</table>
+</td>
+</tr>
+</table>
 </body>
 
 </html>

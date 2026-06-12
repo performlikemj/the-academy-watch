@@ -88,6 +88,136 @@ def extract_transfer_fee(transfer_type: str) -> str | None:
     return t
 
 
+def _academy_watch_for_team(
+    parent_team_db_id: int,
+    db_session,
+    week_start: date | None = None,
+    week_end: date | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Best-effort academy snapshot for a parent club's weekly report.
+
+    Returns a dict with two keys:
+    - "academy_watch": up to 10 active academy TrackedPlayers (status='academy')
+      with their latest-season totals from AcademyPlayerSeasonStats, ordered by
+      season minutes descending.
+    - "academy_appearances_week": AcademyAppearance rows for those academy
+      players whose fixture_date falls inside [week_start, week_end].
+
+    Entirely best-effort: any failure (including model import errors) returns
+    empty lists so the loan report is never blocked by academy data.
+    """
+    empty: dict[str, list[dict[str, Any]]] = {"academy_watch": [], "academy_appearances_week": []}
+    if not db_session:
+        return empty
+    try:
+        # Lazy imports: the module import graph between this client and the
+        # models package is delicate, so resolve models only when needed.
+        from src.models.league import AcademyAppearance, AcademyPlayerSeasonStats
+        from src.models.tracked_player import TrackedPlayer
+    except Exception as exc:
+        logger.warning(f"academy_watch: model import failed for team {parent_team_db_id}: {exc}")
+        return empty
+
+    try:
+        academy_rows = (
+            db_session.query(TrackedPlayer)
+            .filter(
+                TrackedPlayer.team_id == parent_team_db_id,
+                TrackedPlayer.status == "academy",
+                TrackedPlayer.is_active.is_(True),
+            )
+            .all()
+        )
+        if not academy_rows:
+            return empty
+
+        by_tp_id: dict[int, Any] = {}
+        by_api_id: dict[int, Any] = {}
+        for tp in academy_rows:
+            if tp.id is not None:
+                by_tp_id[tp.id] = tp
+            if tp.player_api_id is not None and tp.player_api_id > 0:
+                by_api_id[tp.player_api_id] = tp
+
+        from sqlalchemy import or_
+
+        filters = []
+        if by_tp_id:
+            filters.append(AcademyPlayerSeasonStats.tracked_player_id.in_(list(by_tp_id)))
+        if by_api_id:
+            filters.append(AcademyPlayerSeasonStats.player_api_id.in_(list(by_api_id)))
+        stat_rows = db_session.query(AcademyPlayerSeasonStats).filter(or_(*filters)).all() if filters else []
+
+        # Latest season per player; within that season prefer the row with the
+        # most minutes (the player's primary competition).
+        best_by_player: dict[int, Any] = {}
+        for srow in stat_rows:
+            tp = by_tp_id.get(srow.tracked_player_id) or by_api_id.get(srow.player_api_id)
+            if tp is None or tp.id is None:
+                continue
+            current = best_by_player.get(tp.id)
+            if current is None or (srow.season or 0, srow.minutes or 0) > (
+                current.season or 0,
+                current.minutes or 0,
+            ):
+                best_by_player[tp.id] = srow
+
+        entries: list[dict[str, Any]] = []
+        for tp_id, srow in best_by_player.items():
+            tp = by_tp_id[tp_id]
+            try:
+                rating = round(float(srow.rating), 1) if srow.rating is not None else None
+            except (TypeError, ValueError):
+                rating = None
+            entries.append(
+                {
+                    "player_api_id": tp.player_api_id,
+                    "player_name": tp.player_name or srow.player_name or "",
+                    "level": tp.current_level,
+                    "competition": srow.league_name,
+                    "season": srow.season,
+                    "appearances": srow.appearances or 0,
+                    "minutes": srow.minutes or 0,
+                    "goals": srow.goals or 0,
+                    "assists": srow.assists or 0,
+                    "rating": rating,
+                    "yellow_cards": srow.yellow_cards or 0,
+                    "red_cards": srow.red_cards or 0,
+                }
+            )
+        entries.sort(key=lambda e: e.get("minutes") or 0, reverse=True)
+
+        appearances_week: list[dict[str, Any]] = []
+        if week_start and week_end and by_api_id:
+            app_rows = (
+                db_session.query(AcademyAppearance)
+                .filter(
+                    AcademyAppearance.player_id.in_(list(by_api_id)),
+                    AcademyAppearance.fixture_date >= week_start,
+                    AcademyAppearance.fixture_date <= week_end,
+                )
+                .order_by(AcademyAppearance.fixture_date)
+                .all()
+            )
+            appearances_week = [
+                {
+                    "player_name": row.player_name,
+                    "home_team": row.home_team,
+                    "away_team": row.away_team,
+                    "competition": row.competition,
+                    "started": bool(row.started),
+                    "goals": row.goals or 0,
+                    "assists": row.assists or 0,
+                }
+                for row in app_rows
+            ]
+
+        return {"academy_watch": entries[:10], "academy_appearances_week": appearances_week}
+    except Exception as exc:
+        logger.warning(f"academy_watch: assembly failed for team {parent_team_db_id}: {exc}")
+        return empty
+
+
 class APIFootballClient:
     """Client for API-Football integration."""
 
@@ -3166,7 +3296,21 @@ class APIFootballClient:
             )
 
         # ------------------------------------------------------------------
-        # 3️⃣ Assemble report
+        # 3️⃣ Academy snapshot (best-effort; never blocks the loan report)
+        # ------------------------------------------------------------------
+        try:
+            academy = _academy_watch_for_team(
+                parent_team_db_id,
+                db_session,
+                week_start=week_start,
+                week_end=week_end,
+            )
+        except Exception as exc:
+            logger.warning(f"academy_watch failed for parent {parent_team_db_id}: {exc}")
+            academy = {"academy_watch": [], "academy_appearances_week": []}
+
+        # ------------------------------------------------------------------
+        # 4️⃣ Assemble report
         # ------------------------------------------------------------------
         return {
             "parent_team": {
@@ -3177,6 +3321,8 @@ class APIFootballClient:
             "season": season,
             "range": [start_str, end_str],
             "loanees": summaries,
+            "academy_watch": academy.get("academy_watch", []),
+            "academy_appearances_week": academy.get("academy_appearances_week", []),
             "counts": {
                 "loanees_found": len(loanees),
                 "loanees_summarized": len(summaries),
