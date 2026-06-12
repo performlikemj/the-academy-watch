@@ -16,6 +16,7 @@ import {
     FlaskConical,
     ChevronDown,
     Flag,
+    Video,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
@@ -38,6 +39,7 @@ const sidebarGroups = [
             { icon: Shield, label: 'Teams', href: '/admin/teams' },
             { icon: GraduationCap, label: 'Academy', href: '/admin/academy' },
             { icon: Users, label: 'Cohorts', href: '/admin/cohorts' },
+            { icon: Video, label: 'Video Analysis', href: '/admin/video' },
         ],
     },
     {

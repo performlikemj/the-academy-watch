@@ -94,6 +94,8 @@ import { AdminCuration } from '@/pages/admin/AdminCuration'
 import { AdminFlags } from '@/pages/admin/AdminFlags'
 import { AdminAcademy } from '@/pages/admin/AdminAcademy'
 import { AdminCohorts } from '@/pages/admin/AdminCohorts'
+import { AdminVideo } from '@/pages/admin/AdminVideo'
+import { AdminVideoMatch } from '@/pages/admin/AdminVideoMatch'
 import { AdminTools } from '@/pages/admin/AdminTools'
 import { AdminSandbox } from '@/pages/admin/AdminSandbox'
 import { AdminFormation } from '@/pages/admin/AdminFormation'
@@ -10574,6 +10576,8 @@ function AppRoutes() {
         <Route path="flags" element={<AdminFlags />} />
         <Route path="academy" element={<AdminAcademy />} />
         <Route path="cohorts" element={<AdminCohorts />} />
+        <Route path="video" element={<AdminVideo />} />
+        <Route path="video/:matchId" element={<AdminVideoMatch />} />
         <Route path="settings" element={<AdminSettings />} />
         <Route path="tools" element={<AdminTools />} />
         <Route path="sandbox" element={<AdminSandbox />} />
