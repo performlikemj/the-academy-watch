@@ -407,3 +407,102 @@ class TestRecomputeAcademyEndpoint:
     def test_requires_admin_auth(self, app, client):
         resp = client.post("/api/admin/journeys/recompute-academy", json={"dry_run": True})
         assert resp.status_code == 401
+
+
+class TestEntryTypingFinalForm:
+    """The reordered/widened reclassifier passes (final-form provenance)."""
+
+    def _entry(self, **kw):
+        from src.models.journey import PlayerJourneyEntry
+
+        defaults = dict(entry_type="academy", is_international=False, level="U21", appearances=1)
+        defaults.update(kw)
+        return PlayerJourneyEntry(**defaults)
+
+    def _svc(self):
+        from src.services.journey_sync import JourneySyncService
+
+        return JourneySyncService.__new__(JourneySyncService)
+
+    def test_signing_u21_rehab_becomes_integration_not_development(self):
+        svc = self._svc()
+        entries = [
+            self._entry(
+                club_api_id=209,
+                club_name="Feyenoord",
+                season=2019,
+                entry_type="first_team",
+                level="First Team",
+                appearances=30,
+            ),
+            self._entry(
+                club_api_id=33,
+                club_name="Manchester United",
+                season=2022,
+                entry_type="first_team",
+                level="First Team",
+                appearances=30,
+            ),
+            self._entry(club_api_id=7198, club_name="Manchester United U21", season=2024),
+        ]
+        svc._apply_development_classification(entries, transfers=None, birth_date="1999-08-17")
+        assert entries[2].entry_type == "integration"
+
+    def test_homegrown_post_debut_youth_is_development(self):
+        svc = self._svc()
+        entries = [
+            self._entry(club_api_id=7198, club_name="Manchester United U18", season=2020, level="U18"),
+            self._entry(
+                club_api_id=33,
+                club_name="Manchester United",
+                season=2021,
+                entry_type="first_team",
+                level="First Team",
+                appearances=20,
+            ),
+            self._entry(club_api_id=7198, club_name="Manchester United U21", season=2022),
+        ]
+        svc._apply_development_classification(entries, transfers=None, birth_date="2004-07-01")
+        assert entries[0].entry_type == "academy"
+        assert entries[2].entry_type == "development"
+
+    def test_buy_back_transfer_does_not_disqualify_formative_years(self):
+        svc = self._svc()
+        entries = [
+            self._entry(club_api_id=496, club_name="Juventus U19", season=2009, level="U19"),
+            self._entry(
+                club_api_id=496,
+                club_name="Juventus",
+                season=2016,
+                entry_type="first_team",
+                level="First Team",
+                appearances=30,
+            ),
+        ]
+        transfers = [{"type": "€ 100M", "date": "2016-07-01", "teams": {"in": {"id": 496}, "out": {"id": 33}}}]
+        svc._apply_development_classification(entries, transfers=transfers, birth_date="1993-03-15")
+        assert entries[0].entry_type == "academy"
+
+    def test_transfer_in_flags_later_development_entries(self):
+        svc = self._svc()
+        entries = [
+            self._entry(
+                club_api_id=33,
+                club_name="Manchester United",
+                season=2022,
+                entry_type="first_team",
+                level="First Team",
+                appearances=30,
+            ),
+            self._entry(club_api_id=7198, club_name="Manchester United U21", season=2024),
+        ]
+        transfers = [{"type": "€ 15M", "date": "2022-07-05", "teams": {"in": {"id": 7198}, "out": {"id": 209}}}]
+        svc._apply_development_classification(entries, transfers=transfers, birth_date="1999-08-17")
+        assert entries[1].entry_type == "integration"
+
+    def test_teenage_transfer_into_academy_stays_academy(self):
+        svc = self._svc()
+        entries = [self._entry(club_api_id=7198, club_name="Manchester United U18", season=2020, level="U18")]
+        transfers = [{"type": "Free", "date": "2020-08-01", "teams": {"in": {"id": 7198}, "out": {"id": 9999}}}]
+        svc._apply_development_classification(entries, transfers=transfers, birth_date="2004-07-01")
+        assert entries[0].entry_type == "academy"

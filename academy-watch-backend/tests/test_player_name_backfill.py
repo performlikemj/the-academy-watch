@@ -3,7 +3,10 @@
 Covers:
 - is_placeholder_name / resolve_player_name priority order
 - POST /api/admin/players/backfill-names repair endpoint
+- Profile backfill (position / birth_date / age / nationality) on TrackedPlayer
 """
+
+from datetime import date
 
 import pytest
 from flask import Flask
@@ -11,6 +14,7 @@ from src.models.cohort import AcademyCohort, CohortMember
 from src.models.journey import PlayerJourney
 from src.models.league import AcademyPlayerSeasonStats, League, Player, Team, db
 from src.models.tracked_player import TrackedPlayer
+from src.models.weekly import Fixture, FixturePlayerStats
 from src.utils.player_names import is_placeholder_name, resolve_player_name
 
 ADMIN_KEY = "test-admin-key"
@@ -242,3 +246,202 @@ class TestBackfillNamesEndpoint:
     def test_requires_admin_auth(self, app, client):
         resp = client.post("/api/admin/players/backfill-names", json={"dry_run": True})
         assert resp.status_code == 401
+
+
+def _expected_age(birth_date_str):
+    born = date.fromisoformat(birth_date_str)
+    today = date.today()
+    return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+
+def _seed_tracked(team, player_api_id, name, **kwargs):
+    tp = TrackedPlayer(
+        player_api_id=player_api_id,
+        player_name=name,
+        team_id=team.id,
+        status="academy",
+        data_source="api-football",
+        is_active=True,
+        **kwargs,
+    )
+    db.session.add(tp)
+    db.session.flush()
+    return tp
+
+
+def _seed_fixture_positions(player_api_id, positions, team_api_id=33):
+    """One FixturePlayerStats row per position code, each on its own fixture."""
+    for code in positions:
+        max_api = db.session.query(db.func.max(Fixture.fixture_id_api)).scalar() or 90000
+        fixture = Fixture(fixture_id_api=max_api + 1, season=2025)
+        db.session.add(fixture)
+        db.session.flush()
+        db.session.add(
+            FixturePlayerStats(
+                fixture_id=fixture.id,
+                player_api_id=player_api_id,
+                team_api_id=team_api_id,
+                position=code,
+            )
+        )
+    db.session.flush()
+
+
+class TestProfileBackfill:
+    def _post(self, client, headers, dry_run=False):
+        return client.post("/api/admin/players/backfill-names", json={"dry_run": dry_run}, headers=headers)
+
+    def test_players_table_position_beats_fixture_stats_mode(self, app, client, admin_headers):
+        team = _seed_team()
+        tp = _seed_tracked(team, 800, "Pos Priority")
+        tp_id = tp.id
+        # players table says Midfielder; FixturePlayerStats mode says F (Attacker)
+        db.session.add(Player(player_id=800, name="Pos Priority", position="Midfielder", nationality="England"))
+        _seed_fixture_positions(800, ["F", "F", "F"])
+        db.session.commit()
+
+        resp = self._post(client, admin_headers)
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["position_filled"] == 1
+        assert data["nationality_filled"] == 1
+
+        db.session.expire_all()
+        fixed = db.session.get(TrackedPlayer, tp_id)
+        assert fixed.position == "Midfielder"
+        # nationality consulted from players table too
+        assert fixed.nationality == "England"
+
+    def test_fixture_stats_mode_used_when_players_table_empty(self, app, client, admin_headers):
+        team = _seed_team()
+        tp = _seed_tracked(team, 801, "Mode Guy")
+        tp_id = tp.id
+        # Player row exists but has NULL position — falls through to stats mode
+        db.session.add(Player(player_id=801, name="Mode Guy"))
+        _seed_fixture_positions(801, ["D", "D", "M"])
+        db.session.commit()
+
+        resp = self._post(client, admin_headers)
+        assert resp.status_code == 200
+        assert resp.get_json()["position_filled"] == 1
+
+        db.session.expire_all()
+        assert db.session.get(TrackedPlayer, tp_id).position == "Defender"
+
+    def test_fixture_stats_code_mapping(self, app, client, admin_headers):
+        team = _seed_team()
+        expected = {810: ("G", "Goalkeeper"), 811: ("D", "Defender"), 812: ("M", "Midfielder"), 813: ("F", "Attacker")}
+        ids = {}
+        for api_id, (code, _label) in expected.items():
+            ids[api_id] = _seed_tracked(team, api_id, f"Code {code}").id
+            _seed_fixture_positions(api_id, [code])
+        db.session.commit()
+
+        resp = self._post(client, admin_headers)
+        assert resp.status_code == 200
+        assert resp.get_json()["position_filled"] == 4
+
+        db.session.expire_all()
+        for api_id, (_code, label) in expected.items():
+            assert db.session.get(TrackedPlayer, ids[api_id]).position == label
+
+    def test_age_derived_from_backfilled_birth_date(self, app, client, admin_headers):
+        team = _seed_team()
+        tp = _seed_tracked(team, 802, "Birthday Boy")
+        tp_id = tp.id
+        db.session.add(
+            PlayerJourney(player_api_id=802, player_name="Birthday Boy", birth_date="2004-03-15", nationality="Spain")
+        )
+        db.session.commit()
+
+        resp = self._post(client, admin_headers)
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["birth_date_filled"] == 1
+        assert data["age_filled"] == 1
+        assert data["nationality_filled"] == 1
+
+        db.session.expire_all()
+        fixed = db.session.get(TrackedPlayer, tp_id)
+        assert fixed.birth_date == "2004-03-15"
+        assert fixed.age == _expected_age("2004-03-15")
+        # nationality falls back to PlayerJourney when no Player row
+        assert fixed.nationality == "Spain"
+
+    def test_age_derived_from_existing_birth_date(self, app, client, admin_headers):
+        team = _seed_team()
+        tp = _seed_tracked(team, 804, "Already Dated", birth_date="2006-07-01")
+        tp_id = tp.id
+        db.session.commit()
+
+        resp = self._post(client, admin_headers)
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["age_filled"] == 1
+        assert data["birth_date_filled"] == 0
+
+        db.session.expire_all()
+        fixed = db.session.get(TrackedPlayer, tp_id)
+        assert fixed.birth_date == "2006-07-01"
+        assert fixed.age == _expected_age("2006-07-01")
+
+    def test_non_null_values_never_overwritten(self, app, client, admin_headers):
+        team = _seed_team()
+        tp = _seed_tracked(
+            team,
+            803,
+            "Complete Profile",
+            position="Goalkeeper",
+            nationality="Wales",
+            birth_date="2000-01-01",
+            age=26,
+        )
+        tp_id = tp.id
+        # Conflicting data in every source
+        db.session.add(Player(player_id=803, name="Complete Profile", position="Attacker", nationality="England"))
+        db.session.add(
+            PlayerJourney(
+                player_api_id=803, player_name="Complete Profile", birth_date="1999-09-09", nationality="France"
+            )
+        )
+        _seed_fixture_positions(803, ["F"])
+        db.session.commit()
+
+        resp = self._post(client, admin_headers)
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["position_filled"] == 0
+        assert data["birth_date_filled"] == 0
+        assert data["age_filled"] == 0
+        assert data["nationality_filled"] == 0
+
+        db.session.expire_all()
+        fixed = db.session.get(TrackedPlayer, tp_id)
+        assert fixed.position == "Goalkeeper"
+        assert fixed.nationality == "Wales"
+        assert fixed.birth_date == "2000-01-01"
+        assert fixed.age == 26
+
+    def test_dry_run_reports_but_does_not_mutate(self, app, client, admin_headers):
+        team = _seed_team()
+        tp = _seed_tracked(team, 805, "Dry Run Guy")
+        tp_id = tp.id
+        db.session.add(Player(player_id=805, name="Dry Run Guy", position="Midfielder", nationality="England"))
+        db.session.add(PlayerJourney(player_api_id=805, player_name="Dry Run Guy", birth_date="2005-02-20"))
+        db.session.commit()
+
+        resp = self._post(client, admin_headers, dry_run=True)
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["dry_run"] is True
+        assert data["position_filled"] == 1
+        assert data["birth_date_filled"] == 1
+        assert data["age_filled"] == 1
+        assert data["nationality_filled"] == 1
+
+        db.session.expire_all()
+        untouched = db.session.get(TrackedPlayer, tp_id)
+        assert untouched.position is None
+        assert untouched.birth_date is None
+        assert untouched.age is None
+        assert untouched.nationality is None

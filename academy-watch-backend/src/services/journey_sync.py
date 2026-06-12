@@ -786,10 +786,13 @@ class JourneySyncService:
                     entry.appearances or 0
                 )
 
-        # Build set of clubs the player was permanently transferred TO.
-        # A permanent transfer TO a club means the player is NOT an academy
-        # product of that club — academy products don't need to be transferred in.
-        permanent_transfer_dest_ids = set()
+        # Build clubs the player was permanently transferred TO, with the
+        # earliest transfer year. A permanent transfer TO a club means the
+        # player is NOT an academy product of that club — academy products
+        # don't need to be transferred in. The year matters for buy-backs:
+        # a transfer AFTER a youth entry must not disqualify that entry
+        # (academy product sold and later re-signed keeps academy status).
+        permanent_transfer_dest_years = {}
         if transfers:
             for transfer in transfers:
                 transfer_type = (transfer.get("type") or "").strip().lower()
@@ -802,8 +805,17 @@ class JourneySyncService:
                 teams = transfer.get("teams", {})
                 dest = teams.get("in", {})
                 dest_id = dest.get("id")
-                if dest_id:
-                    permanent_transfer_dest_ids.add(dest_id)
+                if not dest_id:
+                    continue
+                year = None
+                try:
+                    year = int(str(transfer.get("date") or "")[:4])
+                except (ValueError, TypeError):
+                    pass
+                prior = permanent_transfer_dest_years.get(dest_id)
+                if prior is None or (year is not None and year < prior):
+                    permanent_transfer_dest_years[dest_id] = year
+        permanent_transfer_dest_ids = set(permanent_transfer_dest_years)
 
         # Parse birth year for age-at-entry validation
         birth_year = None
@@ -822,7 +834,13 @@ class JourneySyncService:
                 if existing is None or entry.season < existing:
                     earliest_season_at_club[base] = entry.season
 
-        # Pass 1: journey-entry-based classification (original logic)
+        # Pass 1: journey-entry-based classification.
+        # ORDER MATTERS: the integration check must run BEFORE the same-club
+        # development branch. A signed senior plays first team immediately and
+        # turns out for the U21s later (rehab/fitness), so for exactly the
+        # players this pass exists to catch, the development branch would fire
+        # first and shield the entry from every integration check (this is how
+        # Malacia's 46-minute United U21 game made United his academy origin).
         if first_team_debut_by_club:
             for entry in entries:
                 if entry.entry_type != "academy" or entry.is_international:
@@ -831,21 +849,13 @@ class JourneySyncService:
                 parent_name = self._strip_youth_suffix(entry.club_name)
                 same_club_debut = first_team_debut_by_club.get(parent_name)
 
-                # Development: same parent club had first-team in a prior season
-                if same_club_debut is not None and entry.season > same_club_debut:
-                    entry.entry_type = "development"
-                    logger.debug(
-                        f"Reclassified {entry.club_name} season {entry.season} as "
-                        f"development (first-team debut at {parent_name} in {same_club_debut})"
-                    )
-                    continue
-
                 # Integration: first-team at a DIFFERENT club before or during
                 # this youth season (player was bought with senior experience).
                 # Gate: a young player (≤18) with few apps (≤15) at a small club
                 # before joining a big academy is a normal academy transfer, not
                 # an integration (e.g., Hansen-Aarøen: 7 apps at Tromso age 16,
                 # then 4 years in ManU youth).
+                reclassified = False
                 for club_name, debut in first_team_debut_by_club.items():
                     if club_name != parent_name and debut <= entry.season:
                         if birth_year is not None:
@@ -854,20 +864,43 @@ class JourneySyncService:
                             if age_at_other_debut <= 18 and other_apps <= 15:
                                 continue
                         entry.entry_type = "integration"
+                        reclassified = True
                         logger.debug(
                             f"Reclassified {entry.club_name} season {entry.season} as "
                             f"integration (first-team at {club_name} in {debut})"
                         )
                         break
+                if reclassified:
+                    continue
+
+                # Development: same parent club had first-team in a prior season
+                if same_club_debut is not None and entry.season > same_club_debut:
+                    entry.entry_type = "development"
+                    logger.debug(
+                        f"Reclassified {entry.club_name} season {entry.season} as "
+                        f"development (first-team debut at {parent_name} in {same_club_debut})"
+                    )
 
         # Pass 2: transfer-based integration detection
-        # If a player was permanently transferred TO a club, any youth entries
-        # at that club are integration, not academy.
-        if permanent_transfer_dest_ids:
+        # If a player was permanently transferred TO a club, youth entries at
+        # that club FROM THAT POINT ON are integration, not academy. Covers
+        # development-typed entries too (a signing's U21 outing after a
+        # same-club first-team debut). Entries that PRECEDE the transfer stay
+        # untouched — an academy product sold and bought back keeps academy
+        # status for their formative years.
+        if permanent_transfer_dest_years:
             for entry in entries:
-                if entry.entry_type != "academy" or entry.is_international:
+                if entry.entry_type not in ("academy", "development") or entry.is_international:
                     continue
-                if entry.club_api_id in permanent_transfer_dest_ids:
+                if entry.club_api_id not in permanent_transfer_dest_years:
+                    continue
+                transfer_year = permanent_transfer_dest_years[entry.club_api_id]
+                # Teenage gate: a recorded transfer at <= 18 is an academy
+                # move (youth-to-youth), not a senior signing.
+                if transfer_year is not None and birth_year is not None and transfer_year - birth_year <= 18:
+                    continue
+                # +1 covers winter transfers landing mid-season
+                if transfer_year is None or entry.season is None or transfer_year <= entry.season + 1:
                     entry.entry_type = "integration"
                     logger.debug(
                         f"Reclassified {entry.club_name} season {entry.season} as "
@@ -880,7 +913,7 @@ class JourneySyncService:
         # Players who joined younger and continue playing U23 at 21-22 are fine.
         if birth_year:
             for entry in entries:
-                if entry.entry_type != "academy" or entry.is_international:
+                if entry.entry_type not in ("academy", "development") or entry.is_international:
                     continue
                 parent_name = self._strip_youth_suffix(entry.club_name)
                 first_season = earliest_season_at_club.get(parent_name)
