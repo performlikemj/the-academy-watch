@@ -23,6 +23,7 @@ from src.models.league import Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.journey_sync import JourneySyncService
 from src.utils.academy_classifier import classify_tracked_player
+from src.utils.player_names import resolve_player_name
 
 logger = logging.getLogger(__name__)
 
@@ -395,7 +396,9 @@ class GolPlayerLookup:
         ).first()
 
         if existing:
-            existing.player_name = player.get("name") or existing.player_name
+            # Never overwrite a real name with a placeholder from a failed
+            # profile fetch — fall back to local sources first.
+            existing.player_name = resolve_player_name(player_id, player.get("name"), existing.player_name)
             existing.photo_url = player.get("photo") or existing.photo_url
             existing.position = position or existing.position
             existing.nationality = player.get("nationality") or existing.nationality
@@ -414,7 +417,7 @@ class GolPlayerLookup:
 
         tracked = TrackedPlayer(
             player_api_id=player_id,
-            player_name=player.get("name") or f"Player {player_id}",
+            player_name=resolve_player_name(player_id, player.get("name")),
             photo_url=player.get("photo"),
             position=position,
             nationality=player.get("nationality"),

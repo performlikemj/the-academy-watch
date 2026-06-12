@@ -29,6 +29,7 @@ from src.routes.journalist import journalist_bp
 from src.routes.journey import journey_bp
 from src.routes.newsletter_deadline import newsletter_deadline_bp
 from src.routes.players import players_bp
+from src.routes.scout import scout_bp
 from src.routes.teams import teams_bp
 from src.routes.video import video_bp
 
@@ -89,6 +90,7 @@ for name in ("mcp", "agents.mcp", "mcp.shared.session", "mcp.client"):
 
 app.register_blueprint(journey_bp, url_prefix="/api")
 app.register_blueprint(players_bp, url_prefix="/api")
+app.register_blueprint(scout_bp, url_prefix="/api")
 app.register_blueprint(api_bp, url_prefix="/api")
 app.register_blueprint(auth_bp, url_prefix="/api")
 app.register_blueprint(journalist_bp, url_prefix="/api")

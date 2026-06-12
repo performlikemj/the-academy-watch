@@ -623,6 +623,68 @@ def get_public_player_season_stats(player_id: int):
 
 
 # ---------------------------------------------------------------------------
+# Player availability endpoint
+# ---------------------------------------------------------------------------
+
+
+@players_bp.route("/players/<int:player_id>/availability", methods=["GET"])
+def get_player_availability(player_id: int):
+    """Get injury/absence history for a player this season.
+
+    Sourced from API-Football's `injuries` endpoint (DB-cached). Each record
+    is a fixture the player missed or was doubtful for, with the reason.
+
+    Query params:
+    - season: season start year (default: current season)
+    """
+    try:
+        api_client = _get_api_client()
+        season = request.args.get("season", type=int) or api_client.current_season_start_year
+        raw = api_client.get_player_injuries(player_id, season)
+
+        absences = []
+        for record in raw:
+            player_info = record.get("player") or {}
+            fixture_info = record.get("fixture") or {}
+            team_info = record.get("team") or {}
+            league_info = record.get("league") or {}
+            absences.append(
+                {
+                    "date": fixture_info.get("date"),
+                    "fixture_id": fixture_info.get("id"),
+                    "type": player_info.get("type"),
+                    "reason": player_info.get("reason"),
+                    "team_id": team_info.get("id"),
+                    "team_name": team_info.get("name"),
+                    "team_logo": team_info.get("logo"),
+                    "league_name": league_info.get("name"),
+                }
+            )
+        absences.sort(key=lambda a: a.get("date") or "", reverse=True)
+
+        by_reason = {}
+        for absence in absences:
+            reason = absence.get("reason") or "Unknown"
+            by_reason[reason] = by_reason.get(reason, 0) + 1
+
+        return jsonify(
+            {
+                "player_id": player_id,
+                "season": season,
+                "absences": absences,
+                "summary": {
+                    "total_absences": len(absences),
+                    "by_reason": by_reason,
+                    "last_absence": absences[0] if absences else None,
+                },
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error fetching availability for player_id={player_id}: {e}")
+        return jsonify(_safe_error_payload(e, "Failed to fetch availability")), 500
+
+
+# ---------------------------------------------------------------------------
 # Player commentaries endpoint
 # ---------------------------------------------------------------------------
 

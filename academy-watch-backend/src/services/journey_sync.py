@@ -25,6 +25,7 @@ from src.utils.academy_classifier import (
     strip_youth_suffix,
 )
 from src.utils.geocoding import get_team_coordinates
+from src.utils.player_names import is_placeholder_name, resolve_player_name
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +253,10 @@ class JourneySyncService:
 
             # Update player info
             if player_info:
-                journey.player_name = player_info.get("name")
+                incoming_name = (player_info.get("name") or "").strip() or None
+                # Never overwrite a real name with a placeholder
+                if incoming_name and (not journey.player_name or not is_placeholder_name(incoming_name)):
+                    journey.player_name = incoming_name
                 journey.player_photo = player_info.get("photo")
                 birth = player_info.get("birth", {})
                 journey.birth_date = birth.get("date")
@@ -782,10 +786,13 @@ class JourneySyncService:
                     entry.appearances or 0
                 )
 
-        # Build set of clubs the player was permanently transferred TO.
-        # A permanent transfer TO a club means the player is NOT an academy
-        # product of that club — academy products don't need to be transferred in.
-        permanent_transfer_dest_ids = set()
+        # Build clubs the player was permanently transferred TO, with the
+        # earliest transfer year. A permanent transfer TO a club means the
+        # player is NOT an academy product of that club — academy products
+        # don't need to be transferred in. The year matters for buy-backs:
+        # a transfer AFTER a youth entry must not disqualify that entry
+        # (academy product sold and later re-signed keeps academy status).
+        permanent_transfer_dest_years = {}
         if transfers:
             for transfer in transfers:
                 transfer_type = (transfer.get("type") or "").strip().lower()
@@ -798,8 +805,17 @@ class JourneySyncService:
                 teams = transfer.get("teams", {})
                 dest = teams.get("in", {})
                 dest_id = dest.get("id")
-                if dest_id:
-                    permanent_transfer_dest_ids.add(dest_id)
+                if not dest_id:
+                    continue
+                year = None
+                try:
+                    year = int(str(transfer.get("date") or "")[:4])
+                except (ValueError, TypeError):
+                    pass
+                prior = permanent_transfer_dest_years.get(dest_id)
+                if prior is None or (year is not None and year < prior):
+                    permanent_transfer_dest_years[dest_id] = year
+        permanent_transfer_dest_ids = set(permanent_transfer_dest_years)
 
         # Parse birth year for age-at-entry validation
         birth_year = None
@@ -818,7 +834,13 @@ class JourneySyncService:
                 if existing is None or entry.season < existing:
                     earliest_season_at_club[base] = entry.season
 
-        # Pass 1: journey-entry-based classification (original logic)
+        # Pass 1: journey-entry-based classification.
+        # ORDER MATTERS: the integration check must run BEFORE the same-club
+        # development branch. A signed senior plays first team immediately and
+        # turns out for the U21s later (rehab/fitness), so for exactly the
+        # players this pass exists to catch, the development branch would fire
+        # first and shield the entry from every integration check (this is how
+        # Malacia's 46-minute United U21 game made United his academy origin).
         if first_team_debut_by_club:
             for entry in entries:
                 if entry.entry_type != "academy" or entry.is_international:
@@ -827,21 +849,13 @@ class JourneySyncService:
                 parent_name = self._strip_youth_suffix(entry.club_name)
                 same_club_debut = first_team_debut_by_club.get(parent_name)
 
-                # Development: same parent club had first-team in a prior season
-                if same_club_debut is not None and entry.season > same_club_debut:
-                    entry.entry_type = "development"
-                    logger.debug(
-                        f"Reclassified {entry.club_name} season {entry.season} as "
-                        f"development (first-team debut at {parent_name} in {same_club_debut})"
-                    )
-                    continue
-
                 # Integration: first-team at a DIFFERENT club before or during
                 # this youth season (player was bought with senior experience).
                 # Gate: a young player (≤18) with few apps (≤15) at a small club
                 # before joining a big academy is a normal academy transfer, not
                 # an integration (e.g., Hansen-Aarøen: 7 apps at Tromso age 16,
                 # then 4 years in ManU youth).
+                reclassified = False
                 for club_name, debut in first_team_debut_by_club.items():
                     if club_name != parent_name and debut <= entry.season:
                         if birth_year is not None:
@@ -850,20 +864,43 @@ class JourneySyncService:
                             if age_at_other_debut <= 18 and other_apps <= 15:
                                 continue
                         entry.entry_type = "integration"
+                        reclassified = True
                         logger.debug(
                             f"Reclassified {entry.club_name} season {entry.season} as "
                             f"integration (first-team at {club_name} in {debut})"
                         )
                         break
+                if reclassified:
+                    continue
+
+                # Development: same parent club had first-team in a prior season
+                if same_club_debut is not None and entry.season > same_club_debut:
+                    entry.entry_type = "development"
+                    logger.debug(
+                        f"Reclassified {entry.club_name} season {entry.season} as "
+                        f"development (first-team debut at {parent_name} in {same_club_debut})"
+                    )
 
         # Pass 2: transfer-based integration detection
-        # If a player was permanently transferred TO a club, any youth entries
-        # at that club are integration, not academy.
-        if permanent_transfer_dest_ids:
+        # If a player was permanently transferred TO a club, youth entries at
+        # that club FROM THAT POINT ON are integration, not academy. Covers
+        # development-typed entries too (a signing's U21 outing after a
+        # same-club first-team debut). Entries that PRECEDE the transfer stay
+        # untouched — an academy product sold and bought back keeps academy
+        # status for their formative years.
+        if permanent_transfer_dest_years:
             for entry in entries:
-                if entry.entry_type != "academy" or entry.is_international:
+                if entry.entry_type not in ("academy", "development") or entry.is_international:
                     continue
-                if entry.club_api_id in permanent_transfer_dest_ids:
+                if entry.club_api_id not in permanent_transfer_dest_years:
+                    continue
+                transfer_year = permanent_transfer_dest_years[entry.club_api_id]
+                # Teenage gate: a recorded transfer at <= 18 is an academy
+                # move (youth-to-youth), not a senior signing.
+                if transfer_year is not None and birth_year is not None and transfer_year - birth_year <= 18:
+                    continue
+                # +1 covers winter transfers landing mid-season
+                if transfer_year is None or entry.season is None or transfer_year <= entry.season + 1:
                     entry.entry_type = "integration"
                     logger.debug(
                         f"Reclassified {entry.club_name} season {entry.season} as "
@@ -876,7 +913,7 @@ class JourneySyncService:
         # Players who joined younger and continue playing U23 at 21-22 are fine.
         if birth_year:
             for entry in entries:
-                if entry.entry_type != "academy" or entry.is_international:
+                if entry.entry_type not in ("academy", "development") or entry.is_international:
                     continue
                 parent_name = self._strip_youth_suffix(entry.club_name)
                 first_season = earliest_season_at_club.get(parent_name)
@@ -1159,6 +1196,44 @@ class JourneySyncService:
                 and ft_apps_by_base.get(self._strip_youth_suffix(e.club_name), 0) >= ESTABLISHED_FT_THRESHOLD
             )
         ]
+
+        # ── Prior-senior-career filter ──
+        # A 'development' entry at club C is not academy formation when the
+        # player already had a first-team season at a DIFFERENT club before
+        # it. That is a signing turning out for the U21s (e.g. a 46-minute
+        # EFL Trophy rehab game — Malacia at Man United after five Feyenoord
+        # first-team seasons), not a player developed by C's academy.
+        # Loans never disqualify: an academy product loaned out young and
+        # later back in the U21s keeps their parent club. Same-club debuts
+        # never disqualify either (base name matches).
+        first_ft_season_by_base = {}
+        for e in entries:
+            if (
+                e.entry_type == "first_team"
+                and not e.is_international
+                and e.season is not None
+                and not is_national_team(e.club_name)
+            ):
+                base = self._strip_youth_suffix(e.club_name)
+                prior = first_ft_season_by_base.get(base)
+                if prior is None or e.season < prior:
+                    first_ft_season_by_base[base] = e.season
+
+        def _prior_senior_elsewhere(entry):
+            if entry.season is None:
+                return False
+            base = self._strip_youth_suffix(entry.club_name)
+            return any(season < entry.season for other, season in first_ft_season_by_base.items() if other != base)
+
+        youth_entries = [
+            e
+            for e in youth_entries
+            if not (
+                e.entry_type == "development"
+                and self._strip_youth_suffix(e.club_name) not in has_academy_entry
+                and _prior_senior_elsewhere(e)
+            )
+        ]
         if not youth_entries:
             journey.academy_club_ids = []
             self._upsert_tracked_players(journey, set(), transfers=transfers)
@@ -1287,28 +1362,57 @@ class JourneySyncService:
             db.session.rollback()
 
     def _upsert_tracked_players(self, journey: PlayerJourney, academy_ids: set, transfers=None):
-        """Create or update TrackedPlayer rows for discovered academy connections."""
+        """Create or update TrackedPlayer rows for discovered academy connections.
+
+        Clubs may only track players formed in their OWN academy: rows are
+        kept alive solely by membership in academy_ids. The owning (buying)
+        club never gets a row — legacy 'owning-club' rows are deactivated.
+        """
         from src.models.tracked_player import TrackedPlayer
         from src.utils.academy_classifier import _get_latest_season, classify_tracked_player
 
-        # Determine owning club (last permanent transfer destination, if not an academy)
+        # Owning club is still computed for current-club classification
+        # context, but it no longer keeps TrackedPlayer rows alive.
         owning_api_id = self._determine_owning_club_id(journey, transfers, academy_ids)
-        keep_ids = academy_ids | ({owning_api_id} if owning_api_id else set())
+        keep_ids = set(academy_ids)
 
-        # Deactivate journey-sync rows whose connection no longer holds
-        # Skip pinned rows — manual corrections must persist.
-        stale_rows = TrackedPlayer.query.filter_by(
-            player_api_id=journey.player_api_id,
-            data_source="journey-sync",
-            is_active=True,
+        # Deactivate journey-sync and legacy owning-club rows whose academy
+        # connection no longer holds. Skip pinned rows — manual corrections
+        # must persist.
+        stale_rows = TrackedPlayer.query.filter(
+            TrackedPlayer.player_api_id == journey.player_api_id,
+            TrackedPlayer.data_source.in_(["journey-sync", "owning-club"]),
+            TrackedPlayer.is_active.is_(True),
         ).all()
         for tp in stale_rows:
             if tp.pinned_parent:
                 continue
             if tp.team and tp.team.team_id not in keep_ids:
                 tp.is_active = False
+                logger.info(
+                    f"Deactivated {tp.data_source} TrackedPlayer {tp.id} for player "
+                    f"{journey.player_api_id} at {tp.team.name} (not an academy origin)"
+                )
 
-        if not academy_ids and not owning_api_id:
+        # The owning (non-academy) club must not track this player at all:
+        # deactivate any remaining active rows there regardless of source.
+        # Manual and pinned rows are preserved.
+        if owning_api_id and owning_api_id not in academy_ids:
+            owned_rows = TrackedPlayer.query.filter(
+                TrackedPlayer.player_api_id == journey.player_api_id,
+                TrackedPlayer.is_active.is_(True),
+            ).all()
+            for tp in owned_rows:
+                if tp.pinned_parent or tp.data_source == "manual":
+                    continue
+                if tp.team and tp.team.team_id == owning_api_id:
+                    tp.is_active = False
+                    logger.info(
+                        f"Deactivated TrackedPlayer {tp.id} for player {journey.player_api_id} "
+                        f"at owning club {tp.team.name} (owning club is not an academy origin)"
+                    )
+
+        if not academy_ids:
             return
 
         for academy_api_id in academy_ids:
@@ -1334,7 +1438,7 @@ class JourneySyncService:
             if not existing:
                 tp = TrackedPlayer(
                     player_api_id=journey.player_api_id,
-                    player_name=journey.player_name or f"Player {journey.player_api_id}",
+                    player_name=resolve_player_name(journey.player_api_id, journey.player_name),
                     photo_url=journey.player_photo,
                     nationality=journey.nationality,
                     birth_date=journey.birth_date,
@@ -1359,57 +1463,6 @@ class JourneySyncService:
                 existing.status = status
                 existing.current_club_api_id = current_club_api_id
                 existing.current_club_name = current_club_name
-
-        # ── Owning-club row (non-academy parent) ──
-        # If the player permanently transferred to a club not in academy_ids,
-        # create a TrackedPlayer row for the owning club so parent_club is correct.
-        if owning_api_id:
-            team = Team.query.filter_by(team_id=owning_api_id, is_active=True).order_by(Team.season.desc()).first()
-            if team:
-                existing = TrackedPlayer.query.filter_by(
-                    player_api_id=journey.player_api_id,
-                    team_id=team.id,
-                ).first()
-                status, cur_club_id, cur_club_name = classify_tracked_player(
-                    current_club_api_id=journey.current_club_api_id,
-                    current_club_name=journey.current_club_name,
-                    current_level=journey.current_level,
-                    parent_api_id=owning_api_id,
-                    parent_club_name=team.name,
-                    transfers=transfers or [],
-                    latest_season=_get_latest_season(
-                        journey.id,
-                        parent_api_id=owning_api_id,
-                        parent_club_name=team.name,
-                    ),
-                )
-                if not existing:
-                    tp = TrackedPlayer(
-                        player_api_id=journey.player_api_id,
-                        player_name=journey.player_name or f"Player {journey.player_api_id}",
-                        photo_url=journey.player_photo,
-                        nationality=journey.nationality,
-                        birth_date=journey.birth_date,
-                        team_id=team.id,
-                        journey_id=journey.id,
-                        data_source="owning-club",
-                        data_depth="full_stats",
-                        status=status,
-                        current_club_api_id=cur_club_id,
-                        current_club_name=cur_club_name,
-                    )
-                    db.session.add(tp)
-                    logger.info(
-                        f"Created owning-club TrackedPlayer for {journey.player_api_id} "
-                        f"at {team.name} (non-academy parent)"
-                    )
-                elif not existing.pinned_parent:
-                    existing.journey_id = journey.id
-                    existing.data_source = "owning-club"
-                    existing.status = status
-                    existing.current_club_api_id = cur_club_id
-                    existing.current_club_name = cur_club_name
-                    existing.is_active = True
 
     def _determine_owning_club_id(self, journey, transfers, academy_ids):
         """Find the club that currently owns the player (last permanent transfer dest).

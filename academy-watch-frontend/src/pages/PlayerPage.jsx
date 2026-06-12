@@ -25,10 +25,11 @@ import {
     ResponsiveContainer,
     ReferenceLine,
 } from 'recharts'
-import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, PenTool, ChevronRight, ChevronDown, Users, ExternalLink, MapPin, Flag } from 'lucide-react'
+import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, PenTool, ChevronRight, ChevronDown, Users, ExternalLink, MapPin, Flag, Star } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import FlagDataDialog from '@/components/FlagDataDialog'
 import { APIService } from '@/lib/api'
+import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { format } from 'date-fns'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { SponsorStrip } from '@/components/SponsorSidebar'
@@ -39,6 +40,7 @@ import { MiniProgressBar } from '@/components/MiniProgressBar'
 import { SeasonStatsPanel } from '@/components/SeasonStatsPanel'
 import { CommentSection } from '@/components/CommentSection'
 import { PlayerLinksSection } from '@/components/PlayerLinksSection'
+import { PlayerAvailability } from '@/components/PlayerAvailability'
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, CHART_TOOLTIP_BG, CHART_TOOLTIP_BORDER } from '../lib/theme-constants'
 
 /** Dims children when viewing a past career stop so SeasonStatsPanel takes focus. */
@@ -277,7 +279,52 @@ export function PlayerPage() {
 
     // Flag dialog state
     const [flagOpen, setFlagOpen] = useState(false)
-    
+
+    // Watchlist state
+    const auth = useAuth()
+    const { openLoginModal } = useAuthUI()
+    const [watchedIds, setWatchedIds] = useState(null)
+    const playerApiId = parseInt(playerId, 10)
+    const isWatched = !!watchedIds?.has(playerApiId)
+
+    useEffect(() => {
+        if (!auth?.token) {
+            setWatchedIds(null)
+            return
+        }
+        let cancelled = false
+        APIService.getScoutWatchlistIds()
+            .then((data) => { if (!cancelled) setWatchedIds(new Set(data?.player_ids || [])) })
+            .catch((err) => { console.error('Failed to load watchlist ids', err) })
+        return () => { cancelled = true }
+    }, [auth?.token])
+
+    const handleToggleWatch = () => {
+        if (!auth?.token) {
+            openLoginModal()
+            return
+        }
+        if (!Number.isInteger(playerApiId)) return
+        const wasWatched = isWatched
+        setWatchedIds((current) => {
+            const next = new Set(current || [])
+            if (wasWatched) next.delete(playerApiId)
+            else next.add(playerApiId)
+            return next
+        })
+        const action = wasWatched
+            ? APIService.removeFromScoutWatchlist(playerApiId)
+            : APIService.addToScoutWatchlist(playerApiId)
+        action.catch((err) => {
+            console.error('Watchlist update failed', err)
+            setWatchedIds((current) => {
+                const next = new Set(current || [])
+                if (wasWatched) next.add(playerApiId)
+                else next.delete(playerApiId)
+                return next
+            })
+        })
+    }
 
     // Smart back navigation - goes to previous page, or home if no history
     const handleBack = () => {
@@ -532,8 +579,19 @@ export function PlayerPage() {
                                 onClick={() => setFlagOpen(true)}
                                 className="text-muted-foreground hover:text-amber-500"
                                 title="Report incorrect data"
+                                aria-label="Report incorrect data"
                             >
                                 <Flag className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleToggleWatch}
+                                className={isWatched ? 'text-amber-500 hover:text-amber-600' : 'text-muted-foreground hover:text-amber-500'}
+                                title={isWatched ? 'Remove from watchlist' : 'Watch this player'}
+                                aria-label={isWatched ? 'Remove from watchlist' : 'Watch this player'}
+                            >
+                                <Star className={`h-4 w-4 ${isWatched ? 'fill-amber-400 text-amber-500' : ''}`} />
                             </Button>
                         </div>
                         <div className="flex items-center gap-3 sm:gap-4 min-w-0">
@@ -1172,6 +1230,9 @@ export function PlayerPage() {
                                 </CardContent>
                             </Card>
                         )}
+
+                        {/* Season availability (injuries / suspensions) */}
+                        <PlayerAvailability playerId={parseInt(playerId)} />
 
                         {/* Inline Sponsor Strip */}
                         <SponsorStrip />

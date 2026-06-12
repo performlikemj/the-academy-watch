@@ -53,7 +53,7 @@ export function HomePage() {
               <span className="text-primary">Prospect's Journey</span>
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
-              Weekly AI-generated newsletters, career journey maps, and stats for academy players on loan from Europe's top clubs.
+              Weekly AI-generated newsletters, career journey maps, and stats for the world's brightest academy and loan prospects — wherever they play.
             </p>
 
             <div className="flex flex-col items-center gap-4 max-w-xl mx-auto mb-6">
@@ -72,6 +72,12 @@ export function HomePage() {
               </button>
 
               <div className="flex flex-wrap justify-center gap-3">
+                <Link to="/scout">
+                  <Button size="lg">
+                    <Search className="h-5 w-5 mr-2" />
+                    Scout Players
+                  </Button>
+                </Link>
                 <Link to="/dream-team">
                   <Button size="lg" variant="outline">
                     <Trophy className="h-5 w-5 mr-2" />
@@ -112,7 +118,7 @@ export function HomePage() {
               <div className="bg-card rounded-xl border border-border p-5 text-center">
                 <p className="text-3xl font-bold text-foreground">{stats.teams_with_loans}</p>
                 <p className="text-sm text-muted-foreground mt-1">Academies Tracked</p>
-                <p className="text-xs text-muted-foreground/60">Across Europe's top leagues</p>
+                <p className="text-xs text-muted-foreground/60">Across the world's top leagues</p>
               </div>
               <div className="bg-card rounded-xl border border-border p-5 text-center">
                 <p className="text-3xl font-bold text-foreground">{stats.total_active_loans}</p>
@@ -146,7 +152,7 @@ export function HomePage() {
                 <div className="text-xs font-medium text-primary uppercase tracking-wide mb-2">Step 1</div>
                 <h3 className="text-lg font-semibold text-foreground mb-2">Pick Your Club</h3>
                 <p className="text-sm text-muted-foreground">
-                  Search for any academy from our tracked leagues — Premier League, La Liga, Bundesliga, Serie A, and more.
+                  Search for any academy from our tracked leagues — from the Premier League and La Liga to the Brasileirão, MLS, and beyond.
                 </p>
               </div>
               <div className="bg-card rounded-xl border border-border p-6 text-center">

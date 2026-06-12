@@ -658,14 +658,16 @@ class PersistNewsletterArgs(BaseModel):
 
 
 SYSTEM_INSTRUCTIONS = """
-You are a football newsletter editor creating comprehensive weekly loan reports. Tools available: Python tools. The search context is precomputed using the Brave Search API.
+You are a football newsletter editor creating comprehensive weekly reports covering BOTH players out on loan and academy prospects. Tools available: Python tools. The search context is precomputed using the Brave Search API.
 
 Workflow:
 1) Call fetch_weekly_report(team, date). You get comprehensive data per player:
    - Week totals: minutes, goals, assists, cards, rating, shots, passes, tackles, duels, dribbles
    - Per-match breakdown with 'match_notes' containing ALL stats for each specific game
    - Each match_notes entry shows: "vs [Opponent]: [detailed stats]"
-   
+   - report.academy_watch: season-level snapshots for the club's academy players (see below)
+   - report.academy_appearances_week: any youth-team appearances inside this week's window
+
    CRITICAL: match_notes tie EVERY stat to a specific opponent. Always reference the exact opponent when mentioning any performance detail.
 
 2) The search context provides rich external data:
@@ -675,15 +677,27 @@ Workflow:
    - Deduplicated and ranked results
 
 DATA STRUCTURE EXPLANATION:
-Each player has:
+Each loanee has:
 - matches[]: array of games with 'match_notes', 'opponent', 'competition', 'date', 'role', 'player' (all stats for that game)
 - totals: aggregated weekly stats across all matches
 - season_context: cumulative season stats and trends for narrative depth
   - season_stats: total games, goals, assists, minutes, ratings, etc. for the entire season
   - recent_form: last 5 games with goals/assists/ratings
   - trends: goals_per_90, assists_per_90, shot_accuracy, goals_last_5, duels_win_rate, etc.
-- The 'player' field in each match contains: minutes, goals, assists, rating, shots_total, shots_on, passes_key, 
+- The 'player' field in each match contains: minutes, goals, assists, rating, shots_total, shots_on, passes_key,
   dribbles_success, dribbles_attempts, tackles_total, tackles_interceptions, duels_won, duels_total, saves, etc.
+
+ACADEMY WATCH DATA (report.academy_watch):
+- Each entry is one academy player with SEASON TOTALS ONLY: player_api_id, player_name, level (U18/U21/U23),
+  competition, season, appearances, minutes, goals, assists, rating, yellow_cards, red_cards.
+- report.academy_appearances_week lists youth fixtures the player actually appeared in this week
+  (player_name, home_team, away_team, competition, started, goals, assists). It is often empty.
+- When report.academy_watch is NON-EMPTY, add an "Academy Watch" section to sections[] (after the loan
+  sections). One item per academy player: player_id (use player_api_id), player_name, current_level
+  (copy the 'level' field through unchanged), and a week_summary of EXACTLY ONE sentence grounded ONLY
+  in the provided season totals and appearances. Do NOT invent match events, opponents, or scorelines
+  for academy players; if academy_appearances_week has a row for them you may reference that fixture.
+- When report.academy_watch is empty, omit the Academy Watch section entirely.
 
 ROLE FIELD (CRITICAL - determines how player entered each match):
 - role='startXI' → Player STARTED the match (was in the starting eleven)
@@ -692,57 +706,44 @@ ROLE FIELD (CRITICAL - determines how player entered each match):
 - Use this to accurately describe: "Started vs Arsenal", "Came off the bench vs City", "Was not in the squad"
 - If role='startXI' but minutes are low (e.g., 15-20), player was likely subbed off early (injury/tactical change)
 
-WRITING COMPREHENSIVE SUMMARIES (CRITICAL):
-Your week_summary for each player MUST be in-depth and use ALL available data:
+WRITING RULES (CRITICAL - apply to every summary, numbered for reference):
+1. NEVER reuse a sentence between the overall summary and any week_summary. The summary synthesizes the
+   week's narrative — the biggest performance, a setback, an academy note — it does NOT list every player.
+2. Lead each week_summary with the most newsworthy fact (a goal contribution, a big rating, a milestone),
+   not the template 'X played Y minutes'. Vary sentence openers across players — never start two
+   consecutive player summaries with the player's name.
+3. Give zero-minute players EXACTLY ONE factual sentence (no season recap, no trends) — the email renders
+   them as a compact list.
+4. Use trends or per-90 numbers only when the player has at least 270 season minutes, and use at most one
+   such number per player.
+5. Stay strictly factual: write only stats present in the report; never invent injuries, quotes, or
+   transfer talk.
+6. Write in a British football register, but plain — no cliches ('clinical', 'talisman'), no exclamation
+   marks.
 
-⚠️ CRITICAL: ONLY write about stats that ACTUALLY EXIST in the stats object for THIS player_id!
+GROUNDING (CRITICAL): ONLY write about stats that ACTUALLY EXIST in the stats object for THIS player_id!
    - If stats.assists = 0, DO NOT mention any assists
    - If stats.goals = 0, DO NOT mention any goals
    - ALWAYS check the stats object before writing any performance claims
    - NEVER assume a player contributed something based on match context
-
-1. START with match-by-match narrative using match_notes:
-   - Match notes are PRE-VERIFIED and tie stats to specific opponents
-   - "Started and scored vs Arsenal (Rating: 8.2, 3/5 shots on target, 4 key passes)"
-   - "Came off the bench vs City to provide the assist in added time"
    - If match_notes say "Assisted vs Real Madrid" but stats.assists = 0, DO NOT MENTION THE ASSIST
-   
-2. INCLUDE specific performance metrics (ONLY IF THEY EXIST IN STATS):
-   - Goals/assists with opponent names from match_notes
-   - Ratings when notable (7.5+)
-   - Shot accuracy for attackers (e.g., "3/7 shots on target")
-   - Key passes and creativity metrics (e.g., "created 6 chances")
-   - Dribbles for wingers (e.g., "completed 8/12 dribbles")
-   - Defensive work (e.g., "won 12/15 duels, 5 tackles, 3 interceptions")
-   - Goalkeeper stats (e.g., "made 8 saves in the 2-1 win")
 
-3. ADD SEASON CONTEXT for depth (CRITICAL - use season_context data):
-   - Season totals: "brings his tally to 8 goals in 15 appearances"
-   - Recent form: "his fourth goal in the last 5 games" or "ended a 6-game goalless drought"
-   - Trends: "now averaging 0.7 goals per 90 minutes this season"
-   - Comparisons: "his best performance of the season" or "matching his season average rating of 7.2"
-   - Milestones: "reached 10 assists for the season" or "first goal since September"
-   - Clean sheets: "his 6th clean sheet in 12 games"
-   - Consistency: "scored in 3 consecutive matches" or "yet to score this season"
-   
-4. TELL A STORY across the week:
-   - Contrast between performances (e.g., "quiet against Brighton but dominated vs Leeds")
-   - Emerging patterns (e.g., "continues his scoring run", "fourth clean sheet in five games")
-   - Position-specific insights (e.g., "patrolled the midfield", "terrorized the left flank")
-   - Season progression (e.g., "finding his rhythm after a slow start", "maintaining excellent form")
+BUILDING A WEEK_SUMMARY (for loanees with minutes):
+- Anchor every detail to a specific opponent via match_notes ("scored the opener against Hull",
+  "made eight saves in the defeat at Leeds").
+- Pick the two or three most telling metrics for the player's role (shot accuracy for forwards, key
+  passes and dribbles for creators, duels/tackles/interceptions for defenders, saves and goals conceded
+  for keepers) — do not recite every stat.
+- Season context (season_stats, recent_form) earns ONE sentence at most, and only when it adds something
+  ("a third goal in five games", "a first start since October"); respect rule 4 for any per-90 figure.
+- Contrast performances across the week where the data shows it ("quiet against Brighton, dominant
+  against Leeds").
 
-5. USE COMPARATIVE LANGUAGE:
-   - "man of the match performance"
-   - "dominated physically"
-   - "orchestrated attacks"
-   - "solid defensively"
-   - "clinical finishing"
+EXAMPLE GOOD SUMMARY:
+"A goal and four key passes against Arsenal (rating 8.5) made this his most productive week of the season; he followed it with the assist for the winner at Brighton. Across both starts he completed 7 of 10 dribbles and won 15 of 19 duels. That is a third goal involvement in five matches."
 
-EXAMPLE GOOD SUMMARY (with season context):
-"Started both matches. Scored the opener vs Arsenal (Rating: 8.5, 2/4 shots on target, 5 key passes) in Saturday's 3-1 win, then assisted vs Brighton (Rating: 7.3, 3 key passes, 7/10 dribbles completed). Created 8 chances across the week, completed 74% of dribbles, and won 15/19 duels. This brings his season tally to 7 goals and 9 assists in 14 appearances, now averaging 0.6 goals per 90 minutes. His fourth goal contribution in the last 5 games, establishing himself as a key creative outlet."
-
-EXAMPLE BAD SUMMARY (too simple, no context):
-"Played two games this week. Scored one goal and had one assist."
+EXAMPLE BAD SUMMARY (template prose, weak opener, repeats season recap):
+"X played 90 minutes against Arsenal. Season to date, he has 7 goals in 14 appearances. Trends: 0.6 goals per 90."
 
 Identity & naming (CRITICAL - MUST FOLLOW):
 - **ALWAYS include player_id** from the source data on each item - this is MANDATORY
@@ -788,11 +789,11 @@ score = goals*5 + assists*3 + (minutes/90)*1 - yellow*1 - red*3
 Use top 3 for "highlights". Always include a "Loanee of the Week" in the summary.
 
 Overall newsletter summary:
-Write 3-4 sentences highlighting:
-- Top performer(s) with specific stats
-- Notable team performances (e.g., "Three loanees found the net")
-- Standout individual performance details
-- Any concerning trends (injuries, red cards, losing runs)
+Write 3-4 sentences that synthesize the week (per writing rule 1 — never copy a week_summary sentence):
+- The single biggest performance, with one or two specific stats
+- A setback or concern if the data shows one (red card, heavy defeat, run without minutes)
+- An academy note when academy_watch is non-empty (one clause is enough)
+- Do NOT mention every player; the sections carry the detail
 
 Output JSON ONLY:
 {
@@ -809,6 +810,12 @@ Output JSON ONLY:
     "match_notes": [...],
     "has_limited_stats": false,  // true if any match lacked detailed stats
     "limited_competitions": []  // e.g., ["FA Cup"] - competitions with basic stats only
+  }]},
+  {"title":"Academy Watch","items":[{  // ONLY when report.academy_watch is non-empty
+    "player_id": 23456,  // REQUIRED - use academy_watch.player_api_id
+    "player_name": "Y. Prospect",
+    "current_level": "U21",  // copy academy_watch.level through unchanged
+    "week_summary": "EXACTLY ONE sentence grounded only in the provided season totals/appearances"
   }]}],
   "by_numbers": {"minutes_leaders":[...], "ga_leaders":[...]},
   "fan_pulse": [{"player":"...","forum":"...","quote":"...","url":"..."}]
@@ -823,6 +830,13 @@ async def fetch_weekly_report(ctx, args) -> dict[str, Any]:
     """
     SDK hands tool args either as a dict or a JSON‐encoded string.
     Normalize, extract expected fields, and run the weekly summary.
+
+    The returned report contains 'loanees' (per-player weekly match data) plus
+    'academy_watch' (season-level snapshots for the club's academy players:
+    player_api_id, player_name, level, competition, season totals) and
+    'academy_appearances_week' (youth fixtures inside the week window). When
+    'academy_watch' is non-empty the newsletter must include an
+    "Academy Watch" section.
     """
     # Accept raw JSON string as well
     if isinstance(args, str):
@@ -1185,7 +1199,13 @@ def _append_internet_section(news: dict, search_context: dict, max_items_per_pla
 # Wrap python tools for Agents SDK
 fetch_weekly_report_tool = FunctionTool(
     name="fetch_weekly_report",
-    description="Get the weekly loans performance summary for a parent club for the week containing target_date.",
+    description=(
+        "Get the weekly performance summary for a parent club for the week containing target_date. "
+        "Returns 'loanees' (per-player match data) plus 'academy_watch' (season snapshots for academy "
+        "players: name, level, competition, appearances/minutes/goals/assists/rating) and "
+        "'academy_appearances_week' (youth fixtures this week). A non-empty academy_watch must be "
+        "rendered as an 'Academy Watch' section in the newsletter."
+    ),
     params_json_schema=FetchWeeklyReportArgs.model_json_schema(),
     on_invoke_tool=fetch_weekly_report,
 )
@@ -1402,6 +1422,7 @@ async def generate_weekly_newsletter(team_db_id: int, target_date: date, force_r
     _set_latest_player_lookup(player_lookup)
 
     # High-level instruction payload (add What the Internet is Saying section seed)
+    has_academy_watch = bool(report.get("academy_watch")) if isinstance(report, dict) else False
     user_msg = {
         "task": "compose_and_persist_weekly_newsletter",
         "team_db_id": team_db_id,
@@ -1409,7 +1430,19 @@ async def generate_weekly_newsletter(team_db_id: int, target_date: date, force_r
         "report": report,
         "search_context": search_context,
         "search_context_by_id": search_context_by_id if DEBUG_MCP else None,
-        "guidance": {"search_context_precomputed": True, "max_links_per_player": 3},
+        "guidance": {
+            "search_context_precomputed": True,
+            "max_links_per_player": 3,
+            "academy_watch_present": has_academy_watch,
+            "academy_watch": (
+                "report.academy_watch is non-empty: include an 'Academy Watch' section after the loan "
+                "sections. One item per academy player with player_id (player_api_id), player_name, "
+                "current_level (copy 'level'), and a one-sentence week_summary grounded only in the "
+                "provided season totals and academy_appearances_week. Do not invent match events."
+                if has_academy_watch
+                else "report.academy_watch is empty: omit the Academy Watch section."
+            ),
+        },
     }
 
     # Run with brief retries to handle API hiccups
@@ -1817,8 +1850,13 @@ def _fix_minutes_language(item: dict) -> None:
 
     Note: If the summary already contains "not in the matchday squad" or
     similar language, we preserve it - don't blindly replace with "unused substitute".
+
+    Items without a stats dict (e.g., Academy Watch entries built from season
+    totals) are left untouched — their prose is not about weekly minutes.
     """
-    s = item.get("stats", {}) or {}
+    s = item.get("stats")
+    if not isinstance(s, dict):
+        return
     mins = int(s.get("minutes", 0) or 0)
     wsum = item.get("week_summary", "") or ""
     notes = item.get("match_notes", []) or []
@@ -2198,9 +2236,9 @@ def lint_and_enrich(news: dict) -> dict:
         except Exception:
             pass
 
-    # recompute highlights from actual stats
+    # recompute highlights from actual stats (skip stat-less items, e.g. Academy Watch)
     items = [it for sec in news.get("sections", []) or [] for it in sec.get("items", []) or []]
-    top = sorted(items, key=_score_player, reverse=True)[:3]
+    top = sorted([it for it in items if isinstance(it.get("stats"), dict)], key=_score_player, reverse=True)[:3]
     news["highlights"] = [
         f"{_display_name(it.get('player_name', ''))}: {int(it.get('stats', {}).get('goals', 0))}G {int(it.get('stats', {}).get('assists', 0))}A, {int(it.get('stats', {}).get('minutes', 0))}'"
         for it in top
@@ -2213,17 +2251,20 @@ def lint_and_enrich(news: dict) -> dict:
     # so we don't surface spurious zeros.
     def _stat(it, key, cast=int):
         try:
-            return cast(it.get("stats", {}).get(key) or 0)
+            return cast((it.get("stats") or {}).get(key) or 0)
         except (TypeError, ValueError):
             return cast(0)
 
-    mins_leaders = sorted(items, key=lambda x: _stat(x, "minutes"), reverse=True)[:3]
-    ga_leaders = sorted(items, key=lambda x: _stat(x, "goals") + _stat(x, "assists"), reverse=True)[:3]
-    rating_pool = [i for i in items if (i.get("stats", {}).get("rating") or 0)]
+    # Leaderboards only consider items that carry a stats dict; Academy Watch
+    # items (season-summary prose, no weekly stats) pass through untouched.
+    stat_items = [i for i in items if isinstance(i.get("stats"), dict)]
+    mins_leaders = sorted(stat_items, key=lambda x: _stat(x, "minutes"), reverse=True)[:3]
+    ga_leaders = sorted(stat_items, key=lambda x: _stat(x, "goals") + _stat(x, "assists"), reverse=True)[:3]
+    rating_pool = [i for i in stat_items if (i.get("stats", {}).get("rating") or 0)]
     rating_leaders = sorted(rating_pool, key=lambda x: _stat(x, "rating", float), reverse=True)[:3]
-    key_passes_pool = [i for i in items if (i.get("stats", {}).get("passes_key") or 0)]
+    key_passes_pool = [i for i in stat_items if (i.get("stats", {}).get("passes_key") or 0)]
     key_passes_leaders = sorted(key_passes_pool, key=lambda x: _stat(x, "passes_key"), reverse=True)[:3]
-    clean_sheets_pool = [i for i in items if (i.get("stats", {}).get("clean_sheets") or 0)]
+    clean_sheets_pool = [i for i in stat_items if (i.get("stats", {}).get("clean_sheets") or 0)]
     clean_sheets_leaders = sorted(clean_sheets_pool, key=lambda x: _stat(x, "clean_sheets"), reverse=True)[:3]
 
     news["by_numbers"] = {
@@ -2330,6 +2371,8 @@ def _build_template_context(news: dict, team_name: str | None, **kwargs) -> dict
         "fan_pulse": news.get("fan_pulse") or [],
         "sofascore_image_template": os.getenv("SOFASCORE_IMAGE_TEMPLATE") or "",
         "manage_url": _default_manage_url(),
+        # CAN-SPAM: physical postal address rendered in the email footer.
+        "postal_address": os.getenv("EMAIL_POSTAL_ADDRESS", "").strip(),
         "meta": {},
         # Passthrough for preview/web renders — no base64 embedding needed
         "embed_image": lambda path: path,
@@ -2430,7 +2473,11 @@ def _plain_text_from_news_only(news: dict) -> str:
             pname = it.get("player_name") or ""
             loan_team = it.get("loan_team") or it.get("loan_team_name") or ""
             wsum = it.get("week_summary") or ""
-            lines.append(f"• {pname} ({loan_team}) – {wsum}")
+            if loan_team:
+                lines.append(f"• {pname} ({loan_team}) – {wsum}")
+            else:
+                # Academy Watch items have no loan club — label by level instead
+                lines.append(f"• {pname} ({it.get('current_level') or 'Academy'}) – {wsum}")
     return "\n".join(lines).strip() + "\n"
 
 

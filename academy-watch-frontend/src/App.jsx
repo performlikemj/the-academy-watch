@@ -102,6 +102,9 @@ import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { HomePage } from '@/pages/HomePage'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
 import { CohortBrowser } from '@/pages/CohortBrowser'
+import { ScoutPage } from '@/pages/ScoutPage'
+import { WatchlistPage } from '@/pages/WatchlistPage'
+import { PricingPage } from '@/pages/PricingPage'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
 import { GolPanel } from '@/components/gol/GolPanel'
@@ -7160,10 +7163,12 @@ function Navigation() {
   const navItems = useMemo(() => {
     const items = [
       { path: '/', label: 'Home', icon: Home },
+      { path: '/scout', label: 'Scout', icon: Globe },
       { path: '/teams', label: 'Teams', icon: Users },
       { path: '/dream-team', label: 'Dream XI', icon: Trophy },
       { path: '/newsletters', label: 'Newsletters', icon: FileText },
       { path: '/journalists', label: 'Journalists', icon: UserPlus },
+      { path: '/pricing', label: 'Pricing', icon: CreditCard },
     ]
     if (isJournalist) {
       items.push({ path: '/writer/dashboard', label: 'Writer Dashboard', icon: FileText })
@@ -7727,17 +7732,19 @@ function SubscribePage() {
 // Teams page component
 const COMPETITION_TABS = [
   { key: 'all', label: 'All', color: '#6b7280' },
-  { key: 'Premier League', label: 'Premier League', color: LEAGUE_COLORS['Premier League'] },
-  { key: 'La Liga', label: 'La Liga', color: LEAGUE_COLORS['La Liga'] },
-  { key: 'Serie A', label: 'Serie A', color: LEAGUE_COLORS['Serie A'] },
-  { key: 'Bundesliga', label: 'Bundesliga', color: LEAGUE_COLORS['Bundesliga'] },
-  { key: 'Ligue 1', label: 'Ligue 1', color: LEAGUE_COLORS['Ligue 1'] },
+  { key: 'Premier League', apiId: 39, label: 'Premier League', color: LEAGUE_COLORS['Premier League'] },
+  { key: 'La Liga', apiId: 140, label: 'La Liga', color: LEAGUE_COLORS['La Liga'] },
+  { key: 'Serie A', apiId: 135, label: 'Serie A', color: LEAGUE_COLORS['Serie A'] },
+  { key: 'Bundesliga', apiId: 78, label: 'Bundesliga', color: LEAGUE_COLORS['Bundesliga'] },
+  { key: 'Ligue 1', apiId: 61, label: 'Ligue 1', color: LEAGUE_COLORS['Ligue 1'] },
   { key: 'champions-league', label: 'Champions League', color: LEAGUE_COLORS['Champions League'] },
 ]
 
 const CL_CURRENT_SEASON = new Date().getFullYear() - (new Date().getMonth() < 7 ? 1 : 0)
 const CL_SEASONS = Array.from({ length: 4 }, (_, i) => CL_CURRENT_SEASON - i)
 const formatClSeason = (s) => `${s}/${(s + 1).toString().slice(-2)}`
+
+const REGION_ORDER = ['Europe', 'South America', 'North America', 'Asia', 'Other']
 
 function TeamsPage() {
   const [teams, setTeams] = useState([])
@@ -7746,6 +7753,7 @@ function TeamsPage() {
   const [message, setMessage] = useState(null)
   const [teamSearch, setTeamSearch] = useState('')
   const [activeTab, setActiveTab] = useState('all')
+  const [leagueRegions, setLeagueRegions] = useState({})
 
   // Champions League state
   const [clTeams, setClTeams] = useState([])
@@ -7780,6 +7788,20 @@ function TeamsPage() {
 
     loadTeams()
   }, [filter])
+
+  // League API id → region map for grouping the All tab by region.
+  // Keyed by id, not name — league names collide globally (two "Serie A"s).
+  useEffect(() => {
+    APIService.getLeagues()
+      .then((data) => {
+        const map = {}
+        for (const league of Array.isArray(data) ? data : []) {
+          if (league?.league_id) map[league.league_id] = league.region || 'Europe'
+        }
+        setLeagueRegions(map)
+      })
+      .catch((err) => console.error('Failed to load leagues for regions', err))
+  }, [])
 
   // Load CL teams when CL tab is active
   useEffect(() => {
@@ -7822,10 +7844,16 @@ function TeamsPage() {
   // Filter teams by search query
   const searchQuery = teamSearch.trim().toLowerCase()
 
-  // For domestic tabs, filter base set by active tab
+  // For domestic tabs, filter base set by active tab.
+  // Match on league API id when available — league names collide globally
+  // (Italy's Serie A vs Brazil's Serie A).
   const domesticBaseTeams = useMemo(() => {
     if (isCL) return []
     if (activeTab === 'all') return teams
+    const tab = COMPETITION_TABS.find(t => t.key === activeTab)
+    if (tab?.apiId) {
+      return teams.filter(t => (t.league_api_id ? t.league_api_id === tab.apiId : t.league_name === activeTab))
+    }
     return teams.filter(t => t.league_name === activeTab)
   }, [teams, activeTab, isCL])
 
@@ -7843,13 +7871,35 @@ function TeamsPage() {
 
   const isSearching = searchQuery.length > 0
 
-  // Group teams by league (used when not searching, domestic tabs only)
-  const teamsByLeague = useMemo(() => domesticBaseTeams.reduce((acc, team) => {
-    const league = team.league_name || 'Other'
-    if (!acc[league]) acc[league] = []
-    acc[league].push(team)
-    return acc
-  }, {}), [domesticBaseTeams])
+  // Group teams by region → league (used when not searching, domestic tabs only).
+  // Leagues are keyed by API id so same-named leagues (Italy/Brazil "Serie A")
+  // never merge; each group carries its display name + country.
+  const teamsByRegion = useMemo(() => {
+    const byLeague = {}
+    for (const team of domesticBaseTeams) {
+      const key = team.league_api_id || team.league_name || 'Other'
+      if (!byLeague[key]) {
+        byLeague[key] = {
+          name: team.league_name || 'Other',
+          country: team.league_country || null,
+          teams: [],
+        }
+      }
+      byLeague[key].teams.push(team)
+    }
+    const regions = {}
+    for (const [key, group] of Object.entries(byLeague)) {
+      const region = leagueRegions[Number(key)] || 'Europe'
+      if (!regions[region]) regions[region] = {}
+      regions[region][key] = group
+    }
+    return Object.fromEntries(
+      Object.entries(regions).sort(([a], [b]) => {
+        const ai = REGION_ORDER.indexOf(a); const bi = REGION_ORDER.indexOf(b)
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+      })
+    )
+  }, [domesticBaseTeams, leagueRegions])
 
   // Compact team card renderer
   const renderTeamCard = (team) => (
@@ -7908,7 +7958,7 @@ function TeamsPage() {
           {/* Sticky header */}
           <div className="sticky top-0 z-10 bg-card/90 backdrop-blur py-3 px-1 -mx-1 mb-6 border-b border-border">
             <div className="flex items-center gap-3 mb-3">
-              <h1 className="text-2xl font-semibold text-foreground">European Teams</h1>
+              <h1 className="text-2xl font-semibold text-foreground">Teams</h1>
               <div className="ml-auto flex items-center gap-2">
                 <Button variant="outline" size="sm" className="text-xs" onClick={() => setSubscribeOpen(true)}>
                   <Mail className="h-3.5 w-3.5 mr-1" />
@@ -8020,16 +8070,28 @@ function TeamsPage() {
               </div>
             </div>
           ) : (
-            <div className="space-y-8">
-              {Object.entries(teamsByLeague).map(([league, leagueTeams]) => (
-                <div key={league}>
-                  <div className="flex items-center gap-3 mb-3 pl-1">
-                    <div className="w-1 h-5 rounded-full" style={{ backgroundColor: LEAGUE_COLORS[league] || '#9ca3af' }} />
-                    <h2 className="text-sm font-semibold text-foreground">{league}</h2>
-                    <span className="text-xs text-muted-foreground/70">{leagueTeams.length}</span>
+            <div className="space-y-10">
+              {Object.entries(teamsByRegion).map(([region, regionLeagues]) => (
+                <div key={region}>
+                  <div className="flex items-center gap-2 mb-4 pl-1">
+                    <Globe className="h-3.5 w-3.5 text-primary" />
+                    <h2 className="text-xs font-semibold uppercase tracking-[0.15em] text-primary">{region}</h2>
+                    <div className="flex-1 h-px bg-border" />
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                    {leagueTeams.map((team) => renderTeamCard(team))}
+                  <div className="space-y-8">
+                    {Object.entries(regionLeagues).map(([leagueKey, group]) => (
+                      <div key={leagueKey}>
+                        <div className="flex items-center gap-3 mb-3 pl-1">
+                          <div className="w-1 h-5 rounded-full" style={{ backgroundColor: LEAGUE_COLORS[group.name] || '#9ca3af' }} />
+                          <h2 className="text-sm font-semibold text-foreground">{group.name}</h2>
+                          {group.country && <span className="text-xs text-muted-foreground/70">{group.country}</span>}
+                          <span className="text-xs text-muted-foreground/70 tabular-nums">{group.teams.length}</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                          {group.teams.map((team) => renderTeamCard(team))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
@@ -10495,6 +10557,9 @@ function AppRoutes() {
       <Route path="/claim-account" element={<ClaimAccount />} />
       <Route path="/submit-take" element={<SubmitTake />} />
       <Route path="/flag" element={<FlagData />} />
+      <Route path="/scout" element={<ScoutPage />} />
+      <Route path="/scout/watchlist" element={<WatchlistPage />} />
+      <Route path="/pricing" element={<PricingPage />} />
       <Route path="/academy" element={<CohortBrowser />} />
       <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
       <Route path="/academy/analytics" element={<CohortAnalytics />} />

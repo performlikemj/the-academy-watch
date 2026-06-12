@@ -362,7 +362,9 @@ def _run_full_rebuild(job_id, config):
                     squad_entry = squad_by_id.get(pid) or {}
                     pi = squad_entry.get("player") or {}
 
-                    player_name = (journey.player_name if journey else None) or pi.get("name") or f"Player {pid}"
+                    from src.utils.player_names import resolve_player_name
+
+                    player_name = resolve_player_name(pid, journey.player_name if journey else None, pi.get("name"))
                     photo_url = (journey.player_photo if journey else None) or pi.get("photo")
                     nationality = (journey.nationality if journey else None) or pi.get("nationality")
                     birth_date = (journey.birth_date if journey else None) or (pi.get("birth") or {}).get("date")

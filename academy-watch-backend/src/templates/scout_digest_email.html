@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scout Digest</title>
+  <style>
+    /* Monochrome email layout tuned for broad client support */
+    body {
+      margin: 0;
+      padding: 0;
+      background: #040404;
+      color: #ffffff;
+    }
+
+    .wrapper {
+      width: 100%;
+      table-layout: fixed;
+      background: #040404;
+      padding: 24px 0;
+    }
+
+    .main {
+      width: 100%;
+      max-width: 680px;
+      margin: 0 auto;
+      background: #111111;
+      border: 1px solid #303030;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .content {
+      padding: 28px 26px 32px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: #f0f0f0;
+      line-height: 1.55;
+    }
+
+    .brand {
+      font-size: 13px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #bebebe;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      font-size: 26px;
+      margin: 0 0 12px;
+      color: #ffffff;
+    }
+
+    .meta {
+      font-size: 13px;
+      color: #c9c9c9;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      margin-bottom: 18px;
+    }
+
+    .divider {
+      width: 48px;
+      height: 2px;
+      background: #ffffff;
+      margin: 10px 0 22px;
+    }
+
+    .headlines {
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 24px;
+    }
+
+    .headlines-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #888888;
+      margin-bottom: 8px;
+    }
+
+    .headlines-list {
+      margin: 0;
+      padding-left: 16px;
+      color: #e0e0e0;
+      font-size: 14px;
+    }
+
+    .headlines-list li {
+      margin-bottom: 4px;
+    }
+
+    .player-card {
+      background: #0a0a0a;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      margin-bottom: 18px;
+      padding: 16px 18px;
+    }
+
+    .player-name {
+      font-size: 17px;
+      font-weight: 600;
+      margin: 0 0 4px;
+    }
+
+    .player-name a {
+      color: #ffffff;
+      text-decoration: none;
+    }
+
+    .player-clubs {
+      font-size: 13px;
+      color: #999999;
+      margin-bottom: 4px;
+    }
+
+    .player-status {
+      display: inline-block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #c9c9c9;
+      border: 1px solid #3a3a3a;
+      border-radius: 999px;
+      padding: 2px 10px;
+      margin-bottom: 10px;
+    }
+
+    .player-headline {
+      font-size: 14px;
+      color: #ffffff;
+      font-weight: 600;
+      margin: 0 0 8px;
+    }
+
+    .season-line {
+      font-size: 13px;
+      color: #b0b0b0;
+      margin: 0 0 10px;
+    }
+
+    .chip {
+      display: inline-block;
+      background: #1d1d1d;
+      border: 1px solid #383838;
+      border-radius: 999px;
+      color: #f0f0f0;
+      font-size: 12px;
+      padding: 3px 10px;
+      margin: 0 6px 6px 0;
+    }
+
+    .player-note {
+      font-size: 13px;
+      color: #8b949e;
+      font-style: italic;
+      margin: 8px 0 0;
+    }
+
+    .footer {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid #2a2a2a;
+      font-size: 13px;
+      color: #888888;
+      text-align: center;
+    }
+
+    .footer a {
+      color: #ffffff;
+    }
+  </style>
+</head>
+
+<body>
+  <table role="presentation" class="wrapper" cellspacing="0" cellpadding="0" border="0">
+    <tr>
+      <td align="center">
+        <table role="presentation" class="main" cellspacing="0" cellpadding="0" border="0">
+          <tr>
+            <td class="content">
+              <div class="brand">THE ACADEMY WATCH</div>
+              <h1>Scout Digest</h1>
+              <div class="meta">
+                {{ player_count }} player{{ 's' if player_count != 1 else '' }} on your watchlist
+              </div>
+              <div class="divider"></div>
+
+              {% if headlines %}
+              <div class="headlines">
+                <div class="headlines-label">Headlines</div>
+                <ul class="headlines-list">
+                  {% for headline in headlines %}
+                  <li>{{ headline }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              {% endif %}
+
+              {% for player in players %}
+              <div class="player-card">
+                <p class="player-name">
+                  <a href="{{ player.player_url }}" target="_blank" rel="noopener">{{ player.player_name }}</a>
+                </p>
+                <div class="player-clubs">
+                  {% if player.parent_club %}{{ player.parent_club }}{% endif %}
+                  {% if player.parent_club and player.current_club %} → {% endif %}
+                  {% if player.current_club %}{{ player.current_club }}{% endif %}
+                </div>
+                {% if player.status %}
+                <span class="player-status">{{ player.status | replace('_', ' ') }}</span>
+                {% endif %}
+                {% if player.headline %}
+                <p class="player-headline">{{ player.headline }}</p>
+                {% endif %}
+                <p class="season-line">{{ player.season_line }}</p>
+                {% if player.chips %}
+                <div>
+                  {% for chip in player.chips %}
+                  <span class="chip">{{ chip }}</span>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                {% if player.note %}
+                <p class="player-note">{{ player.note }}</p>
+                {% endif %}
+              </div>
+              {% endfor %}
+
+              <div class="footer">
+                <p>
+                  <a href="{{ watchlist_url }}" target="_blank" rel="noopener">Manage this digest from your
+                    watchlist</a>
+                </p>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+
+</html>
