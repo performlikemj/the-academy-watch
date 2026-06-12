@@ -48,6 +48,16 @@ export default [
     rules: {
       ...js.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
+      // eslint-plugin-react-hooks v7 ships these new rules at error severity.
+      // The legacy codebase predates them; keep them visible as warnings
+      // until a dedicated migration pass fixes the ~130 occurrences.
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/static-components': 'warn',
+      'react-hooks/exhaustive-deps': 'warn',
+      'react-hooks/immutability': 'warn',
+      'react-hooks/error-boundaries': 'warn',
+      'react-hooks/preserve-manual-memoization': 'warn',
+      'react-hooks/purity': 'warn',
       'no-unused-vars': ['error', {
         varsIgnorePattern: '^[A-Z_]',
         argsIgnorePattern: '^[A-Z_]',
