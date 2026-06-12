@@ -506,3 +506,84 @@ class TestEntryTypingFinalForm:
         transfers = [{"type": "Free", "date": "2020-08-01", "teams": {"in": {"id": 7198}, "out": {"id": 9999}}}]
         svc._apply_development_classification(entries, transfers=transfers, birth_date="2004-07-01")
         assert entries[0].entry_type == "academy"
+
+
+class TestRecomputeCursorPaging:
+    """Batched/cursor behavior for production scale + concurrent writers."""
+
+    def _seed_two_journeys(self):
+        league = _seed_league()
+        team_a = _seed_team(league, 100, "Feyenoord")
+        team_b = _seed_team(league, 200, "Manchester United")
+        j1 = _malacia_journey(290)
+        j1.academy_club_ids = [200]
+        j2 = _malacia_journey(291)
+        j2.academy_club_ids = [200]
+        _tracked(290, team_b, data_source="api-football", journey_id=j1.id)
+        _tracked(291, team_b, data_source="api-football", journey_id=j2.id)
+        db.session.commit()
+        return j1, j2, team_a, team_b
+
+    def test_cursor_pages_through_population(self, app, client, admin_headers):
+        j1, j2, _, _ = self._seed_two_journeys()
+        r1 = client.post(
+            "/api/admin/journeys/recompute-academy",
+            json={"dry_run": False, "limit": 1},
+            headers=admin_headers,
+        ).get_json()
+        assert r1["journeys_processed"] == 1
+        assert r1["next_cursor"] == j1.id
+        r2 = client.post(
+            "/api/admin/journeys/recompute-academy",
+            json={"dry_run": False, "limit": 1, "cursor": r1["next_cursor"]},
+            headers=admin_headers,
+        ).get_json()
+        assert r2["journeys_processed"] == 1
+        r3 = client.post(
+            "/api/admin/journeys/recompute-academy",
+            json={"dry_run": False, "limit": 1, "cursor": r2["next_cursor"] or j2.id},
+            headers=admin_headers,
+        ).get_json()
+        assert r3["journeys_processed"] == 0
+        assert r3["next_cursor"] is None
+
+    def test_per_journey_error_does_not_poison_the_run(self, app, client, admin_headers, monkeypatch):
+        j1, j2, _, team_b = self._seed_two_journeys()
+        from src.services.journey_sync import JourneySyncService
+
+        original = JourneySyncService._compute_academy_club_ids
+
+        def flaky(self, journey, entries=None, transfers=None):
+            if journey.id == j1.id:
+                raise RuntimeError("simulated concurrent-writer conflict")
+            return original(self, journey, entries=entries, transfers=transfers)
+
+        monkeypatch.setattr(JourneySyncService, "_compute_academy_club_ids", flaky)
+        r = client.post(
+            "/api/admin/journeys/recompute-academy",
+            json={"dry_run": False, "limit": 10},
+            headers=admin_headers,
+        ).get_json()
+        assert r["errors"] == 1
+        assert r["journeys_processed"] == 1  # j2 still processed
+        assert r["next_cursor"] is None
+
+    def test_invalid_cursor_rejected(self, app, client, admin_headers):
+        resp = client.post(
+            "/api/admin/journeys/recompute-academy",
+            json={"cursor": -3},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 400
+
+    def test_dry_run_advances_cursor_without_mutation(self, app, client, admin_headers):
+        j1, j2, _, team_b = self._seed_two_journeys()
+        r = client.post(
+            "/api/admin/journeys/recompute-academy",
+            json={"dry_run": True, "limit": 1},
+            headers=admin_headers,
+        ).get_json()
+        assert r["dry_run"] is True
+        assert r["next_cursor"] == j1.id
+        refreshed = db.session.get(PlayerJourney, j1.id)
+        assert sorted(refreshed.academy_club_ids or []) == [200]  # unchanged
