@@ -91,7 +91,13 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - New public Scout API: `/api/scout/players` (browse/filter/sort),
     `/api/scout/leaderboards`, `/api/scout/compare` — SQL-aggregated stats
   - New `/scout` frontend page ("The Scout Desk"): leaderboards, filterable
-    ranked table, up-to-4-player comparison; Home copy globalized + Scout CTA
+    ranked table with last-5 form bars, up-to-4-player comparison
+  - Injury/availability tracking (API-Football injuries endpoint, previously
+    unused): `/api/players/<id>/availability` + PlayerPage card + compare
+  - Region-aware Teams page (league_api_id-keyed grouping); Home copy global
+  - Live-validated: 16 leagues + 335 teams synced; PR #419 green, awaiting MJ
+  - Side-fix: PR #420 (merged) repaired Dependabot-corrupted pnpm-lock.yaml
+    that was failing ALL frontend CI; react-hooks v7 rules pinned to warn
   - Branch `feature/global-scout-discovery`
   - **See `ledgers/CONTINUITY_global-talent-platform.md`**
 
