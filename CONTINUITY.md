@@ -95,6 +95,10 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Injury/availability tracking (API-Football injuries endpoint, previously
     unused): `/api/players/<id>/availability` + PlayerPage card + compare
   - Region-aware Teams page (league_api_id-keyed grouping); Home copy global
+  - Scout workspace (slice 3, migration aw15): per-user watchlists with notes,
+    weekly digest email (admin-triggered, cursor-paged, dry-run previews),
+    CSV export, /pricing page with scout_tier entitlement scaffold (billing
+    wiring deferred to MJ's pricing decisions)
   - Live-validated: 16 leagues + 335 teams synced; PR #419 green, awaiting MJ
   - Side-fix: PR #420 (merged) repaired Dependabot-corrupted pnpm-lock.yaml
     that was failing ALL frontend CI; react-hooks v7 rules pinned to warn
