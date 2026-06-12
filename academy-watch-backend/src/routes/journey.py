@@ -114,7 +114,15 @@ def admin_recompute_academy():
     """Recompute academy_club_ids for journeys with entries, then deactivate
     TrackedPlayer rows that contradict academy provenance.
 
-    Body: {"dry_run": bool (default true), "limit": int|null}
+    Body: {"dry_run": bool (default true), "limit": int (journeys per call,
+    default 100, max 200), "cursor": int (last processed journey id,
+    default 0)}
+
+    Designed for production scale and concurrent writers: each journey is
+    its own small transaction (commit/rollback per journey), the compute
+    runs under no_autoflush so mid-query flushes can't hit the Postgres
+    statement_timeout, and `next_cursor` in the response pages through the
+    full population across repeated calls (null when done).
 
     A row contradicts provenance when:
     - its data_source is 'owning-club' (deprecated mechanism), OR
@@ -126,16 +134,25 @@ def admin_recompute_academy():
 
     data = request.get_json(silent=True) or {}
     dry_run = bool(data.get("dry_run", True))
-    limit = data.get("limit")
+    limit = data.get("limit", 100)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        limit = 100
+    limit = min(limit, 200)
+    cursor = data.get("cursor", 0)
+    if not isinstance(cursor, int) or isinstance(cursor, bool) or cursor < 0:
+        return jsonify({"error": "cursor must be a non-negative integer"}), 400
 
     service = JourneySyncService()
 
-    journeys_query = PlayerJourney.query.filter(
-        PlayerJourney.id.in_(db.session.query(PlayerJourneyEntry.journey_id))
-    ).order_by(PlayerJourney.id)
-    if limit:
-        journeys_query = journeys_query.limit(int(limit))
-    journeys = journeys_query.all()
+    journeys = (
+        PlayerJourney.query.filter(
+            PlayerJourney.id > cursor,
+            PlayerJourney.id.in_(db.session.query(PlayerJourneyEntry.journey_id)),
+        )
+        .order_by(PlayerJourney.id)
+        .limit(limit)
+        .all()
+    )
 
     journeys_processed = 0
     journeys_changed = 0
@@ -155,37 +172,74 @@ def admin_recompute_academy():
                 }
             )
 
+    errors = 0
+    last_processed = cursor
     for journey in journeys:
-        old_ids = sorted(journey.academy_club_ids or [])
-        before_active = TrackedPlayer.query.filter_by(
-            player_api_id=journey.player_api_id,
-            is_active=True,
-        ).all()
+        journey_id = journey.id
         try:
+            old_ids = sorted(journey.academy_club_ids or [])
+            before_active = TrackedPlayer.query.filter_by(
+                player_api_id=journey.player_api_id,
+                is_active=True,
+            ).all()
             # Re-run entry typing first (Pass 1/3 work from stored entries —
             # no API calls; Pass 2 needs transfers and is skipped here), so
             # stored entry_type values become honest (e.g. a signing's U21
             # rehab game flips development -> integration), THEN recompute
-            # academy_club_ids and run the tracked-player upsert. Nothing in
-            # this path commits, so dry-run can roll back at the end.
-            entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
-            service._apply_development_classification(entries, transfers=None, birth_date=journey.birth_date)
-            service._compute_academy_club_ids(journey, entries=entries)
+            # academy_club_ids and run the tracked-player upsert.
+            # no_autoflush: the compute mutates journey/tracked rows while
+            # issuing lookups; without it, autoflush emits UPDATEs mid-query
+            # that can stall on row locks held by concurrent writers and get
+            # cancelled by the server statement_timeout.
+            with db.session.no_autoflush:
+                entries = PlayerJourneyEntry.query.filter_by(journey_id=journey_id).all()
+                service._apply_development_classification(entries, transfers=None, birth_date=journey.birth_date)
+                service._compute_academy_club_ids(journey, entries=entries)
+            journeys_processed += 1
+            new_ids = sorted(journey.academy_club_ids or [])
+            recomputed[journey_id] = set(new_ids)
+            if old_ids != new_ids:
+                journeys_changed += 1
+            for tp in before_active:
+                if tp.is_active is False and tp.id not in deactivated_ids:
+                    _record_deactivation(tp, "deactivated by journey upsert (parent is not an academy origin)")
+            # One small transaction per journey: keeps locks short-lived next
+            # to concurrent writers and makes the run resumable via cursor.
+            if dry_run:
+                db.session.rollback()
+            else:
+                db.session.commit()
         except Exception as exc:
-            logger.warning("recompute-academy failed for journey %s: %s", journey.id, exc)
-            continue
-        journeys_processed += 1
-        new_ids = sorted(journey.academy_club_ids or [])
-        recomputed[journey.id] = set(new_ids)
-        if old_ids != new_ids:
-            journeys_changed += 1
-        for tp in before_active:
-            if tp.is_active is False and tp.id not in deactivated_ids:
-                _record_deactivation(tp, "deactivated by journey upsert (parent is not an academy origin)")
+            errors += 1
+            logger.warning("recompute-academy failed for journey %s: %s", journey_id, exc)
+            db.session.rollback()
+        last_processed = journey_id
 
-    # ── Contradiction sweep across TrackedPlayer ──
-    active_rows = TrackedPlayer.query.filter(TrackedPlayer.is_active.is_(True)).all()
-    for tp in active_rows:
+    # ── Contradiction sweep ──
+    # Journey-evidence checks are scoped to THIS call's recomputed journeys;
+    # the deprecated owning-club scan only runs on the first page (cursor 0)
+    # so a full paged run does it exactly once. Sweep is its own small
+    # transaction.
+    sweep_rows = []
+    if recomputed:
+        sweep_rows.extend(
+            TrackedPlayer.query.filter(
+                TrackedPlayer.is_active.is_(True),
+                TrackedPlayer.journey_id.in_(list(recomputed.keys())),
+            ).all()
+        )
+    if cursor == 0:
+        sweep_rows.extend(
+            TrackedPlayer.query.filter(
+                TrackedPlayer.is_active.is_(True),
+                TrackedPlayer.data_source == "owning-club",
+            ).all()
+        )
+    seen_sweep = set()
+    for tp in sweep_rows:
+        if tp.id in seen_sweep:
+            continue
+        seen_sweep.add(tp.id)
         if tp.pinned_parent or tp.data_source == "manual":
             continue
         reason = None
@@ -199,19 +253,20 @@ def admin_recompute_academy():
             tp.is_active = False
             if tp.id not in deactivated_ids:
                 _record_deactivation(tp, reason)
+    if dry_run:
+        db.session.rollback()
+    else:
+        db.session.commit()
 
     response = {
         "journeys_processed": journeys_processed,
         "journeys_changed": journeys_changed,
         "rows_deactivated": len(deactivated_ids),
+        "errors": errors,
         "examples": examples,
         "dry_run": dry_run,
+        "next_cursor": last_processed if len(journeys) == limit else None,
     }
-
-    if dry_run:
-        db.session.rollback()
-    else:
-        db.session.commit()
 
     return jsonify(response)
 
