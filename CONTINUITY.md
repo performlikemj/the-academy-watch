@@ -104,6 +104,11 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
     rewritten — 132KB→77KB (Gmail clip-safe), Outlook-safe HTML/CSS data-viz,
     Squad Watch with real injury reasons, Academy Watch from season stats;
     operator must set EMAIL_POSTAL_ADDRESS (CAN-SPAM)
+  - Academy provenance enforcement (slice 5): prior-senior-career rule —
+    clubs only track their OWN academy products (Malacia fixed); owning-club
+    rows removed; repair endpoints (recompute-academy, backfill-names) ran
+    locally: 221 misattributed rows deactivated, 1,128 placeholder names
+    fixed; PROD: run both repair endpoints (dry_run first) after merge
   - Live-validated: 16 leagues + 335 teams synced; PR #419 green, awaiting MJ
   - Side-fix: PR #420 (merged) repaired Dependabot-corrupted pnpm-lock.yaml
     that was failing ALL frontend CI; react-hooks v7 rules pinned to warn
