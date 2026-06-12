@@ -21,7 +21,7 @@ export async function apiRequest(path, { method = 'GET', headers = {}, body } = 
   })
 
   const text = await res.text()
-  let payload = null
+  let payload
   try {
     payload = text ? JSON.parse(text) : null
   } catch {
