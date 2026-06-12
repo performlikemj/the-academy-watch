@@ -14,6 +14,8 @@ from src.auth import require_api_key
 from src.models.journey import YOUTH_LEVELS, ClubLocation, PlayerJourney, PlayerJourneyEntry
 from src.models.league import Team, TeamProfile, db
 from src.models.tracked_player import TrackedPlayer
+from src.utils.academy_window import age_from_birth_date as _age_from_birth_date
+from src.utils.academy_window import is_within_academy_window
 from src.utils.geocoding import get_team_coordinates
 from src.utils.player_names import is_placeholder_name, resolve_player_profile
 
@@ -112,7 +114,9 @@ def get_loan_journey(loaned_player_id):
 @require_api_key
 def admin_recompute_academy():
     """Recompute academy_club_ids for journeys with entries, then deactivate
-    TrackedPlayer rows that contradict academy provenance.
+    TrackedPlayer rows that contradict academy provenance or fall outside
+    the academy tracking window (in the academy now or within the past
+    ACADEMY_WINDOW_YEARS seasons).
 
     Body: {"dry_run": bool (default true), "limit": int (journeys per call,
     default 100, max 200), "cursor": int (last processed journey id,
@@ -124,10 +128,12 @@ def admin_recompute_academy():
     statement_timeout, and `next_cursor` in the response pages through the
     full population across repeated calls (null when done).
 
-    A row contradicts provenance when:
+    A row is deactivated when:
     - its data_source is 'owning-club' (deprecated mechanism), OR
     - it is linked to a journey with entries whose recomputed
-      academy_club_ids do not include the row's parent club.
+      academy_club_ids do not include the row's parent club, OR
+    - its last youth season at the parent club is outside the tracking
+      window (and the player is not currently in the academy).
     Pinned and manual rows are never touched.
     """
     from src.services.journey_sync import JourneySyncService
@@ -159,6 +165,7 @@ def admin_recompute_academy():
     deactivated_ids = set()
     examples = []
     recomputed = {}
+    recomputed_seasons = {}
 
     def _record_deactivation(tp, reason):
         deactivated_ids.add(tp.id)
@@ -198,11 +205,16 @@ def admin_recompute_academy():
             journeys_processed += 1
             new_ids = sorted(journey.academy_club_ids or [])
             recomputed[journey_id] = set(new_ids)
+            # Captured in memory BEFORE the per-journey rollback/commit so
+            # the window sweep below works in dry-run too.
+            recomputed_seasons[journey_id] = dict(journey.academy_last_seasons or {})
             if old_ids != new_ids:
                 journeys_changed += 1
             for tp in before_active:
                 if tp.is_active is False and tp.id not in deactivated_ids:
-                    _record_deactivation(tp, "deactivated by journey upsert (parent is not an academy origin)")
+                    _record_deactivation(
+                        tp, "deactivated by journey upsert (academy origin or tracking window no longer holds)"
+                    )
             # One small transaction per journey: keeps locks short-lived next
             # to concurrent writers and makes the run resumable via cursor.
             if dry_run:
@@ -247,8 +259,15 @@ def admin_recompute_academy():
             reason = "owning-club rows are deprecated"
         elif tp.journey_id in recomputed:
             parent_api_id = tp.team.team_id if tp.team else None
-            if parent_api_id is not None and parent_api_id not in recomputed[tp.journey_id]:
-                reason = "parent club not in recomputed academy_club_ids"
+            if parent_api_id is not None:
+                if parent_api_id not in recomputed[tp.journey_id]:
+                    reason = "parent club not in recomputed academy_club_ids"
+                else:
+                    last_season = recomputed_seasons.get(tp.journey_id, {}).get(str(parent_api_id))
+                    if not is_within_academy_window(last_season, status=tp.status, birth_date=tp.birth_date):
+                        reason = f"outside the academy tracking window (last academy season {last_season})"
+                    elif last_season is not None and tp.last_academy_season != last_season:
+                        tp.last_academy_season = last_season
         if reason:
             tp.is_active = False
             if tp.id not in deactivated_ids:
@@ -275,27 +294,6 @@ def admin_recompute_academy():
 _PROFILE_POSITION_MAP = {"G": "Goalkeeper", "D": "Defender", "M": "Midfielder", "F": "Attacker"}
 
 
-def _age_from_birth_date(birth_date):
-    """Floor years between a 'YYYY-MM-DD...' birth date string and today.
-
-    Returns None when the value is missing, unparseable, or yields a
-    nonsensical age.
-    """
-    from datetime import date
-
-    if not birth_date:
-        return None
-    try:
-        born = date.fromisoformat(str(birth_date).strip()[:10])
-    except ValueError:
-        return None
-    today = date.today()
-    age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
-    if age < 0 or age > 100:
-        return None
-    return age
-
-
 @journey_bp.route("/admin/players/backfill-names", methods=["POST"])
 @require_api_key
 def admin_backfill_player_names():
@@ -311,7 +309,8 @@ def admin_backfill_player_names():
     Also completes missing profile data on TrackedPlayer rows (active or
     not) — position, birth_date, age, nationality — from the players table,
     FixturePlayerStats, and PlayerJourney. NULL fields only; non-NULL values
-    are never overwritten.
+    are never overwritten — except age, which is a snapshot that drifts
+    every season and is therefore re-derived from birth_date for all rows.
     """
     from sqlalchemy import func, or_
     from src.models.league import Player
@@ -456,6 +455,16 @@ def admin_backfill_player_names():
                     tp.nationality = str(new_nationality).strip()
                     nationality_filled += 1
 
+    # ── Refresh stale stored ages from birth_date ──
+    # age is a point-in-time snapshot; without this, every row's age drifts
+    # a year per season and age-band filters (U18/U21/U23) rot.
+    ages_refreshed = 0
+    for tp in TrackedPlayer.query.filter(TrackedPlayer.birth_date.isnot(None)).all():
+        derived = _age_from_birth_date(tp.birth_date)
+        if derived is not None and tp.age != derived:
+            tp.age = derived
+            ages_refreshed += 1
+
     # Optional API fetch for rows no local source can complete. Strictly
     # opt-in and capped — profile calls spend API-Football quota (DB-cached
     # 24h), so the operator controls the spend per invocation.
@@ -487,8 +496,10 @@ def admin_backfill_player_names():
                 tp.position = str(info["position"]).strip()
                 position_filled += 1
             birth = (info.get("birth") or {}).get("date")
-            if tp.birth_date is None and birth:
-                tp.birth_date = str(birth)
+            # Only store parseable ISO dates — the scout SQL age expression
+            # CASTs birth_date, so a malformed string must never be written.
+            if tp.birth_date is None and birth and _age_from_birth_date(str(birth)) is not None:
+                tp.birth_date = str(birth).strip()[:10]
                 birth_date_filled += 1
                 derived = _age_from_birth_date(tp.birth_date)
                 if tp.age is None and derived is not None:
@@ -506,6 +517,7 @@ def admin_backfill_player_names():
         "position_filled": position_filled,
         "birth_date_filled": birth_date_filled,
         "age_filled": age_filled,
+        "ages_refreshed": ages_refreshed,
         "nationality_filled": nationality_filled,
         "api_fetched": api_fetched,
         "unresolved": unresolved,

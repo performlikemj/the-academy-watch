@@ -70,7 +70,7 @@ FLASK_APP=src/main.py flask db upgrade
 ### Alembic Migrations
 - All migrations use idempotent helpers from `migrations/_migration_helpers.py` (column_exists, table_exists, etc.)
 - Production DB has had columns/tables added out-of-band — always guard DDL operations
-- Current migration head chain: aw11 → aw12 → aw13
+- Current migration head: aw18 (chain … aw16/vid01 → aw17 merge → aw18)
 
 ## Architecture
 
@@ -149,6 +149,7 @@ Player tracking in `models/tracked_player.py`:
 - `current_club_api_id` / `current_club_db_id` - where the player currently plays (loan destination or buying club)
 - `team_id` - parent academy club (origin)
 - `data_source='owning-club'` rows are **deprecated and auto-deactivated** — clubs only track players whose journey shows academy formation at that club (prior-senior-career rule in `JourneySyncService._compute_academy_club_ids`). The journey upsert never creates owning-club rows and deactivates any active row at the owning (buying) club unless it is pinned or manual
+- **Academy tracking window** (`utils/academy_window.py`): the platform only tracks players in an academy NOW or within the past `ACADEMY_WINDOW_YEARS` (default 4) seasons. `last_academy_season` on TrackedPlayer (and `academy_last_seasons` per-club map on PlayerJourney) record the evidence; the journey upsert, recompute-academy repair, rebuild stage 4, seed-team, and GOL lookup all enforce `is_within_academy_window()`. Older alumni rows are deactivated (pinned/manual survive)
 - `player_name` must always be a real name — placeholder `Player NNNN` names are resolved via `resolve_player_name()` in `utils/player_names.py` (CohortMember → AcademyPlayerSeasonStats → Player → PlayerJourney); a placeholder must never overwrite a real name
 
 Journey models in `models/journey.py`:

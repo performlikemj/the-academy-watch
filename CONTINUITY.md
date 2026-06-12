@@ -114,6 +114,12 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
     guards); recompute re-types stored entries; profile completeness
     backfill (position/birth/age/nationality) + opt-in capped API fetch
     mode. Malacia entry now honestly 'integration', 0 active rows.
+  - Academy tracking window (slice 7, 2026-06-13, migration aw18): platform
+    now only tracks players in an academy NOW or within the past 4 seasons
+    (utils/academy_window.py), enforced at journey upsert, recompute repair,
+    rebuild/seed/GOL creation; scout API drops owning-club rows and derives
+    age from birth_date in SQL (fixes U18/U21/U23 = 0 players in prod);
+    recompute-academy now cursor-paged (fixes prod statement_timeout 500s)
   - Live-validated: 16 leagues + 335 teams synced; PR #419 green, awaiting MJ
   - Side-fix: PR #420 (merged) repaired Dependabot-corrupted pnpm-lock.yaml
     that was failing ALL frontend CI; react-hooks v7 rules pinned to warn

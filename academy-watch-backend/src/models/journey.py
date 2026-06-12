@@ -52,6 +52,8 @@ class PlayerJourney(db.Model):
 
     # Academy connections (derived from is_youth entries)
     academy_club_ids = db.Column(JSONB, default=list)  # [33, 62] = parent API IDs
+    # Last youth season per academy club: {"33": 2023} (JSON keys are strings)
+    academy_last_seasons = db.Column(JSONB, default=dict)
 
     # Sync tracking
     seasons_synced = db.Column(db.JSON)  # [2019, 2020, 2021, ...]
@@ -111,6 +113,7 @@ class PlayerJourney(db.Model):
                 "assists": self.total_assists,
             },
             "academy_club_ids": self.academy_club_ids or [],
+            "academy_last_seasons": self.academy_last_seasons or {},
             "seasons_synced": self.seasons_synced,
             "last_synced_at": self.last_synced_at.isoformat() if self.last_synced_at else None,
             "sync_error": self.sync_error,

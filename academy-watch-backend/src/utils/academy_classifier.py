@@ -16,6 +16,8 @@ import time
 from datetime import datetime
 from typing import Any
 
+from src.utils.academy_window import DEVELOPMENT_AGE_CUTOFF as _DEVELOPMENT_AGE_CUTOFF
+
 # ── regex to strip youth suffixes from club names ──────────────────────
 YOUTH_SUFFIXES = re.compile(
     r"\s+(U18|U19|U21|U23|Under[\s-]?\d+|II|B|Youth|Academy|Reserve|Development)s?$",
@@ -833,7 +835,8 @@ def _base_status(current_level: str | None) -> str:
     return "academy"
 
 
-_DEVELOPMENT_AGE_CUTOFF = 21  # U21 — aligns with UEFA development squad rules
+# _DEVELOPMENT_AGE_CUTOFF (U21 — UEFA development squad rules) is imported
+# at the top of this module from academy_window, the single source of truth.
 
 
 def is_academy_product(

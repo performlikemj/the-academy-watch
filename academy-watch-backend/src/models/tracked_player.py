@@ -32,6 +32,10 @@ class TrackedPlayer(db.Model):
     current_level = db.Column(db.String(20))
     #   'U18' | 'U21' | 'U23' | 'Reserve' | 'Senior'
 
+    # Most recent youth season (season-start year) at the parent club —
+    # evidence for the current+4-season academy tracking window.
+    last_academy_season = db.Column(db.Integer)
+
     # Current club (loan club if on_loan, buying club if sold, new club if released)
     current_club_api_id = db.Column(db.Integer)
     current_club_name = db.Column(db.String(200))
@@ -63,6 +67,14 @@ class TrackedPlayer(db.Model):
     team = db.relationship("Team", backref="tracked_players", lazy=True, foreign_keys=[team_id])
     current_club = db.relationship("Team", foreign_keys=[current_club_db_id], lazy=True)
     journey = db.relationship("PlayerJourney", backref="tracked_player", lazy=True, foreign_keys=[journey_id])
+
+    @property
+    def effective_age(self):
+        """Current age derived from birth_date, falling back to the stored
+        age column (which is a snapshot and goes stale every season)."""
+        from src.utils.academy_window import age_from_birth_date
+
+        return age_from_birth_date(self.birth_date) or self.age
 
     def compute_stats(self):
         """Compute stats independently of AcademyPlayer.
@@ -153,7 +165,8 @@ class TrackedPlayer(db.Model):
             "position": self.position,
             "nationality": self.nationality,
             "birth_date": self.birth_date,
-            "age": self.age,
+            "age": self.effective_age,
+            "last_academy_season": self.last_academy_season,
             "team_id": self.team_id,
             "team_name": self.team.name if self.team else None,
             "team_logo": self.team.logo if self.team else None,
@@ -184,7 +197,7 @@ class TrackedPlayer(db.Model):
             "player_name": self.player_name,
             "player_photo": self.photo_url,
             "position": self.position,
-            "age": self.age,
+            "age": self.effective_age,
             "nationality": self.nationality,
             "primary_team_id": self.team_id,
             "primary_team_name": self.team.name if self.team else None,

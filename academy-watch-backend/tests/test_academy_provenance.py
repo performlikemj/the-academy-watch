@@ -212,6 +212,10 @@ class TestMalaciaShapedJourney:
 
 class TestGenuineAcademyProduct:
     def test_loan_does_not_disqualify_academy_origin(self, app, sync_service):
+        # Seasons relative to today so the window gate never ages this out
+        from src.utils.academy_window import current_academy_season
+
+        cur = current_academy_season()
         league = _seed_league()
         team_c = _seed_team(league, 300, "Carlton Rovers")
         _seed_team(league, 400, "Faraway FC")
@@ -222,7 +226,7 @@ class TestGenuineAcademyProduct:
             [
                 _entry(
                     journey.id,
-                    2021,
+                    cur - 2,
                     301,
                     "Carlton Rovers U21",
                     level="U21",
@@ -230,10 +234,10 @@ class TestGenuineAcademyProduct:
                     is_youth=True,
                     appearances=10,
                 ),
-                _entry(journey.id, 2022, 400, "Faraway FC", entry_type="loan", appearances=15),
+                _entry(journey.id, cur - 1, 400, "Faraway FC", entry_type="loan", appearances=15),
                 _entry(
                     journey.id,
-                    2023,
+                    cur,
                     301,
                     "Carlton Rovers U21",
                     level="U21",
@@ -254,6 +258,9 @@ class TestGenuineAcademyProduct:
         assert row.data_source == "journey-sync"
 
     def test_same_club_first_team_debut_keeps_parent(self, app, sync_service):
+        from src.utils.academy_window import current_academy_season
+
+        cur = current_academy_season()
         league = _seed_league()
         team_c = _seed_team(league, 300, "Carlton Rovers")
         journey = PlayerJourney(player_api_id=281, player_name="Test Player 281", academy_club_ids=[])
@@ -261,10 +268,10 @@ class TestGenuineAcademyProduct:
         db.session.flush()
         db.session.add_all(
             [
-                _entry(journey.id, 2022, 300, "Carlton Rovers", entry_type="first_team", appearances=10),
+                _entry(journey.id, cur - 1, 300, "Carlton Rovers", entry_type="first_team", appearances=10),
                 _entry(
                     journey.id,
-                    2023,
+                    cur,
                     301,
                     "Carlton Rovers U21",
                     level="U21",
@@ -587,3 +594,219 @@ class TestRecomputeCursorPaging:
         assert r["next_cursor"] == j1.id
         refreshed = db.session.get(PlayerJourney, j1.id)
         assert sorted(refreshed.academy_club_ids or []) == [200]  # unchanged
+
+
+def _academy_alumnus_journey(player_api_id, youth_seasons, *, current_club_api_id=None, birth_date=None):
+    """Genuine academy product of Feyenoord (100) with youth entries in the
+    given seasons, optionally now at another club."""
+    journey = PlayerJourney(
+        player_api_id=player_api_id,
+        player_name=f"Test Player {player_api_id}",
+        academy_club_ids=[],
+        birth_date=birth_date,
+        current_club_api_id=current_club_api_id,
+        current_level="First Team" if current_club_api_id else None,
+    )
+    db.session.add(journey)
+    db.session.flush()
+    entries = [
+        _entry(
+            journey.id,
+            season,
+            101,
+            "Feyenoord U18",
+            level="U18",
+            entry_type="academy",
+            is_youth=True,
+            appearances=20,
+            league_api_id=2000 + season,
+        )
+        for season in youth_seasons
+    ]
+    db.session.add_all(entries)
+    db.session.flush()
+    return journey
+
+
+class TestAcademyTrackingWindow:
+    """Clubs only track academy players current or within the past
+    ACADEMY_WINDOW_YEARS seasons (src/utils/academy_window.py)."""
+
+    def test_out_of_window_alumnus_row_deactivated(self, app, sync_service):
+        from src.utils.academy_window import academy_window_start
+
+        old = academy_window_start() - 2
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = _academy_alumnus_journey(400, [old - 1, old])
+        row = _tracked(400, team, data_source="journey-sync", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        # Provenance is permanent history; tracking liveness is not.
+        assert journey.academy_club_ids == [100]
+        assert journey.academy_last_seasons == {"100": old}
+        assert row.is_active is False
+
+    def test_out_of_window_alumnus_gets_no_new_row(self, app, sync_service):
+        from src.utils.academy_window import academy_window_start
+
+        old = academy_window_start() - 1
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = _academy_alumnus_journey(401, [old])
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert TrackedPlayer.query.filter_by(player_api_id=401, team_id=team.id).first() is None
+
+    def test_in_window_product_kept_and_evidence_recorded(self, app, sync_service):
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season() - 1
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = _academy_alumnus_journey(402, [recent - 1, recent])
+        row = _tracked(402, team, data_source="journey-sync", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is True
+        assert row.last_academy_season == recent
+
+    def test_in_window_product_row_created_with_evidence(self, app, sync_service):
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = _academy_alumnus_journey(403, [recent])
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        created = TrackedPlayer.query.filter_by(player_api_id=403, team_id=team.id).first()
+        assert created is not None
+        assert created.is_active is True
+        assert created.last_academy_season == recent
+
+    def test_pinned_out_of_window_row_survives(self, app, sync_service):
+        from src.utils.academy_window import academy_window_start
+
+        old = academy_window_start() - 3
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = _academy_alumnus_journey(404, [old])
+        row = _tracked(404, team, data_source="journey-sync", journey_id=journey.id, pinned=True)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is True
+
+    def test_recompute_endpoint_deactivates_out_of_window_with_reason(self, app, client, admin_headers):
+        from src.utils.academy_window import academy_window_start, current_academy_season
+
+        old = academy_window_start() - 2
+        recent = current_academy_season() - 1
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+
+        # api-football rows are untouched by the upsert's stale sweep, so
+        # these exercise the endpoint's contradiction-sweep window branch.
+        alumnus_journey = _academy_alumnus_journey(405, [old])
+        alumnus_row = _tracked(405, team, data_source="api-football", journey_id=alumnus_journey.id)
+        prospect_journey = _academy_alumnus_journey(406, [recent])
+        prospect_row = _tracked(406, team, data_source="api-football", journey_id=prospect_journey.id)
+        db.session.commit()
+        alumnus_id, prospect_id = alumnus_row.id, prospect_row.id
+
+        resp = client.post(
+            "/api/admin/journeys/recompute-academy",
+            json={"dry_run": False},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        reasons = {ex["reason"] for ex in data["examples"]}
+        assert any("outside the academy tracking window" in r for r in reasons)
+
+        db.session.expire_all()
+        assert db.session.get(TrackedPlayer, alumnus_id).is_active is False
+        survivor = db.session.get(TrackedPlayer, prospect_id)
+        assert survivor.is_active is True
+        assert survivor.last_academy_season == recent
+
+
+class TestWindowProtectsCurrentAcademyKids:
+    """Stale youth-league coverage must never age out a player who is in
+    the academy right now (review finding: status escape hatch)."""
+
+    def test_youth_level_journey_overrides_stale_seasons(self, app, sync_service):
+        from src.utils.academy_window import academy_window_start
+
+        old = academy_window_start() - 1
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = _academy_alumnus_journey(430, [old])
+        # API says the player is at youth level RIGHT NOW
+        journey.current_level = "U21"
+        journey.current_club_api_id = 100
+        row = _tracked(430, team, data_source="journey-sync", journey_id=journey.id)
+        row.status = "academy"
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is True
+
+    def test_row_status_academy_survives_window_deactivation(self, app, sync_service):
+        from src.utils.academy_window import academy_window_start
+
+        old = academy_window_start() - 1
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        # Journey says First Team elsewhere (no journey-level override) but
+        # the stored row still says currently in this academy.
+        journey = _academy_alumnus_journey(431, [old], current_club_api_id=999)
+        row = _tracked(431, team, data_source="journey-sync", journey_id=journey.id)
+        row.status = "academy"
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is True
+
+
+class TestUpsertReactivatesOrphanedAcademyRows:
+    def test_inactive_row_revived_when_provenance_and_window_hold(self, app, sync_service):
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = _academy_alumnus_journey(432, [recent])
+        row = _tracked(432, team, data_source="journey-sync", journey_id=journey.id, active=False)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is True
+        assert row.last_academy_season == recent
+
+    def test_inactive_manual_row_left_alone(self, app, sync_service):
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = _academy_alumnus_journey(433, [recent])
+        row = _tracked(433, team, data_source="manual", journey_id=journey.id, active=False)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is False

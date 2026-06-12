@@ -11752,6 +11752,21 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
             if journey and journey.current_level:
                 current_level = journey.current_level
 
+            # Tracking-window gate: only academy players current or within
+            # the past ACADEMY_WINDOW_YEARS seasons get a tracked row.
+            from src.utils.academy_window import is_within_academy_window, last_academy_season_for
+
+            last_academy_season = last_academy_season_for(journey, parent_api_id)
+            if not is_within_academy_window(last_academy_season, status=status, birth_date=birth_date):
+                skipped += 1
+                logger.info(
+                    "seed: window-skipped player %d for %s (last academy season %s)",
+                    pid,
+                    team.name,
+                    last_academy_season,
+                )
+                continue
+
             # Resolve the local Team FK alongside the API id so newly seeded
             # rows have current_club_db_id populated from day one.
             current_club_db_id_val = None
@@ -11776,6 +11791,7 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                 data_source="api-football",
                 data_depth="full_stats",
                 journey_id=journey.id if journey else None,
+                last_academy_season=last_academy_season,
             )
             db.session.add(tp)
             created += 1

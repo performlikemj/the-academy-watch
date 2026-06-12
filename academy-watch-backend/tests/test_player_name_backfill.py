@@ -445,3 +445,54 @@ class TestProfileBackfill:
         assert untouched.birth_date is None
         assert untouched.age is None
         assert untouched.nationality is None
+
+
+class TestAgesRefreshed:
+    """backfill-names re-derives stale stored ages from birth_date."""
+
+    def test_stale_age_recomputed(self, client, admin_headers, app):
+        from datetime import date
+
+        from src.models.tracked_player import TrackedPlayer
+
+        with app.app_context():
+            from src.models.league import db
+
+            year = date.today().year
+            tp = TrackedPlayer.query.first()
+            target_id = None
+            if tp is None:
+                # Standalone seed when the module fixtures don't provide one
+                from src.models.league import League, Team
+
+                league = League(league_id=39, name="PL", country="England", season=2025)
+                db.session.add(league)
+                db.session.flush()
+                team = Team(
+                    team_id=33, name="Man U", country="England", season=2025, league_id=league.id, is_active=True
+                )
+                db.session.add(team)
+                db.session.flush()
+                tp = TrackedPlayer(
+                    player_api_id=99001,
+                    player_name="Stale Age Player",
+                    team_id=team.id,
+                    status="academy",
+                    is_active=True,
+                )
+                db.session.add(tp)
+            tp.birth_date = f"{year - 20}-01-01"
+            tp.age = 15  # stale snapshot
+            db.session.commit()
+            target_id = tp.id
+
+        resp = client.post("/api/admin/players/backfill-names", json={"dry_run": False}, headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ages_refreshed"] >= 1
+
+        with app.app_context():
+            from src.models.tracked_player import TrackedPlayer as TP
+
+            refreshed = db.session.get(TP, target_id)
+            assert refreshed.age == 20  # Jan-1 birthday in `year - 20` → exactly 20 today

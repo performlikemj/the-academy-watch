@@ -1166,6 +1166,7 @@ class JourneySyncService:
         ]
         if not youth_entries:
             journey.academy_club_ids = []
+            journey.academy_last_seasons = {}
             # Deactivate any stale tracked-player rows from prior runs
             self._upsert_tracked_players(journey, set(), transfers=transfers)
             return
@@ -1236,6 +1237,7 @@ class JourneySyncService:
         ]
         if not youth_entries:
             journey.academy_club_ids = []
+            journey.academy_last_seasons = {}
             self._upsert_tracked_players(journey, set(), transfers=transfers)
             return
 
@@ -1254,6 +1256,7 @@ class JourneySyncService:
         ]
         if not youth_entries:
             journey.academy_club_ids = []
+            journey.academy_last_seasons = {}
             # Deactivate any stale tracked-player rows from prior runs
             self._upsert_tracked_players(journey, set(), transfers=transfers)
             return
@@ -1272,7 +1275,15 @@ class JourneySyncService:
                 club_country[base] = e.league_country
 
         academy_ids = set()
+        last_seasons = {}  # parent api id -> most recent youth season there
         unresolved = []
+
+        def _record(parent_id, entry):
+            academy_ids.add(parent_id)
+            if entry.season is not None:
+                prior = last_seasons.get(parent_id)
+                if prior is None or entry.season > prior:
+                    last_seasons[parent_id] = entry.season
 
         for entry in youth_entries:
             base_name = self._strip_youth_suffix(entry.club_name)
@@ -1280,19 +1291,19 @@ class JourneySyncService:
 
             # Try matching a senior entry first
             if base_name in senior_name_to_id:
-                academy_ids.add(senior_name_to_id[base_name])
+                _record(senior_name_to_id[base_name], entry)
                 continue
 
             # Fallback 1: query TeamProfile (exact name)
             profile = TeamProfile.query.filter(TeamProfile.name == base_name).first()
             if profile:
-                academy_ids.add(profile.team_id)
+                _record(profile.team_id, entry)
                 continue
 
             # Fallback 2: query Team table (exact name, broader coverage)
             team = Team.query.filter(Team.name == base_name).first()
             if team:
-                academy_ids.add(team.team_id)
+                _record(team.team_id, entry)
                 continue
 
             # Fallback 3: TeamProfile name is a substring of base_name
@@ -1307,7 +1318,7 @@ class JourneySyncService:
                 fb3_query = fb3_query.filter(TeamProfile.country == entry_country)
             profile = fb3_query.order_by(db.func.length(TeamProfile.name).desc()).first()
             if profile:
-                academy_ids.add(profile.team_id)
+                _record(profile.team_id, entry)
                 continue
 
             # Fallback 4: Team name is a substring of base_name
@@ -1319,7 +1330,7 @@ class JourneySyncService:
                 fb4_query = fb4_query.filter(Team.country == entry_country)
             team = fb4_query.order_by(db.func.length(Team.name).desc()).first()
             if team:
-                academy_ids.add(team.team_id)
+                _record(team.team_id, entry)
                 continue
 
             unresolved.append(base_name)
@@ -1353,28 +1364,52 @@ class JourneySyncService:
                 academy_ids -= permanent_dest_ids
 
         journey.academy_club_ids = sorted(academy_ids)
+        # JSON object keys are strings; keep only clubs that survived the gates
+        journey.academy_last_seasons = {
+            str(club_id): season for club_id, season in last_seasons.items() if club_id in academy_ids
+        }
 
         # Auto-upsert TrackedPlayer rows for each academy connection
         try:
-            self._upsert_tracked_players(journey, academy_ids, transfers=transfers)
+            self._upsert_tracked_players(journey, academy_ids, transfers=transfers, last_seasons=last_seasons)
         except Exception as e:
             logger.error(f"_upsert_tracked_players failed for player {journey.player_api_id}: {e}")
             db.session.rollback()
 
-    def _upsert_tracked_players(self, journey: PlayerJourney, academy_ids: set, transfers=None):
+    def _upsert_tracked_players(self, journey: PlayerJourney, academy_ids: set, transfers=None, last_seasons=None):
         """Create or update TrackedPlayer rows for discovered academy connections.
 
-        Clubs may only track players formed in their OWN academy: rows are
-        kept alive solely by membership in academy_ids. The owning (buying)
-        club never gets a row — legacy 'owning-club' rows are deactivated.
+        Clubs may only track players formed in their OWN academy, and only
+        while the player is inside the academy tracking window (in the
+        academy now, or within the past ACADEMY_WINDOW_YEARS seasons).
+        The owning (buying) club never gets a row — legacy 'owning-club'
+        rows are deactivated.
         """
+        from src.models.journey import YOUTH_LEVELS
         from src.models.tracked_player import TrackedPlayer
         from src.utils.academy_classifier import _get_latest_season, classify_tracked_player
+        from src.utils.academy_window import is_within_academy_window
+
+        last_seasons = last_seasons or {}
 
         # Owning club is still computed for current-club classification
         # context, but it no longer keeps TrackedPlayer rows alive.
         owning_api_id = self._determine_owning_club_id(journey, transfers, academy_ids)
-        keep_ids = set(academy_ids)
+
+        # Window gate: an academy origin only stays tracked while the
+        # player's last youth season there is inside the window. A player
+        # whose CURRENT level is a youth level is in someone's academy right
+        # now — pass the status override so patchy youth-league coverage
+        # (stale last recorded youth season) can't age out a current kid.
+        window_status = "academy" if (journey.current_level or "") in YOUTH_LEVELS else None
+        keep_ids = {
+            academy_api_id
+            for academy_api_id in academy_ids
+            if is_within_academy_window(
+                last_seasons.get(academy_api_id), status=window_status, birth_date=journey.birth_date
+            )
+        }
+        aged_out = academy_ids - keep_ids
 
         # Deactivate journey-sync and legacy owning-club rows whose academy
         # connection no longer holds. Skip pinned rows — manual corrections
@@ -1388,10 +1423,15 @@ class JourneySyncService:
             if tp.pinned_parent:
                 continue
             if tp.team and tp.team.team_id not in keep_ids:
+                if tp.team.team_id in aged_out and tp.status == "academy":
+                    # The row itself says the player is currently in this
+                    # academy — never window-deactivate current kids.
+                    continue
                 tp.is_active = False
+                why = "outside the academy tracking window" if tp.team.team_id in aged_out else "not an academy origin"
                 logger.info(
                     f"Deactivated {tp.data_source} TrackedPlayer {tp.id} for player "
-                    f"{journey.player_api_id} at {tp.team.name} (not an academy origin)"
+                    f"{journey.player_api_id} at {tp.team.name} ({why})"
                 )
 
         # The owning (non-academy) club must not track this player at all:
@@ -1412,10 +1452,10 @@ class JourneySyncService:
                         f"at owning club {tp.team.name} (owning club is not an academy origin)"
                     )
 
-        if not academy_ids:
+        if not keep_ids:
             return
 
-        for academy_api_id in academy_ids:
+        for academy_api_id in keep_ids:
             team = Team.query.filter_by(team_id=academy_api_id, is_active=True).order_by(Team.season.desc()).first()
             if not team:
                 continue
@@ -1449,17 +1489,29 @@ class JourneySyncService:
                     status=status,
                     current_club_api_id=current_club_api_id,
                     current_club_name=current_club_name,
+                    last_academy_season=last_seasons.get(academy_api_id),
                 )
                 db.session.add(tp)
             else:
-                # Always keep journey link fresh
+                # Always keep journey link and window evidence fresh
                 existing.journey_id = journey.id
+                if last_seasons.get(academy_api_id) is not None:
+                    existing.last_academy_season = last_seasons[academy_api_id]
                 # Skip status/loan updates for pinned players — manual corrections persist
                 if existing.pinned_parent:
                     logger.debug(
                         f"Skipping status update for pinned player {journey.player_api_id} at team {team.name}"
                     )
                     continue
+                # Provenance + window both hold — revive rows that earlier
+                # mechanisms wrongly deactivated (e.g. transfer-heal once
+                # retired academy rows in favour of owning-club duplicates).
+                if existing.is_active is False and existing.data_source != "manual":
+                    existing.is_active = True
+                    logger.info(
+                        f"Reactivated TrackedPlayer {existing.id} for player "
+                        f"{journey.player_api_id} at {team.name} (academy origin inside tracking window)"
+                    )
                 existing.status = status
                 existing.current_club_api_id = current_club_api_id
                 existing.current_club_name = current_club_name
