@@ -99,6 +99,11 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
     weekly digest email (admin-triggered, cursor-paged, dry-run previews),
     CSV export, /pricing page with scout_tier entitlement scaffold (billing
     wiring deferred to MJ's pricing decisions)
+  - Newsletter rebuild (slice 4, migration aw16): academy players in the
+    weekly report for the first time (payload + agent instructions); email
+    rewritten — 132KB→77KB (Gmail clip-safe), Outlook-safe HTML/CSS data-viz,
+    Squad Watch with real injury reasons, Academy Watch from season stats;
+    operator must set EMAIL_POSTAL_ADDRESS (CAN-SPAM)
   - Live-validated: 16 leagues + 335 teams synced; PR #419 green, awaiting MJ
   - Side-fix: PR #420 (merged) repaired Dependabot-corrupted pnpm-lock.yaml
     that was failing ALL frontend CI; react-hooks v7 rules pinned to warn
