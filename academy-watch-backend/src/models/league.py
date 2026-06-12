@@ -124,6 +124,8 @@ class Team(db.Model):
             "is_tracked": self.is_tracked,
             "season": self.season,
             "league_name": self.league.name if self.league else None,
+            "league_api_id": self.league.league_id if self.league else None,
+            "league_country": self.league.country if self.league else None,
             "current_loaned_out_count": len(current_players),
             "slug": getattr(self, "_slug", None),
             "created_at": self.created_at.isoformat() if self.created_at else None,

@@ -39,6 +39,7 @@ import { MiniProgressBar } from '@/components/MiniProgressBar'
 import { SeasonStatsPanel } from '@/components/SeasonStatsPanel'
 import { CommentSection } from '@/components/CommentSection'
 import { PlayerLinksSection } from '@/components/PlayerLinksSection'
+import { PlayerAvailability } from '@/components/PlayerAvailability'
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, CHART_TOOLTIP_BG, CHART_TOOLTIP_BORDER } from '../lib/theme-constants'
 
 /** Dims children when viewing a past career stop so SeasonStatsPanel takes focus. */
@@ -1172,6 +1173,9 @@ export function PlayerPage() {
                                 </CardContent>
                             </Card>
                         )}
+
+                        {/* Season availability (injuries / suspensions) */}
+                        <PlayerAvailability playerId={parseInt(playerId)} />
 
                         {/* Inline Sponsor Strip */}
                         <SponsorStrip />

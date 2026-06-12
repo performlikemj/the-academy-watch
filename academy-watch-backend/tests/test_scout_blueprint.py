@@ -1,6 +1,7 @@
 """Tests for scout blueprint endpoints in src/routes/scout.py."""
 
 import os
+from datetime import datetime
 
 import pytest
 from flask import Flask
@@ -148,7 +149,13 @@ def seeded_players(scout_app):
         # Fixtures + per-match stats for striker (2 games) and midfielder (1 game)
         fixtures = []
         for i in range(2):
-            fixture = Fixture(fixture_id_api=5000 + i, season=2025, home_team_api_id=901, away_team_api_id=950 + i)
+            fixture = Fixture(
+                fixture_id_api=5000 + i,
+                season=2025,
+                home_team_api_id=901,
+                away_team_api_id=950 + i,
+                date_utc=datetime(2025, 9, 1 + 7 * i),
+            )
             fixtures.append(fixture)
         db.session.add_all(fixtures)
         db.session.flush()
@@ -369,6 +376,97 @@ class TestScoutCompare:
         assert scout_client.get("/api/scout/compare").status_code == 400
         assert scout_client.get("/api/scout/compare?ids=a,b").status_code == 400
         assert scout_client.get("/api/scout/compare?ids=1,2,3,4,5").status_code == 400
+
+
+class TestRecentForm:
+    def test_browse_includes_recent_form_newest_first(self, scout_client, seeded_players):
+        resp = scout_client.get("/api/scout/players?position=Attacker")
+        striker = resp.get_json()["players"][0]
+        form = striker["recent_form"]
+        assert len(form) == 2
+        # Newest match (Sep 8: 80 mins, 1 goal) first
+        assert form[0]["minutes"] == 80
+        assert form[0]["goals"] == 1
+        assert form[1]["minutes"] == 90
+        assert form[1]["goals"] == 2
+        assert form[0]["date"] > form[1]["date"]
+
+    def test_player_without_fixture_stats_gets_empty_form(self, scout_client, seeded_players):
+        resp = scout_client.get("/api/scout/players?position=Goalkeeper")
+        keeper = resp.get_json()["players"][0]
+        assert keeper["recent_form"] == []
+
+
+class _FakeApiClient:
+    current_season_start_year = 2025
+
+    def get_player_injuries(self, player_id, season=None):
+        if player_id != 1001:
+            return []
+        return [
+            {
+                "player": {"id": 1001, "type": "Missing Fixture", "reason": "Knee Injury"},
+                "fixture": {"id": 7001, "date": "2025-10-04T14:00:00+00:00"},
+                "team": {"id": 901, "name": "Loan FC", "logo": "https://example.com/loanfc.png"},
+                "league": {"name": "Premier League"},
+            },
+            {
+                "player": {"id": 1001, "type": "Missing Fixture", "reason": "Knee Injury"},
+                "fixture": {"id": 7002, "date": "2025-10-11T14:00:00+00:00"},
+                "team": {"id": 901, "name": "Loan FC", "logo": "https://example.com/loanfc.png"},
+                "league": {"name": "Premier League"},
+            },
+        ]
+
+
+class TestCompareAvailability:
+    def test_compare_with_availability(self, scout_client, seeded_players, monkeypatch):
+        import src.routes.scout as scout_module
+
+        monkeypatch.setattr(scout_module, "_get_api_client", lambda: _FakeApiClient())
+        resp = scout_client.get("/api/scout/compare?ids=1001,1002&include_availability=true")
+        data = resp.get_json()
+        striker = next(p for p in data["players"] if p["profile"]["player_id"] == 1001)
+        midfielder = next(p for p in data["players"] if p["profile"]["player_id"] == 1002)
+        assert striker["availability"] == {"total_absences": 2, "last_reason": "Knee Injury"}
+        assert midfielder["availability"] == {"total_absences": 0, "last_reason": None}
+
+    def test_compare_without_flag_omits_availability(self, scout_client, seeded_players):
+        resp = scout_client.get("/api/scout/compare?ids=1001")
+        assert resp.get_json()["players"][0]["availability"] is None
+
+
+class TestPlayerAvailabilityEndpoint:
+    @pytest.fixture
+    def availability_client(self, monkeypatch):
+        from flask import Flask
+        from src.routes import players as players_module
+
+        monkeypatch.setattr(players_module, "_get_api_client", lambda: _FakeApiClient())
+        app = Flask(__name__)
+        app.config.update(TESTING=True)
+        app.register_blueprint(players_module.players_bp, url_prefix="/api")
+        return app.test_client()
+
+    def test_availability_normalizes_and_summarizes(self, availability_client):
+        resp = availability_client.get("/api/players/1001/availability")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["season"] == 2025
+        assert data["summary"]["total_absences"] == 2
+        assert data["summary"]["by_reason"] == {"Knee Injury": 2}
+        # Sorted newest first
+        assert data["absences"][0]["fixture_id"] == 7002
+        assert data["absences"][0]["reason"] == "Knee Injury"
+        assert data["absences"][0]["team_name"] == "Loan FC"
+
+    def test_availability_empty_for_unknown_player(self, availability_client):
+        resp = availability_client.get("/api/players/9999/availability")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["absences"] == []
+        assert data["summary"]["total_absences"] == 0
+        assert data["summary"]["last_absence"] is None
 
 
 class TestSupportedLeaguesConfig:

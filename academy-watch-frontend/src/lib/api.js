@@ -447,8 +447,15 @@ export class APIService {
         return this.request(`/scout/leaderboards?${params}`)
     }
 
-    static async compareScoutPlayers(ids = []) {
-        return this.request(`/scout/compare?ids=${ids.join(',')}`)
+    static async compareScoutPlayers(ids = [], { includeAvailability = false } = {}) {
+        const params = new URLSearchParams({ ids: ids.join(',') })
+        if (includeAvailability) params.set('include_availability', 'true')
+        return this.request(`/scout/compare?${params}`)
+    }
+
+    static async getPlayerAvailability(playerId, season) {
+        const query = season ? `?season=${season}` : ''
+        return this.request(`/players/${playerId}/availability${query}`)
     }
 
     static async getUserEmailPreferences() {

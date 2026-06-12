@@ -68,6 +68,8 @@ const COMPARE_ROWS = [
   { key: 'dribbles_success', label: 'Dribbles / 90', source: 'per90' },
   { key: 'tackles', label: 'Tackles / 90', source: 'per90' },
   { key: 'duels_won', label: 'Duels won / 90', source: 'per90' },
+  { section: 'Availability', key: 'total_absences', label: 'Fixtures missed', source: 'availability', noHighlight: true },
+  { key: 'last_reason', label: 'Last absence', source: 'availability', noHighlight: true },
   { section: 'Career', key: 'youth_apps', label: 'Academy apps', source: 'career' },
   { key: 'loan_apps', label: 'Loan apps', source: 'career' },
   { key: 'first_team_apps', label: 'First-team apps', source: 'career' },
@@ -79,6 +81,29 @@ function StatusBadge({ status }) {
   if (!status) return null
   const colorClass = STATUS_BADGE_CLASSES[status] || 'bg-secondary text-foreground/80 border-border'
   return <Badge className={`${colorClass} capitalize whitespace-nowrap`}>{status.replace('_', ' ')}</Badge>
+}
+
+function FormIndicator({ form }) {
+  if (!form?.length) return <span className="text-xs text-muted-foreground">—</span>
+  // API returns newest first; show oldest → newest like a form guide
+  const matches = [...form].reverse()
+  return (
+    <span className="inline-flex items-end gap-0.5" aria-label={`Last ${matches.length} matches`}>
+      {matches.map((match, index) => {
+        const contributed = (match.goals || 0) + (match.assists || 0) > 0
+        const height = Math.max(6, Math.round(((match.minutes || 0) / 90) * 18))
+        const title = `${match.date ? match.date.slice(0, 10) : 'Match'}: ${match.minutes}' ${match.goals}G ${match.assists}A${match.rating ? ` · ${match.rating}` : ''}`
+        return (
+          <span
+            key={index}
+            title={title}
+            className={`w-1.5 rounded-sm ${contributed ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-stone-600'}`}
+            style={{ height: `${height}px` }}
+          />
+        )
+      })}
+    </span>
+  )
 }
 
 function PlayerCell({ player }) {
@@ -157,7 +182,7 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
     let cancelled = false
     setLoading(true)
     setError(null)
-    APIService.compareScoutPlayers(playerIds)
+    APIService.compareScoutPlayers(playerIds, { includeAvailability: true })
       .then((res) => { if (!cancelled) setData(res) })
       .catch((err) => { if (!cancelled) setError(err.message || 'Comparison failed') })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -241,7 +266,7 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
                         {values.map((value, i) => (
                           <td
                             key={i}
-                            className={`p-2 text-center tabular-nums ${value !== null && numeric[i] === best && players.length > 1 && best > 0 ? 'font-bold text-primary' : 'text-foreground'}`}
+                            className={`p-2 text-center tabular-nums ${!row.noHighlight && value !== null && numeric[i] === best && players.length > 1 && best > 0 ? 'font-bold text-primary' : 'text-foreground'}`}
                           >
                             {value === null ? '—' : typeof value === 'number' ? value.toLocaleString() : value}
                           </td>
@@ -476,6 +501,7 @@ export function ScoutPage() {
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pos</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Club</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Form</th>
                   {headerCell('appearances', 'Apps')}
                   {headerCell('goals', 'G')}
                   {headerCell('assists', 'A')}
@@ -488,7 +514,7 @@ export function ScoutPage() {
                 {loading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={11} className="px-3 py-2.5"><Skeleton className="h-9 w-full" /></td>
+                      <td colSpan={12} className="px-3 py-2.5"><Skeleton className="h-9 w-full" /></td>
                     </tr>
                   ))
                 ) : players.length ? (
@@ -513,6 +539,7 @@ export function ScoutPage() {
                             <span className="block truncate text-xs text-muted-foreground">from {player.primary_team_name}</span>
                           )}
                         </td>
+                        <td className="px-3 py-2.5"><FormIndicator form={player.recent_form} /></td>
                         <td className="px-3 py-2.5 text-right text-sm tabular-nums">{player.appearances}</td>
                         <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-emerald-700">{player.goals}</td>
                         <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-amber-700">{player.assists}</td>
@@ -524,7 +551,7 @@ export function ScoutPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={11} className="px-3 py-12 text-center text-sm text-muted-foreground">
+                    <td colSpan={12} className="px-3 py-12 text-center text-sm text-muted-foreground">
                       No players match these filters.
                     </td>
                   </tr>

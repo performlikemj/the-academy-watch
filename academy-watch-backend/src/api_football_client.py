@@ -3214,6 +3214,22 @@ class APIFootballClient:
             logger.error(f"Error fetching all European teams: {e}")
             return []
 
+    def get_player_injuries(self, player_id: int, season: int | None = None) -> list[dict[str, Any]]:
+        """Get injury/absence records for a player in a season.
+
+        Each record from API-Football's `injuries` endpoint represents a
+        fixture the player missed (type 'Missing Fixture') or was doubtful
+        for ('Questionable'), with a reason (e.g. 'Knee Injury', 'Suspended').
+        Responses go through _make_request, so they hit the DB-backed cache.
+        """
+        season = season or self.current_season_start_year
+        try:
+            response = self._make_request("injuries", {"player": int(player_id), "season": int(season)})
+            return response.get("response", []) or []
+        except Exception as e:
+            logger.warning(f"Error fetching injuries for player {player_id} season {season}: {e}")
+            return []
+
     def get_team_transfers(self, team_id: int) -> list[dict[str, Any]]:
         """Get transfers for a specific team (transfers endpoint has no season param)."""
         try:

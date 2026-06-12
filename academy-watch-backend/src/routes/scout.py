@@ -16,12 +16,12 @@ per-player compute_stats() N+1 queries.
 import logging
 
 from flask import Blueprint, jsonify, request
-from sqlalchemy import and_, case, exists, func, or_
+from sqlalchemy import and_, case, exists, func, or_, tuple_
 from sqlalchemy.orm import aliased
 from src.auth import _safe_error_payload
 from src.models.league import PlayerStatsCache, db
 from src.models.tracked_player import TrackedPlayer
-from src.models.weekly import FixturePlayerStats
+from src.models.weekly import Fixture, FixturePlayerStats
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,62 @@ VALID_STATUSES = {"academy", "on_loan", "first_team", "released", "sold"}
 PER90_MIN_MINUTES = 270  # floor for per-90 rankings so 10-minute cameos don't top the boards
 MAX_PER_PAGE = 100
 MAX_COMPARE_PLAYERS = 4
+FORM_MATCHES = 5
+
+
+# Lazy import for api_client to avoid circular imports and early initialization
+def _get_api_client():
+    from src.routes.api import api_client
+
+    return api_client
+
+
+def _attach_recent_form(player_dicts):
+    """Attach each player's last-N matches at their current club.
+
+    One batched query for the whole page — (player, team) row-value IN works
+    on both Postgres and SQLite.
+    """
+    pairs = {(p["player_id"], p["loan_team_api_id"]) for p in player_dicts if p.get("loan_team_api_id")}
+    for p in player_dicts:
+        p["recent_form"] = []
+    if not pairs:
+        return
+
+    rows = (
+        db.session.query(
+            FixturePlayerStats.player_api_id,
+            FixturePlayerStats.team_api_id,
+            FixturePlayerStats.minutes,
+            FixturePlayerStats.goals,
+            FixturePlayerStats.assists,
+            FixturePlayerStats.rating,
+            Fixture.date_utc,
+        )
+        .join(Fixture, Fixture.id == FixturePlayerStats.fixture_id)
+        .filter(tuple_(FixturePlayerStats.player_api_id, FixturePlayerStats.team_api_id).in_(list(pairs)))
+        .order_by(Fixture.date_utc.desc().nullslast())
+        .all()
+    )
+
+    form_by_pair = {}
+    for row in rows:
+        key = (row.player_api_id, row.team_api_id)
+        matches = form_by_pair.setdefault(key, [])
+        if len(matches) >= FORM_MATCHES:
+            continue
+        matches.append(
+            {
+                "date": row.date_utc.isoformat() if row.date_utc else None,
+                "minutes": row.minutes or 0,
+                "goals": row.goals or 0,
+                "assists": row.assists or 0,
+                "rating": round(float(row.rating), 1) if row.rating else None,
+            }
+        )
+
+    for p in player_dicts:
+        p["recent_form"] = form_by_pair.get((p["player_id"], p.get("loan_team_api_id")), [])
 
 
 def _fixture_stats_subquery():
@@ -259,9 +315,12 @@ def scout_players():
         total = query.count()
         rows = query.offset((page - 1) * per_page).limit(per_page).all()
 
+        players = [_row_to_dict(row) for row in rows]
+        _attach_recent_form(players)
+
         return jsonify(
             {
-                "players": [_row_to_dict(row) for row in rows],
+                "players": players,
                 "total": total,
                 "page": page,
                 "per_page": per_page,
@@ -326,8 +385,11 @@ def scout_compare():
 
     Query params:
     - ids: comma-separated player_api_ids (required, max 4)
+    - include_availability: 'true' to add season injury/absence summaries
+      (sourced live from API-Football's injuries endpoint, DB-cached)
     """
     try:
+        include_availability = request.args.get("include_availability", "").lower() == "true"
         raw_ids = [p.strip() for p in request.args.get("ids", "").split(",") if p.strip()]
         if not raw_ids:
             return jsonify({"error": "ids parameter is required (comma-separated player ids)"}), 400
@@ -437,12 +499,27 @@ def scout_compare():
                     "first_team_debut_club": journey.first_team_debut_club,
                 }
 
+            availability = None
+            if include_availability:
+                try:
+                    api_client = _get_api_client()
+                    records = api_client.get_player_injuries(player_id)
+                    records = sorted(records, key=lambda r: (r.get("fixture") or {}).get("date") or "", reverse=True)
+                    reasons = [(r.get("player") or {}).get("reason") or "Unknown" for r in records]
+                    availability = {
+                        "total_absences": len(records),
+                        "last_reason": reasons[0] if reasons else None,
+                    }
+                except Exception as availability_error:
+                    logger.warning(f"Availability lookup failed for player {player_id}: {availability_error}")
+
             players.append(
                 {
                     "profile": tracked_player.to_public_dict(),
                     "totals": totals,
                     "per90": per90,
                     "career": career,
+                    "availability": availability,
                 }
             )
 
