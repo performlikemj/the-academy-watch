@@ -453,6 +453,69 @@ export class APIService {
         return this.request(`/scout/compare?${params}`)
     }
 
+    static async getScoutWatchlist() {
+        return this.request('/scout/watchlist')
+    }
+
+    static async getScoutWatchlistIds() {
+        return this.request('/scout/watchlist/ids')
+    }
+
+    static async addToScoutWatchlist(playerApiId) {
+        return this.request('/scout/watchlist', {
+            method: 'POST',
+            body: JSON.stringify({ player_api_id: playerApiId })
+        })
+    }
+
+    static async removeFromScoutWatchlist(playerApiId) {
+        return this.request(`/scout/watchlist/${playerApiId}`, { method: 'DELETE' })
+    }
+
+    static async updateScoutWatchlistNote(playerApiId, note) {
+        return this.request(`/scout/watchlist/${playerApiId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ note })
+        })
+    }
+
+    static async updateScoutWatchlistSettings(payload) {
+        return this.request('/scout/watchlist/settings', {
+            method: 'PATCH',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    static async downloadScoutCsv(params = {}) {
+        const query = new URLSearchParams(params)
+        const headers = {}
+        const token = this.userToken || (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_user_token'))
+        if (token) headers['Authorization'] = `Bearer ${token}`
+        const response = await fetch(`${API_BASE_URL}/scout/export.csv?${query}`, { headers })
+        if (!response.ok) {
+            let message = `HTTP ${response.status}`
+            try {
+                const body = await response.text()
+                if (body) message = body
+            } catch { /* ignore */ }
+            const err = new Error(message)
+            err.status = response.status
+            throw err
+        }
+        const blob = await response.blob()
+        if (typeof document !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
+            const objectUrl = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = objectUrl
+            a.download = 'academy-watch-scout-export.csv'
+            document.body.appendChild(a)
+            a.click()
+            a.remove()
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+        }
+        return blob
+    }
+
     static async getPlayerAvailability(playerId, season) {
         const query = season ? `?season=${season}` : ''
         return this.request(`/players/${playerId}/availability${query}`)

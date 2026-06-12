@@ -513,6 +513,10 @@ class UserAccount(db.Model):
         db.String(20), default="individual", nullable=False
     )  # 'individual' | 'digest'
 
+    # Scout watchlist preferences
+    scout_digest_opt_in = db.Column(db.Boolean, nullable=False, default=True, server_default="true")
+    scout_tier = db.Column(db.String(20), nullable=False, default="free", server_default="free")
+
     # Editor role - can manage external writers
     is_editor = db.Column(db.Boolean, default=False, nullable=False)
 

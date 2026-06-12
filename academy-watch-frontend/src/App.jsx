@@ -101,6 +101,8 @@ import { HomePage } from '@/pages/HomePage'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
 import { CohortBrowser } from '@/pages/CohortBrowser'
 import { ScoutPage } from '@/pages/ScoutPage'
+import { WatchlistPage } from '@/pages/WatchlistPage'
+import { PricingPage } from '@/pages/PricingPage'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
 import { GolPanel } from '@/components/gol/GolPanel'
@@ -7164,6 +7166,7 @@ function Navigation() {
       { path: '/dream-team', label: 'Dream XI', icon: Trophy },
       { path: '/newsletters', label: 'Newsletters', icon: FileText },
       { path: '/journalists', label: 'Journalists', icon: UserPlus },
+      { path: '/pricing', label: 'Pricing', icon: CreditCard },
     ]
     if (isJournalist) {
       items.push({ path: '/writer/dashboard', label: 'Writer Dashboard', icon: FileText })
@@ -10553,6 +10556,8 @@ function AppRoutes() {
       <Route path="/submit-take" element={<SubmitTake />} />
       <Route path="/flag" element={<FlagData />} />
       <Route path="/scout" element={<ScoutPage />} />
+      <Route path="/scout/watchlist" element={<WatchlistPage />} />
+      <Route path="/pricing" element={<PricingPage />} />
       <Route path="/academy" element={<CohortBrowser />} />
       <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
       <Route path="/academy/analytics" element={<CohortAnalytics />} />

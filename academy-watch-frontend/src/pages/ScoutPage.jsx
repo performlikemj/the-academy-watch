@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { APIService } from '@/lib/api'
+import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Loader2, Search, ArrowUpDown, ArrowLeft, ArrowRight,
   Trophy, Zap, Clock, Gauge, X, GitCompareArrows, Globe,
+  Star, Download, Link2,
 } from 'lucide-react'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
 
@@ -77,13 +79,13 @@ const COMPARE_ROWS = [
   { key: 'assists', label: 'Career assists', source: 'career' },
 ]
 
-function StatusBadge({ status }) {
+export function StatusBadge({ status }) {
   if (!status) return null
   const colorClass = STATUS_BADGE_CLASSES[status] || 'bg-secondary text-foreground/80 border-border'
   return <Badge className={`${colorClass} capitalize whitespace-nowrap`}>{status.replace('_', ' ')}</Badge>
 }
 
-function FormIndicator({ form }) {
+export function FormIndicator({ form }) {
   if (!form?.length) return <span className="text-xs text-muted-foreground">—</span>
   // API returns newest first; show oldest → newest like a form guide
   const matches = [...form].reverse()
@@ -106,7 +108,7 @@ function FormIndicator({ form }) {
   )
 }
 
-function PlayerCell({ player }) {
+export function PlayerCell({ player }) {
   return (
     <Link to={`/players/${player.player_id}`} className="flex items-center gap-3 no-underline hover:no-underline group">
       {player.player_photo ? (
@@ -176,6 +178,8 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
+  const [copyState, setCopyState] = useState('idle') // idle | copied | failed
+  const copyTimer = useRef(null)
 
   useEffect(() => {
     if (!open || !playerIds.length) return
@@ -189,6 +193,22 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
     return () => { cancelled = true }
   }, [open, playerIds])
 
+  useEffect(() => () => clearTimeout(copyTimer.current), [])
+
+  const handleCopyLink = useCallback(() => {
+    const url = `${window.location.origin}/scout?compare=${playerIds.join(',')}`
+    const flash = (state) => {
+      setCopyState(state)
+      clearTimeout(copyTimer.current)
+      copyTimer.current = setTimeout(() => setCopyState('idle'), 2000)
+    }
+    if (!navigator.clipboard) {
+      flash('failed')
+      return
+    }
+    navigator.clipboard.writeText(url).then(() => flash('copied')).catch(() => flash('failed'))
+  }, [playerIds])
+
   const players = data?.players || []
   const anyGoalkeeper = players.some((p) => p.profile?.position === 'Goalkeeper')
 
@@ -199,6 +219,17 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
           <DialogTitle className="flex items-center gap-2">
             <GitCompareArrows className="h-5 w-5 text-primary" />
             Player Comparison
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCopyLink}
+              className="ml-auto mr-6 text-muted-foreground hover:text-foreground"
+            >
+              <Link2 className="mr-1.5 h-4 w-4" />
+              <span role="status" aria-live="polite">
+                {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy link'}
+              </span>
+            </Button>
           </DialogTitle>
           <DialogDescription>
             Current-club season output, per-90 rates, and career volume side by side.
@@ -307,6 +338,86 @@ export function ScoutPage() {
   const [compareOpen, setCompareOpen] = useState(false)
   const searchTimer = useRef(null)
 
+  const auth = useAuth()
+  const { openLoginModal } = useAuthUI()
+  const [watchedIds, setWatchedIds] = useState(null)
+  const [exporting, setExporting] = useState(false)
+  const [searchParams] = useSearchParams()
+
+  // Compare deep links: /scout?compare=1,2,3
+  useEffect(() => {
+    const raw = searchParams.get('compare')
+    if (!raw) return
+    const ids = [...new Set(raw.split(',').map((part) => parseInt(part.trim(), 10)).filter((n) => Number.isInteger(n) && n > 0))]
+    if (ids.length >= 2 && ids.length <= 4) {
+      setCompareIds(ids)
+      setCompareOpen(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Load watchlist ids once when signed in
+  useEffect(() => {
+    if (!auth?.token) {
+      setWatchedIds(null)
+      return
+    }
+    let cancelled = false
+    APIService.getScoutWatchlistIds()
+      .then((data) => { if (!cancelled) setWatchedIds(new Set(data?.player_ids || [])) })
+      .catch((err) => { console.error('Failed to load watchlist ids', err) })
+    return () => { cancelled = true }
+  }, [auth?.token])
+
+  const toggleWatch = useCallback((player) => {
+    if (!auth?.token) {
+      openLoginModal()
+      return
+    }
+    const playerId = player.player_id
+    const wasWatched = !!watchedIds?.has(playerId)
+    setWatchedIds((current) => {
+      const next = new Set(current || [])
+      if (wasWatched) next.delete(playerId)
+      else next.add(playerId)
+      return next
+    })
+    const action = wasWatched
+      ? APIService.removeFromScoutWatchlist(playerId)
+      : APIService.addToScoutWatchlist(playerId)
+    action.catch((err) => {
+      console.error('Watchlist update failed', err)
+      // Revert optimistic update
+      setWatchedIds((current) => {
+        const next = new Set(current || [])
+        if (wasWatched) next.add(playerId)
+        else next.delete(playerId)
+        return next
+      })
+    })
+  }, [auth?.token, openLoginModal, watchedIds])
+
+  const handleExportCsv = useCallback(async () => {
+    if (!auth?.token) {
+      openLoginModal()
+      return
+    }
+    setExporting(true)
+    try {
+      const params = {}
+      if (debouncedSearch) params.search = debouncedSearch
+      if (position !== 'all') params.position = position
+      if (status !== 'all') params.status = status
+      const preset = AGE_PRESETS.find((p) => p.key === agePreset)
+      Object.assign(params, preset?.params || {})
+      await APIService.downloadScoutCsv({ ...params, sort, order })
+    } catch (err) {
+      console.error('CSV export failed', err)
+    } finally {
+      setExporting(false)
+    }
+  }, [auth?.token, openLoginModal, debouncedSearch, position, status, agePreset, sort, order])
+
   useEffect(() => {
     clearTimeout(searchTimer.current)
     searchTimer.current = setTimeout(() => setDebouncedSearch(search.trim()), 300)
@@ -397,18 +508,37 @@ export function ScoutPage() {
     <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Editorial header */}
-        <header className="mb-8">
-          <p className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-            <Globe className="h-3.5 w-3.5" />
-            Global talent discovery
-          </p>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-            The Scout Desk
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
-            Every tracked academy and loan player, ranked across clubs and leagues.
-            Filter by position and age band, sort by output, and compare prospects side by side.
-          </p>
+        <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
+              <Globe className="h-3.5 w-3.5" />
+              Global talent discovery
+            </p>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+              The Scout Desk
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
+              Every tracked academy and loan player, ranked across clubs and leagues.
+              Filter by position and age band, sort by output, and compare prospects side by side.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 sm:pt-7">
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/scout/watchlist" className="no-underline hover:no-underline">
+                <Star className="mr-1.5 h-4 w-4" />
+                Watchlist
+                {watchedIds && watchedIds.size > 0 && (
+                  <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold tabular-nums text-primary-foreground">
+                    {watchedIds.size}
+                  </span>
+                )}
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting}>
+              {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+              Export CSV
+            </Button>
+          </div>
         </header>
 
         {/* Leaderboards */}
@@ -494,6 +624,9 @@ export function ScoutPage() {
             <table className="w-full min-w-[760px] border-collapse">
               <thead>
                 <tr className="border-b border-border/60 bg-secondary/60">
+                  <th className="w-10 px-2 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <span className="sr-only">Watch</span>
+                  </th>
                   <th className="w-10 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <span className="sr-only">Compare</span>
                   </th>
@@ -514,14 +647,26 @@ export function ScoutPage() {
                 {loading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={12} className="px-3 py-2.5"><Skeleton className="h-9 w-full" /></td>
+                      <td colSpan={13} className="px-3 py-2.5"><Skeleton className="h-9 w-full" /></td>
                     </tr>
                   ))
                 ) : players.length ? (
                   players.map((player) => {
                     const selected = compareIds.includes(player.player_id)
+                    const watched = !!watchedIds?.has(player.player_id)
                     return (
                       <tr key={player.id} className={`transition-colors hover:bg-secondary/40 ${selected ? 'bg-primary/5' : ''}`}>
+                        <td className="px-2 py-2.5">
+                          <button
+                            type="button"
+                            onClick={() => toggleWatch(player)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={watched ? `Unwatch ${player.player_name}` : `Watch ${player.player_name}`}
+                            title={watched ? 'Remove from watchlist' : 'Add to watchlist'}
+                          >
+                            <Star className={`h-4 w-4 transition-colors ${watched ? 'fill-amber-400 text-amber-500' : 'text-muted-foreground/50 hover:text-muted-foreground'}`} />
+                          </button>
+                        </td>
                         <td className="px-3 py-2.5">
                           <Checkbox
                             checked={selected}
@@ -539,7 +684,19 @@ export function ScoutPage() {
                             <span className="block truncate text-xs text-muted-foreground">from {player.primary_team_name}</span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5"><FormIndicator form={player.recent_form} /></td>
+                        <td className="px-3 py-2.5">
+                          {player.appearances === 0 && player.data_depth === 'profile_only' ? (
+                            <Link
+                              to="/pricing"
+                              className="text-[11px] text-muted-foreground underline decoration-dotted hover:text-primary"
+                              title="No stats provider covers this league — Film Room will fix that"
+                            >
+                              No coverage
+                            </Link>
+                          ) : (
+                            <FormIndicator form={player.recent_form} />
+                          )}
+                        </td>
                         <td className="px-3 py-2.5 text-right text-sm tabular-nums">{player.appearances}</td>
                         <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-emerald-700">{player.goals}</td>
                         <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-amber-700">{player.assists}</td>
@@ -551,7 +708,7 @@ export function ScoutPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={12} className="px-3 py-12 text-center text-sm text-muted-foreground">
+                    <td colSpan={13} className="px-3 py-12 text-center text-sm text-muted-foreground">
                       No players match these filters.
                     </td>
                   </tr>
