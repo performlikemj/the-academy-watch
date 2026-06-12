@@ -30,6 +30,7 @@ from src.routes.journey import journey_bp
 from src.routes.newsletter_deadline import newsletter_deadline_bp
 from src.routes.players import players_bp
 from src.routes.teams import teams_bp
+from src.routes.video import video_bp
 
 dotenv.load_dotenv(dotenv.find_dotenv())
 # Configure logging
@@ -100,6 +101,7 @@ app.register_blueprint(formation_bp, url_prefix="/api")
 app.register_blueprint(teams_bp, url_prefix="/api")
 app.register_blueprint(feeder_bp, url_prefix="/api")
 app.register_blueprint(curator_bp, url_prefix="/api")
+app.register_blueprint(video_bp, url_prefix="/api")
 
 csp = {
     "default-src": ["'self'"],

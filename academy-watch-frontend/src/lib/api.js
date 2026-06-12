@@ -1909,4 +1909,136 @@ export class APIService {
         const query = new URLSearchParams(params).toString()
         return this.request(`/teams/${teamApiId}/academy-network${query ? '?' + query : ''}`)
     }
+
+    // ==========================================================================
+    // Video Analysis (admin, Phase A concierge)
+    // ==========================================================================
+
+    static async createVideoMatch(payload) {
+        return this.request('/admin/video/matches', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }, { admin: true })
+    }
+
+    static async getVideoMatch(matchId) {
+        return this.request(`/admin/video/matches/${matchId}`, {}, { admin: true })
+    }
+
+    static async updateVideoMatch(matchId, payload) {
+        return this.request(`/admin/video/matches/${matchId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        }, { admin: true })
+    }
+
+    static async remintVideoUploadSas(matchId) {
+        return this.request(`/admin/video/matches/${matchId}/sas`, { method: 'POST' }, { admin: true })
+    }
+
+    static async videoUploadComplete(matchId, payload = {}) {
+        return this.request(`/admin/video/matches/${matchId}/upload-complete`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }, { admin: true })
+    }
+
+    static async upsertVideoRoster(matchId, entries) {
+        return this.request(`/admin/video/matches/${matchId}/roster`, {
+            method: 'PUT',
+            body: JSON.stringify({ entries }),
+        }, { admin: true })
+    }
+
+    static async processVideoMatch(matchId) {
+        return this.request(`/admin/video/matches/${matchId}/process`, { method: 'POST' }, { admin: true })
+    }
+
+    static async requeueVideoMatch(matchId) {
+        return this.request(`/admin/video/matches/${matchId}/requeue`, { method: 'POST' }, { admin: true })
+    }
+
+    static async getVideoTracklets(matchId, params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/video/matches/${matchId}/tracklets${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async bindVideoTags(matchId, tags) {
+        return this.request(`/admin/video/matches/${matchId}/tags`, {
+            method: 'POST',
+            body: JSON.stringify({ tags }),
+        }, { admin: true })
+    }
+
+    static async finalizeVideoMatch(matchId) {
+        return this.request(`/admin/video/matches/${matchId}/finalize`, { method: 'POST' }, { admin: true })
+    }
+
+    static async getVideoReport(matchId) {
+        return this.request(`/admin/video/matches/${matchId}/report`, {}, { admin: true })
+    }
+
+    static async getTeamVideoMatches(teamId) {
+        return this.request(`/admin/video/teams/${teamId}/matches`, {}, { admin: true })
+    }
+
+    static async getTeamVideoCredits(teamId) {
+        return this.request(`/admin/video/teams/${teamId}/credits`, {}, { admin: true })
+    }
+
+    static async grantVideoCredits(teamId, payload) {
+        return this.request(`/admin/video/teams/${teamId}/credits/grant`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }, { admin: true })
+    }
+
+    static async refundVideoMatch(matchId, note) {
+        return this.request(`/admin/video/matches/${matchId}/refund`, {
+            method: 'POST',
+            body: JSON.stringify({ note }),
+        }, { admin: true })
+    }
+
+    /**
+     * Direct-to-blob upload via the SAS URL using Azure block upload
+     * (Put Block + Put Block List), so multi-GB match files work and we can
+     * report progress. No Azure SDK needed.
+     */
+    static async uploadVideoToBlob(uploadUrl, file, onProgress) {
+        const BLOCK_SIZE = 32 * 1024 * 1024 // 32MB
+        const total = file.size
+        const blockIds = []
+        let sent = 0
+        for (let offset = 0, index = 0; offset < total; offset += BLOCK_SIZE, index += 1) {
+            const chunk = file.slice(offset, Math.min(offset + BLOCK_SIZE, total))
+            // fixed-width id, base64-encoded, identical length for every block
+            const rawId = `block-${String(index).padStart(8, '0')}`
+            const blockId = btoa(rawId)
+            blockIds.push(blockId)
+            const res = await fetch(`${uploadUrl}&comp=block&blockid=${encodeURIComponent(blockId)}`, {
+                method: 'PUT',
+                body: chunk,
+            })
+            if (!res.ok) {
+                const err = new Error(`block upload failed at ${Math.round((offset / total) * 100)}% (HTTP ${res.status})`)
+                err.status = res.status
+                throw err
+            }
+            sent += chunk.size
+            if (onProgress) onProgress(Math.round((sent / total) * 100))
+        }
+        const manifest = `<?xml version="1.0" encoding="utf-8"?><BlockList>${blockIds.map((id) => `<Latest>${id}</Latest>`).join('')}</BlockList>`
+        const commit = await fetch(`${uploadUrl}&comp=blocklist`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/xml', 'x-ms-blob-content-type': file.type || 'video/mp4' },
+            body: manifest,
+        })
+        if (!commit.ok) {
+            const err = new Error(`block list commit failed (HTTP ${commit.status})`)
+            err.status = commit.status
+            throw err
+        }
+        if (onProgress) onProgress(100)
+    }
 }
