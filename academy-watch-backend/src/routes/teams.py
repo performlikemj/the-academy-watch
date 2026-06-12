@@ -27,6 +27,7 @@ from src.models.tracked_player import TrackedPlayer
 from src.utils.academy_classifier import _get_latest_season, classify_tracked_player, is_same_club
 from src.utils.geocoding import get_team_coordinates
 from src.utils.slug import resolve_team_by_identifier
+from src.utils.supported_leagues import get_league_region, get_supported_leagues
 from werkzeug.exceptions import NotFound
 
 logger = logging.getLogger(__name__)
@@ -74,10 +75,28 @@ api_client = _LazyApiClient()
 
 @teams_bp.route("/leagues", methods=["GET"])
 def get_leagues():
-    """Get all European leagues."""
+    """Get all supported leagues, annotated with region.
+
+    Query params:
+    - region: filter to one region (e.g. Europe, South America)
+    """
     try:
-        leagues = League.query.filter_by(is_european_top_league=True).all()
-        return jsonify([league.to_dict() for league in leagues])
+        from sqlalchemy import or_
+
+        supported_ids = list(get_supported_leagues().keys())
+        leagues = League.query.filter(
+            or_(League.is_european_top_league.is_(True), League.league_id.in_(supported_ids))
+        ).all()
+
+        region_filter = request.args.get("region", "").strip()
+        payload = []
+        for league in leagues:
+            league_dict = league.to_dict()
+            league_dict["region"] = get_league_region(league.league_id) or "Europe"
+            if region_filter and league_dict["region"] != region_filter:
+                continue
+            payload.append(league_dict)
+        return jsonify(payload)
     except Exception as e:
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -133,12 +152,12 @@ def get_teams():
             logger.info(f"Filtering for season: {season}")
             query = query.filter_by(season=season)
 
-        # Handle european_only filter
+        # Handle european_only filter (historical name — now "supported leagues only")
         european_only = request.args.get("european_only", "").lower() == "true"
+        supported_league_ids = list(get_supported_leagues().keys())
         if european_only:
-            logger.info("Filtering for European teams only")
-            european_leagues = ["Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1"]
-            query = query.join(League).filter(League.name.in_(european_leagues))
+            logger.info("Filtering for supported-league teams only")
+            query = query.join(League).filter(League.league_id.in_(supported_league_ids))
 
         # Handle has_loans filter
         has_loans = request.args.get("has_loans", "").lower() == "true"
@@ -180,8 +199,7 @@ def get_teams():
                 if season:
                     query = query.filter_by(season=season)
                 if european_only:
-                    european_leagues = ["Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1"]
-                    query = query.join(League).filter(League.name.in_(european_leagues))
+                    query = query.join(League).filter(League.league_id.in_(supported_league_ids))
                 teams = query.all()
             except Exception as sync_ex:
                 logger.error(f"Lazy sync failed: {sync_ex}")

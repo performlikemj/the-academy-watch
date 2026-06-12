@@ -163,14 +163,16 @@ class APIFootballClient:
         else:
             logger.info("🌍 Team filter disabled: Processing all teams")
 
-        # European league IDs from API-Football
-        self.european_leagues = {
-            39: {"name": "Premier League", "country": "England"},
-            140: {"name": "La Liga", "country": "Spain"},
-            135: {"name": "Serie A", "country": "Italy"},
-            78: {"name": "Bundesliga", "country": "Germany"},
-            61: {"name": "Ligue 1", "country": "France"},
-        }
+        # Supported league footprint (global) — see src/utils/supported_leagues.py.
+        # `european_leagues` is kept as the historical attribute name; it now
+        # holds the full supported map and is used for cheap metadata lookups
+        # (league/team sync, name resolution). Expensive fixture/loan-detection
+        # crawls default to `crawl_league_ids` instead.
+        from src.utils.supported_leagues import get_crawl_league_ids, get_supported_leagues
+
+        self.supported_leagues = get_supported_leagues()
+        self.european_leagues = self.supported_leagues
+        self.crawl_league_ids = get_crawl_league_ids()
 
         # --- Local cache for team_id -> team_name look‑ups (populated lazily) ---
         self._team_name_cache: dict[int, str] = {}
@@ -4030,7 +4032,7 @@ class APIFootballClient:
         confidence: float = 1.0,
     ):
         if league_ids is None:
-            league_ids = list(self.european_leagues.keys())
+            league_ids = list(self.crawl_league_ids)
         if season is None:
             try:
                 season_slug = window_key.split("::")[0]
@@ -4155,7 +4157,7 @@ class APIFootballClient:
             season = self.current_season_start_year
 
         if league_ids is None:
-            league_ids = list(self.european_leagues.keys())
+            league_ids = list(self.crawl_league_ids)
 
         logger.info(f"🔍 Detecting multi-team players for window {window_key} using merged approach")
 
@@ -5038,7 +5040,7 @@ class APIFootballClient:
         from src.models.tracked_player import TrackedPlayer
 
         if league_ids is None:
-            league_ids = list(self.european_leagues.keys())
+            league_ids = list(self.crawl_league_ids)
 
         logger.info(f"🔄 Incremental loan detection since {last_check.isoformat()}")
 

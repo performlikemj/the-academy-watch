@@ -100,6 +100,7 @@ import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { HomePage } from '@/pages/HomePage'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
 import { CohortBrowser } from '@/pages/CohortBrowser'
+import { ScoutPage } from '@/pages/ScoutPage'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
 import { GolPanel } from '@/components/gol/GolPanel'
@@ -7158,6 +7159,7 @@ function Navigation() {
   const navItems = useMemo(() => {
     const items = [
       { path: '/', label: 'Home', icon: Home },
+      { path: '/scout', label: 'Scout', icon: Globe },
       { path: '/teams', label: 'Teams', icon: Users },
       { path: '/dream-team', label: 'Dream XI', icon: Trophy },
       { path: '/newsletters', label: 'Newsletters', icon: FileText },
@@ -10493,6 +10495,7 @@ function AppRoutes() {
       <Route path="/claim-account" element={<ClaimAccount />} />
       <Route path="/submit-take" element={<SubmitTake />} />
       <Route path="/flag" element={<FlagData />} />
+      <Route path="/scout" element={<ScoutPage />} />
       <Route path="/academy" element={<CohortBrowser />} />
       <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
       <Route path="/academy/analytics" element={<CohortAnalytics />} />

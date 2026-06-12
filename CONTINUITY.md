@@ -76,6 +76,24 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 - Cohort ingestion remediation (in progress)
   - Validate full multi-team Full Rebuild in deployed container with timeout telemetry
   - **See `ledgers/CONTINUITY_cohort-dynamic-resolution.md`**
+- Match Video Analysis feature ("Film Room") — design complete (2026-06-10)
+  - Upload match video → GPU CV pipeline → human tag review → per-player reports; pay-per-match credits
+  - Stack: RF-DETR + BoT-SORT (roboflow/trackers) + SigLIP team clustering + own pitch-keypoint model
+    (Apache/MIT only — ultralytics YOLOv8 is AGPL, banned from serving path)
+  - Infra: ACA serverless GPU (T4) Jobs + Service Bus; COGS ≤$3.50/match; price $25/match, floor $13
+  - v1 = own-team player reports only (minors/GDPR); opposition stays anonymous
+  - Phase 0 validation spike is the gate; task 0.1 (acquire grassroots footage) is `ready`
+  - **See `ledgers/CONTINUITY_video-analysis.md`**
+- Global Talent Platform — Scout discovery + footprint expansion (2026-06-12)
+  - Goal set via /goal: #1 resource for up-and-coming talent worldwide
+  - Supported-league config now global (16 leagues, 4 regions) with separate
+    `CRAWL_LEAGUE_IDS` control so API quota stays explicit (default top-5)
+  - New public Scout API: `/api/scout/players` (browse/filter/sort),
+    `/api/scout/leaderboards`, `/api/scout/compare` — SQL-aggregated stats
+  - New `/scout` frontend page ("The Scout Desk"): leaderboards, filterable
+    ranked table, up-to-4-player comparison; Home copy globalized + Scout CTA
+  - Branch `feature/global-scout-discovery`
+  - **See `ledgers/CONTINUITY_global-talent-platform.md`**
 
 ### Next
 - Run migration: `flask db upgrade`
@@ -90,6 +108,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 CONTINUITY.md
   └─ ledgers/CONTINUITY_plan-example.md (template - rename for actual work)
   └─ ledgers/CONTINUITY_cohort-dynamic-resolution.md (in-progress)
+  └─ ledgers/CONTINUITY_video-analysis.md (design complete — Phase 0 ready)
+  └─ ledgers/CONTINUITY_global-talent-platform.md (implementation complete — PR review)
 ```
 
 ## Active Ledgers
@@ -100,6 +120,8 @@ CONTINUITY.md
 | ACADEMY_WATCH_IMPLEMENTATION_PLAN.md | in-progress | — | Phases 1-5 done, Phase 6 ready |
 | ACADEMY_WATCH_JOURNEY_REDESIGN.md | complete | — | Design doc for journey feature |
 | CONTINUITY_cohort-dynamic-resolution.md | in-progress | codex | pending live Full Rebuild validation |
+| CONTINUITY_video-analysis.md | design complete | — | Phase 0 blocked on footage acquisition (0.1) + MJ decisions (pricing, footage source) |
+| CONTINUITY_global-talent-platform.md | implementation complete | claude | awaiting PR review/merge |
 
 ## Trivial Log
 

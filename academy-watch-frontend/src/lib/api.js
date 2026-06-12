@@ -437,6 +437,20 @@ export class APIService {
         return this.request(`/players/${playerId}/commentaries`)
     }
 
+    static async getScoutPlayers(filters = {}) {
+        const params = new URLSearchParams(filters)
+        return this.request(`/scout/players?${params}`)
+    }
+
+    static async getScoutLeaderboards(filters = {}) {
+        const params = new URLSearchParams(filters)
+        return this.request(`/scout/leaderboards?${params}`)
+    }
+
+    static async compareScoutPlayers(ids = []) {
+        return this.request(`/scout/compare?ids=${ids.join(',')}`)
+    }
+
     static async getUserEmailPreferences() {
         return this.request('/user/email-preferences')
     }
