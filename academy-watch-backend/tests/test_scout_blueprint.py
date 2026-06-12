@@ -495,3 +495,116 @@ class TestSupportedLeaguesConfig:
 
         monkeypatch.setenv("CRAWL_LEAGUE_IDS", "39,71,253")
         assert get_crawl_league_ids() == [39, 71, 253]
+
+
+@pytest.fixture
+def age_seeded(scout_app):
+    """Players exercising birth_date-derived ages and owning-club exclusion."""
+    from datetime import date
+
+    with scout_app.app_context():
+        league = League(league_id=39, name="Premier League", country="England", season=2025)
+        db.session.add(league)
+        db.session.flush()
+        parent = Team(
+            team_id=33, name="Manchester United", country="England", season=2025, league_id=league.id, is_active=True
+        )
+        db.session.add(parent)
+        db.session.flush()
+
+        year = date.today().year
+        # Jan-1 birthdays make derived age exactly (year - birth_year)
+        teen = TrackedPlayer(
+            player_api_id=3001,
+            player_name="Teen Talent",
+            age=None,  # journey-sync rows never set age — only birth_date
+            birth_date=f"{year - 17}-01-01",
+            team_id=parent.id,
+            status="academy",
+            is_active=True,
+        )
+        stale = TrackedPlayer(
+            player_api_id=3002,
+            player_name="Stale Snapshot",
+            age=17,  # stored snapshot from years ago…
+            birth_date=f"{year - 24}-01-01",  # …but he is 24 now
+            team_id=parent.id,
+            status="first_team",
+            current_club_api_id=33,
+            is_active=True,
+        )
+        senior_signing = TrackedPlayer(
+            player_api_id=3003,
+            player_name="Big Money Signing",
+            age=None,
+            birth_date=f"{year - 24}-01-01",
+            team_id=parent.id,
+            status="first_team",
+            current_club_api_id=33,
+            data_source="owning-club",  # deprecated — must never surface
+            is_active=True,
+        )
+        db.session.add_all([teen, stale, senior_signing])
+
+        # Give the owning-club row stats so it would top boards if leaked
+        fixture = Fixture(
+            fixture_id_api=7000,
+            season=2025,
+            home_team_api_id=33,
+            away_team_api_id=999,
+            date_utc=datetime(2025, 10, 1),
+        )
+        db.session.add(fixture)
+        db.session.flush()
+        db.session.add(
+            FixturePlayerStats(
+                fixture_id=fixture.id,
+                player_api_id=3003,
+                team_api_id=33,
+                minutes=90,
+                goals=3,
+                assists=2,
+                rating=9.1,
+            )
+        )
+        db.session.commit()
+
+
+class TestAgeDerivationAndOwningClubExclusion:
+    def test_age_filter_derives_from_birth_date_when_age_is_null(self, scout_client, age_seeded):
+        resp = scout_client.get("/api/scout/players?max_age=18")
+        data = resp.get_json()
+        assert [p["player_id"] for p in data["players"]] == [3001]
+
+    def test_birth_date_beats_stale_stored_age(self, scout_client, age_seeded):
+        # Stored age says 17, birth_date says 24 — birth_date wins.
+        resp = scout_client.get("/api/scout/players?max_age=18")
+        ids = {p["player_id"] for p in resp.get_json()["players"]}
+        assert 3002 not in ids
+
+        resp = scout_client.get("/api/scout/players?min_age=20&max_age=30")
+        ids = {p["player_id"] for p in resp.get_json()["players"]}
+        assert 3002 in ids
+
+    def test_payload_age_is_derived_from_birth_date(self, scout_client, age_seeded):
+        resp = scout_client.get("/api/scout/players?search=Teen")
+        players = resp.get_json()["players"]
+        assert players and players[0]["age"] == 17
+
+    def test_owning_club_rows_never_surface_in_browse(self, scout_client, age_seeded):
+        resp = scout_client.get("/api/scout/players")
+        ids = {p["player_id"] for p in resp.get_json()["players"]}
+        assert 3003 not in ids
+        assert ids == {3001, 3002}
+
+    def test_owning_club_rows_never_surface_in_leaderboards(self, scout_client, age_seeded):
+        resp = scout_client.get("/api/scout/leaderboards")
+        boards = resp.get_json()["leaderboards"]
+        all_ids = {p["player_id"] for entries in boards.values() for p in entries}
+        assert 3003 not in all_ids
+
+    def test_owning_club_rows_excluded_from_compare(self, scout_client, age_seeded):
+        resp = scout_client.get("/api/scout/compare?ids=3003")
+        data = resp.get_json()
+        assert data["players"] == []
+        assert data["missing_ids"] == [3003]

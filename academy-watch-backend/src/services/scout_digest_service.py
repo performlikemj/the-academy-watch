@@ -12,7 +12,6 @@ import os
 from datetime import UTC, datetime
 
 from flask import render_template
-from sqlalchemy import case
 from src.models.league import UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.tracked_player import TrackedPlayer
@@ -47,11 +46,16 @@ def _plural(count: int, noun: str) -> str:
 
 
 def _preferred_tracked_player(player_api_id: int):
-    """Active TrackedPlayer for the id, preferring academy-origin rows."""
-    own_priority = case((TrackedPlayer.data_source == "owning-club", 1), else_=0)
+    """Active academy-origin TrackedPlayer for the id.
+
+    owning-club rows are deprecated and excluded from every scout surface —
+    surfacing them only in digest emails would advertise players the site
+    itself no longer shows.
+    """
     return (
         TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
-        .order_by(own_priority, TrackedPlayer.id)
+        .filter(TrackedPlayer.data_source != "owning-club")
+        .order_by(TrackedPlayer.id)
         .first()
     )
 

@@ -24,10 +24,11 @@ per-player compute_stats() N+1 queries.
 import csv
 import io
 import logging
+from datetime import date
 
 import bleach
 from flask import Blueprint, Response, g, jsonify, request
-from sqlalchemy import and_, case, exists, func, or_, tuple_
+from sqlalchemy import Integer, and_, case, cast, exists, func, or_, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased, joinedload
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
@@ -184,6 +185,39 @@ def _cache_stats_subquery():
     )
 
 
+def _age_expression(today=None):
+    """Player age as a SQL expression.
+
+    Derived from birth_date ('YYYY-MM-DD' string) when present, because the
+    stored age column is a point-in-time snapshot that is NULL or stale for
+    most rows; falls back to the stored column. Dialect-safe (substr/cast
+    work on both Postgres and SQLite).
+    """
+    today = today or date.today()
+    birth_year_text = func.substr(TrackedPlayer.birth_date, 1, 4)
+    birth_year = cast(birth_year_text, Integer)
+    birth_month_day = func.substr(TrackedPlayer.birth_date, 6, 5)
+    derived = case(
+        (birth_month_day > today.strftime("%m-%d"), today.year - birth_year - 1),
+        else_=today.year - birth_year,
+    )
+    # The year-range text comparison keeps a malformed value (e.g. a stray
+    # "unknown" string) from reaching CAST, which raises on Postgres and
+    # would 500 every age-filtered query.
+    return case(
+        (
+            and_(
+                TrackedPlayer.birth_date.isnot(None),
+                func.length(TrackedPlayer.birth_date) >= 10,
+                birth_year_text >= "1900",
+                birth_year_text <= "2100",
+            ),
+            derived,
+        ),
+        else_=TrackedPlayer.age,
+    )
+
+
 def _preferred_row_filter():
     """Exclude duplicate TrackedPlayer rows for the same player, preferring
     academy-origin rows over owning-club rows (see CLAUDE.md guidance)."""
@@ -235,6 +269,9 @@ def _base_scout_query():
             ),
         )
         .filter(TrackedPlayer.is_active.is_(True))
+        # owning-club rows are deprecated (senior signings, not academy
+        # products) — never surface them even before a data repair runs.
+        .filter(TrackedPlayer.data_source != "owning-club")
         .filter(_preferred_row_filter())
         # to_public_dict touches .team and .current_club — eager-load so a
         # page (or 1000-row CSV export) doesn't lazy-load per distinct club.
@@ -266,11 +303,13 @@ def _apply_filters(query, columns):
         query = query.filter(TrackedPlayer.status.in_(statuses))
 
     min_age = request.args.get("min_age", type=int)
-    if min_age is not None:
-        query = query.filter(TrackedPlayer.age >= min_age)
     max_age = request.args.get("max_age", type=int)
-    if max_age is not None:
-        query = query.filter(TrackedPlayer.age <= max_age)
+    if min_age is not None or max_age is not None:
+        age_expr = _age_expression()
+        if min_age is not None:
+            query = query.filter(age_expr >= min_age)
+        if max_age is not None:
+            query = query.filter(age_expr <= max_age)
 
     nationality = request.args.get("nationality", "").strip()
     if nationality:
@@ -313,7 +352,7 @@ def _sort_expression(sort, columns):
         "rating": columns["avg_rating"],
         "contributions": contributions,
         "per90": per90,
-        "age": TrackedPlayer.age,
+        "age": _age_expression(),
         "name": TrackedPlayer.player_name,
     }
     return sort_map.get(sort)
@@ -448,12 +487,12 @@ def scout_compare():
         except ValueError:
             return jsonify({"error": "ids must be integers"}), 400
 
-        own_priority = case((TrackedPlayer.data_source == "owning-club", 1), else_=0)
         players = []
         for player_id in player_ids:
             tracked_player = (
                 TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True)
-                .order_by(own_priority, TrackedPlayer.id)
+                .filter(TrackedPlayer.data_source != "owning-club")
+                .order_by(TrackedPlayer.id)
                 .first()
             )
             if not tracked_player:
@@ -677,7 +716,14 @@ def scout_watchlist_add():
             players = _watched_player_dicts([player_api_id])
             return jsonify({"entry": _entry_payload(existing, players.get(player_api_id))}), 200
 
-        active = TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True).first()
+        # Same row set the watchlist enrichment uses — owning-club rows are
+        # excluded there, so allowing them here would create entries that
+        # forever render empty.
+        active = (
+            TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
+            .filter(TrackedPlayer.data_source != "owning-club")
+            .first()
+        )
         if not active:
             return jsonify({"error": "No active tracked player with that id"}), 404
 

@@ -167,6 +167,23 @@ class GolPlayerLookup:
                 tracked = self._upsert_tracked_player(
                     player_id=player_id, player_block=best, journey=journey, team=parent_team
                 )
+                if tracked is None:
+                    # The journey sync above may have mutated TrackedPlayer
+                    # rows (window deactivations, rows at other academy
+                    # clubs) — refresh the GOL cache before bailing out.
+                    from src.services.gol_dataframes import DataFrameCache
+
+                    DataFrameCache.invalidate()
+                    return {
+                        "found": False,
+                        "player_name": player.get("name") or player_name,
+                        "team": parent_team.name,
+                        "message": (
+                            f"{player.get('name', player_name)} is outside the academy tracking "
+                            "window — we track players in an academy now or within the past 4 seasons."
+                        ),
+                        "rate_limited": False,
+                    }
             except Exception as exc:
                 db.session.rollback()
                 logger.exception("Failed to persist tracked player for %s", player_id)
@@ -355,7 +372,7 @@ class GolPlayerLookup:
 
     def _upsert_tracked_player(
         self, player_id: int, player_block: dict, journey: PlayerJourney | None, team: Team
-    ) -> TrackedPlayer:
+    ) -> TrackedPlayer | None:
         """Create or refresh a TrackedPlayer row for this player and parent team."""
         player = player_block.get("player") or {}
         bio = player.get("birth") or {}
@@ -395,6 +412,16 @@ class GolPlayerLookup:
             team_id=team.id,
         ).first()
 
+        # Tracking-window gate for NEW rows: only academy players current or
+        # within the past ACADEMY_WINDOW_YEARS seasons may be added. Existing
+        # rows are refreshed as usual — repair endpoints govern their liveness.
+        from src.utils.academy_window import is_within_academy_window, last_academy_season_for
+
+        last_academy_season = last_academy_season_for(journey, team.team_id)
+        if not existing:
+            if not is_within_academy_window(last_academy_season, status=status, birth_date=bio.get("date")):
+                return None
+
         if existing:
             # Never overwrite a real name with a placeholder from a failed
             # profile fetch — fall back to local sources first.
@@ -404,6 +431,8 @@ class GolPlayerLookup:
             existing.nationality = player.get("nationality") or existing.nationality
             existing.birth_date = bio.get("date") or existing.birth_date
             existing.age = age if age is not None else existing.age
+            if last_academy_season is not None:
+                existing.last_academy_season = last_academy_season
             existing.status = status
             existing.current_level = current_level or existing.current_level
             existing.current_club_api_id = current_club_api_id
@@ -431,6 +460,7 @@ class GolPlayerLookup:
             data_source="api-football",
             data_depth="full_stats",
             journey_id=journey.id if journey else None,
+            last_academy_season=last_academy_season,
             is_active=True,
         )
         db.session.add(tracked)

@@ -289,28 +289,30 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
                     exc,
                 )
 
-    # Clean up stale academy-origin rows superseded by owning-club rows
+    # Clean up deprecated owning-club duplicates. The academy-origin row is
+    # the canonical one (clubs track their OWN academy products); an
+    # owning-club duplicate must never supersede it — scout/teams surfaces
+    # exclude owning-club rows entirely, so retiring the academy row here
+    # would make the player invisible everywhere.
     if not dry_run:
         try:
             stale = db.session.execute(
                 text("""
                 UPDATE tracked_players SET is_active = false
                 WHERE id IN (
-                    SELECT a.id FROM tracked_players a
+                    SELECT b.id FROM tracked_players a
                     JOIN tracked_players b ON a.player_api_id = b.player_api_id
                     WHERE a.is_active = true AND b.is_active = true
                       AND a.id != b.id
                       AND a.data_source != 'owning-club'
                       AND b.data_source = 'owning-club'
-                      AND a.status = 'on_loan'
-                      AND b.status IN ('first_team', 'sold', 'released')
                 )
             """)
             )
             stale_count = stale.rowcount
             if stale_count:
                 db.session.commit()
-                logger.info("transfer-heal: deactivated %d stale duplicate rows", stale_count)
+                logger.info("transfer-heal: deactivated %d owning-club duplicate rows", stale_count)
         except Exception as exc:
             logger.warning("transfer-heal: stale row cleanup failed: %s", exc)
 

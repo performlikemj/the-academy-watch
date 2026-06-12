@@ -98,6 +98,7 @@ def _run_full_rebuild(job_id, config):
     from src.services.journey_sync import JourneySyncService, seed_club_locations
     from src.services.youth_competition_resolver import build_academy_league_seed_rows
     from src.utils.academy_classifier import _get_latest_season, classify_tracked_player
+    from src.utils.academy_window import is_within_academy_window, last_academy_season_for
     from src.utils.background_jobs import is_job_cancelled, update_job
 
     if config.get("team_ids"):
@@ -388,6 +389,11 @@ def _run_full_rebuild(job_id, config):
 
                     current_level = journey.current_level if journey and journey.current_level else None
 
+                    last_academy_season = last_academy_season_for(journey, parent_api_id)
+                    if not is_within_academy_window(last_academy_season, status=status, birth_date=birth_date):
+                        skipped += 1
+                        continue
+
                     tp = TrackedPlayer(
                         player_api_id=pid,
                         player_name=player_name,
@@ -404,6 +410,7 @@ def _run_full_rebuild(job_id, config):
                         data_source="api-football",
                         data_depth="full_stats",
                         journey_id=journey.id if journey else None,
+                        last_academy_season=last_academy_season,
                     )
                     db.session.add(tp)
                     created += 1
