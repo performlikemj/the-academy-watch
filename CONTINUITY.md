@@ -109,6 +109,11 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
     rows removed; repair endpoints (recompute-academy, backfill-names) ran
     locally: 221 misattributed rows deactivated, 1,128 placeholder names
     fixed; PROD: run both repair endpoints (dry_run first) after merge
+  - Final-form provenance (slice 6): typing-layer precedence bug fixed
+    (integration checks before development shield; buy-back + teenage
+    guards); recompute re-types stored entries; profile completeness
+    backfill (position/birth/age/nationality) + opt-in capped API fetch
+    mode. Malacia entry now honestly 'integration', 0 active rows.
   - Live-validated: 16 leagues + 335 teams synced; PR #419 green, awaiting MJ
   - Side-fix: PR #420 (merged) repaired Dependabot-corrupted pnpm-lock.yaml
     that was failing ALL frontend CI; react-hooks v7 rules pinned to warn
