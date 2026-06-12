@@ -10,10 +10,12 @@ import logging
 from collections import defaultdict
 
 from flask import Blueprint, jsonify, request
-from src.models.journey import YOUTH_LEVELS, ClubLocation, PlayerJourney
-from src.models.league import Team, TeamProfile
+from src.auth import require_api_key
+from src.models.journey import YOUTH_LEVELS, ClubLocation, PlayerJourney, PlayerJourneyEntry
+from src.models.league import Team, TeamProfile, db
 from src.models.tracked_player import TrackedPlayer
 from src.utils.geocoding import get_team_coordinates
+from src.utils.player_names import is_placeholder_name, resolve_player_profile
 
 journey_bp = Blueprint("journey", __name__)
 logger = logging.getLogger(__name__)
@@ -99,6 +101,198 @@ def get_loan_journey(loaned_player_id):
             **journey_data,
         }
     )
+
+
+# =============================================================================
+# Admin Repair Endpoints
+# =============================================================================
+
+
+@journey_bp.route("/admin/journeys/recompute-academy", methods=["POST"])
+@require_api_key
+def admin_recompute_academy():
+    """Recompute academy_club_ids for journeys with entries, then deactivate
+    TrackedPlayer rows that contradict academy provenance.
+
+    Body: {"dry_run": bool (default true), "limit": int|null}
+
+    A row contradicts provenance when:
+    - its data_source is 'owning-club' (deprecated mechanism), OR
+    - it is linked to a journey with entries whose recomputed
+      academy_club_ids do not include the row's parent club.
+    Pinned and manual rows are never touched.
+    """
+    from src.services.journey_sync import JourneySyncService
+
+    data = request.get_json(silent=True) or {}
+    dry_run = bool(data.get("dry_run", True))
+    limit = data.get("limit")
+
+    service = JourneySyncService()
+
+    journeys_query = PlayerJourney.query.filter(
+        PlayerJourney.id.in_(db.session.query(PlayerJourneyEntry.journey_id))
+    ).order_by(PlayerJourney.id)
+    if limit:
+        journeys_query = journeys_query.limit(int(limit))
+    journeys = journeys_query.all()
+
+    journeys_processed = 0
+    journeys_changed = 0
+    deactivated_ids = set()
+    examples = []
+    recomputed = {}
+
+    def _record_deactivation(tp, reason):
+        deactivated_ids.add(tp.id)
+        if len(examples) < 20:
+            examples.append(
+                {
+                    "player_name": tp.player_name,
+                    "parent_team": tp.team.name if tp.team else None,
+                    "data_source": tp.data_source,
+                    "reason": reason,
+                }
+            )
+
+    for journey in journeys:
+        old_ids = sorted(journey.academy_club_ids or [])
+        before_active = TrackedPlayer.query.filter_by(
+            player_api_id=journey.player_api_id,
+            is_active=True,
+        ).all()
+        try:
+            # Recomputes academy_club_ids AND runs the tracked-player upsert
+            # (creates academy rows, deactivates non-academy rows). Nothing
+            # in this path commits, so dry-run can roll back at the end.
+            service._compute_academy_club_ids(journey)
+        except Exception as exc:
+            logger.warning("recompute-academy failed for journey %s: %s", journey.id, exc)
+            continue
+        journeys_processed += 1
+        new_ids = sorted(journey.academy_club_ids or [])
+        recomputed[journey.id] = set(new_ids)
+        if old_ids != new_ids:
+            journeys_changed += 1
+        for tp in before_active:
+            if tp.is_active is False and tp.id not in deactivated_ids:
+                _record_deactivation(tp, "deactivated by journey upsert (parent is not an academy origin)")
+
+    # ── Contradiction sweep across TrackedPlayer ──
+    active_rows = TrackedPlayer.query.filter(TrackedPlayer.is_active.is_(True)).all()
+    for tp in active_rows:
+        if tp.pinned_parent or tp.data_source == "manual":
+            continue
+        reason = None
+        if tp.data_source == "owning-club":
+            reason = "owning-club rows are deprecated"
+        elif tp.journey_id in recomputed:
+            parent_api_id = tp.team.team_id if tp.team else None
+            if parent_api_id is not None and parent_api_id not in recomputed[tp.journey_id]:
+                reason = "parent club not in recomputed academy_club_ids"
+        if reason:
+            tp.is_active = False
+            if tp.id not in deactivated_ids:
+                _record_deactivation(tp, reason)
+
+    response = {
+        "journeys_processed": journeys_processed,
+        "journeys_changed": journeys_changed,
+        "rows_deactivated": len(deactivated_ids),
+        "examples": examples,
+        "dry_run": dry_run,
+    }
+
+    if dry_run:
+        db.session.rollback()
+    else:
+        db.session.commit()
+
+    return jsonify(response)
+
+
+@journey_bp.route("/admin/players/backfill-names", methods=["POST"])
+@require_api_key
+def admin_backfill_player_names():
+    """Backfill placeholder names ('Player NNNN') from local sources.
+
+    Body: {"dry_run": bool (default true)}
+
+    Fixes TrackedPlayer (active or not), the players table, and
+    player_journeys. Names are resolved via CohortMember ->
+    AcademyPlayerSeasonStats -> Player -> PlayerJourney; placeholder names
+    never overwrite real ones.
+    """
+    from src.models.league import Player
+
+    data = request.get_json(silent=True) or {}
+    dry_run = bool(data.get("dry_run", True))
+
+    examples = []
+    unresolved = 0
+
+    def _record(player_api_id, old, new):
+        if len(examples) < 20:
+            examples.append({"player_api_id": player_api_id, "old": old, "new": new})
+
+    # TrackedPlayer rows (active or not)
+    tracked_updated = 0
+    for tp in TrackedPlayer.query.filter(TrackedPlayer.player_name.like("Player %")).all():
+        if not is_placeholder_name(tp.player_name):
+            continue
+        profile = resolve_player_profile(tp.player_api_id)
+        if not profile["name"]:
+            unresolved += 1
+            continue
+        _record(tp.player_api_id, tp.player_name, profile["name"])
+        tp.player_name = profile["name"]
+        if tp.photo_url is None and profile["photo"]:
+            tp.photo_url = profile["photo"]
+        if tp.nationality is None and profile["nationality"]:
+            tp.nationality = profile["nationality"]
+        tracked_updated += 1
+
+    # players table
+    players_updated = 0
+    for player in Player.query.filter(Player.name.like("Player %")).all():
+        if not is_placeholder_name(player.name):
+            continue
+        profile = resolve_player_profile(player.player_id)
+        if not profile["name"]:
+            unresolved += 1
+            continue
+        _record(player.player_id, player.name, profile["name"])
+        player.name = profile["name"]
+        players_updated += 1
+
+    # player_journeys
+    journeys_updated = 0
+    for journey in PlayerJourney.query.filter(PlayerJourney.player_name.like("Player %")).all():
+        if not is_placeholder_name(journey.player_name):
+            continue
+        profile = resolve_player_profile(journey.player_api_id)
+        if not profile["name"]:
+            unresolved += 1
+            continue
+        _record(journey.player_api_id, journey.player_name, profile["name"])
+        journey.player_name = profile["name"]
+        journeys_updated += 1
+
+    response = {
+        "tracked_updated": tracked_updated,
+        "players_updated": players_updated,
+        "journeys_updated": journeys_updated,
+        "unresolved": unresolved,
+        "examples": examples,
+        "dry_run": dry_run,
+    }
+
+    if dry_run:
+        db.session.rollback()
+    else:
+        db.session.commit()
+
+    return jsonify(response)
 
 
 # =============================================================================

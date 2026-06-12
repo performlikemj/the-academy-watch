@@ -148,6 +148,8 @@ Player tracking in `models/tracked_player.py`:
 - `compute_stats()` method aggregates from `FixturePlayerStats` (full coverage) or `PlayerStatsCache` (limited coverage)
 - `current_club_api_id` / `current_club_db_id` - where the player currently plays (loan destination or buying club)
 - `team_id` - parent academy club (origin)
+- `data_source='owning-club'` rows are **deprecated and auto-deactivated** — clubs only track players whose journey shows academy formation at that club (prior-senior-career rule in `JourneySyncService._compute_academy_club_ids`). The journey upsert never creates owning-club rows and deactivates any active row at the owning (buying) club unless it is pinned or manual
+- `player_name` must always be a real name — placeholder `Player NNNN` names are resolved via `resolve_player_name()` in `utils/player_names.py` (CohortMember → AcademyPlayerSeasonStats → Player → PlayerJourney); a placeholder must never overwrite a real name
 
 Journey models in `models/journey.py`:
 - `PlayerJourney` - master career record per player
@@ -171,7 +173,7 @@ The `AcademyPlayer` (table `loaned_players`) and `SupplementalLoan` (table `supp
 `classify_tracked_player()` in `utils/academy_classifier.py` determines player status:
 - Uses journey data + transfer history to classify as academy/on_loan/first_team/sold/released
 - For sold/released players, preserves `current_club_api_id` (destination club)
-- Prefer academy-origin TrackedPlayer rows over owning-club rows in queries (use `data_source != 'owning-club'` ordering)
+- `owning-club` rows are deprecated and auto-deactivated: clubs only track players whose journey shows academy formation at that club (prior-senior-career rule). Active rows therefore need no owning-club ordering in queries; admin repair lives at `POST /api/admin/journeys/recompute-academy` (and `POST /api/admin/players/backfill-names` for placeholder names)
 
 ### Journey Sync
 `JourneySyncService` in `services/journey_sync.py`:

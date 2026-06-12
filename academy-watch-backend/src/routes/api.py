@@ -97,6 +97,7 @@ from src.utils.background_jobs import (
     update_job as _update_job,
 )
 from src.utils.newsletter_slug import compose_newsletter_public_slug
+from src.utils.player_names import resolve_player_name
 from src.utils.sanitize import sanitize_comment_body, sanitize_commentary_html, sanitize_plain_text
 from src.utils.slug import resolve_team_by_identifier
 from werkzeug.exceptions import HTTPException
@@ -11725,7 +11726,7 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
             pi = squad_entry.get("player") or {}
             stats_list = squad_entry.get("statistics") or []
 
-            player_name = (journey.player_name if journey else None) or pi.get("name") or f"Player {pid}"
+            player_name = resolve_player_name(pid, journey.player_name if journey else None, pi.get("name"))
             photo_url = (journey.player_photo if journey else None) or pi.get("photo")
             nationality = (journey.nationality if journey else None) or pi.get("nationality")
             birth_date = (journey.birth_date if journey else None) or (pi.get("birth") or {}).get("date")
