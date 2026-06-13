@@ -1126,6 +1126,73 @@ class TestUpgradeStatusFromTransfers:
         assert upgrade_status_from_transfers("on_loan", transfers, 33) == "on_loan"
 
 
+class TestTransferUpgradeIgnoresConfigFlag:
+    """The loan→sold/released upgrade must run even when the active config
+    has use_transfers_for_status disabled.
+
+    Regression: the 'Big 6 Standard' RebuildConfig stored
+    use_transfers_for_status=False, which silently disabled sold-detection
+    platform-wide — a permanently-transferred player (Garnacho sold to
+    Chelsea) stayed classified on_loan instead of sold.
+    """
+
+    GARNACHO_TRANSFERS = [
+        {
+            "type": "Transfer",
+            "date": "2025-08-30",
+            "teams": {"out": {"id": 33}, "in": {"id": 49}},
+        }
+    ]
+
+    def _classify(self, flag):
+        from src.utils.academy_classifier import classify_tracked_player
+
+        return classify_tracked_player(
+            current_club_api_id=49,  # Chelsea (buying club)
+            current_club_name="Chelsea",
+            current_level="First Team",
+            parent_api_id=33,  # Manchester United (academy)
+            parent_club_name="Manchester United",
+            transfers=self.GARNACHO_TRANSFERS,
+            config={"use_transfers_for_status": flag, "use_squad_check": False},
+        )
+
+    def test_sold_when_flag_disabled(self):
+        """Permanent sale → 'sold' even with use_transfers_for_status=False."""
+        status, club_id, club_name = self._classify(flag=False)
+        assert status == "sold"
+        assert club_id == 49
+        assert club_name == "Chelsea"
+
+    def test_sold_when_flag_enabled(self):
+        """Same result with the flag enabled — behaviour is now flag-agnostic."""
+        status, club_id, club_name = self._classify(flag=True)
+        assert status == "sold"
+        assert club_id == 49
+        assert club_name == "Chelsea"
+
+    def test_genuine_loan_still_on_loan_with_flag_disabled(self):
+        """A real loan departure must NOT be promoted to sold."""
+        from src.utils.academy_classifier import classify_tracked_player
+
+        status, _club_id, _club_name = classify_tracked_player(
+            current_club_api_id=62,  # loan destination
+            current_club_name="Some Club",
+            current_level="First Team",
+            parent_api_id=33,
+            parent_club_name="Manchester United",
+            transfers=[
+                {
+                    "type": "Loan",
+                    "date": "2025-08-01",
+                    "teams": {"out": {"id": 33}, "in": {"id": 62}},
+                }
+            ],
+            config={"use_transfers_for_status": False, "use_squad_check": False},
+        )
+        assert status == "on_loan"
+
+
 class TestComputeAcademyClubIdsExcludesIntegration:
     """Test that _compute_academy_club_ids excludes integration entries"""
 

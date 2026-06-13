@@ -525,7 +525,10 @@ def _get_active_classification_config() -> dict[str, Any]:
     """Load classification rules from the active RebuildConfig.
 
     Returns a dict with keys:
-        use_transfers_for_status (bool, default True)
+        use_transfers_for_status (bool, default True) — retained for
+            backward compatibility only; the loan→sold/released upgrade now
+            always runs regardless of this flag (see classify_tracked_player
+            Step 2). It no longer suppresses sold-detection.
         inactivity_release_years (int | None, default None)
 
     Uses a module-level cache with 5-minute TTL to avoid a DB query on
@@ -637,7 +640,8 @@ def classify_tracked_player(
     Applies these rules in order:
     1. Base status derivation (academy / first_team / on_loan)
     2. Transfer-based upgrade (on_loan → sold / released)
-       — controlled by ``config['use_transfers_for_status']``
+       — always runs when transfer data is available (core correctness;
+         a permanent departure must never read as a loan)
     2.5. Squad cross-reference (on_loan players only)
        — if player absent from loan club squad, check parent squad;
          returned to parent → academy/first_team, absent from both → released
@@ -652,8 +656,8 @@ def classify_tracked_player(
         parent_api_id: Parent / academy club API-Football ID.
         parent_club_name: Parent / academy club name.
         transfers: Pre-fetched *flat* transfer list (already flattened).
-            When ``None`` and ``use_transfers_for_status`` is True the
-            function will attempt to fetch via *api_client*.
+            When ``None`` the function will attempt to fetch via
+            *api_client* (if *player_api_id* is also supplied).
         player_api_id: Required when transfers must be fetched on demand.
         api_client: ``APIFootballClient`` instance for on-demand fetch.
         config: Classification config dict.  When ``None`` the active
@@ -690,7 +694,16 @@ def classify_tracked_player(
         reasoning: list[dict] = []
 
     # ── Step 2: transfer-based upgrade ────────────────────────────────
-    if status == "on_loan" and config.get("use_transfers_for_status", True):
+    # The loan→sold/released upgrade is core correctness, not a tunable: a
+    # permanent departure (sale or free transfer) must never read as a loan.
+    # This step therefore always runs when transfer data is available and is
+    # NOT gated by config['use_transfers_for_status']. That flag used to
+    # suppress this entire step; with the active config storing it False,
+    # sold-detection silently died platform-wide — every permanently
+    # transferred player (e.g. Garnacho sold to Chelsea) was stuck at
+    # on_loan. The upgrade itself is conservative (only promotes when the
+    # latest parent departure is non-loan), so genuine loans stay on_loan.
+    if status == "on_loan":
         effective_transfers = transfers
         if effective_transfers is None and player_api_id and api_client:
             try:
