@@ -1,4 +1,9 @@
-"""Tests for subscriptions blueprint endpoints in src/routes/subscriptions.py."""
+"""Tests for the live /subscriptions endpoints in src/routes/api.py.
+
+Historical note: these tests originally targeted src/routes/subscriptions.py,
+a dead duplicate blueprint that was never registered in main.py. That file
+has been deleted; the same coverage now runs against the live api_bp routes.
+"""
 
 import os
 import uuid
@@ -15,17 +20,27 @@ ADMIN_KEY = "test-admin-key"
 def _set_admin_key(monkeypatch):
     """Set admin API key for all tests."""
     monkeypatch.setenv("ADMIN_API_KEY", ADMIN_KEY)
-    # Disable email verification for most tests
+    # Disable email verification for most tests. The env var alone is not
+    # enough: src/routes/api.py reads it into a module constant at import
+    # time, so patch the module attribute too.
     monkeypatch.setenv("SUBSCRIPTIONS_REQUIRE_VERIFY", "0")
+    import src.routes.api as api_module
+
+    monkeypatch.setattr(api_module, "SUBSCRIPTIONS_REQUIRE_VERIFY", False, raising=False)
+    # The live route notifies the admin by email on subscription changes —
+    # stub it so tests never touch Mailgun.
+    import src.services.admin_notify_service as notify_module
+
+    monkeypatch.setattr(notify_module, "notify_subscription_change", lambda *a, **k: None, raising=False)
 
 
 @pytest.fixture
 def subscriptions_app():
-    """Create a minimal Flask app with subscriptions blueprint registered."""
+    """Create a minimal Flask app with the live api blueprint registered."""
     os.environ.setdefault("SKIP_API_HANDSHAKE", "1")
     os.environ.setdefault("API_USE_STUB_DATA", "true")
 
-    from src.routes.subscriptions import subscriptions_bp
+    from src.routes.api import api_bp
 
     root_dir = os.path.dirname(os.path.dirname(__file__))
     template_dir = os.path.join(root_dir, "src", "templates")
@@ -40,7 +55,7 @@ def subscriptions_app():
     )
 
     db.init_app(app)
-    app.register_blueprint(subscriptions_bp, url_prefix="/api")
+    app.register_blueprint(api_bp, url_prefix="/api")
 
     with app.app_context():
         db.create_all()

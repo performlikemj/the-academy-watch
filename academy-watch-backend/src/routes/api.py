@@ -2745,7 +2745,11 @@ def verify_email_token(token: str):
 def delete_subscription(subscription_id):
     """Unsubscribe from newsletter."""
     try:
-        subscription = UserSubscription.query.get_or_404(subscription_id)
+        # Not get_or_404: the broad except below would turn the NotFound
+        # HTTPException into a 500, masking the real status.
+        subscription = db.session.get(UserSubscription, subscription_id)
+        if subscription is None:
+            return jsonify({"error": "Subscription not found"}), 404
         subscription.active = False
         db.session.commit()
 
@@ -11140,126 +11144,24 @@ def admin_explain_academy():
 @api_bp.route("/admin/tracked-players/recompute-academy-ids", methods=["POST"])
 @require_api_key
 def admin_recompute_academy_ids():
-    """Batch recompute origins and academy_club_ids for all journeys.
+    """410 Gone — retired single-transaction recompute.
 
-    Replays _update_journey_aggregates() which resolves youth-team origins
-    to parent clubs and recomputes academy_club_ids with current rules.
-    Players whose academy_club_ids shrinks will have orphaned TrackedPlayer
-    rows deactivated.
-
-    Body (optional): { dry_run?: bool (default true) }
+    The old implementation replayed every journey in one giant transaction
+    and took production down. Use the cursor-paged replacement instead:
+    POST /api/admin/journeys/recompute-academy
+    (body: {dry_run, limit, cursor}; page until next_cursor is null).
     """
-    data = request.get_json(force=True) if request.data else {}
-    dry_run = data.get("dry_run", True)
-
-    try:
-        from src.models.journey import PlayerJourney, PlayerJourneyEntry
-        from src.services.journey_sync import JourneySyncService
-
-        service = JourneySyncService()
-
-        journeys = PlayerJourney.query.filter(
-            PlayerJourney.academy_club_ids.isnot(None),
-            db.func.jsonb_array_length(PlayerJourney.academy_club_ids) > 0,
-        ).all()
-
-        changes = []
-        unchanged = 0
-        total = len(journeys)
-
-        # Use a savepoint so dry-run can roll back all mutations
-        # (_apply_development_classification mutates entry_type,
-        # _compute_academy_club_ids writes academy_club_ids and
-        # calls _upsert_tracked_players).
-        if dry_run:
-            savepoint = db.session.begin_nested()
-
-        for journey in journeys:
-            old_ids = set(journey.academy_club_ids or [])
-            old_origin_id = journey.origin_club_api_id
-            old_origin_name = journey.origin_club_name
-
-            entries = (
-                PlayerJourneyEntry.query.filter_by(journey_id=journey.id).order_by(PlayerJourneyEntry.season).all()
-            )
-
-            if not entries:
-                continue
-
-            # Fetch transfers for enhanced integration detection
-            transfers = []
-            try:
-                from src.api_football_client import APIFootballClient
-
-                api_client = APIFootballClient()
-                raw = api_client.get_player_transfers(journey.player_api_id)
-                transfers = flatten_transfers(raw)
-            except Exception:
-                pass
-
-            # Re-run development classification on entries
-            service._apply_development_classification(
-                entries,
-                transfers=transfers,
-                birth_date=journey.birth_date,
-            )
-
-            # Re-run journey aggregates (origin resolution + academy computation).
-            # _update_journey_aggregates resolves youth origins to parent clubs
-            # and internally calls _compute_academy_club_ids.
-            service._update_journey_aggregates(journey, transfers=transfers)
-            new_ids = set(journey.academy_club_ids or [])
-
-            removed = old_ids - new_ids
-            added = new_ids - old_ids
-            origin_changed = journey.origin_club_api_id != old_origin_id or journey.origin_club_name != old_origin_name
-
-            if removed or added or origin_changed:
-                change = {
-                    "player_api_id": journey.player_api_id,
-                    "player_name": journey.player_name,
-                    "old_academy_ids": sorted(old_ids),
-                    "new_academy_ids": sorted(new_ids),
-                    "removed": sorted(removed),
-                    "added": sorted(added),
-                }
-                if origin_changed:
-                    change["old_origin"] = {
-                        "api_id": old_origin_id,
-                        "name": old_origin_name,
-                    }
-                    change["new_origin"] = {
-                        "api_id": journey.origin_club_api_id,
-                        "name": journey.origin_club_name,
-                    }
-                changes.append(change)
-            else:
-                unchanged += 1
-
-        if dry_run:
-            # Roll back all mutations — entry_type changes, academy_club_ids,
-            # and any TrackedPlayer deactivations from _upsert_tracked_players
-            savepoint.rollback()
-            deactivated = sum(len(c["removed"]) for c in changes)
-        else:
-            db.session.commit()
-            deactivated = sum(len(c["removed"]) for c in changes)
-
-        return jsonify(
-            {
-                "dry_run": dry_run,
-                "total_journeys": total,
-                "unchanged": unchanged,
-                "changed": len(changes),
-                "would_deactivate" if dry_run else "deactivated": deactivated,
-                "changes": changes[:100],
-                "truncated": len(changes) > 100,
-            }
-        )
-    except Exception as e:
-        logger.exception("admin_recompute_academy_ids failed")
-        db.session.rollback()
-        return jsonify(_safe_error_payload(e, "Recompute failed")), 500
+    return jsonify(
+        {
+            "error": "Endpoint removed",
+            "message": (
+                "This single-transaction recompute was retired. Use the "
+                "cursor-paged endpoint instead and page until next_cursor "
+                "is null."
+            ),
+            "use": "/api/admin/journeys/recompute-academy",
+        }
+    ), 410
 
 
 @api_bp.route("/admin/api-football/status", methods=["GET"])

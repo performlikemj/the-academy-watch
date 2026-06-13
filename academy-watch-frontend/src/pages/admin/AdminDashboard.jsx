@@ -1,142 +1,271 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Mail, Users, Shield, Settings, GraduationCap, UserPlus, FileText, Loader2, RotateCcw, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Mail, Users, Shield, GraduationCap, Inbox, Sprout, ArrowRight, Activity } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { APIService } from '@/lib/api'
-import { useBackgroundJobs } from '@/context/BackgroundJobsContext'
+import { fetchInboxCounts } from './AdminInbox'
 
-export function AdminDashboard() {
-    const [stats, setStats] = useState({
-        players: { total: 0, academy: 0, on_loan: 0, first_team: 0, released: 0 },
-        teams: { tracked: 0 },
-        newsletters: { total: 0, published: 0, drafts: 0 },
-    })
+const QUICK_ACTIONS = [
+    {
+        title: 'Inbox',
+        description: 'Review pending submissions, takes, flags, and requests',
+        icon: Inbox,
+        href: '/admin/inbox',
+        iconBg: 'bg-rose-100',
+        iconColor: 'text-rose-600',
+    },
+    {
+        title: 'Manage Players',
+        description: 'View and manage all tracked academy players',
+        icon: Users,
+        href: '/admin/players',
+        iconBg: 'bg-blue-100',
+        iconColor: 'text-blue-600',
+    },
+    {
+        title: 'Manage Teams',
+        description: 'Track/untrack teams and configure data',
+        icon: Shield,
+        href: '/admin/teams',
+        iconBg: 'bg-indigo-100',
+        iconColor: 'text-indigo-600',
+    },
+    {
+        title: 'Seeding & Rebuild',
+        description: 'Seed players per team, all tracked, cohorts, or full rebuild',
+        icon: Sprout,
+        href: '/admin/seeding',
+        iconBg: 'bg-green-100',
+        iconColor: 'text-green-600',
+    },
+    {
+        title: 'Generate Newsletter',
+        description: 'Create newsletters for selected teams',
+        icon: Mail,
+        href: '/admin/newsletters',
+        iconBg: 'bg-orange-100',
+        iconColor: 'text-orange-600',
+    },
+    {
+        title: 'Users & Writers',
+        description: 'Manage users, invite writers, and assign team coverage',
+        icon: GraduationCap,
+        href: '/admin/users',
+        iconBg: 'bg-purple-100',
+        iconColor: 'text-purple-600',
+    },
+]
 
-    const { isBlocking, refresh: refreshJobs } = useBackgroundJobs()
+function StatTile({ label, value, ok, okLabel = 'OK', warnLabel = 'needs repair', testId }) {
+    return (
+        <div className="border rounded-lg p-3 space-y-1" data-testid={testId}>
+            <p className="text-xs text-muted-foreground">{label}</p>
+            <div className="flex items-center gap-2">
+                <span className="text-xl font-bold">{value}</span>
+                {ok !== undefined && (
+                    ok
+                        ? <Badge className="bg-emerald-50 text-emerald-800 border-emerald-200">{okLabel}</Badge>
+                        : <Badge className="bg-amber-50 text-amber-800 border-amber-200">{warnLabel}</Badge>
+                )}
+            </div>
+        </div>
+    )
+}
 
-    // Full rebuild state
-    const [rebuildJobId, setRebuildJobId] = useState(null)
-    const [rebuildMessage, setRebuildMessage] = useState(null)
-    const [confirmOpen, setConfirmOpen] = useState(false)
-    const wasBlockingRef = useRef(false)
+function OpsSnapshotStrip() {
+    const [ops, setOps] = useState(null)
+    const [failed, setFailed] = useState(false)
 
-    const rebuildRunning = isBlocking
-
-    const loadStats = useCallback(async () => {
-        try {
-            const data = await APIService.request('/admin/dashboard-stats', {}, { admin: true })
-            setStats(data)
-        } catch (error) {
-            console.error('Failed to load dashboard stats:', error)
+    useEffect(() => {
+        let cancelled = false
+        const load = async () => {
+            try {
+                const data = await APIService.adminOpsOverview()
+                if (!cancelled) setOps(data)
+            } catch {
+                if (!cancelled) setFailed(true)
+            }
         }
+        load()
+        return () => { cancelled = true }
     }, [])
 
+    return (
+        <Card data-testid="ops-snapshot">
+            <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <Activity className="h-4 w-4" />
+                            Ops Snapshot
+                        </CardTitle>
+                        <CardDescription>Data health at a glance</CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm" asChild data-testid="ops-snapshot-link">
+                        <Link to="/admin/operations">
+                            Open Operations
+                            <ArrowRight className="h-4 w-4 ml-1" />
+                        </Link>
+                    </Button>
+                </div>
+            </CardHeader>
+            <CardContent>
+                {failed ? (
+                    <p className="text-sm text-muted-foreground">
+                        Ops overview unavailable — open <Link to="/admin/operations" className="underline">Operations</Link> for details.
+                    </p>
+                ) : !ops ? (
+                    <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+                        {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
+                    </div>
+                ) : (
+                    <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+                        <StatTile
+                            label="Active tracked players"
+                            value={ops.tracked?.active ?? 0}
+                            testId="ops-tile-active"
+                        />
+                        <StatTile
+                            label="Placeholder names"
+                            value={ops.tracked?.placeholder_names ?? 0}
+                            ok={(ops.tracked?.placeholder_names ?? 0) === 0}
+                            testId="ops-tile-placeholders"
+                        />
+                        <StatTile
+                            label="Owning-club actives"
+                            value={ops.tracked?.owning_club_active ?? 0}
+                            ok={(ops.tracked?.owning_club_active ?? 0) === 0}
+                            testId="ops-tile-owning-club"
+                        />
+                        <StatTile
+                            label="Active jobs"
+                            value={ops.jobs?.active ?? 0}
+                            testId="ops-tile-jobs"
+                        />
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    )
+}
+
+function prettyTabLabel(key) {
+    return String(key)
+        .replace(/[_-]+/g, ' ')
+        .replace(/^\w/, (c) => c.toUpperCase())
+}
+
+function InboxPendingStrip() {
+    const [counts, setCounts] = useState(null)
+    const [failed, setFailed] = useState(false)
+
     useEffect(() => {
+        let cancelled = false
+        const load = async () => {
+            try {
+                const data = await fetchInboxCounts()
+                if (!cancelled) setCounts(data)
+            } catch {
+                if (!cancelled) setFailed(true)
+            }
+        }
+        load()
+        return () => { cancelled = true }
+    }, [])
+
+    const entries = counts && typeof counts === 'object'
+        ? Object.entries(counts).filter(([, v]) => typeof v === 'number')
+        : []
+    const total = typeof counts === 'number'
+        ? counts
+        : entries.reduce((sum, [, v]) => sum + v, 0)
+
+    return (
+        <Card data-testid="inbox-pending">
+            <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <Inbox className="h-4 w-4" />
+                            Inbox
+                            {counts !== null && !failed && (
+                                <Badge className={total > 0 ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}>
+                                    {total} pending
+                                </Badge>
+                            )}
+                        </CardTitle>
+                        <CardDescription>Items waiting on a decision</CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm" asChild data-testid="inbox-pending-link">
+                        <Link to="/admin/inbox">
+                            Open Inbox
+                            <ArrowRight className="h-4 w-4 ml-1" />
+                        </Link>
+                    </Button>
+                </div>
+            </CardHeader>
+            <CardContent>
+                {failed ? (
+                    <p className="text-sm text-muted-foreground">
+                        Inbox counts unavailable — open the <Link to="/admin/inbox" className="underline">Inbox</Link> directly.
+                    </p>
+                ) : counts === null ? (
+                    <Skeleton className="h-6 w-2/3" />
+                ) : entries.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Nothing pending. Inbox zero.</p>
+                ) : (
+                    <div className="flex flex-wrap gap-2">
+                        {entries.map(([key, value]) => (
+                            <Badge
+                                key={key}
+                                variant="outline"
+                                className={value > 0 ? 'border-amber-300 bg-amber-50 text-amber-900' : 'text-muted-foreground'}
+                            >
+                                {prettyTabLabel(key)}: {value}
+                            </Badge>
+                        ))}
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    )
+}
+
+export function AdminDashboard() {
+    const [stats, setStats] = useState(null)
+
+    useEffect(() => {
+        let cancelled = false
+        const loadStats = async () => {
+            try {
+                const data = await APIService.request('/admin/dashboard-stats', {}, { admin: true })
+                if (!cancelled) setStats(data)
+            } catch (error) {
+                console.error('Failed to load dashboard stats:', error)
+                if (!cancelled) {
+                    setStats({
+                        players: { total: 0, academy: 0, on_loan: 0, first_team: 0, released: 0 },
+                        teams: { tracked: 0 },
+                        newsletters: { total: 0, published: 0, drafts: 0 },
+                    })
+                }
+            }
+        }
         loadStats()
-    }, [loadStats])
-
-    // Detect when a rebuild completes and fetch final results
-    useEffect(() => {
-        if (isBlocking) {
-            wasBlockingRef.current = true
-            return
-        }
-        if (!wasBlockingRef.current || !rebuildJobId) return
-        wasBlockingRef.current = false
-
-        // Rebuild just finished - fetch final status
-        APIService.adminGetJobStatus(rebuildJobId).then(job => {
-            setRebuildJobId(null)
-            if (!job) return
-            if (job.status === 'completed') {
-                const r = job.results || {}
-                setRebuildMessage({
-                    type: 'success',
-                    text: `Rebuild complete! Created ${r.total_created || 0} tracked players, synced ${r.players_synced || 0} journeys, linked ${r.journeys_linked || 0} orphans.`
-                })
-                loadStats()
-            } else if (job.status === 'failed') {
-                setRebuildMessage({
-                    type: 'error',
-                    text: `Rebuild failed: ${job.error || 'Unknown error'}`
-                })
-            }
-        }).catch(() => {
-            setRebuildJobId(null)
-        })
-    }, [isBlocking, rebuildJobId, loadStats])
-
-    const handleRebuild = async (skipClean = false) => {
-        setConfirmOpen(false)
-        setRebuildMessage(null)
-
-        try {
-            const res = await APIService.adminFullRebuild({ skip_clean: skipClean })
-            if (res.job_id) {
-                setRebuildJobId(res.job_id)
-                refreshJobs()
-            }
-        } catch (error) {
-            console.error('Failed to start rebuild:', error)
-            setRebuildMessage({ type: 'error', text: `Failed to start: ${error.message || 'Unknown error'}` })
-        }
-    }
-
-    const quickActions = [
-        {
-            title: 'Manage Players',
-            description: 'View and manage all tracked academy players',
-            icon: Users,
-            href: '/admin/players',
-            color: 'blue'
-        },
-        {
-            title: 'Seed Players',
-            description: 'Import players for a tracked team from API data',
-            icon: UserPlus,
-            href: '/admin/players',
-            color: 'green'
-        },
-        {
-            title: 'Academy Config',
-            description: 'Configure academy leagues and tracking',
-            icon: GraduationCap,
-            href: '/admin/academy',
-            color: 'purple'
-        },
-        {
-            title: 'Generate Newsletter',
-            description: 'Create newsletters for selected teams',
-            icon: Mail,
-            href: '/admin/newsletters',
-            color: 'orange'
-        },
-        {
-            title: 'Manage Teams',
-            description: 'Track/untrack teams and configure data',
-            icon: Shield,
-            href: '/admin/teams',
-            color: 'indigo'
-        },
-        {
-            title: 'Manage Users',
-            description: 'View all users and their subscriptions',
-            icon: Users,
-            href: '/admin/users',
-            color: 'gray'
-        },
-    ]
+        return () => { cancelled = true }
+    }, [])
 
     return (
         <div className="space-y-6">
-            <div>
+            <header>
                 <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
                 <p className="text-muted-foreground mt-1">
                     Overview of your academy tracking system
                 </p>
-            </div>
+            </header>
 
             {/* Stats Grid */}
             <div className="grid gap-4 md:grid-cols-3">
@@ -146,13 +275,19 @@ export function AdminDashboard() {
                         <Users className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats.players.total}</div>
-                        <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground mt-1">
-                            <span>{stats.players.academy} academy</span>
-                            <span>{stats.players.on_loan} on loan</span>
-                            <span>{stats.players.first_team} first team</span>
-                            {stats.players.released > 0 && <span>{stats.players.released} released</span>}
-                        </div>
+                        {stats === null ? (
+                            <Skeleton className="h-8 w-20" />
+                        ) : (
+                            <>
+                                <div className="text-2xl font-bold">{stats.players.total}</div>
+                                <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground mt-1">
+                                    <span>{stats.players.academy} academy</span>
+                                    <span>{stats.players.on_loan} on loan</span>
+                                    <span>{stats.players.first_team} first team</span>
+                                    {stats.players.released > 0 && <span>{stats.players.released} released</span>}
+                                </div>
+                            </>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -162,10 +297,16 @@ export function AdminDashboard() {
                         <Shield className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats.teams.tracked}</div>
-                        <p className="text-xs text-muted-foreground">
-                            Teams with academy tracking enabled
-                        </p>
+                        {stats === null ? (
+                            <Skeleton className="h-8 w-20" />
+                        ) : (
+                            <>
+                                <div className="text-2xl font-bold">{stats.teams.tracked}</div>
+                                <p className="text-xs text-muted-foreground">
+                                    Teams with academy tracking enabled
+                                </p>
+                            </>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -175,98 +316,60 @@ export function AdminDashboard() {
                         <Mail className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{stats.newsletters.total}</div>
-                        <p className="text-xs text-muted-foreground">
-                            {stats.newsletters.published} published, {stats.newsletters.drafts} drafts
-                        </p>
+                        {stats === null ? (
+                            <Skeleton className="h-8 w-20" />
+                        ) : (
+                            <>
+                                <div className="text-2xl font-bold">{stats.newsletters.total}</div>
+                                <p className="text-xs text-muted-foreground">
+                                    {stats.newsletters.published} published, {stats.newsletters.drafts} drafts
+                                </p>
+                            </>
+                        )}
                     </CardContent>
                 </Card>
             </div>
 
-            {/* Full Rebuild Card */}
-            <Card className="border-amber-200 bg-amber-50/30">
+            {/* Ops snapshot + Inbox pending */}
+            <div className="grid gap-4 lg:grid-cols-2">
+                <OpsSnapshotStrip />
+                <InboxPendingStrip />
+            </div>
+
+            {/* Seeding & Rebuild pointer (Full Rebuild moved to /admin/seeding) */}
+            <Card className="border-amber-200 bg-amber-50/30" data-testid="seeding-pointer">
                 <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-4">
                         <div>
                             <CardTitle className="flex items-center gap-2">
-                                <RotateCcw className="h-5 w-5" />
-                                Full Academy Rebuild
+                                <Sprout className="h-5 w-5" />
+                                Seeding &amp; Rebuild
                             </CardTitle>
                             <CardDescription>
-                                Nuke all academy data and rebuild from scratch — seeds cohorts, syncs journeys, creates tracked players for all Big 6 teams. Takes 2-4 hours.
+                                Per-team seeding, seed-all backfill, cohort seeding, and the Full Academy Rebuild now live on their own page.
                             </CardDescription>
                         </div>
-                        {!rebuildRunning && !confirmOpen && (
-                            <Button
-                                variant="destructive"
-                                onClick={() => setConfirmOpen(true)}
-                            >
-                                <RotateCcw className="h-4 w-4 mr-2" />
-                                Full Rebuild
-                            </Button>
-                        )}
+                        <Button asChild data-testid="seeding-pointer-link">
+                            <Link to="/admin/seeding">
+                                Open Seeding &amp; Rebuild
+                                <ArrowRight className="h-4 w-4 ml-2" />
+                            </Link>
+                        </Button>
                     </div>
                 </CardHeader>
-
-                {confirmOpen && !rebuildRunning && (
-                    <CardContent>
-                        <div className="border rounded-lg p-4 bg-card space-y-3">
-                            <p className="text-sm font-medium text-rose-700">
-                                This will delete all TrackedPlayers, journeys, cohorts, loans, and locations, then rebuild everything from API-Football data.
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                                Uses ~1500-2500 API calls. Teams, users, newsletters, and fixtures are preserved.
-                            </p>
-                            <div className="flex gap-2">
-                                <Button variant="destructive" onClick={() => handleRebuild(false)}>
-                                    Yes, nuke and rebuild
-                                </Button>
-                                <Button variant="outline" onClick={() => handleRebuild(true)}>
-                                    Rebuild (keep existing data)
-                                </Button>
-                                <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
-                                    Cancel
-                                </Button>
-                            </div>
-                        </div>
-                    </CardContent>
-                )}
-
-                {rebuildRunning && (
-                    <CardContent>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span>Rebuild in progress — see overlay for details</span>
-                        </div>
-                    </CardContent>
-                )}
-
-                {rebuildMessage && (
-                    <CardContent>
-                        <Alert className={rebuildMessage.type === 'error' ? 'border-rose-500 bg-rose-50' : 'border-emerald-500 bg-emerald-50'}>
-                            {rebuildMessage.type === 'error'
-                                ? <AlertCircle className="h-4 w-4 text-rose-600" />
-                                : <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                            }
-                            <AlertDescription className={rebuildMessage.type === 'error' ? 'text-rose-800' : 'text-emerald-800'}>
-                                {rebuildMessage.text}
-                            </AlertDescription>
-                        </Alert>
-                    </CardContent>
-                )}
             </Card>
 
             {/* Quick Actions */}
             <div>
                 <h3 className="text-xl font-semibold mb-4">Quick Actions</h3>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {quickActions.map((action) => (
+                    {QUICK_ACTIONS.map((action) => (
                         <Link key={action.title} to={action.href}>
                             <Card className="hover:bg-accent hover:shadow-md transition-all cursor-pointer h-full">
                                 <CardHeader>
                                     <div className="flex items-center gap-3">
-                                        <div className={`p-2 rounded-lg bg-${action.color}-100`}>
-                                            <action.icon className={`h-5 w-5 text-${action.color}-600`} />
+                                        <div className={`p-2 rounded-lg ${action.iconBg}`}>
+                                            <action.icon className={`h-5 w-5 ${action.iconColor}`} />
                                         </div>
                                         <div>
                                             <CardTitle className="text-base">{action.title}</CardTitle>
@@ -296,7 +399,7 @@ export function AdminDashboard() {
                     <div className="border-l-4 border-emerald-500 pl-4 py-2">
                         <h4 className="font-semibold text-sm">2. Seed Players</h4>
                         <p className="text-sm text-muted-foreground">
-                            Use the Players page to seed academy players from API data or add them manually
+                            Use Seeding &amp; Rebuild to discover academy players for your tracked teams, or add one-offs manually on the Players page
                         </p>
                     </div>
                     <div className="border-l-4 border-purple-500 pl-4 py-2">
@@ -306,9 +409,9 @@ export function AdminDashboard() {
                         </p>
                     </div>
                     <div className="border-l-4 border-orange-500 pl-4 py-2">
-                        <h4 className="font-semibold text-sm">4. Curate Content</h4>
+                        <h4 className="font-semibold text-sm">4. Assign Writers & Curate</h4>
                         <p className="text-sm text-muted-foreground">
-                            Assign writers to teams and manage their commentaries via the Curation page
+                            Invite writers and assign them to teams in Users &amp; Writers; review community takes, flags, and submissions in the Inbox
                         </p>
                     </div>
                 </CardContent>

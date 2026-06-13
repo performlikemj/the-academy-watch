@@ -69,17 +69,17 @@ test.describe.serial('Academy Watch Features', () => {
             await expect(page.getByRole('button', { name: /Submit Another/i })).toBeVisible()
         })
 
-        test('admin can see pending submission in curation dashboard', async ({ page }) => {
+        test('admin can see pending submission in the inbox', async ({ page }) => {
             await loginWithCode(page, env.adminEmail, dbClient, { displayName: 'E2E Admin' })
             await setAdminKey(page, env.adminKey)
 
-            await page.goto('/admin/curation')
+            await page.goto('/admin/inbox')
 
             // Verify page loaded
-            await expect(page.getByRole('heading', { name: 'Community Curation' })).toBeVisible()
+            await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible()
 
-            // Go to User Submissions tab
-            await page.getByRole('tab', { name: /User Submissions/i }).click()
+            // Go to User submissions tab
+            await page.getByTestId('inbox-tab-submissions').click()
 
             // Make sure we're viewing Pending submissions
             const statusFilter = page.locator('button[role="combobox"]').filter({ hasText: /Pending|Approved|Rejected/i })
@@ -99,10 +99,7 @@ test.describe.serial('Academy Watch Features', () => {
             await loginWithCode(page, env.adminEmail, dbClient, { displayName: 'E2E Admin' })
             await setAdminKey(page, env.adminKey)
 
-            await page.goto('/admin/curation')
-
-            // Go to User Submissions tab
-            await page.getByRole('tab', { name: /User Submissions/i }).click()
+            await page.goto('/admin/inbox?tab=submissions')
 
             // Find and approve the submission
             const submissionCard = page.locator('.border.rounded-lg', { hasText: testPlayerName })
@@ -121,11 +118,10 @@ test.describe.serial('Academy Watch Features', () => {
             await loginWithCode(page, env.adminEmail, dbClient, { displayName: 'E2E Admin' })
             await setAdminKey(page, env.adminKey)
 
-            await page.goto('/admin/curation')
+            await page.goto('/admin/inbox?tab=takes')
 
-            // Click Add Take button (in the Community Takes tab)
-            await page.getByRole('tab', { name: /Community Takes/i }).click()
-            await page.getByRole('button', { name: /Add Take/i }).click()
+            // Click Add Take button (in the Community takes tab)
+            await page.getByTestId('inbox-add-take').click()
 
             // Fill out the dialog form
             const directTakePlayer = `E2E Direct Player ${Date.now()}`

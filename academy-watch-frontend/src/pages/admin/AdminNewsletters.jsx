@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -6,12 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import {
-    Accordion,
-    AccordionContent,
-    AccordionItem,
-    AccordionTrigger,
-} from '@/components/ui/accordion'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
     Dialog,
     DialogContent,
@@ -21,19 +17,13 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Mail, Calendar, Send, Trash2, AlertCircle, CheckCircle2, FileJson, Loader2, Monitor, Copy, Check, FileText, Download } from 'lucide-react'
+import { Mail, Calendar, Send, Trash2, AlertCircle, CheckCircle2, FileJson, Loader2, Monitor, Copy, Check, FileText, Download, Clock, Inbox, Sprout } from 'lucide-react'
 import { convertNewsletterToMarkdown, convertNewsletterToCompactMarkdown } from '@/lib/newsletter-markdown'
 import TeamMultiSelect from '@/components/ui/TeamMultiSelect.jsx'
-import TeamSelect from '@/components/ui/TeamSelect.jsx'
 import { NewsletterPreviewDialog } from '@/components/admin/NewsletterPreviewDialog'
+import { ConfirmGate } from '@/components/admin/ConfirmGate'
 import { NEWSLETTER_ACTION_GRID_CLASS } from './admin-newsletters-layout.js'
-import { buildGenerateTeamRequest, buildGenerateAllRequest, buildSeedTeamRequest, buildSeedTop5Request } from './admin-newsletters-api.js'
-import {
-    seedSelectedButtonLabel,
-    seedTop5ButtonLabel,
-    buildMissingNamesParams,
-    buildBackfillNamesPayload,
-} from './admin-newsletters-seeding.js'
+import { buildGenerateTeamRequest, buildGenerateAllRequest } from './admin-newsletters-api.js'
 
 const ITEMS_PER_PAGE = 20
 
@@ -43,18 +33,26 @@ export function AdminNewsletters() {
     const [newslettersLoading, setNewslettersLoading] = useState(false)
     const [selectedTeams, setSelectedTeams] = useState([])
     const [generateDate, setGenerateDate] = useState('')
-    const [seedYear, setSeedYear] = useState(new Date().getFullYear().toString())
-    const [seedTop5DryRun, setSeedTop5DryRun] = useState(false)
-    const [seedingTop5, setSeedingTop5] = useState(false)
-    const [seedingTeams, setSeedingTeams] = useState(false)
-    const [missingNames, setMissingNames] = useState([])
-    const [missingNamesBusy, setMissingNamesBusy] = useState(false)
-    const [missingNamesTeamDbId, setMissingNamesTeamDbId] = useState(null)
-    const [missingNamesTeamApiId, setMissingNamesTeamApiId] = useState('')
-    const [missingNamesLimit, setMissingNamesLimit] = useState('')
-    const [missingNamesDryRun, setMissingNamesDryRun] = useState(false)
     const [message, setMessage] = useState(null)
     const [teams, setTeams] = useState([])
+
+    // Deadline card (Monday 23:59 GMT — publishes + charges writers)
+    const [deadlineInfo, setDeadlineInfo] = useState(null)
+    const [deadlineLoading, setDeadlineLoading] = useState(true)
+    const [writerStatuses, setWriterStatuses] = useState([])
+    const [writerStatusError, setWriterStatusError] = useState(null)
+    const [deadlineWeekOverride, setDeadlineWeekOverride] = useState('')
+    const [processingDeadline, setProcessingDeadline] = useState(false)
+    const [deadlineResult, setDeadlineResult] = useState(null)
+    const [deadlineConfirmOpen, setDeadlineConfirmOpen] = useState(false)
+
+    // Digest queue card
+    const [digestWeekKey, setDigestWeekKey] = useState('')
+    const [digestQueue, setDigestQueue] = useState(null)
+    const [digestLoading, setDigestLoading] = useState(true)
+    const [digestSending, setDigestSending] = useState(false)
+    const [digestSendResult, setDigestSendResult] = useState(null)
+    const [digestConfirmOpen, setDigestConfirmOpen] = useState(false)
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1)
@@ -170,6 +168,8 @@ export function AdminNewsletters() {
     }, [appliedFilters])
 
     useEffect(() => {
+        // Data fetch on mount — the loader owns loading/error state.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         loadNewsletters()
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []) // Only on mount
@@ -535,144 +535,132 @@ export function AdminNewsletters() {
         }
     }
 
-    // Seeding operations
-    const seedTop5 = async () => {
+    // --- Deadline (Monday 23:59 GMT — publishes submitted newsletters, charges writers) ---
+    const loadDeadline = useCallback(async () => {
+        setDeadlineLoading(true)
         try {
-            setSeedingTop5(true)
-            const req = buildSeedTop5Request({ season: seedYear, dryRun: seedTop5DryRun })
-            const _result = await APIService.request(req.endpoint, req.options, { admin: req.admin })
-
-            setMessage({
-                type: 'success',
-                text: seedTop5DryRun ? 'Dry run completed' : 'Top-5 leagues seeded successfully'
-            })
+            const info = await APIService.adminDeadlineInfo()
+            setDeadlineInfo(info)
         } catch (error) {
-            setMessage({ type: 'error', text: `Seeding failed: ${error.message}` })
-        } finally {
-            setSeedingTop5(false)
-        }
-    }
-
-    const seedSelectedTeams = async () => {
-        if (selectedTeams.length === 0) {
-            setMessage({ type: 'error', text: 'Please select teams to seed' })
-            return
+            console.error('Failed to load deadline info', error)
+            setDeadlineInfo(null)
         }
 
-        const season = parseInt(seedYear, 10)
-        if (!season || Number.isNaN(season)) {
-            setMessage({ type: 'error', text: 'Please enter a valid season year before seeding' })
-            return
-        }
-
+        // Per-writer submission status: the backend only exposes a per-journalist
+        // endpoint, so enumerate journalists and fetch each status.
         try {
-            setSeedingTeams(true)
-            const requests = selectedTeams.map((id) => buildSeedTeamRequest({ teamId: id, season }))
-            const outcomes = await Promise.all(requests.map(async (req) => {
-                try {
-                    const res = await APIService.request(req.endpoint, req.options, { admin: req.admin })
-                    return { ok: true, teamId: req.options?.body, res }
-                } catch (err) {
-                    return { ok: false, teamId: req.options?.body, error: err }
+            const journalists = await APIService.adminGetJournalists()
+            const list = (Array.isArray(journalists) ? journalists : []).slice(0, 12)
+            const results = await Promise.allSettled(
+                list.map(j => APIService.adminWriterSubmissionStatus(j.id))
+            )
+            const rows = []
+            results.forEach((res, idx) => {
+                const journalist = list[idx]
+                if (res.status === 'fulfilled' && !res.value?.error) {
+                    const status = res.value
+                    const total = status?.newsletters?.length || 0
+                    const submitted = (status?.newsletters || []).filter(n => n.has_submitted).length
+                    rows.push({
+                        id: journalist.id,
+                        name: status?.journalist_name || journalist.display_name || journalist.email || `Writer ${journalist.id}`,
+                        submitted,
+                        total,
+                    })
                 }
-            }))
-
-            const successes = outcomes.filter(o => o.ok).length
-            const failures = outcomes.filter(o => !o.ok)
-
-            if (failures.length) {
-                const detail = failures.map(f => f.error?.message || 'unknown error').join('; ')
-                setMessage({ type: 'error', text: `Seeding completed with ${failures.length} failure(s): ${detail}` })
-            } else {
-                setMessage({ type: 'success', text: `Seeded ${successes} team(s) for ${season}` })
-            }
-        } catch (error) {
-            setMessage({ type: 'error', text: `Seeding failed: ${error.message}` })
-        } finally {
-            setSeedingTeams(false)
-        }
-    }
-
-    const loadMissingNames = useCallback(async ({ silent = false } = {}) => {
-        setMissingNamesBusy(true)
-        try {
-            const params = buildMissingNamesParams({
-                season: seedYear,
-                teamDbId: missingNamesTeamDbId,
-                teamApiId: missingNamesTeamApiId,
-                activeOnly: true,
-                limit: missingNamesLimit,
             })
-            const rows = await APIService.adminMissingNames(params)
-            const list = Array.isArray(rows) ? rows : []
-            setMissingNames(list)
+            setWriterStatuses(rows)
+            setWriterStatusError(rows.length === 0 && list.length > 0 ? 'No submission status available' : null)
+        } catch (error) {
+            setWriterStatuses([])
+            setWriterStatusError(error?.body?.error || error.message)
+        } finally {
+            setDeadlineLoading(false)
+        }
+    }, [])
 
-            if (!silent) {
-                const count = list.length
+    const processDeadline = async () => {
+        setProcessingDeadline(true)
+        setDeadlineResult(null)
+        try {
+            const res = await APIService.adminProcessDeadline(
+                deadlineWeekOverride ? { weekStartDate: deadlineWeekOverride } : {}
+            )
+            const result = res?.result || res
+            setDeadlineResult(result)
+            if (result?.success === false) {
+                setMessage({ type: 'error', text: `Deadline processing failed: ${result.error || 'unknown error'}` })
+            } else {
                 setMessage({
                     type: 'success',
-                    text: count
-                        ? `Found ${count} loan${count === 1 ? '' : 's'} with missing names`
-                        : 'No missing player names found',
+                    text: result?.message
+                        || `Deadline processed: ${result?.newsletters_processed ?? 0} newsletter(s) published, ${result?.writers_contributed ?? 0} writer(s) charged`,
                 })
+                await loadNewsletters()
             }
         } catch (error) {
-            setMissingNames([])
-            setMessage({ type: 'error', text: `Missing names lookup failed: ${error?.body?.error || error.message}` })
+            setMessage({ type: 'error', text: `Deadline processing failed: ${error?.body?.error || error.message}` })
         } finally {
-            setMissingNamesBusy(false)
-        }
-    }, [seedYear, missingNamesTeamDbId, missingNamesTeamApiId, missingNamesLimit])
-
-    const backfillMissingNames = async () => {
-        setMissingNamesBusy(true)
-        try {
-            const payload = buildBackfillNamesPayload({
-                season: seedYear,
-                teamDbId: missingNamesTeamDbId,
-                teamApiId: missingNamesTeamApiId,
-                activeOnly: true,
-                dryRun: missingNamesDryRun,
-                limit: missingNamesLimit,
-            })
-            const res = await APIService.adminBackfillNames(payload)
-            const updated = Number(res?.updated || 0)
-            const skipped = Number(res?.skipped || 0)
-            const processed = Number(res?.processed || 0)
-
-            setMessage({
-                type: 'success',
-                text: missingNamesDryRun
-                    ? `Dry run: would update ${updated} name${updated === 1 ? '' : 's'} (skipped ${skipped}, processed ${processed})`
-                    : `Updated ${updated} name${updated === 1 ? '' : 's'} (skipped ${skipped})`,
-            })
-
-            try {
-                const refreshParams = buildMissingNamesParams({
-                    season: seedYear,
-                    teamDbId: missingNamesTeamDbId,
-                    teamApiId: missingNamesTeamApiId,
-                    activeOnly: true,
-                    limit: missingNamesLimit,
-                })
-                const refreshed = await APIService.adminMissingNames(refreshParams)
-                setMissingNames(Array.isArray(refreshed) ? refreshed : [])
-            } catch (refreshErr) {
-                console.warn('Failed to refresh missing names after backfill', refreshErr)
-            }
-        } catch (error) {
-            setMessage({ type: 'error', text: `Backfill names failed: ${error?.body?.error || error.message}` })
-        } finally {
-            setMissingNamesBusy(false)
+            setProcessingDeadline(false)
         }
     }
+
+    // --- Digest queue (weekly digest emails for digest-preference subscribers) ---
+    const loadDigestQueue = useCallback(async (weekKey) => {
+        setDigestLoading(true)
+        try {
+            const data = await APIService.adminDigestQueue(weekKey || undefined)
+            setDigestQueue(data)
+            if (data?.week_key) {
+                setDigestWeekKey(prev => prev || data.week_key)
+            }
+        } catch (error) {
+            console.error('Failed to load digest queue', error)
+            setDigestQueue(null)
+            setMessage({ type: 'error', text: `Failed to load digest queue: ${error?.body?.error || error.message}` })
+        } finally {
+            setDigestLoading(false)
+        }
+    }, [])
+
+    const sendDigests = async () => {
+        setDigestSending(true)
+        setDigestSendResult(null)
+        try {
+            const payload = {}
+            if (digestWeekKey) payload.week_key = digestWeekKey
+            const res = await APIService.adminSendNewsletterDigests(payload)
+            setDigestSendResult(res)
+            if (res?.success === false) {
+                setMessage({ type: 'error', text: `Digest send failed: ${res?.error || 'unknown error'}` })
+            } else {
+                const errCount = res?.errors?.length || 0
+                setMessage({
+                    type: errCount ? 'error' : 'success',
+                    text: `Sent ${res?.digests_sent ?? 0} digest email(s)${errCount ? ` — ${errCount} error(s)` : ''}`,
+                })
+            }
+            await loadDigestQueue(digestWeekKey)
+        } catch (error) {
+            setMessage({ type: 'error', text: `Digest send failed: ${error?.body?.error || error.message}` })
+        } finally {
+            setDigestSending(false)
+        }
+    }
+
+    useEffect(() => {
+        // Data fetch on mount — the loaders own loading/error state.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        loadDeadline()
+        loadDigestQueue()
+    }, [loadDeadline, loadDigestQueue])
 
     return (
         <div className="space-y-6">
-            <div>
+            <header>
                 <h2 className="text-3xl font-bold tracking-tight">Newsletters</h2>
                 <p className="text-muted-foreground mt-1">Generate and manage newsletters for tracked teams</p>
-            </div>
+            </header>
 
             {/* Message Display */}
             {message && (
@@ -762,178 +750,221 @@ export function AdminNewsletters() {
                     </CardContent>
                 </Card>
 
-                {/* Loan Data Seeding */}
-                <Card>
+                {/* Deadline */}
+                <Card data-testid="deadline-card">
                     <CardHeader>
-                        <CardTitle>Loan Data Seeding</CardTitle>
-                        <CardDescription>Populate loan data before generating newsletters</CardDescription>
+                        <CardTitle className="flex items-center gap-2">
+                            <Clock className="h-5 w-5" />
+                            Deadline
+                        </CardTitle>
+                        <CardDescription>
+                            Monday 23:59 GMT — publishes newsletters with submitted content and charges contributing writers.
+                            No cron runs this; process it manually.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {deadlineLoading && !deadlineInfo ? (
+                            <div className="space-y-2">
+                                <Skeleton className="h-5 w-2/3" />
+                                <Skeleton className="h-5 w-1/2" />
+                                <Skeleton className="h-5 w-3/5" />
+                            </div>
+                        ) : deadlineInfo ? (
+                            <dl className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                                <div>
+                                    <dt className="text-xs text-muted-foreground">Next deadline</dt>
+                                    <dd className="font-medium">{new Date(deadlineInfo.next_deadline).toLocaleString()}</dd>
+                                </div>
+                                <div>
+                                    <dt className="text-xs text-muted-foreground">Time remaining</dt>
+                                    <dd className="font-medium">{deadlineInfo.time_remaining_formatted}</dd>
+                                </div>
+                                <div>
+                                    <dt className="text-xs text-muted-foreground">Week starting</dt>
+                                    <dd className="font-medium">{deadlineInfo.week_start_date}</dd>
+                                </div>
+                            </dl>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">Deadline info unavailable</p>
+                        )}
+
+                        <div>
+                            <p className="text-sm font-medium mb-1">Writer submissions this week</p>
+                            {deadlineLoading ? (
+                                <Skeleton className="h-4 w-1/2" />
+                            ) : writerStatuses.length > 0 ? (
+                                <ul className="space-y-1 text-sm">
+                                    {writerStatuses.map(w => (
+                                        <li key={w.id} className="flex items-center justify-between gap-2">
+                                            <span className="truncate">{w.name}</span>
+                                            {w.total === 0 ? (
+                                                <Badge variant="outline">no newsletters</Badge>
+                                            ) : (
+                                                <Badge
+                                                    variant="outline"
+                                                    className={w.submitted === w.total
+                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                        : 'bg-amber-50 text-amber-700 border-amber-200'}
+                                                >
+                                                    {w.submitted}/{w.total} submitted
+                                                </Badge>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-xs text-muted-foreground">
+                                    {writerStatusError ? `Submission status unavailable (${writerStatusError})` : 'No writers found'}
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+                            <div className="flex-1">
+                                <Label htmlFor="deadline-week-override" className="text-xs">Week start override (optional)</Label>
+                                <Input
+                                    id="deadline-week-override"
+                                    type="date"
+                                    value={deadlineWeekOverride}
+                                    onChange={(e) => setDeadlineWeekOverride(e.target.value)}
+                                    data-testid="deadline-week-override"
+                                />
+                            </div>
+                            <Button
+                                variant="destructive"
+                                onClick={() => setDeadlineConfirmOpen(true)}
+                                disabled={processingDeadline}
+                                data-testid="deadline-process"
+                            >
+                                {processingDeadline && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Process deadline…
+                            </Button>
+                        </div>
+                        <p className="text-xs text-amber-600">
+                            Processing publishes and charges writers — it cannot be undone.
+                        </p>
+
+                        {deadlineResult && (
+                            <div className="rounded-md border bg-muted/30 p-3 text-sm" data-testid="deadline-result">
+                                {deadlineResult.success === false ? (
+                                    <p className="text-rose-600">Failed: {deadlineResult.error}</p>
+                                ) : (
+                                    <p>
+                                        {deadlineResult.newsletters_processed ?? 0} newsletter(s) processed ·{' '}
+                                        {deadlineResult.writers_contributed ?? 0} writer(s) contributed
+                                        {deadlineResult.message ? ` · ${deadlineResult.message}` : ''}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Digest queue */}
+                <Card data-testid="digest-queue-card">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Inbox className="h-5 w-5" />
+                            Digest Queue
+                        </CardTitle>
+                        <CardDescription>
+                            Weekly digest emails queued for subscribers who prefer digest delivery
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+                            <div className="flex-1">
+                                <Label htmlFor="digest-week-key" className="text-xs">Week key</Label>
+                                <Input
+                                    id="digest-week-key"
+                                    value={digestWeekKey}
+                                    onChange={(e) => setDigestWeekKey(e.target.value)}
+                                    placeholder="e.g. 2026-W24 (blank = current week)"
+                                    data-testid="digest-week-key"
+                                />
+                            </div>
+                            <Button
+                                variant="outline"
+                                onClick={() => loadDigestQueue(digestWeekKey)}
+                                disabled={digestLoading}
+                                data-testid="digest-queue-load"
+                            >
+                                {digestLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Load queue
+                            </Button>
+                        </div>
+
+                        {digestLoading && !digestQueue ? (
+                            <div className="space-y-2">
+                                <Skeleton className="h-5 w-2/3" />
+                                <Skeleton className="h-5 w-1/2" />
+                            </div>
+                        ) : digestQueue ? (
+                            <div className="space-y-2 text-sm" data-testid="digest-queue-stats">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Badge variant="outline">{digestQueue.week_key}</Badge>
+                                    <Badge
+                                        variant="outline"
+                                        className={(digestQueue.pending?.items || 0) > 0
+                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'}
+                                    >
+                                        {digestQueue.pending?.items ?? 0} pending item(s) · {digestQueue.pending?.users ?? 0} user(s)
+                                    </Badge>
+                                    <Badge variant="outline">
+                                        {digestQueue.sent?.items ?? 0} sent item(s) · {digestQueue.sent?.users ?? 0} user(s)
+                                    </Badge>
+                                </div>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">Digest queue unavailable</p>
+                        )}
+
+                        <Button
+                            onClick={() => setDigestConfirmOpen(true)}
+                            disabled={digestSending || digestLoading || !(digestQueue?.pending?.items > 0)}
+                            data-testid="digest-queue-send"
+                        >
+                            {digestSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Send digests…
+                        </Button>
+                        {digestQueue && (digestQueue.pending?.items ?? 0) === 0 && (
+                            <p className="text-xs text-muted-foreground">Nothing pending for this week.</p>
+                        )}
+
+                        {digestSendResult && (
+                            <div className="rounded-md border bg-muted/30 p-3 text-sm" data-testid="digest-send-result">
+                                {digestSendResult.success === false ? (
+                                    <p className="text-rose-600">Failed: {digestSendResult.error}</p>
+                                ) : (
+                                    <p>
+                                        {digestSendResult.digests_sent ?? 0} digest(s) sent
+                                        {typeof digestSendResult.newsletters_included === 'number'
+                                            ? ` covering ${digestSendResult.newsletters_included} newsletter item(s)`
+                                            : ''}
+                                        {digestSendResult.errors?.length ? ` · ${digestSendResult.errors.length} error(s)` : ''}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Loan data seeding moved to /admin/seeding */}
+                <Card data-testid="seeding-moved-card">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Sprout className="h-5 w-5" />
+                            Loan Data Seeding
+                        </CardTitle>
+                        <CardDescription>
+                            Seeding now lives on its own page alongside the rest of the data tools
+                        </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <Accordion type="single" collapsible className="w-full">
-                            <AccordionItem value="top5">
-                                <AccordionTrigger>Seed Top-5 Leagues</AccordionTrigger>
-                                <AccordionContent className="space-y-3 pt-3">
-                                    <div>
-                                        <Label htmlFor="seed-year">Season Year</Label>
-                                        <Input
-                                            id="seed-year"
-                                            type="number"
-                                            value={seedYear}
-                                            onChange={(e) => setSeedYear(e.target.value)}
-                                            placeholder="2024"
-                                        />
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="checkbox"
-                                            id="dry-run"
-                                            checked={seedTop5DryRun}
-                                            onChange={(e) => setSeedTop5DryRun(e.target.checked)}
-                                            className="h-4 w-4"
-                                        />
-                                        <Label htmlFor="dry-run" className="cursor-pointer">
-                                            Dry run (preview without saving)
-                                        </Label>
-                                    </div>
-                                    <Button onClick={seedTop5} className="w-full" disabled={seedingTop5 || seedingTeams}>
-                                        {seedingTop5 && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        {seedTop5ButtonLabel({ isSeeding: seedingTop5, dryRun: seedTop5DryRun })}
-                                    </Button>
-                                </AccordionContent>
-                            </AccordionItem>
-                            <AccordionItem value="selected">
-                                <AccordionTrigger>Seed Selected Teams</AccordionTrigger>
-                                <AccordionContent className="space-y-3 pt-3">
-                                    <p className="text-sm text-muted-foreground">
-                                        Uses teams selected in the generation section above
-                                    </p>
-                                    <Button onClick={seedSelectedTeams} className="w-full" disabled={seedingTeams || seedingTop5}>
-                                        {seedingTeams && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        {seedSelectedButtonLabel({ isSeeding: seedingTeams, selectionCount: selectedTeams.length })}
-                                    </Button>
-                                </AccordionContent>
-                            </AccordionItem>
-                            <AccordionItem value="missing-names">
-                                <AccordionTrigger>Backfill Missing Player Names</AccordionTrigger>
-                                <AccordionContent className="space-y-4 pt-3">
-                                    <p className="text-sm text-muted-foreground">
-                                        Find loans that still show placeholder names from API-Football and fill them using the season year below.
-                                    </p>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <div className="space-y-1">
-                                            <Label htmlFor="missing-names-season">Season Year</Label>
-                                            <Input
-                                                id="missing-names-season"
-                                                type="number"
-                                                value={seedYear}
-                                                onChange={(e) => setSeedYear(e.target.value)}
-                                                placeholder="2024"
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label htmlFor="missing-names-limit">Max Rows (optional)</Label>
-                                            <Input
-                                                id="missing-names-limit"
-                                                type="number"
-                                                min="1"
-                                                value={missingNamesLimit}
-                                                onChange={(e) => setMissingNamesLimit(e.target.value)}
-                                                placeholder="200"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <div className="space-y-1">
-                                            <Label>Parent Team (optional)</Label>
-                                            <TeamSelect
-                                                teams={teams}
-                                                value={missingNamesTeamDbId}
-                                                onChange={(id) => setMissingNamesTeamDbId(id || null)}
-                                                placeholder="Select team..."
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <Label htmlFor="missing-names-team-api">Team API ID (optional)</Label>
-                                            <Input
-                                                id="missing-names-team-api"
-                                                type="number"
-                                                value={missingNamesTeamApiId}
-                                                onChange={(e) => setMissingNamesTeamApiId(e.target.value)}
-                                                placeholder="Use if team is missing from DB"
-                                            />
-                                            <p className="text-xs text-muted-foreground">Requires season year when using API id.</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="checkbox"
-                                            id="missing-names-dry-run"
-                                            checked={missingNamesDryRun}
-                                            onChange={(e) => setMissingNamesDryRun(e.target.checked)}
-                                            className="h-4 w-4"
-                                        />
-                                        <Label htmlFor="missing-names-dry-run" className="cursor-pointer">Dry run (preview without saving)</Label>
-                                    </div>
-
-                                    <div className="flex flex-col md:flex-row gap-2">
-                                        <Button
-                                            onClick={() => loadMissingNames()}
-                                            variant="outline"
-                                            className="flex-1"
-                                            disabled={missingNamesBusy}
-                                        >
-                                            {missingNamesBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            Find Missing Names
-                                        </Button>
-                                        <Button
-                                            onClick={backfillMissingNames}
-                                            className="flex-1"
-                                            disabled={missingNamesBusy}
-                                        >
-                                            {missingNamesBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            {missingNamesDryRun ? 'Preview Backfill' : 'Backfill Names'}
-                                        </Button>
-                                    </div>
-
-                                    {missingNames.length > 0 && (
-                                        <div className="rounded-md border">
-                                            <div className="flex items-center justify-between bg-muted px-3 py-2 text-sm font-medium">
-                                                <span>Found {missingNames.length} loan{missingNames.length === 1 ? '' : 's'} with placeholder names</span>
-                                                <Badge variant="secondary">Season {seedYear || 'n/a'}</Badge>
-                                            </div>
-                                            <div className="max-h-64 overflow-auto">
-                                                <table className="w-full text-sm">
-                                                    <thead className="bg-muted/60 sticky top-0">
-                                                        <tr className="text-left">
-                                                            <th className="px-3 py-2">Loan ID</th>
-                                                            <th className="px-3 py-2">Player ID</th>
-                                                            <th className="px-3 py-2">Name</th>
-                                                            <th className="px-3 py-2">Parent Team</th>
-                                                            <th className="px-3 py-2">Loan Team</th>
-                                                            <th className="px-3 py-2">Window</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {missingNames.map((row) => (
-                                                            <tr key={row.id} className="border-t">
-                                                                <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{row.id}</td>
-                                                                <td className="px-3 py-2 whitespace-nowrap">{row.player_id}</td>
-                                                                <td className="px-3 py-2 text-muted-foreground italic">{row.player_name || '(empty)'}</td>
-                                                                <td className="px-3 py-2 whitespace-nowrap">{row.primary_team_name}</td>
-                                                                <td className="px-3 py-2 whitespace-nowrap">{row.loan_team_name}</td>
-                                                                <td className="px-3 py-2 whitespace-nowrap">{row.window_key}</td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    )}
-                                </AccordionContent>
-                            </AccordionItem>
-                        </Accordion>
+                        <Button asChild variant="outline" data-testid="seeding-link">
+                            <Link to="/admin/seeding">Open Seeding &amp; Rebuild</Link>
+                        </Button>
                     </CardContent>
                 </Card>
             </div>
@@ -1134,8 +1165,23 @@ export function AdminNewsletters() {
                                                             className="h-4 w-4"
                                                         />
                                                     </td>
-                                                    <td className="p-2 text-muted-foreground">#{newsletter.id}</td>
-                                                    <td className="p-2 font-medium">{newsletter.team_name || 'Unknown'}</td>
+                                                    <td className="p-2 text-muted-foreground">
+                                                        <Link
+                                                            to={`/admin/newsletters/${newsletter.id}`}
+                                                            className="hover:underline"
+                                                        >
+                                                            #{newsletter.id}
+                                                        </Link>
+                                                    </td>
+                                                    <td className="p-2 font-medium">
+                                                        <Link
+                                                            to={`/admin/newsletters/${newsletter.id}`}
+                                                            className="hover:underline"
+                                                            data-testid={`newsletter-detail-link-${newsletter.id}`}
+                                                        >
+                                                            {newsletter.team_name || 'Unknown'}
+                                                        </Link>
+                                                    </td>
                                                     <td className="p-2">{newsletter.issue_number || 'N/A'}</td>
                                                     <td className="p-2 text-xs">
                                                         {newsletter.week_start_date && newsletter.week_end_date ? (
@@ -1551,6 +1597,30 @@ export function AdminNewsletters() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Deadline processing ConfirmGate (MONEY — charges writers) */}
+            <ConfirmGate
+                open={deadlineConfirmOpen}
+                onOpenChange={setDeadlineConfirmOpen}
+                title="Process newsletter deadline"
+                description={`Publishes every newsletter with submitted content for ${deadlineWeekOverride || 'the current week'} and CHARGES the contributing writers. This cannot be undone.`}
+                confirmWord="CHARGE"
+                confirmLabel="Process & charge"
+                destructive
+                onConfirm={processDeadline}
+            />
+
+            {/* Digest send ConfirmGate (sends real email) */}
+            <ConfirmGate
+                open={digestConfirmOpen}
+                onOpenChange={setDigestConfirmOpen}
+                title="Send digest emails"
+                description={`Sends digest emails to ${digestQueue?.pending?.users ?? 0} subscriber(s) covering ${digestQueue?.pending?.items ?? 0} queued newsletter item(s) for ${digestQueue?.week_key || 'the current week'}. Emails go to real subscribers.`}
+                confirmWord="SEND"
+                confirmLabel="Send digests"
+                destructive
+                onConfirm={sendDigests}
+            />
         </div>
     )
 }

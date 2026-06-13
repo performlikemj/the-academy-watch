@@ -5,10 +5,20 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
-    Search, Loader2, AlertCircle, CheckCircle2, ArrowRight,
+    Search, Loader2, AlertCircle, ArrowRight,
     ChevronDown, ChevronRight, User,
 } from 'lucide-react'
+import {
+    buildSelectUpdates,
+    mergeCollapseState,
+    toggleCollapseState,
+    sandboxCardHeaderClasses,
+    sofascoreRowKey,
+    buildSofascoreUpdatePayload,
+} from '@/lib/admin-sandbox.js'
 import { STATUS_BADGE_CLASSES } from '../../lib/theme-constants'
 
 const RESULT_COLORS = {
@@ -24,7 +34,7 @@ function StatusBadge({ status }) {
     )
 }
 
-export function AdminSandbox() {
+function ClassifierTester() {
     // Search state
     const [searchQuery, setSearchQuery] = useState('')
     const [searchResults, setSearchResults] = useState([])
@@ -152,13 +162,6 @@ export function AdminSandbox() {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h2 className="text-3xl font-bold tracking-tight">Player Sandbox</h2>
-                <p className="text-muted-foreground mt-1">
-                    Test the classifier pipeline on any player and see step-by-step reasoning
-                </p>
-            </div>
-
             {/* Player Selection */}
             <Card>
                 <CardHeader>
@@ -498,3 +501,502 @@ export function AdminSandbox() {
         </div>
     )
 }
+
+// Diagnostics — generic admin sandbox-task runner (ported from the legacy
+// admin sandbox page). Tasks are registered server-side in
+// src/admin/sandbox_tasks.py and listed via adminSandboxTasks().
+function DiagnosticsPanel() {
+    const [tasks, setTasks] = useState([])
+    const [collapsedTasks, setCollapsedTasks] = useState({})
+    const [formValues, setFormValues] = useState({})
+    const [results, setResults] = useState({})
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
+    const [runningTaskId, setRunningTaskId] = useState(null)
+    const [sofascorePlayers, setSofascorePlayers] = useState([])
+    const [sofascoreInputs, setSofascoreInputs] = useState({})
+    const [sofascoreUpdatingKey, setSofascoreUpdatingKey] = useState(null)
+    const [sofascoreStatus, setSofascoreStatus] = useState(null)
+
+    const buildDefaults = useCallback((taskList) => {
+        const defaults = {}
+        for (const task of taskList) {
+            const params = task?.parameters || []
+            defaults[task.task_id] = params.reduce((acc, param) => {
+                if (param.type === 'checkbox') {
+                    acc[param.name] = false
+                } else {
+                    acc[param.name] = ''
+                }
+                return acc
+            }, {})
+        }
+        return defaults
+    }, [])
+
+    const loadTasks = useCallback(async () => {
+        setLoading(true)
+        setError('')
+        try {
+            let payload
+            try {
+                payload = await APIService.adminSandboxTasks()
+            } catch (err) {
+                if (err?.status === 401) {
+                    await APIService.refreshProfile()
+                    payload = await APIService.adminSandboxTasks()
+                } else {
+                    throw err
+                }
+            }
+            const taskList = Array.isArray(payload?.tasks) ? payload.tasks : []
+            setTasks(taskList)
+            setCollapsedTasks((prev) => mergeCollapseState(prev, taskList))
+            setFormValues((prev) => ({ ...buildDefaults(taskList), ...prev }))
+        } catch (err) {
+            setError(err?.message || 'Failed to load sandbox tasks')
+        } finally {
+            setLoading(false)
+        }
+    }, [buildDefaults])
+
+    useEffect(() => {
+        loadTasks()
+    }, [loadTasks])
+
+    const toggleTaskCollapsed = useCallback((taskId) => {
+        setCollapsedTasks((prev) => toggleCollapseState(prev, taskId))
+    }, [])
+
+    const handleInputChange = useCallback((taskId, fieldName, fieldType) => (event) => {
+        const value = fieldType === 'checkbox' ? event.target.checked : event.target.value
+        setFormValues((prev) => ({
+            ...prev,
+            [taskId]: {
+                ...(prev[taskId] || {}),
+                [fieldName]: value,
+            },
+        }))
+    }, [])
+
+    const handleSelectChange = useCallback((taskId, param, option, params) => {
+        setFormValues((prev) => {
+            const updates = buildSelectUpdates(param, option, params)
+            if (!updates || Object.keys(updates).length === 0) {
+                return prev
+            }
+            const nextTaskValues = { ...(prev[taskId] || {}) }
+            for (const [key, value] of Object.entries(updates)) {
+                nextTaskValues[key] = value
+            }
+            return { ...prev, [taskId]: nextTaskValues }
+        })
+    }, [])
+
+    const buildPayload = useCallback((task) => {
+        const params = task?.parameters || []
+        const currentValues = formValues[task.task_id] || {}
+        const payload = {}
+        for (const param of params) {
+            const rawValue = currentValues[param.name]
+            if (param.type === 'checkbox') {
+                payload[param.name] = !!rawValue
+                continue
+            }
+            if (rawValue === '' || typeof rawValue === 'undefined' || rawValue === null) {
+                continue
+            }
+            if (param.type === 'number') {
+                const numeric = Number(rawValue)
+                if (!Number.isNaN(numeric)) {
+                    payload[param.name] = numeric
+                }
+            } else {
+                payload[param.name] = rawValue
+            }
+        }
+        return payload
+    }, [formValues])
+
+    const runTask = useCallback(async (task) => {
+        if (!task?.task_id) return
+        setRunningTaskId(task.task_id)
+        try {
+            const payload = buildPayload(task)
+            let result
+            try {
+                result = await APIService.adminSandboxRun(task.task_id, payload)
+            } catch (err) {
+                if (err?.status === 401) {
+                    await APIService.refreshProfile()
+                    result = await APIService.adminSandboxRun(task.task_id, payload)
+                } else {
+                    throw err
+                }
+            }
+            if (task.task_id === 'list-missing-sofascore-ids') {
+                const players = Array.isArray(result?.payload?.players) ? result.payload.players : []
+                const enriched = players.map((player, index) => ({
+                    ...player,
+                    __row_key: sofascoreRowKey(player, index),
+                }))
+                const inputDefaults = {}
+                for (const player of enriched) {
+                    const rowKey = player.__row_key
+                    inputDefaults[rowKey] = player?.sofascore_id ? String(player.sofascore_id) : ''
+                }
+                setSofascorePlayers(enriched)
+                setSofascoreInputs(inputDefaults)
+                setSofascoreStatus(null)
+                setSofascoreUpdatingKey(null)
+            }
+            if (task.task_id === 'update-player-sofascore-id') {
+                setSofascoreStatus({ type: 'success', message: result?.summary || 'Sofascore id updated.' })
+            }
+            setResults((prev) => ({
+                ...prev,
+                [task.task_id]: { status: 'ok', result },
+            }))
+        } catch (err) {
+            if (task?.task_id === 'update-player-sofascore-id') {
+                setSofascoreStatus({ type: 'error', message: err?.message || 'Failed to update Sofascore id.' })
+            }
+            setResults((prev) => ({
+                ...prev,
+                [task.task_id]: {
+                    status: 'error',
+                    message: err?.message || 'Task execution failed',
+                    detail: err?.body,
+                },
+            }))
+        } finally {
+            setRunningTaskId(null)
+        }
+    }, [buildPayload])
+
+    const handleSofascoreAssign = useCallback(async (row, inputValue) => {
+        const payload = buildSofascoreUpdatePayload(row, typeof inputValue === 'string' ? inputValue.trim() : inputValue)
+        if (!payload) {
+            setSofascoreStatus({ type: 'error', message: 'Unable to update Sofascore id for this row.' })
+            return
+        }
+
+        const rowKey = row?.__row_key || sofascoreRowKey(row)
+        setSofascoreStatus(null)
+        setSofascoreUpdatingKey(rowKey)
+        try {
+            const result = await APIService.adminSandboxRun('update-player-sofascore-id', payload)
+            setSofascoreStatus({ type: 'success', message: result?.summary || 'Sofascore id updated.' })
+            setSofascorePlayers((prev) => prev.filter((item) => (item.__row_key || sofascoreRowKey(item)) !== rowKey))
+            setSofascoreInputs((prev) => {
+                const next = { ...prev }
+                delete next[rowKey]
+                return next
+            })
+        } catch (err) {
+            setSofascoreStatus({ type: 'error', message: err?.message || 'Failed to update Sofascore id.' })
+        } finally {
+            setSofascoreUpdatingKey(null)
+        }
+    }, [])
+
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">
+                    Server-side diagnostic tasks (registered in <span className="font-mono">admin/sandbox_tasks.py</span>).
+                    Results render inline; nothing here is scheduled — every run is manual.
+                </p>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadTasks}
+                    disabled={loading}
+                    data-testid="sandbox-refresh-tasks"
+                >
+                    {loading ? 'Refreshing…' : 'Refresh tasks'}
+                </Button>
+            </div>
+
+            {error && (
+                <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
+            )}
+
+            {loading && !tasks.length ? (
+                <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
+                    Loading sandbox tasks…
+                </div>
+            ) : null}
+
+            {!loading && !tasks.length && !error ? (
+                <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
+                    No sandbox tasks are currently registered.
+                </div>
+            ) : null}
+
+            <div className="grid gap-4">
+                {tasks.map((task) => {
+                    const params = task?.parameters || []
+                    const values = formValues[task.task_id] || {}
+                    const outcome = results[task.task_id]
+                    const isRunning = runningTaskId === task.task_id
+                    const isCollapsed = (collapsedTasks && Object.prototype.hasOwnProperty.call(collapsedTasks, task.task_id))
+                        ? !!collapsedTasks[task.task_id]
+                        : true
+                    const ToggleIcon = isCollapsed ? ChevronRight : ChevronDown
+
+                    return (
+                        <div key={task.task_id} className="rounded-xl border bg-card shadow-sm">
+                            <div className={sandboxCardHeaderClasses('shadow-sm')}>
+                                <div className="space-y-1">
+                                    <h2 className="text-lg font-semibold">{task.label}</h2>
+                                    <p className="text-sm text-muted-foreground">{task.description}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {outcome?.status === 'ok' ? (
+                                        <span className="text-xs font-medium text-emerald-600">Success</span>
+                                    ) : null}
+                                    {outcome?.status === 'error' ? (
+                                        <span
+                                            className="max-w-[12rem] truncate text-xs font-medium text-rose-600"
+                                            title={outcome.message}
+                                        >
+                                            {outcome.message}
+                                        </span>
+                                    ) : null}
+                                    <button
+                                        type="button"
+                                        onClick={() => toggleTaskCollapsed(task.task_id)}
+                                        aria-expanded={!isCollapsed}
+                                        data-testid={`sandbox-toggle-${task.task_id}`}
+                                        className="inline-flex items-center gap-1 rounded-md border border-border bg-secondary px-2 py-1 text-xs font-medium text-foreground/80 transition hover:bg-muted"
+                                    >
+                                        <ToggleIcon className="h-4 w-4" />
+                                        {isCollapsed ? 'Expand' : 'Collapse'}
+                                    </button>
+                                </div>
+                            </div>
+                            {!isCollapsed && (
+                                <>
+                                    <form
+                                        className="px-4 py-4 space-y-4"
+                                        onSubmit={(event) => {
+                                            event.preventDefault()
+                                            runTask(task)
+                                        }}
+                                    >
+                                        {params.length > 0 ? (
+                                            <div className="grid gap-3 md:grid-cols-2">
+                                                {params.map((param) => {
+                                                    const selectOptions = Array.isArray(param.options) ? param.options : []
+                                                    const hasSelect = param.type === 'select' && selectOptions.length > 0
+                                                    const currentValue = values[param.name] ?? ''
+                                                    const selectValue = hasSelect ? String(currentValue ?? '') : ''
+                                                    const selectLookup = hasSelect
+                                                        ? new Map(selectOptions.map((option, index) => {
+                                                            const optValue = option?.value ?? option?.label ?? index
+                                                            return [String(optValue), option]
+                                                        }))
+                                                        : null
+
+                                                    return (
+                                                        <label key={param.name} className="flex flex-col gap-2 text-sm font-medium text-foreground/80">
+                                                            <span>{param.label}</span>
+                                                            {param.type === 'checkbox' ? (
+                                                                <div className="flex items-center gap-2 text-sm font-normal">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={!!values[param.name]}
+                                                                        onChange={handleInputChange(task.task_id, param.name, param.type)}
+                                                                    />
+                                                                    {param.help ? <span className="text-muted-foreground">{param.help}</span> : null}
+                                                                </div>
+                                                            ) : hasSelect ? (
+                                                                <Select
+                                                                    value={selectValue}
+                                                                    onValueChange={(newValue) => {
+                                                                        if (!selectLookup) {
+                                                                            handleSelectChange(task.task_id, param, newValue ? { value: newValue } : null, params)
+                                                                            return
+                                                                        }
+                                                                        const option = selectLookup.get(newValue)
+                                                                        handleSelectChange(
+                                                                            task.task_id,
+                                                                            param,
+                                                                            option || (newValue ? { value: newValue } : null),
+                                                                            params
+                                                                        )
+                                                                    }}
+                                                                >
+                                                                    <SelectTrigger>
+                                                                        <SelectValue placeholder={param.placeholder || 'Select option…'} />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        {selectOptions.map((option, index) => {
+                                                                            const optionValue = String(option?.value ?? option?.label ?? index)
+                                                                            const optionLabel = option?.label ?? option?.value ?? optionValue
+                                                                            return (
+                                                                                <SelectItem key={`${optionValue}-${index}`} value={optionValue}>
+                                                                                    {optionLabel}
+                                                                                </SelectItem>
+                                                                            )
+                                                                        })}
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            ) : (
+                                                                <Input
+                                                                    type={param.type || 'text'}
+                                                                    value={values[param.name] ?? ''}
+                                                                    placeholder={param.placeholder || ''}
+                                                                    onChange={handleInputChange(task.task_id, param.name, param.type)}
+                                                                />
+                                                            )}
+                                                            {param.type !== 'checkbox' && param.help ? (
+                                                                <span className="text-xs font-normal text-muted-foreground">{param.help}</span>
+                                                            ) : null}
+                                                        </label>
+                                                    )
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm text-muted-foreground">No parameters required.</p>
+                                        )}
+                                        <div className="flex items-center gap-3">
+                                            <Button type="submit" size="sm" disabled={isRunning} data-testid={`sandbox-run-${task.task_id}`}>
+                                                {isRunning ? 'Running…' : 'Run task'}
+                                            </Button>
+                                            {outcome?.status === 'ok' && (
+                                                <span className="text-sm text-emerald-600">Success</span>
+                                            )}
+                                            {outcome?.status === 'error' && (
+                                                <span className="text-sm text-rose-600">{outcome.message}</span>
+                                            )}
+                                        </div>
+                                        {task.task_id !== 'list-missing-sofascore-ids' && outcome?.status === 'ok' && outcome.result && (
+                                            <pre className="mt-3 max-h-64 overflow-auto rounded-md bg-foreground p-3 text-xs text-card">
+                                                {JSON.stringify(outcome.result, null, 2)}
+                                            </pre>
+                                        )}
+                                        {outcome?.status === 'error' && outcome.detail && (
+                                            <pre className="mt-3 max-h-64 overflow-auto rounded-md bg-rose-900/80 p-3 text-xs text-rose-100">
+                                                {typeof outcome.detail === 'string'
+                                                    ? outcome.detail
+                                                    : JSON.stringify(outcome.detail, null, 2)}
+                                            </pre>
+                                        )}
+                                    </form>
+                                    {task.task_id === 'list-missing-sofascore-ids' && (
+                                        <div className="border-t px-4 py-4 space-y-4">
+                                            {sofascoreStatus && (
+                                                <Alert variant={sofascoreStatus.type === 'error' ? 'destructive' : 'default'}>
+                                                    <AlertDescription>{sofascoreStatus.message}</AlertDescription>
+                                                </Alert>
+                                            )}
+                                            {sofascorePlayers.length === 0 ? (
+                                                <p className="text-sm text-muted-foreground">
+                                                    Run the task to load players missing Sofascore ids.
+                                                </p>
+                                            ) : (
+                                                <div className="overflow-auto">
+                                                    <table className="min-w-full text-sm">
+                                                        <thead>
+                                                            <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                                                                <th className="pb-2 pr-4">Player</th>
+                                                                <th className="pb-2 pr-4">Parent Club</th>
+                                                                <th className="pb-2 pr-4">Loan Club</th>
+                                                                <th className="pb-2 pr-4">Sofascore ID</th>
+                                                                <th className="pb-2 pr-4">Actions</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {sofascorePlayers.map((player, index) => {
+                                                                const rowKey = player?.__row_key || sofascoreRowKey(player, index)
+                                                                const apiLabel = player?.player_id ? `API #${player.player_id}` : '—'
+                                                                const value = sofascoreInputs[rowKey] ?? (player?.sofascore_id ? String(player.sofascore_id) : '')
+                                                                return (
+                                                                    <tr key={rowKey} className="border-t border-border last:border-b">
+                                                                        <td className="py-2 pr-4 align-top">
+                                                                            <div className="font-medium text-foreground">{player?.player_name || (player?.player_id ? `Player #${player.player_id}` : 'Unknown player')}</div>
+                                                                            <div className="text-xs text-muted-foreground">{apiLabel}</div>
+                                                                        </td>
+                                                                        <td className="py-2 pr-4 align-top text-muted-foreground">{player?.primary_team || '—'}</td>
+                                                                        <td className="py-2 pr-4 align-top text-muted-foreground">{player?.loan_team || '—'}</td>
+                                                                        <td className="py-2 pr-4 align-top">
+                                                                            <Input
+                                                                                aria-label={`Sofascore id for ${player?.player_name || apiLabel}`}
+                                                                                value={value}
+                                                                                placeholder="e.g. 1101989"
+                                                                                onChange={(event) => {
+                                                                                    const next = event.target.value
+                                                                                    setSofascoreInputs((prev) => ({ ...prev, [rowKey]: next }))
+                                                                                }}
+                                                                                className="w-36"
+                                                                            />
+                                                                        </td>
+                                                                        <td className="py-2 pr-4 align-top">
+                                                                            <div className="flex flex-wrap gap-2">
+                                                                                <Button
+                                                                                    size="sm"
+                                                                                    disabled={sofascoreUpdatingKey === rowKey || !(value && value.trim())}
+                                                                                    onClick={() => handleSofascoreAssign(player, (value || '').trim())}
+                                                                                >
+                                                                                    {sofascoreUpdatingKey === rowKey ? 'Saving…' : 'Save'}
+                                                                                </Button>
+                                                                                <Button
+                                                                                    size="sm"
+                                                                                    variant="outline"
+                                                                                    disabled={sofascoreUpdatingKey === rowKey}
+                                                                                    onClick={() => handleSofascoreAssign(player, '')}
+                                                                                >
+                                                                                    Clear
+                                                                                </Button>
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                )
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )
+                })}
+            </div>
+        </div>
+    )
+}
+
+export function AdminSandbox() {
+    return (
+        <div className="space-y-6">
+            <header>
+                <h2 className="text-3xl font-bold tracking-tight">Classifier Tester &amp; Diagnostics</h2>
+                <p className="text-muted-foreground mt-1">
+                    Test the classifier pipeline on any player, or run server-side diagnostic tasks
+                </p>
+            </header>
+
+            <Tabs defaultValue="classifier" className="space-y-6">
+                <TabsList>
+                    <TabsTrigger value="classifier" data-testid="sandbox-tab-classifier">Classifier Tester</TabsTrigger>
+                    <TabsTrigger value="diagnostics" data-testid="sandbox-tab-diagnostics">Diagnostics</TabsTrigger>
+                </TabsList>
+                <TabsContent value="classifier">
+                    <ClassifierTester />
+                </TabsContent>
+                <TabsContent value="diagnostics">
+                    <DiagnosticsPanel />
+                </TabsContent>
+            </Tabs>
+        </div>
+    )
+}
+
+export default AdminSandbox

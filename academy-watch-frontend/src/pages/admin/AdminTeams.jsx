@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -32,7 +33,8 @@ import {
   LayoutGrid,
   MoreVertical,
   ChevronsUpDown,
-  Sprout
+  Sprout,
+  ShieldCheck
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -44,7 +46,114 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { ConfirmGate } from '@/components/admin/ConfirmGate'
 import { APIService } from '@/lib/api'
+
+// Suspect categories returned by POST /admin/teams/<id>/verify audits
+// (see backend services/team_verify.py — audit_team_consistency).
+const AUDIT_SUSPECT_CATEGORIES = [
+  { key: 'suspect_first_team_null_current_club', label: 'First-team rows with NULL current club' },
+  { key: 'suspect_loanee_null_current_club', label: 'Loanee/sold/released rows with NULL current club' },
+  { key: 'suspect_db_id_unresolved', label: 'Destination club missing from local teams table' },
+]
+
+function AuditSnapshot({ audit, testId }) {
+  if (!audit) return null
+  if (audit.error) {
+    return <p className="text-sm text-rose-600" data-testid={testId}>{audit.error}</p>
+  }
+  const clean = (audit.suspect_total || 0) === 0
+  return (
+    <div className="space-y-3" data-testid={testId}>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <Badge variant="outline">{audit.total_active} active</Badge>
+        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+          {audit.ok} OK
+        </Badge>
+        <Badge
+          variant="outline"
+          className={clean
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+            : 'bg-amber-50 text-amber-700 border-amber-200'}
+        >
+          {audit.suspect_total} suspect
+        </Badge>
+        {audit.parent_league && (
+          audit.parent_league.drift ? (
+            <Badge variant="destructive">
+              League drift: local {audit.parent_league.local_name || audit.parent_league.local_id} vs API {audit.parent_league.api_name || audit.parent_league.api_id}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+              Parent league OK
+            </Badge>
+          )
+        )}
+      </div>
+      <div className="space-y-2">
+        {AUDIT_SUSPECT_CATEGORIES.map(({ key, label }) => {
+          const cat = audit[key]
+          const count = cat?.count || 0
+          return (
+            <div key={key} className="text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className={count > 0 ? 'text-amber-700' : 'text-muted-foreground'}>{label}</span>
+                <Badge variant={count > 0 ? 'destructive' : 'secondary'}>{count}</Badge>
+              </div>
+              {count > 0 && (
+                <ul className="mt-1 ml-4 list-disc text-xs text-muted-foreground space-y-0.5">
+                  {(cat.rows || []).slice(0, 5).map((row) => (
+                    <li key={row.id}>
+                      {row.player_name} — {row.status}
+                      {row.current_club_name ? ` @ ${row.current_club_name}` : ''}
+                    </li>
+                  ))}
+                  {count > 5 && <li>…and {count - 5} more</li>}
+                </ul>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function AuditDiff({ pre, post }) {
+  if (!pre || !post) return null
+  const rows = [
+    { label: 'Suspect total', preVal: pre.suspect_total || 0, postVal: post.suspect_total || 0 },
+    ...AUDIT_SUSPECT_CATEGORIES.map(({ key, label }) => ({
+      label,
+      preVal: pre[key]?.count || 0,
+      postVal: post[key]?.count || 0,
+    })),
+  ]
+  return (
+    <table className="w-full text-sm" data-testid="verify-audit-diff">
+      <thead>
+        <tr className="border-b text-left text-xs text-muted-foreground">
+          <th className="py-1 pr-2">Check</th>
+          <th className="py-1 pr-2 text-right">Before</th>
+          <th className="py-1 text-right">After</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(({ label, preVal, postVal }) => (
+          <tr key={label} className="border-b last:border-0">
+            <td className="py-1 pr-2">{label}</td>
+            <td className="py-1 pr-2 text-right tabular-nums">{preVal}</td>
+            <td className={`py-1 text-right tabular-nums font-medium ${
+              postVal < preVal ? 'text-emerald-600' : postVal > preVal ? 'text-rose-600' : postVal === 0 ? 'text-emerald-600' : 'text-amber-600'
+            }`}>
+              {postVal}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
 
 export function AdminTeams() {
   const [teams, setTeams] = useState([])
@@ -95,6 +204,17 @@ export function AdminTeams() {
   const [purgeTeamId, setPurgeTeamId] = useState('')
   const [purgePreview, setPurgePreview] = useState(null)
   const [purgeLoading, setPurgeLoading] = useState(false)
+
+  // Verify & repair state
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false)
+  const [verifyTarget, setVerifyTarget] = useState(null)
+  const [verifyReport, setVerifyReport] = useState(null) // dry-run (audit-only) report
+  const [verifyApplyReport, setVerifyApplyReport] = useState(null) // applied report with pre/post audits
+  const [verifyLoading, setVerifyLoading] = useState(false)
+  const [verifyApplying, setVerifyApplying] = useState(false)
+  const [verifyError, setVerifyError] = useState(null)
+  const [forceResyncJourneys, setForceResyncJourneys] = useState(false)
+  const [verifyConfirmOpen, setVerifyConfirmOpen] = useState(false)
 
   // Team Aliases state
   const [aliases, setAliases] = useState([])
@@ -188,10 +308,14 @@ export function AdminTeams() {
   }, [requestFilter])
 
   useEffect(() => {
+    // Data fetch on mount — the loader owns loading/error state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTeams()
   }, [loadTeams])
 
   useEffect(() => {
+    // Data fetch on filter change — the loader owns loading/error state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTrackingRequests()
   }, [loadTrackingRequests])
 
@@ -225,18 +349,22 @@ export function AdminTeams() {
   const untrackedRangeEnd = Math.min(untrackedTeams.length, untrackedPage * untrackedPageSize)
 
   useEffect(() => {
+    // Legacy pagination reset pattern — pre-dates the set-state-in-effect rule.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTrackedPage(1)
     setUntrackedPage(1)
   }, [search])
 
   useEffect(() => {
     if (trackedPage > trackedTotalPages) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTrackedPage(trackedTotalPages)
     }
   }, [trackedPage, trackedTotalPages])
 
   useEffect(() => {
     if (untrackedPage > untrackedTotalPages) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUntrackedPage(untrackedTotalPages)
     }
   }, [untrackedPage, untrackedTotalPages])
@@ -500,6 +628,50 @@ export function AdminTeams() {
     }
   }
 
+  // Verify & repair (POST /admin/teams/<id>/verify) — dry-run first, Apply gated
+  const runVerifyDryRun = async (team) => {
+    setVerifyLoading(true)
+    setVerifyError(null)
+    try {
+      const report = await APIService.adminTeamVerify(team.id, { dryRun: true, forceResyncJourneys: false })
+      setVerifyReport(report)
+    } catch (error) {
+      console.error('Verify dry-run failed:', error)
+      setVerifyError(error.message || 'Verify dry-run failed')
+    } finally {
+      setVerifyLoading(false)
+    }
+  }
+
+  const openVerifyDialog = (team) => {
+    setVerifyTarget(team)
+    setVerifyReport(null)
+    setVerifyApplyReport(null)
+    setVerifyError(null)
+    setForceResyncJourneys(false)
+    setVerifyDialogOpen(true)
+    runVerifyDryRun(team)
+  }
+
+  const applyVerifyRepair = async () => {
+    if (!verifyTarget) return
+    setVerifyApplying(true)
+    setVerifyError(null)
+    try {
+      const report = await APIService.adminTeamVerify(verifyTarget.id, {
+        dryRun: false,
+        forceResyncJourneys,
+      })
+      setVerifyApplyReport(report)
+      loadTeams()
+    } catch (error) {
+      console.error('Verify & repair failed:', error)
+      setVerifyError(error.message || 'Verify & repair failed')
+    } finally {
+      setVerifyApplying(false)
+    }
+  }
+
   const handleRequestAction = async (requestId, status, note = '') => {
     try {
       await APIService.adminUpdateTrackingRequest(requestId, { status, note })
@@ -667,12 +839,12 @@ export function AdminTeams() {
 
   return (
     <div className="space-y-4 sm:space-y-6 overflow-hidden">
-      <div>
+      <header>
         <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Team Management</h2>
         <p className="text-sm sm:text-base text-muted-foreground mt-1">
           Manage team tracking status and data
         </p>
-      </div>
+      </header>
 
       {message && (
         <Alert className={message.type === 'error' ? 'border-rose-500' : message.type === 'success' ? 'border-emerald-500' : 'border-primary/20'}>
@@ -848,6 +1020,13 @@ export function AdminTeams() {
                                 <LayoutGrid className="h-4 w-4" />
                                 Formation
                               </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => openVerifyDialog(team)}
+                              data-testid="team-verify-action"
+                            >
+                              <ShieldCheck className="h-4 w-4" />
+                              Verify &amp; Repair
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
@@ -1649,6 +1828,107 @@ export function AdminTeams() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Verify & Repair Dialog */}
+      <Dialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen}>
+        <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto" data-testid="verify-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5" />
+              Verify &amp; Repair — {verifyTarget?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Runs every consistency check on this team's tracked players (audit first, repair on Apply).
+              Every step is idempotent — safe to run repeatedly.
+            </DialogDescription>
+          </DialogHeader>
+
+          {verifyError && (
+            <Alert className="border-rose-500">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{verifyError}</AlertDescription>
+            </Alert>
+          )}
+
+          {verifyLoading ? (
+            <div className="space-y-2 py-2">
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          ) : verifyApplyReport ? (
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg border bg-emerald-50 border-emerald-200 p-3 text-sm text-emerald-800">
+                <p className="font-medium">Repair applied</p>
+                {verifyApplyReport.repair?.error ? (
+                  <p className="text-rose-700 mt-1">Repair error: {verifyApplyReport.repair.error}</p>
+                ) : (
+                  <p className="mt-1">
+                    {verifyApplyReport.repair?.updated ?? 0} of {verifyApplyReport.repair?.total ?? 0} rows updated
+                    {verifyApplyReport.force_resync_journeys
+                      ? ` · ${verifyApplyReport.repair?.journeys_resynced ?? 0} journeys re-synced`
+                      : ''}
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-2">Pre / post audit diff</p>
+                <AuditDiff pre={verifyApplyReport.pre_audit} post={verifyApplyReport.post_audit} />
+              </div>
+              <AuditSnapshot audit={verifyApplyReport.post_audit} testId="verify-post-audit" />
+            </div>
+          ) : verifyReport ? (
+            <div className="space-y-4 py-2">
+              <AuditSnapshot audit={verifyReport.pre_audit} testId="verify-pre-audit" />
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={forceResyncJourneys}
+                  onCheckedChange={(checked) => setForceResyncJourneys(checked === true)}
+                  data-testid="verify-force-resync"
+                />
+                <span>
+                  Force re-sync journeys from API-Football
+                  <span className="block text-xs text-amber-600">Spends API quota — one call per player. Leave off unless journey data looks stale.</span>
+                </span>
+              </label>
+            </div>
+          ) : null}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setVerifyDialogOpen(false)}>
+              Close
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => verifyTarget && runVerifyDryRun(verifyTarget)}
+              disabled={verifyLoading || verifyApplying}
+              data-testid="verify-rerun-dry"
+            >
+              {verifyLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Re-run audit
+            </Button>
+            <Button
+              onClick={() => setVerifyConfirmOpen(true)}
+              disabled={verifyLoading || verifyApplying || !verifyReport}
+              data-testid="verify-apply"
+            >
+              {verifyApplying && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Apply repair…
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmGate
+        open={verifyConfirmOpen}
+        onOpenChange={setVerifyConfirmOpen}
+        title={`Repair ${verifyTarget?.name || 'team'}`}
+        description={`Re-derives status and current club for every active tracked player at ${verifyTarget?.name || 'this team'} via the classifier.${forceResyncJourneys ? ' Journeys will be re-synced from API-Football first (spends API quota).' : ''} Changes are written to the database.`}
+        confirmWord="APPLY"
+        confirmLabel="Apply repair"
+        onConfirm={applyVerifyRepair}
+      />
     </div>
   )
 }
