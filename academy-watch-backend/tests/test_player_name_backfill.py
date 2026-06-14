@@ -496,3 +496,73 @@ class TestAgesRefreshed:
 
             refreshed = db.session.get(TP, target_id)
             assert refreshed.age == 20  # Jan-1 birthday in `year - 20` → exactly 20 today
+
+
+class TestFetchCursor:
+    """fetch_missing cursor paging — driveable in small HTTPS batches,
+    each row attempted at most once (no front-blocking)."""
+
+    def test_cursor_pages_and_attempts_each_row_once(self, app, client, admin_headers, monkeypatch):
+        team = _seed_team()
+        ids = []
+        for pid in (910, 911, 912, 913, 914):
+            ids.append(_seed_tracked(team, pid, f"NoPos {pid}", position=None, birth_date=None).id)
+        db.session.commit()
+
+        calls = []
+
+        class _FakeClient:
+            def get_player_profile(self, player_api_id):
+                calls.append(player_api_id)
+                # Only odd api-ids have a position in the API → others are
+                # irreducibly unfillable but must not block the cursor.
+                if player_api_id % 2 == 1:
+                    return {"player": {"position": "Midfielder", "nationality": "Spain"}}
+                return {"player": {}}
+
+        import src.routes.api as api_mod
+
+        monkeypatch.setattr(api_mod, "api_client", _FakeClient())
+
+        cursor = 0
+        guard = 0
+        total_pos = 0
+        while True:
+            guard += 1
+            assert guard < 20
+            r = client.post(
+                "/api/admin/players/backfill-names",
+                json={"dry_run": False, "fetch_missing": True, "fetch_limit": 2, "fetch_cursor": cursor},
+                headers=admin_headers,
+            )
+            d = r.get_json()
+            total_pos += d["position_filled"]
+            if d["next_fetch_cursor"] is None:
+                break
+            cursor = d["next_fetch_cursor"]
+
+        # Every player fetched exactly once despite the unfillable evens.
+        assert sorted(calls) == [910, 911, 912, 913, 914]
+        assert len(calls) == 5
+        # Odd api-ids (911, 913) got positions.
+        assert total_pos == 2
+
+    def test_invalid_cursor_defaults_to_zero(self, app, client, admin_headers, monkeypatch):
+        team = _seed_team()
+        _seed_tracked(team, 920, "X", position=None, birth_date=None)
+        db.session.commit()
+
+        class _FakeClient:
+            def get_player_profile(self, player_api_id):
+                return {"player": {"position": "Defender"}}
+
+        import src.routes.api as api_mod
+
+        monkeypatch.setattr(api_mod, "api_client", _FakeClient())
+        r = client.post(
+            "/api/admin/players/backfill-names",
+            json={"dry_run": False, "fetch_missing": True, "fetch_cursor": -5},
+            headers=admin_headers,
+        )
+        assert r.status_code == 200
+        assert r.get_json()["position_filled"] == 1

@@ -470,21 +470,38 @@ def admin_backfill_player_names():
     # opt-in and capped — profile calls spend API-Football quota (DB-cached
     # 24h), so the operator controls the spend per invocation.
     api_fetched = 0
+    next_fetch_cursor = None
     payload = request.get_json(silent=True) or {}
     if payload.get("fetch_missing") is True and not dry_run:
         fetch_limit = payload.get("fetch_limit", 50)
         if not isinstance(fetch_limit, int) or isinstance(fetch_limit, bool) or fetch_limit < 1:
             fetch_limit = 50
         fetch_limit = min(fetch_limit, 200)
+        # Cursor (last tracked_player id processed) makes this driveable in
+        # small, independent HTTPS batches: each row is attempted at most once
+        # because the cursor advances past unfillable rows (no front-blocking),
+        # and every call stays well under the gunicorn/ingress timeout. Loop
+        # from the caller until next_fetch_cursor is null.
+        fetch_cursor = payload.get("fetch_cursor", 0)
+        if not isinstance(fetch_cursor, int) or isinstance(fetch_cursor, bool) or fetch_cursor < 0:
+            fetch_cursor = 0
         from src.routes.api import api_client
 
         still_missing = (
-            TrackedPlayer.query.filter(db.or_(TrackedPlayer.position.is_(None), TrackedPlayer.birth_date.is_(None)))
-            .filter(TrackedPlayer.is_active.is_(True))
+            TrackedPlayer.query.filter(
+                db.or_(
+                    TrackedPlayer.position.is_(None),
+                    TrackedPlayer.birth_date.is_(None),
+                    TrackedPlayer.nationality.is_(None),
+                )
+            )
+            .filter(TrackedPlayer.is_active.is_(True), TrackedPlayer.id > fetch_cursor)
             .order_by(TrackedPlayer.id)
             .limit(fetch_limit)
             .all()
         )
+        if len(still_missing) == fetch_limit:
+            next_fetch_cursor = still_missing[-1].id
         for tp in still_missing:
             try:
                 profile = api_client.get_player_profile(tp.player_api_id) or {}
@@ -521,6 +538,7 @@ def admin_backfill_player_names():
         "ages_refreshed": ages_refreshed,
         "nationality_filled": nationality_filled,
         "api_fetched": api_fetched,
+        "next_fetch_cursor": next_fetch_cursor,
         "unresolved": unresolved,
         "examples": examples,
         "dry_run": dry_run,
