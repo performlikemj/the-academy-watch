@@ -284,6 +284,7 @@ def admin_recompute_academy():
         "errors": errors,
         "examples": examples,
         "dry_run": dry_run,
+        "applied": not dry_run,
         "next_cursor": last_processed if len(journeys) == limit else None,
     }
 
@@ -523,6 +524,7 @@ def admin_backfill_player_names():
         "unresolved": unresolved,
         "examples": examples,
         "dry_run": dry_run,
+        "applied": not dry_run,
     }
 
     if dry_run:

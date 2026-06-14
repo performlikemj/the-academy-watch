@@ -66,7 +66,6 @@ from src.extensions import limiter
 from src.models.league import db
 from src.routes.api import api_bp
 from src.routes.players import players_bp
-from src.routes.subscriptions import subscriptions_bp
 from src.routes.teams import teams_bp
 
 
@@ -94,7 +93,6 @@ def app():
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(teams_bp, url_prefix="/api")
     app.register_blueprint(players_bp, url_prefix="/api")
-    app.register_blueprint(subscriptions_bp, url_prefix="/api")
     from src.routes.journalist import journalist_bp
 
     app.register_blueprint(journalist_bp, url_prefix="/api")

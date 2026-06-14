@@ -1894,6 +1894,274 @@ export class APIService {
     }
 
     // ==========================================================================
+    // Admin Operations console (admin-overhaul contract)
+    // ==========================================================================
+
+    // One cheap pass: tracked counts, journey totals, crawl footprint,
+    // active jobs, runs_paused, api_usage_today.
+    static async adminOpsOverview() {
+        return this.request('/admin/ops/overview', {}, { admin: true })
+    }
+
+    // Cursor-paged provenance repair (per-journey transactions). Page through
+    // by re-calling with the response's next_cursor until it is null. The
+    // deprecated owning-club sweep only runs on the cursor=0 page.
+    static async adminRecomputeAcademy({ dryRun = true, limit = 100, cursor = 0 } = {}) {
+        return this.request('/admin/journeys/recompute-academy', {
+            method: 'POST',
+            body: JSON.stringify({ dry_run: !!dryRun, limit, cursor }),
+        }, { admin: true })
+    }
+
+    // Placeholder-name + profile-gap backfill. fetch_missing spends API quota
+    // and is honoured by the backend only when dry_run is false.
+    static async adminBackfillPlayerNames({ dryRun = true, fetchMissing = false, fetchLimit = 50 } = {}) {
+        return this.request('/admin/players/backfill-names', {
+            method: 'POST',
+            body: JSON.stringify({ dry_run: !!dryRun, fetch_missing: !!fetchMissing, fetch_limit: fetchLimit }),
+        }, { admin: true })
+    }
+
+    // Cursor-paged scout digest send — real emails go out when dry_run is
+    // false. Page with next_cursor until null; losing the cursor mid-loop
+    // risks double-sending or skipping users.
+    static async adminSendScoutDigests({ dryRun = true, limit = 50, cursor = 0 } = {}) {
+        return this.request('/scout/admin/send-digests', {
+            method: 'POST',
+            body: JSON.stringify({ dry_run: !!dryRun, limit, cursor }),
+        }, { admin: true })
+    }
+
+    // Quota-spending: syncs supported-league metadata from API-Football.
+    static async adminSyncLeagues() {
+        return this.request('/sync-leagues', { method: 'POST' }, { admin: true })
+    }
+
+    // Quota-spending: syncs teams for all supported leagues for one season.
+    static async adminSyncTeams(season) {
+        const numeric = Number(season)
+        if (!Number.isInteger(numeric) || numeric <= 0) {
+            throw new Error('season must be a positive integer')
+        }
+        return this.request(`/sync-teams/${numeric}`, { method: 'POST' }, { admin: true })
+    }
+
+    static async adminRunsHistory() {
+        return this.request('/admin/runs/history', {}, { admin: true })
+    }
+
+    // NOTE: adminGetRunStatus / adminSetRunStatus already exist above
+    // (GET/POST /admin/run-status) — reuse those, do not re-wrap.
+
+    static async adminApiUsage(params = {}) {
+        const query = new URLSearchParams()
+        if (params.days !== undefined && params.days !== null) query.set('days', String(params.days))
+        const qs = query.toString()
+        return this.request(`/admin/api-usage${qs ? '?' + qs : ''}`, {}, { admin: true })
+    }
+
+    static async adminApiCacheStats() {
+        return this.request('/admin/api-cache/stats', {}, { admin: true })
+    }
+
+    static async adminJobForceFail(jobId) {
+        if (!jobId) throw new Error('jobId is required')
+        return this.request(`/admin/jobs/${encodeURIComponent(jobId)}/force-fail`, { method: 'POST' }, { admin: true })
+    }
+
+    static async adminJobsForceFailAll() {
+        return this.request('/admin/jobs/force-fail-all', { method: 'POST' }, { admin: true })
+    }
+
+    static async adminVideoReapStaleJobs() {
+        return this.request('/admin/video/reap-stale-jobs', { method: 'POST' }, { admin: true })
+    }
+
+    // Idempotent verify-and-repair pipeline for one tracked team. Returns
+    // pre_audit/repair/post_audit. forceResyncJourneys spends API quota.
+    static async adminTeamVerify(teamId, { dryRun = true, forceResyncJourneys = false } = {}) {
+        if (!teamId) throw new Error('teamId is required')
+        return this.request(`/admin/teams/${teamId}/verify`, {
+            method: 'POST',
+            body: JSON.stringify({ dry_run: !!dryRun, force_resync_journeys: !!forceResyncJourneys }),
+        }, { admin: true })
+    }
+
+    // --------------------------------------------------------------------------
+    // Backfills (Operations page). The backend defaults dry_run to FALSE on
+    // these older endpoints, so dry_run is normalized here: always sent
+    // explicitly, defaulting ON unless the caller passes dryRun/dry_run false.
+    // --------------------------------------------------------------------------
+
+    static _withExplicitDryRun(params = {}) {
+        const { dryRun, ...rest } = params
+        return { ...rest, dry_run: !!(dryRun ?? rest.dry_run ?? true) }
+    }
+
+    // Background job (returns job_id, poll via adminGetJobStatus).
+    // Params: dry_run/dryRun, season, delay (seconds between API calls).
+    static async adminSyncAllPlayerFixtures(params = {}) {
+        return this.request('/admin/sync-all-player-fixtures', {
+            method: 'POST',
+            body: JSON.stringify(this._withExplicitDryRun(params)),
+        }, { admin: true })
+    }
+
+    // Params: dry_run/dryRun, player_id, team_api_id, limit (default 50, cap 200).
+    static async adminBackfillRawJson(params = {}) {
+        return this.request('/admin/fixtures/backfill-raw-json', {
+            method: 'POST',
+            body: JSON.stringify(this._withExplicitDryRun(params)),
+        }, { admin: true })
+    }
+
+    // Params: dry_run/dryRun, team_api_id, limit (default 500, cap 2000).
+    static async adminBackfillAges(params = {}) {
+        return this.request('/admin/tracked-players/backfill-ages', {
+            method: 'POST',
+            body: JSON.stringify(this._withExplicitDryRun(params)),
+        }, { admin: true })
+    }
+
+    // Params: dry_run/dryRun, limit (default 200, cap 1000).
+    static async adminBackfillFormations(params = {}) {
+        return this.request('/admin/fixtures/backfill-formations', {
+            method: 'POST',
+            body: JSON.stringify(this._withExplicitDryRun(params)),
+        }, { admin: true })
+    }
+
+    // --------------------------------------------------------------------------
+    // Newsletter deadline / digests
+    // --------------------------------------------------------------------------
+
+    // Public endpoint (no auth decorator in newsletter_deadline.py).
+    static async adminDeadlineInfo() {
+        return this.request('/newsletters/deadline/info')
+    }
+
+    // Admin per-writer submission status. NOTE: the contract path
+    // /newsletters/writers/submission-status does not exist in the backend;
+    // the admin endpoint is GET /writers/<journalist_id>/submission-status.
+    static async adminWriterSubmissionStatus(journalistId, { weekStartDate } = {}) {
+        if (!journalistId) throw new Error('journalistId is required')
+        const query = weekStartDate ? `?week_start_date=${encodeURIComponent(weekStartDate)}` : ''
+        return this.request(`/writers/${journalistId}/submission-status${query}`, {}, { admin: true })
+    }
+
+    // MONEY: publishes and charges writers who submitted. Gate with ConfirmGate.
+    static async adminProcessDeadline({ weekStartDate } = {}) {
+        const body = {}
+        if (weekStartDate) body.week_start_date = weekStartDate
+        return this.request('/newsletters/deadline/process', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        }, { admin: true })
+    }
+
+    static async adminDigestQueue(weekKey) {
+        const query = weekKey ? `?week_key=${encodeURIComponent(weekKey)}` : ''
+        return this.request(`/admin/newsletters/digest-queue${query}`, {}, { admin: true })
+    }
+
+    // Payload: { week_key } (defaults to current week server-side). Sends email.
+    static async adminSendNewsletterDigests(payload = {}) {
+        return this.request('/admin/newsletters/send-digests', {
+            method: 'POST',
+            body: JSON.stringify(payload || {}),
+        }, { admin: true })
+    }
+
+    // Full-control newsletter send. test_to (string, list, or '__admins__')
+    // bypasses the published check and does not mark the newsletter sent.
+    // dry_run is always sent explicitly and defaults ON.
+    static async adminNewsletterSend(id, { testTo, dryRun = true, subject, webhookUrl } = {}) {
+        const numericId = parseNewsletterId(id)
+        if (!numericId) {
+            throw new Error('Newsletter id must be a positive integer')
+        }
+        const payload = { dry_run: !!dryRun }
+        if (testTo !== undefined && testTo !== null && testTo !== '') payload.test_to = testTo
+        if (subject) payload.subject = subject
+        if (webhookUrl) payload.webhook_url = webhookUrl
+        return this.request(`/newsletters/${numericId}/send`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }, { admin: true })
+    }
+
+    // --------------------------------------------------------------------------
+    // Writers (Users & Writers page)
+    // --------------------------------------------------------------------------
+
+    // Payload: { email (required), bio?, profile_image_url? }.
+    static async adminInviteJournalist(payload = {}) {
+        const email = (payload.email || '').trim().toLowerCase()
+        if (!email) throw new Error('email is required')
+        return this.request('/journalists/invite', {
+            method: 'POST',
+            body: JSON.stringify({ ...payload, email }),
+        }, { admin: true })
+    }
+
+    // Contract alias — same endpoint as adminGetJournalistAllAssignments above.
+    static async adminJournalistAllAssignments(journalistId) {
+        return this.adminGetJournalistAllAssignments(journalistId)
+    }
+
+    // Contract alias over adminAssignLoanTeams. The backend expects
+    // loan_teams: [{ loan_team_id: int|null, loan_team_name: str }] — entries
+    // without loan_team_name are skipped, so plain ID arrays are NOT enough.
+    static async adminSetLoanTeamAssignments(journalistId, loanTeams) {
+        return this.adminAssignLoanTeams(journalistId, loanTeams)
+    }
+
+    // Contract alias — same endpoint as adminGetJournalistStats above.
+    static async adminJournalistStats() {
+        return this.adminGetJournalistStats()
+    }
+
+    // Filters: status, coverage_type, user_id.
+    static async adminCoverageRequests(params = {}) {
+        const query = new URLSearchParams()
+        for (const [key, value] of Object.entries(params)) {
+            if (value === undefined || value === null || value === '') continue
+            query.append(key, String(value))
+        }
+        const qs = query.toString()
+        return this.request(`/admin/coverage-requests${qs ? '?' + qs : ''}`, {}, { admin: true })
+    }
+
+    static async adminApproveCoverageRequest(requestId) {
+        if (!requestId) throw new Error('requestId is required')
+        return this.request(`/admin/coverage-requests/${requestId}/approve`, { method: 'POST' }, { admin: true })
+    }
+
+    static async adminDenyCoverageRequest(requestId, { reason } = {}) {
+        if (!requestId) throw new Error('requestId is required')
+        return this.request(`/admin/coverage-requests/${requestId}/deny`, {
+            method: 'POST',
+            body: JSON.stringify(reason ? { reason } : {}),
+        }, { admin: true })
+    }
+
+    // --------------------------------------------------------------------------
+    // Player links queue (Inbox) — contract aliases over existing wrappers.
+    // --------------------------------------------------------------------------
+
+    static async adminPlayerLinksPending(params = {}) {
+        return this.adminGetPendingPlayerLinks(params)
+    }
+
+    static async adminApprovePlayerLink(linkId) {
+        return this.adminUpdatePlayerLink(linkId, { status: 'approved' })
+    }
+
+    static async adminRejectPlayerLink(linkId) {
+        return this.adminUpdatePlayerLink(linkId, { status: 'rejected' })
+    }
+
+    // ==========================================================================
     // Formations
     // ==========================================================================
 

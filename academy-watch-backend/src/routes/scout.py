@@ -945,6 +945,8 @@ def scout_admin_send_digests():
             return jsonify({"error": "cursor must be a non-negative integer"}), 400
 
         result = send_scout_digests(dry_run=dry_run, limit=limit, api_client=_get_api_client(), cursor=cursor)
+        result["dry_run"] = dry_run
+        result["applied"] = not dry_run
         return jsonify(result)
     except Exception as e:
         db.session.rollback()

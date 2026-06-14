@@ -2,14 +2,19 @@
 import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Navigate } from 'react-router-dom'
-import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { AlertCircle, KeyRound, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
 import { SyncOverlay } from '@/components/admin/SyncOverlay'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useAuth } from '@/context/AuthContext'
 import { BackgroundJobsProvider } from '@/context/BackgroundJobsContext'
+import { APIService } from '@/lib/api'
 
 const SIDEBAR_COLLAPSE_KEY = 'academy_watch_admin_sidebar_collapsed'
 
@@ -20,6 +25,12 @@ export function AdminLayout() {
         if (typeof localStorage === 'undefined') return false
         return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === 'true'
     })
+    // Bootstrap state for the inline "Enter admin API key" screen. Lives in
+    // the layout (not a child) so the error survives the hasApiKey flip that
+    // APIService.setAdminKey triggers before validation completes.
+    const [keyInput, setKeyInput] = useState('')
+    const [validatingKey, setValidatingKey] = useState(false)
+    const [keyError, setKeyError] = useState(null)
 
     useEffect(() => {
         if (typeof localStorage === 'undefined') return
@@ -36,8 +47,84 @@ export function AdminLayout() {
         return () => window.removeEventListener('resize', closeOnResize)
     }, [])
 
-    if (!token || !isAdmin || !hasApiKey) {
+    // Only non-admins get redirected home. An admin without a stored API key
+    // gets an inline key-entry screen instead (the key lives in localStorage
+    // via APIService.setAdminKey — the same mechanism Settings uses).
+    if (!token || !isAdmin) {
         return <Navigate to="/" replace />
+    }
+
+    const submitKey = async (event) => {
+        event.preventDefault()
+        const trimmed = (keyInput || '').trim()
+        if (!trimmed || validatingKey) return
+        setValidatingKey(true)
+        setKeyError(null)
+        // Same mechanism as AdminSettings.saveKey: store the key (persists to
+        // localStorage + emits the auth-changed event), validate it against
+        // the backend, and clear it again if the server rejects it.
+        APIService.setAdminKey(trimmed)
+        try {
+            await APIService.validateAdminCredentials()
+            setKeyInput('')
+        } catch (error) {
+            APIService.setAdminKey('')
+            const baseError = error?.body?.error || error?.message || 'Key rejected by server'
+            const detail = error?.body?.detail || ''
+            setKeyError(`Admin key not accepted: ${baseError}${detail ? ` — ${detail}` : ''}`)
+        } finally {
+            setValidatingKey(false)
+        }
+    }
+
+    if (!hasApiKey || validatingKey) {
+        return (
+            <div className="min-h-screen bg-secondary flex items-center justify-center p-4">
+                <Card className="w-full max-w-md" data-testid="admin-api-key-bootstrap">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <KeyRound className="h-5 w-5 text-primary" />
+                            Enter admin API key
+                        </CardTitle>
+                        <CardDescription>
+                            You are signed in as an admin, but no admin API key is stored on this
+                            device. It is kept in local storage and only sent with admin requests.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <form className="space-y-3" onSubmit={submitKey}>
+                            {keyError && (
+                                <Alert className="border-rose-500 bg-rose-50">
+                                    <AlertCircle className="h-4 w-4 text-rose-600" />
+                                    <AlertDescription className="text-rose-800">{keyError}</AlertDescription>
+                                </Alert>
+                            )}
+                            <div className="space-y-2">
+                                <Label htmlFor="admin-bootstrap-key-input">Admin API key</Label>
+                                <Input
+                                    id="admin-bootstrap-key-input"
+                                    data-testid="admin-api-key-input"
+                                    type="password"
+                                    value={keyInput}
+                                    onChange={(e) => setKeyInput(e.target.value)}
+                                    placeholder="Paste the admin API key"
+                                    autoComplete="off"
+                                    autoFocus
+                                />
+                            </div>
+                            <Button
+                                type="submit"
+                                className="w-full"
+                                disabled={validatingKey || !keyInput.trim()}
+                                data-testid="admin-api-key-save"
+                            >
+                                {validatingKey ? 'Validating…' : 'Save key & continue'}
+                            </Button>
+                        </form>
+                    </CardContent>
+                </Card>
+            </div>
+        )
     }
 
     return (

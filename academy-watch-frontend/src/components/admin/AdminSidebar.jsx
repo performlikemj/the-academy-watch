@@ -10,17 +10,21 @@ import {
     Home,
     Shield,
     Megaphone,
-    MessageSquarePlus,
     GraduationCap,
     Settings2,
     FlaskConical,
     ChevronDown,
-    Flag,
     Video,
+    Inbox,
+    Sprout,
+    Trophy,
+    Wrench,
+    UserCog,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { useAuthUI } from '@/context/AuthContext'
+import { fetchInboxCounts } from '@/pages/admin/AdminInbox'
 
 const GROUPS_KEY = 'academy_watch_admin_sidebar_groups'
 
@@ -29,6 +33,7 @@ const sidebarGroups = [
         label: null,
         items: [
             { icon: LayoutDashboard, label: 'Dashboard', href: '/admin/dashboard' },
+            { icon: Inbox, label: 'Inbox', href: '/admin/inbox', badge: 'inbox' },
         ],
     },
     {
@@ -37,9 +42,9 @@ const sidebarGroups = [
         items: [
             { icon: Users, label: 'Players', href: '/admin/players' },
             { icon: Shield, label: 'Teams', href: '/admin/teams' },
-            { icon: GraduationCap, label: 'Academy', href: '/admin/academy' },
-            { icon: Users, label: 'Cohorts', href: '/admin/cohorts' },
-            { icon: Video, label: 'Video Analysis', href: '/admin/video' },
+            { icon: Trophy, label: 'Youth Leagues', href: '/admin/academy' },
+            { icon: GraduationCap, label: 'Cohorts', href: '/admin/cohorts' },
+            { icon: Sprout, label: 'Seeding & Rebuild', href: '/admin/seeding' },
         ],
     },
     {
@@ -47,18 +52,30 @@ const sidebarGroups = [
         icon: Mail,
         items: [
             { icon: Mail, label: 'Newsletters', href: '/admin/newsletters' },
-            { icon: MessageSquarePlus, label: 'Curation', href: '/admin/curation' },
             { icon: Megaphone, label: 'Sponsors', href: '/admin/sponsors' },
-            { icon: Flag, label: 'Flags', href: '/admin/flags' },
+        ],
+    },
+    {
+        label: 'People',
+        icon: UserCog,
+        items: [
+            { icon: UserCog, label: 'Users & Writers', href: '/admin/users' },
+        ],
+    },
+    {
+        label: 'Club Services',
+        icon: Video,
+        items: [
+            { icon: Video, label: 'Film Room', href: '/admin/video' },
         ],
     },
     {
         label: 'System',
         icon: Settings,
         items: [
-            { icon: Settings2, label: 'Tools', href: '/admin/tools' },
-            { icon: FlaskConical, label: 'Sandbox', href: '/admin/sandbox' },
-            { icon: Users, label: 'Users', href: '/admin/users' },
+            { icon: Wrench, label: 'Operations', href: '/admin/operations' },
+            { icon: Settings2, label: 'API & Configs', href: '/admin/tools' },
+            { icon: FlaskConical, label: 'Classifier Tester', href: '/admin/sandbox' },
             { icon: Settings, label: 'Settings', href: '/admin/settings' },
         ],
     },
@@ -83,10 +100,23 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
     const location = useLocation()
     const { logout } = useAuthUI()
     const [groupOpen, setGroupOpen] = useState(() => loadGroupState())
+    const [inboxCount, setInboxCount] = useState(0)
 
     useEffect(() => {
         saveGroupState(groupOpen)
     }, [groupOpen])
+
+    useEffect(() => {
+        let cancelled = false
+        const refresh = () => {
+            fetchInboxCounts()
+                .then((counts) => { if (!cancelled) setInboxCount(counts?.total || 0) })
+                .catch(() => { /* badge is best-effort */ })
+        }
+        refresh()
+        const interval = setInterval(refresh, 120000)
+        return () => { cancelled = true; clearInterval(interval) }
+    }, [location.pathname])
 
     const handleNavigate = () => {
         if (onNavigate) onNavigate()
@@ -118,6 +148,14 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
             >
                 <item.icon className="h-4 w-4 shrink-0" />
                 {!collapsed && <span className="truncate">{item.label}</span>}
+                {!collapsed && item.badge === 'inbox' && inboxCount > 0 && (
+                    <span
+                        data-testid="sidebar-inbox-badge"
+                        className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold tabular-nums text-primary-foreground"
+                    >
+                        {inboxCount > 99 ? '99+' : inboxCount}
+                    </span>
+                )}
             </Button>
         </Link>
     )

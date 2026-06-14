@@ -20,7 +20,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
-import { Coins, Loader2, Plus, Video } from 'lucide-react'
+import { Coins, Loader2, Plus, Video, Wrench } from 'lucide-react'
 import { APIService } from '@/lib/api'
 
 const STATUS_VARIANTS = {
@@ -57,6 +57,9 @@ export function AdminVideo() {
     const [grantNote, setGrantNote] = useState('')
     const [granting, setGranting] = useState(false)
 
+    const [reaping, setReaping] = useState(false)
+    const [reapResult, setReapResult] = useState(null)
+
     useEffect(() => {
         APIService.getTeams()
             .then((res) => setTeams(res?.teams || (Array.isArray(res) ? res : [])))
@@ -79,6 +82,8 @@ export function AdminVideo() {
     }, [])
 
     useEffect(() => {
+        // Data fetch on team change — the loader owns loading/error state.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (teamId) loadMatches(teamId)
     }, [teamId, loadMatches])
 
@@ -100,6 +105,19 @@ export function AdminVideo() {
         }
     }
 
+    const handleReapStale = async () => {
+        setReaping(true)
+        setError(null)
+        try {
+            const res = await APIService.adminVideoReapStaleJobs()
+            setReapResult(Number(res?.stale_failed ?? 0))
+        } catch (err) {
+            setError(err.message)
+        } finally {
+            setReaping(false)
+        }
+    }
+
     const handleGrant = async () => {
         setGranting(true)
         setError(null)
@@ -117,9 +135,9 @@ export function AdminVideo() {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <header className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-2"><Video className="h-6 w-6" /> Video Analysis</h1>
+                    <h1 className="text-2xl font-bold flex items-center gap-2"><Video className="h-6 w-6" /> Film Room</h1>
                     <p className="text-sm text-muted-foreground">Match uploads, processing and tag review (concierge)</p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -133,7 +151,7 @@ export function AdminVideo() {
                         <Plus className="h-4 w-4 mr-1" /> New match
                     </Button>
                 </div>
-            </div>
+            </header>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 
@@ -193,6 +211,37 @@ export function AdminVideo() {
                     </CardContent>
                 </Card>
             )}
+
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2"><Wrench className="h-4 w-4" /> Maintenance</CardTitle>
+                    <CardDescription>
+                        GPU jobs stuck in processing for over 6 hours are marked failed so their matches can be requeued.
+                        Nothing runs this on a schedule — poke it manually when a job looks stuck.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-wrap items-center gap-3">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleReapStale}
+                        disabled={reaping}
+                        data-testid="video-reap-stale-jobs"
+                    >
+                        {reaping && <Loader2 className="h-4 w-4 mr-1 animate-spin" />} Reap stale jobs
+                    </Button>
+                    {reapResult !== null && (
+                        <Badge
+                            variant={reapResult > 0 ? 'destructive' : 'secondary'}
+                            data-testid="video-reap-stale-result"
+                        >
+                            {reapResult > 0
+                                ? `${reapResult} stale job${reapResult === 1 ? '' : 's'} marked failed`
+                                : 'No stale jobs found'}
+                        </Badge>
+                    )}
+                </CardContent>
+            </Card>
 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogContent>
