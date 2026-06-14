@@ -157,6 +157,22 @@ def _env_value(key: str, *, allow_inline_comment: bool = False) -> str | None:
     return value or None
 
 
+def _coerce_psycopg_driver(uri: str) -> str:
+    """Force a Postgres URI onto the psycopg (v3) driver.
+
+    The image ships psycopg v3 only (no psycopg2), so a bare `postgresql://`
+    or `postgres://` scheme — exactly what Supabase/Heroku hand you — routes
+    SQLAlchemy to psycopg2 and crashes the app at engine creation. Rewrite the
+    driver to `postgresql+psycopg` while leaving host/credentials/query intact.
+    Already-qualified schemes (e.g. `postgresql+psycopg`) pass through. Raises
+    on an unparseable URI so the caller can fall back to DB_* components.
+    """
+    url = make_url(uri)
+    if url.drivername in ("postgresql", "postgres"):
+        url = url.set(drivername="postgresql+psycopg")
+    return url.render_as_string(hide_password=False)
+
+
 def _build_db_uri_from_components() -> str:
     """Assemble a Postgres SQLAlchemy URI from DB_* environment variables."""
     port_raw = _env_value("DB_PORT", allow_inline_comment=True) or ""
@@ -184,9 +200,10 @@ if is_prod and os.getenv("SQLALCHEMY_DATABASE_URI"):
     # Sanitize accidental quotes/whitespace
     candidate = raw_uri.strip().strip('"').strip("'")
     try:
-        # Validate it parses; raises on bad format
-        make_url(candidate)
-        db_uri = candidate
+        # Validate + coerce the scheme to psycopg v3 (raises on bad format).
+        # A bare `postgresql://` (Supabase/Heroku default) would otherwise
+        # route to psycopg2, which is not installed, and crash the app.
+        db_uri = _coerce_psycopg_driver(candidate)
         logger.info("🗄️ Using SQLALCHEMY_DATABASE_URI from environment (production)")
     except Exception:
         logger.warning("⚠️ SQLALCHEMY_DATABASE_URI is invalid; falling back to DB_* components")
