@@ -1128,6 +1128,11 @@ function TeamsPage() {
   const [activeTab, setActiveTab] = useState('all')
   const [leagueRegions, setLeagueRegions] = useState({})
 
+  // Server-side search across the ENTIRE teams database (not just the loaded
+  // supported-league subset). null = no fetched results for the current query.
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+
   // Champions League state
   const [clTeams, setClTeams] = useState([])
   const [clLoading, setClLoading] = useState(false)
@@ -1175,6 +1180,36 @@ function TeamsPage() {
       })
       .catch((err) => console.error('Failed to load leagues for regions', err))
   }, [])
+
+  // Debounced server-side search: query the FULL teams database so results
+  // include every league/region (and teams outside the supported-league
+  // browse), independent of the active competition tab.
+  useEffect(() => {
+    const q = teamSearch.trim()
+    if (!q) {
+      setSearchResults(null)
+      setSearchLoading(false)
+      return
+    }
+    setSearchResults(null) // drop stale results from the previous query
+    setSearchLoading(true)
+    let cancelled = false
+    const handle = setTimeout(async () => {
+      try {
+        const data = await APIService.getTeams({ search: q })
+        if (!cancelled) setSearchResults(Array.isArray(data) ? data : [])
+      } catch (err) {
+        console.error('Team search failed:', err)
+        if (!cancelled) setSearchResults([])
+      } finally {
+        if (!cancelled) setSearchLoading(false)
+      }
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(handle)
+    }
+  }, [teamSearch])
 
   // Load CL teams when CL tab is active
   useEffect(() => {
@@ -1230,17 +1265,25 @@ function TeamsPage() {
     return teams.filter(t => t.league_name === activeTab)
   }, [teams, activeTab, isCL])
 
-  const filteredTeams = useMemo(() => {
-    const source = isCL ? clTeams : domesticBaseTeams
-    if (!searchQuery) return null
-    return source
-      .filter(team => team.name.toLowerCase().includes(searchQuery))
-      .sort((a, b) => {
-        const aStarts = a.name.toLowerCase().startsWith(searchQuery) ? 0 : 1
-        const bStarts = b.name.toLowerCase().startsWith(searchQuery) ? 0 : 1
-        return aStarts - bStarts || a.name.localeCompare(b.name)
-      })
-  }, [domesticBaseTeams, clTeams, isCL, searchQuery])
+  // Instant client-side preview from already-loaded teams (any tab) while the
+  // global server search is in flight — so results are never trapped inside
+  // the active competition tab.
+  const clientPreview = useMemo(() => {
+    if (!searchQuery) return []
+    return teams.filter((team) => team.name?.toLowerCase().includes(searchQuery))
+  }, [teams, searchQuery])
+
+  // What we render while searching: full-database server results once they
+  // arrive, otherwise the instant client preview. The backend already dedupes
+  // to one row per team, so no season filtering is applied here.
+  const searchDisplay = useMemo(() => {
+    const rows = searchResults !== null ? searchResults : clientPreview
+    return [...rows].sort((a, b) => {
+      const aStarts = a.name.toLowerCase().startsWith(searchQuery) ? 0 : 1
+      const bStarts = b.name.toLowerCase().startsWith(searchQuery) ? 0 : 1
+      return aStarts - bStarts || a.name.localeCompare(b.name)
+    })
+  }, [searchResults, clientPreview, searchQuery])
 
   const isSearching = searchQuery.length > 0
 
@@ -1410,26 +1453,28 @@ function TeamsPage() {
             </Alert>
           )}
 
-          {(isCL ? clLoading : loading) ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
-            </div>
-          ) : isSearching ? (
+          {isSearching ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between px-1">
-                <p className="text-sm text-muted-foreground">
-                  {filteredTeams.length === 0
-                    ? 'No teams found'
-                    : `${filteredTeams.length} team${filteredTeams.length !== 1 ? 's' : ''} found`
-                  }
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                  {searchLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {searchLoading
+                    ? 'Searching all teams…'
+                    : searchDisplay.length === 0
+                      ? 'No teams found'
+                      : `${searchDisplay.length} team${searchDisplay.length !== 1 ? 's' : ''} found`}
                 </p>
                 <Button variant="ghost" size="sm" className="text-xs" onClick={() => setTeamSearch('')}>
                   Clear
                 </Button>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                {filteredTeams.map((team) => isCL ? renderClTeamCard(team) : renderTeamCard(team))}
+                {searchDisplay.map((team) => renderTeamCard(team))}
               </div>
+            </div>
+          ) : (isCL ? clLoading : loading) ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
             </div>
           ) : isCL ? (
             <div>
