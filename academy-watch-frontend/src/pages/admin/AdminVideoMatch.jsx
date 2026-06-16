@@ -30,6 +30,36 @@ import { VideoStatusBadge } from './AdminVideo'
 
 const POLL_STATUSES = new Set(['queued', 'processing', 'preflight'])
 
+const IDENTITY_BADGE = {
+    human_confirmed: { label: 'confirmed', variant: 'default' },
+    high: { label: 'high confidence', variant: 'default' },
+    low: { label: 'low confidence', variant: 'secondary' },
+    unverified: { label: 'unverified', variant: 'outline' },
+}
+
+const METRIC_LABELS = {
+    minutes_on_camera: 'Minutes on camera',
+    distance_m: 'Distance',
+    fastest_sustained_kmh: 'Top sustained speed',
+    sprint_count: 'Sprints',
+    touches: 'Touches',
+    heatmap: 'Heatmap',
+}
+
+function metricDisplay(m) {
+    if (m.value === null || m.value === undefined) {
+        return m.kind === 'beta' ? 'beta — coming soon' : 'pending calibration'
+    }
+    const v = `${m.value}${m.unit ? ' ' + m.unit : ''}`
+    return m.kind === 'lower_bound' ? `≥ ${v}` : v
+}
+
+function votesSummary(votes) {
+    if (!votes || typeof votes !== 'object') return null
+    const parts = Object.entries(votes).map(([n, c]) => `${n}×${c}`)
+    return parts.length ? parts.join(' · ') : null
+}
+
 export function AdminVideoMatch() {
     const { matchId } = useParams()
     const [match, setMatch] = useState(null)
@@ -519,18 +549,48 @@ export function AdminVideoMatch() {
                     <CardHeader>
                         <CardTitle className="text-base">Player reports</CardTitle>
                         <CardDescription>
-                            On-camera minutes from a single panning camera — players out of frame aren’t counted, so
-                            these are visibility numbers, not full-match totals.
+                            Every figure carries its own confidence, gated by identity — a stat is only as
+                            trustworthy as the player it’s attributed to. Coverage shows how much of each player we
+                            actually saw; metrics that need pitch calibration are shown as pending, never guessed.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="space-y-1">
-                            {(report.reports || []).map((r) => (
-                                <div key={r.id} className="flex items-center justify-between rounded border px-3 py-2">
-                                    <span className="font-medium">#{r.jersey_number} {r.player_name}</span>
-                                    <span className="text-sm text-muted-foreground">{r.minutes_visible ?? '—'} min on camera</span>
-                                </div>
-                            ))}
+                        <div className="space-y-3">
+                            {(report.reports || []).map((r) => {
+                                const idconf = r.identity_confidence || 'unverified'
+                                const idb = IDENTITY_BADGE[idconf] || IDENTITY_BADGE.unverified
+                                const cov = r.coverage || {}
+                                const votes = votesSummary(r.identity_evidence?.votes)
+                                return (
+                                    <div key={r.id} className="rounded-lg border p-3 space-y-2">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className="font-medium">#{r.jersey_number} {r.player_name}</span>
+                                            <Badge variant={idb.variant}>{idb.label}</Badge>
+                                            {r.identity_evidence?.splice_risk && (
+                                                <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" />mixed identity?</Badge>
+                                            )}
+                                            {r.identity_evidence?.source === 'human' && <Badge variant="outline">you confirmed</Badge>}
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            {cov.on_camera_min ?? r.minutes_visible ?? '—'} min on camera
+                                            {cov.confident_windows != null ? ` · ${cov.confident_windows} window${cov.confident_windows === 1 ? '' : 's'}` : ''}
+                                            {cov.pct_of_match != null ? ` · ${Math.round(cov.pct_of_match * 100)}% of match` : ''}
+                                            {votes ? ` · reads ${votes}` : ''}
+                                        </p>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1">
+                                            {(r.metrics || []).filter((m) => m && m.key).map((m) => (
+                                                <div key={m.key} className="flex items-baseline justify-between gap-2 text-sm">
+                                                    <span className="text-muted-foreground">{METRIC_LABELS[m.key] || m.key}</span>
+                                                    <span className={m.suppressed ? 'text-muted-foreground/60 italic text-xs' : 'font-medium'}>
+                                                        {metricDisplay(m)}
+                                                        {!m.suppressed && m.confidence ? <span className="text-muted-foreground font-normal text-xs"> ({m.confidence})</span> : null}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )
+                            })}
                             {(report.reports || []).length === 0 && (
                                 <p className="text-sm text-muted-foreground">No reports — bind tracklets to players, then re-finalize.</p>
                             )}

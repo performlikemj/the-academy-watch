@@ -31,6 +31,7 @@ from src.models.video import (
 )
 from src.routes.api import require_api_key
 from src.services import video_queue, video_storage
+from src.services.video_report import build_player_report, tracklet_to_bound
 
 video_bp = Blueprint("video", __name__)
 logger = logging.getLogger(__name__)
@@ -420,17 +421,37 @@ def finalize_match(match_id: int):
             )
             .all()
         )
-        if not bound:
-            continue
-        visible = sum(t.visible_s or 0.0 for t in bound)
-        # Phase A v1: identity + visibility metrics. Distance/speed/heatmaps land
-        # with the homography stage; columns stay NULL rather than fabricating.
+        # A roster player with no confident tracklets still gets a report — an
+        # "unverified / 0 on-camera" row is more honest than silent omission (the
+        # coach can tell "we saw nothing of them" from "not in the squad").
+        # Build the structured confidence-per-field report. Phase A v1: identity +
+        # coverage + on-camera minutes are real; distance/speed/heatmaps are emitted
+        # as `suppressed` (value null) until the homography stage — never fabricated.
+        team_cluster = next((t.team_cluster for t in bound if t.team_cluster in (0, 1)), None)
+        structured = build_player_report(
+            jersey_number=entry.jersey_number,
+            team_cluster=team_cluster,
+            our_team_cluster=match.our_team_cluster,
+            bound=[tracklet_to_bound(t) for t in bound],
+            match_duration_s=match.duration_s,
+        )
+        identity = structured["identity"]
         report = VideoPlayerReport(
             video_match_id=match.id,
             roster_entry_id=entry.id,
             tracked_player_id=entry.tracked_player_id,
-            minutes_visible=round(visible / 60.0, 1),
+            minutes_visible=structured["coverage"]["on_camera_min"],
             touches_is_beta=True,
+            identity_confidence=identity["confidence"],
+            identity_evidence={
+                "source": identity["source"],
+                "votes": identity["votes"],
+                "splice_risk": identity["splice_risk"],
+                "human_reviewed": identity["human_reviewed"],
+            },
+            coverage=structured["coverage"],
+            metrics=structured["metrics"],
+            events=structured["events"],
             model_version=model_version,
         )
         db.session.add(report)

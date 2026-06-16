@@ -51,6 +51,17 @@ VIDEO_JOB_STAGES = (
 
 CREDIT_REASONS = ("purchase", "debit", "refund", "grant")
 
+# Per-player report identity gate. A stat is only as trustworthy as this.
+IDENTITY_CONFIDENCE = ("human_confirmed", "high", "low", "unverified")
+
+# What KIND of number a metric is — so a biased partial is never shown as a full total.
+#   point           direct, trustworthy measurement (minutes on camera, fastest sustained speed)
+#   lower_bound     only confident windows seen, so counts are floors ("at least N")
+#   partial_observed aggregate over a biased (near-side) sample — never a full-match total
+#   beta            experimental; suppressed below a quality threshold
+#   suppressed      cannot be measured reliably yet → value null, never fabricated
+METRIC_KINDS = ("point", "lower_bound", "partial_observed", "beta", "suppressed")
+
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
@@ -279,6 +290,14 @@ class VideoPlayerReport(db.Model):
     touches = db.Column(db.Integer)
     touches_is_beta = db.Column(db.Boolean, nullable=False, default=True)
 
+    # Structured confidence-per-field report (the contract; see services/video_report.py).
+    # identity is the GATE — every metric below is only as true as the identity it hangs on.
+    identity_confidence = db.Column(db.String(20))  # one of IDENTITY_CONFIDENCE
+    identity_evidence = db.Column(db.JSON)  # {source, votes, splice_risk, human_reviewed}
+    coverage = db.Column(db.JSON)  # {on_camera_min, confident_windows, pct_of_match, span_s, near_side_pct, sampling}
+    metrics = db.Column(db.JSON)  # [{key, value, unit, confidence, kind, note, suppressed}]
+    events = db.Column(db.JSON)  # [{type, t, confidence, clip}]
+
     model_version = db.Column(db.String(40), nullable=False)
     created_at = db.Column(db.DateTime, default=_utcnow)
 
@@ -299,6 +318,11 @@ class VideoPlayerReport(db.Model):
             "heatmap_path": self.heatmap_path,
             "touches": self.touches,
             "touches_is_beta": self.touches_is_beta,
+            "identity_confidence": self.identity_confidence,
+            "identity_evidence": self.identity_evidence,
+            "coverage": self.coverage,
+            "metrics": self.metrics,
+            "events": self.events,
             "model_version": self.model_version,
         }
 
