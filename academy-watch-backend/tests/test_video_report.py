@@ -219,6 +219,7 @@ class TestOrmBridge:
         assert bound["confidence"] == "high"
         assert bound["visible_s"] == 150.0
         assert bound["number_votes"] == {"10": 6, "12": 1}
+        assert bound["windows"] == 2  # chain expands to its member-fragment count
         r = build_player_report(
             jersey_number=10,
             team_cluster=0,
@@ -229,3 +230,22 @@ class TestOrmBridge:
         assert r["identity"]["confidence"] == "high"
         assert r["identity"]["votes"]["10"] == 6
         assert r["coverage"]["on_camera_min"] == 2.5
+        assert r["coverage"]["confident_windows"] == 2  # not 1 (the row count)
+
+
+class TestWindowCount:
+    def test_chain_expands_to_member_fragments(self):
+        r = build_player_report(
+            jersey_number=10, team_cluster=0, our_team_cluster=0,
+            bound=[_bound(windows=35), _bound(windows=8)],
+            match_duration_s=2700,
+        )
+        assert r["coverage"]["confident_windows"] == 43
+
+    def test_missing_windows_defaults_to_one(self):
+        r = build_player_report(
+            jersey_number=10, team_cluster=0, our_team_cluster=0,
+            bound=[_bound(), _bound()],  # no 'windows' key
+            match_duration_s=2700,
+        )
+        assert r["coverage"]["confident_windows"] == 2
