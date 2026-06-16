@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
 import { Textarea } from '@/components/ui/textarea.jsx'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select.jsx'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.jsx'
 import TeamMultiSelect from '@/components/ui/TeamMultiSelect.jsx'
 import TeamSelect from '@/components/ui/TeamSelect.jsx'
@@ -1103,13 +1103,17 @@ function SubscribePage() {
 }
 
 // Teams page component
-const COMPETITION_TABS = [
+// Region-first navigation: the platform spans 4 regions / 16 leagues, so the
+// primary tabs are REGIONS. Leagues appear as grouped sections within each
+// region and are reachable directly via the "Jump to league" dropdown.
+// Champions League is a special season-scoped view kept as its own tab.
+// Region keys must match the `region` values returned by /api/leagues.
+const REGION_TABS = [
   { key: 'all', label: 'All', color: '#6b7280' },
-  { key: 'Premier League', apiId: 39, label: 'Premier League', color: LEAGUE_COLORS['Premier League'] },
-  { key: 'La Liga', apiId: 140, label: 'La Liga', color: LEAGUE_COLORS['La Liga'] },
-  { key: 'Serie A', apiId: 135, label: 'Serie A', color: LEAGUE_COLORS['Serie A'] },
-  { key: 'Bundesliga', apiId: 78, label: 'Bundesliga', color: LEAGUE_COLORS['Bundesliga'] },
-  { key: 'Ligue 1', apiId: 61, label: 'Ligue 1', color: LEAGUE_COLORS['Ligue 1'] },
+  { key: 'Europe', label: 'Europe', color: '#2563eb' },
+  { key: 'South America', label: 'S. America', color: '#16a34a' },
+  { key: 'North America', label: 'N. America', color: '#dc2626' },
+  { key: 'Asia', label: 'Asia', color: '#d97706' },
   { key: 'champions-league', label: 'Champions League', color: LEAGUE_COLORS['Champions League'] },
 ]
 
@@ -1127,6 +1131,8 @@ function TeamsPage() {
   const [teamSearch, setTeamSearch] = useState('')
   const [activeTab, setActiveTab] = useState('all')
   const [leagueRegions, setLeagueRegions] = useState({})
+  const [leagues, setLeagues] = useState([]) // full league list (for the Jump-to-league dropdown)
+  const [leagueFilter, setLeagueFilter] = useState(null) // league_api_id selected from the dropdown, or null
 
   // Server-side search across the ENTIRE teams database (not just the loaded
   // supported-league subset). null = no fetched results for the current query.
@@ -1172,11 +1178,13 @@ function TeamsPage() {
   useEffect(() => {
     APIService.getLeagues()
       .then((data) => {
+        const list = Array.isArray(data) ? data : []
         const map = {}
-        for (const league of Array.isArray(data) ? data : []) {
+        for (const league of list) {
           if (league?.league_id) map[league.league_id] = league.region || 'Europe'
         }
         setLeagueRegions(map)
+        setLeagues(list)
       })
       .catch((err) => console.error('Failed to load leagues for regions', err))
   }, [])
@@ -1252,18 +1260,21 @@ function TeamsPage() {
   // Filter teams by search query
   const searchQuery = teamSearch.trim().toLowerCase()
 
-  // For domestic tabs, filter base set by active tab.
-  // Match on league API id when available — league names collide globally
-  // (Italy's Serie A vs Brazil's Serie A).
+  // Base set for the browse view: filtered by the active REGION tab, then
+  // narrowed to a single league when one is chosen from the Jump-to-league
+  // dropdown. Region is resolved per-team via league_api_id (league names
+  // collide globally — Italy's Serie A vs Brazil's Serie A).
   const domesticBaseTeams = useMemo(() => {
     if (isCL) return []
-    if (activeTab === 'all') return teams
-    const tab = COMPETITION_TABS.find(t => t.key === activeTab)
-    if (tab?.apiId) {
-      return teams.filter(t => (t.league_api_id ? t.league_api_id === tab.apiId : t.league_name === activeTab))
+    let base = teams
+    if (activeTab !== 'all') {
+      base = base.filter((t) => (leagueRegions[t.league_api_id] || 'Europe') === activeTab)
     }
-    return teams.filter(t => t.league_name === activeTab)
-  }, [teams, activeTab, isCL])
+    if (leagueFilter) {
+      base = base.filter((t) => t.league_api_id === leagueFilter)
+    }
+    return base
+  }, [teams, activeTab, leagueFilter, leagueRegions, isCL])
 
   // Instant client-side preview from already-loaded teams (any tab) while the
   // global server search is in flight — so results are never trapped inside
@@ -1375,13 +1386,45 @@ function TeamsPage() {
           <div className="sticky top-0 z-10 bg-card/90 backdrop-blur py-3 px-1 -mx-1 mb-6 border-b border-border">
             <div className="flex items-center gap-3 mb-3">
               <h1 className="text-2xl font-semibold text-foreground">Teams</h1>
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
                 <Button variant="outline" size="sm" className="text-xs" onClick={() => setSubscribeOpen(true)}>
                   <Mail className="h-3.5 w-3.5 mr-1" />
                   Subscribe
                 </Button>
+                <Select
+                  value={leagueFilter ? String(leagueFilter) : 'all'}
+                  onValueChange={(v) => {
+                    setTeamSearch('')
+                    if (v === 'all') { setLeagueFilter(null); return }
+                    const id = Number(v)
+                    setLeagueFilter(id)
+                    const region = leagueRegions[id]
+                    if (region) setActiveTab(region)
+                  }}
+                >
+                  <SelectTrigger className="w-44 h-8 text-xs">
+                    <SelectValue placeholder="Jump to league" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All leagues</SelectItem>
+                    {REGION_ORDER.map((region) => {
+                      const inRegion = leagues.filter((l) => (l.region || 'Europe') === region)
+                      if (!inRegion.length) return null
+                      return (
+                        <SelectGroup key={region}>
+                          <SelectLabel>{region}</SelectLabel>
+                          {inRegion.map((l) => (
+                            <SelectItem key={l.league_id} value={String(l.league_id)}>
+                              {l.name}{l.country ? ` · ${l.country}` : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
                 <Select value={filter} onValueChange={setFilter}>
-                  <SelectTrigger className="w-36 h-8 text-xs">
+                  <SelectTrigger className="w-32 h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1391,12 +1434,12 @@ function TeamsPage() {
                 </Select>
               </div>
             </div>
-            {/* Competition tabs */}
+            {/* Region tabs */}
             <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1 -mx-1 px-1 mb-3">
-              {COMPETITION_TABS.map(tab => (
+              {REGION_TABS.map(tab => (
                 <button
                   key={tab.key}
-                  onClick={() => { setActiveTab(tab.key); setTeamSearch('') }}
+                  onClick={() => { setActiveTab(tab.key); setTeamSearch(''); setLeagueFilter(null) }}
                   className={[
                     "shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
                     activeTab === tab.key
@@ -1494,6 +1537,11 @@ function TeamsPage() {
                   <div className="flex items-center gap-2 mb-4 pl-1">
                     <Globe className="h-3.5 w-3.5 text-primary" />
                     <h2 className="text-xs font-semibold uppercase tracking-[0.15em] text-primary">{region}</h2>
+                    <span className="text-xs text-muted-foreground/70 tabular-nums">
+                      {Object.values(regionLeagues).reduce((sum, g) => sum + g.teams.length, 0)}
+                      {' · '}
+                      {Object.keys(regionLeagues).length} {Object.keys(regionLeagues).length === 1 ? 'league' : 'leagues'}
+                    </span>
                     <div className="flex-1 h-px bg-border" />
                   </div>
                   <div className="space-y-8">
