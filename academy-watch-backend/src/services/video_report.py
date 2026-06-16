@@ -55,6 +55,18 @@ def tracklet_number_votes(evidence) -> Counter:
     return c
 
 
+def _member_window_count(evidence) -> int:
+    """How many underlying confident windows this tracklet represents. A chain
+    bundles many short fragments into one row, so the meaningful window count is
+    its member-fragment count — not 1. (Matches MJ's 'confident windows, combined'
+    framing.) A leftover fragment is a single window."""
+    if isinstance(evidence, dict):
+        members = evidence.get("member_fragment_ids")
+        if isinstance(members, list) and members:
+            return len(members)
+    return 1
+
+
 def tracklet_to_bound(t) -> dict:
     """VideoTracklet ORM row -> the plain dict build_player_report consumes."""
     return {
@@ -65,6 +77,7 @@ def tracklet_to_bound(t) -> dict:
         "tag_source": t.tag_source,
         "contaminated": bool(t.contaminated),
         "number_votes": dict(tracklet_number_votes(t.evidence)),
+        "windows": _member_window_count(t.evidence),
     }
 
 
@@ -145,7 +158,8 @@ def build_player_report(
 
     coverage = {
         "on_camera_min": on_camera_min,
-        "confident_windows": len(bound),
+        # underlying confident windows (chains expand to their member-fragment count)
+        "confident_windows": sum(int(b.get("windows", 1)) for b in bound),
         "pct_of_match": pct_of_match,
         "span_s": [round(min(firsts), 1), round(max(lasts), 1)] if firsts and lasts else None,
         # near/far split needs per-frame positions (not in the DB yet) — forward-compatible,
