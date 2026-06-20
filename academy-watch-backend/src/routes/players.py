@@ -95,25 +95,40 @@ def get_public_player_stats(player_id: int):
                 .all()
             )
 
-        # Build a map of team_api_id -> team info
-        # For on_loan: use current_club (loan destination)
-        # For first_team/academy: use parent club (team)
+        # Build a map of team_api_id -> team info for every club the player is
+        # tracked at. We include BOTH the club where they currently play
+        # (current_club_api_id — loan destination OR the club that bought them)
+        # AND their parent/academy club. Previously the current club was added
+        # only for status == "on_loan"; once moved players were reclassified
+        # "sold"/"released" they fell through to the parent-only branch, so this
+        # query filtered out every fixture at their real club and the page showed
+        # "No match data available" even though the rows exist in
+        # FixturePlayerStats (season-stats builds its club list straight from
+        # FixturePlayerStats and was therefore unaffected).
         loan_teams_info = {}
         for tp in tracked:
-            if tp.status == "on_loan" and tp.current_club_api_id:
-                loan_teams_info[tp.current_club_api_id] = {
-                    "name": tp.current_club_name or (tp.current_club.name if tp.current_club else "Unknown"),
-                    "logo": tp.current_club.logo if tp.current_club else None,
-                    "window_type": "Summer",
-                    "is_active": tp.is_active,
-                }
-            elif tp.team:
-                loan_teams_info[tp.team.team_id] = {
-                    "name": tp.team.name,
-                    "logo": tp.team.logo,
-                    "window_type": "Summer",
-                    "is_active": tp.is_active,
-                }
+            # The club where the player actually plays now (loan dest or buyer).
+            if tp.current_club_api_id:
+                loan_teams_info.setdefault(
+                    tp.current_club_api_id,
+                    {
+                        "name": tp.current_club_name or (tp.current_club.name if tp.current_club else "Unknown"),
+                        "logo": tp.current_club.logo if tp.current_club else None,
+                        "window_type": "Summer",
+                        "is_active": tp.is_active,
+                    },
+                )
+            # The parent/academy club (academy + first-team-at-origin appearances).
+            if tp.team:
+                loan_teams_info.setdefault(
+                    tp.team.team_id,
+                    {
+                        "name": tp.team.name,
+                        "logo": tp.team.logo,
+                        "window_type": "Summer",
+                        "is_active": tp.is_active,
+                    },
+                )
 
         loan_team_api_ids = list(loan_teams_info.keys())
 
