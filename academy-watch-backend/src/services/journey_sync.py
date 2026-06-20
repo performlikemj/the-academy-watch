@@ -697,6 +697,32 @@ class JourneySyncService:
         if not permanent_moves:
             return
 
+        # Clubs the player has independent evidence for (journey entries are
+        # derived from the statistics feed). Used to reject bogus transfers:
+        # API-Football occasionally returns a duplicate transfer into the real
+        # destination from an unrelated lower-league club it invented — e.g.
+        # "Newcastle ⟸ Ashington AFC" alongside the genuine "Newcastle ⟸
+        # Nottingham Forest". Correcting a season to that phantom source
+        # manufactures a club the player never played for.
+        evidence_club_ids = {e.club_api_id for e in entries if not e.is_international}
+
+        moves_by_in: dict[int, list] = {}
+        for move in permanent_moves:
+            moves_by_in.setdefault(move["in_id"], []).append(move)
+
+        def _source_move(in_id, season_end):
+            """The transfer that explains being at ``in_id`` for a season that
+            ended before it: the earliest permanent move INTO ``in_id`` after the
+            season. When several moves share that destination (a contradictory
+            feed), prefer one whose source club the player actually has evidence
+            for, which discards the invented lower-league transfer."""
+            candidates = [m for m in moves_by_in.get(in_id, []) if m["date"] > season_end]
+            if not candidates:
+                return None
+            corroborated = [m for m in candidates if m["out_id"] in evidence_club_ids]
+            pool = corroborated or candidates
+            return min(pool, key=lambda m: m["date"])
+
         corrected = 0
         for entry in entries:
             if entry.is_international:
@@ -705,21 +731,32 @@ class JourneySyncService:
             # Season runs Aug to Jun: entry.season=2024 → Aug 2024 to Jun 2025
             season_end = f"{entry.season + 1}-06-30"
 
-            for move in permanent_moves:
-                # If this entry's club matches the transfer destination,
-                # and the transfer happened AFTER the season ended,
-                # then the entry was actually at the source club
-                if move["in_id"] == entry.club_api_id and move["date"] > season_end:
-                    logger.info(
-                        f"Correcting entry: {entry.club_name} (season {entry.season}) "
-                        f"→ {move['out_name']} (transfer to {move['in_name']} "
-                        f"on {move['date']} is after season end {season_end})"
-                    )
-                    entry.club_api_id = move["out_id"]
-                    entry.club_name = move["out_name"]
-                    entry.club_logo = move["out_logo"]
-                    corrected += 1
+            # Walk the transfer chain back until the club is no longer the
+            # destination of a post-season transfer. A single hop only repairs the
+            # season directly before the latest move; older seasons need the full
+            # chain (e.g. Newcastle → Forest → Man Utd), otherwise they collapse
+            # onto the wrong club. ``visited`` guards against cyclic feed data.
+            club_id = entry.club_api_id
+            final_move = None
+            visited: set[int] = set()
+            while club_id not in visited:
+                visited.add(club_id)
+                move = _source_move(club_id, season_end)
+                if move is None or move["out_id"] == club_id:
                     break
+                club_id = move["out_id"]
+                final_move = move
+
+            if final_move is not None and club_id != entry.club_api_id:
+                logger.info(
+                    f"Correcting entry: {entry.club_name} (season {entry.season}) "
+                    f"→ {final_move['out_name']} (walked transfer chain back to the "
+                    f"club active before season end {season_end})"
+                )
+                entry.club_api_id = final_move["out_id"]
+                entry.club_name = final_move["out_name"]
+                entry.club_logo = final_move["out_logo"]
+                corrected += 1
 
         if corrected:
             logger.info(f"Corrected {corrected} entries with wrong club from post-transfer API data")
