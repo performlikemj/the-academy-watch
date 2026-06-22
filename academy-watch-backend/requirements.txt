@@ -48,7 +48,7 @@ mcp==1.27.2
 mdurl==0.1.2
 numpy==2.5.0
 pandas==3.0.3
-openai==2.42.0
+openai==2.43.0
 openai-agents==0.17.5
 ordered-set==4.1.0
 packaging==26.2
