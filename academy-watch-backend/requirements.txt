@@ -49,7 +49,7 @@ mdurl==0.1.2
 numpy==2.4.6
 pandas==3.0.3
 openai==2.43.0
-openai-agents==0.17.5
+openai-agents==0.17.6
 ordered-set==4.1.0
 packaging==26.2
 pillow==12.2.0
