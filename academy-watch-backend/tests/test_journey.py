@@ -1042,8 +1042,12 @@ class TestUpgradeStatusFromTransfers:
         ]
         assert upgrade_status_from_transfers("on_loan", transfers, 33) == "sold"
 
-    def test_free_agent_becomes_released(self):
-        """Free agent departure upgrades to released"""
+    def test_free_agent_with_destination_becomes_sold(self):
+        """A permanent departure to a concrete new club is 'sold', even when
+        typed 'Free Agent'/'Free'/'N/A'. API-Football populates teams.in for
+        virtually every departure, so the fee string cannot mark a release —
+        a real onward club means the player left permanently (sold), not into
+        free agency. Only the absence of an onward club is a release."""
         from src.utils.academy_classifier import upgrade_status_from_transfers
 
         transfers = [
@@ -1053,10 +1057,11 @@ class TestUpgradeStatusFromTransfers:
                 "teams": {"out": {"id": 33}, "in": {"id": 200}},
             }
         ]
-        assert upgrade_status_from_transfers("on_loan", transfers, 33) == "released"
+        assert upgrade_status_from_transfers("on_loan", transfers, 33, 200) == "sold"
 
-    def test_free_lowercase_becomes_released(self):
-        """'free' departure type also upgrades to released"""
+    def test_free_lowercase_with_destination_becomes_sold(self):
+        """'free' permanent move to a real club is 'sold' (e.g. C. Scott
+        Bayern->Antwerp was typed 'Free' and wrongly read 'released')."""
         from src.utils.academy_classifier import upgrade_status_from_transfers
 
         transfers = [
@@ -1066,10 +1071,11 @@ class TestUpgradeStatusFromTransfers:
                 "teams": {"out": {"id": 33}, "in": {"id": 200}},
             }
         ]
-        assert upgrade_status_from_transfers("on_loan", transfers, 33) == "released"
+        assert upgrade_status_from_transfers("on_loan", transfers, 33, 200) == "sold"
 
-    def test_na_becomes_released(self):
-        """N/A departure type upgrades to released"""
+    def test_na_with_destination_becomes_sold(self):
+        """'N/A' = undisclosed-fee permanent transfer, NOT a free agent. With
+        a concrete destination it is 'sold' (the Rijkhoff Dortmund->Ajax bug)."""
         from src.utils.academy_classifier import upgrade_status_from_transfers
 
         transfers = [
@@ -1079,7 +1085,21 @@ class TestUpgradeStatusFromTransfers:
                 "teams": {"out": {"id": 33}, "in": {"id": 200}},
             }
         ]
-        assert upgrade_status_from_transfers("on_loan", transfers, 33) == "released"
+        assert upgrade_status_from_transfers("on_loan", transfers, 33, 200) == "sold"
+
+    def test_permanent_departure_without_destination_becomes_released(self):
+        """Only a permanent departure with no resolvable onward club (no
+        teams.in id and no current club) is a genuine release."""
+        from src.utils.academy_classifier import upgrade_status_from_transfers
+
+        transfers = [
+            {
+                "type": "Free Agent",
+                "date": "2026-01-14",
+                "teams": {"out": {"id": 33}, "in": {}},
+            }
+        ]
+        assert upgrade_status_from_transfers("on_loan", transfers, 33, None) == "released"
 
     def test_latest_departure_wins(self):
         """When multiple departures exist, the latest one determines status"""
@@ -1092,12 +1112,12 @@ class TestUpgradeStatusFromTransfers:
                 "teams": {"out": {"id": 33}, "in": {"id": 62}},
             },
             {
-                "type": "Free Agent",
+                "type": "Transfer",
                 "date": "2026-01-14",
                 "teams": {"out": {"id": 33}, "in": {"id": 200}},
             },
         ]
-        assert upgrade_status_from_transfers("on_loan", transfers, 33) == "released"
+        assert upgrade_status_from_transfers("on_loan", transfers, 33, 200) == "sold"
 
     def test_no_departures_from_parent_unchanged(self):
         """Transfers from other clubs don't affect status"""

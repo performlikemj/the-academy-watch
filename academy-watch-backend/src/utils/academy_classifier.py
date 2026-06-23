@@ -506,10 +506,26 @@ def upgrade_status_from_transfers(
                 return "sold"  # at a club with no loan record → permanent move
         return status  # confirmed loan destination
 
-    # Permanent departure: free agent → 'released', else → 'sold'
-    if dep_type in ("free agent", "free", "n/a"):
-        return "released"
-    return "sold"
+    # Permanent (non-loan) departure. The transfer TYPE alone cannot tell a
+    # free-agency exit from a permanent move to a new club: API-Football
+    # populates teams.in for virtually every departure, and an
+    # undisclosed-fee sale is typed "N/A" (not a release). Decide on the
+    # departure's recorded destination, not the fee string — a real,
+    # non-parent, non-national club ⇒ 'sold'; no recorded destination ⇒
+    # 'released' (a genuine free-agency exit; the Step-3 inactivity check is
+    # the other path that yields 'released'). We read only the departure's
+    # teams.in here, deliberately NOT the journey's current club: an empty
+    # teams.in is the free-agency signal, and folding in a stale last-club
+    # would manufacture a false 'sold'.
+    # NB: "N/A" is treated as ambiguous elsewhere (journey_sync's
+    # current-club override deliberately skips it); lumping it with free
+    # agents here is what mislabelled permanent movers (e.g. Rijkhoff,
+    # Dortmund→Ajax typed "N/A") as 'released' instead of 'sold'.
+    dest = departures[0].get("teams", {}).get("in", {}) or {}
+    dest_id = dest.get("id")
+    if dest_id and dest_id != parent_api_id and not is_national_team(dest.get("name")):
+        return "sold"
+    return "released"
 
 
 # ─── unified classification entry point ───────────────────────────────
@@ -588,36 +604,34 @@ def _get_latest_season(
     parent_api_id: int | None = None,
     parent_club_name: str | None = None,
 ) -> int | None:
-    """Get the most recent season from a player's journey entries.
+    """Get the player's most recent season of CLUB activity, for the
+    inactivity-release check.
 
-    When *parent_api_id* (and optionally *parent_club_name*) are provided,
-    entries at the parent club are preferred.  If no parent-club entries
-    exist (common because API-Football records loan *destinations*, not
-    the parent club itself), we fall back to the latest season at any club.
-    Active loans will have recent entries that pass the inactivity
-    threshold; truly inactive players will have old entries that trigger
-    release.
+    "Latest activity" must mean "played for any club recently", NOT "last
+    seen at the parent club". A player sold or loaned away keeps appearing
+    for other clubs, while their newest *parent-named* entry is often a
+    stale youth season (e.g. "<Parent> U19"). Returning that stale season
+    wrongly trips the Step-3 inactivity rule → 'released' even though the
+    player is actively playing elsewhere. So return the latest *domestic*
+    season at ANY club. International caps are not club activity and are
+    excluded (a recent youth-international appearance must not keep an
+    otherwise-inactive player active).
+
+    *parent_api_id* / *parent_club_name* are accepted for signature
+    compatibility with callers but no longer bias the result toward the
+    parent.
     """
     from src.models.journey import PlayerJourneyEntry
 
-    query = PlayerJourneyEntry.query.filter_by(journey_id=journey_id)
-
-    if parent_api_id is not None:
-        entries = query.order_by(PlayerJourneyEntry.season.desc()).all()
-        for entry in entries:
-            if entry.club_api_id == parent_api_id:
-                return entry.season
-            if parent_club_name and is_same_club(entry.club_name or "", parent_club_name):
-                return entry.season
-        # No entries at parent club — fall back to latest season at any club.
-        # Active loans have recent entries (2025) that pass the threshold.
-        # Truly inactive players have old entries that trigger release.
-        if entries:
-            return entries[0].season
+    entries = PlayerJourneyEntry.query.filter_by(journey_id=journey_id).order_by(PlayerJourneyEntry.season.desc()).all()
+    if not entries:
         return None
 
-    entry = query.order_by(PlayerJourneyEntry.season.desc()).first()
-    return entry.season if entry else None
+    domestic = [e for e in entries if not e.is_international]
+    if domestic:
+        return domestic[0].season
+    # Only international entries exist — fall back to the latest of those.
+    return entries[0].season
 
 
 def classify_tracked_player(
