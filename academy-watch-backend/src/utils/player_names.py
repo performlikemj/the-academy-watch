@@ -10,9 +10,26 @@ Models are imported lazily inside the lookup so this module stays free of
 circular imports.
 """
 
+import html
 import re
 
 PLACEHOLDER_NAME_RE = re.compile(r"^Player \d+$")
+
+
+def clean_name(value):
+    """Normalise a feed-sourced name for storage and display.
+
+    API-Football occasionally returns names with HTML entities (e.g.
+    ``N. O&apos;Reilly``). Those are stored verbatim and then rendered
+    literally by the React frontend (which escapes, never decodes), so the
+    raw entity leaks into the UI. Decode entities and trim whitespace.
+
+    ``None`` passes through unchanged so callers can keep their own
+    placeholder fallbacks.
+    """
+    if value is None:
+        return None
+    return html.unescape(str(value)).strip()
 
 
 def is_placeholder_name(name) -> bool:
@@ -63,10 +80,10 @@ def resolve_player_name(player_api_id, *candidates) -> str:
     """
     for candidate in candidates:
         if not is_placeholder_name(candidate):
-            return str(candidate).strip()
+            return clean_name(candidate)
     for name, _photo, _nationality in _iter_local_profiles(player_api_id):
         if not is_placeholder_name(name):
-            return str(name).strip()
+            return clean_name(name)
     return f"Player {player_api_id}"
 
 
@@ -81,7 +98,7 @@ def resolve_player_profile(player_api_id) -> dict:
         if is_placeholder_name(src_name):
             continue
         if name is None:
-            name = str(src_name).strip()
+            name = clean_name(src_name)
         if photo is None and src_photo:
             photo = src_photo
         if nationality is None and src_nationality:

@@ -12,6 +12,7 @@ from src.api_football_client import APIFootballClient
 from src.models.league import AcademyAppearance, AcademyLeague, AcademyPlayerSeasonStats, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.big6_seeding_service import RateLimiter
+from src.utils.player_names import clean_name
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +286,7 @@ class AcademySyncService:
                 # Create new appearance
                 appearance = AcademyAppearance(
                     player_id=player_id,
-                    player_name=player_info.get("name", f"Player {player_id}"),
+                    player_name=clean_name(player_info.get("name")) or f"Player {player_id}",
                     fixture_id=fixture_id,
                     fixture_date=fixture_date,
                     home_team=home_team,
@@ -524,7 +525,7 @@ class AcademySyncService:
                     player_data = players_data[0]
                     stats_list = player_data.get("statistics", [])
                     p_info = player_data.get("player", {})
-                    display_name = p_info.get("name") or player_name
+                    display_name = clean_name(p_info.get("name")) or player_name
 
                     for stat in stats_list:
                         league_info = stat.get("league", {})

@@ -25,7 +25,7 @@ from src.utils.academy_classifier import (
     strip_youth_suffix,
 )
 from src.utils.geocoding import get_team_coordinates
-from src.utils.player_names import is_placeholder_name, resolve_player_name
+from src.utils.player_names import clean_name, is_placeholder_name, resolve_player_name
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +253,7 @@ class JourneySyncService:
 
             # Update player info
             if player_info:
-                incoming_name = (player_info.get("name") or "").strip() or None
+                incoming_name = clean_name(player_info.get("name")) or None
                 # Never overwrite a real name with a placeholder
                 if incoming_name and (not journey.player_name or not is_placeholder_name(incoming_name)):
                     journey.player_name = incoming_name

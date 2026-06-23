@@ -15,6 +15,7 @@ from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import db
 from src.services.journey_sync import JourneySyncService
 from src.utils.academy_classifier import classify_tracked_player, strip_youth_suffix
+from src.utils.player_names import clean_name
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ class CohortService:
                     member = CohortMember(
                         cohort_id=cohort.id,
                         player_api_id=player_api_id,
-                        player_name=player.get("name"),
+                        player_name=clean_name(player.get("name")),
                         player_photo=player.get("photo"),
                         nationality=player.get("nationality"),
                         birth_date=player.get("birth", {}).get("date"),
