@@ -31,8 +31,12 @@ select cron.schedule(
   $$delete from public.api_cache where expires_at < now()$$
 );
 
--- One-time disk reclaim (NOT run automatically): the daily DELETE bounds growth,
--- but to shrink the already-allocated ~200 MB back to disk, run a one-off during
--- a maintenance window (briefly ACCESS EXCLUSIVE locks api_cache — safe because
--- it is only read on API-Football cache lookups, not on normal page loads):
+-- ONE-TIME disk reclaim (NOT recurring, NOT in the cron): the daily DELETE +
+-- autovacuum bound growth, but DELETE only frees space for reuse — it does not
+-- return it to the OS. To shrink already-allocated bloat back to disk, run this
+-- ONCE during a quiet window. It briefly ACCESS EXCLUSIVE locks api_cache, which
+-- is safe because the table is only read on API-Football cache lookups, not on
+-- normal page loads. Do NOT schedule it — VACUUM FULL on a timer is a Postgres
+-- anti-pattern; autovacuum + the daily purge keep the table at steady state.
 --     vacuum (full, analyze) public.api_cache;
+-- Applied once on 2026-06-23: api_cache 200 MB -> 90 MB, total DB 399 MB -> 289 MB.
