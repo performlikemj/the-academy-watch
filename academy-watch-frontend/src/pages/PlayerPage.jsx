@@ -622,7 +622,7 @@ export function PlayerPage() {
                                     )}
                                     {profile?.status && (
                                         <Badge className={STATUS_BADGE_CLASSES[profile.status] || 'bg-secondary text-muted-foreground'}>
-                                            {profile.status.replace('_', ' ')}{profile.sale_fee ? ` · ${profile.sale_fee}` : ''}
+                                            {profile.status.replace('_', ' ')}{profile.status === 'on_loan' && profile.owner_team_name ? ` · from ${profile.owner_team_name}` : ''}{profile.sale_fee ? ` · ${profile.sale_fee}` : ''}
                                         </Badge>
                                     )}
                                     {academyStats?.appearances > 0 && stats.length > 0 && (
