@@ -275,3 +275,26 @@ class TestClassifyEvidenceBasedModel:
         transfers = [_t("2026-01-13", 430, "Bourg", 111, "Le Havre", "Loan")]
         status, _, _ = self._classify(430, "Bourg", "First Team", 111, "Le Havre", transfers, 2026)
         assert status == "on_loan"
+
+    def test_transfers_none_does_not_become_left(self):
+        # REGRESSION: the recompute-academy sweep classifies with transfers=None
+        # (not fetched). It must NOT collapse a different-club player to 'left'
+        # — it stays the tentative on_loan; the caller (recompute) then leaves
+        # the real stored status untouched via its update_status guard. This is
+        # the guard that prevents recompute from clobbering on_loan/sold to left.
+        status, _, _ = classify_tracked_player(
+            current_club_api_id=999,
+            current_club_name="Some Club",
+            current_level="First Team",
+            parent_api_id=100,
+            parent_club_name="Parent FC",
+            transfers=None,
+            latest_season=2026,
+            config=self.CONFIG,
+        )
+        assert status == "on_loan"
+
+    def test_transfers_empty_list_means_departed_left(self):
+        # A genuine sync that fetched transfers and found NONE -> departed.
+        status, _, _ = self._classify(999, "Some Club", "First Team", 100, "Parent FC", [], 2026)
+        assert status == "left"
