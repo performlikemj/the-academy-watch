@@ -1149,6 +1149,60 @@ class JourneySyncService:
         # Compute academy connections from youth entries
         self._compute_academy_club_ids(journey, entries, transfers=transfers)
 
+        # Player-level current status (actual situation, not academy-relative)
+        self._set_current_status(journey, entries)
+
+    def _set_current_status(self, journey: PlayerJourney, entries: list) -> None:
+        """Set journey.current_status / current_owner_* from STORED entries only
+        (no API). The player's ACTUAL current situation, independent of any
+        tracked academy: when the current-club entry is a loan, mark 'on_loan'
+        and resolve the owning club (the club he is on loan FROM). Otherwise
+        leave NULL so player-facing surfaces fall back to the academy-relative
+        TrackedPlayer.status. Idempotent — safe to call from sync or backfill.
+        """
+        from src.utils.affiliates import resolve_senior_id
+
+        cur_id = journey.current_club_api_id
+        if not cur_id:
+            journey.current_status = None
+            journey.current_owner_api_id = None
+            journey.current_owner_name = None
+            return
+
+        on_loan_now = any(e.club_api_id == cur_id and e.entry_type == "loan" for e in entries)
+        if not on_loan_now:
+            journey.current_status = None
+            journey.current_owner_api_id = None
+            journey.current_owner_name = None
+            return
+
+        journey.current_status = "on_loan"
+        # Owner = the club he is on loan FROM: most recent senior (first_team,
+        # non-international) club that isn't the loan club, resolved to its
+        # senior org (Jong Ajax -> Ajax).
+        owner_entry = max(
+            (
+                e
+                for e in entries
+                if e.entry_type == "first_team"
+                and not e.is_international
+                and e.club_api_id
+                and e.club_api_id != cur_id
+            ),
+            key=lambda e: (e.season or 0),
+            default=None,
+        )
+        if owner_entry:
+            owner_id = resolve_senior_id(owner_entry.club_api_id, owner_entry.club_name)
+            owner_team = (
+                Team.query.filter_by(team_id=owner_id, is_active=True).order_by(Team.season.desc()).first()
+            )
+            journey.current_owner_api_id = owner_id
+            journey.current_owner_name = owner_team.name if owner_team else owner_entry.club_name
+        else:
+            journey.current_owner_api_id = None
+            journey.current_owner_name = None
+
     def _strip_youth_suffix(self, club_name: str) -> str:
         """Strip youth team suffix to get parent club base name."""
         return strip_youth_suffix(club_name)

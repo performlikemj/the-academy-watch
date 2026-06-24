@@ -298,3 +298,72 @@ class TestClassifyEvidenceBasedModel:
         # A genuine sync that fetched transfers and found NONE -> departed.
         status, _, _ = self._classify(999, "Some Club", "First Team", 100, "Parent FC", [], 2026)
         assert status == "left"
+
+
+class TestJourneyCurrentStatus:
+    """PlayerJourney.current_status is the player's ACTUAL current situation
+    (on_loan + owner), computed from stored entries — independent of academy."""
+
+    def _journey(self, current_club_api_id, entries):
+        from src.models.journey import PlayerJourney, PlayerJourneyEntry
+
+        j = PlayerJourney(player_api_id=424242, current_club_api_id=current_club_api_id)
+        db.session.add(j)
+        db.session.flush()
+        objs = []
+        for season, club_api_id, club_name, entry_type, is_intl in entries:
+            e = PlayerJourneyEntry(
+                journey_id=j.id,
+                season=season,
+                club_api_id=club_api_id,
+                club_name=club_name,
+                entry_type=entry_type,
+                is_international=is_intl,
+                appearances=1,
+            )
+            db.session.add(e)
+            objs.append(e)
+        db.session.flush()
+        return j, objs
+
+    def _svc(self):
+        from src.services.journey_sync import JourneySyncService
+
+        return JourneySyncService()
+
+    def test_on_loan_sets_status_and_owner(self, app):
+        # Rijkhoff-shaped: current club Almere (419) is a loan; owner = Ajax (194).
+        j, entries = self._journey(
+            419,
+            [
+                (2025, 419, "Almere City FC", "loan", False),
+                (2024, 194, "Ajax", "first_team", False),
+            ],
+        )
+        self._svc()._set_current_status(j, entries)
+        assert j.current_status == "on_loan"
+        assert j.current_owner_api_id == 194
+        assert j.current_owner_name == "Ajax"
+
+    def test_owner_resolves_b_team_to_senior(self, app):
+        # Owner recorded as Jong Ajax (425) resolves to Ajax (194).
+        j, entries = self._journey(
+            419,
+            [
+                (2025, 419, "Almere City FC", "loan", False),
+                (2024, 425, "Jong Ajax", "first_team", False),
+            ],
+        )
+        self._svc()._set_current_status(j, entries)
+        assert j.current_status == "on_loan"
+        assert j.current_owner_api_id == 194  # Jong Ajax -> Ajax via affiliate map
+
+    def test_not_on_loan_leaves_status_null(self, app):
+        # Current club entry is first_team (not a loan) -> defer to academy status.
+        j, entries = self._journey(
+            10509,
+            [(2026, 10509, "Al Kholood", "first_team", False)],
+        )
+        self._svc()._set_current_status(j, entries)
+        assert j.current_status is None
+        assert j.current_owner_api_id is None

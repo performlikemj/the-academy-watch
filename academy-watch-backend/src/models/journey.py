@@ -36,6 +36,19 @@ class PlayerJourney(db.Model):
     current_club_name = db.Column(db.String(200))
     current_level = db.Column(db.String(30))  # 'U18', 'U21', 'First Team', 'On Loan'
 
+    # Player-level CURRENT status — the player's ACTUAL current situation,
+    # independent of any tracked academy. TrackedPlayer.status is RELATIVE to a
+    # parent academy (a departed academy product reads 'left'/'sold' there even
+    # while he is, in reality, on loan from a club the platform doesn't track as
+    # his academy — e.g. Rijkhoff: Dortmund academy product, on loan from Ajax).
+    # current_status overrides the academy-relative status for player-facing
+    # surfaces; NULL means "defer to the academy-relative status". Currently set
+    # to 'on_loan' (+ owner) when the current club is a loan. Computed from
+    # STORED journey entries during sync — no extra API call.
+    current_status = db.Column(db.String(20))
+    current_owner_api_id = db.Column(db.Integer)
+    current_owner_name = db.Column(db.String(200))
+
     # First team debut milestone
     first_team_debut_season = db.Column(db.Integer)  # e.g., 2021
     first_team_debut_club_id = db.Column(db.Integer)
@@ -93,6 +106,9 @@ class PlayerJourney(db.Model):
                 "club_id": self.current_club_api_id,
                 "club_name": self.current_club_name,
                 "level": self.current_level,
+                "status": self.current_status,
+                "owner_id": self.current_owner_api_id,
+                "owner_name": self.current_owner_name,
             }
             if self.current_club_api_id
             else None,

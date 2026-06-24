@@ -304,49 +304,26 @@ def get_public_player_profile(player_id: int):
         # player who left his academy reads 'left'/'sold' there even though his
         # real, current situation is an active loan from a DIFFERENT club the
         # platform doesn't track as his academy (e.g. Julian Rijkhoff — a
-        # Borussia Dortmund academy product, on loan at Almere City FROM AJAX;
-        # Ajax isn't tracked because his pre-2021 Ajax youth isn't in the feed).
-        # The journey knows the truth: its current-club entry is typed 'loan'.
-        # Surface that as the player-page headline so the badge matches reality,
-        # without touching the per-academy rows that drive team/academy views.
-        from src.models.journey import PlayerJourney, PlayerJourneyEntry
+        # Borussia Dortmund academy product, on loan at Almere City FROM AJAX).
+        # journey.current_status holds that player-level truth (computed + stored
+        # during sync); NULL means defer to the academy-relative tp.status. This
+        # reads the stored field so every surface stays consistent.
+        from src.models.journey import PlayerJourney
 
         journey = PlayerJourney.query.filter_by(player_api_id=player_id).first()
-        if journey and journey.current_club_api_id:
-            on_loan_now = (
-                PlayerJourneyEntry.query.filter_by(
-                    journey_id=journey.id,
-                    club_api_id=journey.current_club_api_id,
-                    entry_type="loan",
-                ).first()
-                is not None
-            )
-            if on_loan_now:
-                result["status"] = "on_loan"
-                # Owner = the club the player is on loan FROM: the most recent
-                # senior (first-team, non-international) club that isn't the
-                # loan club, resolved to its senior org (Jong Ajax -> Ajax).
+        if journey and journey.current_status:
+            result["status"] = journey.current_status
+            if journey.current_owner_api_id:
                 from src.models.league import Team
-                from src.utils.affiliates import resolve_senior_id
 
-                owner_entry = (
-                    PlayerJourneyEntry.query.filter(
-                        PlayerJourneyEntry.journey_id == journey.id,
-                        PlayerJourneyEntry.entry_type == "first_team",
-                        PlayerJourneyEntry.is_international.is_(False),
-                        PlayerJourneyEntry.club_api_id != journey.current_club_api_id,
-                    )
-                    .order_by(PlayerJourneyEntry.season.desc())
+                owner_team = (
+                    Team.query.filter_by(team_id=journey.current_owner_api_id, is_active=True)
+                    .order_by(Team.season.desc())
                     .first()
                 )
-                if owner_entry:
-                    owner_id = resolve_senior_id(owner_entry.club_api_id, owner_entry.club_name)
-                    owner_team = (
-                        Team.query.filter_by(team_id=owner_id, is_active=True).order_by(Team.season.desc()).first()
-                    )
-                    result["owner_team_id"] = owner_id
-                    result["owner_team_name"] = owner_team.name if owner_team else owner_entry.club_name
-                    result["owner_team_logo"] = owner_team.logo if owner_team else None
+                result["owner_team_id"] = journey.current_owner_api_id
+                result["owner_team_name"] = journey.current_owner_name
+                result["owner_team_logo"] = owner_team.logo if owner_team else None
 
         if not result["position"]:
             POS_MAP = {"G": "Goalkeeper", "D": "Defender", "M": "Midfielder", "F": "Attacker"}
