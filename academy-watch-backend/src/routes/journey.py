@@ -291,6 +291,67 @@ def admin_recompute_academy():
     return jsonify(response)
 
 
+@journey_bp.route("/admin/journeys/backfill-current-status", methods=["POST"])
+@require_api_key
+def admin_backfill_current_status():
+    """Backfill player_journeys.current_status / current_owner_* from STORED
+    journey entries (no API calls, no journey re-sync). Computes the player's
+    actual current situation (on_loan + owner) exactly as a sync would, so the
+    player-facing 'actual status' is correct without a full re-sync.
+
+    Writes ONLY the new current_status / current_owner_* journey columns — it
+    never touches TrackedPlayer.status, so it cannot clobber the per-academy
+    statuses. Paged via cursor; one small transaction per journey.
+
+    Body: {"dry_run": bool=true, "limit": int=200, "cursor": int=0}
+    """
+    from src.services.journey_sync import JourneySyncService
+
+    data = request.get_json(silent=True) or {}
+    dry_run = bool(data.get("dry_run", True))
+    limit = data.get("limit", 200)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        limit = 200
+    limit = min(limit, 500)
+    cursor = data.get("cursor", 0)
+    if not isinstance(cursor, int) or isinstance(cursor, bool) or cursor < 0:
+        return jsonify({"error": "cursor must be a non-negative integer"}), 400
+
+    service = JourneySyncService()
+    journeys = PlayerJourney.query.filter(PlayerJourney.id > cursor).order_by(PlayerJourney.id).limit(limit).all()
+
+    processed = 0
+    on_loan_set = 0
+    errors = 0
+    last_processed = cursor
+    for journey in journeys:
+        try:
+            entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
+            service._set_current_status(journey, entries)
+            if journey.current_status == "on_loan":
+                on_loan_set += 1
+            processed += 1
+            if dry_run:
+                db.session.rollback()
+            else:
+                db.session.commit()
+        except Exception as exc:
+            errors += 1
+            logger.warning("backfill-current-status failed for journey %s: %s", journey.id, exc)
+            db.session.rollback()
+        last_processed = journey.id
+
+    return jsonify(
+        {
+            "dry_run": dry_run,
+            "journeys_processed": processed,
+            "on_loan_set": on_loan_set,
+            "errors": errors,
+            "next_cursor": last_processed if len(journeys) == limit else None,
+        }
+    )
+
+
 # Maps FixturePlayerStats.position codes to TrackedPlayer.position conventions
 _PROFILE_POSITION_MAP = {"G": "Goalkeeper", "D": "Defender", "M": "Midfielder", "F": "Attacker"}
 
