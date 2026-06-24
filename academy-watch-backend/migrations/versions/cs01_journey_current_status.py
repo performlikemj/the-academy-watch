@@ -19,8 +19,8 @@ Revises: aw18
 """
 
 import sqlalchemy as sa
-from migrations._migration_helpers import add_column_safe, column_exists
 from alembic import op
+from migrations._migration_helpers import add_column_safe, column_exists
 
 revision = "cs01"
 down_revision = "aw18"
