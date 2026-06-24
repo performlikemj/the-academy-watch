@@ -318,9 +318,7 @@ def admin_backfill_current_status():
         return jsonify({"error": "cursor must be a non-negative integer"}), 400
 
     service = JourneySyncService()
-    journeys = (
-        PlayerJourney.query.filter(PlayerJourney.id > cursor).order_by(PlayerJourney.id).limit(limit).all()
-    )
+    journeys = PlayerJourney.query.filter(PlayerJourney.id > cursor).order_by(PlayerJourney.id).limit(limit).all()
 
     processed = 0
     on_loan_set = 0

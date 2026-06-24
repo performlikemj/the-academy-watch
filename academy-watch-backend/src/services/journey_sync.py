@@ -1184,19 +1184,14 @@ class JourneySyncService:
             (
                 e
                 for e in entries
-                if e.entry_type == "first_team"
-                and not e.is_international
-                and e.club_api_id
-                and e.club_api_id != cur_id
+                if e.entry_type == "first_team" and not e.is_international and e.club_api_id and e.club_api_id != cur_id
             ),
-            key=lambda e: (e.season or 0),
+            key=lambda e: e.season or 0,
             default=None,
         )
         if owner_entry:
             owner_id = resolve_senior_id(owner_entry.club_api_id, owner_entry.club_name)
-            owner_team = (
-                Team.query.filter_by(team_id=owner_id, is_active=True).order_by(Team.season.desc()).first()
-            )
+            owner_team = Team.query.filter_by(team_id=owner_id, is_active=True).order_by(Team.season.desc()).first()
             journey.current_owner_api_id = owner_id
             journey.current_owner_name = owner_team.name if owner_team else owner_entry.club_name
         else:
