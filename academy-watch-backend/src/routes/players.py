@@ -342,9 +342,7 @@ def get_public_player_profile(player_id: int):
                 if owner_entry:
                     owner_id = resolve_senior_id(owner_entry.club_api_id, owner_entry.club_name)
                     owner_team = (
-                        Team.query.filter_by(team_id=owner_id, is_active=True)
-                        .order_by(Team.season.desc())
-                        .first()
+                        Team.query.filter_by(team_id=owner_id, is_active=True).order_by(Team.season.desc()).first()
                     )
                     result["owner_team_id"] = owner_id
                     result["owner_team_name"] = owner_team.name if owner_team else owner_entry.club_name
