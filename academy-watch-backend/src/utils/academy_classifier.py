@@ -369,7 +369,19 @@ def derive_player_status(
     if is_same_club(current_club_name or "", parent_club_name):
         return (_base_status(current_level), None, None)
 
-    # 4. Genuinely at a different club → on loan (will be refined by transfer check)
+    # 3b. Parent's OWN reserve / youth / B side (Jong Ajax for Ajax, Atalanta
+    # U20 for Atalanta, Birmingham U21 for Birmingham). Catches the cases
+    # is_same_club misses — a "Jong " prefix, a U-number like U20, or an id
+    # whose team name isn't loaded — so the player reads as still at the
+    # parent, not as having left.
+    from src.utils.affiliates import is_affiliate
+
+    if is_affiliate(current_club_api_id, current_club_name, parent_api_id, parent_club_name):
+        return (_base_status(current_level), None, None)
+
+    # 4. Genuinely at a different club → tentatively on_loan; the transfer
+    # check in classify_tracked_player Step 2 decides the real status
+    # (on_loan only with a parent loan record; sold / released / left otherwise).
     return ("on_loan", current_club_api_id, current_club_name)
 
 
@@ -461,12 +473,26 @@ def derive_player_status_with_reasoning(
     if same_name:
         return _base_status(current_level), None, None, reasoning
 
+    from src.utils.affiliates import is_affiliate
+
+    affiliate = is_affiliate(current_club_api_id, current_club_name, parent_api_id, parent_club_name)
+    reasoning.append(
+        {
+            "rule": "affiliate_b_team",
+            "result": "match" if affiliate else "pass",
+            "check": f'is_affiliate("{current_club_name}", parent "{parent_club_name}")',
+            "detail": f'"{current_club_name}" {"is" if affiliate else "is not"} the parent\'s own reserve/youth side',
+        }
+    )
+    if affiliate:
+        return _base_status(current_level), None, None, reasoning
+
     reasoning.append(
         {
             "rule": "different_club",
             "result": "match",
-            "check": "No rules matched — different club",
-            "detail": f"Classified as on_loan at {current_club_name}",
+            "check": "No rules matched — different club (transfer check decides on_loan/sold/released/left)",
+            "detail": f"Tentatively on_loan at {current_club_name}",
         }
     )
     return "on_loan", current_club_api_id, current_club_name, reasoning
@@ -477,50 +503,82 @@ def upgrade_status_from_transfers(
     transfers: list,
     parent_api_id: int,
     current_club_api_id: int | None = None,
+    parent_club_name: str | None = None,
 ) -> str:
-    """Upgrade 'on_loan' → 'sold'/'released' when latest departure was permanent
-    or when the current club has no loan transfer record."""
+    """Decide the real status of a player who is at a club other than the
+    parent academy, from transfer evidence. Resolves the tentative 'on_loan'
+    from derive_player_status into one of on_loan / sold / released / left.
+
+    The key inversion: 'on_loan' must be EARNED by a parent loan record; it is
+    no longer the fallback. Rules (relative to parent P), in order:
+
+      • current club is a P loan destination (a P→current loan transfer) → on_loan
+      • no departure from P at all, but player is elsewhere            → left
+      • latest P departure is a loan but current ∉ P loan dests
+        (loaned then moved on)                                         → left
+      • latest P departure is permanent with a real, non-parent,
+        non-national destination                                       → sold
+      • latest P departure is permanent with no resolvable destination → released
+
+    Loan destinations and departures are matched against P OR P's own
+    reserve/youth/B side (e.g. Valencia and Valencia II both count as a Valencia
+    loan), and ignore null destination ids and loan-RETURN types.
+    """
     if status != "on_loan" or not transfers:
         return status
 
     from src.api_football_client import is_new_loan_transfer
+    from src.utils.affiliates import is_affiliate
 
-    departures = [t for t in transfers if (t.get("teams", {}).get("out", {}).get("id") == parent_api_id)]
+    def _out_is_parent(t: dict) -> bool:
+        o = t.get("teams", {}).get("out", {}) or {}
+        oid = o.get("id")
+        return oid == parent_api_id or is_affiliate(oid, o.get("name"), parent_api_id, parent_club_name)
+
+    # Loan destinations the PARENT (or its B-team) loaned the player to.
+    # Exclude null in.id; is_new_loan_transfer already excludes loan-returns.
+    loan_destinations = {
+        (t.get("teams", {}).get("in", {}) or {}).get("id")
+        for t in transfers
+        if is_new_loan_transfer((t.get("type") or "").strip().lower()) and _out_is_parent(t)
+    }
+    loan_destinations.discard(None)
+
+    # Genuine current loan FROM the parent — transfer-driven, not entry-type
+    # driven (a brand-new loan has no synced fixtures yet so its journey entry
+    # is not typed 'loan', but the loan transfer is already present).
+    if current_club_api_id and current_club_api_id in loan_destinations:
+        return "on_loan"
+
+    # The 'left' outcomes require a KNOWN current club (the player is
+    # demonstrably elsewhere). When current_club_api_id is unknown we cannot
+    # assert they left, so we keep the tentative on_loan (callers that classify
+    # without a current club rely on this conservative behaviour).
+    departures = [t for t in transfers if _out_is_parent(t)]
     if not departures:
-        return status
+        # The player is at a different club but there is NO recorded departure
+        # from the parent (typical of academy-to-academy youth moves). They
+        # left the academy without a recorded senior transfer.
+        return "left" if current_club_api_id else status
 
     departures.sort(key=lambda t: t.get("date", ""), reverse=True)
     dep_type = (departures[0].get("type") or "").strip().lower()
 
     if not dep_type or is_new_loan_transfer(dep_type):
-        # Latest departure looks like a loan — but verify the current club
-        # actually matches a loan destination. If not, the player moved
-        # permanently to a club with no transfer record (common in lower leagues).
-        if current_club_api_id:
-            loan_destinations = {
-                t.get("teams", {}).get("in", {}).get("id")
-                for t in transfers
-                if is_new_loan_transfer((t.get("type") or "").strip().lower())
-            }
-            if current_club_api_id not in loan_destinations:
-                return "sold"  # at a club with no loan record → permanent move
-        return status  # confirmed loan destination
+        # Latest parent departure is a loan. We already returned on_loan above
+        # if the current club is one of the parent's loan destinations, so a
+        # known current club here means loaned-out-then-moved-on → left.
+        return "left" if current_club_api_id else status
 
     # Permanent (non-loan) departure. The transfer TYPE alone cannot tell a
     # free-agency exit from a permanent move to a new club: API-Football
-    # populates teams.in for virtually every departure, and an
-    # undisclosed-fee sale is typed "N/A" (not a release). Decide on the
-    # departure's recorded destination, not the fee string — a real,
-    # non-parent, non-national club ⇒ 'sold'; no recorded destination ⇒
-    # 'released' (a genuine free-agency exit; the Step-3 inactivity check is
-    # the other path that yields 'released'). We read only the departure's
-    # teams.in here, deliberately NOT the journey's current club: an empty
-    # teams.in is the free-agency signal, and folding in a stale last-club
-    # would manufacture a false 'sold'.
-    # NB: "N/A" is treated as ambiguous elsewhere (journey_sync's
-    # current-club override deliberately skips it); lumping it with free
-    # agents here is what mislabelled permanent movers (e.g. Rijkhoff,
-    # Dortmund→Ajax typed "N/A") as 'released' instead of 'sold'.
+    # populates teams.in for virtually every departure, and an undisclosed-fee
+    # sale is typed "N/A" (not a release). Decide on the departure's recorded
+    # destination — a real, non-parent, non-national club ⇒ 'sold'; no recorded
+    # destination ⇒ 'released' (a genuine free-agency exit; Step-3 inactivity
+    # is the other path to 'released'). Read only the departure's teams.in,
+    # NOT the journey's current club: an empty teams.in is the free-agency
+    # signal, and folding in a stale last-club would manufacture a false 'sold'.
     dest = departures[0].get("teams", {}).get("in", {}) or {}
     dest_id = dest.get("id")
     if dest_id and dest_id != parent_api_id and not is_national_team(dest.get("name")):
@@ -733,6 +791,7 @@ def classify_tracked_player(
                 effective_transfers,
                 parent_api_id,
                 current_club_api_id=current_club_api_id,
+                parent_club_name=parent_club_name,
             )
             if upgraded != status:
                 if with_reasoning:
@@ -747,7 +806,24 @@ def classify_tracked_player(
                 status = upgraded
                 # Keep current_club info — loan_id/loan_name are reused as
                 # current_club_api_id/current_club_name in the return value.
-                # For sold/released players, this is their destination club.
+                # For sold/released/left players, this is their destination/current club.
+        elif effective_transfers is not None:
+            # We have transfer data (an empty list) and the player is at a
+            # different club, but there is NO transfer record at all → they
+            # left the academy without a recorded senior transfer. Only treat
+            # an explicit empty list this way; None means transfers were not
+            # fetched, so keep the conservative on_loan default for callers
+            # that classify without transfer data.
+            status = "left"
+            if with_reasoning:
+                reasoning.append(
+                    {
+                        "rule": "no_transfers_left",
+                        "result": "match",
+                        "check": "at a different club with no transfer records",
+                        "detail": "Left the academy (no recorded departure) → left",
+                    }
+                )
 
     # ── Step 2.5: squad cross-reference ────────────────────────────────
     # Skip squad check if transfers confirm a loan — transfer data is more
@@ -809,7 +885,7 @@ def classify_tracked_player(
 
     # ── Step 3: inactivity-based release ──────────────────────────────
     inactivity_years = config.get("inactivity_release_years")
-    if inactivity_years and latest_season is not None and status in ("academy", "on_loan"):
+    if inactivity_years and latest_season is not None and status in ("academy", "on_loan", "left"):
         current_year = datetime.now().year
         if latest_season < current_year - inactivity_years:
             if with_reasoning:

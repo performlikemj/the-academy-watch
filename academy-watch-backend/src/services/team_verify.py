@@ -119,7 +119,7 @@ def audit_team_consistency(team_db_id: int) -> dict[str, Any]:
         if tp.status == "first_team" and tp.current_club_api_id is None:
             suspect_first_team_null_current_club.append(row_summary)
 
-        if tp.status in ("on_loan", "sold", "released") and tp.current_club_api_id is None:
+        if tp.status in ("on_loan", "sold", "released", "left") and tp.current_club_api_id is None:
             suspect_loanee_null_current_club.append(row_summary)
 
         if tp.current_club_api_id is not None and tp.current_club_db_id is None:

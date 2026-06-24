@@ -1278,18 +1278,45 @@ class JourneySyncService:
             self._upsert_tracked_players(journey, set(), transfers=transfers)
             return
 
-        # ── Minimum youth appearances threshold ──
-        # Clubs below threshold are excluded to filter noise / data errors.
-        MIN_ACADEMY_APPEARANCES = 1
-        club_youth_apps = {}
+        # ── Academy tenure gate ──
+        # A single youth appearance (the old MIN_ACADEMY_APPEARANCES=1) tagged a
+        # club as an academy origin, manufacturing phantom rows from trial /
+        # cup cameos (e.g. a 1-app U18 spell at a club the player merely passed
+        # through). Require real tenure: total youth apps >= 3 OR appearances
+        # across >= 2 distinct youth seasons. ALWAYS exempt the player's single
+        # best (rank-1) base so no one loses their sole / primary academy to
+        # thin early-career API coverage. Seasons count only the already-filtered
+        # youth_entries (academy/development), so an 'integration' U21 rehab game
+        # can't inflate a season count.
+        MIN_ACADEMY_APPEARANCES = 3
+        MIN_ACADEMY_SEASONS = 2
+        club_youth_apps: dict[str, int] = {}
+        club_youth_seasons: dict[str, set] = {}
         for e in youth_entries:
             base = self._strip_youth_suffix(e.club_name)
             club_youth_apps[base] = club_youth_apps.get(base, 0) + (e.appearances or 0)
+            if e.season is not None:
+                club_youth_seasons.setdefault(base, set()).add(e.season)
+
+        def _passes_tenure_gate(base: str) -> bool:
+            return (
+                club_youth_apps.get(base, 0) >= MIN_ACADEMY_APPEARANCES
+                or len(club_youth_seasons.get(base, ())) >= MIN_ACADEMY_SEASONS
+            )
+
+        # Rank-1 base by (apps DESC, distinct seasons DESC) — always kept.
+        ranked_bases = sorted(
+            club_youth_apps.keys(),
+            key=lambda b: (club_youth_apps.get(b, 0), len(club_youth_seasons.get(b, ()))),
+            reverse=True,
+        )
+        top_base = ranked_bases[0] if ranked_bases else None
 
         youth_entries = [
             e
             for e in youth_entries
-            if club_youth_apps.get(self._strip_youth_suffix(e.club_name), 0) >= MIN_ACADEMY_APPEARANCES
+            if _passes_tenure_gate(self._strip_youth_suffix(e.club_name))
+            or self._strip_youth_suffix(e.club_name) == top_base
         ]
         if not youth_entries:
             journey.academy_club_ids = []

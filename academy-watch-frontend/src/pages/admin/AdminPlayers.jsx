@@ -21,6 +21,7 @@ const STATUS_OPTIONS = [
     { value: 'first_team', label: 'First Team' },
     { value: 'released', label: 'Released' },
     { value: 'sold', label: 'Sold' },
+    { value: 'left', label: 'Left' },
 ]
 
 const LEVEL_OPTIONS = [

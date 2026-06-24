@@ -10,7 +10,7 @@ def teams_with_active_tracked_players() -> list[int]:
         db.session.query(TrackedPlayer.team_id)
         .filter(
             TrackedPlayer.is_active.is_(True),
-            TrackedPlayer.status.notin_(["released", "sold"]),
+            TrackedPlayer.status.notin_(["released", "sold", "left"]),
         )
         .distinct()
     )

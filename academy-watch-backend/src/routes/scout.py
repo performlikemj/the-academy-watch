@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 scout_bp = Blueprint("scout", __name__)
 
 VALID_POSITIONS = {"Goalkeeper", "Defender", "Midfielder", "Attacker"}
-VALID_STATUSES = {"academy", "on_loan", "first_team", "released", "sold"}
+VALID_STATUSES = {"academy", "on_loan", "first_team", "released", "sold", "left"}
 PER90_MIN_MINUTES = 270  # floor for per-90 rankings so 10-minute cameos don't top the boards
 MAX_PER_PAGE = 100
 MAX_COMPARE_PLAYERS = 4

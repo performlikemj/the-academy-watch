@@ -78,6 +78,7 @@ function StatusPill({ status, level, loanTeam }) {
     academy: level || 'Academy',
     released: 'Released',
     sold: 'Sold',
+    left: 'Left',
   }
   const label = labelMap[status] || (loanTeam ? 'On Loan' : null)
   if (!label) return null
