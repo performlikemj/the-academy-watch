@@ -1456,6 +1456,15 @@ class JourneySyncService:
 
         last_seasons = last_seasons or {}
 
+        # Status (on_loan/sold/released/left) is transfer-driven, so it can only
+        # be derived when transfers were actually fetched. Callers that pass
+        # transfers=None (e.g. the recompute-academy attribution sweep) must NOT
+        # re-derive status — without transfers every "current club != parent"
+        # player would collapse to the tentative on_loan / 'left' default and
+        # clobber the real status. transfers=[] (a fetched-but-empty list, as in
+        # a full journey sync) is a legitimate signal and DOES update status.
+        update_status = transfers is not None
+
         # Owning club is still computed for current-club classification
         # context, but it no longer keeps TrackedPlayer rows alive.
         owning_api_id = self._determine_owning_club_id(journey, transfers, academy_ids)
@@ -1535,7 +1544,7 @@ class JourneySyncService:
                 current_level=journey.current_level,
                 parent_api_id=academy_api_id,
                 parent_club_name=team.name,
-                transfers=transfers or [],
+                transfers=transfers,
                 latest_season=_get_latest_season(journey.id, parent_api_id=academy_api_id, parent_club_name=team.name),
             )
 
@@ -1576,9 +1585,13 @@ class JourneySyncService:
                         f"Reactivated TrackedPlayer {existing.id} for player "
                         f"{journey.player_api_id} at {team.name} (academy origin inside tracking window)"
                     )
-                existing.status = status
-                existing.current_club_api_id = current_club_api_id
-                existing.current_club_name = current_club_name
+                # Only re-derive status when transfers were available (a real
+                # journey sync). The recompute-academy attribution sweep passes
+                # transfers=None and must leave the existing status untouched.
+                if update_status:
+                    existing.status = status
+                    existing.current_club_api_id = current_club_api_id
+                    existing.current_club_name = current_club_name
 
     def _determine_owning_club_id(self, journey, transfers, academy_ids):
         """Find the club that currently owns the player (last permanent transfer dest).
