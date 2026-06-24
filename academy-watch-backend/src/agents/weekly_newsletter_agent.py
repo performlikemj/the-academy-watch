@@ -1821,7 +1821,7 @@ def _sync_team_fixtures_for_week(
     tracked = TrackedPlayer.query.filter(
         TrackedPlayer.team_id == team_db_id,
         TrackedPlayer.is_active.is_(True),
-        TrackedPlayer.status.notin_(["released", "sold"]),
+        TrackedPlayer.status.notin_(["released", "sold", "left"]),
     ).all()
 
     if not tracked:
@@ -2036,7 +2036,7 @@ def fetch_pipeline_report_tool(
     tracked = TrackedPlayer.query.filter(
         TrackedPlayer.team_id == parent_team_db_id,
         TrackedPlayer.is_active.is_(True),
-        TrackedPlayer.status.notin_(["released", "sold"]),
+        TrackedPlayer.status.notin_(["released", "sold", "left"]),
     ).all()
 
     # Pre-flight: warn loudly about any player whose linked PlayerJourney

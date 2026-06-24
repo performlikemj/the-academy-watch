@@ -733,7 +733,7 @@ def _build_legacy_journey(player_id: int, primary_team_id: int = None) -> dict:
         if stint["country"]:
             country_counts[stint["country"]] += 1
 
-    moved_on = tp.status in ("released", "sold")
+    moved_on = tp.status in ("released", "sold", "left")
 
     countries = [{"name": name, "stint_count": count} for name, count in sorted(country_counts.items())]
 

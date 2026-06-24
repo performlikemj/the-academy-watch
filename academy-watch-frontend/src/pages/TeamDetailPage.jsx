@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Loader2, ArrowLeft, ChevronRight, User, TrendingUp, Share2, Users, FileText, Search, X, Star, ArrowRightLeft, GraduationCap, UserMinus, BadgeDollarSign, Globe, Bell, Check } from 'lucide-react'
+import { Loader2, ArrowLeft, ChevronRight, User, TrendingUp, Share2, Users, FileText, Search, X, Star, ArrowRightLeft, GraduationCap, UserMinus, BadgeDollarSign, Globe, Bell, Check, LogOut } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion' // eslint-disable-line no-unused-vars
 import { APIService } from '@/lib/api'
 import { AcademyConstellation } from '@/components/constellation/AcademyConstellation'
@@ -27,6 +27,7 @@ const STATUS_ICONS = {
     academy: GraduationCap,
     released: UserMinus,
     sold: BadgeDollarSign,
+    left: LogOut,
 }
 
 function StatusIndicator({ status, teamName, saleFee }) {

@@ -603,6 +603,7 @@ export function ScoutPage() {
                 <SelectItem value="first_team">First team</SelectItem>
                 <SelectItem value="sold">Sold</SelectItem>
                 <SelectItem value="released">Released</SelectItem>
+                <SelectItem value="left">Left</SelectItem>
               </SelectContent>
             </Select>
             <Select value={sort} onValueChange={(value) => { setSort(value); setOrder(value === 'name' || value === 'age' ? 'asc' : 'desc') }}>

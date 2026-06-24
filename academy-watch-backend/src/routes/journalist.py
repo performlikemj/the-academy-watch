@@ -1107,7 +1107,7 @@ def get_chart_data():
                 .order_by(TrackedPlayer.updated_at.desc())
                 .first()
             )
-            if tp_for_scope and tp_for_scope.current_club_api_id and tp_for_scope.status in ("on_loan", "sold"):
+            if tp_for_scope and tp_for_scope.current_club_api_id and tp_for_scope.status in ("on_loan", "sold", "left"):
                 current_club_api_id = tp_for_scope.current_club_api_id
         except Exception:
             pass
@@ -1855,7 +1855,7 @@ def _fetch_chart_data_for_rendering(
                 .order_by(TrackedPlayer.updated_at.desc())
                 .first()
             )
-            if tp and tp.current_club_api_id and tp.status in ("on_loan", "sold"):
+            if tp and tp.current_club_api_id and tp.status in ("on_loan", "sold", "left"):
                 current_club_api_id = tp.current_club_api_id
         except Exception:
             pass

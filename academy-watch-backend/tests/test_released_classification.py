@@ -26,6 +26,7 @@ from src.utils.academy_classifier import (
     classify_tracked_player,
     upgrade_status_from_transfers,
 )
+from src.utils.affiliates import is_affiliate, senior_base_name
 
 DORTMUND = 165
 
@@ -89,11 +90,22 @@ class TestUpgradeStatusFromTransfers:
         transfers = [_t("2025-07-01", 700, "Loan Club", DORTMUND, "Borussia Dortmund", "Loan")]
         assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, 700) == "on_loan"
 
-    def test_loan_typed_but_current_club_not_a_loan_destination_is_sold(self):
-        # Existing safety behaviour preserved: loan-typed departure but the
-        # player is at a club with no loan record -> permanent move.
+    def test_loan_typed_but_current_club_not_a_loan_destination_is_left(self):
+        # Loan-typed departure to 700, but the player's current club is 999 (not
+        # a parent loan destination) -> loaned out then moved on -> left.
         transfers = [_t("2025-07-01", 700, "Loan Club", DORTMUND, "Borussia Dortmund", "Loan")]
-        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, 999) == "sold"
+        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, 999) == "left"
+
+    def test_no_parent_departure_with_current_club_is_left(self):
+        # Berry@Man United: player is at another club (Al Kholood 10509) but has
+        # NO recorded departure from the parent -> left, not on_loan.
+        transfers = [_t("2026-01-25", 10509, "Al Kholood", 65, "Nottingham Forest", "Transfer")]
+        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, 10509) == "left"
+
+    def test_no_parent_departure_without_current_club_stays_on_loan(self):
+        # Conservative: with no known current club we cannot assert departure.
+        transfers = [_t("2026-01-25", 10509, "Al Kholood", 65, "Nottingham Forest", "Transfer")]
+        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, None) == "on_loan"
 
     def test_non_on_loan_status_unchanged(self):
         assert upgrade_status_from_transfers("academy", RIJKHOFF_TRANSFERS, DORTMUND, 419) == "academy"
@@ -194,3 +206,72 @@ class TestGetLatestSeason:
     def test_international_only_history_falls_back_to_latest(self, app):
         jid = self._make_journey([(2024, 10, "Netherlands U19", True)])
         assert _get_latest_season(jid, parent_api_id=DORTMUND, parent_club_name="Borussia Dortmund") == 2024
+
+
+class TestAffiliateResolver:
+    """Affiliate / B-team -> senior org resolution (data-driven + hardcoded)."""
+
+    def test_senior_base_name_strips_jong_prefix(self):
+        assert senior_base_name("Jong Ajax") == "Ajax"
+
+    def test_senior_base_name_strips_u_number(self):
+        assert senior_base_name("Atalanta U20") == "Atalanta"
+
+    def test_senior_base_name_strips_castilla_and_reserve(self):
+        assert senior_base_name("Real Madrid Castilla") == "Real Madrid"
+        assert senior_base_name("Manchester United U18") == "Manchester United"
+
+    def test_is_affiliate_via_name(self):
+        # "Jong Ajax" normalises to "Ajax" == parent "Ajax"
+        assert is_affiliate(99999, "Jong Ajax", 194, "Ajax") is True
+
+    def test_is_affiliate_via_hardcoded_id_when_name_missing(self):
+        # 425 (Jong Ajax) -> 194, even with no name loaded
+        assert is_affiliate(425, None, 194, "Ajax") is True
+
+    def test_not_affiliate_of_different_club(self):
+        assert is_affiliate(15382, "Manchester United U18", 50, "Manchester City") is False
+
+
+class TestClassifyEvidenceBasedModel:
+    """End-to-end: on_loan is earned; departure-without-record -> 'left'."""
+
+    CONFIG = {"inactivity_release_years": 2, "use_squad_check": False}
+
+    def _classify(self, current_id, current_name, level, parent_id, parent_name, transfers, latest_season):
+        return classify_tracked_player(
+            current_club_api_id=current_id,
+            current_club_name=current_name,
+            current_level=level,
+            parent_api_id=parent_id,
+            parent_club_name=parent_name,
+            transfers=transfers,
+            latest_season=latest_season,
+            config=self.CONFIG,
+        )
+
+    def test_berry_under_man_united_is_left(self):
+        # No Man United departure transfer; player is at Al Kholood -> left.
+        transfers = [
+            _t("2024-04-20", 19746, "Nottingham Forest U21", 17426, "Nottingham Forest U18", "N/A"),
+            _t("2026-01-25", 10509, "Al Kholood", 65, "Nottingham Forest", "Transfer"),
+        ]
+        status, _, _ = self._classify(10509, "Al Kholood", "First Team", 33, "Manchester United", transfers, 2026)
+        assert status == "left"
+
+    def test_berry_under_forest_is_sold(self):
+        # Forest -> Al Kholood is a recorded permanent transfer with destination.
+        transfers = [_t("2026-01-25", 10509, "Al Kholood", 65, "Nottingham Forest", "Transfer")]
+        status, _, _ = self._classify(10509, "Al Kholood", "First Team", 65, "Nottingham Forest", transfers, 2026)
+        assert status == "sold"
+
+    def test_player_at_parent_b_team_is_not_left(self):
+        # Jong Ajax (425) is Ajax's own reserve -> still in the org, not left.
+        status, _, _ = self._classify(425, "Jong Ajax", "First Team", 194, "Ajax", [], 2025)
+        assert status == "first_team"
+
+    def test_genuine_current_loan_stays_on_loan(self):
+        # Parent loaned the player to 430 and that IS the current club.
+        transfers = [_t("2026-01-13", 430, "Bourg", 111, "Le Havre", "Loan")]
+        status, _, _ = self._classify(430, "Bourg", "First Team", 111, "Le Havre", transfers, 2026)
+        assert status == "on_loan"

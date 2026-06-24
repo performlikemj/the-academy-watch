@@ -28,7 +28,10 @@ class TrackedPlayer(db.Model):
 
     # Current pathway status
     status = db.Column(db.String(20), nullable=False, default="academy")
-    #   'academy' | 'on_loan' | 'first_team' | 'released' | 'sold'
+    #   'academy' | 'on_loan' | 'first_team' | 'released' | 'sold' | 'left'
+    #   'left' = academy product who departed this club for another club with
+    #            no recorded senior transfer (distinct from 'sold' = permanent
+    #            transfer with a destination, and 'released' = free agent / dropped).
     current_level = db.Column(db.String(20))
     #   'U18' | 'U21' | 'U23' | 'Reserve' | 'Senior'
 

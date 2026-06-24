@@ -49,7 +49,7 @@ Columns: player_api_id (int), player_name (str), position (str: Goalkeeper/Defen
 nationality (str), age (int), team_id (int, FK to teams.id), \
 parent_club (str, club that currently owns/controls the player), \
 academy_club (str or null, original academy the player came through), \
-status (str: academy/on_loan/first_team/released/sold), \
+status (str: academy/on_loan/first_team/released/sold/left), \
 current_level (str), current_club_name (str or null), data_source (str), is_active (bool), \
 updated_at (datetime)
 **For loan players:** filter `tracked[tracked['status'] == 'on_loan']`. \
@@ -159,7 +159,7 @@ prefer the helper functions or `tracked` DataFrame — these use live journey-de
 `cohorts.players_first_team` is only accurate for cohorts with `sync_status = 'complete'`. \
 `cohort_members` contains only journey-synced members with validated career data.
 - **Active vs. historical academy queries:** For "how is academy X doing?" or current-state \
-questions, use `active_academy_pipeline()` — it excludes released/sold players and focuses on \
+questions, use `active_academy_pipeline()` — it excludes released/sold/left players and focuses on \
 the live pathway (academy, on_loan, first_team). For "what has academy X produced?" or full \
 historical breakdowns, use `academy_comparison()` or `player_status_breakdown()` which include \
 all statuses.
@@ -269,7 +269,7 @@ result = ft.groupby('name').agg(graduates=('player_api_id', 'count'), apps=('tot
 
 ## Helper Functions (pre-loaded, call directly in run_analysis code)
 - `academy_comparison()` → Big 6 academy status breakdown (first_team/on_loan/academy/released per club). Includes ALL statuses. Returns a DataFrame.
-- `active_academy_pipeline(team_name=None)` → Players currently in an active pathway (academy/on_loan/first_team only — excludes released/sold). Optional team filter (partial match); defaults to Big 6. Best for "how is academy X doing?" questions. Returns a DataFrame.
+- `active_academy_pipeline(team_name=None)` → Players currently in an active pathway (academy/on_loan/first_team only — excludes released/sold/left). Optional team filter (partial match); defaults to Big 6. Best for "how is academy X doing?" questions. Returns a DataFrame.
 - `first_team_graduates(team_name=None)` → Players who reached first team, optionally filtered by club name (partial match). Returns a DataFrame.
 - `player_status_breakdown(team_name)` → Status distribution for one team's tracked players. Includes all statuses. Returns a DataFrame.
 

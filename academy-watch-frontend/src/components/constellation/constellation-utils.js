@@ -15,6 +15,7 @@ export const STATUS_LABELS = {
     academy: 'Academy',
     released: 'Released',
     sold: 'Sold',
+    left: 'Left',
 }
 
 /**

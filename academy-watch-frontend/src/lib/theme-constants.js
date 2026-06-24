@@ -16,6 +16,7 @@ export const STATUS_BADGE_CLASSES = {
   academy:          'bg-orange-50 text-orange-800 border-orange-200',
   released:         'bg-stone-100 text-stone-700 border-stone-200',
   sold:             'bg-rose-50 text-rose-800 border-rose-200',
+  left:             'bg-slate-100 text-slate-700 border-slate-300',
 }
 
 /* ------------------------------------------------------------------ */
@@ -69,6 +70,7 @@ export const CONSTELLATION_STATUS_COLORS = {
   academy:          '#ea580c', // orange-600
   released:         '#78716c', // stone-500
   sold:             '#e11d48', // rose-600
+  left:             '#475569', // slate-600
 }
 
 /* ------------------------------------------------------------------ */

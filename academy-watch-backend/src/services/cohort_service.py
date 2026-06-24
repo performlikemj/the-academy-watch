@@ -318,7 +318,7 @@ class CohortService:
         cohort.players_first_team = sum(1 for m in members if m.current_status == "first_team")
         cohort.players_on_loan = sum(1 for m in members if m.current_status == "on_loan")
         cohort.players_still_academy = sum(1 for m in members if m.current_status == "academy")
-        cohort.players_released = sum(1 for m in members if m.current_status in ("released", "sold"))
+        cohort.players_released = sum(1 for m in members if m.current_status in ("released", "sold", "left"))
 
         db.session.commit()
         logger.info(f"Refreshed stats for cohort {cohort_id}: {cohort.total_players} players")

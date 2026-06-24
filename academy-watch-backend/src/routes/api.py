@@ -5310,7 +5310,7 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
 
     sold_released = TrackedPlayer.query.filter(
         TrackedPlayer.is_active.is_(True),
-        TrackedPlayer.status.in_(["sold", "released"]),
+        TrackedPlayer.status.in_(["sold", "released", "left"]),
     ).all()
 
     discovery_count = 0
