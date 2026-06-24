@@ -9,6 +9,7 @@ Replaces the old AcademyPlayer model for the Academy Watch redesign.
 from datetime import UTC, datetime
 
 from src.models.league import db
+from src.utils.player_names import clean_name
 
 
 class TrackedPlayer(db.Model):
@@ -163,7 +164,7 @@ class TrackedPlayer(db.Model):
         return {
             "id": self.id,
             "player_api_id": self.player_api_id,
-            "player_name": self.player_name,
+            "player_name": clean_name(self.player_name),
             "photo_url": self.photo_url,
             "position": self.position,
             "nationality": self.nationality,
@@ -197,7 +198,7 @@ class TrackedPlayer(db.Model):
         return {
             "id": self.id,
             "player_id": self.player_api_id,
-            "player_name": self.player_name,
+            "player_name": clean_name(self.player_name),
             "player_photo": self.photo_url,
             "position": self.position,
             "age": self.effective_age,

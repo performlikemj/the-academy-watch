@@ -15,7 +15,7 @@ from src.models.journey import PlayerJourney
 from src.models.league import AcademyPlayerSeasonStats, League, Player, Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
-from src.utils.player_names import is_placeholder_name, resolve_player_name
+from src.utils.player_names import clean_name, is_placeholder_name, resolve_player_name
 
 ADMIN_KEY = "test-admin-key"
 
@@ -152,6 +152,34 @@ class TestResolvePriorityOrder:
 
     def test_last_resort_placeholder(self, app):
         assert resolve_player_name(604) == "Player 604"
+
+
+class TestCleanName:
+    """HTML entities from the API feed must never reach the UI verbatim."""
+
+    def test_decodes_named_entity(self):
+        assert clean_name("N. O&apos;Reilly") == "N. O'Reilly"
+        assert clean_name("M&apos;Bala Nzola") == "M'Bala Nzola"
+
+    def test_decodes_numeric_and_amp(self):
+        assert clean_name("A. N&#39;Diaye") == "A. N'Diaye"
+        assert clean_name("Brighton &amp; Hove") == "Brighton & Hove"
+
+    def test_idempotent_and_trims(self):
+        # A clean name decodes to itself (script/serializer can re-run safely).
+        assert clean_name("  Lamine Yamal  ") == "Lamine Yamal"
+        assert clean_name(clean_name("N. O&apos;Reilly")) == "N. O'Reilly"
+
+    def test_none_passes_through(self):
+        assert clean_name(None) is None
+
+    def test_resolve_decodes_candidate(self, app):
+        assert resolve_player_name(610, "N. O&apos;Reilly") == "N. O'Reilly"
+
+    def test_resolve_decodes_local_source(self, app):
+        db.session.add(PlayerJourney(player_api_id=611, player_name="S. Oulad M&apos;Hand"))
+        db.session.flush()
+        assert resolve_player_name(611) == "S. Oulad M'Hand"
 
 
 class TestBackfillNamesEndpoint:
