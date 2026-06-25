@@ -469,6 +469,85 @@ class TestPlayerAvailabilityEndpoint:
         assert data["summary"]["last_absence"] is None
 
 
+@pytest.fixture
+def current_situation_seeded(scout_app):
+    """A Rijkhoff-like player: a Borussia Dortmund academy product, 'sold'
+    relative to Dortmund, but ACTUALLY on loan at Almere City FROM Ajax.
+    journey.current_status holds that player-level truth."""
+    with scout_app.app_context():
+        league = League(league_id=78, name="Bundesliga", country="Germany", season=2025)
+        db.session.add(league)
+        db.session.flush()
+        dortmund = Team(
+            team_id=165, name="Borussia Dortmund", country="Germany", season=2025, league_id=league.id, is_active=True
+        )
+        almere = Team(
+            team_id=910, name="Almere City FC", country="Netherlands", season=2025, league_id=league.id, is_active=True
+        )
+        db.session.add_all([dortmund, almere])
+        db.session.flush()
+
+        journey = PlayerJourney(
+            player_api_id=2001,
+            player_name="Julian Rijkhoff",
+            current_club_api_id=910,
+            current_club_name="Almere City FC",
+            current_status="on_loan",
+            current_owner_api_id=194,
+            current_owner_name="Ajax",
+        )
+        db.session.add(journey)
+        db.session.flush()
+
+        rijkhoff = TrackedPlayer(
+            player_api_id=2001,
+            player_name="Julian Rijkhoff",
+            position="Midfielder",
+            nationality="Netherlands",
+            age=20,
+            team_id=dortmund.id,
+            status="sold",  # academy-relative: Dortmund sold him
+            current_club_api_id=910,
+            current_club_name="Almere City FC",
+            current_club_db_id=almere.id,
+            data_depth="full_stats",
+            journey_id=journey.id,
+            is_active=True,
+        )
+        db.session.add(rijkhoff)
+        db.session.commit()
+
+
+class TestCurrentSituationOverride:
+    def test_browse_reflects_actual_current_situation(self, scout_client, current_situation_seeded):
+        resp = scout_client.get("/api/scout/players?search=Rijkhoff")
+        data = resp.get_json()
+        assert len(data["players"]) == 1
+        player = data["players"][0]
+        # Academy-relative status was 'sold'; actual situation is an active loan
+        assert player["status"] == "on_loan"
+        # CLUB column reads current club + OWNING club (Ajax), not academy
+        assert player["loan_team_name"] == "Almere City FC"
+        assert player["primary_team_name"] == "Borussia Dortmund"
+        assert player["owner_team_name"] == "Ajax"
+        assert player["owner_team_id"] == 194
+
+    def test_status_filter_tracks_current_situation(self, scout_client, current_situation_seeded):
+        # Filtering by the actual current status surfaces him…
+        on_loan = scout_client.get("/api/scout/players?status=on_loan").get_json()
+        assert [p["player_id"] for p in on_loan["players"]] == [2001]
+        # …and the academy-relative 'sold' does not, so the filter never
+        # disagrees with the status the row displays.
+        sold = scout_client.get("/api/scout/players?status=sold").get_json()
+        assert sold["total"] == 0
+
+    def test_compare_reflects_actual_current_situation(self, scout_client, current_situation_seeded):
+        resp = scout_client.get("/api/scout/compare?ids=2001")
+        profile = resp.get_json()["players"][0]["profile"]
+        assert profile["status"] == "on_loan"
+        assert profile["owner_team_name"] == "Ajax"
+
+
 class TestSupportedLeaguesConfig:
     def test_default_supported_leagues_global(self):
         from src.utils.supported_leagues import get_supported_leagues
