@@ -33,6 +33,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased, joinedload
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
 from src.extensions import limiter
+from src.models.journey import PlayerJourney
 from src.models.league import PlayerStatsCache, UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.tracked_player import TrackedPlayer
@@ -252,8 +253,31 @@ def _base_scout_query():
     appearances = func.coalesce(fps.c.appearances, cache.c.appearances, 0).label("appearances")
     avg_rating = fps.c.avg_rating.label("avg_rating")
 
+    # Player-level CURRENT situation overrides the academy-relative
+    # TrackedPlayer.status on player-facing surfaces. A Dortmund academy product
+    # on loan from Ajax reads 'sold' relative to Dortmund but is really
+    # 'on_loan · from Ajax'. journey.current_status (computed + stored during
+    # sync) holds that truth; NULL defers to the academy-relative status.
+    # player_journeys.player_api_id is unique, so this outerjoin yields ≤1 row
+    # per player (no duplication) and never drops rows lacking a journey.
+    journey_status = PlayerJourney.current_status.label("journey_status")
+    journey_owner_id = PlayerJourney.current_owner_api_id.label("journey_owner_id")
+    journey_owner_name = PlayerJourney.current_owner_name.label("journey_owner_name")
+    effective_status = func.coalesce(PlayerJourney.current_status, TrackedPlayer.status).label("effective_status")
+
     query = (
-        db.session.query(TrackedPlayer, goals, assists, minutes, appearances, avg_rating)
+        db.session.query(
+            TrackedPlayer,
+            goals,
+            assists,
+            minutes,
+            appearances,
+            avg_rating,
+            journey_status,
+            journey_owner_id,
+            journey_owner_name,
+        )
+        .outerjoin(PlayerJourney, PlayerJourney.player_api_id == TrackedPlayer.player_api_id)
         .outerjoin(
             fps,
             and_(
@@ -283,6 +307,9 @@ def _base_scout_query():
         "minutes_played": minutes,
         "appearances": appearances,
         "avg_rating": avg_rating,
+        # status filter matches what the row displays (current situation,
+        # falling back to academy-relative status).
+        "effective_status": effective_status,
     }
     return query, columns
 
@@ -300,7 +327,7 @@ def _apply_filters(query, columns):
         invalid = [s for s in statuses if s not in VALID_STATUSES]
         if invalid:
             return query, (jsonify({"error": f"Invalid status {invalid}. One of: {sorted(VALID_STATUSES)}"}), 400)
-        query = query.filter(TrackedPlayer.status.in_(statuses))
+        query = query.filter(columns["effective_status"].in_(statuses))
 
     min_age = request.args.get("min_age", type=int)
     max_age = request.args.get("max_age", type=int)
@@ -338,6 +365,13 @@ def _row_to_dict(row):
     contributions = payload["goals"] + payload["assists"]
     payload["goal_contributions"] = contributions
     payload["contributions_per90"] = round(contributions * 90.0 / minutes, 2) if minutes else None
+    # Surface the player's actual current situation (mirrors the player profile
+    # endpoint): when stored, it overrides the academy-relative status and adds
+    # the owning club so the CLUB column reads "from <owner>", not "from <academy>".
+    if row.journey_status:
+        payload["status"] = row.journey_status
+        payload["owner_team_id"] = row.journey_owner_id
+        payload["owner_team_name"] = row.journey_owner_name
     return payload
 
 
@@ -600,9 +634,16 @@ def scout_compare():
                 except Exception as availability_error:
                     logger.warning(f"Availability lookup failed for player {player_id}: {availability_error}")
 
+            profile = tracked_player.to_public_dict()
+            # Same current-situation override as the list/profile surfaces.
+            if journey and journey.current_status:
+                profile["status"] = journey.current_status
+                profile["owner_team_id"] = journey.current_owner_api_id
+                profile["owner_team_name"] = journey.current_owner_name
+
             players.append(
                 {
-                    "profile": tracked_player.to_public_dict(),
+                    "profile": profile,
                     "totals": totals,
                     "per90": per90,
                     "career": career,

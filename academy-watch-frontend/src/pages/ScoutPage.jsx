@@ -681,8 +681,8 @@ export function ScoutPage() {
                         <td className="px-3 py-2.5"><StatusBadge status={player.status} /></td>
                         <td className="px-3 py-2.5 max-w-44">
                           <span className="block truncate text-sm text-foreground/90">{player.loan_team_name || player.primary_team_name || '—'}</span>
-                          {player.loan_team_name && player.primary_team_name && (
-                            <span className="block truncate text-xs text-muted-foreground">from {player.primary_team_name}</span>
+                          {player.loan_team_name && (player.owner_team_name || player.primary_team_name) && (
+                            <span className="block truncate text-xs text-muted-foreground">from {player.owner_team_name || player.primary_team_name}</span>
                           )}
                         </td>
                         <td className="px-3 py-2.5">

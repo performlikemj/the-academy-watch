@@ -153,9 +153,11 @@ CONTINUITY.md
 | CONTINUITY_cohort-dynamic-resolution.md | in-progress | codex | pending live Full Rebuild validation |
 | CONTINUITY_video-analysis.md | design complete | — | Phase 0 blocked on footage acquisition (0.1) + MJ decisions (pricing, footage source) |
 | CONTINUITY_global-talent-platform.md | implementation complete | claude | awaiting PR review/merge |
+| CONTINUITY_admin-interface.md | shipped (PR #432, prod 2026-06-14) | claude | manual click-through QA recommended |
 
 ## Trivial Log
 
+- 2026-06-25: Scout page now reflects a player's ACTUAL current situation (matches PlayerPage). `scout.py._base_scout_query` outer-joins `player_journeys` (on unique `player_api_id`, ≤1 row) and exposes `effective_status = coalesce(journey.current_status, tracked_player.status)`; the status filter uses it so it never disagrees with the displayed badge. `_row_to_dict` + `scout_compare` override `status` and add `owner_team_id`/`owner_team_name` when `current_status` is set. `ScoutPage.jsx` CLUB column "from X" now prefers `owner_team_name` (e.g. Rijkhoff → "from Ajax", not "from Borussia Dortmund"). Tests: `TestCurrentSituationOverride` in `test_scout_blueprint.py` (38 pass).
 - 2026-04-08: Added admin-only newsletter PDF download (WeasyPrint) — endpoint `GET /newsletters/<id>/download.pdf`, reuses existing `newsletter_email.html` template with injected print CSS (`@page`, `break-inside: avoid` on `.item`/`.highlights`/`.toc`/`.matches-section`, `break-before: page` on section `<h2>`s). Dockerfile gains libpango/libcairo/libgdk-pixbuf/shared-mime-info (~80MB). Download buttons in `AdminNewsletters.jsx` row actions and `NewsletterPreviewDialog.jsx` control panel. Plan file at `.claude/plans/staged-wibbling-cocoa.md`.
 - 2026-02-12: Academy data audit — all Big 6 teams show 0% conversion due to journey sync never completing
 - 2026-02-12: Fixed Full Rebuild journey sync: added RateLimiter, quota-exceeded break, non-fatal Stage 3, empty-journey bug fix
