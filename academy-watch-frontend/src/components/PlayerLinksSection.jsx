@@ -12,8 +12,6 @@ import {
 } from '@/components/ui/select'
 import { Link2, Newspaper, Video, Share2, BarChart3, Globe, Plus, Loader2, Check, ExternalLink } from 'lucide-react'
 import { APIService } from '@/lib/api'
-import { isYouTubeUrl } from '@/lib/youtube'
-import { VideoEmbed } from '@/components/VideoEmbed'
 
 const TYPE_META = {
   article:   { label: 'Article',   icon: Newspaper },
@@ -83,20 +81,20 @@ export function PlayerLinksSection({ playerId }) {
     }
   }
 
-  // Group links by type, with highlights first
-  const grouped = links.reduce((acc, link) => {
+  // Highlight links are surfaced in the Showcase section (curated reel), so
+  // they are excluded here to avoid double-rendering. Fans can still submit
+  // them via the form below.
+  const displayLinks = links.filter((link) => (link.link_type || 'other') !== 'highlight')
+
+  // Group the remaining community links by type.
+  const grouped = displayLinks.reduce((acc, link) => {
     const t = link.link_type || 'other'
     if (!acc[t]) acc[t] = []
     acc[t].push(link)
     return acc
   }, {})
 
-  // Sort so highlights appear first
-  const sortedTypes = Object.keys(grouped).sort((a, b) => {
-    if (a === 'highlight') return -1
-    if (b === 'highlight') return 1
-    return 0
-  })
+  const sortedTypes = Object.keys(grouped)
 
   return (
     <Card>
@@ -105,8 +103,8 @@ export function PlayerLinksSection({ playerId }) {
           <CardTitle className="flex items-center gap-2 text-base">
             <Link2 className="h-4 w-4" />
             Links
-            {links.length > 0 && (
-              <span className="text-sm font-normal text-muted-foreground">({links.length})</span>
+            {displayLinks.length > 0 && (
+              <span className="text-sm font-normal text-muted-foreground">({displayLinks.length})</span>
             )}
           </CardTitle>
           {isLoggedIn && !showForm && (
@@ -172,7 +170,7 @@ export function PlayerLinksSection({ playerId }) {
           <div className="flex justify-center py-6">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/70" />
           </div>
-        ) : links.length === 0 && !showForm ? (
+        ) : displayLinks.length === 0 && !showForm ? (
           <p className="text-sm text-muted-foreground text-center py-4">
             No links yet.{isLoggedIn ? ' Share a relevant article or highlight.' : ' Sign in to submit links.'}
           </p>
@@ -190,16 +188,6 @@ export function PlayerLinksSection({ playerId }) {
                   </div>
                   <div className="space-y-1.5">
                     {items.map((link) => {
-                      if (type === 'highlight' && isYouTubeUrl(link.url)) {
-                        return (
-                          <div key={link.id} className="space-y-1.5">
-                            {link.title && (
-                              <p className="text-sm font-medium text-foreground/80 px-1">{link.title}</p>
-                            )}
-                            <VideoEmbed url={link.url} title={link.title} />
-                          </div>
-                        )
-                      }
                       return (
                         <a
                           key={link.id}
@@ -226,7 +214,7 @@ export function PlayerLinksSection({ playerId }) {
         )}
 
         {/* Sign-in prompt */}
-        {!isLoggedIn && links.length > 0 && (
+        {!isLoggedIn && displayLinks.length > 0 && (
           <div className="pt-2 border-t text-center">
             <p className="text-sm text-muted-foreground">Sign in to submit links</p>
           </div>

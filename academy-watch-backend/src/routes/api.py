@@ -98,7 +98,12 @@ from src.utils.background_jobs import (
 )
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 from src.utils.player_names import resolve_player_name
-from src.utils.sanitize import sanitize_comment_body, sanitize_commentary_html, sanitize_plain_text
+from src.utils.sanitize import (
+    is_safe_https_url,
+    sanitize_comment_body,
+    sanitize_commentary_html,
+    sanitize_plain_text,
+)
 from src.utils.slug import resolve_team_by_identifier
 from werkzeug.exceptions import HTTPException
 
@@ -1860,6 +1865,10 @@ def submit_player_link(player_id: int):
             return jsonify({"error": "url is required"}), 400
         if len(raw_url) > 500:
             return jsonify({"error": "url is too long"}), 400
+        # Reject javascript:/data:/non-https URLs — React does not neutralize
+        # javascript: hrefs, so an unchecked URL is a stored-XSS-on-click vector.
+        if not is_safe_https_url(raw_url):
+            return jsonify({"error": "url must be a valid https URL"}), 400
         raw_title = (payload.get("title") or "").strip()
         title = sanitize_plain_text(raw_title)[:200] if raw_title else None
         link_type = (payload.get("link_type") or "article").strip()

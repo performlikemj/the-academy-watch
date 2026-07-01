@@ -40,6 +40,7 @@ import { MiniProgressBar } from '@/components/MiniProgressBar'
 import { SeasonStatsPanel } from '@/components/SeasonStatsPanel'
 import { CommentSection } from '@/components/CommentSection'
 import { PlayerLinksSection } from '@/components/PlayerLinksSection'
+import { ShowcaseSection } from '@/components/ShowcaseSection'
 import { PlayerAvailability } from '@/components/PlayerAvailability'
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, CHART_TOOLTIP_BG, CHART_TOOLTIP_BORDER } from '../lib/theme-constants'
 
@@ -656,6 +657,7 @@ export function PlayerPage() {
 
             <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 pb-24 sm:pb-6">
                     <div className="space-y-8">
+                        <ShowcaseSection playerApiId={playerApiId} playerName={playerName} />
                         {stats.length === 0 && academyStats?.appearances > 0 ? (
                             /* Academy player with no loan stats — academy section below is the primary view */
                             null

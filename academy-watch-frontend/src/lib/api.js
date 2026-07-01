@@ -1145,6 +1145,100 @@ export class APIService {
         }, { admin: true })
     }
 
+    // ── Talent Showcase ──────────────────────────────────────────────────
+    // Public + owner-authed player showcase (highlight reel, self-reported
+    // profile, club-verified footage, profile claims). Public reads pass no
+    // third arg; owner writes rely on the stored user Bearer.
+    static async getPlayerShowcase(playerId) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase`)
+    }
+
+    static async submitProfileClaim(playerId, { relationship_type, message }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/claim`, {
+            method: 'POST',
+            body: JSON.stringify({ relationship_type, message }),
+        })
+    }
+
+    static async getMyClaims() {
+        return this.request('/me/claims')
+    }
+
+    static async updateShowcaseProfile(playerId, payload) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/profile`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async addShowcaseReelItem(playerId, { url, title }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/reel`, {
+            method: 'POST',
+            body: JSON.stringify({ url, title }),
+        })
+    }
+
+    static async reorderShowcaseReel(playerId, { ordered_ids }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/reel/order`, {
+            method: 'PATCH',
+            body: JSON.stringify({ ordered_ids }),
+        })
+    }
+
+    static async deleteShowcaseReelItem(playerId, linkId) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/reel/${encodeURIComponent(linkId)}`, {
+            method: 'DELETE',
+        })
+    }
+
+    // ── Talent Showcase (admin moderation + Film Room linking) ───────────
+    static async adminListShowcaseClaims(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/showcase/claims${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewShowcaseClaim(id, { action, note }) {
+        return this.request(`/admin/showcase/claims/${encodeURIComponent(id)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
+        }, { admin: true })
+    }
+
+    static async adminListShowcaseProfiles(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/showcase/profiles${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewShowcaseProfile(playerApiId, { action }) {
+        return this.request(`/admin/showcase/profiles/${encodeURIComponent(playerApiId)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action }),
+        }, { admin: true })
+    }
+
+    static async adminListVideoRosters(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/showcase/video-rosters${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminLinkVideoRoster(rosterId, { player_api_id }) {
+        return this.request(`/admin/showcase/video-rosters/${encodeURIComponent(rosterId)}/link`, {
+            method: 'PUT',
+            body: JSON.stringify({ player_api_id }),
+        }, { admin: true })
+    }
+
+    static async adminShowcasePlayerSearch(q) {
+        const query = new URLSearchParams({ q: q || '' }).toString()
+        return this.request(`/admin/showcase/player-search?${query}`, {}, { admin: true })
+    }
+
     // Writer Portal API methods
     static async getWriterTeams() {
         return this.request('/writer/teams')

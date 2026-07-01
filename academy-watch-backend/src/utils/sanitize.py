@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import bleach
 
 # Allow only very basic formatting; expand if richer markup is desired later.
@@ -72,4 +74,27 @@ def sanitize_commentary_html(value: str) -> str:
     return cleaned
 
 
-__all__ = ["sanitize_comment_body", "sanitize_plain_text", "sanitize_commentary_html"]
+def is_safe_https_url(value: str) -> bool:
+    """True only for a well-formed absolute ``https://`` URL.
+
+    Rejects ``javascript:``, ``data:``, ``mailto:`` and every non-https scheme
+    outright. User-submitted URLs are rendered as link ``href``s; React does not
+    neutralise ``javascript:`` hrefs, so an unvalidated URL is a stored
+    XSS-on-click vector. A single shared check keeps player links and showcase
+    reel items on the same allow-list.
+    """
+    if not value or not isinstance(value, str):
+        return False
+    try:
+        parsed = urlparse(value.strip())
+    except (ValueError, TypeError):
+        return False
+    return parsed.scheme == "https" and bool(parsed.netloc)
+
+
+__all__ = [
+    "sanitize_comment_body",
+    "sanitize_plain_text",
+    "sanitize_commentary_html",
+    "is_safe_https_url",
+]
