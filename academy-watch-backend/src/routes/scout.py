@@ -24,6 +24,7 @@ per-player compute_stats() N+1 queries.
 import csv
 import io
 import logging
+import os
 from datetime import date
 
 import bleach
@@ -33,13 +34,29 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased, joinedload
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
 from src.extensions import limiter
+from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerShadow
 from src.models.journey import PlayerJourney
-from src.models.league import PlayerStatsCache, UserAccount, db
+from src.models.league import PlayerStatsCache, Team, UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
+from src.services.follow_resolver import derive_label, resolve_list, validate_selector
+from src.services.player_shadow_service import (
+    mint_shadow,
+    refresh_shadows,
+    search_players,
+    user_shadow_follow_count,
+)
+from src.utils.sanitize import sanitize_plain_text
 
 logger = logging.getLogger(__name__)
+
+# Follow-graph caps (env-configurable; tests monkeypatch these module attrs).
+MAX_FOLLOW_LISTS = int(os.getenv("MAX_FOLLOW_LISTS", "10"))
+MAX_FOLLOWS_PER_LIST = int(os.getenv("MAX_FOLLOWS_PER_LIST", "50"))
+SHADOW_FOLLOW_LIMIT = int(os.getenv("SHADOW_FOLLOW_LIMIT", "10"))
+MAX_RESOLVE_PAGE = 50
+MAX_LIST_NAME_LENGTH = 120
 
 scout_bp = Blueprint("scout", __name__)
 
@@ -742,7 +759,12 @@ def scout_watchlist():
 @require_user_auth
 @limiter.limit("30/minute", key_func=_user_rate_limit_key)
 def scout_watchlist_add():
-    """Add a player to the watchlist. Idempotent: re-adding returns 200."""
+    """Add a player to the watchlist. Idempotent: re-adding returns 200.
+
+    Watchlist entries stay TrackedPlayer-only (the 404 below is unchanged);
+    worldwide/shadow players are followable only via follow lists. Every add is
+    also mirrored into the user's default follow list.
+    """
     try:
         user = _current_user_account()
         if user is None:
@@ -754,6 +776,7 @@ def scout_watchlist_add():
 
         existing = ScoutWatchlistEntry.query.filter_by(user_account_id=user.id, player_api_id=player_api_id).first()
         if existing:
+            _mirror_watchlist_add(user, player_api_id, note=existing.note)
             players = _watched_player_dicts([player_api_id])
             return jsonify({"entry": _entry_payload(existing, players.get(player_api_id))}), 200
 
@@ -782,8 +805,10 @@ def scout_watchlist_add():
             entry = ScoutWatchlistEntry.query.filter_by(user_account_id=user.id, player_api_id=player_api_id).first()
             if entry is None:
                 raise
+            _mirror_watchlist_add(user, player_api_id, note=entry.note)
             players = _watched_player_dicts([player_api_id])
             return jsonify({"entry": _entry_payload(entry, players.get(player_api_id))}), 200
+        _mirror_watchlist_add(user, player_api_id, note=entry.note)
         players = _watched_player_dicts([player_api_id])
         return jsonify({"entry": _entry_payload(entry, players.get(player_api_id))}), 201
     except Exception as e:
@@ -806,6 +831,7 @@ def scout_watchlist_remove(player_api_id):
             return jsonify({"removed": False})
         db.session.delete(entry)
         db.session.commit()
+        _mirror_watchlist_remove(user, player_api_id)
         return jsonify({"removed": True})
     except Exception as e:
         db.session.rollback()
@@ -992,4 +1018,639 @@ def scout_admin_send_digests():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error in scout_admin_send_digests: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+# =========================================================================== #
+# Follow lists + shadow tracking
+# =========================================================================== #
+
+
+def _player_display_name(player_api_id):
+    """Best-effort display name for a follow label (tracked, else shadow)."""
+    tracked = (
+        TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
+        .filter(TrackedPlayer.data_source != "owning-club")
+        .first()
+    )
+    if tracked:
+        return tracked.player_name
+    shadow = PlayerShadow.query.filter_by(player_api_id=player_api_id).first()
+    return shadow.player_name if shadow else None
+
+
+def _default_follow_list(user, create=True):
+    """The user's migrated-watchlist default list, created on demand."""
+    follow_list = FollowList.query.filter_by(user_account_id=user.id, is_default=True).first()
+    if follow_list is None and create:
+        follow_list = FollowList(user_account_id=user.id, name="My Watchlist", is_default=True)
+        db.session.add(follow_list)
+        db.session.flush()
+    return follow_list
+
+
+def _mirror_watchlist_add(user, player_api_id, note=None):
+    """Mirror a watchlist add into the user's default follow list.
+
+    Best-effort: a mirror failure never breaks the watchlist write. Watchlist
+    entries are always tracked players (shadow players are followable only via
+    lists), so this upserts a player-kind follow for an existing tracked player.
+    """
+    try:
+        follow_list = _default_follow_list(user, create=True)
+        for follow in follow_list.follows.filter(Follow.kind == "player").all():
+            if (follow.selector or {}).get("player_api_id") == player_api_id:
+                return
+        db.session.add(
+            Follow(
+                list_id=follow_list.id,
+                kind="player",
+                selector={"player_api_id": player_api_id},
+                label=derive_label("player", {"player_api_id": player_api_id}, _player_display_name(player_api_id)),
+                note=note,
+            )
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception("watchlist->list mirror (add) failed for player %s", player_api_id)
+
+
+def _mirror_watchlist_remove(user, player_api_id):
+    """Remove the matching player follow from the default list only."""
+    try:
+        follow_list = FollowList.query.filter_by(user_account_id=user.id, is_default=True).first()
+        if follow_list is None:
+            return
+        removed = False
+        for follow in follow_list.follows.filter(Follow.kind == "player").all():
+            if (follow.selector or {}).get("player_api_id") == player_api_id:
+                db.session.delete(follow)
+                removed = True
+        if removed:
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception("watchlist->list mirror (remove) failed for player %s", player_api_id)
+
+
+def _user_already_follows_player(user_id, player_api_id):
+    """True if the user follows this player id in any of their lists."""
+    rows = (
+        db.session.query(Follow.selector)
+        .join(FollowList, FollowList.id == Follow.list_id)
+        .filter(FollowList.user_account_id == user_id, Follow.kind == "player")
+        .all()
+    )
+    return any((selector or {}).get("player_api_id") == player_api_id for (selector,) in rows)
+
+
+def _follow_label_maps(follows):
+    """Batched name lookups for read-time follow labels: player_api_id -> player
+    name (TrackedPlayer, then PlayerShadow) and teams.id -> team name."""
+    player_ids = set()
+    team_ids = set()
+    for follow in follows:
+        selector = follow.selector or {}
+        if follow.kind == "player" and selector.get("player_api_id"):
+            player_ids.add(selector["player_api_id"])
+        elif follow.kind == "academy_club" and selector.get("team_id"):
+            team_ids.add(selector["team_id"])
+
+    name_map = {}
+    if player_ids:
+        for tp in TrackedPlayer.query.filter(
+            TrackedPlayer.player_api_id.in_(player_ids),
+            TrackedPlayer.is_active.is_(True),
+            TrackedPlayer.data_source != "owning-club",
+        ).all():
+            name_map.setdefault(tp.player_api_id, tp.player_name)
+        remaining = player_ids - set(name_map)
+        if remaining:
+            for shadow in PlayerShadow.query.filter(PlayerShadow.player_api_id.in_(remaining)).all():
+                name_map.setdefault(shadow.player_api_id, shadow.player_name)
+
+    team_map = {}
+    if team_ids:
+        for team in Team.query.filter(Team.id.in_(team_ids)).all():
+            team_map.setdefault(team.id, team.name)
+    return name_map, team_map
+
+
+def _follow_read_payload(follow, name_map, team_map):
+    """A follow dict whose label is derived at read time from fresh names."""
+    selector = follow.selector or {}
+    if follow.kind == "player":
+        name = name_map.get(selector.get("player_api_id"))
+    elif follow.kind == "academy_club":
+        name = team_map.get(selector.get("team_id"))
+    else:
+        name = None
+    return {
+        "id": follow.id,
+        "kind": follow.kind,
+        "selector": follow.selector,
+        "label": derive_label(follow.kind, selector, name),
+        "note": follow.note,
+        "created_at": follow.created_at.isoformat() if follow.created_at else None,
+    }
+
+
+def _follow_list_payload(follow_list, follows=None, name_map=None, team_map=None):
+    """List payload with embedded read-time-labelled follows.
+
+    GET /scout/lists passes pre-batched ``follows`` + name/team maps (one query
+    for all lists' follows) to stay N+1-free; single-list responses pass nothing
+    and this loads that one list's follows.
+    """
+    if follows is None:
+        follows = follow_list.follows.order_by(Follow.created_at.asc(), Follow.id.asc()).all()
+        name_map, team_map = _follow_label_maps(follows)
+    return {
+        "id": follow_list.id,
+        "name": follow_list.name,
+        "cadence": follow_list.cadence,
+        "is_active": follow_list.is_active,
+        "is_default": follow_list.is_default,
+        "player_cap": follow_list.player_cap,
+        "follow_count": len(follows),
+        "follows": [_follow_read_payload(f, name_map or {}, team_map or {}) for f in follows],
+        "created_at": follow_list.created_at.isoformat() if follow_list.created_at else None,
+        "updated_at": follow_list.updated_at.isoformat() if follow_list.updated_at else None,
+    }
+
+
+def _follow_payload(follow):
+    return {
+        "id": follow.id,
+        "kind": follow.kind,
+        "selector": follow.selector,
+        "label": follow.label,
+        "note": follow.note,
+        "created_at": follow.created_at.isoformat() if follow.created_at else None,
+    }
+
+
+def _owned_list(user, list_id):
+    return FollowList.query.filter_by(id=list_id, user_account_id=user.id).first()
+
+
+def _clean_list_name(raw):
+    """(name, error) — sanitized, non-empty, length-capped list name."""
+    if not isinstance(raw, str):
+        return None, "name must be a string"
+    name = sanitize_plain_text(raw).strip()
+    if not name:
+        return None, "name is required"
+    if len(name) > MAX_LIST_NAME_LENGTH:
+        return None, f"name must be at most {MAX_LIST_NAME_LENGTH} characters"
+    return name, None
+
+
+@scout_bp.route("/scout/lists", methods=["GET"])
+@require_user_auth
+@limiter.limit("60/minute", key_func=_user_rate_limit_key)
+def scout_lists():
+    """The authenticated user's follow lists (default list first)."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        lists = (
+            FollowList.query.filter_by(user_account_id=user.id)
+            .order_by(FollowList.is_default.desc(), FollowList.created_at.asc(), FollowList.id.asc())
+            .all()
+        )
+        # One query for every list's follows (the dynamic relationship rules out
+        # selectinload), grouped by list, then one batched name/team lookup —
+        # N+1-free regardless of list count.
+        list_ids = [fl.id for fl in lists]
+        follows_by_list = {}
+        all_follows = []
+        if list_ids:
+            all_follows = (
+                Follow.query.filter(Follow.list_id.in_(list_ids))
+                .order_by(Follow.list_id, Follow.created_at.asc(), Follow.id.asc())
+                .all()
+            )
+            for follow in all_follows:
+                follows_by_list.setdefault(follow.list_id, []).append(follow)
+        name_map, team_map = _follow_label_maps(all_follows)
+        return jsonify(
+            {
+                "lists": [
+                    _follow_list_payload(
+                        fl, follows=follows_by_list.get(fl.id, []), name_map=name_map, team_map=team_map
+                    )
+                    for fl in lists
+                ]
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error in scout_lists: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+@scout_bp.route("/scout/lists", methods=["POST"])
+@require_user_auth
+@limiter.limit("30/minute", key_func=_user_rate_limit_key)
+def scout_lists_create():
+    """Create a follow list (capped at MAX_FOLLOW_LISTS; unique name per user)."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        payload = request.get_json(silent=True) or {}
+        name, error = _clean_list_name(payload.get("name", ""))
+        if error:
+            return jsonify({"error": error}), 400
+        if FollowList.query.filter_by(user_account_id=user.id).count() >= MAX_FOLLOW_LISTS:
+            return jsonify({"error": f"list limit reached ({MAX_FOLLOW_LISTS})"}), 409
+        if FollowList.query.filter_by(user_account_id=user.id, name=name).first():
+            return jsonify({"error": "a list with that name already exists"}), 409
+        follow_list = FollowList(user_account_id=user.id, name=name, is_default=False)
+        db.session.add(follow_list)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return jsonify({"error": "a list with that name already exists"}), 409
+        return jsonify({"list": _follow_list_payload(follow_list, follows=[])}), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in scout_lists_create: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+@scout_bp.route("/scout/lists/<int:list_id>", methods=["PATCH"])
+@require_user_auth
+@limiter.limit("30/minute", key_func=_user_rate_limit_key)
+def scout_list_update(list_id):
+    """Rename a list or toggle is_active (owner-only)."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        follow_list = _owned_list(user, list_id)
+        if follow_list is None:
+            return jsonify({"error": "list not found"}), 404
+        payload = request.get_json(silent=True) or {}
+        if "name" in payload:
+            name, error = _clean_list_name(payload.get("name"))
+            if error:
+                return jsonify({"error": error}), 400
+            dup = FollowList.query.filter(
+                FollowList.user_account_id == user.id,
+                FollowList.name == name,
+                FollowList.id != follow_list.id,
+            ).first()
+            if dup:
+                return jsonify({"error": "a list with that name already exists"}), 409
+            follow_list.name = name
+        if "is_active" in payload:
+            is_active = payload.get("is_active")
+            if not isinstance(is_active, bool):
+                return jsonify({"error": "is_active must be a boolean"}), 400
+            follow_list.is_active = is_active
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return jsonify({"error": "a list with that name already exists"}), 409
+        return jsonify({"list": _follow_list_payload(follow_list)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in scout_list_update: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+@scout_bp.route("/scout/lists/<int:list_id>", methods=["DELETE"])
+@require_user_auth
+@limiter.limit("30/minute", key_func=_user_rate_limit_key)
+def scout_list_delete(list_id):
+    """Delete a list (owner-only). The default list is not deletable."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        follow_list = _owned_list(user, list_id)
+        if follow_list is None:
+            return jsonify({"error": "list not found"}), 404
+        if follow_list.is_default:
+            return jsonify({"error": "the default list cannot be deleted"}), 400
+        db.session.delete(follow_list)
+        db.session.commit()
+        return jsonify({"deleted": True})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in scout_list_delete: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+@scout_bp.route("/scout/lists/<int:list_id>/follows", methods=["POST"])
+@require_user_auth
+@limiter.limit("30/minute", key_func=_user_rate_limit_key)
+def scout_list_add_follow(list_id):
+    """Add a follow (player | academy_club | geo | query) to a list.
+
+    A player-kind follow whose target is outside the tracked universe mints a
+    PlayerShadow, subject to SHADOW_FOLLOW_LIMIT distinct worldwide follows per
+    user.
+    """
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        follow_list = _owned_list(user, list_id)
+        if follow_list is None:
+            return jsonify({"error": "list not found"}), 404
+
+        payload = request.get_json(silent=True) or {}
+        kind = payload.get("kind")
+        clean_selector, error = validate_selector(kind, payload.get("selector"))
+        if error:
+            return jsonify({"error": error}), 400
+
+        if follow_list.follows.count() >= MAX_FOLLOWS_PER_LIST:
+            return jsonify({"error": f"follow limit reached for this list ({MAX_FOLLOWS_PER_LIST})"}), 409
+
+        for follow in follow_list.follows.filter(Follow.kind == kind).all():
+            if follow.selector == clean_selector:
+                return jsonify({"error": "this follow already exists in the list"}), 409
+
+        note = payload.get("note")
+        if note is not None:
+            if not isinstance(note, str):
+                return jsonify({"error": "note must be a string"}), 400
+            note = sanitize_plain_text(note).strip()
+            if len(note) > MAX_NOTE_LENGTH:
+                return jsonify({"error": f"note must be at most {MAX_NOTE_LENGTH} characters"}), 400
+            note = note or None
+
+        shadow_created = False
+        if kind == "player":
+            player_api_id = clean_selector["player_api_id"]
+            tracked = (
+                TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
+                .filter(TrackedPlayer.data_source != "owning-club")
+                .first()
+            )
+            if tracked:
+                label = derive_label("player", clean_selector, tracked.player_name)
+            else:
+                shadow = PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True).first()
+                # Cap distinct worldwide follows per user (a new shadow, or an
+                # existing shadow this user does not already follow).
+                if not _user_already_follows_player(user.id, player_api_id):
+                    if user_shadow_follow_count(user.id) >= SHADOW_FOLLOW_LIMIT:
+                        return jsonify({"error": f"worldwide follow limit reached ({SHADOW_FOLLOW_LIMIT})"}), 403
+                if shadow is None:
+                    seed = payload.get("seed") if isinstance(payload.get("seed"), dict) else None
+                    shadow = mint_shadow(player_api_id, seed=seed, requested_by=user.id, api_client=_get_api_client())
+                    shadow_created = True
+                label = derive_label("player", clean_selector, shadow.player_name)
+        elif kind == "academy_club":
+            team = Team.query.filter_by(id=clean_selector["team_id"]).first()
+            label = derive_label("academy_club", clean_selector, team.name if team else None)
+        else:
+            label = derive_label(kind, clean_selector)
+
+        follow = Follow(list_id=follow_list.id, kind=kind, selector=clean_selector, label=label, note=note)
+        db.session.add(follow)
+        db.session.commit()
+        return jsonify({"follow": _follow_payload(follow), "shadow_created": shadow_created}), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in scout_list_add_follow: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+@scout_bp.route("/scout/lists/<int:list_id>/follows/<int:follow_id>", methods=["DELETE"])
+@require_user_auth
+@limiter.limit("30/minute", key_func=_user_rate_limit_key)
+def scout_list_remove_follow(list_id, follow_id):
+    """Remove a follow from a list (owner-only). Idempotent."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        follow_list = _owned_list(user, list_id)
+        if follow_list is None:
+            return jsonify({"error": "list not found"}), 404
+        follow = Follow.query.filter_by(id=follow_id, list_id=follow_list.id).first()
+        if follow is None:
+            return jsonify({"removed": False})
+        db.session.delete(follow)
+        db.session.commit()
+        return jsonify({"removed": True})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in scout_list_remove_follow: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+@scout_bp.route("/scout/lists/<int:list_id>/resolve", methods=["GET"])
+@require_user_auth
+@limiter.limit("60/minute", key_func=_user_rate_limit_key)
+def scout_list_resolve(list_id):
+    """Resolved player preview for a list (owner-only), paginated."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        follow_list = _owned_list(user, list_id)
+        if follow_list is None:
+            return jsonify({"error": "list not found"}), 404
+
+        limit = min(max(request.args.get("limit", 25, type=int), 1), MAX_RESOLVE_PAGE)
+        offset = max(request.args.get("offset", 0, type=int), 0)
+
+        resolved = resolve_list(follow_list)
+        total = len(resolved)
+        page = resolved[offset : offset + limit]
+
+        tracked_ids = [item["player_api_id"] for item in page if item["source"] == "tracked"]
+        shadow_ids = [item["player_api_id"] for item in page if item["source"] == "shadow"]
+        tracked_dicts = _watched_player_dicts(tracked_ids)
+        shadows = {}
+        if shadow_ids:
+            for shadow in PlayerShadow.query.filter(PlayerShadow.player_api_id.in_(shadow_ids)).all():
+                shadows[shadow.player_api_id] = shadow
+
+        players = []
+        for item in page:
+            player_api_id = item["player_api_id"]
+            if item["source"] == "tracked":
+                enriched = tracked_dicts.get(player_api_id)
+                players.append(
+                    {
+                        "player_api_id": player_api_id,
+                        "player_name": enriched.get("player_name") if enriched else None,
+                        "source": "tracked",
+                        "team_name": (enriched.get("loan_team_name") or enriched.get("primary_team_name"))
+                        if enriched
+                        else None,
+                        "status": enriched.get("status") if enriched else None,
+                        "photo": enriched.get("player_photo") if enriched else None,
+                    }
+                )
+            else:
+                shadow = shadows.get(player_api_id)
+                players.append(
+                    {
+                        "player_api_id": player_api_id,
+                        "player_name": shadow.player_name if shadow else None,
+                        "source": "shadow",
+                        "team_name": shadow.current_club_name if shadow else None,
+                        "status": None,
+                        "photo": shadow.photo_url if shadow else None,
+                    }
+                )
+        return jsonify({"players": players, "total": total})
+    except Exception as e:
+        logger.error(f"Error in scout_list_resolve: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+@scout_bp.route("/scout/player-search", methods=["GET"])
+@require_user_auth
+@limiter.limit("10/minute", key_func=_user_rate_limit_key)
+def scout_player_search():
+    """Worldwide player search for adding follows. Stub-safe (returns [])."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        query = request.args.get("q", "").strip()
+        results = search_players(query, api_client=_get_api_client())
+        return jsonify({"players": results})
+    except Exception as e:
+        logger.error(f"Error in scout_player_search: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+@scout_bp.route("/admin/scout/shadow-refresh", methods=["POST"])
+@require_api_key
+def scout_admin_shadow_refresh():
+    """Refresh the N stalest active shadows (profile + season stats)."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        limit = payload.get("limit", 25)
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            return jsonify({"error": "limit must be a positive integer"}), 400
+        cursor = payload.get("cursor")
+        if cursor is not None and (not isinstance(cursor, int) or isinstance(cursor, bool) or cursor < 0):
+            return jsonify({"error": "cursor must be a non-negative integer"}), 400
+        result = refresh_shadows(limit=limit, cursor=cursor, api_client=_get_api_client())
+        return jsonify(result)
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in scout_admin_shadow_refresh: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+@scout_bp.route("/admin/scout/backfill-follow-lists", methods=["POST"])
+@require_api_key
+def scout_admin_backfill_follow_lists():
+    """Backfill a default follow list from each user's watchlist (cursor-paged).
+
+    Per user with watchlist entries and no default list: create a default
+    FollowList + one player follow per entry (carrying its note) and copy the
+    entry's last_snapshot into a FollowPlayerSnapshot. Idempotent — users who
+    already have a default list are skipped.
+    """
+    try:
+        payload = request.get_json(silent=True) or {}
+        dry_run = payload.get("dry_run", True)
+        if not isinstance(dry_run, bool):
+            return jsonify({"error": "dry_run must be a boolean"}), 400
+        limit = payload.get("limit", 50)
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            return jsonify({"error": "limit must be a positive integer"}), 400
+        limit = min(limit, 200)
+        cursor = payload.get("cursor", 0)
+        if not isinstance(cursor, int) or isinstance(cursor, bool) or cursor < 0:
+            return jsonify({"error": "cursor must be a non-negative integer"}), 400
+
+        has_watchlist = exists().where(ScoutWatchlistEntry.user_account_id == UserAccount.id)
+        has_default = exists().where(
+            and_(FollowList.user_account_id == UserAccount.id, FollowList.is_default.is_(True))
+        )
+        users = (
+            db.session.query(UserAccount)
+            .filter(UserAccount.id > cursor, has_watchlist, ~has_default)
+            .order_by(UserAccount.id)
+            .limit(limit)
+            .all()
+        )
+        next_cursor = users[-1].id if len(users) == limit else None
+
+        lists_created = 0
+        follows_created = 0
+        snapshots_created = 0
+        for user in users:
+            follow_list = FollowList(user_account_id=user.id, name="My Watchlist", is_default=True)
+            db.session.add(follow_list)
+            db.session.flush()
+            lists_created += 1
+
+            entries = ScoutWatchlistEntry.query.filter_by(user_account_id=user.id).all()
+            pids = [entry.player_api_id for entry in entries]
+            name_map = {}
+            if pids:
+                name_map = {
+                    tp.player_api_id: tp.player_name
+                    for tp in TrackedPlayer.query.filter(
+                        TrackedPlayer.player_api_id.in_(pids),
+                        TrackedPlayer.is_active.is_(True),
+                        TrackedPlayer.data_source != "owning-club",
+                    ).all()
+                }
+            for entry in entries:
+                db.session.add(
+                    Follow(
+                        list_id=follow_list.id,
+                        kind="player",
+                        selector={"player_api_id": entry.player_api_id},
+                        label=derive_label(
+                            "player",
+                            {"player_api_id": entry.player_api_id},
+                            name_map.get(entry.player_api_id),
+                        ),
+                        note=entry.note,
+                    )
+                )
+                follows_created += 1
+                existing_snap = FollowPlayerSnapshot.query.filter_by(
+                    user_account_id=user.id, player_api_id=entry.player_api_id
+                ).first()
+                if existing_snap is None:
+                    db.session.add(
+                        FollowPlayerSnapshot(
+                            user_account_id=user.id,
+                            player_api_id=entry.player_api_id,
+                            last_snapshot=entry.last_snapshot,
+                            last_digest_at=entry.last_digest_at,
+                            note=entry.note,
+                        )
+                    )
+                    snapshots_created += 1
+
+        result = {
+            "users_processed": len(users),
+            "lists_created": lists_created,
+            "follows_created": follows_created,
+            "snapshots_created": snapshots_created,
+            "next_cursor": next_cursor,
+            "dry_run": dry_run,
+            "applied": not dry_run,
+        }
+        if dry_run:
+            db.session.rollback()
+        else:
+            db.session.commit()
+        return jsonify(result)
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in scout_admin_backfill_follow_lists: {e}")
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500

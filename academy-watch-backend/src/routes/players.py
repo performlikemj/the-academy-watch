@@ -325,6 +325,33 @@ def get_public_player_profile(player_id: int):
                 result["owner_team_name"] = journey.current_owner_name
                 result["owner_team_logo"] = owner_team.logo if owner_team else None
 
+        # Shadow player fallback — a worldwide-followed player minted outside the
+        # tracked universe has no Player/TrackedPlayer row. Fill still-empty
+        # fields from its PlayerShadow so the profile page renders. Tracked-player
+        # payloads are untouched (this only runs when no tracked row was found).
+        if not tp:
+            from src.models.follow import PlayerShadow
+
+            shadow = PlayerShadow.query.filter_by(player_api_id=player_id, is_active=True).first()
+            if shadow:
+                result["shadow"] = True
+                if not result["name"]:
+                    result["name"] = shadow.player_name
+                if not result["photo"]:
+                    result["photo"] = shadow.photo_url
+                if not result["position"]:
+                    result["position"] = shadow.position
+                if not result["nationality"]:
+                    result["nationality"] = shadow.nationality
+                if not result["age"] and shadow.birth_date:
+                    from datetime import date as _date
+
+                    today = _date.today()
+                    bd = shadow.birth_date
+                    result["age"] = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
+                if not result["loan_team_name"]:
+                    result["loan_team_name"] = shadow.current_club_name
+
         if not result["position"]:
             POS_MAP = {"G": "Goalkeeper", "D": "Defender", "M": "Midfielder", "F": "Attacker"}
             recent_stats = (
@@ -479,6 +506,53 @@ def get_public_player_season_stats(player_id: int):
             return jsonify(result)
 
         if not all_tracked:
+            # Shadow player fallback — no tracked rows, but a worldwide-followed
+            # PlayerShadow exists: serve its LATEST-season PlayerShadowStats as
+            # limited coverage so the profile's stats view renders. Latest-season
+            # (not wall-clock) is immune to API-Football client season drift.
+            from src.models.follow import PlayerShadow, PlayerShadowStats
+
+            shadow = PlayerShadow.query.filter_by(player_api_id=player_id, is_active=True).first()
+            if shadow:
+                latest_season = (
+                    db.session.query(func.max(PlayerShadowStats.season))
+                    .filter(PlayerShadowStats.player_api_id == player_id)
+                    .scalar()
+                )
+                totals = (
+                    db.session.query(
+                        func.coalesce(func.sum(PlayerShadowStats.appearances), 0),
+                        func.coalesce(func.sum(PlayerShadowStats.goals), 0),
+                        func.coalesce(func.sum(PlayerShadowStats.assists), 0),
+                        func.coalesce(func.sum(PlayerShadowStats.minutes), 0),
+                    )
+                    .filter(
+                        PlayerShadowStats.player_api_id == player_id,
+                        PlayerShadowStats.season == latest_season,
+                    )
+                    .first()
+                    if latest_season is not None
+                    else None
+                )
+                apps, goals, assists, minutes = (int(v or 0) for v in (totals or (0, 0, 0, 0)))
+                result["appearances"] = apps
+                result["goals"] = goals
+                result["assists"] = assists
+                result["minutes"] = minutes
+                result["source"] = "shadow"
+                result["stats_coverage"] = "limited"
+                if shadow.current_club_name:
+                    result["loan_team"] = shadow.current_club_name
+                    result["clubs"] = [
+                        {
+                            "team_name": shadow.current_club_name,
+                            "team_logo": None,
+                            "appearances": apps,
+                            "goals": goals,
+                            "assists": assists,
+                            "is_current": True,
+                        }
+                    ]
             return jsonify(result)
 
         # Build list of clubs from FixturePlayerStats (source of truth for which

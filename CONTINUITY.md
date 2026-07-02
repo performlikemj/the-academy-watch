@@ -151,6 +151,36 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Known pre-existing (NOT this slice): full migration chain cannot replay
     on an EMPTY DB (old unguarded supplemental_loans migration)
   - **See `ledgers/ROADMAP_talent-showcase-vision.md` + `docs/showcase.md`**
+- Follow Graph + Shadow Tracking — Phase 1 SHIPPED to branch (2026-07-02)
+  - Scouts organize tracking into named LISTS of FOLLOWS (kinds: player |
+    academy_club | geo playing_in/nationality | saved query) — one resolver
+    over the scout query engine; digest generalized ADDITIVELY (legacy
+    watchlist section byte-identical; non-default lists render as grouped
+    sections, watchlist-wins dedup; default lists are the watchlist's mirror
+    twin and never route)
+  - SHADOW TRACKING: following any untracked player worldwide mints a
+    PlayerShadow (players/profiles fetch, seed fallback offline) + dedicated
+    PlayerShadowStats (NOT PlayerStatsCache — unowned legacy, kept isolated);
+    /players/<id> profile + season-stats shadow fallbacks; worldwide name
+    search via new client method search_player_profiles_global; caps via env
+    (10 lists / 50 follows / 10 shadows per user — billing later)
+  - Migration aw20 (chains aw19, single head preserved). Watchlist backfill is
+    a cursor-paged admin endpoint + dual-write mirrors, not a data migration
+  - Adversarial review (21 agents): 8 confirmed findings ALL fixed — headline:
+    the dual-write mirror was silently rerouting watchlist users onto the list
+    digest path (grouped layout + ASC order + cap-40 truncation); redesigned to
+    additive semantics with a REAL-API-path regression test (old test was
+    blind: it seeded entries directly)
+  - 164 backend tests green (test_scout_watchlist UNMODIFIED); ruff clean;
+    lint 0 errors; live-verified incl. real worldwide search (Endrick shadow
+    mint), digest dry-run (legacy user unchanged + grouped sections + "Now
+    tracking worldwide" card), ListsPage screenshots
+  - Branch `feature/follow-graph` STACKED on feature/talent-showcase —
+    PR based on the showcase branch until #565 merges
+  - LOCAL DEV DB note: cs01 columns (player_journeys.current_status etc.) were
+    missing locally (never applied — DB stamped on vid chain); applied manually
+    2026-07-02. Local scout browse had been broken since #514 merged.
+  - **See `ledgers/research/talent-platform/` (design panel) + `docs/follow-graph.md`**
 
 ### Next
 - Run migration: `flask db upgrade`

@@ -8,7 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
-import { Star, Download, StickyNote, X, Loader2, Search } from 'lucide-react'
+import { Star, Download, StickyNote, X, Loader2, Search, ListChecks } from 'lucide-react'
 import { FormIndicator, StatusBadge, PlayerCell } from './ScoutPage'
 
 const NOTE_MAX = 2000
@@ -218,6 +218,12 @@ export function WatchlistPage() {
               />
               Weekly digest
             </label>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/scout/lists" className="no-underline hover:no-underline">
+                <ListChecks className="mr-1.5 h-4 w-4" />
+                Lists
+              </Link>
+            </Button>
             <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting || !entries.length}>
               {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
               Export CSV
@@ -230,6 +236,16 @@ export function WatchlistPage() {
             </Button>
           </div>
         </header>
+
+        {/* Lists cross-link */}
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-primary/5 px-4 py-2.5">
+          <span className="text-sm text-foreground/80">
+            Your watchlist is now also a <span className="font-semibold text-foreground">List</span> — manage richer follows (clubs, countries, saved filters) in Lists.
+          </span>
+          <Button variant="ghost" size="sm" asChild className="shrink-0">
+            <Link to="/scout/lists" className="no-underline hover:no-underline">Open Lists</Link>
+          </Button>
+        </div>
 
         {error && (
           <p className="mb-4 text-sm text-destructive">{error}</p>
