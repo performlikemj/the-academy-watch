@@ -218,6 +218,9 @@
                 {% if player.headline %}
                 <p class="player-headline">{{ player.headline }}</p>
                 {% endif %}
+                {%- if player.pulse_html %}
+                <div class="pulse-card">{{ player.pulse_html | safe }}</div>
+                {%- else %}
                 <p class="season-line">{{ player.season_line }}</p>
                 {% if player.chips %}
                 <div>
@@ -226,6 +229,7 @@
                   {% endfor %}
                 </div>
                 {% endif %}
+                {%- endif %}
                 {% if player.note %}
                 <p class="player-note">{{ player.note }}</p>
                 {% endif %}
@@ -250,6 +254,9 @@
                 {% if player.headline %}
                 <p class="player-headline">{{ player.headline }}</p>
                 {% endif %}
+                {%- if player.pulse_html %}
+                <div class="pulse-card">{{ player.pulse_html | safe }}</div>
+                {%- else %}
                 <p class="season-line">{{ player.season_line }}</p>
                 {% if player.chips %}
                 <div>
@@ -258,6 +265,7 @@
                   {% endfor %}
                 </div>
                 {% endif %}
+                {%- endif %}
                 {% if player.note %}
                 <p class="player-note">{{ player.note }}</p>
                 {% endif %}
