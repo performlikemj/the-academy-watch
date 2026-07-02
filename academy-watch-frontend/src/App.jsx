@@ -30,6 +30,7 @@ import {
   Trophy,
   TrendingUp,
   Globe,
+  ListChecks,
   Star,
   ArrowLeft,
   ArrowRight,
@@ -540,7 +541,8 @@ function Navigation() {
       { path: '/', label: 'Home', icon: Home },
       { path: '/scout', label: 'Scout', icon: Globe },
       { path: '/teams', label: 'Teams', icon: Users },
-      { path: '/dream-team', label: 'Dream XI', icon: Trophy },
+      // Dream XI demoted from top-level nav (2026-07-02, MJ) — the page stays
+      // at /dream-team and is featured on the Home grid.
       { path: '/newsletters', label: 'Newsletters', icon: FileText },
       { path: '/journalists', label: 'Journalists', icon: UserPlus },
       { path: '/pricing', label: 'Pricing', icon: CreditCard },
@@ -552,6 +554,8 @@ function Navigation() {
       items.push({ path: '/curator/dashboard', label: 'Curator', icon: FileText })
     }
     if (token) {
+      // The retention surface: logged-in scouts jump straight to their lists.
+      items.push({ path: '/scout/lists', label: 'Lists', icon: ListChecks })
       items.push({ path: '/settings', label: 'Settings', icon: UserCog })
     }
     if (adminUnlocked) {

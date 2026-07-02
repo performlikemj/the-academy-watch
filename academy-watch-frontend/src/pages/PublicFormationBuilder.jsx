@@ -51,7 +51,8 @@ export function PublicFormationBuilder() {
     let cancelled = false
     async function load() {
       try {
-        const data = await APIService.getTeams({ european_only: 'true', has_loans: 'true' })
+        // All supported regions — Dream XI should work for worldwide clubs too
+        const data = await APIService.getTeams({ has_loans: 'true' })
         if (!cancelled) {
           const list = Array.isArray(data) ? data : []
           setTeams(list)
