@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'rea
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card.jsx'
+import { Switch } from '@/components/ui/switch.jsx'
 import { Badge } from '@/components/ui/badge.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
@@ -2944,10 +2945,34 @@ function SettingsPage() {
   const [displayNameStatus, setDisplayNameStatus] = useState(null)
   const [displayNameBusy, setDisplayNameBusy] = useState(false)
 
-  // Email delivery preference state
+  // Email delivery preference state (team newsletters)
   const [emailPreference, setEmailPreference] = useState('individual')
   const [emailPrefLoading, setEmailPrefLoading] = useState(false)
   const [emailPrefStatus, setEmailPrefStatus] = useState(null)
+
+  // Scout Digest opt-in (covers Watchlist + Lists)
+  const [scoutDigestOptIn, setScoutDigestOptIn] = useState(null)
+  const [scoutDigestBusy, setScoutDigestBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    APIService.getScoutWatchlist()
+      .then((data) => { if (!cancelled) setScoutDigestOptIn(data?.digest_opt_in !== false) })
+      .catch(() => { if (!cancelled) setScoutDigestOptIn(null) })
+    return () => { cancelled = true }
+  }, [])
+
+  const handleScoutDigestToggle = async (checked) => {
+    setScoutDigestOptIn(checked)
+    setScoutDigestBusy(true)
+    try {
+      await APIService.updateScoutWatchlistSettings({ digest_opt_in: checked })
+    } catch {
+      setScoutDigestOptIn(!checked) // revert on failure
+    } finally {
+      setScoutDigestBusy(false)
+    }
+  }
 
   // Journalist Profile State
   const [journalistProfile, setJournalistProfile] = useState({ bio: '', profile_image_url: '' })
@@ -3280,14 +3305,14 @@ function SettingsPage() {
               </CardContent>
             </Card>
 
-            {/* Email Delivery Preferences */}
+            {/* Email Delivery Preferences — team newsletters lane */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Mail className="h-5 w-5" />
-                  Email Delivery
+                  Team newsletters
                 </CardTitle>
-                <CardDescription>Choose how you want to receive newsletters when subscribed to multiple teams.</CardDescription>
+                <CardDescription>How to receive the editorial team newsletters you subscribe to (below) when you follow multiple teams.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-3">
@@ -3346,6 +3371,40 @@ function SettingsPage() {
                     Saving preference...
                   </div>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* Scout Digest — the personal tracking lane (watchlist + lists) */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ListChecks className="h-5 w-5" />
+                  Scout Digest
+                </CardTitle>
+                <CardDescription>
+                  Your personal tracking email — covers your{' '}
+                  <Link to="/scout/watchlist" className="underline underline-offset-2">Watchlist</Link> and your{' '}
+                  <Link to="/scout/lists" className="underline underline-offset-2">Lists</Link>{' '}
+                  (goals, minutes, status changes, new worldwide players you follow).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="text-sm text-muted-foreground">
+                    {scoutDigestOptIn === null
+                      ? 'Sign-in required to manage this.'
+                      : scoutDigestOptIn
+                        ? 'You will receive the Scout Digest.'
+                        : 'You are opted out of the Scout Digest.'}
+                    <span className="block text-xs mt-1">Per-list schedules (weekly / matchday) are coming — for now the digest is one email.</span>
+                  </div>
+                  <Switch
+                    checked={scoutDigestOptIn === true}
+                    disabled={scoutDigestOptIn === null || scoutDigestBusy}
+                    onCheckedChange={handleScoutDigestToggle}
+                    aria-label="Scout Digest opt-in"
+                  />
+                </div>
               </CardContent>
             </Card>
 
