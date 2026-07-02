@@ -1,0 +1,49 @@
+{
+ "verdict": "needs-fixes",
+ "compile_check": "run_spike.py: No syntax errors\ndownload_footage.py: No syntax errors",
+ "api_verification": "Verified against HF transformers 5.10.2 docs and PyPI:\n- SiglipVisionModel.from_pretrained/pooler_output: CORRECT per HF line 721-731, 589-592\n- AutoProcessor for google/siglip-base-patch16-224: CORRECT per HF line 396-427\n- RF-DETR predict() API: UNCLEAR - PyPI docs show predict(image_path, threshold) but code calls predict(list[np.ndarray], threshold). Signature inconsistency found.\n- trackers.BoTSORTTracker.update(): UNVERIFIED - PyPI page failed to load; signature unknown (called as update(det, frame=frame) in code)\n- supervision.InferenceSlicer callback: UNVERIFIED - Documentation page failed; assumed signature is callback(tile)->Detections\n- supervision.ByteTrack.update_with_detections(): ASSUMED CORRECT as fallback at line 234",
+ "critical_issues": [
+  {
+   "file": "run_spike.py",
+   "issue": "RF-DETR predict() API mismatch: code calls model.predict(frames: list[np.ndarray], threshold=..., include_source_image=False) but PyPI docs show predict(image_path: str, threshold) for single images, not numpy arrays",
+   "fix": "Verify RF-DETR 1.7.1 API accepts list[np.ndarray] or numpy arrays. If only paths accepted, refactor detect_batch() to save frames to temp files, call predict() per-frame, or use a different batch API if available. Check rfdetr source code or run a smoke test before full execution."
+  },
+  {
+   "file": "run_spike.py",
+   "issue": "InferenceSlicer callback will fail if RF-DETR.predict() does not accept numpy arrays, since callback passes single tile (np.ndarray) to model.predict()",
+   "fix": "Same as above: verify RF-DETR predict() signature. If it requires file paths, either pre-save tiles to temp files or use a different approach to slicer integration."
+  },
+  {
+   "file": "run_spike.py",
+   "issue": "SiglipVisionModel.from_pretrained() on MPS has no CPU fallback (line 342). Unlike load_detector() which catches exceptions and retries on CPU, embed_crops() will crash on Apple Silicon if MPS encounters unsupported ops.",
+   "fix": "Wrap line 342 in try/except: try SiglipVisionModel on device, except (RuntimeError, Exception): log warning, retry on 'cpu'. This matches the fallback pattern at line 193-199."
+  },
+  {
+   "file": "run_spike.py",
+   "issue": "tracker.update(det, frame=frame) signature not verified. BoTSORTTracker from trackers 2.4.0 API is unknown (PyPI page failed to load). Code may call wrong method signature.",
+   "fix": "Verify trackers 2.4.0 BoTSORTTracker.update() signature by consulting package source or docs. If it differs from (det, frame=frame), update call at line 230 and 650. Also verify fallback ByteTrack.update_with_detections() at line 234 accepts only (det)."
+  }
+ ],
+ "minor_issues": [
+  {
+   "file": "download_footage.py",
+   "issue": "YouTube CC license check at line 175 only verifies 'creative commons' in license string (case-insensitive). README specifies 'CC BY 3.0' but code does not distinguish CC BY from other CC variants (CC0, CC-NC, etc.).",
+   "fix": "Tighten check: change to if 'cc by' not in lic.lower() or require exact match on 'CC BY' variant. Add warning if detected license is not 'CC BY' specifically."
+  },
+  {
+   "file": "run_spike.py",
+   "issue": "Extrapolation logic at line 468 uses confusing variable naming: detect_mode comes from args.slicer (can be 'on', 'off', or 'both') but condition checks detect_mode == 'on'. When slicer='both', detect_mode='both', so condition is false and label becomes 'fullframe' (which happens to be correct since main pass is fullframe, not sliced).",
+   "fix": "Clarify intent: rename args.slicer to args.slicer_mode or change condition to check != 'off'. Add comment explaining that when slicer='both', main pass is fullframe, benchmark is separate."
+  },
+  {
+   "file": "requirements.txt",
+   "issue": "numpy 2.4.6 pin may conflict with umap-learn's numba dependency. README line 119 acknowledges this but does not provide a pre-emptive fallback. If resolver fails, user must manually downgrade numpy.",
+   "fix": "Add a note in run_spike.py or requirements.txt with explicit fallback instructions. Alternatively, test the pin combination before release to confirm it resolves."
+  },
+  {
+   "file": "run_spike.py",
+   "issue": "detect_batch() function (line 202-204) assumes model.predict() returns either a single sv.Detections object OR a list. Return type handling via isinstance check is fragile if API changes.",
+   "fix": "Add explicit type checking and logging: e.g., 'if isinstance(result, sv.Detections): return [result] else: assert isinstance(result, list), f\"Unexpected type: {type(result)}\"'. This makes API assumption explicit."
+  }
+ ]
+}

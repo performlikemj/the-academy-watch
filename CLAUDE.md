@@ -70,7 +70,7 @@ FLASK_APP=src/main.py flask db upgrade
 ### Alembic Migrations
 - All migrations use idempotent helpers from `migrations/_migration_helpers.py` (column_exists, table_exists, etc.)
 - Production DB has had columns/tables added out-of-band — always guard DDL operations
-- Current migration head: aw18 (chain … aw16/vid01 → aw17 merge → aw18)
+- Current migration head: vid03 (chain … aw18 → cs01 → aw19 merges (cs01, vid02) → aw20 → vid03)
 
 ## Architecture
 

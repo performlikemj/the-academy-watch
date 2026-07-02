@@ -44,3 +44,9 @@ loan-army-frontend/test-results
 playwright-report
 settings.local.json
 CONTINUITY*.md
+# Video-analysis spike: heavy local artifacts (venvs, footage, run outputs)
+spike/video-analysis/.venv-*/
+spike/video-analysis/footage/
+spike/video-analysis/results/
+spike/video-analysis/.cache/
+spike/video-analysis/.ruff_cache/

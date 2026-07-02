@@ -1,0 +1,1375 @@
+{
+  "params": {
+    "model": "mlx-community/gemma-4-E4B-it-qat-4bit",
+    "min_height_px": 110.0,
+    "min_sharpness": 150.0,
+    "max_crops_per_entity": 8,
+    "max_overlap_s": 2.0,
+    "min_votes": 2,
+    "temporal_spread_s": 15.0
+  },
+  "funnel": {
+    "entities": 995,
+    "entities_team_labeled": 991,
+    "entities_with_candidates": 731,
+    "crops_planned": 5677,
+    "crops_extracted": 5677,
+    "crops_gated": 3723,
+    "reads_parsed": 3723,
+    "entities_with_read": 662,
+    "entities_anchored": 171,
+    "final_players": 28,
+    "conflict_entities": 30
+  },
+  "vlm_elapsed_s": 12845.8,
+  "gate": {
+    "crops_total": 5677,
+    "crops_kept": 3723,
+    "crops_dropped": 1954,
+    "min_sharpness": 150.0,
+    "min_height_px": 110.0,
+    "laplacian_deciles_0_to_100": [
+      7.8,
+      71.1,
+      103.3,
+      135.5,
+      169.2,
+      209.1,
+      263.2,
+      326.7,
+      420.2,
+      591.0,
+      1832.5
+    ]
+  },
+  "anchors": [
+    {
+      "player_key": "T0#2",
+      "member_entity_ids": [
+        189,
+        237,
+        386
+      ],
+      "visible_s_total": 260.5,
+      "votes_per_member": {
+        "189": {
+          "2": 3,
+          "4": 1,
+          "22": 1
+        },
+        "237": {
+          "2": 4
+        },
+        "386": {
+          "2": 3
+        }
+      }
+    },
+    {
+      "player_key": "T0#3",
+      "member_entity_ids": [
+        132,
+        211,
+        232,
+        304,
+        322,
+        408,
+        554,
+        565,
+        794
+      ],
+      "visible_s_total": 605.79,
+      "votes_per_member": {
+        "132": {
+          "3": 3
+        },
+        "211": {
+          "3": 3,
+          "11": 1,
+          "13": 1,
+          "18": 1
+        },
+        "232": {
+          "3": 3,
+          "4": 1
+        },
+        "304": {
+          "3": 2,
+          "12": 1
+        },
+        "322": {
+          "3": 3
+        },
+        "408": {
+          "3": 3,
+          "22": 1
+        },
+        "554": {
+          "3": 2,
+          "17": 1
+        },
+        "565": {
+          "3": 2,
+          "13": 1
+        },
+        "794": {
+          "3": 5,
+          "5": 1,
+          "33": 1
+        }
+      }
+    },
+    {
+      "player_key": "T0#4",
+      "member_entity_ids": [
+        116,
+        280,
+        877
+      ],
+      "visible_s_total": 240.78,
+      "votes_per_member": {
+        "116": {
+          "4": 2,
+          "11": 1,
+          "14": 1
+        },
+        "280": {
+          "4": 3,
+          "44": 2
+        },
+        "877": {
+          "4": 3
+        }
+      }
+    },
+    {
+      "player_key": "T0#5",
+      "member_entity_ids": [
+        338,
+        413,
+        438,
+        558
+      ],
+      "visible_s_total": 185.09,
+      "votes_per_member": {
+        "338": {
+          "5": 2
+        },
+        "413": {
+          "5": 3
+        },
+        "438": {
+          "5": 2
+        },
+        "558": {
+          "5": 5
+        }
+      }
+    },
+    {
+      "player_key": "T0#9",
+      "member_entity_ids": [
+        20,
+        35,
+        43,
+        87,
+        192,
+        197,
+        382,
+        488,
+        622,
+        885
+      ],
+      "visible_s_total": 1266.67,
+      "votes_per_member": {
+        "20": {
+          "9": 3,
+          "17": 1
+        },
+        "35": {
+          "9": 2,
+          "21": 1
+        },
+        "43": {
+          "9": 3,
+          "14": 1
+        },
+        "87": {
+          "9": 2,
+          "11": 1
+        },
+        "192": {
+          "9": 2,
+          "12": 1
+        },
+        "197": {
+          "9": 8
+        },
+        "382": {
+          "9": 5
+        },
+        "488": {
+          "2": 1,
+          "9": 2,
+          "12": 1
+        },
+        "622": {
+          "9": 4
+        },
+        "885": {
+          "9": 7
+        }
+      }
+    },
+    {
+      "player_key": "T0#10",
+      "member_entity_ids": [
+        49,
+        83,
+        314,
+        396,
+        429,
+        439,
+        457,
+        458,
+        513,
+        635,
+        726
+      ],
+      "visible_s_total": 755.83,
+      "votes_per_member": {
+        "49": {
+          "10": 5
+        },
+        "83": {
+          "10": 5
+        },
+        "314": {
+          "10": 5
+        },
+        "396": {
+          "10": 3,
+          "12": 1
+        },
+        "429": {
+          "10": 3
+        },
+        "439": {
+          "10": 7
+        },
+        "457": {
+          "10": 6,
+          "17": 1
+        },
+        "458": {
+          "10": 5,
+          "11": 1
+        },
+        "513": {
+          "10": 8
+        },
+        "635": {
+          "10": 3
+        },
+        "726": {
+          "10": 3
+        }
+      }
+    },
+    {
+      "player_key": "T0#11",
+      "member_entity_ids": [
+        754
+      ],
+      "visible_s_total": 13.99,
+      "votes_per_member": {
+        "754": {
+          "2": 1,
+          "11": 2,
+          "25": 1
+        }
+      }
+    },
+    {
+      "player_key": "T0#12",
+      "member_entity_ids": [
+        33,
+        95,
+        142,
+        210,
+        297,
+        300,
+        388,
+        481,
+        626,
+        681,
+        927,
+        928
+      ],
+      "visible_s_total": 940.92,
+      "votes_per_member": {
+        "33": {
+          "11": 1,
+          "12": 2
+        },
+        "95": {
+          "12": 5
+        },
+        "142": {
+          "4": 1,
+          "10": 1,
+          "12": 2
+        },
+        "210": {
+          "12": 4
+        },
+        "297": {
+          "12": 2
+        },
+        "300": {
+          "12": 3
+        },
+        "388": {
+          "12": 2,
+          "22": 1
+        },
+        "481": {
+          "12": 6
+        },
+        "626": {
+          "12": 5
+        },
+        "681": {
+          "11": 1,
+          "12": 5,
+          "13": 1
+        },
+        "927": {
+          "12": 5,
+          "17": 1
+        },
+        "928": {
+          "12": 5
+        }
+      }
+    },
+    {
+      "player_key": "T0#15",
+      "member_entity_ids": [
+        27,
+        92,
+        99,
+        195,
+        312,
+        376,
+        627,
+        706
+      ],
+      "visible_s_total": 865.53,
+      "votes_per_member": {
+        "27": {
+          "2": 1,
+          "15": 2
+        },
+        "92": {
+          "15": 2,
+          "17": 1,
+          "22": 1
+        },
+        "99": {
+          "15": 5
+        },
+        "195": {
+          "5": 1,
+          "15": 2
+        },
+        "312": {
+          "15": 2
+        },
+        "376": {
+          "15": 8
+        },
+        "627": {
+          "12": 1,
+          "15": 2
+        },
+        "706": {
+          "15": 7,
+          "21": 1
+        }
+      }
+    },
+    {
+      "player_key": "T0#17",
+      "member_entity_ids": [
+        29,
+        85,
+        202,
+        299,
+        399,
+        501,
+        606,
+        632,
+        697,
+        716,
+        790,
+        842,
+        953
+      ],
+      "visible_s_total": 798.16,
+      "votes_per_member": {
+        "29": {
+          "7": 1,
+          "17": 4
+        },
+        "85": {
+          "11": 1,
+          "14": 1,
+          "17": 2
+        },
+        "202": {
+          "17": 3
+        },
+        "299": {
+          "2": 1,
+          "9": 1,
+          "10": 1,
+          "11": 1,
+          "17": 4
+        },
+        "399": {
+          "13": 1,
+          "17": 3
+        },
+        "501": {
+          "17": 2
+        },
+        "606": {
+          "17": 3
+        },
+        "632": {
+          "7": 1,
+          "17": 4
+        },
+        "697": {
+          "13": 1,
+          "17": 4
+        },
+        "716": {
+          "17": 2
+        },
+        "790": {
+          "17": 2,
+          "21": 1
+        },
+        "842": {
+          "17": 3,
+          "27": 1
+        },
+        "953": {
+          "11": 1,
+          "17": 5
+        }
+      }
+    },
+    {
+      "player_key": "T0#21",
+      "member_entity_ids": [
+        929
+      ],
+      "visible_s_total": 5.12,
+      "votes_per_member": {
+        "929": {
+          "21": 7
+        }
+      }
+    },
+    {
+      "player_key": "T0#22",
+      "member_entity_ids": [
+        154,
+        478,
+        551
+      ],
+      "visible_s_total": 195.95,
+      "votes_per_member": {
+        "154": {
+          "22": 2
+        },
+        "478": {
+          "22": 2
+        },
+        "551": {
+          "22": 8
+        }
+      }
+    },
+    {
+      "player_key": "T0#24",
+      "member_entity_ids": [
+        771,
+        978
+      ],
+      "visible_s_total": 15.01,
+      "votes_per_member": {
+        "771": {
+          "24": 2,
+          "34": 1
+        },
+        "978": {
+          "24": 8
+        }
+      }
+    },
+    {
+      "player_key": "T0#25",
+      "member_entity_ids": [
+        595
+      ],
+      "visible_s_total": 26.17,
+      "votes_per_member": {
+        "595": {
+          "25": 5
+        }
+      }
+    },
+    {
+      "player_key": "T1#1",
+      "member_entity_ids": [
+        510
+      ],
+      "visible_s_total": 33.55,
+      "votes_per_member": {
+        "510": {
+          "1": 2,
+          "11": 1
+        }
+      }
+    },
+    {
+      "player_key": "T1#2",
+      "member_entity_ids": [
+        7,
+        30,
+        45,
+        306,
+        406,
+        456,
+        492,
+        602,
+        735,
+        743,
+        867
+      ],
+      "visible_s_total": 1173.0,
+      "votes_per_member": {
+        "7": {
+          "2": 2
+        },
+        "30": {
+          "2": 2,
+          "22": 1
+        },
+        "45": {
+          "2": 3
+        },
+        "306": {
+          "2": 2,
+          "12": 1,
+          "14": 1
+        },
+        "406": {
+          "2": 4,
+          "12": 1,
+          "21": 1
+        },
+        "456": {
+          "2": 5
+        },
+        "492": {
+          "2": 3
+        },
+        "602": {
+          "2": 2,
+          "15": 1
+        },
+        "735": {
+          "2": 2
+        },
+        "743": {
+          "2": 2,
+          "22": 1
+        },
+        "867": {
+          "2": 7,
+          "22": 1
+        }
+      }
+    },
+    {
+      "player_key": "T1#3",
+      "member_entity_ids": [
+        63,
+        66,
+        763
+      ],
+      "visible_s_total": 396.37,
+      "votes_per_member": {
+        "63": {
+          "3": 2
+        },
+        "66": {
+          "3": 4
+        },
+        "763": {
+          "3": 5
+        }
+      }
+    },
+    {
+      "player_key": "T1#11",
+      "member_entity_ids": [
+        77,
+        153,
+        173,
+        593
+      ],
+      "visible_s_total": 455.06,
+      "votes_per_member": {
+        "77": {
+          "11": 3
+        },
+        "153": {
+          "2": 1,
+          "11": 3,
+          "22": 1
+        },
+        "173": {
+          "10": 1,
+          "11": 4
+        },
+        "593": {
+          "11": 2
+        }
+      }
+    },
+    {
+      "player_key": "T1#12",
+      "member_entity_ids": [
+        451
+      ],
+      "visible_s_total": 42.06,
+      "votes_per_member": {
+        "451": {
+          "12": 2
+        }
+      }
+    },
+    {
+      "player_key": "T1#13",
+      "member_entity_ids": [
+        56,
+        62,
+        127,
+        307,
+        350,
+        453,
+        765,
+        876
+      ],
+      "visible_s_total": 741.14,
+      "votes_per_member": {
+        "56": {
+          "3": 1,
+          "13": 2
+        },
+        "62": {
+          "13": 2
+        },
+        "127": {
+          "13": 2
+        },
+        "307": {
+          "2": 1,
+          "13": 3
+        },
+        "350": {
+          "10": 1,
+          "13": 7
+        },
+        "453": {
+          "12": 1,
+          "13": 2
+        },
+        "765": {
+          "13": 4
+        },
+        "876": {
+          "13": 2,
+          "15": 1,
+          "17": 1
+        }
+      }
+    },
+    {
+      "player_key": "T1#14",
+      "member_entity_ids": [
+        15,
+        592,
+        658
+      ],
+      "visible_s_total": 372.46,
+      "votes_per_member": {
+        "15": {
+          "14": 2
+        },
+        "592": {
+          "14": 4
+        },
+        "658": {
+          "14": 3,
+          "22": 1
+        }
+      }
+    },
+    {
+      "player_key": "T1#15",
+      "member_entity_ids": [
+        384
+      ],
+      "visible_s_total": 52.1,
+      "votes_per_member": {
+        "384": {
+          "15": 7
+        }
+      }
+    },
+    {
+      "player_key": "T1#16",
+      "member_entity_ids": [
+        517,
+        574
+      ],
+      "visible_s_total": 60.87,
+      "votes_per_member": {
+        "517": {
+          "16": 3
+        },
+        "574": {
+          "15": 1,
+          "16": 6,
+          "21": 1
+        }
+      }
+    },
+    {
+      "player_key": "T1#17",
+      "member_entity_ids": [
+        461,
+        487,
+        537,
+        542,
+        605
+      ],
+      "visible_s_total": 164.34,
+      "votes_per_member": {
+        "461": {
+          "17": 2
+        },
+        "487": {
+          "11": 1,
+          "17": 7
+        },
+        "537": {
+          "17": 2
+        },
+        "542": {
+          "16": 1,
+          "17": 2
+        },
+        "605": {
+          "17": 2,
+          "22": 1
+        }
+      }
+    },
+    {
+      "player_key": "T1#20",
+      "member_entity_ids": [
+        102,
+        143,
+        298,
+        442,
+        452,
+        549,
+        560,
+        619,
+        825,
+        844
+      ],
+      "visible_s_total": 558.04,
+      "votes_per_member": {
+        "102": {
+          "20": 2
+        },
+        "143": {
+          "11": 1,
+          "20": 2
+        },
+        "298": {
+          "20": 6,
+          "22": 1
+        },
+        "442": {
+          "20": 2
+        },
+        "452": {
+          "20": 2,
+          "26": 1
+        },
+        "549": {
+          "20": 8
+        },
+        "560": {
+          "20": 3,
+          "22": 1
+        },
+        "619": {
+          "10": 1,
+          "20": 2,
+          "21": 1
+        },
+        "825": {
+          "20": 6
+        },
+        "844": {
+          "20": 4,
+          "21": 1
+        }
+      }
+    },
+    {
+      "player_key": "T1#21",
+      "member_entity_ids": [
+        521,
+        599,
+        683,
+        767,
+        773,
+        782,
+        796
+      ],
+      "visible_s_total": 127.6,
+      "votes_per_member": {
+        "521": {
+          "21": 6
+        },
+        "599": {
+          "11": 1,
+          "21": 2
+        },
+        "683": {
+          "21": 2
+        },
+        "767": {
+          "21": 3
+        },
+        "773": {
+          "20": 1,
+          "21": 2
+        },
+        "782": {
+          "21": 3
+        },
+        "796": {
+          "21": 3
+        }
+      }
+    },
+    {
+      "player_key": "T1#22",
+      "member_entity_ids": [
+        308,
+        854
+      ],
+      "visible_s_total": 78.34,
+      "votes_per_member": {
+        "308": {
+          "2": 2,
+          "22": 2
+        },
+        "854": {
+          "22": 7
+        }
+      }
+    },
+    {
+      "player_key": "T1#24",
+      "member_entity_ids": [
+        230,
+        362
+      ],
+      "visible_s_total": 154.65,
+      "votes_per_member": {
+        "230": {
+          "24": 3
+        },
+        "362": {
+          "24": 2
+        }
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "player_key": "E325",
+      "team": 0,
+      "jersey_number": 2,
+      "role": "outfield",
+      "member_entity_ids": [
+        325
+      ],
+      "first_s": 4741.14,
+      "last_s": 4826.32,
+      "visible_s_total": 65.79,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#2 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E454",
+      "team": 0,
+      "jersey_number": 2,
+      "role": "outfield",
+      "member_entity_ids": [
+        454
+      ],
+      "first_s": 4595.86,
+      "last_s": 4651.95,
+      "visible_s_total": 41.45,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#2 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E240",
+      "team": 0,
+      "jersey_number": 3,
+      "role": "outfield",
+      "member_entity_ids": [
+        240
+      ],
+      "first_s": 2716.35,
+      "last_s": 2872.67,
+      "visible_s_total": 94.84,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#3 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E369",
+      "team": 0,
+      "jersey_number": 3,
+      "role": "outfield",
+      "member_entity_ids": [
+        369
+      ],
+      "first_s": 2467.93,
+      "last_s": 2553.55,
+      "visible_s_total": 54.79,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#3 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E124",
+      "team": 0,
+      "jersey_number": 9,
+      "role": "outfield",
+      "member_entity_ids": [
+        124
+      ],
+      "first_s": 3485.85,
+      "last_s": 3767.93,
+      "visible_s_total": 152.31,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#9 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E327",
+      "team": 0,
+      "jersey_number": 9,
+      "role": "outfield",
+      "member_entity_ids": [
+        327
+      ],
+      "first_s": 5290.42,
+      "last_s": 5360.99,
+      "visible_s_total": 65.37,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#9 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E954",
+      "team": 0,
+      "jersey_number": 9,
+      "role": "outfield",
+      "member_entity_ids": [
+        954
+      ],
+      "first_s": 4506.5,
+      "last_s": 4510.27,
+      "visible_s_total": 3.85,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#9 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E253",
+      "team": 0,
+      "jersey_number": 10,
+      "role": "outfield",
+      "member_entity_ids": [
+        253
+      ],
+      "first_s": 1652.75,
+      "last_s": 1788.72,
+      "visible_s_total": 90.33,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#10 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E484",
+      "team": 0,
+      "jersey_number": 10,
+      "role": "outfield",
+      "member_entity_ids": [
+        484
+      ],
+      "first_s": 2353.85,
+      "last_s": 2420.99,
+      "visible_s_total": 36.46,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#10 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E503",
+      "team": 0,
+      "jersey_number": 10,
+      "role": "outfield",
+      "member_entity_ids": [
+        503
+      ],
+      "first_s": 2061.79,
+      "last_s": 2095.76,
+      "visible_s_total": 34.05,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#10 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E846",
+      "team": 0,
+      "jersey_number": 10,
+      "role": "outfield",
+      "member_entity_ids": [
+        846
+      ],
+      "first_s": 1436.9,
+      "last_s": 1450.08,
+      "visible_s_total": 9.0,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#10 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E258",
+      "team": 0,
+      "jersey_number": 12,
+      "role": "outfield",
+      "member_entity_ids": [
+        258
+      ],
+      "first_s": 2275.14,
+      "last_s": 2422.35,
+      "visible_s_total": 87.63,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#12 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E161",
+      "team": 0,
+      "jersey_number": 15,
+      "role": "outfield",
+      "member_entity_ids": [
+        161
+      ],
+      "first_s": 873.71,
+      "last_s": 1041.37,
+      "visible_s_total": 124.28,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#15 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E702",
+      "team": 0,
+      "jersey_number": 15,
+      "role": "outfield",
+      "member_entity_ids": [
+        702
+      ],
+      "first_s": 3432.83,
+      "last_s": 3450.58,
+      "visible_s_total": 17.83,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#15 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E847",
+      "team": 0,
+      "jersey_number": 15,
+      "role": "outfield",
+      "member_entity_ids": [
+        847
+      ],
+      "first_s": 870.5,
+      "last_s": 879.38,
+      "visible_s_total": 8.96,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#15 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E164",
+      "team": 0,
+      "jersey_number": 17,
+      "role": "outfield",
+      "member_entity_ids": [
+        164
+      ],
+      "first_s": 2948.65,
+      "last_s": 3153.05,
+      "visible_s_total": 123.55,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#17 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E181",
+      "team": 0,
+      "jersey_number": 17,
+      "role": "outfield",
+      "member_entity_ids": [
+        181
+      ],
+      "first_s": 3318.58,
+      "last_s": 3489.15,
+      "visible_s_total": 117.66,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#17 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E183",
+      "team": 0,
+      "jersey_number": 17,
+      "role": "outfield",
+      "member_entity_ids": [
+        183
+      ],
+      "first_s": 3321.62,
+      "last_s": 3485.55,
+      "visible_s_total": 115.45,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#17 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E220",
+      "team": 0,
+      "jersey_number": 17,
+      "role": "outfield",
+      "member_entity_ids": [
+        220
+      ],
+      "first_s": 2530.73,
+      "last_s": 2655.05,
+      "visible_s_total": 102.69,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#17 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E225",
+      "team": 0,
+      "jersey_number": 17,
+      "role": "outfield",
+      "member_entity_ids": [
+        225
+      ],
+      "first_s": 2851.95,
+      "last_s": 2955.29,
+      "visible_s_total": 100.34,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#17 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E409",
+      "team": 0,
+      "jersey_number": 17,
+      "role": "outfield",
+      "member_entity_ids": [
+        409
+      ],
+      "first_s": 4239.13,
+      "last_s": 4318.58,
+      "visible_s_total": 49.48,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#17 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E579",
+      "team": 0,
+      "jersey_number": 17,
+      "role": "outfield",
+      "member_entity_ids": [
+        579
+      ],
+      "first_s": 3268.03,
+      "last_s": 3300.96,
+      "visible_s_total": 27.55,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#17 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E661",
+      "team": 0,
+      "jersey_number": 17,
+      "role": "outfield",
+      "member_entity_ids": [
+        661
+      ],
+      "first_s": 2973.2,
+      "last_s": 2994.73,
+      "visible_s_total": 21.6,
+      "conflict_flags": [
+        "span overlap > 2.0s with T0#17 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E365",
+      "team": 1,
+      "jersey_number": 2,
+      "role": "outfield",
+      "member_entity_ids": [
+        365
+      ],
+      "first_s": 6113.54,
+      "last_s": 6184.91,
+      "visible_s_total": 55.71,
+      "conflict_flags": [
+        "span overlap > 2.0s with T1#2 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E254",
+      "team": 1,
+      "jersey_number": 3,
+      "role": "outfield",
+      "member_entity_ids": [
+        254
+      ],
+      "first_s": 4034.26,
+      "last_s": 4181.61,
+      "visible_s_total": 88.91,
+      "conflict_flags": [
+        "span overlap > 2.0s with T1#3 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E685",
+      "team": 1,
+      "jersey_number": 3,
+      "role": "outfield",
+      "member_entity_ids": [
+        685
+      ],
+      "first_s": 4344.74,
+      "last_s": 4373.2,
+      "visible_s_total": 19.51,
+      "conflict_flags": [
+        "span overlap > 2.0s with T1#3 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E403",
+      "team": 1,
+      "jersey_number": 11,
+      "role": "outfield",
+      "member_entity_ids": [
+        403
+      ],
+      "first_s": 4034.56,
+      "last_s": 4084.65,
+      "visible_s_total": 50.16,
+      "conflict_flags": [
+        "span overlap > 2.0s with T1#11 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E775",
+      "team": 1,
+      "jersey_number": 11,
+      "role": "outfield",
+      "member_entity_ids": [
+        775
+      ],
+      "first_s": 4455.22,
+      "last_s": 4504.17,
+      "visible_s_total": 12.65,
+      "conflict_flags": [
+        "span overlap > 2.0s with T1#11 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E797",
+      "team": 1,
+      "jersey_number": 11,
+      "role": "outfield",
+      "member_entity_ids": [
+        797
+      ],
+      "first_s": 4503.7,
+      "last_s": 4527.86,
+      "visible_s_total": 11.68,
+      "conflict_flags": [
+        "span overlap > 2.0s with T1#11 (possible misread or team error)"
+      ]
+    },
+    {
+      "player_key": "E932",
+      "team": 1,
+      "jersey_number": 13,
+      "role": "outfield",
+      "member_entity_ids": [
+        932
+      ],
+      "first_s": 1706.0,
+      "last_s": 1710.98,
+      "visible_s_total": 5.05,
+      "conflict_flags": [
+        "span overlap > 2.0s with T1#13 (possible misread or team error)"
+      ]
+    }
+  ]
+}

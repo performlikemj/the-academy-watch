@@ -459,4 +459,6 @@ if __name__ == "__main__":
         debug_enabled = debug_env.lower() in {"1", "true", "yes", "on"}
 
     logger.info("Starting local Flask server (debug=%s)", debug_enabled)
-    app.run(host="0.0.0.0", port=5001, debug=debug_enabled)
+    # threaded=True so the dev server can stream footage (long Range responses) while
+    # still serving concurrent /api calls — production runs under gunicorn, not this.
+    app.run(host="0.0.0.0", port=5001, debug=debug_enabled, threaded=True)

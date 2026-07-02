@@ -11,9 +11,12 @@ from src.models.video import (
     VideoTracklet,
 )
 from src.services.video_identity import (
+    apply_quality_gate,
     auto_bind,
+    base_shirt,
     build_chains,
     persist_artifacts,
+    split_chain,
     vote_fragment,
 )
 
@@ -212,3 +215,93 @@ class TestCreditLedger:
         db.session.commit()
         assert VideoCreditLedger.balance(team.id) == 5
         assert VideoCreditLedger.balance(9999) == 0
+
+
+# --------------------------------------------------------------------------- quality gate
+
+
+def _gframe(eid, first, last, vis):
+    return {"entity_id": eid, "first_s": first, "last_s": last, "visible_s": vis}
+
+
+def _chain(num, members, strong):
+    return {
+        "player_key": f"T0#{num}",
+        "team": 0,
+        "jersey_number": num,
+        "confidence": "high",
+        "member_fragment_ids": list(members),
+        "strong_fragment_ids": list(strong),
+        "first_s": 0.0,
+        "last_s": 100.0,
+        "visible_s_total": 100.0,
+    }
+
+
+class TestQualityGate:
+    def test_drops_wrong_shirt_member(self):
+        frags = [_gframe(1, 0, 30, 30), _gframe(2, 40, 60, 20)]
+        votes = {
+            1: {"number_votes": {"2": 5}, "shirt_votes": {"blue": 5}},
+            2: {"number_votes": {"2": 3}, "shirt_votes": {"red": 3}},  # wrong shirt
+        }
+        out = apply_quality_gate([_chain(2, [1, 2], [1, 2])], votes, frags)
+        assert out[0]["member_fragment_ids"] == [1]  # red intruder dropped
+        assert out[0]["modal_shirt_color"] == "blue"
+
+    def test_raw_read_path_keeps_weak_member_no_shirt(self):
+        # graceful degradation: with NO shirt votes (raw worker path) a weak member
+        # that build_chains accepted must survive (corroboration can't be judged).
+        frags = [_gframe(1, 0, 30, 30), _gframe(2, 40, 80, 40)]
+        votes = {
+            1: {"number_votes": {"4": 3}},  # strong, no shirt
+            2: {"number_votes": {"4": 1}},  # weak single read, no shirt
+        }
+        out = apply_quality_gate([_chain(4, [1, 2], [1])], votes, frags)
+        assert out[0]["member_fragment_ids"] == [1, 2]  # weak member kept
+
+    def test_drops_weak_single_read_when_shirt_present(self):
+        # with shirt evidence, a lone single-read member IS pruned (catches the
+        # tracker-swap that switches the box to another player).
+        frags = [_gframe(1, 0, 30, 30), _gframe(2, 40, 80, 40)]
+        votes = {
+            1: {"number_votes": {"4": 3}, "shirt_votes": {"blue": 3}},
+            2: {"number_votes": {"4": 1}, "shirt_votes": {"blue": 1}},  # lone read
+        }
+        out = apply_quality_gate([_chain(4, [1, 2], [1])], votes, frags)
+        assert out[0]["member_fragment_ids"] == [1]
+
+    def test_dominant_colour_is_evidence_weighted(self):
+        # one long-visible blue anchor outweighs two short red intruders by visible_s
+        frags = [_gframe(1, 0, 90, 90), _gframe(2, 91, 95, 4), _gframe(3, 96, 99, 4)]
+        votes = {
+            1: {"number_votes": {"7": 4}, "shirt_votes": {"blue": 4}},
+            2: {"number_votes": {"7": 2}, "shirt_votes": {"red": 2}},
+            3: {"number_votes": {"7": 2}, "shirt_votes": {"red": 2}},
+        }
+        out = apply_quality_gate([_chain(7, [1, 2, 3], [1, 2, 3])], votes, frags)
+        assert out[0]["modal_shirt_color"] == "blue"
+        assert out[0]["member_fragment_ids"] == [1]  # red intruders dropped despite being a count-majority
+
+
+class TestSplitChain:
+    def test_partitions_and_clamps_windows(self):
+        spans = {1: (0, 40, 40), 2: (60, 100, 40)}
+        votes = {1: {"2": 4}, 2: {"2": 4}}
+        segs = split_chain([1, 2], [1, 2], votes, spans, 50)
+        assert len(segs) == 2
+        a = next(s for s in segs if s["key"] == "a")
+        b = next(s for s in segs if s["key"] == "b")
+        assert a["member_fragment_ids"] == [1] and b["member_fragment_ids"] == [2]
+        assert a["last_s"] <= 50 and b["first_s"] >= 50  # no overlap at the cut
+
+    def test_re_tallies_distinct_numbers_per_side(self):
+        spans = {1: (0, 40, 40), 2: (60, 100, 40)}
+        votes = {1: {"2": 5}, 2: {"10": 5}}  # genuinely two players
+        segs = split_chain([1, 2], [1, 2], votes, spans, 50)
+        assert {s["suggested_number"] for s in segs} == {2, 10}
+
+
+def test_base_shirt_deterministic_tie_break():
+    # equal counts → canonical order (red before blue), regardless of dict order
+    assert base_shirt({"blue": 2, "red": 2}) == base_shirt({"red": 2, "blue": 2}) == "red"

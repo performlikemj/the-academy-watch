@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/select'
 import { Coins, Loader2, Plus, Video, Wrench } from 'lucide-react'
 import { APIService } from '@/lib/api'
+import { FilmRoomGuide } from '@/components/admin/FilmRoomGuide'
+import { HelpHint } from '@/components/ui/help-hint'
 
 const STATUS_VARIANTS = {
     created: 'outline',
@@ -144,6 +146,10 @@ export function AdminVideo() {
                     {balance !== null && (
                         <Badge variant="secondary" className="text-sm">
                             <Coins className="h-3.5 w-3.5 mr-1" /> {balance} credit{balance === 1 ? '' : 's'}
+                            <HelpHint label="Credits" className="ml-1" iconClassName="h-3 w-3">
+                                One credit is spent per match when you press Process. Failed jobs can be refunded.
+                                Grant credits to the paying club with the button on the right.
+                            </HelpHint>
                         </Badge>
                     )}
                     <Button variant="outline" size="sm" disabled={!teamId} onClick={() => setGrantOpen(true)}>Grant credits</Button>
@@ -154,6 +160,8 @@ export function AdminVideo() {
             </header>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
+
+            <FilmRoomGuide />
 
             <Card>
                 <CardHeader>

@@ -9,7 +9,11 @@ the chunk-and-merge architecture the ~33-min serverless-GPU eviction window
 forces anyway:
 
   $VIDEO_PIPELINE_CMD --video <local mp4> --out <artifacts dir> \
-      [--kickoff-s N] [--halftime-s N]
+      [--kickoff-s N] [--halftime-s N] [--second-half-kickoff-s N] [--end-s N]
+
+The timeline markers window the run to in-play time: the pipeline processes [kickoff, end]
+and skips the halftime gap [halftime, second-half-kickoff] (see game_time.in_play_plan /
+run_spike.py marker mode). All are optional and degrade safely; kickoff alone just trims warm-up.
 
 must produce fragments.json + votes.json (+ optional chains.json,
 thumbnails.json) in <artifacts dir> — the schema validated in the Phase 0 spike
@@ -57,15 +61,32 @@ def _download_footage(blob_path: str, dest: Path) -> None:
     )
 
 
+def _build_pipeline_cmd(cmd_template: str, video_path: Path, out_dir: Path, match) -> list[str]:
+    """Assemble the pipeline argv, forwarding the operator's timeline markers.
+
+    Only markers that are set are appended. The pipeline (run_spike.py in-play marker mode /
+    game_time.in_play_plan) bounds the run to [kickoff, end] and SKIPS the halftime gap
+    [halftime, second-half-kickoff] — so warm-ups, halftime and post-match aren't analysed.
+    `--end-s` comes from the match duration (full-time = end of footage). Pure/argv-only so it
+    is unit-testable without CUDA.
+    """
+    cmd = shlex.split(cmd_template) + ["--video", str(video_path), "--out", str(out_dir)]
+    for flag, value in (
+        ("--kickoff-s", match.kickoff_s),
+        ("--halftime-s", match.halftime_s),
+        ("--second-half-kickoff-s", match.second_half_kickoff_s),
+        ("--end-s", match.duration_s),
+    ):
+        if value is not None:
+            cmd += [flag, str(value)]
+    return cmd
+
+
 def _run_pipeline(video_path: Path, out_dir: Path, match) -> None:
     cmd_template = os.getenv("VIDEO_PIPELINE_CMD")
     if not cmd_template:
         raise RuntimeError("VIDEO_PIPELINE_CMD is not set (vision image misconfigured)")
-    cmd = shlex.split(cmd_template) + ["--video", str(video_path), "--out", str(out_dir)]
-    if match.kickoff_s is not None:
-        cmd += ["--kickoff-s", str(match.kickoff_s)]
-    if match.halftime_s is not None:
-        cmd += ["--halftime-s", str(match.halftime_s)]
+    cmd = _build_pipeline_cmd(cmd_template, video_path, out_dir, match)
     log.info("running pipeline: %s", " ".join(cmd))
     subprocess.run(cmd, check=True)
 
