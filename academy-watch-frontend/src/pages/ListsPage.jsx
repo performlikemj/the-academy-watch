@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
@@ -42,7 +42,7 @@ const KIND_META = [
   { kind: 'player', title: 'Players', icon: Star },
   { kind: 'academy_club', title: 'Club academies', icon: Users },
   { kind: 'geo', title: 'Countries', icon: MapPin },
-  { kind: 'query', title: 'Saved filters', icon: Filter },
+  { kind: 'query', title: 'Saved searches', icon: Filter },
 ]
 
 const titleCase = (s) => (s || '')
@@ -319,22 +319,42 @@ function FiltersTab({ onAdd, adding, addError }) {
   const [minAge, setMinAge] = useState('')
   const [maxAge, setMaxAge] = useState('')
   const [minMinutes, setMinMinutes] = useState('')
+  const [preview, setPreview] = useState(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
-  const buildArgs = () => {
-    const args = {}
-    if (position !== 'all') args.position = position
-    if (status !== 'all') args.status = status
+  const args = useMemo(() => {
+    const built = {}
+    if (position !== 'all') built.position = position
+    if (status !== 'all') built.status = status
     const minA = parseInt(minAge, 10)
     const maxA = parseInt(maxAge, 10)
     const minM = parseInt(minMinutes, 10)
-    if (Number.isInteger(minA)) args.min_age = minA
-    if (Number.isInteger(maxA)) args.max_age = maxA
-    if (Number.isInteger(minM)) args.min_minutes = minM
-    return args
-  }
-
-  const args = buildArgs()
+    if (Number.isInteger(minA)) built.min_age = minA
+    if (Number.isInteger(maxA)) built.max_age = maxA
+    if (Number.isInteger(minM)) built.min_minutes = minM
+    return built
+  }, [position, status, minAge, maxAge, minMinutes])
   const hasArgs = Object.keys(args).length > 0
+
+  // Live preview: show who the standing search catches TODAY before following.
+  useEffect(() => {
+    if (!hasArgs) { setPreview(null); return undefined }
+    let cancelled = false
+    setPreviewLoading(true)
+    const timer = setTimeout(() => {
+      APIService.getScoutPlayers({ ...args, per_page: 3 })
+        .then((data) => {
+          if (cancelled) return
+          setPreview({
+            total: data?.total ?? 0,
+            names: (data?.players || []).map((p) => p.player_name).filter(Boolean),
+          })
+        })
+        .catch(() => { if (!cancelled) setPreview(null) })
+        .finally(() => { if (!cancelled) setPreviewLoading(false) })
+    }, 400)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [args, hasArgs])
 
   const handleAdd = async () => {
     if (!hasArgs) return
@@ -345,7 +365,9 @@ function FiltersTab({ onAdd, adding, addError }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Save a filter as a follow — the list always resolves to whoever currently matches.
+        A standing scouting brief: whoever matches is in your list — including{' '}
+        <span className="font-medium text-foreground">new players who qualify later, automatically</span>.
+        Use it to catch risers you don&apos;t know about yet.
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="space-y-1">
@@ -381,10 +403,33 @@ function FiltersTab({ onAdd, adding, addError }) {
           <Input type="number" inputMode="numeric" min="0" value={minMinutes} onChange={(e) => setMinMinutes(e.target.value)} placeholder="270" />
         </label>
       </div>
+      {hasArgs && (
+        <div className="rounded-md border border-border/60 bg-secondary/40 px-3 py-2 text-sm">
+          {previewLoading ? (
+            <span className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking who matches…
+            </span>
+          ) : preview ? (
+            preview.total > 0 ? (
+              <span>
+                Catches <span className="font-semibold text-foreground">{preview.total.toLocaleString()}</span>{' '}
+                {preview.total === 1 ? 'player' : 'players'} today
+                {preview.names.length > 0 && (
+                  <span className="text-muted-foreground"> — e.g. {preview.names.join(', ')}</span>
+                )}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">
+                No players match today — the search stays live and future risers who qualify will appear automatically.
+              </span>
+            )
+          ) : null}
+        </div>
+      )}
       {addError && <p className="text-xs text-destructive">{addError}</p>}
       <Button onClick={handleAdd} disabled={!hasArgs || adding} className="w-full sm:w-auto">
         {adding ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
-        Add filter follow
+        Follow this search
       </Button>
     </div>
   )
@@ -410,7 +455,7 @@ function AddFollowDialog({ open, onOpenChange, onAdd, adding, addError }) {
         <DialogHeader>
           <DialogTitle>Add a follow</DialogTitle>
           <DialogDescription>
-            Follow a specific player, a club&apos;s academy, countries, or a saved filter.
+            Follow a specific player, a club&apos;s academy, countries — or save a search that keeps catching new players.
           </DialogDescription>
         </DialogHeader>
         <Tabs value={tab} onValueChange={setTab}>
@@ -418,7 +463,7 @@ function AddFollowDialog({ open, onOpenChange, onAdd, adding, addError }) {
             <TabsTrigger value="player">Player</TabsTrigger>
             <TabsTrigger value="academy_club">Club</TabsTrigger>
             <TabsTrigger value="geo">Countries</TabsTrigger>
-            <TabsTrigger value="query">Filter</TabsTrigger>
+            <TabsTrigger value="query">Saved search</TabsTrigger>
           </TabsList>
           <TabsContent value="player" className="pt-3">
             <PlayerSearchTab onAdd={handleAdd} adding={adding} addError={tab === 'player' ? addError : null} />
@@ -665,7 +710,7 @@ export function ListsPage() {
             <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Your Lists</h1>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
               Organize who you track into named lists. Follow players, whole club academies, countries,
-              or a saved filter — each list resolves to a live player set.
+              or a saved search — each list resolves to a live player set.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 lg:shrink-0 lg:pt-7">
@@ -834,7 +879,7 @@ export function ListsPage() {
                   <CardContent className="p-0">
                     {!(selectedList.follows && selectedList.follows.length) ? (
                       <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        No follows yet. Use “Add follow” to track players, clubs, countries or a saved filter.
+                        No follows yet. Use “Add follow” to track players, clubs, countries or a saved search.
                       </p>
                     ) : (
                       KIND_META.map((meta) => {
