@@ -80,7 +80,7 @@ stripe==15.3.0
 tqdm==4.68.3
 types-requests==2.33.0.20260518
 typing-inspection==0.4.2
-typing_extensions==4.15.0
+typing_extensions==4.16.0
 urllib3==2.7.0
 uvicorn==0.49.0
 weasyprint==69.0
