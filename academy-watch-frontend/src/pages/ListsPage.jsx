@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { APIService } from '@/lib/api'
+import { track } from '@/lib/track'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -106,6 +107,7 @@ function PlayerSearchTab({ onAdd, adding, addError }) {
     let cancelled = false
     setLoading(true)
     setError(null)
+    track('search_performed', { q_len: debounced.length, surface: 'lists' })
     APIService.scoutPlayerSearch(debounced)
       .then((data) => { if (!cancelled) setResults(data?.players || []) })
       .catch((err) => { if (!cancelled) { setError(err.message || 'Search failed'); setResults([]) } })
@@ -583,6 +585,7 @@ export function ListsPage() {
       const res = await APIService.createFollowList(name)
       const created = res?.list
       if (created) {
+        track('list_created', { list_id: created.id })
         setLists((prev) => [...prev, created])
         setSelectedListId(created.id)
       }
@@ -633,6 +636,10 @@ export function ListsPage() {
     try {
       const res = await APIService.addFollow(selectedListId, payload)
       const follow = res?.follow
+      track('follow_added', { kind: payload.kind })
+      if (res?.shadow_created === true) {
+        track('shadow_minted', { player_api_id: payload.selector?.player_api_id })
+      }
       if (follow) {
         setLists((prev) => prev.map((l) => (
           l.id === selectedListId

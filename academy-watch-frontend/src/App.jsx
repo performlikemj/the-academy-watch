@@ -115,6 +115,7 @@ import {
 import { NewsletterView } from '@/components/newsletter/NewsletterView'
 
 import { APIService } from '@/lib/api'
+import { trackPageview } from '@/lib/track'
 import { UniversalDatePicker } from '@/components/ui/UniversalDatePicker'
 import { AuthContext, AuthUIContext, useAuth, useAuthUI, buildAuthSnapshot } from '@/context/AuthContext'
 import { GlobalSearchContext, useGlobalSearchContext } from '@/context/GlobalSearchContext'
@@ -4031,6 +4032,12 @@ function StatsPage() {
 // Inner app component with Router context (for useNavigate in GlobalSearchDialog)
 function AppWithRouter() {
   const globalSearch = useGlobalSearch()
+  const location = useLocation()
+
+  // Central pageview tracking — fires on every route change (inside <Router> so useLocation is safe)
+  useEffect(() => {
+    trackPageview(location.pathname + location.search)
+  }, [location.pathname, location.search])
 
   return (
     <GlobalSearchContext.Provider value={globalSearch}>
