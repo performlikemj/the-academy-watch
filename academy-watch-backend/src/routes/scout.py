@@ -57,6 +57,9 @@ MAX_FOLLOWS_PER_LIST = int(os.getenv("MAX_FOLLOWS_PER_LIST", "50"))
 SHADOW_FOLLOW_LIMIT = int(os.getenv("SHADOW_FOLLOW_LIMIT", "10"))
 MAX_RESOLVE_PAGE = 50
 MAX_LIST_NAME_LENGTH = 120
+# Endpoint sanity cap for the pulse card-generation batch (env PULSE_CARD_LIMIT
+# supplies the default; player_card_service enforces its own hard per-run cap).
+MAX_PULSE_CARD_LIMIT = 500
 
 scout_bp = Blueprint("scout", __name__)
 
@@ -1653,4 +1656,103 @@ def scout_admin_backfill_follow_lists():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error in scout_admin_backfill_follow_lists: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+# =========================================================================== #
+# Player pulse + shared AI cards (admin ops until the Phase-3 scheduler exists)
+# =========================================================================== #
+
+
+def _parse_window_end(raw):
+    """(date, error). Defaults to today when omitted/blank."""
+    if raw is None or raw == "":
+        return date.today(), None
+    if not isinstance(raw, str):
+        return None, "window_end must be a date string (YYYY-MM-DD)"
+    try:
+        return date.fromisoformat(raw), None
+    except ValueError:
+        return None, "window_end must be a valid date (YYYY-MM-DD)"
+
+
+@scout_bp.route("/admin/pulse/compute", methods=["POST"])
+@require_api_key
+def scout_admin_pulse_compute():
+    """Compute deterministic player_pulse scores for a window (admin; NO LLM).
+
+    Body: {window_end?: "YYYY-MM-DD" (default today), dry_run?: bool (default
+    True)}. compute_pulse dedups every followed player across all active lists +
+    legacy watchlists and upserts one row per (player, window); it owns its own
+    persistence and honours dry_run (score + preview, write nothing). Returns the
+    service's counts + top scored preview.
+    """
+    try:
+        payload = request.get_json(silent=True) or {}
+        window_end, error = _parse_window_end(payload.get("window_end"))
+        if error:
+            return jsonify({"error": error}), 400
+        dry_run = payload.get("dry_run", True)
+        if not isinstance(dry_run, bool):
+            return jsonify({"error": "dry_run must be a boolean"}), 400
+
+        from src.services.player_pulse_service import compute_pulse
+
+        result = compute_pulse(window_end, dry_run=dry_run)
+        if not isinstance(result, dict):
+            result = {"result": result}
+        result.setdefault("window_end", window_end.isoformat())
+        result["dry_run"] = dry_run
+        result["applied"] = not dry_run
+        return jsonify(result)
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in scout_admin_pulse_compute: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
+@scout_bp.route("/admin/pulse/generate-cards", methods=["POST"])
+@require_api_key
+def scout_admin_pulse_generate_cards():
+    """Generate shared AI cards for high-pulse players (admin; THE LLM step).
+
+    Body: {window_end?, threshold? (default env PULSE_CARD_THRESHOLD=3.0),
+    limit? (default env PULSE_CARD_LIMIT=100), dry_run? (default True)}.
+    generate_cards owns persistence + honours dry_run — a dry run lists the
+    candidates (pulse >= threshold with no cached card) and makes ZERO LLM calls /
+    writes nothing. Returns {generated, skipped_cached, candidates, ...}.
+    """
+    try:
+        payload = request.get_json(silent=True) or {}
+        window_end, error = _parse_window_end(payload.get("window_end"))
+        if error:
+            return jsonify({"error": error}), 400
+        dry_run = payload.get("dry_run", True)
+        if not isinstance(dry_run, bool):
+            return jsonify({"error": "dry_run must be a boolean"}), 400
+
+        threshold = payload.get("threshold")
+        if threshold is not None and (isinstance(threshold, bool) or not isinstance(threshold, (int, float))):
+            return jsonify({"error": "threshold must be a number"}), 400
+
+        limit = payload.get("limit")
+        if limit is not None:
+            if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+                return jsonify({"error": "limit must be a positive integer"}), 400
+            limit = min(limit, MAX_PULSE_CARD_LIMIT)
+
+        # threshold/limit left as None fall back to the service's env defaults
+        # (PULSE_CARD_THRESHOLD / PULSE_CARD_LIMIT).
+        from src.services.player_card_service import generate_cards
+
+        result = generate_cards(window_end, threshold, limit, dry_run=dry_run)
+        if not isinstance(result, dict):
+            result = {"result": result}
+        result.setdefault("window_end", window_end.isoformat())
+        result["dry_run"] = dry_run
+        result["applied"] = not dry_run
+        return jsonify(result)
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in scout_admin_pulse_generate_cards: {e}")
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500

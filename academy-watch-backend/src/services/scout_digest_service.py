@@ -100,6 +100,37 @@ def _shadow_stats(player_api_id: int) -> dict:
     return {"appearances": apps, "goals": goals, "assists": assists, "minutes_played": minutes}
 
 
+# Memo key (namespaced string so it never collides with the int player_api_id
+# keys _player_state stores in the same per-run cache dict).
+_PULSE_CARDS_KEY = "__pulse_cards__"
+
+
+def _pulse_cards_map(cache: dict) -> dict:
+    """{player_api_id: {card_html, card_text, model}} for the current window.
+
+    Reads player_card_service's shared render seam ONCE per run (memoised): the
+    latest cached window, then every card in it. Returns {} when no cards exist —
+    or when the pulse infra is absent (a test app that never registered the
+    tables / the service) — so the digest renders EXACTLY as it did before pulse
+    cards existed. A query failure rolls the session back so surrounding stat
+    queries stay usable.
+    """
+    if _PULSE_CARDS_KEY in cache:
+        return cache[_PULSE_CARDS_KEY]
+    cards: dict = {}
+    try:
+        from src.services.player_card_service import get_cards_for_window, latest_card_window
+
+        window = latest_card_window()
+        if window is not None:
+            cards = get_cards_for_window(window)
+    except Exception:
+        db.session.rollback()
+        cards = {}
+    cache[_PULSE_CARDS_KEY] = cards
+    return cards
+
+
 def _absence_count(api_client, player_api_id: int) -> int | None:
     """Best-effort season absence count; None when unavailable."""
     if api_client is None:
@@ -152,6 +183,10 @@ def _player_state(player_api_id: int, cache: dict, api_client=None) -> dict:
             }
         else:
             state = {"kind": "none", "tracked": None, "shadow": None, "stats": None, "absences": None}
+    # Shared per-window AI card (looked up from a once-per-run memoised map).
+    # Absent when no card exists for the current window — the digest then renders
+    # the legacy delta line.
+    state["pulse_card"] = _pulse_cards_map(cache).get(player_api_id)
     cache[player_api_id] = state
     return state
 
@@ -252,6 +287,14 @@ def _entry_update(entry, cache: dict, api_client=None) -> dict | None:
         "note": entry.note,
     }
 
+    # ADDITIVE: when a shared card exists for this player's current window, the
+    # provenance-clean card text supersedes the raw delta line. The keys are
+    # only ADDED when a card exists, so a card-less digest is byte-identical.
+    pulse_card = state.get("pulse_card")
+    if pulse_card:
+        card["pulse_html"] = pulse_card["card_html"]
+        card["pulse_text"] = pulse_card["card_text"]
+
     return {"entry": entry, "card": card, "snapshot": snapshot, "headlines": headlines}
 
 
@@ -260,9 +303,14 @@ def _card_text_lines(card: dict) -> list[str]:
     lines = [f"{card['player_name']} ({club_line or 'club unknown'}) [{card['status'] or 'worldwide'}]"]
     if card["headline"]:
         lines.append(f"  {card['headline']}")
-    lines.append(f"  {card['season_line']}")
-    if card["chips"]:
-        lines.append(f"  {', '.join(card['chips'])}")
+    # The shared card text supersedes the raw delta line when present; otherwise
+    # the season line + chips render exactly as before (byte-identical).
+    if card.get("pulse_text"):
+        lines.append(f"  {card['pulse_text']}")
+    else:
+        lines.append(f"  {card['season_line']}")
+        if card["chips"]:
+            lines.append(f"  {', '.join(card['chips'])}")
     lines.append(f"  {card['player_url']}")
     lines.append("")
     return lines
