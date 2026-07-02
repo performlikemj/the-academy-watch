@@ -80,6 +80,7 @@ import { AdminVideoMatch } from '@/pages/admin/AdminVideoMatch'
 import { AdminTools } from '@/pages/admin/AdminTools'
 import { AdminSandbox } from '@/pages/admin/AdminSandbox'
 import { AdminFormation } from '@/pages/admin/AdminFormation'
+import { AdminShowcase } from '@/pages/admin/AdminShowcase'
 import { HomePage } from '@/pages/HomePage'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
 import { CohortBrowser } from '@/pages/CohortBrowser'
@@ -4048,6 +4049,7 @@ function AppRoutes() {
         <Route path="cohorts" element={<AdminCohorts />} />
         <Route path="video" element={<AdminVideo />} />
         <Route path="video/:matchId" element={<AdminVideoMatch />} />
+        <Route path="showcase" element={<AdminShowcase />} />
         <Route path="settings" element={<AdminSettings />} />
         <Route path="tools" element={<AdminTools />} />
         <Route path="sandbox" element={<AdminSandbox />} />

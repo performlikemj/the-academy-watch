@@ -125,6 +125,32 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
     that was failing ALL frontend CI; react-hooks v7 rules pinned to warn
   - Branch `feature/global-scout-discovery`
   - **See `ledgers/CONTINUITY_global-talent-platform.md`**
+- Talent Showcase — two-sided vision slice SHIPPED to branch (2026-07-02, /goal)
+  - Vision: players worldwide get showcase profile pages (YouTube highlights,
+    commentary, verified stats) for discoverability; clubs upload footage and
+    get per-player stats (Film Room). Roadmap: P0→F0→P1→X sequencing.
+  - This slice: P0 (Showcase section on PlayerPage: highlight reel from
+    PlayerLink + newsletter yt merge) + P1 (claim & curate: user claims,
+    admin approves, owner curates reel/bio — ALL owner content pre-moderated,
+    self-reported vs verified hard-separated) + X (Film Room finalized
+    reports → "Club-verified" appearance evidence on profiles; roster→player
+    linking admin UI; only human_confirmed identities surface)
+  - Migration aw19 (merge cs01+vid02 → single head restored; claims +
+    showcase-profile tables + player_links.sort_order). aw19 upgrade verified
+    on real Postgres clone; downgrade across merges needs explicit target.
+  - Security: shared https-only URL validator; pre-existing
+    submit_player_link javascript:-URL hole closed; newsletter yt merge
+    filtered server-side.
+  - Built multi-agent (Fable 5 orchestrator + Opus 4.8 builders), 6-surface
+    recon, adversarial review (23 agents: 8 confirmed findings ALL fixed,
+    1 refuted), 40 backend tests, live-verified end-to-end incl. UI screenshot
+    (demo: player 403064 H. Amass — reel + profile + verified appearance).
+  - Branch `feature/talent-showcase` (worktree) — PR opened, awaiting MJ
+  - PROD OPERATOR STEPS after merge: flask db upgrade (aw19); vid03 (still
+    uncommitted in the video branch) must rebase onto aw19 before it lands
+  - Known pre-existing (NOT this slice): full migration chain cannot replay
+    on an EMPTY DB (old unguarded supplemental_loans migration)
+  - **See `ledgers/ROADMAP_talent-showcase-vision.md` + `docs/showcase.md`**
 
 ### Next
 - Run migration: `flask db upgrade`

@@ -1828,6 +1828,9 @@ class PlayerLink(db.Model):
     link_type = db.Column(db.String(30), default="article")  # article | highlight | social | stats | other
     status = db.Column(db.String(20), default="pending")  # pending | approved | rejected
     upvotes = db.Column(db.Integer, default=0)
+    # Curated ordering for Talent Showcase highlight reels (link_type='highlight').
+    # Added in migration aw19; non-highlight links leave it at the default 0.
+    sort_order = db.Column(db.Integer, default=0, server_default="0")
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
 
     user = db.relationship("UserAccount", backref="player_links")
