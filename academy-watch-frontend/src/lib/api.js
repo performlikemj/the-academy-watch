@@ -1971,6 +1971,10 @@ export class APIService {
         return this.request('/cohorts/analytics')
     }
 
+    static async getAnalyticsSummary(days = 7) {
+        return this.request(`/admin/analytics/summary?days=${days}`, {}, { admin: true })
+    }
+
     static async adminSeedCohort(data) {
         return this.request('/admin/cohorts/seed', {
             method: 'POST',

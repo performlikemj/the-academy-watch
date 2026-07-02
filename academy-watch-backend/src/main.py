@@ -22,6 +22,7 @@ from src.routes.auth_routes import auth_bp
 from src.routes.cohort import cohort_bp
 from src.routes.community_takes import community_takes_bp
 from src.routes.curator import curator_bp
+from src.routes.events import events_bp
 from src.routes.feeder import feeder_bp
 from src.routes.formation import formation_bp
 from src.routes.gol import gol_bp
@@ -101,6 +102,7 @@ app.register_blueprint(auth_bp, url_prefix="/api")
 app.register_blueprint(journalist_bp, url_prefix="/api")
 app.register_blueprint(newsletter_deadline_bp, url_prefix="/api")
 app.register_blueprint(community_takes_bp, url_prefix="/api")
+app.register_blueprint(events_bp, url_prefix="/api")
 app.register_blueprint(academy_bp, url_prefix="/api")
 app.register_blueprint(cohort_bp, url_prefix="/api")
 app.register_blueprint(gol_bp, url_prefix="/api")

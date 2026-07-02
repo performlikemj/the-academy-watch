@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Mail, Users, Shield, GraduationCap, Inbox, Sprout, ArrowRight, Activity } from 'lucide-react'
+import { Mail, Users, Shield, GraduationCap, Inbox, Sprout, ArrowRight, Activity, BarChart3 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { APIService } from '@/lib/api'
@@ -72,6 +72,122 @@ function StatTile({ label, value, ok, okLabel = 'OK', warnLabel = 'needs repair'
                 )}
             </div>
         </div>
+    )
+}
+
+// Product analytics — counts by event + a simple daily sparkline (7/30-day toggle).
+const ANALYTICS_EVENTS = [
+    ['pageview', 'Pageviews'],
+    ['search_performed', 'Searches'],
+    ['follow_added', 'Follows'],
+    ['shadow_minted', 'Shadows minted'],
+    ['list_created', 'Lists created'],
+    ['claim_submitted', 'Claims'],
+]
+
+function AnalyticsSummaryCard() {
+    const [days, setDays] = useState(7)
+    const [summary, setSummary] = useState(null)
+    const [failed, setFailed] = useState(false)
+
+    useEffect(() => {
+        let cancelled = false
+        setSummary(null)
+        setFailed(false)
+        const load = async () => {
+            try {
+                const data = await APIService.getAnalyticsSummary(days)
+                if (!cancelled) setSummary(data)
+            } catch {
+                if (!cancelled) setFailed(true)
+            }
+        }
+        load()
+        return () => { cancelled = true }
+    }, [days])
+
+    const totals = summary?.totals || {}
+    const daily = summary?.daily || []
+    const maxDaily = daily.reduce((m, d) => Math.max(m, d.count || 0), 0)
+
+    return (
+        <Card data-testid="analytics-summary">
+            <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <BarChart3 className="h-4 w-4" />
+                            Product Analytics
+                        </CardTitle>
+                        <CardDescription>First-party events, last {days} days</CardDescription>
+                    </div>
+                    <div className="flex gap-1">
+                        <Button
+                            variant={days === 7 ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setDays(7)}
+                            data-testid="analytics-range-7"
+                        >
+                            7d
+                        </Button>
+                        <Button
+                            variant={days === 30 ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setDays(30)}
+                            data-testid="analytics-range-30"
+                        >
+                            30d
+                        </Button>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent>
+                {failed ? (
+                    <p className="text-sm text-muted-foreground">
+                        Analytics summary unavailable.
+                    </p>
+                ) : !summary ? (
+                    <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
+                        {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
+                            {ANALYTICS_EVENTS.map(([key, label]) => (
+                                <StatTile
+                                    key={key}
+                                    label={label}
+                                    value={totals[key] ?? 0}
+                                    testId={`analytics-tile-${key}`}
+                                />
+                            ))}
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="text-xs text-muted-foreground">Events per day</p>
+                                <p className="text-xs text-muted-foreground" data-testid="analytics-sessions">
+                                    {summary.distinct_sessions ?? 0} sessions
+                                </p>
+                            </div>
+                            {daily.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">No activity in this window.</p>
+                            ) : (
+                                <div className="flex items-end gap-0.5 h-16" data-testid="analytics-sparkline">
+                                    {daily.map((d) => (
+                                        <div
+                                            key={d.date}
+                                            className="flex-1 bg-primary/70 rounded-sm min-h-[2px]"
+                                            style={{ height: `${maxDaily > 0 ? Math.round(((d.count || 0) / maxDaily) * 100) : 0}%` }}
+                                            title={`${d.date}: ${d.count}`}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
     )
 }
 
@@ -335,6 +451,9 @@ export function AdminDashboard() {
                 <OpsSnapshotStrip />
                 <InboxPendingStrip />
             </div>
+
+            {/* Product analytics summary */}
+            <AnalyticsSummaryCard />
 
             {/* Seeding & Rebuild pointer (Full Rebuild moved to /admin/seeding) */}
             <Card className="border-amber-200 bg-amber-50/30" data-testid="seeding-pointer">

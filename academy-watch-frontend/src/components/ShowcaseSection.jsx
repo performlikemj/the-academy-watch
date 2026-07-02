@@ -35,6 +35,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
+import { track } from '@/lib/track'
 import { isYouTubeUrl } from '@/lib/youtube'
 import { VideoEmbed } from '@/components/VideoEmbed'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
@@ -212,6 +213,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
         relationship_type: claimRelationship,
         message: claimMessage.trim() || undefined,
       })
+      track('claim_submitted', { player_api_id: playerApiId, relationship: claimRelationship })
       setClaimDone(true)
       await refresh()
       setTimeout(() => setClaimOpen(false), 1600)

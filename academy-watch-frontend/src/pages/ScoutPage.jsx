@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { APIService } from '@/lib/api'
+import { track } from '@/lib/track'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -423,6 +424,10 @@ export function ScoutPage() {
     searchTimer.current = setTimeout(() => setDebouncedSearch(search.trim()), 300)
     return () => clearTimeout(searchTimer.current)
   }, [search])
+
+  useEffect(() => {
+    if (debouncedSearch) track('search_performed', { q_len: debouncedSearch.length, surface: 'scout' })
+  }, [debouncedSearch])
 
   const filterParams = useMemo(() => {
     const params = {}
