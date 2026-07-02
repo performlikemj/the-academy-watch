@@ -9,8 +9,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { KeyRound, LogIn, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 export function AdminSettings() {
-    const { authToken, logout } = useAuth()
-    const { openLoginModal } = useAuthUI()
+    const { token } = useAuth()
+    const { openLoginModal, logout } = useAuthUI()
 
     // API Key state
     const [adminKey, setAdminKey] = useState(APIService.adminKey || '')
@@ -31,7 +31,7 @@ export function AdminSettings() {
     // Message state
     const [message, setMessage] = useState(null)
 
-    const hasAdminToken = Boolean(authToken && APIService.isAdmin())
+    const hasAdminToken = Boolean(token && APIService.isAdmin())
     const hasStoredKey = Boolean(adminKey)
     const adminReady = hasAdminToken && hasStoredKey
 
@@ -199,7 +199,7 @@ export function AdminSettings() {
                     {!adminReady && (
                         <div className="flex flex-wrap gap-2 pt-2">
                             {!hasAdminToken ? (
-                                authToken ? (
+                                token ? (
                                     <Button
                                         size="sm"
                                         variant="outline"
