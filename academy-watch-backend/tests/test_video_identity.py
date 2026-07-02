@@ -204,6 +204,71 @@ class TestPersistArtifacts:
         t2 = db.session.query(VideoTracklet).filter_by(pipeline_key="T0#10").one()
         assert t2.id == t.id and t2.tag_source == "human"
 
+    def test_gate_downgrade_blocks_auto_bind_of_weak_only_chain(self, match):
+        # a 'high' chain whose ONLY strong member is the minority shirt colour: the
+        # shirt gate drops that member, leaving weak-only survivors. The gate must
+        # downgrade confidence so auto_bind never binds a chain no single read can be
+        # trusted for — even though its number matches a roster entry.
+        artifacts = {
+            "fragments": [
+                _frag(1, 0, 0, 30, 20),  # strong, red (minority)
+                _frag(2, 0, 40, 70, 40),  # corroborated weak, blue
+                _frag(3, 0, 80, 110, 40),  # corroborated weak, blue
+            ],
+            "votes": {
+                "entities": [
+                    {
+                        "entity_id": 1,
+                        "anchored": True,
+                        "contaminated": False,
+                        "confidence": "high",
+                        "number_votes": {"10": 3},
+                        "shirt_votes": {"red": 3},
+                        "weak_number": None,
+                    },
+                    {
+                        "entity_id": 2,
+                        "anchored": False,
+                        "contaminated": False,
+                        "confidence": None,
+                        "number_votes": {"10": 2},
+                        "shirt_votes": {"blue": 2},
+                        "weak_number": 10,
+                    },
+                    {
+                        "entity_id": 3,
+                        "anchored": False,
+                        "contaminated": False,
+                        "confidence": None,
+                        "number_votes": {"10": 2},
+                        "shirt_votes": {"blue": 2},
+                        "weak_number": 10,
+                    },
+                ]
+            },
+            "chains": [
+                {
+                    "player_key": "T0#10",
+                    "team": 0,
+                    "jersey_number": 10,
+                    "role": "outfield",
+                    "confidence": "high",
+                    "member_fragment_ids": [1, 2, 3],
+                    "strong_fragment_ids": [1],
+                    "first_s": 0.0,
+                    "last_s": 110.0,
+                    "visible_s_total": 100.0,
+                }
+            ],
+        }
+        persist_artifacts(match, artifacts)
+        t = db.session.query(VideoTracklet).filter_by(pipeline_key="T0#10").one()
+        assert t.confidence == "low"  # strong red member dropped → no surviving strong
+        match.our_team_cluster = 0
+        db.session.commit()
+        assert auto_bind(match) == 0  # weak-only chain must never auto-bind
+        assert t.roster_entry_id is None
+
 
 class TestCreditLedger:
     def test_balance_sums_deltas(self, video_app):
@@ -282,6 +347,22 @@ class TestQualityGate:
         out = apply_quality_gate([_chain(7, [1, 2, 3], [1, 2, 3])], votes, frags)
         assert out[0]["modal_shirt_color"] == "blue"
         assert out[0]["member_fragment_ids"] == [1]  # red intruders dropped despite being a count-majority
+
+    def test_dropping_only_strong_member_downgrades_confidence(self):
+        # the chain's ONLY strong high-confidence member is the minority shirt colour;
+        # the shirt gate drops it, leaving corroborated weak-only survivors. Confidence
+        # must fall from 'high' → a single read is never trusted, so a weak-only chain
+        # can never auto-bind.
+        frags = [_gframe(1, 0, 30, 20), _gframe(2, 40, 70, 40), _gframe(3, 80, 110, 40)]
+        votes = {
+            1: {"number_votes": {"5": 3}, "shirt_votes": {"red": 3}, "confidence": "high"},  # strong, minority red
+            2: {"number_votes": {"5": 2}, "shirt_votes": {"blue": 2}},  # corroborated weak, blue
+            3: {"number_votes": {"5": 2}, "shirt_votes": {"blue": 2}},  # corroborated weak, blue
+        }
+        out = apply_quality_gate([_chain(5, [1, 2, 3], [1])], votes, frags)
+        assert out[0]["member_fragment_ids"] == [2, 3]  # red-shirt strong member dropped
+        assert out[0]["strong_fragment_ids"] == []
+        assert out[0]["confidence"] == "low"  # no surviving strong → downgraded from 'high'
 
 
 class TestSplitChain:

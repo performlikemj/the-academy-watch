@@ -14,6 +14,7 @@ flip commit atomically in Postgres, THEN the queue signal fires — a lost signa
 degrades to worker DB-polling, never a lost job.
 """
 
+import hashlib
 import json
 import logging
 import math
@@ -165,7 +166,7 @@ def update_video_match(match_id: int):
     for field in ("opponent_name", "competition", "our_kit_color", "opponent_kit_color"):
         if field in data:
             setattr(match, field, data[field])
-    for field in ("kickoff_s", "halftime_s", "second_half_kickoff_s"):
+    for field in ("kickoff_s", "halftime_s", "second_half_kickoff_s", "duration_s"):
         if field in data:
             try:
                 setattr(match, field, None if data[field] is None else float(data[field]))
@@ -717,6 +718,17 @@ def get_tracklet_bbox(match_id: int, tracklet_id: int):
     return jsonify({"boxes": video_dev_artifacts.tracklet_bbox_track(t, art), "available": True})
 
 
+def _clamp_pipeline_key(key: str, limit: int = 40) -> str:
+    """Keep a composed split key within VideoTracklet.pipeline_key (String(40)).
+    Nested splits append '|<seg>@<t>' each time and would eventually overflow the
+    column → 500 on insert. When too long, keep a truncated prefix + a short stable
+    hash of the full key so distinct segments stay distinct."""
+    if len(key) <= limit:
+        return key
+    digest = hashlib.sha1(key.encode()).hexdigest()[:8]
+    return f"{key[: limit - len(digest) - 1]}~{digest}"
+
+
 @video_bp.route("/admin/video/matches/<int:match_id>/tracklets/<int:tracklet_id>/split", methods=["POST"])
 @require_api_key
 def split_tracklet(match_id: int, tracklet_id: int):
@@ -765,7 +777,7 @@ def split_tracklet(match_id: int, tracklet_id: int):
         row = VideoTracklet(
             video_match_id=match.id,
             kind="chain",
-            pipeline_key=f"{t.pipeline_key}|{seg['key']}@{int(at_s)}",
+            pipeline_key=_clamp_pipeline_key(f"{t.pipeline_key}|{seg['key']}@{int(at_s)}"),
             team_cluster=t.team_cluster,
             suggested_number=seg["suggested_number"],
             suggested_role=t.suggested_role,

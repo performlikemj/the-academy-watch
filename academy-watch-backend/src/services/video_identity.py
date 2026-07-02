@@ -346,11 +346,20 @@ def apply_quality_gate(chains: list[dict], vote_by_fragment: dict[int, dict], fr
             continue
         ch = dict(ch)
         if len(kept) != len(members):
+            surviving_strong = strong_in & set(kept)
             ch["member_fragment_ids"] = sorted(kept)
-            ch["strong_fragment_ids"] = sorted(strong_in & set(kept))
+            ch["strong_fragment_ids"] = sorted(surviving_strong)
             ch["first_s"] = round(min(f["first_s"] for f in frs), 2)
             ch["last_s"] = round(max(f["last_s"] for f in frs), 2)
             ch["visible_s_total"] = round(sum(f["visible_s"] for f in frs), 2)
+            # re-derive confidence exactly as build_chains does: if the gate dropped
+            # the chain's only strong high-confidence member, it must fall from 'high'
+            # so a weak-only chain can never auto-bind (single reads are never trusted).
+            ch["confidence"] = (
+                "high"
+                if any((vote_by_fragment.get(i) or {}).get("confidence") == "high" for i in surviving_strong)
+                else "low"
+            )
         if dom:
             ch["modal_shirt_color"] = dom  # set for every chain, not only trimmed ones
         ch["number_agreement"] = number_agreement(kept, vote_by_fragment, ch["jersey_number"])

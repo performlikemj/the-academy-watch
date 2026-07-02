@@ -35,6 +35,12 @@ def build_feedback_labels(*, match, tracklets, roster_by_id, crops_for_tracklet,
     """
     our = match.our_team_cluster
     for t in tracklets:
+        # split tombstones (dismissed, review_action='split', thumbnails retained) are
+        # bookkeeping rows for a replaced over-merged chain, not a human verdict on a
+        # player — never export their crops as not_a_player negatives (corpus poisoning
+        # once prod crop persistence ships).
+        if t.kind == "tombstone":
+            continue
         # only HUMAN-DECIDED rows are ground truth; a raw auto-tag is the model's
         # own guess and must never be exported as if a person confirmed it. Gate on
         # review_action (set ONLY on a real decision), not reviewed_at.

@@ -22,7 +22,13 @@ from collections import Counter
 def match_accuracy(tracklets, roster_by_id, our_cluster=None) -> dict:
     """Per-match model accuracy from human review decisions on chains."""
     chains = [t for t in tracklets if t.kind == "chain"]
-    reviewed = [t for t in chains if t.review_action]
+    # a human split writes ONE tombstone (the operation) + two review_action='split'
+    # chain segments (machine-made rows, not verdicts on a model suggestion). Count
+    # the operation from the tombstone; exclude the segments from the review tallies
+    # so two rows can't inflate `decided` / deflate precision. Un-re-tagged segments
+    # fall into `unreviewed` (they still await a human number/dismiss decision).
+    splits = sum(1 for t in tracklets if t.kind == "tombstone" and t.review_action == "split")
+    reviewed = [t for t in chains if t.review_action and t.review_action != "split"]
     by_action = Counter(t.review_action for t in reviewed)
     # number-read accuracy: on reviewed+bound chains, did the model's number match
     # the human's chosen roster number?
@@ -30,7 +36,7 @@ def match_accuracy(tracklets, roster_by_id, our_cluster=None) -> dict:
     correct = sum(1 for t in bound if t.suggested_number == roster_by_id[t.roster_entry_id].jersey_number)
     # auto-tag precision: of decisions, how many endorsed the model (confirmed) vs
     # corrected it (reassigned/dismissed/split)?
-    decided = by_action["confirmed"] + by_action["reassigned"] + by_action["dismissed"] + by_action["split"]
+    decided = by_action["confirmed"] + by_action["reassigned"] + by_action["dismissed"] + splits
     return {
         "chains_total": len(chains),
         "reviewed": len(reviewed),
@@ -38,7 +44,7 @@ def match_accuracy(tracklets, roster_by_id, our_cluster=None) -> dict:
         "confirmed": by_action["confirmed"],
         "reassigned": by_action["reassigned"],
         "dismissed": by_action["dismissed"],
-        "splits": by_action["split"],
+        "splits": splits,
         "number_read_accuracy": round(correct / len(bound), 3) if bound else None,
         "auto_tag_precision": round(by_action["confirmed"] / decided, 3) if decided else None,
     }
@@ -48,11 +54,14 @@ def recalibration_signals(tracklets) -> dict:
     """Threshold-tuning signals from corrections — the 'reward' that adjusts the
     gate/vote heuristics for the next match."""
     chains = [t for t in tracklets if t.kind == "chain"]
+    # a split's signal lives on the tombstone (the original chain, which keeps its
+    # confidence); the two 'split' segments are low-confidence machine rows and must
+    # not be counted as splits or as high-confidence errors.
+    split_ops = [t for t in tracklets if t.kind == "tombstone" and t.review_action == "split"]
     high_confirmed = sum(1 for t in chains if t.review_action == "confirmed" and t.confidence == "high")
-    high_wrong = sum(
-        1 for t in chains if t.review_action in ("reassigned", "dismissed", "split") and t.confidence == "high"
-    )
-    splits = sum(1 for t in chains if t.review_action == "split")
+    high_wrong = sum(1 for t in chains if t.review_action in ("reassigned", "dismissed") and t.confidence == "high")
+    high_wrong += sum(1 for t in split_ops if t.confidence == "high")
+    splits = len(split_ops)
     dismissed = sum(1 for t in chains if t.review_action == "dismissed")
     suggestions = []
     denom = high_confirmed + high_wrong

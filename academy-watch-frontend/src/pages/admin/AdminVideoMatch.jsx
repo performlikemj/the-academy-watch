@@ -84,7 +84,13 @@ function Stat({ label, value, hint }) {
 
 // session cache of per-tracklet crops + bbox, so re-expanding a row (single-open
 // collapses others) doesn't refetch — the bbox payload can be thousands of rows.
+// Capped with oldest-first eviction so it can't grow unboundedly across matches.
 const EVIDENCE_CACHE = new Map()
+const EVIDENCE_CACHE_MAX = 40
+// automatic media-token re-mints per expanded tracklet before we give up (a
+// persistent 404 — retention-expired blob / missing local artifact — would
+// otherwise loop re-mint → src change → reload → error forever).
+const MAX_MEDIA_REMINTS = 2
 
 // Expandable per-row evidence: the match-video window for this tracklet (auto-seek +
 // loop), a box that follows the exact player synced to the playhead, and the sharpest
@@ -93,10 +99,12 @@ function TrackletEvidencePanel({ matchId, tracklet, mediaToken, onAffirm, onMedi
     const videoRef = useRef(null)
     const canvasRef = useRef(null)
     const boxesRef = useRef([])
+    const remintCountRef = useRef(0)
     const [crops, setCrops] = useState(null)
     const [bbox, setBbox] = useState({ available: false, count: 0 })
     const [pos, setPos] = useState(tracklet.first_s || 0)
     const [playing, setPlaying] = useState(false)
+    const [mediaFailed, setMediaFailed] = useState(false)
 
     const first = tracklet.first_s ?? 0
     const last = Math.max(tracklet.last_s ?? first, first + 4)
@@ -119,6 +127,9 @@ function TrackletEvidencePanel({ matchId, tracklet, mediaToken, onAffirm, onMedi
                 .then((r) => ({ boxes: r.boxes || [], available: !!r.available }))
                 .catch(() => ({ boxes: [], available: false })),
         ]).then(([cr, bx]) => {
+            if (EVIDENCE_CACHE.size >= EVIDENCE_CACHE_MAX) {
+                EVIDENCE_CACHE.delete(EVIDENCE_CACHE.keys().next().value)  // evict oldest (insertion order)
+            }
             EVIDENCE_CACHE.set(key, { crops: cr, bbox: bx })
             apply({ crops: cr, bbox: bx })
         })
@@ -178,6 +189,15 @@ function TrackletEvidencePanel({ matchId, tracklet, mediaToken, onAffirm, onMedi
         const v = videoRef.current
         if (v) { try { v.currentTime = first } catch { /* seek before ready */ } v.play().then(() => setPlaying(true)).catch(() => {}) }
     }
+    // footage actually played: reset the re-mint budget so a later token expiry can re-mint again
+    const onLoadedData = () => { remintCountRef.current = 0; setMediaFailed(false) }
+    // cap automatic re-mints — a persistent failure (retention-expired blob / missing
+    // local artifact) must not loop re-mint → src change → reload → error forever.
+    const handleMediaError = () => {
+        if (remintCountRef.current >= MAX_MEDIA_REMINTS) { setMediaFailed(true); return }
+        remintCountRef.current += 1
+        onMediaError && onMediaError()
+    }
     const onTimeUpdate = () => {
         const v = videoRef.current
         if (!v) return
@@ -190,7 +210,9 @@ function TrackletEvidencePanel({ matchId, tracklet, mediaToken, onAffirm, onMedi
     return (
         <div className="mt-3 border-t pt-3 space-y-3">
             <div className="relative w-full max-w-xl bg-black rounded-md overflow-hidden cursor-pointer" onClick={togglePlay}>
-                {footageUrl ? (
+                {mediaFailed ? (
+                    <div className="aspect-video flex items-center justify-center text-xs text-muted-foreground">footage unavailable</div>
+                ) : footageUrl ? (
                     <video
                         ref={videoRef}
                         src={footageUrl}
@@ -199,16 +221,17 @@ function TrackletEvidencePanel({ matchId, tracklet, mediaToken, onAffirm, onMedi
                         muted
                         className="w-full block"
                         onLoadedMetadata={onLoadedMetadata}
+                        onLoadedData={onLoadedData}
                         onTimeUpdate={onTimeUpdate}
                         onPlay={() => setPlaying(true)}
                         onPause={() => setPlaying(false)}
-                        onError={() => onMediaError && onMediaError()}
+                        onError={handleMediaError}
                     />
                 ) : (
                     <div className="aspect-video flex items-center justify-center text-xs text-muted-foreground">media token…</div>
                 )}
                 <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" />
-                {!playing && footageUrl && (
+                {!playing && footageUrl && !mediaFailed && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <Play className="h-10 w-10 text-white/80" />
                     </div>
@@ -235,17 +258,23 @@ function TrackletEvidencePanel({ matchId, tracklet, mediaToken, onAffirm, onMedi
                     <div className="flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> loading…</div>
                 ) : crops.length ? (
                     <div className="flex gap-2 overflow-x-auto pb-1">
-                        {crops.map((c) => (
-                            <button
-                                key={c.file}
-                                type="button"
-                                onClick={() => seek(c.t)}
-                                title={`jump to ${formatSeconds(c.t)} · sharpness ${c.laplacian_var}`}
-                                className="shrink-0 rounded border hover:ring-2 hover:ring-cyan-400"
-                            >
-                                <img src={APIService.videoCropUrl(matchId, c.file, mediaToken)} alt="player crop" className="h-24 w-auto rounded" loading="lazy" />
-                            </button>
-                        ))}
+                        {crops.map((c) => {
+                            // prod crops carry only {file} (no timestamp) — render those as
+                            // non-clickable so seek(undefined) can't throw.
+                            const seekable = Number.isFinite(c.t)
+                            return (
+                                <button
+                                    key={c.file}
+                                    type="button"
+                                    onClick={seekable ? () => seek(c.t) : undefined}
+                                    disabled={!seekable}
+                                    title={seekable ? `jump to ${formatSeconds(c.t)} · sharpness ${c.laplacian_var}` : undefined}
+                                    className={`shrink-0 rounded border ${seekable ? 'hover:ring-2 hover:ring-cyan-400' : 'cursor-default'}`}
+                                >
+                                    <img src={APIService.videoCropUrl(matchId, c.file, mediaToken)} alt="player crop" className="h-24 w-auto rounded" loading="lazy" />
+                                </button>
+                            )
+                        })}
                     </div>
                 ) : (
                     <p className="text-xs text-muted-foreground">no crops for this tracklet</p>

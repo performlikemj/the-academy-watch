@@ -26,19 +26,40 @@ def test_match_accuracy():
         _t(review_action="confirmed", roster_entry_id=1, suggested_number=10),  # number matches roster → correct
         _t(review_action="reassigned", roster_entry_id=2, suggested_number=7),  # model said 7, human 12 → wrong
         _t(review_action="dismissed"),
-        _t(review_action="split"),
+        # one human split = one tombstone (the operation) + two low-conf chain segments
+        _t(kind="tombstone", review_action="split", confidence="low"),
+        _t(review_action="split", confidence="low"),  # segment — excluded from tallies
+        _t(review_action="split", confidence="low"),  # segment — excluded from tallies
         _t(review_action=None),  # unreviewed
     ]
     a = match_accuracy(ts, _roster({1: 10, 2: 12}))
-    assert a["chains_total"] == 5 and a["reviewed"] == 4 and a["unreviewed"] == 1
-    assert a["confirmed"] == 1 and a["reassigned"] == 1 and a["dismissed"] == 1 and a["splits"] == 1
+    # 6 chain rows (tombstone excluded); the 2 un-re-tagged split segments count as unreviewed
+    assert a["chains_total"] == 6 and a["reviewed"] == 3 and a["unreviewed"] == 3
+    assert a["confirmed"] == 1 and a["reassigned"] == 1 and a["dismissed"] == 1
+    assert a["splits"] == 1  # one operation, not two segments
+    # denominator = confirmed + reassigned + dismissed + splits = 4 (segments excluded)
     assert a["auto_tag_precision"] == round(1 / 4, 3)
     assert a["number_read_accuracy"] == 0.5  # 1 of 2 bound reviewed chains read the number correctly
 
 
+def test_split_counts_once_and_segments_excluded_from_precision():
+    # a lone split (tombstone + two segments) must count as ONE operation, and the two
+    # machine-made segments must not enlarge the precision denominator.
+    ts = [
+        _t(review_action="confirmed", roster_entry_id=1, suggested_number=10),
+        _t(kind="tombstone", review_action="split", confidence="low"),
+        _t(review_action="split", confidence="low"),  # segment
+        _t(review_action="split", confidence="low"),  # segment
+    ]
+    a = match_accuracy(ts, _roster({1: 10}))
+    assert a["splits"] == 1
+    # decided = confirmed(1) + split op(1) = 2 → 1/2, NOT 1/4 (if both segments counted)
+    assert a["auto_tag_precision"] == 0.5
+
+
 def test_recalibration_flags_overmerge_and_wrong_highconf():
     ts = [
-        _t(review_action="split"),
+        _t(kind="tombstone", review_action="split", confidence="low"),  # one split operation
         _t(review_action="dismissed"),
         _t(review_action="reassigned", confidence="high"),
         _t(review_action="reassigned", confidence="high"),

@@ -98,3 +98,12 @@ def test_dismissed_is_not_a_player_negative():
     assert len(rows) == 1
     assert rows[0]["label"] == "not_a_player"
     assert rows[0]["confirmed_number"] is None
+
+
+def test_split_tombstone_is_skipped():
+    # a split tombstone (dismissed, review_action='split', thumbnails retained) is
+    # bookkeeping for a replaced over-merged chain, not a human verdict — its crops
+    # must never export as not_a_player negatives (corpus poisoning).
+    t = _tracklet(kind="tombstone", dismissed=True, review_action="split", roster_entry_id=None)
+    rows = list(build_feedback_labels(match=_match(), tracklets=[t], roster_by_id=_roster(), crops_for_tracklet=_crops))
+    assert rows == []
