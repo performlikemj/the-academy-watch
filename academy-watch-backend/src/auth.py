@@ -112,6 +112,49 @@ def issue_user_token(email: str, ttl_seconds: int = 60 * 60 * 24 * 30, role: str
 
 
 # ---------------------------------------------------------------------------
+# Media token — video footage + crop images
+# ---------------------------------------------------------------------------
+
+
+MEDIA_TOKEN_TTL = 60 * 30  # 30 min — footage/crop URLs carry this token in the query string
+
+
+def _media_serializer() -> URLSafeTimedSerializer:
+    """Serializer for short-lived media tokens. Browser <video>/<img> elements
+    cannot send the admin Authorization + X-API-Key headers, so footage/crop URLs
+    carry a signed, match-scoped, expiring token validated in lieu of
+    require_api_key. ONE mechanism in dev (guards send_file) and prod (guards the
+    302 -> blob SAS).
+
+    Fails fast in prod if SECRET_KEY is missing/default — mirrors _user_serializer.
+    Without this the media path would silently sign with the world-known
+    "change-me" key while the login path crashes, quietly exposing footage."""
+    secret = current_app.config.get("SECRET_KEY") or os.getenv("SECRET_KEY")
+    is_prod = os.getenv("FLASK_ENV", "").lower() in ("prod", "production", "stage", "staging")
+    if is_prod and (not secret or secret == "change-me"):
+        raise RuntimeError("SECRET_KEY must be properly configured in production")
+    return URLSafeTimedSerializer(secret_key=secret or "change-me", salt="video-media")
+
+
+def mint_media_token(match_id: int, email: str | None = None, ttl_seconds: int = MEDIA_TOKEN_TTL) -> dict:
+    """Mint a media token scoped to one match. Called from an admin-authed JSON
+    endpoint; the token then rides ?token= on media URLs."""
+    payload = {"match_id": int(match_id), "scope": "media", "email": email, "iat": int(time.time())}
+    return {"token": _media_serializer().dumps(payload), "expires_in": ttl_seconds}
+
+
+def verify_media_token(token: str, match_id: int, max_age: int = MEDIA_TOKEN_TTL) -> bool:
+    """True iff token is a valid, unexpired media token for THIS match."""
+    if not token:
+        return False
+    try:
+        data = _media_serializer().loads(token, max_age=max_age)
+    except Exception:  # bad signature, expired, malformed — all mean "deny"
+        return False
+    return data.get("scope") == "media" and int(data.get("match_id", -1)) == int(match_id)
+
+
+# ---------------------------------------------------------------------------
 # Auth decorators
 # ---------------------------------------------------------------------------
 

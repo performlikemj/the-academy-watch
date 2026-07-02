@@ -34,6 +34,7 @@ MIN_VOTES = 2  # single-frame reads are never trusted
 GREY_ROLES = {"referee", "not_a_player"}
 MAX_FRAGMENT_ROWS = 200  # cap leftover-fragment rows persisted for review
 MIN_FRAGMENT_VISIBLE_S = 30.0  # leftover fragments below this aren't worth human time
+NUMBER_AGREEMENT_MIN = 0.7  # below this, a chain's members disagree on the number → flag mixed
 
 
 # --------------------------------------------------------------------------- voting
@@ -187,6 +188,185 @@ def build_chains(
     return chains, conflicts
 
 
+# --------------------------------------------------------------------------- quality gate
+
+# Shirt-colour bases the VLM reports; used to detect cross-team contamination.
+_SHIRT_BASES = ("red", "blue", "yellow", "orange", "green", "white", "black", "purple", "pink")
+
+
+def base_shirt(shirt_votes) -> str | None:
+    """Dominant base shirt colour from a fragment's VLM shirt votes
+    ('blue and yellow' / 'light blue' -> 'blue')."""
+    if not isinstance(shirt_votes, dict) or not shirt_votes:
+        return None
+    agg: Counter = Counter()
+    for label, n in shirt_votes.items():
+        for b in _SHIRT_BASES:
+            if b in str(label).lower():
+                try:
+                    agg[b] += int(n)
+                except (TypeError, ValueError):
+                    pass
+                break
+    if not agg:
+        return None
+    # deterministic: highest count, ties broken by canonical colour order (not dict order)
+    return max(agg.items(), key=lambda kv: (kv[1], -_SHIRT_BASES.index(kv[0])))[0]
+
+
+def _is_corroborated(vote: dict) -> bool:
+    """Trustworthy iff identity is backed by more than a single read — a lone
+    (<=1 number-read AND <=1 shirt-read) fragment is too easily a misread or
+    tracker-swap to anchor a player (e.g. a blue-voted fragment whose tracker is
+    actually on a red player → a box that switches players mid-tracklet)."""
+    nv = vote.get("number_votes") or {}
+    sv = vote.get("shirt_votes") or {}
+    n_num = sum(int(x) for x in nv.values() if str(x).lstrip("-").isdigit())
+    n_shirt = sum(int(x) for x in sv.values() if str(x).lstrip("-").isdigit())
+    return not (n_num <= 1 and n_shirt <= 1)
+
+
+def number_agreement(members: list[int], vote_by_fragment: dict[int, dict], num: int) -> float:
+    """Fraction of a chain's number-reads that agree with its jersey number
+    (doubling-tolerant: a '22' read supports a '2' chain). 1.0 = internally
+    unanimous; a low value means the chain still bundles disagreeing identities."""
+    total = agree = 0
+    for fid in members:
+        nv = (vote_by_fragment.get(fid) or {}).get("number_votes") or {}
+        for k, n in nv.items():
+            try:
+                kk, c = int(k), int(n)
+            except (TypeError, ValueError):
+                continue
+            total += c
+            if kk == num or _is_doubling(num, kk):
+                agree += c
+    return round(agree / total, 3) if total else 1.0
+
+
+def split_chain(member_ids, strong_ids, votes_by_member, frag_spans, at_s):
+    """Partition a chain's members at `at_s` seconds into ['a' before, 'b' after]
+    by each member fragment's midpoint, re-tallying number/agreement/span per side.
+    The human's split = ground truth that the merge fused two players (a strong
+    learning signal). votes_by_member: {fid: {number: count}}; frag_spans:
+    {fid: (first_s, last_s, visible_s)}. Returns 0-2 segment dicts."""
+    strong = set(strong_ids or [])
+    sides: dict[str, list[int]] = {"a": [], "b": []}
+    for fid in member_ids:
+        sp = frag_spans.get(fid)
+        if not sp:
+            continue
+        mid = (sp[0] + sp[1]) / 2.0
+        sides["a" if mid <= at_s else "b"].append(fid)
+    segs = []
+    for key in ("a", "b"):
+        ids = sides[key]
+        spans = [frag_spans[i] for i in ids if i in frag_spans]
+        if not spans:
+            continue
+        tally: Counter = Counter()
+        vbf = {}
+        for fid in ids:
+            nv = votes_by_member.get(fid) or {}
+            vbf[fid] = {"number_votes": nv}
+            for k, n in nv.items():
+                try:
+                    tally[int(k)] += int(n)
+                except (TypeError, ValueError):
+                    continue
+        num = tally.most_common(1)[0][0] if tally else None
+        first = min(s[0] for s in spans)
+        last = max(s[1] for s in spans)
+        # clamp to the cut so the two halves don't overlap in displayed time
+        if key == "a":
+            last = min(last, at_s)
+        else:
+            first = max(first, at_s)
+        segs.append(
+            {
+                "key": key,
+                "member_fragment_ids": sorted(ids),
+                "strong_fragment_ids": sorted(strong & set(ids)),
+                "suggested_number": num,
+                "number_agreement": number_agreement(ids, vbf, num) if num is not None else 1.0,
+                "first_s": round(first, 2),
+                "last_s": round(last, 2),
+                "visible_s": round(sum(s[2] for s in spans), 2),
+            }
+        )
+    return segs
+
+
+def apply_quality_gate(chains: list[dict], vote_by_fragment: dict[int, dict], fragments: list[dict]) -> list[dict]:
+    """Remove contaminating members the number-driven merge let in, and tag each
+    chain with its internal number-agreement:
+      1. shirt-consistency — drop members whose shirt colour disagrees with the
+         chain's dominant colour (a red player mis-clustered + mis-read into a
+         blue #2 chain — the cause of a box that switches players);
+      2. weak corroboration — drop lone single-read members.
+    Recomputes span/visible/strong from survivors; drops a chain emptied out.
+    Degrades gracefully when shirt votes are absent (keeps the member)."""
+    frag_by_id = {f["entity_id"]: f for f in fragments}
+    out: list[dict] = []
+    for ch in chains:
+        members = ch.get("member_fragment_ids") or []
+        # dominant shirt colour, WEIGHTED by how much we actually saw each member
+        # (visible_s) so a long-visible anchor isn't outvoted by short mis-clustered
+        # intruders.
+        shirts: Counter = Counter()
+        for fid in members:
+            s = base_shirt((vote_by_fragment.get(fid) or {}).get("shirt_votes"))
+            if s:
+                shirts[s] += max(1.0, float((frag_by_id.get(fid) or {}).get("visible_s") or 1.0))
+        total_w = sum(shirts.values())
+        dom = max(shirts.items(), key=lambda kv: kv[1])[0] if shirts else None
+        # only enforce shirt-consistency when there's a CLEAR dominant colour — an
+        # even split is genuinely ambiguous, so keep all and let number-agreement /
+        # the human judge rather than risk deleting the correct player.
+        dom_clear = bool(dom) and total_w and (shirts[dom] / total_w) >= 0.6
+        strong_in = set(ch.get("strong_fragment_ids") or [])
+        kept = []
+        for fid in members:
+            v = vote_by_fragment.get(fid) or {}
+            s = base_shirt(v.get("shirt_votes"))
+            if dom_clear and s is not None and s != dom:
+                continue  # wrong-shirt contamination
+            # weak corroboration: drop a lone single-read member — but ONLY where we
+            # have shirt evidence to judge it. Raw-read artifacts (worker path) carry
+            # no shirt votes, so we trust build_chains' vetting and keep the member.
+            sv = v.get("shirt_votes") or {}
+            has_shirt = any(str(x).lstrip("-").isdigit() for x in sv.values())
+            if fid not in strong_in and has_shirt and not _is_corroborated(v):
+                continue
+            kept.append(fid)
+        if not kept:
+            continue
+        frs = [frag_by_id[i] for i in kept if i in frag_by_id]
+        if not frs:
+            continue
+        ch = dict(ch)
+        if len(kept) != len(members):
+            surviving_strong = strong_in & set(kept)
+            ch["member_fragment_ids"] = sorted(kept)
+            ch["strong_fragment_ids"] = sorted(surviving_strong)
+            ch["first_s"] = round(min(f["first_s"] for f in frs), 2)
+            ch["last_s"] = round(max(f["last_s"] for f in frs), 2)
+            ch["visible_s_total"] = round(sum(f["visible_s"] for f in frs), 2)
+            # re-derive confidence exactly as build_chains does: if the gate dropped
+            # the chain's only strong high-confidence member, it must fall from 'high'
+            # so a weak-only chain can never auto-bind (single reads are never trusted).
+            ch["confidence"] = (
+                "high"
+                if any((vote_by_fragment.get(i) or {}).get("confidence") == "high" for i in surviving_strong)
+                else "low"
+            )
+        if dom:
+            ch["modal_shirt_color"] = dom  # set for every chain, not only trimmed ones
+        ch["number_agreement"] = number_agreement(kept, vote_by_fragment, ch["jersey_number"])
+        out.append(ch)
+    return out
+
+
 # --------------------------------------------------------------------------- persistence
 
 
@@ -219,13 +399,15 @@ def persist_artifacts(match: VideoMatch, artifacts: dict) -> dict:
     chains = artifacts.get("chains")
     if chains is None:
         chains, _conflicts = build_chains(vote_by_fragment, fragments)
+    # strip cross-team / single-read contamination so a chain's box stays on ONE player
+    chains = apply_quality_gate(chains, vote_by_fragment, fragments)
     thumbnails = artifacts.get("thumbnails") or {}
 
     # preserve human decisions across pipeline re-runs
     prior = {
         t.pipeline_key: t
         for t in db.session.query(VideoTracklet).filter(VideoTracklet.video_match_id == match.id)
-        if t.tag_source == "human" or t.dismissed
+        if t.tag_source == "human" or t.dismissed or t.review_action is not None
     }
     db.session.query(VideoTracklet).filter(
         VideoTracklet.video_match_id == match.id,
@@ -239,6 +421,7 @@ def persist_artifacts(match: VideoMatch, artifacts: dict) -> dict:
         chained_fragment_ids.update(ch["member_fragment_ids"])
         if ch["player_key"] in prior:
             continue
+        agreement = ch.get("number_agreement", 1.0)
         db.session.add(
             VideoTracklet(
                 video_match_id=match.id,
@@ -248,6 +431,9 @@ def persist_artifacts(match: VideoMatch, artifacts: dict) -> dict:
                 suggested_number=ch["jersey_number"],
                 suggested_role=ch.get("role"),
                 confidence=ch.get("confidence"),
+                # internally-inconsistent identity (members disagree on the number even
+                # after the gate) is flagged mixed → honest badge + blocks auto-bind.
+                contaminated=agreement < NUMBER_AGREEMENT_MIN,
                 first_s=ch.get("first_s"),
                 last_s=ch.get("last_s"),
                 visible_s=ch.get("visible_s_total"),
@@ -255,6 +441,8 @@ def persist_artifacts(match: VideoMatch, artifacts: dict) -> dict:
                 evidence={
                     "member_fragment_ids": ch["member_fragment_ids"],
                     "strong_fragment_ids": ch.get("strong_fragment_ids", []),
+                    "number_agreement": agreement,
+                    "modal_shirt_color": ch.get("modal_shirt_color"),
                     "votes": {
                         str(fid): vote_by_fragment.get(fid, {}).get("number_votes")
                         for fid in ch["member_fragment_ids"]
@@ -329,6 +517,7 @@ def auto_bind(match: VideoMatch) -> int:
             VideoTracklet.team_cluster == match.our_team_cluster,
             VideoTracklet.roster_entry_id.is_(None),
             VideoTracklet.dismissed.is_(False),
+            VideoTracklet.contaminated.is_(False),  # never auto-bind a mixed-identity chain
         )
         .all()
     )

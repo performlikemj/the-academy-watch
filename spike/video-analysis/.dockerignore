@@ -1,0 +1,5 @@
+footage/
+results/
+__pycache__/
+*.mp4
+*.info.json

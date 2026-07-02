@@ -1,0 +1,168 @@
+{
+ "repos": [
+  {
+   "name": "roboflow/sports",
+   "url": "https://github.com/roboflow/sports",
+   "license": "Code: MIT (verified via GitHub API). WARNING: the bundled soccer models (player detection, 32-keypoint pitch detection, ball detection) are YOLOv8/YOLOv8x-pose fine-tunes \u2014 Ultralytics' position is that any model trained with their framework is AGPL-3.0, so the WEIGHTS are effectively AGPL-encumbered. The underlying datasets on Roboflow Universe (football-players-detection, football-field-detection) are CC BY 4.0, so you can legally retrain on them with an Apache-licensed architecture.",
+   "what_it_does": "The best single reference design for football video AI: player/goalkeeper/referee/ball detection, 32-point pitch keypoint detection + homography to a 2D pitch model, team classification via SigLIP embeddings + UMAP + KMeans, ByteTrack player tracking, and a 'radar' (minimap) view. main.py modes: PITCH_DETECTION, PLAYER_DETECTION, BALL_DETECTION, PLAYER_TRACKING, TEAM_CLASSIFICATION, RADAR.",
+   "components": "detection / tracking / team-assignment / pitch homography / ball detection (no jersey OCR for soccer, no events, no metrics layer)",
+   "maturity": "~5,000 stars; last push Nov 2025. Explicitly a demo/testing-ground repo, not a product \u2014 README itself lists ball tracking and player re-identification as unsolved challenges. No packaging, no API, no temporal smoothing.",
+   "fit_notes": "Use as the architectural blueprint, not as a dependency. Pitch keypoint model was trained on DFL Bundesliga BROADCAST frames (per Roboflow's own blog) \u2014 expect significant degradation on low, panning sideline cameras at grassroots pitches; you will need to fine-tune on customer-like footage. Team classification (SigLIP+UMAP+KMeans) transfers well and is trivially reimplementable under MIT.",
+   "hardware_needs": "GPU strongly recommended (CUDA or Apple MPS supported); YOLOv8x variants are heavy \u2014 a T4/A10 processes offline at roughly real-time or slower."
+  },
+  {
+   "name": "abdullahtarek/football_analysis",
+   "url": "https://github.com/abdullahtarek/football_analysis",
+   "license": "NO LICENSE FILE (verified via GitHub API: license=NONE). Default copyright = all rights reserved; you legally cannot copy this code into a commercial SaaS. Also depends on ultralytics (AGPL).",
+   "what_it_does": "YouTube-tutorial project: YOLO detection + tracking, K-means shirt-color team assignment, optical-flow camera-movement estimation, hardcoded perspective transform, per-player speed and distance.",
+   "components": "detection / tracking / team-assignment / camera-motion / speed-distance (no real pitch homography \u2014 the perspective transform is hardcoded for one demo clip; no jersey OCR, no events)",
+   "maturity": "952 stars, last push April 2024, dormant. Jupyter-notebook quality, single demo video, no tests.",
+   "fit_notes": "Educational reference only. Its 'speed/distance' numbers come from a manually-defined trapezoid on one specific camera angle \u2014 it does not generalize to arbitrary user uploads at all. Useful to understand the metric-computation logic (camera-motion-compensated positions \u2192 meters \u2192 speed windows), then write your own.",
+   "hardware_needs": "Any CUDA GPU for the demo; not built for scale."
+  },
+  {
+   "name": "roboflow/supervision",
+   "url": "https://github.com/roboflow/supervision",
+   "license": "MIT (verified). Model-agnostic \u2014 pulls no AGPL code unless you choose ultralytics as the detector.",
+   "what_it_does": "CV utilities glue: detection post-processing, ByteTrack tracker, InferenceSlicer (tiled inference \u2014 important for small/far players and the ball), annotators, zone/line counting, video I/O helpers.",
+   "components": "tracking / utilities / visualization",
+   "maturity": "43k stars, v0.28.0 released April 2026, very actively maintained. Production-grade.",
+   "fit_notes": "Safe core dependency. Use sv.ByteTrack or the trackers package, sv.InferenceSlicer for far-side player and ball detection on wide amateur shots, annotators for the user-facing review/tagging UI overlays.",
+   "hardware_needs": "CPU library; cost is in the model you feed it."
+  },
+  {
+   "name": "roboflow/trackers",
+   "url": "https://github.com/roboflow/trackers",
+   "license": "Apache-2.0 (verified). Created specifically as clean-room, license-friendly re-implementations because the original tracker repos drag in encumbered dependencies (e.g., YOLOX/FastReID code).",
+   "what_it_does": "Modular SORT, ByteTrack, OC-SORT, and BoT-SORT (with camera-motion compensation) implementations, detector-agnostic, benchmarked on MOT17, SportsMOT, SoccerNet, DanceTrack.",
+   "components": "tracking",
+   "maturity": "3.5k stars, v2.4.0 May 2026, actively developed by Roboflow.",
+   "fit_notes": "The recommended tracking layer. BoT-SORT's camera-motion compensation matters specifically for your panning sideline camera; ByteTrack alone assumes a mostly-static camera and degrades during fast pans. Expect ID switches regardless \u2014 design the product so manual player tags attach to merged tracklets and can be re-confirmed/corrected, not to raw track IDs.",
+   "hardware_needs": "CPU-cheap; negligible vs detection."
+  },
+  {
+   "name": "SoccerNet/sn-gamestate (+ TrackLab)",
+   "url": "https://github.com/SoccerNet/sn-gamestate",
+   "license": "sn-gamestate: GPL-3.0 (verified). TrackLab framework underneath: MIT (verified). sn-gamestate also wires in YOLOv11 (ultralytics, AGPL) and MMOCR \u2014 so the assembled baseline is doubly unusable in proprietary SaaS without rework.",
+   "what_it_does": "The academically state-of-the-art end-to-end pipeline for exactly your feature: 'Game State Reconstruction' \u2014 player detection (YOLOv11), tracking (StrongSORT), re-ID + team affiliation (PRTreid), jersey number recognition (MMOCR), camera calibration/pitch localization (TVCalib, alternatives PnLCalib / No Bells Just Whistles), output to a 2D minimap. Evaluated with GS-HOTA. 2024 challenge winner (Constructor.tech, GS-HOTA 63.81) used YOLOv5m + SegFormer calibration + DeepSORT + jersey OCR.",
+   "components": "detection / tracking / re-ID / team-assignment / pitch homography / jersey OCR \u2014 the full stack, but no physical metrics layer (distance/speed) and no events",
+   "maturity": "407 stars, active (Tracklab 1.3.24, May 2026). Research framework; sn-gamestate's own docs and the TrackLab README say it is early-stage and research-oriented. Slow (multi-model offline pipeline), heavy config (Hydra/YAML).",
+   "fit_notes": "Study it; don't ship it. It defines the correct architecture and the honest accuracy ceiling: even on BROADCAST footage with this much machinery, the best challenge scores leave many identity/localization errors. Trained and evaluated exclusively on broadcast video \u2014 calibration modules (TVCalib etc., trained on SoccerNet-Calibration broadcast data) are the part least likely to transfer to grassroots sideline footage.",
+   "hardware_needs": "16GB+ VRAM GPU recommended; runs at a few FPS at best \u2014 hours per match."
+  },
+  {
+   "name": "roboflow/rf-detr",
+   "url": "https://github.com/roboflow/rf-detr",
+   "license": "Apache-2.0 for code AND the open model weights (Nano\u2192Large) \u2014 verified. CAVEAT: RF-DETR-XL/2XL and the rfdetr_plus extension are under Roboflow's PML 1.0 with commercial restrictions \u2014 stick to Nano/Small/Medium/Large.",
+   "what_it_does": "Real-time detection transformer (DINOv2 backbone), SOTA on COCO/RF100-VL, designed for fine-tuning (ICLR 2026 paper). RF-DETR-Medium: 73.6 COCO AP50 at 4.4ms on T4 TensorRT. Roboflow's own newer sports content (e.g., the American-football tracker blog) has moved to RF-DETR + ByteTrack, and community RF-DETR-SoccerNet fine-tunes already exist on HuggingFace (e.g., julianzu9612/RFDETR-Soccernet).",
+   "components": "detection (players, ball via fine-tune)",
+   "maturity": "7.6k stars, v1.7.1 May 2026, 20 releases, very active, backed by Roboflow.",
+   "fit_notes": "The recommended detector. Fine-tune Nano/Small/Medium on the CC BY 4.0 football-players-detection dataset plus your own labeled grassroots frames. Fully clean licensing path that replaces YOLOv8 1:1 in the roboflow/sports pipeline design.",
+   "hardware_needs": "Fine-tuning: single A10/A100 or Colab. Inference: T4/L4 sufficient (4-6ms/frame Medium with TensorRT)."
+  },
+  {
+   "name": "Peterande/D-FINE",
+   "url": "https://github.com/Peterande/D-FINE",
+   "license": "Apache-2.0, code and weights (verified).",
+   "what_it_does": "Real-time DETR-family detector (Fine-grained Distribution Refinement); D-FINE-N 42.8% AP at 472 FPS on T4; strong on motion blur and dense crowds \u2014 relevant to football.",
+   "components": "detection",
+   "maturity": "3.2k stars, last push April 2026. Research repo with good training code; less productized than RF-DETR.",
+   "fit_notes": "Solid Apache-licensed alternative/benchmark to RF-DETR; Objects365-pretrained variants generalize well. Worth A/B-ing against RF-DETR on your footage.",
+   "hardware_needs": "Same class as RF-DETR; T4 real-time."
+  },
+  {
+   "name": "lyuwenyu/RT-DETR",
+   "url": "https://github.com/lyuwenyu/RT-DETR",
+   "license": "Apache-2.0 (verified). Note: RT-DETR is ALSO bundled inside the ultralytics package \u2014 if you run it through ultralytics' runtime you re-contaminate with AGPL. Use the original repo or HuggingFace transformers (RTDETR/RTDETRv2 are upstreamed there).",
+   "what_it_does": "Real-time detection transformer ('DETRs Beat YOLOs'); v2 (2024) and RT-DETRv4 (Nov 2025, vision-foundation-model backbones).",
+   "components": "detection",
+   "maturity": "5.3k stars, active through May 2026.",
+   "fit_notes": "Third safe detector option; HF transformers integration makes deployment easy. RF-DETR generally edges it on fine-tuning ergonomics for this use case.",
+   "hardware_needs": "T4-class GPU for real-time."
+  },
+  {
+   "name": "ultralytics/ultralytics (YOLOv8/v11)",
+   "url": "https://github.com/ultralytics/ultralytics",
+   "license": "AGPL-3.0 (verified by reading the LICENSE file). Ultralytics' official licensing page explicitly states: SaaS/API/cloud use 'behind the scenes' triggers AGPL; trained/fine-tuned weights are covered ('the AGPL-3.0 License covers the training code and the models produced by that training code'); training from scratch without pretrained weights does NOT exempt you. Escape hatch = paid Ultralytics Enterprise License (custom pricing).",
+   "what_it_does": "The dominant YOLO training/inference framework used by roboflow/sports' soccer models, sn-gamestate (YOLOv11), and virtually every tutorial project.",
+   "components": "detection / pose (pitch keypoints) / tracking wrappers",
+   "maturity": "Extremely mature and active; best-in-class DX.",
+   "fit_notes": "Do NOT use in your SaaS without an Enterprise License \u2014 and that includes running Roboflow Universe YOLOv8 football weights server-side. Their compliance enforcement is active and the AGPL network clause means even never 'distributing' the binary doesn't save you.",
+   "hardware_needs": "n/a \u2014 avoid."
+  },
+  {
+   "name": "FoundationVision/ByteTrack (orig. ifzhang/ByteTrack)",
+   "url": "https://github.com/FoundationVision/ByteTrack",
+   "license": "MIT (verified via API after repo move). But the repo vendors YOLOX training code and demo deps \u2014 cleaner to consume ByteTrack via supervision (MIT) or roboflow/trackers (Apache-2.0).",
+   "what_it_does": "The canonical two-stage-association multi-object tracker; still the default for sports tracking.",
+   "components": "tracking",
+   "maturity": "6.4k stars; last push June 2024 \u2014 algorithm is stable/done, repo dormant.",
+   "fit_notes": "Use the re-implementations, not this repo, in production.",
+   "hardware_needs": "CPU-cheap."
+  },
+  {
+   "name": "NirAharon/BoT-SORT",
+   "url": "https://github.com/NirAharon/BoT-SORT",
+   "license": "MIT (verified) \u2014 but it imports FastReID (Apache-2.0) and YOLOX pieces; again, prefer the roboflow/trackers clean-room BoT-SORT.",
+   "what_it_does": "ByteTrack + camera-motion compensation (GMC) + optional appearance re-ID. The camera-motion compensation is the feature that matters for a panning sideline camera.",
+   "components": "tracking / re-ID",
+   "maturity": "1.45k stars, last push Aug 2024, dormant but stable.",
+   "fit_notes": "Algorithm of choice for your footage; consume via roboflow/trackers.",
+   "hardware_needs": "GMC adds modest CPU cost; re-ID variant needs GPU."
+  },
+  {
+   "name": "tryolabs/norfair",
+   "url": "https://github.com/tryolabs/norfair",
+   "license": "BSD-3-Clause (verified).",
+   "what_it_does": "Lightweight detector-agnostic tracker (Kalman + distance functions); includes a MotionEstimator for camera motion and built-in video utilities. Tryolabs used it in their own open soccer ball-possession demo.",
+   "components": "tracking / camera-motion",
+   "maturity": "2.65k stars, last push April 2025; maintenance mode, slower development than roboflow/trackers.",
+   "fit_notes": "Fine and license-clean, but roboflow/trackers has overtaken it on sports benchmarks and momentum. Second choice.",
+   "hardware_needs": "CPU."
+  },
+  {
+   "name": "mkoshkina/jersey-number-pipeline",
+   "url": "https://github.com/mkoshkina/jersey-number-pipeline",
+   "license": "Creative Commons BY-NC (license.txt in repo; GitHub shows NOASSERTION) \u2014 NON-COMMERCIAL ONLY. Cannot be used in your SaaS. Its dependencies are also mixed (ViTPose Apache-2.0, Centroid-ReID, fine-tuned PARSeq weights inherit the NC restriction).",
+   "what_it_does": "The reference recipe for jersey number recognition (CVPRW 2024): legibility classifier (ResNet34+SAM) \u2192 ViTPose pose-guided torso crop \u2192 fine-tuned PARSeq scene-text recognition \u2192 tracklet-level voting with Gaussian outlier removal. 87.4% accuracy on SoccerNet soccer tracklets, ~91% on hockey images.",
+   "components": "jersey OCR",
+   "maturity": "62 stars, last push Oct 2024; research code, not maintained.",
+   "fit_notes": "Read the paper, reimplement the recipe with clean parts: PARSeq itself is Apache-2.0 (baudm/parseq, verified), ViTPose/RTMPose are Apache-2.0, and you fine-tune on your own labeled crops. Note the SoccerNet jersey training VIDEOS sit behind SoccerNet's NDA and derive from broadcast rights-holders \u2014 training a commercial model directly on them is legally murky; label your own data or use synthetic numbers.",
+   "hardware_needs": "Light; PARSeq is small. Single GPU for fine-tuning."
+  },
+  {
+   "name": "SoccerNet/sn-jersey + sn-spotting + sn-teamspotting",
+   "url": "https://github.com/SoccerNet/sn-jersey",
+   "license": "sn-jersey: NO LICENSE (verified, license=NONE). sn-spotting: NO LICENSE. Dataset access requires SoccerNet NDA; videos are broadcast-rights-encumbered. Treat the whole event-spotting ecosystem as research-only for now.",
+   "what_it_does": "Devkits and baselines for jersey-number recognition (2,853 broadcast tracklets) and (team) ball-action spotting \u2014 12 event classes incl. Pass, Cross, Shot; current baselines built on the T-DEED model (2024 winner).",
+   "components": "jersey OCR datasets / event detection baselines",
+   "maturity": "Small repos, challenge-driven cadence; the challenges themselves are healthy (SoccerNet 2025: 4 tasks, GSR drew 76 participants).",
+   "fit_notes": "Pass/event detection baselines are trained on broadcast TV with commentary-grade framing; there is no evidence any of them transfer to a single amateur sideline camera, and licensing blocks direct reuse anyway. Defer pass-event ML; ship possession heuristics instead.",
+   "hardware_needs": "n/a for production."
+  },
+  {
+   "name": "mguti97/PnLCalib & No-Bells-Just-Whistles",
+   "url": "https://github.com/mguti97/PnLCalib",
+   "license": "PnLCalib: GPL-2.0 (verified). No-Bells-Just-Whistles: GPL-2.0 (read LICENSE file directly). Copyleft \u2014 unusable in proprietary backend without isolation; most teams avoid.",
+   "what_it_does": "SOTA sports-field registration / camera calibration from keypoints+lines (CVPRW 2024); the calibration alternatives wired into sn-gamestate; trained on SoccerNet-Calibration / WorldCup broadcast datasets.",
+   "components": "pitch homography / camera calibration",
+   "maturity": "86 / 53 stars; PnLCalib pushed March 2026; single-author research code.",
+   "fit_notes": "License + broadcast-only training data rule it out. Replicate the simpler roboflow approach instead: train your own pitch-keypoint model (RTMPose or an RF-DETR/D-FINE keypoint head, all Apache) on the CC BY 4.0 football-field-detection dataset + your own annotated grassroots frames, then DLT homography + temporal smoothing in OpenCV (Apache-2.0).",
+   "hardware_needs": "Light at inference."
+  },
+  {
+   "name": "AtomScott/SportsLabKit (SoccerTrack/TeamTrack)",
+   "url": "https://github.com/AtomScott/SportsLabKit",
+   "license": "GPL-3.0 (verified) \u2014 code unusable in proprietary SaaS; datasets (SoccerTrack fisheye/drone full-pitch footage, TeamTrack: 200k frames / 4M boxes) are the more valuable asset.",
+   "what_it_does": "'Sports video to CSV' toolkit + the only major open datasets of NON-broadcast, full-pitch amateur-style footage (fixed fisheye and drone cameras), incl. SoccerTrack v2 (2025) for game-state reconstruction from full-pitch multi-view.",
+   "components": "detection / tracking / datasets",
+   "maturity": "311 stars, last push Dec 2023 \u2014 code effectively abandoned; datasets still cited and extended (SoccerTrack v2 paper, Aug 2025).",
+   "fit_notes": "Closest existing data to 'not broadcast'. Check the dataset's own license terms before training commercial models on it, but it is the right benchmark to measure how badly broadcast-trained models degrade on full-pitch static footage.",
+   "hardware_needs": "n/a."
+  }
+ ],
+ "recommended_stack": "Build your own thin pipeline using roboflow/sports (MIT) as the architectural blueprint and sn-gamestate as the academic reference, with every model swapped to an Apache/MIT part. Concretely: (1) DETECTION \u2014 RF-DETR Nano/Small/Medium (Apache-2.0, roboflow/rf-detr) fine-tuned on the CC BY 4.0 'football-players-detection' Roboflow Universe dataset PLUS a few thousand frames you label from real customer-style grassroots footage (this fine-tune is the single highest-leverage investment in the whole project; D-FINE is the Apache fallback to A/B). Use supervision's InferenceSlicer for far-side players. (2) TRACKING \u2014 BoT-SORT from roboflow/trackers (Apache-2.0): its camera-motion compensation is essential for a panning sideline camera; ByteTrack as the cheaper fallback. Add offline tracklet merging (appearance embedding + team + temporal constraints) because ID switches WILL happen; design the manual-tagging UX so a user tag binds to a player entity that can span re-linked tracklets, with a quick 'is this still #7?' confirmation flow. (3) TEAM ASSIGNMENT \u2014 reimplement roboflow/sports' SigLIP embeddings + UMAP + KMeans on player crops (all MIT/Apache parts); fit per-match, cache centroids. (4) PITCH HOMOGRAPHY \u2014 train your own 32-keypoint pitch model (RTMPose or similar Apache-2.0 keypoint architecture) on the CC BY 4.0 'football-field-detection' dataset plus annotated grassroots frames; per-frame DLT homography with temporal smoothing (Kalman/Savitzky-Golay) in OpenCV. Do NOT ship the pretrained YOLOv8x-pose weights (AGPL) or PnLCalib/NBJW (GPL-2.0). (5) METRICS LAYER (own code, ~the easy part once positions are on the pitch plane): distance covered, speed with outlier clamping, sprint counts (speed-band thresholds, e.g. >5.5 m/s sustained), heatmaps via supervision draw utilities. (6) BALL (beta flag) \u2014 RF-DETR ball fine-tune on sliced inference + trajectory interpolation; derive 'touches' and 'possession involvement' only from high-confidence ball windows via player-ball proximity; surface confidence to users. (7) JERSEY OCR (optional assist for the manual tagging flow, not a dependency) \u2014 reimplement the Koshkina recipe with Apache parts: legibility classifier + pose-guided crop + PARSeq (baudm/parseq, Apache-2.0) fine-tuned on self-labeled crops, tracklet-level voting. Orchestrate as an offline batch job per uploaded match: decode \u2192 detect+track at 10\u201315 analysis fps \u2192 homography \u2192 metrics \u2192 report JSON; one NVIDIA T4/L4/A10 handles roughly one 90-minute match in 1\u20134 hours, scaling horizontally with spot GPU workers. This matches the Flask/worker architecture you already run.",
+ "licensing_warnings": "CRITICAL \u2014 ultralytics YOLOv8/v11 is AGPL-3.0 (verified in the repo LICENSE): the AGPL network clause means server-side SaaS use counts as distribution, and Ultralytics' official license page explicitly claims (a) trained/fine-tuned WEIGHTS are covered by AGPL, (b) training from scratch with their code doesn't exempt you, and (c) 'SaaS platforms, APIs, or cloud systems that use YOLO behind the scenes' need a paid Enterprise License. This contaminates almost the entire tutorial ecosystem: roboflow/sports' bundled soccer models (YOLOv8/YOLOv8x-pose fine-tunes), abdullahtarek/football_analysis, sn-gamestate's YOLOv11 detector, and most Roboflow Universe football weights. Either pay for an Ultralytics Enterprise License or (recommended) retrain on the CC BY 4.0 Universe datasets with Apache-2.0 architectures. SAFE for commercial SaaS (all license-verified via GitHub API): RF-DETR Nano\u2013Large (Apache-2.0 \u2014 but RF-DETR-XL/2XL and rfdetr_plus are under Roboflow's restrictive PML 1.0, avoid), D-FINE (Apache-2.0), RT-DETR original repo / HF transformers (Apache-2.0 \u2014 but not via the ultralytics runtime, which re-applies AGPL), supervision (MIT), roboflow/trackers (Apache-2.0), ByteTrack (MIT), BoT-SORT (MIT), Norfair (BSD-3), TrackLab core (MIT), roboflow/sports CODE (MIT), PARSeq (Apache-2.0), RTMPose/ViTPose (Apache-2.0), OpenCV (Apache-2.0), SigLIP weights (Apache-2.0). UNUSABLE/ENCUMBERED: mkoshkina/jersey-number-pipeline (CC BY-NC \u2014 explicitly non-commercial); sn-gamestate and SportsLabKit (GPL-3.0); PnLCalib and No-Bells-Just-Whistles (GPL-2.0); abdullahtarek/football_analysis, sn-jersey, sn-spotting (NO license file = all rights reserved \u2014 cannot copy code at all). DATA: SoccerNet raw videos sit behind an NDA and derive from broadcast rights-holders \u2014 training commercial models directly on them is legally murky; Roboflow Universe football datasets are CC BY 4.0 (attribution required) and are the clean training-data path, supplemented by footage your own users consent to.",
+ "accuracy_limitations": "Brutal honesty for single-camera amateur footage (panning sideline tripod, 1080p): (1) WORKS RELIABLY after fine-tuning on grassroots frames: player detection on the near 60-70% of the pitch; team split when kits contrast (fails on similar kits, training bibs, low sun/backlight); per-player heatmaps; distance covered to roughly \u00b110-20% accuracy; sprint COUNTS (after heavy speed smoothing). (2) WORKS PARTIALLY: pitch homography \u2014 every open model (roboflow 32-keypoint, TVCalib, PnLCalib, NBJW) was trained on elevated BROADCAST cameras with crisp professional line markings; a low sideline camera gives extreme perspective, faded/absent lines, and non-standard pitch dimensions, so expect to fine-tune on your own annotated grassroots frames and still see far-side position errors of several meters \u2014 far-side distance/speed numbers should be flagged as low-confidence. Top speed is the most fragile metric: homography jitter creates fake 40 km/h spikes, so clamp and smooth (report 'fastest sustained speed' not instantaneous max). Full-match identity persistence does NOT work automatically anywhere \u2014 even broadcast-grade GSR pipelines (SoccerNet 2024 winner, GS-HOTA 63.81 with re-ID + jersey OCR + orientation models) leave substantial identity errors; on amateur footage with identical kits and a panning camera, ID switches every few minutes are normal. Your manual-tagging product design is actually the right mitigation \u2014 build the human-in-the-loop re-confirmation into the UX rather than promising automatic identity. (3) MOSTLY DOES NOT WORK on 1080p amateur footage: ball detection/tracking (a few-pixel, motion-blurred ball; even roboflow lists it as an open challenge on broadcast) \u2014 so touches and possession involvement will have low recall and should ship as clearly-labeled beta metrics computed only in high-confidence ball windows; jersey-number OCR (SoccerNet gets ~83-87% on broadcast tracklets where numbers are occasionally legible; on a wide amateur shot numbers are almost never legible \u2014 treat OCR as an occasional tagging assist, not a feature); pass/event detection (T-DEED-class action-spotting models are trained on broadcast framing and there is no evidence of transfer; possession-chain heuristics from player-ball proximity are noisy). PRACTICAL LEVER: capture quality dominates model choice \u2014 4K recording from an elevated position (even 3-4m scaffold/balcony, or a Veo-style elevated pole) roughly doubles what is extractable (ball recall, far-side detection, occasional jersey legibility). Publish filming guidelines to users and gate 'beta' metrics on a per-video quality score. V1 metric set that is defensible: distance, smoothed speed bands, sprint counts, heatmaps, near-side touch estimates; defer pass maps and possession chains.",
+ "jersey_number_recognition": "Best current open recipe is Koshkina & Elder (CVPRW 2024, mkoshkina/jersey-number-pipeline): legibility classifier (filters the ~90% of crops where no number is visible) \u2192 pose-guided torso crop (ViTPose) \u2192 PARSeq scene-text-recognition fine-tuned on jersey numbers \u2192 tracklet-level probability voting with outlier removal; 87.4% on SoccerNet soccer tracklets, 91.4% on hockey images. BUT that repo is CC BY-NC (non-commercial) \u2014 you must reimplement from the paper using Apache parts: baudm/parseq (Apache-2.0), RTMPose or ViTPose (Apache-2.0), your own legibility classifier, and self-labeled or synthetic training crops (SoccerNet jersey data is NDA/broadcast-encumbered for commercial training). Newer work (CVPRW 2025 'Single-Stage Uncertainty-Aware Jersey Number Recognition', ~82.7% with ViT-Small on public data) shows the ceiling hasn't moved much. sn-gamestate's baseline uses MMOCR (Apache-2.0) \u2014 workable but weaker than fine-tuned PARSeq. Reality check for YOUR footage: those accuracies are on broadcast tracklets where the camera zooms close enough for numbers to be occasionally legible; on a wide single amateur camera at 1080p, numbers are rarely resolvable at all, so jersey OCR should be positioned as an opportunistic assist to the manual tagging flow (auto-suggest a number when a player runs near the camera), not as an identity backbone. With 4K capture it becomes meaningfully more useful."
+}

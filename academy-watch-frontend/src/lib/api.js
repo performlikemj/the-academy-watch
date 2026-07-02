@@ -2470,6 +2470,74 @@ export class APIService {
         return this.request(`/admin/video/matches/${matchId}/report`, {}, { admin: true })
     }
 
+    // --- review media (per-row video window, crops, bbox overlay) ---
+    // <video>/<img> can't send admin headers, so footage/crop URLs carry a
+    // short-lived match-scoped media token minted here.
+    static async videoMediaToken(matchId) {
+        return this.request(`/admin/video/matches/${matchId}/media-token`, {}, { admin: true })
+    }
+
+    static videoFootageUrl(matchId, token) {
+        return `${API_BASE_URL}/admin/video/matches/${matchId}/footage?token=${encodeURIComponent(token)}`
+    }
+
+    static videoCropUrl(matchId, file, token) {
+        return `${API_BASE_URL}/admin/video/matches/${matchId}/crops/${encodeURIComponent(file)}?token=${encodeURIComponent(token)}`
+    }
+
+    static async getVideoTrackletCrops(matchId, trackletId) {
+        return this.request(`/admin/video/matches/${matchId}/tracklets/${trackletId}/crops`, {}, { admin: true })
+    }
+
+    static async getVideoTrackletBbox(matchId, trackletId) {
+        return this.request(`/admin/video/matches/${matchId}/tracklets/${trackletId}/bbox-track`, {}, { admin: true })
+    }
+
+    static async splitVideoTracklet(matchId, trackletId, atS) {
+        return this.request(`/admin/video/matches/${matchId}/tracklets/${trackletId}/split`, {
+            method: 'POST',
+            body: JSON.stringify({ at_s: atS }),
+        }, { admin: true })
+    }
+
+    // learning loop: per-match model accuracy + recalibration + fine-tune manifest
+    static async getVideoAccuracy(matchId) {
+        return this.request(`/admin/video/matches/${matchId}/accuracy`, {}, { admin: true })
+    }
+
+    static async getVideoTrainingManifest(matchId) {
+        return this.request(`/admin/video/matches/${matchId}/training-manifest`, {}, { admin: true })
+    }
+
+    static videoFeedbackExportUrl(matchId, side) {
+        return `${API_BASE_URL}/admin/video/matches/${matchId}/feedback-export${side ? `?side=${encodeURIComponent(side)}` : ''}`
+    }
+
+    // feedback-export is admin-gated (dual-factor), so a plain <a href> can't fetch it —
+    // send both headers and trigger a blob download.
+    static async downloadVideoFeedback(matchId, side) {
+        const headers = {}
+        if (this.userToken) headers['Authorization'] = `Bearer ${this.userToken}`
+        if (this.adminKey) { headers['X-API-Key'] = this.adminKey; headers['X-Admin-Key'] = this.adminKey }
+        const response = await fetch(this.videoFeedbackExportUrl(matchId, side), { headers })
+        if (!response.ok) {
+            const err = new Error(`HTTP ${response.status}`); err.status = response.status; throw err
+        }
+        const rows = response.headers.get('X-Feedback-Rows')
+        const blob = await response.blob()
+        if (typeof document !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
+            const objectUrl = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = objectUrl
+            a.download = `match-${matchId}-feedback.ndjson`
+            document.body.appendChild(a)
+            a.click()
+            a.remove()
+            URL.revokeObjectURL(objectUrl)
+        }
+        return { rows: rows ? Number(rows) : null }
+    }
+
     static async getTeamVideoMatches(teamId) {
         return this.request(`/admin/video/teams/${teamId}/matches`, {}, { admin: true })
     }

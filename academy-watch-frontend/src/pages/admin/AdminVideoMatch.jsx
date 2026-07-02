@@ -16,17 +16,27 @@ import {
 } from '@/components/ui/select'
 import {
     AlertTriangle,
+    Brain,
     CheckCircle2,
+    ChevronDown,
+    ChevronRight,
     Coins,
+    Crosshair,
+    Download,
     Loader2,
     Play,
     RefreshCw,
+    Scissors,
+    ThumbsUp,
     Upload,
     UserX,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
+import { Slider } from '@/components/ui/slider'
 import { formatSeconds, parseRosterText, parseTimeInput } from '@/lib/video-utils'
 import { VideoStatusBadge } from './AdminVideo'
+import { FilmRoomGuide, MatchProgress } from '@/components/admin/FilmRoomGuide'
+import { HelpHint } from '@/components/ui/help-hint'
 
 const POLL_STATUSES = new Set(['queued', 'processing', 'preflight'])
 
@@ -60,6 +70,230 @@ function votesSummary(votes) {
     return parts.length ? parts.join(' · ') : null
 }
 
+function Stat({ label, value, hint }) {
+    return (
+        <div className="rounded-lg border p-2">
+            <p className="text-lg font-semibold tabular-nums">{value}</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                {label}
+                {hint && <HelpHint label={label} iconClassName="h-3 w-3">{hint}</HelpHint>}
+            </p>
+        </div>
+    )
+}
+
+// session cache of per-tracklet crops + bbox, so re-expanding a row (single-open
+// collapses others) doesn't refetch — the bbox payload can be thousands of rows.
+// Capped with oldest-first eviction so it can't grow unboundedly across matches.
+const EVIDENCE_CACHE = new Map()
+const EVIDENCE_CACHE_MAX = 40
+// automatic media-token re-mints per expanded tracklet before we give up (a
+// persistent 404 — retention-expired blob / missing local artifact — would
+// otherwise loop re-mint → src change → reload → error forever).
+const MAX_MEDIA_REMINTS = 2
+
+// Expandable per-row evidence: the match-video window for this tracklet (auto-seek +
+// loop), a box that follows the exact player synced to the playhead, and the sharpest
+// crops. The reviewer watches, then confirms / reassigns / dismisses in the row header.
+function TrackletEvidencePanel({ matchId, tracklet, mediaToken, onAffirm, onMediaError, onSplit }) {
+    const videoRef = useRef(null)
+    const canvasRef = useRef(null)
+    const boxesRef = useRef([])
+    const remintCountRef = useRef(0)
+    const [crops, setCrops] = useState(null)
+    const [bbox, setBbox] = useState({ available: false, count: 0 })
+    const [pos, setPos] = useState(tracklet.first_s || 0)
+    const [playing, setPlaying] = useState(false)
+    const [mediaFailed, setMediaFailed] = useState(false)
+
+    const first = tracklet.first_s ?? 0
+    const last = Math.max(tracklet.last_s ?? first, first + 4)
+    const footageUrl = mediaToken ? APIService.videoFootageUrl(matchId, mediaToken) : null
+
+    useEffect(() => {
+        let alive = true
+        const key = `${matchId}:${tracklet.id}`
+        const apply = ({ crops: cr, bbox: bx }) => {
+            if (!alive) return
+            setCrops(cr)
+            boxesRef.current = bx.boxes
+            setBbox({ available: bx.available, count: bx.boxes.length })
+        }
+        const cached = EVIDENCE_CACHE.get(key)
+        if (cached) { apply(cached); return () => { alive = false } }
+        Promise.all([
+            APIService.getVideoTrackletCrops(matchId, tracklet.id).then((r) => r.crops || []).catch(() => []),
+            APIService.getVideoTrackletBbox(matchId, tracklet.id)
+                .then((r) => ({ boxes: r.boxes || [], available: !!r.available }))
+                .catch(() => ({ boxes: [], available: false })),
+        ]).then(([cr, bx]) => {
+            if (EVIDENCE_CACHE.size >= EVIDENCE_CACHE_MAX) {
+                EVIDENCE_CACHE.delete(EVIDENCE_CACHE.keys().next().value)  // evict oldest (insertion order)
+            }
+            EVIDENCE_CACHE.set(key, { crops: cr, bbox: bx })
+            apply({ crops: cr, bbox: bx })
+        })
+        return () => { alive = false }
+    }, [matchId, tracklet.id])
+
+    // rAF loop: draw the detection nearest the playhead, scaling source px → displayed px
+    useEffect(() => {
+        const label = tracklet.suggested_number != null ? `#${tracklet.suggested_number}` : tracklet.pipeline_key
+        let raf = 0, lastT = -1, lastW = 0, lastH = 0
+        function loop() {
+            const v = videoRef.current
+            const c = canvasRef.current
+            if (v && c) {
+                const w = v.clientWidth, h = v.clientHeight
+                const t = v.currentTime
+                if (w && h && (t !== lastT || w !== lastW || h !== lastH)) {  // skip redraw while idle
+                    lastT = t; lastW = w; lastH = h
+                    if (c.width !== w) c.width = w
+                    if (c.height !== h) c.height = h
+                    const ctx = c.getContext('2d')
+                    ctx.clearRect(0, 0, w, h)
+                    const boxes = boxesRef.current
+                    const vw = v.videoWidth, vh = v.videoHeight
+                    if (boxes.length && vw && vh) {
+                        let lo = 0, hi = boxes.length - 1, best = -1, bd = Infinity
+                        while (lo <= hi) {
+                            const mid = (lo + hi) >> 1
+                            const d = Math.abs(boxes[mid][0] - t)
+                            if (d < bd) { bd = d; best = mid }
+                            if (boxes[mid][0] < t) lo = mid + 1; else hi = mid - 1
+                        }
+                        if (best >= 0 && bd <= 0.25) {  // gate: don't interpolate across gaps
+                            const [, x1, y1, x2, y2] = boxes[best]
+                            const sx = w / vw, sy = h / vh
+                            const bx = x1 * sx, by = y1 * sy, bw = (x2 - x1) * sx, bh = (y2 - y1) * sy
+                            ctx.lineWidth = 3
+                            ctx.strokeStyle = '#22d3ee'
+                            ctx.strokeRect(bx, by, bw, bh)
+                            ctx.font = '600 13px ui-sans-serif, system-ui'
+                            const tw = ctx.measureText(label).width + 8
+                            ctx.fillStyle = '#22d3ee'
+                            ctx.fillRect(bx, Math.max(0, by - 18), tw, 18)
+                            ctx.fillStyle = '#04222a'
+                            ctx.fillText(label, bx + 4, Math.max(12, by - 5))
+                        }
+                    }
+                }
+            }
+            raf = requestAnimationFrame(loop)
+        }
+        raf = requestAnimationFrame(loop)
+        return () => cancelAnimationFrame(raf)
+    }, [tracklet.suggested_number, tracklet.pipeline_key])
+
+    const onLoadedMetadata = () => {
+        const v = videoRef.current
+        if (v) { try { v.currentTime = first } catch { /* seek before ready */ } v.play().then(() => setPlaying(true)).catch(() => {}) }
+    }
+    // footage actually played: reset the re-mint budget so a later token expiry can re-mint again
+    const onLoadedData = () => { remintCountRef.current = 0; setMediaFailed(false) }
+    // cap automatic re-mints — a persistent failure (retention-expired blob / missing
+    // local artifact) must not loop re-mint → src change → reload → error forever.
+    const handleMediaError = () => {
+        if (remintCountRef.current >= MAX_MEDIA_REMINTS) { setMediaFailed(true); return }
+        remintCountRef.current += 1
+        onMediaError && onMediaError()
+    }
+    const onTimeUpdate = () => {
+        const v = videoRef.current
+        if (!v) return
+        setPos(v.currentTime)
+        if (v.currentTime >= last || v.currentTime < first - 0.5) v.currentTime = first  // loop the window
+    }
+    const seek = (s) => { const v = videoRef.current; if (v) { v.currentTime = s; setPos(s) } }
+    const togglePlay = () => { const v = videoRef.current; if (!v) return; if (v.paused) { v.play(); setPlaying(true) } else { v.pause(); setPlaying(false) } }
+
+    return (
+        <div className="mt-3 border-t pt-3 space-y-3">
+            <div className="relative w-full max-w-xl bg-black rounded-md overflow-hidden cursor-pointer" onClick={togglePlay}>
+                {mediaFailed ? (
+                    <div className="aspect-video flex items-center justify-center text-xs text-muted-foreground">footage unavailable</div>
+                ) : footageUrl ? (
+                    <video
+                        ref={videoRef}
+                        src={footageUrl}
+                        preload="metadata"
+                        playsInline
+                        muted
+                        className="w-full block"
+                        onLoadedMetadata={onLoadedMetadata}
+                        onLoadedData={onLoadedData}
+                        onTimeUpdate={onTimeUpdate}
+                        onPlay={() => setPlaying(true)}
+                        onPause={() => setPlaying(false)}
+                        onError={handleMediaError}
+                    />
+                ) : (
+                    <div className="aspect-video flex items-center justify-center text-xs text-muted-foreground">media token…</div>
+                )}
+                <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" />
+                {!playing && footageUrl && !mediaFailed && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <Play className="h-10 w-10 text-white/80" />
+                    </div>
+                )}
+            </div>
+
+            <div className="flex items-center gap-2 max-w-xl">
+                <span className="text-xs tabular-nums text-muted-foreground w-12">{formatSeconds(pos)}</span>
+                <Slider value={[Math.min(Math.max(pos, first), last)]} min={first} max={last} step={0.2} onValueChange={([v]) => seek(v)} className="flex-1" />
+                <span className="text-xs tabular-nums text-muted-foreground w-12 text-right">{formatSeconds(last)}</span>
+            </div>
+
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Crosshair className="h-3 w-3" />
+                {bbox.available && bbox.count
+                    ? `box tracks this player (${bbox.count} detections)`
+                    : 'box overlay unavailable for this tracklet'}
+                {' · '}window {formatSeconds(first)}–{formatSeconds(last)}
+            </p>
+
+            <div>
+                <p className="text-xs font-medium mb-1">Sharpest crops {crops?.length ? `(${crops.length})` : ''}</p>
+                {crops === null ? (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> loading…</div>
+                ) : crops.length ? (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                        {crops.map((c) => {
+                            // prod crops carry only {file} (no timestamp) — render those as
+                            // non-clickable so seek(undefined) can't throw.
+                            const seekable = Number.isFinite(c.t)
+                            return (
+                                <button
+                                    key={c.file}
+                                    type="button"
+                                    onClick={seekable ? () => seek(c.t) : undefined}
+                                    disabled={!seekable}
+                                    title={seekable ? `jump to ${formatSeconds(c.t)} · sharpness ${c.laplacian_var}` : undefined}
+                                    className={`shrink-0 rounded border ${seekable ? 'hover:ring-2 hover:ring-cyan-400' : 'cursor-default'}`}
+                                >
+                                    <img src={APIService.videoCropUrl(matchId, c.file, mediaToken)} alt="player crop" className="h-24 w-auto rounded" loading="lazy" />
+                                </button>
+                            )
+                        })}
+                    </div>
+                ) : (
+                    <p className="text-xs text-muted-foreground">no crops for this tracklet</p>
+                )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+                {onAffirm && <Button size="sm" variant="outline" onClick={onAffirm}><ThumbsUp className="h-4 w-4 mr-1" /> Looks right</Button>}
+                {onSplit && tracklet.kind === 'chain' && (
+                    <Button size="sm" variant="outline" onClick={() => onSplit(Math.round(pos))} title="Two players merged into one track? Cut it at the playhead">
+                        <Scissors className="h-4 w-4 mr-1" /> Split here ({formatSeconds(pos)})
+                    </Button>
+                )}
+                <span className="text-xs text-muted-foreground">…or reassign / “not a player” above, then <strong>Save tags</strong>.</span>
+            </div>
+        </div>
+    )
+}
+
 export function AdminVideoMatch() {
     const { matchId } = useParams()
     const [match, setMatch] = useState(null)
@@ -80,6 +314,14 @@ export function AdminVideoMatch() {
     const [pendingTags, setPendingTags] = useState({})
     const [tagsSaving, setTagsSaving] = useState(false)
     const [report, setReport] = useState(null)
+    // review media: expanded rows + a match-scoped media token for <video>/<img> URLs
+    const [expanded, setExpanded] = useState({})
+    const [mediaToken, setMediaToken] = useState(null)
+    const [exportingFeedback, setExportingFeedback] = useState(false)
+    const [learning, setLearning] = useState(null)
+    const [manifest, setManifest] = useState(null)
+    const [splitHighlight, setSplitHighlight] = useState([])  // ids of just-split segments to surface
+    const tagReviewRef = useRef(null)
 
     const load = useCallback(async () => {
         try {
@@ -92,6 +334,7 @@ export function AdminVideoMatch() {
             if (data.status === 'finalized') {
                 const r = await APIService.getVideoReport(matchId)
                 setReport(r)
+                APIService.getVideoAccuracy(matchId).then(setLearning).catch(() => {})
             }
             return data
         } catch (err) {
@@ -108,6 +351,62 @@ export function AdminVideoMatch() {
         const id = setInterval(load, 5000)
         return () => clearInterval(id)
     }, [match, load])
+
+    // mint a media token once the match has reviewable tracklets (covers all rows)
+    useEffect(() => {
+        if (!match || mediaToken) return
+        if (match.status !== 'needs_tagging' && match.status !== 'finalized') return
+        APIService.videoMediaToken(match.id).then((r) => setMediaToken(r.token)).catch(() => {})
+    }, [match, mediaToken])
+
+    // re-mint on demand when a media request 403s (the 30-min token expired mid-session);
+    // URLs derive from mediaToken so updating it reloads the <video>/<img>.
+    const refreshMediaToken = useCallback(() => {
+        if (!match) return
+        APIService.videoMediaToken(match.id).then((r) => setMediaToken(r.token)).catch(() => {})
+    }, [match])
+
+    // one panel open at a time — avoids many <video> elements each Range-streaming the match file
+    const toggleExpand = (id) => setExpanded((p) => (p[id] ? {} : { [id]: true }))
+
+    const handleSplit = async (trackletId, atS) => {
+        setError(null)
+        try {
+            const res = await APIService.splitVideoTracklet(matchId, trackletId, atS)
+            setExpanded({})  // the original tracklet is gone; collapse
+            await load()
+            const ids = (res.segments || []).map((s) => s.id)
+            setSplitHighlight(ids)  // pin + highlight the new pieces so they're findable
+            setNotice(`Split into ${ids.length} pieces — pinned to the top of Tag review. Tag each (confirm the number or “not a player”), then Re-finalize.`)
+            requestAnimationFrame(() => tagReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+        } catch (err) {
+            setError(err.message)
+        }
+    }
+
+    const handleExportFeedback = async () => {
+        setExportingFeedback(true)
+        setError(null)
+        try {
+            const { rows } = await APIService.downloadVideoFeedback(matchId, 'ours')
+            setNotice(`Exported ${rows ?? ''} feedback row${rows === 1 ? '' : 's'} (our side, consented).`)
+        } catch (err) {
+            setError(err.message)
+        } finally {
+            setExportingFeedback(false)
+        }
+    }
+
+    const handleBuildManifest = async () => {
+        setError(null)
+        try {
+            const m = await APIService.getVideoTrainingManifest(matchId)
+            setManifest(m)
+            setNotice(`Fine-tune manifest: ${m.n_reader_examples} reader examples, ${m.n_reid_identities} ReID identities.`)
+        } catch (err) {
+            setError(err.message)
+        }
+    }
 
     useEffect(() => {
         if (match) {
@@ -246,7 +545,12 @@ export function AdminVideoMatch() {
     }
 
     const stageTag = (trackletId, change) => {
-        setPendingTags((prev) => ({ ...prev, [trackletId]: { ...prev[trackletId], ...change } }))
+        setPendingTags((prev) => {
+            const merged = { ...prev[trackletId], ...change }
+            // a fresh roster reassignment supersedes a carried-over "looks right" affirm
+            if ('roster_entry_id' in change && !('action' in change)) delete merged.action
+            return { ...prev, [trackletId]: merged }
+        })
     }
 
     const handleSaveTags = async () => {
@@ -260,6 +564,7 @@ export function AdminVideoMatch() {
         try {
             await APIService.bindVideoTags(matchId, tags)
             setPendingTags({})
+            setSplitHighlight([])  // the just-split pieces have now been handled
             setNotice(`${tags.length} tag change${tags.length === 1 ? '' : 's'} saved.`)
             await load()
         } catch (err) {
@@ -287,6 +592,10 @@ export function AdminVideoMatch() {
     }
 
     const job = match.job
+    // surface just-split pieces at the top of the review list
+    const reviewTracklets = splitHighlight.length
+        ? [...tracklets].sort((a, b) => (splitHighlight.includes(b.id) ? 1 : 0) - (splitHighlight.includes(a.id) ? 1 : 0))
+        : tracklets
     const trackletValue = (t, field, fallback) => {
         const pending = pendingTags[t.id]
         return pending && field in pending ? pending[field] : fallback
@@ -307,6 +616,10 @@ export function AdminVideoMatch() {
                     <Button variant="ghost" size="icon" onClick={load} aria-label="Refresh"><RefreshCw className="h-4 w-4" /></Button>
                 </div>
             </div>
+
+            <MatchProgress status={match.status} className="rounded-lg border p-3" />
+
+            <FilmRoomGuide defaultOpen={false} />
 
             {error && <p className="text-sm text-destructive">{error}</p>}
             {notice && <p className="text-sm text-emerald-600">{notice}</p>}
@@ -360,7 +673,15 @@ export function AdminVideoMatch() {
             {match.status !== 'finalized' && match.status !== 'created' && (
                 <Card>
                     <CardHeader>
-                        <CardTitle className="text-base">Timeline markers</CardTitle>
+                        <CardTitle className="text-base flex items-center gap-1.5">
+                            Timeline markers
+                            <HelpHint label="Timeline markers">
+                                Times are mm:ss into the video file (not the match clock). Kickoff is required. Kickoff and
+                                end bound the analysed window, and — with halftime + 2nd-half kickoff — the pipeline skips
+                                the halftime gap too, so only in-play minutes are processed (no wasted GPU on warm-ups,
+                                halftime or post-match).
+                            </HelpHint>
+                        </CardTitle>
                         <CardDescription>Kickoff is required before processing.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
@@ -386,7 +707,13 @@ export function AdminVideoMatch() {
             {match.status !== 'finalized' && (
                 <Card>
                     <CardHeader>
-                        <CardTitle className="text-base">Squad list ({match.roster?.length || 0})</CardTitle>
+                        <CardTitle className="text-base flex items-center gap-1.5">
+                            Squad list ({match.roster?.length || 0})
+                            <HelpHint label="Squad list">
+                                Only your own (club-owned) players get names and reports. Opposition players stay
+                                numbers-only and never enter the training set — a consent / safeguarding rule.
+                            </HelpHint>
+                        </CardTitle>
                         <CardDescription>One player per line: number then name — e.g. “10 John Smith”. Your team only; opposition stays numbers-only.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
@@ -446,18 +773,38 @@ export function AdminVideoMatch() {
             )}
 
             {(match.status === 'needs_tagging' || match.status === 'finalized') && (
-                <Card>
+                <Card ref={tagReviewRef}>
                     <CardHeader>
                         <CardTitle className="text-base">Tag review</CardTitle>
                         <CardDescription>
                             Confirm who is who. High-confidence suggestions are accepted automatically once you pick your side;
-                            review the rest — usually a few minutes, not a re-watch.
+                            review the rest — usually a few minutes, not a re-watch. Tap <ChevronRight className="inline h-3 w-3" /> on
+                            any row to watch that player’s video window with a tracking box, then confirm or correct.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                        {splitHighlight.length > 0 && (
+                            <div className="rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/20 p-3 flex items-start gap-2">
+                                <Scissors className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" />
+                                <p className="text-sm">
+                                    Your split created <strong>{splitHighlight.length} new pieces</strong> (highlighted below). The
+                                    original track was replaced. Tag each piece — confirm its number or mark “not a player” — then
+                                    <strong> Save tags</strong> and <strong>Re-finalize</strong>.
+                                    <button type="button" className="ml-2 underline text-muted-foreground" onClick={() => setSplitHighlight([])}>dismiss</button>
+                                </p>
+                            </div>
+                        )}
                         {match.our_team_cluster == null && (
                             <div className="rounded-lg border p-3 space-y-2">
-                                <p className="text-sm font-medium">Which side is your team?</p>
+                                <p className="text-sm font-medium flex items-center gap-1.5">
+                                    Which side is your team?
+                                    <HelpHint label="Pick your side">
+                                        The pipeline split the players into two kit-colour groups (A and B) but doesn’t know
+                                        which is yours. Pick it and every high-confidence player on your side is auto-tagged
+                                        instantly — you only review the rest. Check a few suggested numbers below against your
+                                        squad to tell the sides apart.
+                                    </HelpHint>
+                                </p>
                                 <div className="flex gap-2">
                                     <Button variant="outline" onClick={() => handlePickSide(0)}>
                                         Team A{match.our_kit_color ? ` (${match.our_kit_color}?)` : ''}
@@ -468,77 +815,135 @@ export function AdminVideoMatch() {
                             </div>
                         )}
 
+                        {reviewTracklets.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                                <span className="font-medium text-foreground">Each row is one detected player.</span>
+                                <span className="inline-flex items-center gap-1">
+                                    confident / uncertain
+                                    <HelpHint label="confident / uncertain" iconClassName="h-3 w-3">The model’s confidence in the jersey number it read.</HelpHint>
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                    mixed identity?
+                                    <HelpHint label="mixed identity" iconClassName="h-3 w-3">The track’s frames disagree on the number (under 70% agreement). Treat with suspicion — a Split often fixes it.</HelpHint>
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                    us / opposition · auto
+                                    <HelpHint label="us / opposition / auto" iconClassName="h-3 w-3">“us/opposition” = which side, once you’ve picked your team. “auto” = auto-tagged for you (high confidence) — confirm or correct it.</HelpHint>
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                    controls
+                                    <HelpHint label="row controls" iconClassName="h-3 w-3">Assign the right player from the dropdown, or the person-with-✗ to mark “not a player”. Tap › to watch this player’s looping window with a tracking box, confirm (“Looks right”), or Split a row that’s really two players.</HelpHint>
+                                </span>
+                            </div>
+                        )}
                         <div className="space-y-2">
-                            {tracklets.map((t) => {
+                            {reviewTracklets.map((t) => {
                                 const boundTo = trackletValue(t, 'roster_entry_id', t.roster_entry_id)
                                 const dismissed = trackletValue(t, 'dismissed', t.dismissed)
                                 const entry = boundTo ? rosterByEntryId[boundTo] : null
+                                const highlighted = splitHighlight.includes(t.id)
                                 return (
-                                    <div key={t.id} className={`rounded-lg border p-3 flex flex-wrap items-center gap-3 ${dismissed ? 'opacity-50' : ''}`}>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <span className="font-medium">
-                                                    {t.kind === 'chain' && t.suggested_number != null ? `#${t.suggested_number}` : t.pipeline_key}
-                                                </span>
-                                                {t.kind === 'chain' && (
-                                                    <Badge variant={t.confidence === 'high' ? 'default' : 'secondary'}>
-                                                        {t.confidence === 'high' ? 'confident' : 'uncertain'}
-                                                    </Badge>
-                                                )}
-                                                {t.team_cluster != null && t.team_cluster >= 0 && (
-                                                    <Badge variant="outline">{match.our_team_cluster == null ? `side ${t.team_cluster === 0 ? 'A' : 'B'}` : (t.team_cluster === match.our_team_cluster ? 'us' : 'opposition')}</Badge>
-                                                )}
-                                                {t.contaminated && (
-                                                    <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" />mixed identity</Badge>
-                                                )}
-                                                {t.tag_source === 'auto' && !pendingTags[t.id] && <Badge variant="secondary">auto</Badge>}
-                                            </div>
-                                            <p className="text-xs text-muted-foreground">
-                                                visible {Math.round((t.visible_s || 0) / 60)}m · {formatSeconds(t.first_s)}–{formatSeconds(t.last_s)}
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Select
-                                                value={boundTo ? String(boundTo) : 'none'}
-                                                onValueChange={(v) => stageTag(t.id, { roster_entry_id: v === 'none' ? null : Number(v), dismissed: false })}
-                                                disabled={dismissed}
+                                    <div key={t.id} className={`rounded-lg border p-3 ${dismissed ? 'opacity-50' : ''} ${highlighted ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}>
+                                        <div className="flex flex-wrap items-center gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleExpand(t.id)}
+                                                className="text-muted-foreground hover:text-foreground shrink-0"
+                                                aria-label={expanded[t.id] ? 'Collapse' : 'Watch video'}
+                                                title="Watch this player's video"
                                             >
-                                                <SelectTrigger className="w-44">
-                                                    <SelectValue placeholder="Assign player…">
-                                                        {entry ? `#${entry.jersey_number} ${entry.player_name}` : 'Unassigned'}
-                                                    </SelectValue>
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="none">Unassigned</SelectItem>
-                                                    {(match.roster || []).map((r) => (
-                                                        <SelectItem key={r.id} value={String(r.id)}>#{r.jersey_number} {r.player_name}</SelectItem>
+                                                {expanded[t.id] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                            </button>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="font-medium">
+                                                        {t.kind === 'chain' && t.suggested_number != null ? `#${t.suggested_number}` : t.pipeline_key}
+                                                    </span>
+                                                    {t.kind === 'chain' && (t.contaminated ? (
+                                                        <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" />mixed identity?</Badge>
+                                                    ) : (
+                                                        <Badge variant={t.confidence === 'high' ? 'default' : 'secondary'}>
+                                                            {t.confidence === 'high' ? 'confident' : 'uncertain'}
+                                                        </Badge>
                                                     ))}
-                                                </SelectContent>
-                                            </Select>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                aria-label="Not a player"
-                                                title="Not a player (spectator/staff)"
-                                                onClick={() => stageTag(t.id, { dismissed: !dismissed })}
-                                            >
-                                                <UserX className={`h-4 w-4 ${dismissed ? 'text-destructive' : ''}`} />
-                                            </Button>
+                                                    {t.team_cluster != null && t.team_cluster >= 0 && (
+                                                        <Badge variant="outline">{match.our_team_cluster == null ? `side ${t.team_cluster === 0 ? 'A' : 'B'}` : (t.team_cluster === match.our_team_cluster ? 'us' : 'opposition')}</Badge>
+                                                    )}
+                                                    {t.tag_source === 'auto' && !pendingTags[t.id] && <Badge variant="secondary">auto</Badge>}
+                                                    {t.review_action && !pendingTags[t.id] && (
+                                                        <Badge variant="outline" className="text-emerald-600 border-emerald-500/40"><CheckCircle2 className="h-3 w-3 mr-1" />{t.review_action}</Badge>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs text-muted-foreground">
+                                                    visible {Math.round((t.visible_s || 0) / 60)}m · {formatSeconds(t.first_s)}–{formatSeconds(t.last_s)}
+                                                    {t.evidence?.number_agreement != null && t.evidence.number_agreement < 1
+                                                        ? ` · ${Math.round(t.evidence.number_agreement * 100)}% number agreement` : ''}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Select
+                                                    value={boundTo ? String(boundTo) : 'none'}
+                                                    onValueChange={(v) => stageTag(t.id, { roster_entry_id: v === 'none' ? null : Number(v), dismissed: false })}
+                                                    disabled={dismissed}
+                                                >
+                                                    <SelectTrigger className="w-44">
+                                                        <SelectValue placeholder="Assign player…">
+                                                            {entry ? `#${entry.jersey_number} ${entry.player_name}` : 'Unassigned'}
+                                                        </SelectValue>
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="none">Unassigned</SelectItem>
+                                                        {(match.roster || []).map((r) => (
+                                                            <SelectItem key={r.id} value={String(r.id)}>#{r.jersey_number} {r.player_name}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    aria-label="Not a player"
+                                                    title="Not a player (spectator/staff)"
+                                                    onClick={() => stageTag(t.id, { dismissed: !dismissed })}
+                                                >
+                                                    <UserX className={`h-4 w-4 ${dismissed ? 'text-destructive' : ''}`} />
+                                                </Button>
+                                            </div>
                                         </div>
+                                        {expanded[t.id] && (
+                                            <TrackletEvidencePanel
+                                                matchId={matchId}
+                                                tracklet={t}
+                                                mediaToken={mediaToken}
+                                                onMediaError={refreshMediaToken}
+                                                onAffirm={boundTo != null ? () => stageTag(t.id, { roster_entry_id: boundTo, action: 'confirmed', dismissed: false }) : null}
+                                                onSplit={(atS) => handleSplit(t.id, atS)}
+                                            />
+                                        )}
                                     </div>
                                 )
                             })}
                             {tracklets.length === 0 && <p className="text-sm text-muted-foreground">No tracklets yet.</p>}
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <Button onClick={handleSaveTags} disabled={tagsSaving || Object.keys(pendingTags).length === 0}>
                                 {tagsSaving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
                                 Save tags ({Object.keys(pendingTags).length})
                             </Button>
+                            <HelpHint label="Save tags vs Finalize">
+                                <strong>Save tags</strong> writes your staged changes (the number in the button) to the server.
+                                <strong> Finalize</strong> then rebuilds the per-player report from your confirmed identities.
+                                Re-finalizing never re-runs the GPU — it just re-aggregates, so correct and re-finalize freely.
+                            </HelpHint>
                             <Button variant="outline" onClick={handleFinalize}>
                                 <CheckCircle2 className="h-4 w-4 mr-1" /> {match.status === 'finalized' ? 'Re-finalize' : 'Finalize match'}
                             </Button>
+                            {match.status === 'finalized' && (
+                                <Button variant="ghost" onClick={handleExportFeedback} disabled={exportingFeedback} title="Per-crop labels from your corrections — feeds the identity model (our side only)">
+                                    {exportingFeedback ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Download className="h-4 w-4 mr-1" />}
+                                    Export feedback
+                                </Button>
+                            )}
                         </div>
                     </CardContent>
                 </Card>
@@ -547,7 +952,16 @@ export function AdminVideoMatch() {
             {match.status === 'finalized' && report && (
                 <Card>
                     <CardHeader>
-                        <CardTitle className="text-base">Player reports</CardTitle>
+                        <CardTitle className="text-base flex items-center gap-1.5">
+                            Player reports
+                            <HelpHint label="Player reports">
+                                Identity confidence ranks <em>you confirmed</em> &gt; high &gt; low &gt; unverified — a stat is only as
+                                trustworthy as the identity it hangs on. Coverage is on-camera time (a panning camera never sees
+                                everyone). “pending calibration” = needs the pitch-homography stage (not wired yet); “beta” =
+                                experimental. Both are shown honestly, never guessed. A player we never confidently saw still
+                                gets a row (unverified / 0 min) — more honest than silent omission.
+                            </HelpHint>
+                        </CardTitle>
                         <CardDescription>
                             Every figure carries its own confidence, gated by identity — a stat is only as
                             trustworthy as the player it’s attributed to. Coverage shows how much of each player we
@@ -593,6 +1007,52 @@ export function AdminVideoMatch() {
                             })}
                             {(report.reports || []).length === 0 && (
                                 <p className="text-sm text-muted-foreground">No reports — bind tracklets to players, then re-finalize.</p>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {match.status === 'finalized' && learning && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2"><Brain className="h-4 w-4" /> Model accuracy &amp; learning</CardTitle>
+                        <CardDescription>
+                            How the model did on this match vs your corrections — and how those corrections feed back to
+                            improve it: recalibrate the thresholds + fine-tune the jersey reader. Your review IS the training signal.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <Stat label="Chains reviewed" value={`${learning.accuracy.reviewed}/${learning.accuracy.chains_total}`} hint="How many detected players you’ve acted on (confirmed/reassigned/dismissed/split) out of the total." />
+                            <Stat label="Auto-tag precision" value={learning.accuracy.auto_tag_precision != null ? `${Math.round(learning.accuracy.auto_tag_precision * 100)}%` : '—'} hint="Of the players the model auto-tagged, the share you confirmed as correct (vs reassigned/dismissed)." />
+                            <Stat label="Number-read accuracy" value={learning.accuracy.number_read_accuracy != null ? `${Math.round(learning.accuracy.number_read_accuracy * 100)}%` : '—'} hint="How often the jersey number it read matched the player you confirmed." />
+                            <Stat label="Corrections" value={`${learning.accuracy.reassigned + learning.accuracy.dismissed + learning.accuracy.splits}`} hint="Total fixes you made: reassignments + “not a player” + splits. Each one is a training signal." />
+                        </div>
+                        <div className="text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
+                            <span>confirmed {learning.accuracy.confirmed}</span>
+                            <span>reassigned {learning.accuracy.reassigned}</span>
+                            <span>dismissed {learning.accuracy.dismissed}</span>
+                            <span>split {learning.accuracy.splits}</span>
+                            <span>unreviewed {learning.accuracy.unreviewed}</span>
+                        </div>
+                        <div className="rounded-lg border p-3 space-y-1">
+                            <p className="text-xs font-medium">Recalibration signals (tune thresholds next round)</p>
+                            {(learning.recalibration.suggestions || []).map((s, i) => (
+                                <p key={i} className="text-xs text-muted-foreground">• {s}</p>
+                            ))}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={handleBuildManifest}><Brain className="h-4 w-4 mr-1" /> Build fine-tune manifest</Button>
+                            <HelpHint label="Fine-tune manifest">
+                                Turns your confirmed crops into a training set — “crop → number” for the jersey reader and
+                                “identity → crops” for player-recognition. Consent-gated: only your own players’ crops, never
+                                opposition. The actual retraining is a separate offline step.
+                            </HelpHint>
+                            {manifest && (
+                                <span className="text-xs text-muted-foreground">
+                                    {manifest.n_reader_examples} reader examples · {manifest.n_reid_identities} ReID identities · {manifest.n_negatives} negatives (consented, our side)
+                                </span>
                             )}
                         </div>
                     </CardContent>

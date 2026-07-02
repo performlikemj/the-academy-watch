@@ -245,6 +245,12 @@ class VideoTracklet(db.Model):
     tag_source = db.Column(db.String(10))  # auto|human|None
     dismissed = db.Column(db.Boolean, nullable=False, default=False)  # marked not-a-player
 
+    # Human review audit (set in tag review). Distinguishes "human agreed with auto"
+    # from "human corrected it" — survives pipeline re-runs + drives the feedback export.
+    reviewed_at = db.Column(db.DateTime)
+    review_action = db.Column(db.String(20))  # confirmed|reassigned|dismissed
+    reviewer_email = db.Column(db.String(200))
+
     roster_entry = db.relationship("VideoRosterEntry", foreign_keys=[roster_entry_id])
 
     def to_dict(self) -> dict:
@@ -267,6 +273,8 @@ class VideoTracklet(db.Model):
             "roster_entry_id": self.roster_entry_id,
             "tag_source": self.tag_source,
             "dismissed": self.dismissed,
+            "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
+            "review_action": self.review_action,
         }
 
 

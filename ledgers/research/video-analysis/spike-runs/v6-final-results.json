@@ -1,0 +1,116 @@
+{
+  "generated_at": "2026-06-10T09:54:49+00:00",
+  "config": {
+    "device": "cuda",
+    "detector": "rfdetr-medium",
+    "sample_fps": 12.5,
+    "batch": 8,
+    "threshold": 0.5,
+    "slicer_mode": "both",
+    "crop_cap": 2000,
+    "smoke": false
+  },
+  "video": {
+    "path": "/tmp/work/match.mp4",
+    "duration_s": 6921.1142,
+    "native_fps": 29.97002997002997,
+    "width": 1920,
+    "height": 1080
+  },
+  "tracker_backend": "trackers.BoTSORTTracker (CMC on)",
+  "main_pass_error": null,
+  "frames_processed": 86525,
+  "processed_seconds": 6921.0,
+  "stages": {
+    "model_load": {
+      "seconds": 10.955,
+      "units": 0,
+      "units_per_sec": 0.0
+    },
+    "decode": {
+      "seconds": 330.085,
+      "units": 86525,
+      "units_per_sec": 262.13
+    },
+    "detect": {
+      "seconds": 3969.815,
+      "units": 86525,
+      "units_per_sec": 21.796
+    },
+    "track": {
+      "seconds": 1136.351,
+      "units": 86525,
+      "units_per_sec": 76.143
+    },
+    "render": {
+      "seconds": 5.724,
+      "units": 375,
+      "units_per_sec": 65.513
+    },
+    "cluster_model_load": {
+      "seconds": 7.221,
+      "units": 0,
+      "units_per_sec": 0.0
+    },
+    "cluster_embed": {
+      "seconds": 21.41,
+      "units": 1982,
+      "units_per_sec": 92.572
+    },
+    "cluster_fit": {
+      "seconds": 14.268,
+      "units": 1982,
+      "units_per_sec": 138.915
+    }
+  },
+  "tracklets": {
+    "n_tracklets": 8277,
+    "mean_duration_s": 8.93,
+    "median_duration_s": 4.85,
+    "max_duration_s": 137.05,
+    "tracklets_per_minute": 71.76,
+    "note": "tracklets/min is an ID-switch proxy: ~22-30/90min would be perfect persistence; hundreds/min means constant identity churn"
+  },
+  "team_cluster": {
+    "status": "ok",
+    "n_crops": 1982,
+    "cluster_sizes": [
+      1117,
+      865
+    ],
+    "silhouette_umap3d": 0.479,
+    "note": "silhouette > ~0.5 with roughly balanced clusters = clean kit separation; low/lopsided = kit clash, bibs, or referee/keeper contamination"
+  },
+  "slicer_benchmark": {
+    "status": "ok",
+    "frames": 250,
+    "seconds": 78.52,
+    "fps": 3.184,
+    "mean_detections_per_frame": 12.1,
+    "slice_wh": 640,
+    "overlap_wh": 100
+  },
+  "extrapolation_90min": {
+    "assumes_frames": 67500,
+    "frames_measured": 86525,
+    "fixed_overhead_seconds": 59.8,
+    "detect_mode_in_main_pass": "both",
+    "fullframe": {
+      "total_seconds": 4300.7,
+      "gpu_hours": 1.195,
+      "cost_usd_aca_t4": 1.0,
+      "cost_usd_aml_spot": 0.38,
+      "passes_3p5h_gate": true,
+      "detect_fps": 21.8
+    },
+    "sliced": {
+      "total_seconds": 22403.5,
+      "gpu_hours": 6.223,
+      "cost_usd_aca_t4": 5.23,
+      "cost_usd_aml_spot": 1.99,
+      "passes_3p5h_gate": false,
+      "detect_fps": 3.18
+    },
+    "slicer_cost_multiplier": 6.85
+  }
+}

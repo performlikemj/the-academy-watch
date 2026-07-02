@@ -1,0 +1,67 @@
+{
+  "E214_0.jpg": {
+    "jersey_number": null,
+    "shirt_color": "blue",
+    "role": "outfield"
+  },
+  "E214_1.jpg": {
+    "jersey_number": null,
+    "shirt_color": "blue",
+    "role": "outfield"
+  },
+  "E258_0.jpg": {
+    "jersey_number": null,
+    "shirt_color": "red",
+    "role": "outfield"
+  },
+  "E258_1.jpg": {
+    "jersey_number": null,
+    "shirt_color": "red",
+    "role": "outfield"
+  },
+  "E296_0.jpg": {
+    "jersey_number": null,
+    "shirt_color": "red",
+    "role": "outfield"
+  },
+  "E296_1.jpg": {
+    "jersey_number": null,
+    "shirt_color": "red",
+    "role": "outfield"
+  },
+  "E419_0.jpg": {
+    "jersey_number": null,
+    "shirt_color": "orange",
+    "role": "outfield"
+  },
+  "E419_1.jpg": {
+    "jersey_number": null,
+    "shirt_color": "orange",
+    "role": "outfield"
+  },
+  "E497_0.jpg": {
+    "jersey_number": null,
+    "shirt_color": "red",
+    "role": "outfield"
+  },
+  "E497_1.jpg": {
+    "jersey_number": null,
+    "shirt_color": "red",
+    "role": "outfield"
+  },
+  "E846_0.jpg": {
+    "jersey_number": 10,
+    "shirt_color": "red",
+    "role": "outfield"
+  },
+  "E846_1.jpg": {
+    "jersey_number": 10,
+    "shirt_color": "red",
+    "role": "outfield"
+  },
+  "E99999_0.jpg": {
+    "jersey_number": null,
+    "shirt_color": "dark grey",
+    "role": "outfield"
+  }
+}

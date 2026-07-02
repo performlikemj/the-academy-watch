@@ -1,0 +1,30 @@
+{
+  "frames_done": 85000,
+  "stages": {
+    "model_load": {
+      "seconds": 13.542,
+      "units": 0,
+      "units_per_sec": 0.0
+    },
+    "decode": {
+      "seconds": 309.172,
+      "units": 85000,
+      "units_per_sec": 274.928
+    },
+    "detect": {
+      "seconds": 3947.32,
+      "units": 85000,
+      "units_per_sec": 21.534
+    },
+    "track": {
+      "seconds": 1129.361,
+      "units": 85000,
+      "units_per_sec": 75.264
+    },
+    "render": {
+      "seconds": 5.775,
+      "units": 375,
+      "units_per_sec": 64.932
+    }
+  }
+}
