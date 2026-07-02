@@ -231,7 +231,40 @@
                 {% endif %}
               </div>
               {% endfor %}
-
+{% if groups %}
+              {% for group in groups %}
+              <div class="group-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:#9a9a9a;margin:24px 0 12px;">{{ group.name }}</div>
+              {% for player in group.cards %}
+              <div class="player-card">
+                <p class="player-name">
+                  <a href="{{ player.player_url }}" target="_blank" rel="noopener">{{ player.player_name }}</a>
+                </p>
+                <div class="player-clubs">
+                  {% if player.parent_club %}{{ player.parent_club }}{% endif %}
+                  {% if player.parent_club and player.current_club %} → {% endif %}
+                  {% if player.current_club %}{{ player.current_club }}{% endif %}
+                </div>
+                {% if player.status %}
+                <span class="player-status">{{ player.status | replace('_', ' ') }}</span>
+                {% endif %}
+                {% if player.headline %}
+                <p class="player-headline">{{ player.headline }}</p>
+                {% endif %}
+                <p class="season-line">{{ player.season_line }}</p>
+                {% if player.chips %}
+                <div>
+                  {% for chip in player.chips %}
+                  <span class="chip">{{ chip }}</span>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                {% if player.note %}
+                <p class="player-note">{{ player.note }}</p>
+                {% endif %}
+              </div>
+              {% endfor %}
+              {% endfor %}
+              {% endif %}
               <div class="footer">
                 <p>
                   <a href="{{ watchlist_url }}" target="_blank" rel="noopener">Manage this digest from your

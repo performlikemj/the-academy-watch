@@ -516,6 +516,52 @@ export class APIService {
         return blob
     }
 
+    // --- Follow lists (scout follow graph) — user-authed ---
+    static async getFollowLists() {
+        return this.request('/scout/lists')
+    }
+
+    static async createFollowList(name) {
+        return this.request('/scout/lists', {
+            method: 'POST',
+            body: JSON.stringify({ name })
+        })
+    }
+
+    static async updateFollowList(listId, payload) {
+        return this.request(`/scout/lists/${listId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    static async deleteFollowList(listId) {
+        return this.request(`/scout/lists/${listId}`, { method: 'DELETE' })
+    }
+
+    static async addFollow(listId, { kind, selector, note } = {}) {
+        const body = { kind, selector }
+        if (note) body.note = note
+        return this.request(`/scout/lists/${listId}/follows`, {
+            method: 'POST',
+            body: JSON.stringify(body)
+        })
+    }
+
+    static async removeFollow(listId, followId) {
+        return this.request(`/scout/lists/${listId}/follows/${followId}`, { method: 'DELETE' })
+    }
+
+    static async resolveFollowList(listId, { limit = 20, offset = 0 } = {}) {
+        const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+        return this.request(`/scout/lists/${listId}/resolve?${params}`)
+    }
+
+    static async scoutPlayerSearch(q) {
+        const params = new URLSearchParams({ q })
+        return this.request(`/scout/player-search?${params}`)
+    }
+
     static async getPlayerAvailability(playerId, season) {
         const query = season ? `?season=${season}` : ''
         return this.request(`/players/${playerId}/availability${query}`)

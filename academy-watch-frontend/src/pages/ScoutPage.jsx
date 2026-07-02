@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Loader2, Search, ArrowUpDown, ArrowLeft, ArrowRight,
   Trophy, Zap, Clock, Gauge, X, GitCompareArrows, Globe,
-  Star, Download, Link2,
+  Star, Download, Link2, ListChecks,
 } from 'lucide-react'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
 
@@ -532,6 +532,12 @@ export function ScoutPage() {
                     {watchedIds.size}
                   </span>
                 )}
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/scout/lists" className="no-underline hover:no-underline">
+                <ListChecks className="mr-1.5 h-4 w-4" />
+                Lists
               </Link>
             </Button>
             <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting}>

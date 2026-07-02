@@ -3550,6 +3550,23 @@ class APIFootballClient:
             return deepcopy(payload[0]) if payload else {}
         return deepcopy(payload)
 
+    def search_player_profiles_global(self, query: str) -> list[dict[str, Any]]:
+        """Worldwide player-profile search via ``players/profiles`` {"search": q}.
+
+        A single, league-agnostic call (unlike ``search_player_profiles`` which
+        fans out one request per supported league for a bare query) that returns
+        profile-shaped rows for shadow-player discovery. DB-cached like
+        ``get_player_profile``; returns [] for a too-short query or in stub mode.
+        """
+        q = str(query or "").strip()
+        if len(q) < 3:
+            return []
+        resp = self._make_request("players/profiles", {"search": q})
+        payload = resp.get("response") or []
+        if not isinstance(payload, list):
+            return []
+        return [deepcopy(item) for item in payload]
+
     def search_player_profiles(
         self,
         query: str,

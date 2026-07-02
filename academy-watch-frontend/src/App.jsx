@@ -86,6 +86,7 @@ import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
 import { CohortBrowser } from '@/pages/CohortBrowser'
 import { ScoutPage } from '@/pages/ScoutPage'
 import { WatchlistPage } from '@/pages/WatchlistPage'
+import { ListsPage } from '@/pages/ListsPage'
 import { PricingPage } from '@/pages/PricingPage'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
@@ -4026,6 +4027,7 @@ function AppRoutes() {
       <Route path="/flag" element={<FlagData />} />
       <Route path="/scout" element={<ScoutPage />} />
       <Route path="/scout/watchlist" element={<WatchlistPage />} />
+      <Route path="/scout/lists" element={<ListsPage />} />
       <Route path="/pricing" element={<PricingPage />} />
       <Route path="/academy" element={<CohortBrowser />} />
       <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
