@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Navigate } from 'react-router-dom'
 import { AlertCircle, KeyRound, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
@@ -31,11 +31,48 @@ export function AdminLayout() {
     const [keyInput, setKeyInput] = useState('')
     const [validatingKey, setValidatingKey] = useState(false)
     const [keyError, setKeyError] = useState(null)
+    // A stored key that the server rejects should not silently 403 every admin
+    // page — surface the key-entry screen (below) instead. Tracks the last key
+    // value we verified so we validate a given key only once per session.
+    const [keyRejected, setKeyRejected] = useState(false)
+    const validatedKeyRef = useRef(null)
 
     useEffect(() => {
         if (typeof localStorage === 'undefined') return
         localStorage.setItem(SIDEBAR_COLLAPSE_KEY, collapsed ? 'true' : 'false')
     }, [collapsed])
+
+    // Verify the stored admin key when entering the admin section. Presence of a
+    // key is not proof it is correct, so without this a stale/wrong key would let
+    // every page load and then 403 with no affordance to replace it. Only an
+    // explicit 401/403 flags the key invalid; transient/5xx failures are ignored
+    // so a backend blip never locks an admin out.
+    useEffect(() => {
+        if (!token || !isAdmin || !hasApiKey) return
+        const currentKey = APIService.adminKey
+        if (!currentKey || validatedKeyRef.current === currentKey) return
+        let cancelled = false
+        const verify = async () => {
+            try {
+                await APIService.validateAdminCredentials()
+                if (cancelled) return
+                validatedKeyRef.current = currentKey
+                setKeyRejected(false)
+            } catch (error) {
+                if (cancelled) return
+                if (error?.status === 401 || error?.status === 403) {
+                    validatedKeyRef.current = currentKey
+                    const baseError = error?.body?.error || error?.message || 'Access denied'
+                    setKeyError(`Stored admin key was rejected: ${baseError}. Paste a valid key to continue.`)
+                    setKeyRejected(true)
+                }
+            }
+        }
+        verify()
+        return () => {
+            cancelled = true
+        }
+    }, [token, isAdmin, hasApiKey])
 
     useEffect(() => {
         const closeOnResize = () => {
@@ -67,8 +104,12 @@ export function AdminLayout() {
         try {
             await APIService.validateAdminCredentials()
             setKeyInput('')
+            setKeyError(null)
+            setKeyRejected(false)
+            validatedKeyRef.current = trimmed
         } catch (error) {
             APIService.setAdminKey('')
+            validatedKeyRef.current = null
             const baseError = error?.body?.error || error?.message || 'Key rejected by server'
             const detail = error?.body?.detail || ''
             setKeyError(`Admin key not accepted: ${baseError}${detail ? ` — ${detail}` : ''}`)
@@ -77,7 +118,7 @@ export function AdminLayout() {
         }
     }
 
-    if (!hasApiKey || validatingKey) {
+    if (!hasApiKey || validatingKey || keyRejected) {
         return (
             <div className="min-h-screen bg-secondary flex items-center justify-center p-4">
                 <Card className="w-full max-w-md" data-testid="admin-api-key-bootstrap">
@@ -87,8 +128,9 @@ export function AdminLayout() {
                             Enter admin API key
                         </CardTitle>
                         <CardDescription>
-                            You are signed in as an admin, but no admin API key is stored on this
-                            device. It is kept in local storage and only sent with admin requests.
+                            {keyRejected
+                                ? 'The admin API key stored on this device was rejected by the server. Paste a current key to continue — it is kept in local storage and only sent with admin requests.'
+                                : 'You are signed in as an admin, but no admin API key is stored on this device. It is kept in local storage and only sent with admin requests.'}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
