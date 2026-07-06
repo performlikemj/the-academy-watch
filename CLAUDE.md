@@ -1,222 +1,66 @@
-# CLAUDE.md
+# The Academy Watch
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Football (soccer) academy-tracking platform: it follows academy players out on loan,
+syncs their career/stats from API-Football, and generates AI newsletters that
+journalists add commentary to. Monorepo — a Flask backend (`academy-watch-backend/`)
+serving a React/Vite SPA (`academy-watch-frontend/`), both deployed to Azure off a
+single Supabase Postgres. The load-bearing fact: the whole domain hangs off
+**`TrackedPlayer`** (one row per player per parent academy club) and the **journey
+sync** that classifies each player's pathway status — get those wrong and every
+page lies.
 
-## Project Overview
+## How to use this file
 
-**The Academy Watch** is a football (soccer) academy tracking platform that monitors academy players on loan, generates AI-powered newsletters, and enables journalists to write content about loaned players. It integrates with API-Football for player/fixture data, Stripe for payments, Mailgun for email delivery, and Reddit for social posting.
+This file is a router, not the manual. Deep context lives in `docs/agents/` —
+each doc encodes hard-won lessons, and skipping them repeats old mistakes.
+**Read the matching doc BEFORE starting work in its area:**
 
-## Development Commands
+| When you are... | Read first |
+|---|---|
+| Touching player tracking, journey sync, stats, or the data flow | `docs/agents/architecture.md` |
+| Changing models, migrations, journey/status logic, or the DB connection | `docs/agents/invariants.md` — permanent rules; each broke prod once |
+| Debugging a live issue (CI red, deploy fail, prod down, data missing) | `docs/agents/debugging.md` |
+| Committing, pushing, merging, deploying, migrating, or handling Dependabot | `docs/agents/workflow.md` |
+| Writing backend code (Flask / SQLAlchemy / Alembic) | `docs/agents/backend.md` |
+| Writing frontend code (React / Vite / Tailwind / Radix) | `docs/agents/frontend.md` |
 
-### Backend (Flask)
+**Ledger protocol (this repo's own system, still in force):** before ANY work read
+`AGENTS.md` + `CONTINUITY.md` and check `ledgers/` for an active planning ledger;
+update `CONTINUITY.md` when state changes. Autonomous runs go through `scripts/ralph/`.
+
+## Tech stack
+
+- **Backend**: Flask 3.1 + SQLAlchemy 2.0 + Alembic, Python **3.11** (Docker `python:3.11-slim`; ruff config targets py312, venv `.loan` is 3.11)
+- **Frontend**: React 19 + Vite 6 + Tailwind 4 + Radix UI, pnpm, ESLint flat config (`.jsx`)
+- **Data**: PostgreSQL on **Supabase** (`snqwamzutbcbjgusubsa`, us-west-1); RLS on all public tables
+- **Infra**: Azure Container Apps (backend `ca-loan-army-backend`) + Static Web App (frontend `swa-goonloan`), ACR `acrloanarmy`, RG `rg-loan-army-westus2`
+- **Integrations**: API-Football (all football data), Stripe Connect (writer payouts), Mailgun (email), Reddit, OpenAI (AI newsletters)
+
+```
+React/Vite SPA ──/api proxy──▶ Flask (13 blueprints) ──▶ Supabase Postgres (RLS + Alembic)
+                                     │
+                     API-Football · Stripe · Mailgun · Reddit · OpenAI
+```
+
+## Key commands
+
 ```bash
-cd academy-watch-backend
-
-# Run development server (port 5001)
-python src/main.py
-
-# Run with virtual environment
-../.loan/bin/python src/main.py
-
-# Database migrations
-flask db upgrade                    # Apply migrations
-flask db migrate -m "description"   # Create new migration
-flask db downgrade                  # Rollback one migration
+cd academy-watch-backend && python src/main.py        # backend dev (:5001)
+cd academy-watch-frontend && pnpm dev                 # frontend dev (:5173, proxies /api→:5001)
+ruff check academy-watch-backend && ruff format --check academy-watch-backend   # backend CI lint gates
+cd academy-watch-frontend && pnpm lint && pnpm build  # frontend CI gates (build failure blocks)
+cd academy-watch-backend && flask db upgrade          # apply migrations (head chain in backend.md)
+cd academy-watch-frontend && pnpm exec playwright test tests/<file>.mjs   # single E2E while iterating
 ```
 
-### Frontend (React/Vite)
-```bash
-cd academy-watch-frontend
+## Iron rules (always active — rationale in docs/agents/)
 
-pnpm install          # Install dependencies
-pnpm dev              # Dev server (port 5173, proxies /api to :5001)
-pnpm build            # Production build
-pnpm lint             # ESLint
-```
+- **PR flow, never push to main.** `main` is unprotected but the team runs PR → merge → watch-deploy on every change; branch (`feat/` `fix/` `chore/` `refactor/`), and use a worktree when the tree is dirty. Broad staging (`git add -A`/`.`), `--no-verify`, and force-push-main are blocked by the global git hook.
+- **CI gates local defaults miss:** `ruff format --check` is a separate gate from `ruff check`; frontend `pnpm build` must succeed (not just lint); `pnpm install --frozen-lockfile` fails on a stale lockfile; the Deploy job's RLS check **fails the deploy if any new public table lacks Row Level Security**. See `workflow.md`.
+- **Prod DB is reached via the IPv4 pooler + `postgresql+psycopg://` only** — the direct (IPv6) host is unreachable from ACA and a bare `postgresql://` loads the absent psycopg2. See `invariants.md`.
+- **Never reference the deleted `AcademyPlayer`/`SupplementalLoan` models** — use `TrackedPlayer`. **Alembic migrations guard every DDL** (prod schema drifted out-of-band). **Never bulk-sync/recompute against the live prod container** — it's tiny and falls over. See `invariants.md`.
+- **Secrets:** never print secrets or dump env; read live values via `az containerapp secret show`. Prod `SECRET_KEY` is a `kvref:` literal — do NOT "fix"/rotate it without a token-revocation plan (`invariants.md`).
 
-### Testing
-```bash
-cd academy-watch-frontend
+## Commit convention
 
-# Run all Playwright E2E tests
-pnpm test:e2e
-
-# Run a single test file
-pnpm exec playwright test tests/admin-teams.test.mjs
-
-# Run tests with UI
-pnpm exec playwright test --ui
-```
-
-### Deployment
-```bash
-# CI auto-deploys on push to main (GitHub Actions → Azure Container Apps)
-# Manual deployment (rarely needed):
-./deploy_aca.sh
-```
-
-### Container Access
-```bash
-# Exec into production container
-az containerapp exec --name ca-loan-army-backend --resource-group rg-loan-army-westus2 --command /bin/sh
-
-# Run migrations in container
-FLASK_APP=src/main.py flask db upgrade
-
-# The Dockerfile only copies src/ and migrations/ — scripts at repo root are NOT in the image
-# Place runnable scripts in src/scripts/ to include them
-```
-
-### Alembic Migrations
-- All migrations use idempotent helpers from `migrations/_migration_helpers.py` (column_exists, table_exists, etc.)
-- Production DB has had columns/tables added out-of-band — always guard DDL operations
-- Current migration head: vid03 (chain … aw18 → cs01 → aw19 merges (cs01, vid02) → aw20 → vid03)
-
-## Architecture
-
-### Tech Stack
-- **Frontend**: React 19 + Vite 6 + Tailwind CSS 4 + Radix UI
-- **Backend**: Flask 3.1 + SQLAlchemy 2.0 + Alembic
-- **Database**: PostgreSQL
-- **Deployment**: Azure Container Apps (backend), Azure Static Web App (frontend)
-
-### Directory Structure
-```
-academy-watch-backend/src/
-├── main.py                 # Flask app init, blueprint registration
-├── routes/
-│   ├── api.py              # Admin + core API endpoints
-│   ├── players.py          # Public player endpoints (stats, profile, season-stats)
-│   ├── teams.py            # Team listings, loan data
-│   ├── journalist.py       # Writer/journalist endpoints
-│   ├── academy.py          # Academy league sync + stats
-│   ├── journey.py          # Player career journey/map
-│   └── ...                 # cohort, curator, gol, formation, feeder
-├── models/
-│   ├── league.py           # Core domain models (30+)
-│   ├── tracked_player.py   # TrackedPlayer model (primary player tracking)
-│   ├── journey.py          # PlayerJourney + PlayerJourneyEntry
-│   └── weekly.py           # Fixture/stats models
-├── services/
-│   ├── journey_sync.py     # Career data sync from API-Football
-│   ├── academy_sync_service.py  # Youth league fixture sync
-│   ├── radar_stats_service.py   # Per-90 stats + radar charts
-│   └── ...                 # email, reddit, stripe, gol
-├── agents/                 # AI newsletter generation
-├── admin/sandbox_tasks.py  # Admin diagnostic tasks
-└── utils/
-    ├── academy_classifier.py  # Player status classification
-    └── ...                    # team resolution, markdown, sanitization
-
-academy-watch-frontend/src/
-├── pages/
-│   ├── PlayerPage.jsx      # Player detail (stats, journey, academy stats)
-│   ├── TeamDetailPage.jsx  # Team page with squad listing
-│   ├── admin/              # Admin dashboard (14 pages)
-│   └── writer/             # Writer interface
-├── components/ui/          # Radix-based UI components
-└── lib/api.js              # API service wrapper (all endpoint methods)
-```
-
-### Blueprint Registration Order
-Blueprints are registered in `main.py` — order matters for route conflicts:
-- `players_bp` is registered BEFORE `api_bp` so `/players/*` routes in `players.py` take priority
-
-### Key Data Flow
-1. **Player Tracking**: API-Football → `TrackedPlayer` records (one per player per parent academy club)
-2. **Stats Sync**: Fixtures → `FixturePlayerStats` → `TrackedPlayer.compute_stats()` for aggregation
-3. **Academy Stats**: Youth league fixtures → `AcademyAppearance` records (U18/U21/U23 leagues)
-4. **Journey Sync**: API-Football transfers/seasons → `PlayerJourney` + `PlayerJourneyEntry` (full career history)
-5. **Newsletters**: Admin creates → Writers add commentaries → Email delivery via Mailgun
-6. **Payments**: Stripe Connect for writer monetization (10% platform fee)
-
-### API Proxy
-Frontend dev server proxies `/api/*` requests to `http://localhost:5001` (see `vite.config.js`).
-
-## Important Patterns
-
-### Database Models
-Core models in `academy-watch-backend/src/models/league.py`:
-- `Team`, `Newsletter`, `PlayerStatsCache` - core domain
-- `UserAccount`, `UserSubscription` - users and email subscriptions
-- `JournalistTeamAssignment` - writer assignments to teams
-- `StripeConnectedAccount`, `StripeSubscription` - payments
-- `AcademyLeague`, `AcademyAppearance` - youth league tracking
-
-Player tracking in `models/tracked_player.py`:
-- `TrackedPlayer` - one row per player per parent academy club, tracks pathway status (academy → on_loan → first_team → released → sold)
-- `compute_stats()` method aggregates from `FixturePlayerStats` (full coverage) or `PlayerStatsCache` (limited coverage)
-- `current_club_api_id` / `current_club_db_id` - where the player currently plays (loan destination or buying club)
-- `team_id` - parent academy club (origin)
-- `data_source='owning-club'` rows are **deprecated and auto-deactivated** — clubs only track players whose journey shows academy formation at that club (prior-senior-career rule in `JourneySyncService._compute_academy_club_ids`). The journey upsert never creates owning-club rows and deactivates any active row at the owning (buying) club unless it is pinned or manual
-- **Academy tracking window** (`utils/academy_window.py`): the platform only tracks players in an academy NOW or within the past `ACADEMY_WINDOW_YEARS` (default 4) seasons. `last_academy_season` on TrackedPlayer (and `academy_last_seasons` per-club map on PlayerJourney) record the evidence; the journey upsert, recompute-academy repair, rebuild stage 4, seed-team, and GOL lookup all enforce `is_within_academy_window()`. Older alumni rows are deactivated (pinned/manual survive)
-- `player_name` must always be a real name — placeholder `Player NNNN` names are resolved via `resolve_player_name()` in `utils/player_names.py` (CohortMember → AcademyPlayerSeasonStats → Player → PlayerJourney); a placeholder must never overwrite a real name
-
-Journey models in `models/journey.py`:
-- `PlayerJourney` - master career record per player
-- `PlayerJourneyEntry` - individual season/club/competition entries
-
-Weekly models in `models/weekly.py`:
-- `Fixture`, `FixturePlayerStats` - match and performance data
-
-### IMPORTANT: Deleted Models
-The `AcademyPlayer` (table `loaned_players`) and `SupplementalLoan` (table `supplemental_loans`) models have been **permanently deleted** and their tables dropped. Do NOT reference these anywhere in code. Use `TrackedPlayer` for all player tracking.
-
-### Team Name Resolution
-`resolve_team_name_and_logo()` in `api.py` handles team ID → name resolution with caching to `TeamProfile`.
-
-### Player Stats
-- **Full coverage** (top leagues): Aggregated from `FixturePlayerStats` via `TrackedPlayer.compute_stats()`
-- **Limited coverage** (lower leagues): Stored in `PlayerStatsCache`, read by `TrackedPlayer.compute_stats()`
-- **Academy stats** (youth leagues): Stored in `AcademyAppearance`, served by `/players/<id>/academy-stats`
-
-### Player Status Classification
-`classify_tracked_player()` in `utils/academy_classifier.py` determines player status:
-- Uses journey data + transfer history to classify as academy/on_loan/first_team/sold/released
-- For sold/released players, preserves `current_club_api_id` (destination club)
-- `owning-club` rows are deprecated and auto-deactivated: clubs only track players whose journey shows academy formation at that club (prior-senior-career rule). Active rows therefore need no owning-club ordering in queries; admin repair lives at `POST /api/admin/journeys/recompute-academy` (and `POST /api/admin/players/backfill-names` for placeholder names)
-
-### Journey Sync
-`JourneySyncService` in `services/journey_sync.py`:
-- `_correct_club_ids_from_transfers()` fixes API-Football returning current team for historical seasons
-- `_merge_corrected_duplicates()` deduplicates entries after club ID correction
-
-
-## Environment Variables
-
-Key variables (see `academy-watch-backend/env.template` for full list):
-- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` - PostgreSQL
-- `API_FOOTBALL_KEY`, `API_FOOTBALL_MODE` - Football data API
-- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` - Payments
-- `MAILGUN_API_KEY`, `MAILGUN_DOMAIN` - Email delivery
-- `ADMIN_API_KEY` - Admin endpoint authentication
-
-## Agent Protocol (MANDATORY)
-
-**CRITICAL: Before starting ANY work, you MUST:**
-
-1. **Read `AGENTS.md`** - Contains operating principles, ledger protocol, and task flow rules
-2. **Read `CONTINUITY.md`** - Master ledger with current project state and active tasks
-3. **Check for active planning ledgers** in `ledgers/` directory
-
-**This is not optional.** These files are the single source of truth for project state.
-
-### Key Rules from AGENTS.md
-
-- **Ledger-first:** Update CONTINUITY.md when state changes (goals, decisions, blockers)
-- **Task statuses:** `pending` → `ready` → `in-progress` → `complete`
-- **Quality bar:** Lint/typecheck must pass before marking work complete
-- **Trivial tasks** (<15 min, single file): Log one-liner in CONTINUITY.md's Trivial Log
-
-### Harness
-
-Run `~/bin/harness-check --project . --scope staged` before every commit. Pre-commit hooks enforce this automatically (ruff lint, ruff format, secret scan). See `rules/harness.md` for the full protocol. Auto-fix: `~/bin/harness-check --project . --scope staged --fix`. If hooks are missing: `~/bin/harness-install .`
-
-### Ralph Autonomous Mode
-
-When running via `./scripts/ralph/ralph.sh`:
-- Pick ONLY `ready` tasks from the active planning ledger
-- Complete ONE task per iteration
-- Update ledger status and commit after each task
-- Output `<ralph>COMPLETE</ralph>` when all tasks done
-- Output `<ralph>STOP</ralph>` when blocked
+Scoped Conventional Commits: `feat(scope):` `fix(scope):` `chore(deps):` `refactor(scope):` `docs(scope):` — concise, focused on the why. Complex work gets a `ledgers/` planning ledger first (see `AGENTS.md`).
