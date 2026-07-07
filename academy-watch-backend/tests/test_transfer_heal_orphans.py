@@ -235,3 +235,85 @@ class TestOrphanRequeueScope:
 
         # Only the active row is in the queue; the orphan is left alone.
         assert result["total"] == 1
+
+
+class TestOrphanRequeueBudgetAndRotation:
+    def test_orphan_budget_caps_requeue(self, app, monkeypatch):
+        # A single call may requeue at most `orphan_budget` orphans, so the
+        # per-team nightly job can keep the ceiling job-global.
+        from src.services.transfer_heal_service import refresh_and_heal
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        team = _seed_team()
+        for pid in (711, 712, 713):
+            _tracked(pid, team, active=False, last_season=recent)
+            _journey(pid, academy_club_ids=[100], academy_last_seasons={"100": recent})
+        db.session.commit()
+
+        resynced = _patch_api_and_journey(monkeypatch)
+        result = refresh_and_heal(resync_journeys=True, dry_run=True, cascade_fixtures=False, orphan_budget=2)
+
+        assert result["orphans_requeued"] == 2
+        assert len([p for p in (711, 712, 713) if p in resynced]) == 2
+
+    def test_zero_orphan_budget_requeues_nothing(self, app, monkeypatch):
+        # A depleted job-global budget (0) must requeue no orphans, while active
+        # rows still get processed normally.
+        from src.services.transfer_heal_service import refresh_and_heal
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        team = _seed_team()
+        _tracked(720, team, active=True, last_season=recent)
+        orphan = _tracked(721, team, active=False, last_season=recent)
+        _journey(721, academy_club_ids=[100], academy_last_seasons={"100": recent})
+        db.session.commit()
+        orphan_id = orphan.player_api_id
+
+        resynced = _patch_api_and_journey(monkeypatch)
+        result = refresh_and_heal(resync_journeys=True, dry_run=True, cascade_fixtures=False, orphan_budget=0)
+
+        assert result["orphans_requeued"] == 0
+        assert result["total"] == 1  # only the active row
+        assert orphan_id not in resynced
+
+    def test_stuck_orphan_rotates_to_back_of_queue(self, app, monkeypatch):
+        # An orphan the re-sync cannot reactivate keeps churning force_full
+        # re-syncs. Its updated_at must be bumped on the skipped requeue so the
+        # oldest-touched ordering round-robins instead of re-selecting the same
+        # stuck rows first every night (starving healable orphans behind them).
+        from datetime import UTC, datetime, timedelta
+
+        from src.services.transfer_heal_service import refresh_and_heal
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        team = _seed_team()
+        older = _tracked(701, team, active=False, last_season=recent)
+        newer = _tracked(702, team, active=False, last_season=recent)
+        _journey(701, academy_club_ids=[100], academy_last_seasons={"100": recent})
+        _journey(702, academy_club_ids=[100], academy_last_seasons={"100": recent})
+        # Deterministic queue order: 701 is the oldest-touched candidate.
+        t0 = datetime(2026, 6, 1, tzinfo=UTC)
+        older.updated_at = t0
+        newer.updated_at = t0 + timedelta(hours=1)
+        db.session.commit()
+
+        # sync_player returns None → the row stays inactive (never healable).
+        resynced = _patch_api_and_journey(monkeypatch)
+
+        # Budget 1 → run 1 requeues only the oldest (701).
+        r1 = refresh_and_heal(resync_journeys=True, dry_run=False, cascade_fixtures=False, orphan_budget=1)
+        assert r1["orphans_requeued"] == 1
+        assert 701 in resynced
+        assert 702 not in resynced
+
+        # 701's updated_at was bumped past 702, so run 2 rotates to 702 —
+        # the previously-starved row is now reached.
+        db.session.expire_all()
+        resynced.clear()
+        r2 = refresh_and_heal(resync_journeys=True, dry_run=False, cascade_fixtures=False, orphan_budget=1)
+        assert r2["orphans_requeued"] == 1
+        assert 702 in resynced
+        assert 701 not in resynced

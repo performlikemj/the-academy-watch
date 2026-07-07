@@ -9,6 +9,7 @@ directly, without depending on AcademyPlayer rows.
 """
 
 import logging
+from datetime import UTC, datetime
 
 from sqlalchemy import text
 from src.api_football_client import APIFootballClient
@@ -24,15 +25,27 @@ from src.utils.academy_classifier import (
 
 logger = logging.getLogger(__name__)
 
-# Cap on how many orphaned rows a single heal run may requeue for a force_full
-# journey re-sync. Each requeued row costs ~7s + several API-Football calls, so
-# an unbounded requeue (e.g. after a mass-orphaning incident) would blow the
-# nightly job's runtime and API quota. Genuinely-healable orphans reactivate and
-# leave the pool, so the backlog drains across runs (oldest-touched first).
+# Budget on how many orphaned rows may be requeued for a force_full journey
+# re-sync. Each requeued row costs ~7s + several API-Football calls, so an
+# unbounded requeue (e.g. after a mass-orphaning incident) would blow the
+# nightly job's runtime and API quota.
+#
+# This is the DEFAULT per-call cap. The nightly job runners iterate ~137 teams
+# and call refresh_and_heal once per team, so a per-call cap would multiply into
+# 50×137 re-syncs a night — the exact quota/runtime blow-up the cap is meant to
+# prevent. Those runners therefore pass an ``orphan_budget`` that they DECREMENT
+# across teams, making the ceiling job-global (this constant) rather than
+# per-team. Callers that fire a single refresh (admin endpoint, team-verify,
+# newsletter pre-refresh) omit ``orphan_budget`` and get this cap for that call.
+#
+# Genuinely-healable orphans reactivate and leave the pool; non-healable rows
+# have their updated_at touched on the skipped requeue so the oldest-touched
+# ordering ROUND-ROBINS through the backlog instead of pinning the same stuck
+# tail every night — so the budget rotates fairly and the backlog drains.
 MAX_ORPHAN_REQUEUE = 50
 
 
-def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_fixtures=True):
+def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_fixtures=True, orphan_budget=None):
     """Re-derive statuses for tracked players, detecting loan club changes.
 
     Args:
@@ -41,14 +54,20 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
         dry_run: If True, do not commit changes or cascade fixture syncs.
         cascade_fixtures: If True, sync fixtures for players whose loan club
             changed. Set False for admin endpoint (preserves old behavior).
+        orphan_budget: Max orphan rows this call may requeue for a force_full
+            journey re-sync. None → the per-call default MAX_ORPHAN_REQUEUE.
+            The nightly per-team job loops pass a shrinking budget so the
+            ceiling stays job-global (see MAX_ORPHAN_REQUEUE) rather than
+            multiplying by the team count.
 
     Returns:
         dict with keys: total, updated, journeys_resynced, players_changed,
-        fixture_syncs_triggered.
+        fixture_syncs_triggered, orphans_requeued.
 
     Note: Fixture syncs are independent — status changes persist even if
     a fixture sync fails for an individual player.
     """
+    orphan_cap = MAX_ORPHAN_REQUEUE if orphan_budget is None else max(int(orphan_budget), 0)
     query = TrackedPlayer.query.filter_by(is_active=True)
     if team_id:
         query = query.filter_by(team_id=team_id)
@@ -78,7 +97,7 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
     # Reactivation requires a journey re-sync, so this is gated on resync_journeys;
     # scoped by team_id like the active set.
     orphans = []
-    if resync_journeys:
+    if resync_journeys and orphan_cap > 0:
         from src.utils.academy_window import academy_window_start, is_within_academy_window
 
         window_start = academy_window_start()
@@ -109,7 +128,7 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
                 for j in PlayerJourney.query.filter(PlayerJourney.player_api_id.in_(cand_api_ids)).all()
             }
             for tp in candidates:
-                if len(orphans) >= MAX_ORPHAN_REQUEUE:
+                if len(orphans) >= orphan_cap:
                     break
                 parent = teams_by_id.get(tp.team_id)
                 journey = journeys_by_api.get(tp.player_api_id)
@@ -124,10 +143,9 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
 
         if orphans:
             logger.info(
-                "transfer-heal: requeuing %d journey-attributed in-window orphan row(s) "
-                "for reactivation (capped at %d)",
+                "transfer-heal: requeuing %d journey-attributed in-window orphan row(s) for reactivation (budget %d)",
                 len(orphans),
-                MAX_ORPHAN_REQUEUE,
+                orphan_cap,
             )
             players = players + orphans
 
@@ -232,6 +250,13 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
         # would fire a fixture sync for a hidden player. Leave it for a future
         # run where the re-sync actually has evidence to revive it.
         if was_inactive and not tp.is_active:
+            # Rotate the queue: this row keeps its old updated_at otherwise, so
+            # the oldest-touched candidate ordering (ORDER BY updated_at ASC)
+            # would re-select the SAME never-healable rows first every night —
+            # perpetual force_full churn that starves healable orphans behind
+            # them once a team accumulates a budget's worth of stuck rows. Touch
+            # updated_at so the backlog round-robins and drains instead.
+            tp.updated_at = datetime.now(UTC)
             continue
 
         if not journey:
@@ -419,4 +444,5 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
         "fixture_syncs_triggered": fixture_syncs_triggered,
         "skipped_by_failed_prefetch": skipped_by_failed_prefetch,
         "failed_squad_clubs": sorted(failed_squad_clubs),
+        "orphans_requeued": len(orphans),
     }

@@ -1242,19 +1242,59 @@ class JourneySyncService:
         regardless of season — so the floor survives consecutive empty runs.
         Genuinely aged-out and season-less stale clubs are dropped, so they
         still deactivate as before.
+
+        Row-local evidence counts too: the journey's per-club season map can be
+        empty (legacy pre-aw18 maps, or youth entries whose seasons are NULL)
+        while an ACTIVE tracked row still carries an in-window
+        ``last_academy_season`` or a current-kid ``status='academy'``. Keying
+        retention on the journey map alone would then drop the club here and
+        strand the row (the floor and the transfer-heal requeue gate both read
+        the journey map) — so an in-window row-local season / academy status is
+        honoured, and the recovered season is written back into the map so the
+        floor's SEASON key holds on subsequent empty runs.
         """
+        from src.models.tracked_player import TrackedPlayer
         from src.utils.academy_window import academy_window_start
 
         window_start = academy_window_start()
         current_kid = (journey.current_level or "") in YOUTH_LEVELS
+
+        # Collect row-local evidence keyed by the parent club's API id.
+        row_season_by_club: dict[int, int] = {}
+        row_academy_clubs: set[int] = set()
+        if prior_academy_ids:
+            for tp in TrackedPlayer.query.filter(
+                TrackedPlayer.player_api_id == journey.player_api_id,
+                TrackedPlayer.is_active.is_(True),
+            ).all():
+                club_id = tp.team.team_id if tp.team else None
+                if club_id is None:
+                    continue
+                if tp.last_academy_season is not None:
+                    prev = row_season_by_club.get(club_id)
+                    if prev is None or tp.last_academy_season > prev:
+                        row_season_by_club[club_id] = tp.last_academy_season
+                if tp.status == "academy":
+                    row_academy_clubs.add(club_id)
+
         retained_ids: list[int] = []
         retained_seasons: dict[str, int] = {}
         for cid in prior_academy_ids:
             season = prior_last_seasons.get(str(cid))
-            if current_kid or (season is not None and season >= window_start):
-                retained_ids.append(cid)
-                if season is not None:
-                    retained_seasons[str(cid)] = season
+            row_season = row_season_by_club.get(cid)
+            season_in_window = season is not None and season >= window_start
+            row_season_in_window = row_season is not None and row_season >= window_start
+            if not (current_kid or cid in row_academy_clubs or season_in_window or row_season_in_window):
+                continue
+            retained_ids.append(cid)
+            # Persist the best in-window season so the floor's SEASON key holds
+            # on later empty runs; prefer the journey map, fall back to the row.
+            if season_in_window:
+                retained_seasons[str(cid)] = season
+            elif row_season_in_window:
+                retained_seasons[str(cid)] = row_season
+            elif season is not None:
+                retained_seasons[str(cid)] = season
         return sorted(retained_ids), retained_seasons
 
     def _compute_academy_club_ids(self, journey: PlayerJourney, entries: list | None = None, transfers=None):
@@ -1634,7 +1674,7 @@ class JourneySyncService:
         }
         aged_out = academy_ids - keep_ids
 
-        def _stored_attribution_floor(club_id: int) -> bool:
+        def _stored_attribution_floor(club_id: int, row_last_season=None, row_status=None) -> bool:
             """Should ``club_id`` be spared deactivation this run?
 
             True when this run produced NO fresh academy evidence for the club
@@ -1652,16 +1692,28 @@ class JourneySyncService:
             every U21 with a birth date — the entire academy-tracker demographic
             — would have season-less stale attributions spared, silently
             defeating that guarantee and stalling one-shot recompute repairs.
+
+            Callers pass the tracked ROW's own evidence (``row_last_season`` /
+            ``row_status``) because the journey's per-club season map can lag
+            the row (legacy pre-aw18 maps / NULL-season youth entries). A row
+            that says ``status='academy'`` is a current kid even when the
+            journey's ``current_level`` is stale (mirroring the aged-out branch);
+            an in-window row-local season is real SEASON evidence, so honouring
+            it does not reopen the season-less-stale hole.
             """
             if club_id in academy_ids or club_id not in prior_academy_ids:
                 return False
-            # Current academy kid (journey current level is a youth level):
-            # protected even without a stored season, so patchy youth-league
-            # coverage can't age out a player who is in an academy right now.
-            if window_status == "academy":
+            # Current academy kid — protected even without a stored season, so
+            # patchy youth-league coverage can't age out a player who is in an
+            # academy right now. The journey's current level OR the row's own
+            # status can attest this.
+            if window_status == "academy" or row_status == "academy":
                 return True
+            window_start = academy_window_start()
             prior_season = prior_last_seasons.get(str(club_id))
-            return prior_season is not None and prior_season >= academy_window_start()
+            if prior_season is not None and prior_season >= window_start:
+                return True
+            return row_last_season is not None and row_last_season >= window_start
 
         # Deactivate journey-sync and legacy owning-club rows whose academy
         # connection no longer holds. Skip pinned rows — manual corrections
@@ -1679,7 +1731,9 @@ class JourneySyncService:
                     # The row itself says the player is currently in this
                     # academy — never window-deactivate current kids.
                     continue
-                if _stored_attribution_floor(tp.team.team_id):
+                if _stored_attribution_floor(
+                    tp.team.team_id, row_last_season=tp.last_academy_season, row_status=tp.status
+                ):
                     logger.info(
                         f"Stored-attribution floor kept {tp.data_source} TrackedPlayer "
                         f"{tp.id} for player {journey.player_api_id} at {tp.team.name} "
@@ -1705,7 +1759,9 @@ class JourneySyncService:
                 if tp.pinned_parent or tp.data_source == "manual":
                     continue
                 if tp.team and tp.team.team_id == owning_api_id:
-                    if _stored_attribution_floor(owning_api_id):
+                    if _stored_attribution_floor(
+                        owning_api_id, row_last_season=tp.last_academy_season, row_status=tp.status
+                    ):
                         # The "owning" club is also this player's established
                         # in-window academy origin (a homegrown player still
                         # owned by his academy club, e.g. an academy product on
