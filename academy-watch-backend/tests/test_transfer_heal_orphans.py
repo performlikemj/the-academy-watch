@@ -1,14 +1,17 @@
 """Transfer-heal orphan self-heal scope.
 
-Orphaned in-window academy rows (is_active=false, journey-attributed,
-non-manual, non-pinned) must be requeued into the heal so a transfers-fed
-journey re-sync can reactivate them via the journey upsert. Out-of-window,
-manual, and pinned orphans must stay out of the queue. Reactivation needs a
-journey re-sync, so orphans are only requeued when resync_journeys=True.
+Orphaned rows are requeued into the heal so a transfers-fed journey re-sync can
+reactivate them via the journey upsert. The requeue is BOUNDED and TERMINAL:
+only rows whose linked PlayerJourney still attributes the row's academy club
+IN-WINDOW are requeued (those are the only rows the upsert can reactivate), so
+graveyard rows are not force_full re-synced forever. Manual and pinned orphans
+stay out of the queue. Reactivation needs a journey re-sync, so orphans are only
+requeued when resync_journeys=True.
 """
 
 import pytest
 from flask import Flask
+from src.models.journey import PlayerJourney
 from src.models.league import League, Team, db
 from src.models.tracked_player import TrackedPlayer
 
@@ -41,6 +44,24 @@ def _seed_team():
     db.session.add(team)
     db.session.flush()
     return team
+
+
+def _journey(player_api_id, *, academy_club_ids=None, academy_last_seasons=None, birth_date=None):
+    """A PlayerJourney carrying the academy attribution the requeue gate reads.
+
+    The gate keys on the journey, not the tracked row's own fields, so a legacy
+    owning-club orphan with NO row-local season is still requeued when its
+    journey attributes the club in-window (the Gore case)."""
+    j = PlayerJourney(
+        player_api_id=player_api_id,
+        player_name=f"Test Player {player_api_id}",
+        academy_club_ids=academy_club_ids if academy_club_ids is not None else [],
+        academy_last_seasons=academy_last_seasons if academy_last_seasons is not None else {},
+        birth_date=birth_date,
+    )
+    db.session.add(j)
+    db.session.flush()
+    return j
 
 
 def _tracked(
@@ -89,10 +110,16 @@ class TestOrphanRequeueScope:
         team = _seed_team()
 
         active_row = _tracked(600, team, active=True, last_season=recent)
+        # In-window orphan whose journey still attributes club 100 in-window.
         orphan_in_window = _tracked(601, team, active=False, last_season=recent)
+        _journey(601, academy_club_ids=[100], academy_last_seasons={"100": recent})
+        # Journey attributes 100 but OUT of window → not requeued.
         orphan_out_window = _tracked(602, team, active=False, last_season=old)
+        _journey(602, academy_club_ids=[100], academy_last_seasons={"100": old})
         orphan_manual = _tracked(603, team, active=False, data_source="manual", last_season=recent)
+        _journey(603, academy_club_ids=[100], academy_last_seasons={"100": recent})
         orphan_pinned = _tracked(604, team, active=False, last_season=recent, pinned=True)
+        _journey(604, academy_club_ids=[100], academy_last_seasons={"100": recent})
         db.session.commit()
         ids = {
             "active": active_row.player_api_id,
@@ -117,9 +144,11 @@ class TestOrphanRequeueScope:
         from src.services.transfer_heal_service import refresh_and_heal
 
         team = _seed_team()
-        # No last_academy_season, but the row says the player is in the academy
-        # right now — a current kid that got orphaned must still self-heal.
+        # No last_academy_season and the journey has no stored season either, but
+        # the row says the player is in the academy right now — a current kid that
+        # got orphaned must still self-heal (journey attributes the club).
         orphan = _tracked(605, team, active=False, last_season=None, status="academy")
+        _journey(605, academy_club_ids=[100], academy_last_seasons={})
         db.session.commit()
         orphan_id = orphan.player_api_id
 
@@ -128,6 +157,65 @@ class TestOrphanRequeueScope:
 
         assert result["total"] == 1
         assert orphan_id in resynced
+
+    def test_owning_club_null_season_orphan_requeued(self, app, monkeypatch):
+        # The canonical Gore row: data_source='owning-club', NO row-local season,
+        # but the journey attributes the club in-window. The old row-local filter
+        # missed it entirely; the journey-attribution gate must catch it.
+        from src.services.transfer_heal_service import refresh_and_heal
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        team = _seed_team()
+        orphan = _tracked(606, team, active=False, data_source="owning-club", last_season=None, status="first_team")
+        _journey(606, academy_club_ids=[100], academy_last_seasons={"100": recent})
+        db.session.commit()
+        orphan_id = orphan.player_api_id
+
+        resynced = _patch_api_and_journey(monkeypatch)
+        result = refresh_and_heal(resync_journeys=True, dry_run=True, cascade_fixtures=False)
+
+        assert result["total"] == 1
+        assert orphan_id in resynced
+
+    def test_journey_unattributed_orphan_not_requeued(self, app, monkeypatch):
+        # Row passes the coarse row-local filter (in-window last_academy_season)
+        # but its journey NO LONGER attributes the club — a genuinely-departed
+        # row the upsert cannot reactivate. It must NOT be force_full re-synced
+        # (terminal state; no fruitless nightly retries).
+        from src.services.transfer_heal_service import refresh_and_heal
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        team = _seed_team()
+        orphan = _tracked(607, team, active=False, last_season=recent)
+        _journey(607, academy_club_ids=[999], academy_last_seasons={"999": recent})
+        db.session.commit()
+        orphan_id = orphan.player_api_id
+
+        resynced = _patch_api_and_journey(monkeypatch)
+        result = refresh_and_heal(resync_journeys=True, dry_run=True, cascade_fixtures=False)
+
+        assert result["total"] == 0
+        assert orphan_id not in resynced
+
+    def test_orphan_without_journey_not_requeued(self, app, monkeypatch):
+        # A row-local in-window orphan with NO journey at all cannot be
+        # reactivated by the journey upsert, so it must stay out of the queue.
+        from src.services.transfer_heal_service import refresh_and_heal
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        team = _seed_team()
+        orphan = _tracked(608, team, active=False, last_season=recent)
+        db.session.commit()
+        orphan_id = orphan.player_api_id
+
+        resynced = _patch_api_and_journey(monkeypatch)
+        result = refresh_and_heal(resync_journeys=True, dry_run=True, cascade_fixtures=False)
+
+        assert result["total"] == 0
+        assert orphan_id not in resynced
 
     def test_orphans_not_requeued_without_resync(self, app, monkeypatch):
         # Without a journey re-sync there is nothing to reactivate the row, so
@@ -138,7 +226,8 @@ class TestOrphanRequeueScope:
         recent = current_academy_season()
         team = _seed_team()
         _tracked(600, team, active=True, last_season=recent)
-        _tracked(601, team, active=False, last_season=recent)
+        orphan = _tracked(601, team, active=False, last_season=recent)
+        _journey(601, academy_club_ids=[100], academy_last_seasons={"100": recent})
         db.session.commit()
 
         _patch_api_and_journey(monkeypatch)
