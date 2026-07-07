@@ -12,6 +12,12 @@ a future refactor can't silently reintroduce them:
    fixture data itself. This file asserts ``compute_stats``,
    ``GET /players/<id>/stats`` and the Scout base query (``GET /scout/players``)
    all surface the loan-club season regardless of where the tracked row points.
+   The same read-path hardening rewrote the limited-coverage
+   (``PlayerStatsCache``) branch of ``compute_stats`` to sum across every club
+   per season keyed on the player — not ``current_club_api_id`` + ``MAX(season)``
+   — with a latest-cached-season fallback for lagging lower-league feeds; that
+   branch is pinned here too so the Gore bug class can't return for the
+   lower-league tier.
 
 2. **Orphan guard (stored-attribution floor).** A transient journey sync that
    resolves NO academy evidence (API youth-coverage gap / tenure-gate flicker →
@@ -104,7 +110,9 @@ def sync_service(app):
 PARENT_API = 33
 LOAN_API = 777
 OPP_API = 999
+SECOND_LOAN_API = 888  # a second loan club, for cross-club cache summing
 PLAYER_API = 303010  # Daniel Gore's real API id, kept for provenance
+LIMITED_PLAYER_API = 404040  # limited-coverage (PlayerStatsCache) player
 
 
 def _team(api_id, name):
@@ -224,6 +232,137 @@ class TestReturnedLoaneeAttribution:
         assert row["minutes_played"] == 270
         assert row["appearances"] == 3
         assert row["goals"] == 3
+
+
+# ---------------------------------------------------------------------------
+# 1b. Limited-coverage (PlayerStatsCache) compute_stats attribution (A1)
+# ---------------------------------------------------------------------------
+
+
+def _seed_limited_loanee(current_club_api_id, *, depth="events_only", cache_rows, anchor_season=2025):
+    """A limited-coverage (lower-league) player whose season stats live in
+    ``PlayerStatsCache``, not ``FixturePlayerStats``. Tracked at the parent
+    academy club with the current club flipped back to the parent (or NULL),
+    while the cache rows sit at OTHER clubs — the same shape that dropped a
+    returned loanee's season when the read keyed on ``current_club_api_id``.
+
+    ``cache_rows`` is an iterable of ``(team_api_id, season, {field: value})``.
+    A bare fixture at ``anchor_season`` pins the DISPLAY season deterministically
+    (``stats_season_with_data`` == ``MAX(fixtures.season)``) so the assertions
+    don't hinge on the wall-clock August rollover.
+    """
+    from src.models.league import PlayerStatsCache, db
+    from src.models.tracked_player import TrackedPlayer
+    from src.models.weekly import Fixture
+
+    parent = _team(PARENT_API, "Parent FC")
+    _team(LOAN_API, "Loan FC")
+    _team(SECOND_LOAN_API, "Other Loan FC")
+
+    db.session.add(
+        Fixture(
+            fixture_id_api=9100,
+            season=anchor_season,
+            date_utc=datetime(anchor_season, 9, 1, tzinfo=UTC),
+            competition_name="League Two",
+            home_team_api_id=PARENT_API,
+            away_team_api_id=SECOND_LOAN_API,
+            home_goals=0,
+            away_goals=0,
+        )
+    )
+
+    tp = TrackedPlayer(
+        player_api_id=LIMITED_PLAYER_API,
+        player_name="Limited Loanee",
+        position="Goalkeeper",
+        team_id=parent.id,
+        status="first_team",
+        current_club_api_id=current_club_api_id,  # parent id OR None — the bug trigger
+        current_club_name="Parent FC" if current_club_api_id else None,
+        data_depth=depth,
+        is_active=True,
+    )
+    db.session.add(tp)
+    db.session.flush()
+
+    for team_api_id, season, vals in cache_rows:
+        db.session.add(
+            PlayerStatsCache(
+                player_api_id=LIMITED_PLAYER_API,
+                team_api_id=team_api_id,
+                season=season,
+                stats_coverage="limited",
+                **vals,
+            )
+        )
+    db.session.commit()
+    return tp.id
+
+
+class TestLimitedCoverageComputeStats:
+    """``data_depth`` events_only/profile_only reads ``PlayerStatsCache``. The A1
+    rewrite keys that read on ``player_api_id`` + the display season and SUMS
+    across every club — not ``current_club_api_id`` + ``MAX(season)`` (the pre-A1
+    shape that dropped a returned loanee's cached loan season). A latest-cached-
+    season fallback keeps a lagging lower-league feed from blanking on rollover."""
+
+    @pytest.mark.parametrize("depth", ["events_only", "profile_only"])
+    @pytest.mark.parametrize("current_club", [PARENT_API, None], ids=["current=parent", "current=NULL"])
+    def test_cache_totals_sum_across_clubs(self, app, current_club, depth):
+        from src.models.league import db
+        from src.models.tracked_player import TrackedPlayer
+
+        # Two cache rows in the display season at DIFFERENT clubs, neither of them
+        # the tracked row's current club (parent / NULL).
+        tp_id = _seed_limited_loanee(
+            current_club,
+            depth=depth,
+            cache_rows=[
+                (LOAN_API, 2025, {"appearances": 8, "minutes_played": 720, "goals": 1, "assists": 2, "saves": 20}),
+                (
+                    SECOND_LOAN_API,
+                    2025,
+                    {"appearances": 4, "minutes_played": 360, "saves": 10, "yellows": 3, "reds": 1},
+                ),
+            ],
+        )
+        tp = db.session.get(TrackedPlayer, tp_id)
+
+        stats = tp.compute_stats()
+
+        # Keyed on current_club_api_id (the pre-A1 bug) this returned zeros; keyed
+        # on the player and summed across clubs it returns the whole loan season.
+        assert stats["appearances"] == 12
+        assert stats["minutes_played"] == 1080
+        assert stats["goals"] == 1
+        assert stats["assists"] == 2
+        assert stats["saves"] == 30
+        assert stats["yellows"] == 3
+        assert stats["reds"] == 1
+        assert stats["stats_coverage"] == "limited"
+
+    def test_latest_cached_season_fallback(self, app):
+        from src.models.league import db
+        from src.models.tracked_player import TrackedPlayer
+
+        # Display season anchors to 2025 (the fixture), but the lower-league feed
+        # only has a 2024 cache row — the fallback must surface it, not blank.
+        tp_id = _seed_limited_loanee(
+            None,
+            cache_rows=[
+                (LOAN_API, 2024, {"appearances": 10, "minutes_played": 900, "saves": 30, "goals": 0}),
+            ],
+            anchor_season=2025,
+        )
+        tp = db.session.get(TrackedPlayer, tp_id)
+
+        stats = tp.compute_stats()
+
+        assert stats["appearances"] == 10
+        assert stats["minutes_played"] == 900
+        assert stats["saves"] == 30
+        assert stats["stats_coverage"] == "limited"
 
 
 # ---------------------------------------------------------------------------
