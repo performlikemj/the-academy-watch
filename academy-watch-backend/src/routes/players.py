@@ -8,7 +8,6 @@ This blueprint handles:
 """
 
 import logging
-from datetime import UTC, datetime
 
 from flask import Blueprint, jsonify, request
 from src.auth import _safe_error_payload
@@ -46,6 +45,81 @@ def _prefer_academy_origin():
     ).asc()
 
 
+def _season_provenance(player_id: int, season: int) -> dict:
+    """On-read provenance for a (player, season) SENIOR minutes figure.
+
+    Reconciles the two independent minute sources without ever silently mixing
+    them: per-match ``FixturePlayerStats`` (match-proven) vs the
+    ``PlayerJourneyEntry`` season totals (API season summary, cup-inclusive).
+
+    - ``fixtures_minutes``: SUM of the player's FixturePlayerStats minutes in
+      fixtures of this season.
+    - ``journey_minutes``: SUM of the player's SENIOR journey-entry minutes this
+      season — youth and international entries excluded.
+    - ``source``: which source wins the headline — the larger-minutes source
+      taken whole (journey wins ties / ``>=`` as the cup-inclusive convention).
+    - ``reconcile_flag``: ``cup-gap`` (journey > fixtures > 0) |
+      ``fixtures-invisible`` (fixtures == 0 < journey) | ``journey-under-sync``
+      (fixtures > journey) | ``None`` (agree, or both zero).
+    - ``delta_pct``: signed % gap ``(journey - fixtures) / max(both)``, 1 dp.
+
+    Two bounded aggregate queries (one FPS, one PJE) — cheap for a single
+    player, and pre-index acceptable per the D1 design.
+    """
+    from sqlalchemy import func
+    from src.models.journey import PlayerJourney, PlayerJourneyEntry
+    from src.models.weekly import Fixture, FixturePlayerStats
+
+    fixtures_minutes = int(
+        db.session.query(func.coalesce(func.sum(FixturePlayerStats.minutes), 0))
+        .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+        .filter(
+            FixturePlayerStats.player_api_id == player_id,
+            Fixture.season == season,
+        )
+        .scalar()
+    )
+
+    journey_minutes = int(
+        db.session.query(func.coalesce(func.sum(PlayerJourneyEntry.minutes), 0))
+        .join(PlayerJourney, PlayerJourneyEntry.journey_id == PlayerJourney.id)
+        .filter(
+            PlayerJourney.player_api_id == player_id,
+            PlayerJourneyEntry.season == season,
+            PlayerJourneyEntry.is_youth.is_(False),
+            PlayerJourneyEntry.is_international.is_(False),
+        )
+        .scalar()
+    )
+
+    if fixtures_minutes == 0 and journey_minutes == 0:
+        source = "none"
+    elif journey_minutes >= fixtures_minutes:
+        source = "journey"
+    else:
+        source = "fixtures"
+
+    if fixtures_minutes == 0 and journey_minutes > 0:
+        reconcile_flag = "fixtures-invisible"
+    elif journey_minutes > fixtures_minutes > 0:
+        reconcile_flag = "cup-gap"
+    elif fixtures_minutes > journey_minutes:
+        reconcile_flag = "journey-under-sync"
+    else:
+        reconcile_flag = None
+
+    larger = max(fixtures_minutes, journey_minutes)
+    delta_pct = round((journey_minutes - fixtures_minutes) / larger * 100, 1) if larger else 0.0
+
+    return {
+        "source": source,
+        "fixtures_minutes": fixtures_minutes,
+        "journey_minutes": journey_minutes,
+        "delta_pct": delta_pct,
+        "reconcile_flag": reconcile_flag,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Player stats endpoint
 # ---------------------------------------------------------------------------
@@ -68,21 +142,26 @@ def get_public_player_stats(player_id: int):
         resolve_team_name_and_logo = _get_resolve_team_name_and_logo()
         force_sync = request.args.get("force_sync", "").lower() == "true"
 
-        # Stats DISPLAY season: the current calendar season, but fall back to
-        # the latest season that actually has fixtures so a not-yet-started
-        # season never blanks the page (utils/academy_window docstrings).
-        from src.utils.academy_window import current_stats_season, stats_season_with_data
+        # Stats DISPLAY season. With no ?season this keeps today's behavior via
+        # the with-data fallback resolver (never blanks a not-yet-started season);
+        # an explicit ?season — validated to the fixture-data range — scopes every
+        # read below (club-set union, match log, freshness fetch) to it.
+        from src.utils.academy_window import current_stats_season, resolve_stats_season
 
-        season = stats_season_with_data(db.session)
+        requested_season = request.args.get("season") or None
+        try:
+            season = resolve_stats_season(db.session, requested=requested_season, surface="discovery")
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
         season_prefix = f"{season}-{str(season + 1)[-2:]}"
-        # SYNC/FETCH season must be the pure calendar season, NOT the with-data
-        # fallback. During the Aug rollover `season` pins to the OLD season
-        # (no new fixtures yet); fetching/syncing that would re-pull completed
-        # fixtures and could never ingest the first new-season match, leaving the
-        # page permanently blank at the new club. current_stats_season() lets the
-        # view-driven sync land the new season and self-heal the fallback for all
-        # readers (mirrors journalist.get_player_stats' auto-sync).
-        sync_season = current_stats_season()
+        # SYNC/FETCH season. With no ?season it stays the pure calendar season
+        # (current_stats_season), NOT the with-data fallback: during the Aug
+        # rollover `season` pins to the OLD season, and fetching that could never
+        # ingest the first new-season match, leaving the page permanently blank at
+        # the new club. current_stats_season() lets the view-driven sync land the
+        # new season and self-heal the fallback for all readers. With an explicit
+        # ?season the freshness fetch targets exactly that requested season.
+        sync_season = season if requested_season is not None else current_stats_season()
 
         # Find ALL tracked players for this player (prefer academy-origin rows)
         tracked = (
@@ -174,7 +253,10 @@ def get_public_player_stats(player_id: int):
         stats_query = (
             db.session.query(FixturePlayerStats, Fixture)
             .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
-            .filter(FixturePlayerStats.player_api_id == player_id)
+            .filter(
+                FixturePlayerStats.player_api_id == player_id,
+                Fixture.season == season,
+            )
         )
 
         if loan_team_api_ids:
@@ -213,7 +295,10 @@ def get_public_player_stats(player_id: int):
         stats_query = (
             db.session.query(FixturePlayerStats, Fixture)
             .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
-            .filter(FixturePlayerStats.player_api_id == player_id)
+            .filter(
+                FixturePlayerStats.player_api_id == player_id,
+                Fixture.season == season,
+            )
         )
         if loan_team_api_ids:
             stats_query = stats_query.filter(FixturePlayerStats.team_api_id.in_(loan_team_api_ids))
@@ -472,12 +557,17 @@ def get_public_player_season_stats(player_id: int):
         from src.api_football_client import APIFootballClient
         from src.models.weekly import Fixture, FixturePlayerStats
 
-        # Stats DISPLAY season with latest-season-with-data fallback (see
-        # utils/academy_window.stats_season_with_data) — never blank on rollover.
-        from src.utils.academy_window import stats_season_with_data
+        # Stats DISPLAY season. Default (no ?season) is the with-data fallback so
+        # a not-yet-started season never blanks the page; an explicit ?season —
+        # validated to the fixture-data range — scopes every read below to it.
+        from src.utils.academy_window import resolve_stats_season
 
-        season_start_year = stats_season_with_data(db.session)
-        season_start = datetime(season_start_year, 8, 1, tzinfo=UTC)
+        try:
+            season_start_year = resolve_stats_season(
+                db.session, requested=request.args.get("season") or None, surface="discovery"
+            )
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
         season_prefix = f"{season_start_year}-{str(season_start_year + 1)[-2:]}"
 
         result = {
@@ -497,6 +587,11 @@ def get_public_player_season_stats(player_id: int):
             "loan_clubs_only": True,
             "clubs": [],
         }
+
+        # On-read provenance for the resolved season — computed once here so every
+        # return path below (limited-coverage, shadow, main) carries it. Additive:
+        # the existing top-level `source` field is left exactly as-is.
+        result["provenance"] = _season_provenance(player_id, season_start_year)
 
         # Find tracked players (prefer academy-origin rows)
         all_tracked = (
@@ -610,7 +705,7 @@ def get_public_player_season_stats(player_id: int):
             )
             .filter(
                 FixturePlayerStats.player_api_id == player_id,
-                Fixture.date_utc >= season_start,
+                Fixture.season == season_start_year,
             )
             .distinct()
             .all()
@@ -727,7 +822,7 @@ def get_public_player_season_stats(player_id: int):
                 .filter(
                     FixturePlayerStats.player_api_id == player_id,
                     FixturePlayerStats.team_api_id.in_(loan_team_api_ids),
-                    Fixture.date_utc >= season_start,
+                    Fixture.season == season_start_year,
                 )
                 .first()
             )
@@ -759,7 +854,7 @@ def get_public_player_season_stats(player_id: int):
                 .filter(
                     FixturePlayerStats.player_api_id == player_id,
                     FixturePlayerStats.team_api_id.in_(loan_team_api_ids),
-                    Fixture.date_utc >= season_start,
+                    Fixture.season == season_start_year,
                     FixturePlayerStats.goals_conceded == 0,
                     FixturePlayerStats.minutes >= 45,
                 )
