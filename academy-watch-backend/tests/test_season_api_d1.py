@@ -38,6 +38,10 @@ LIMITED_CLUB_API = 501
 SHADOW_PLAYER_API = 600600
 SHADOW_CLUB_API = 601
 GENERIC_OPP_API = 909
+# Limited player whose cache rows live in a season that is NOT the with-data
+# display season (exercises the season-scoped cache read, not compute_stats()).
+MISALIGNED_PLAYER_API = 500600
+MISALIGNED_CLUB_API = 502
 
 
 @pytest.fixture
@@ -298,6 +302,63 @@ def _seed_limited_player():
     db.session.commit()
 
 
+def _seed_limited_player_cache_off_with_data_season():
+    """events_only player whose PlayerStatsCache lives in a season that is NOT
+    the with-data display season. Cache rows exist ONLY for 2024 (30 apps, 2
+    goals, 2500 min); fixtures exist for BOTH 2024 and 2025, so season_bounds
+    span [2024, 2026] and stats_season_with_data()=2025. compute_stats() is
+    pinned to that display season (2025) and, finding no 2025 cache rows, falls
+    back to the latest cached season (2024) — so it serves the 2024 totals under
+    WHATEVER season label the caller asked for. The explicit ?season path must
+    instead read the cache season-scoped: ?season=2025 → zeros (no rows there),
+    ?season=2024 → the real 30/2500."""
+    from src.models.league import PlayerStatsCache, db
+    from src.models.tracked_player import TrackedPlayer
+    from src.models.weekly import Fixture
+
+    club = _team(MISALIGNED_CLUB_API, "Misaligned FC")
+    _team(GENERIC_OPP_API, "Opp FC")
+    for fx_id, season in ((8400, 2024), (8401, 2025)):
+        db.session.add(
+            Fixture(
+                fixture_id_api=fx_id,
+                season=season,
+                date_utc=datetime(season, 9, 1, tzinfo=UTC),
+                competition_name="League Two",
+                home_team_api_id=MISALIGNED_CLUB_API,
+                away_team_api_id=GENERIC_OPP_API,
+                home_goals=0,
+                away_goals=0,
+            )
+        )
+    tp = TrackedPlayer(
+        player_api_id=MISALIGNED_PLAYER_API,
+        player_name="Offset Guy",
+        position="Forward",
+        team_id=club.id,
+        status="on_loan",
+        current_club_api_id=MISALIGNED_CLUB_API,
+        current_club_db_id=club.id,
+        current_club_name="Misaligned FC",
+        data_depth="events_only",
+        is_active=True,
+    )
+    db.session.add(tp)
+    db.session.add(
+        PlayerStatsCache(
+            player_api_id=MISALIGNED_PLAYER_API,
+            team_api_id=MISALIGNED_CLUB_API,
+            season=2024,
+            stats_coverage="limited",
+            appearances=30,
+            goals=2,
+            assists=1,
+            minutes_played=2500,
+        )
+    )
+    db.session.commit()
+
+
 def _seed_shadow_player():
     """Worldwide-followed shadow (NO TrackedPlayer) with PlayerShadowStats only
     for season 2025 (15 apps, 6 goals, 1200 min). A lone 2025 fixture anchors
@@ -372,6 +433,32 @@ class TestLimitedCoverageSeasonScoping:
         # headline now AGREES with the season-scoped provenance (all-zero)
         assert data["provenance"]["fixtures_minutes"] == 0
         assert data["provenance"]["journey_minutes"] == 0
+
+    def test_explicit_cache_season_serves_data_even_off_display_season(self, app, client):
+        # Cache lives in 2024, display (with-data) season is 2025. An explicit
+        # request for the season the cache ACTUALLY holds must serve it — the
+        # old stats_season_with_data() gate wrongly zeroed this (regression).
+        _seed_limited_player_cache_off_with_data_season()
+        data = client.get(f"/api/players/{MISALIGNED_PLAYER_API}/season-stats?season=2024").get_json()
+        assert data["season"] == "2024/2025"
+        assert data["source"] == "limited-coverage"
+        assert data["appearances"] == 30
+        assert data["minutes"] == 2500
+        assert data["goals"] == 2
+        assert data["clubs"][0]["appearances"] == 30
+
+    def test_explicit_display_season_off_cache_returns_zeros(self, app, client):
+        # 2025 IS the with-data display season, but the cache only holds 2024.
+        # compute_stats()'s latest-cached fallback would mislabel the 2024
+        # totals under the 2025/26 label; the season-scoped read returns zeros.
+        _seed_limited_player_cache_off_with_data_season()
+        data = client.get(f"/api/players/{MISALIGNED_PLAYER_API}/season-stats?season=2025").get_json()
+        assert data["season"] == "2025/2026"
+        assert data["source"] == "limited-coverage"
+        assert data["appearances"] == 0
+        assert data["minutes"] == 0
+        assert data["goals"] == 0
+        assert data["clubs"][0]["appearances"] == 0
 
 
 class TestShadowSeasonScoping:

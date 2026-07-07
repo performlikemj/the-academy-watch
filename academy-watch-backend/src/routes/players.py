@@ -614,19 +614,24 @@ def get_public_player_season_stats(player_id: int):
 
         # Check for limited coverage
         if all_tracked and all_tracked[0].data_depth in ("events_only", "profile_only"):
-            from src.utils.academy_window import stats_season_with_data
+            from src.models.league import PlayerStatsCache
 
             tp = all_tracked[0]
-            # compute_stats() is pinned to stats_season_with_data() (plus its own
-            # latest-cached-season fallback), so it only ever speaks for ONE
-            # season. For the default (no ?season) request that IS the display
-            # season, so keep it verbatim (byte-compat). For an explicit ?season
-            # that differs, its numbers are another season's totals — serving
-            # them under the requested season label would contradict the
-            # (season-scoped) provenance object, so leave the zero baseline
-            # ("no data for this season"). Threading the season into the cache
-            # read waits for compute_stats(season=) in D4.
-            if requested_season is None or season_start_year == stats_season_with_data(db.session):
+            # PlayerStatsCache is season-keyed. compute_stats() can't yet take a
+            # season — it is pinned to stats_season_with_data() with its own
+            # latest-cached-season fallback, so it always reports whichever season
+            # that fallback lands on, which need NOT be the one the caller asked
+            # for. Gating it on stats_season_with_data() is doubly wrong: for a
+            # request that matches the display season but has no cache rows there,
+            # the fallback still serves an OLDER season's totals under the display
+            # label (mislabel); and for a request that matches the season the
+            # cache rows actually live in but differs from the display season, it
+            # zeroes real data. So: the default (no ?season) keeps calling
+            # compute_stats() verbatim (byte-compat, preserves the lower-league
+            # lag fallback), while an explicit ?season reads the cache DIRECTLY,
+            # scoped to that season — zeros only when no rows genuinely exist for
+            # it. (compute_stats(season=) lands in D4.)
+            if requested_season is None:
                 computed = tp.compute_stats()
                 result["appearances"] = computed["appearances"]
                 result["minutes"] = computed["minutes_played"]
@@ -634,6 +639,29 @@ def get_public_player_season_stats(player_id: int):
                 result["assists"] = computed["assists"]
                 result["yellows"] = computed["yellows"]
                 result["reds"] = computed["reds"]
+            else:
+                cache = (
+                    db.session.query(
+                        func.coalesce(func.sum(PlayerStatsCache.appearances), 0),
+                        func.coalesce(func.sum(PlayerStatsCache.minutes_played), 0),
+                        func.coalesce(func.sum(PlayerStatsCache.goals), 0),
+                        func.coalesce(func.sum(PlayerStatsCache.assists), 0),
+                        func.coalesce(func.sum(PlayerStatsCache.yellows), 0),
+                        func.coalesce(func.sum(PlayerStatsCache.reds), 0),
+                    )
+                    .filter(
+                        PlayerStatsCache.player_api_id == player_id,
+                        PlayerStatsCache.season == season_start_year,
+                    )
+                    .first()
+                )
+                apps, minutes, goals, assists, yellows, reds = (int(v or 0) for v in (cache or (0, 0, 0, 0, 0, 0)))
+                result["appearances"] = apps
+                result["minutes"] = minutes
+                result["goals"] = goals
+                result["assists"] = assists
+                result["yellows"] = yellows
+                result["reds"] = reds
             result["source"] = "limited-coverage"
             result["stats_coverage"] = "limited"
 
