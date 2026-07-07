@@ -810,3 +810,97 @@ class TestUpsertReactivatesOrphanedAcademyRows:
         sync_service._compute_academy_club_ids(journey)
 
         assert row.is_active is False
+
+
+class TestStoredAttributionFloor:
+    """A transient sync that resolves NO academy evidence (API youth-coverage
+    gap / tenure-gate flicker → empty academy_ids) must never orphan an
+    established in-window academy row. Canonical case: Daniel Gore."""
+
+    def _stored_journey(self, player_api_id, *, stored_last_seasons, senior_entry=None):
+        """Journey with a PERSISTED academy attribution but NO youth entries
+        this run — so _compute takes an empty-computation path and the floor
+        must lean on the stored attribution to spare the row."""
+        journey = PlayerJourney(
+            player_api_id=player_api_id,
+            player_name=f"Test Player {player_api_id}",
+            academy_club_ids=sorted(int(k) for k in stored_last_seasons),
+            academy_last_seasons={str(k): v for k, v in stored_last_seasons.items()},
+        )
+        db.session.add(journey)
+        db.session.flush()
+        if senior_entry is not None:
+            season, club_api_id, club_name = senior_entry
+            db.session.add(_entry(journey.id, season, club_api_id, club_name, entry_type="first_team", appearances=20))
+            db.session.flush()
+        return journey
+
+    def test_empty_computation_spares_in_window_row(self, app, sync_service):
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = self._stored_journey(500, stored_last_seasons={100: recent})
+        row = _tracked(500, team, data_source="journey-sync", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is True
+
+    def test_homegrown_owned_row_spared_from_owning_block(self, app, sync_service):
+        # Gore-shaped: the owning club IS the academy club (a homegrown player
+        # still owned by his academy, e.g. on loan). A transient empty run would
+        # otherwise nuke the row via BOTH the stale sweep and the owning-club
+        # block; the floor must protect it in both.
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = self._stored_journey(501, stored_last_seasons={100: recent}, senior_entry=(recent, 100, "Feyenoord"))
+        # owning-club data_source mirrors the real orphaned Gore row.
+        row = _tracked(501, team, data_source="owning-club", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is True
+
+    def test_floor_does_not_protect_out_of_window_stored_row(self, app, sync_service):
+        # Stored attribution present but its last youth season is OUT of window
+        # → a genuine aged-out alumnus; the floor must NOT keep it alive.
+        from src.utils.academy_window import academy_window_start
+
+        old = academy_window_start() - 2
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = self._stored_journey(502, stored_last_seasons={100: old})
+        row = _tracked(502, team, data_source="journey-sync", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is False
+
+    def test_floor_ignores_stale_ids_without_season_evidence(self, app, sync_service):
+        # academy_club_ids lists the club but there is NO season evidence
+        # (academy_last_seasons empty) — a merely-stale stored value. This is the
+        # recompute contradiction shape; the floor must NOT protect it.
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = PlayerJourney(
+            player_api_id=503,
+            player_name="Test Player 503",
+            academy_club_ids=[100],
+            academy_last_seasons={},
+        )
+        db.session.add(journey)
+        db.session.flush()
+        row = _tracked(503, team, data_source="journey-sync", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is False

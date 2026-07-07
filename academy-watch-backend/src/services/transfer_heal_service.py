@@ -48,6 +48,42 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
 
     players = query.all()
 
+    # ── Orphan self-heal ──
+    # Requeue is_active=false journey-attributed academy rows that are still
+    # inside the tracking window so they can reactivate themselves. The journey
+    # upsert's reactivation branch only fires during a full journey re-sync, and
+    # the heal historically looked at ACTIVE rows only — so a row orphaned by an
+    # earlier transient empty computation (before the stored-attribution floor
+    # landed) was never revisited. Adding these to the queue lets a transfers-fed
+    # re-sync flip them back on via the existing upsert path, respecting
+    # invariant #10 (status changes only through the transfers-fed sync).
+    # Reactivation requires a journey re-sync, so this is gated on
+    # resync_journeys; scoped by team_id like the active set, so the scheduled
+    # per-team jobs stay bounded and orphans just join the existing batch.
+    if resync_journeys:
+        from src.utils.academy_window import academy_window_start
+
+        window_start = academy_window_start()
+        orphan_query = TrackedPlayer.query.filter(
+            TrackedPlayer.is_active.is_(False),
+            TrackedPlayer.pinned_parent.isnot(True),
+            TrackedPlayer.data_source != "manual",
+            TrackedPlayer.player_api_id.isnot(None),
+            db.or_(
+                TrackedPlayer.last_academy_season >= window_start,
+                TrackedPlayer.status == "academy",
+            ),
+        )
+        if team_id:
+            orphan_query = orphan_query.filter(TrackedPlayer.team_id == team_id)
+        orphans = orphan_query.all()
+        if orphans:
+            logger.info(
+                "transfer-heal: requeuing %d orphaned in-window academy row(s) for journey-driven reactivation",
+                len(orphans),
+            )
+            players = players + orphans
+
     updated = 0
     journeys_resynced = 0
     players_changed = []
