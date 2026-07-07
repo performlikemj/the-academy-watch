@@ -1114,6 +1114,11 @@ def get_chart_data():
 
         # Get fixtures data based on date range
         fixtures_data = []
+        # Only the "season" range computes a DISPLAY season; hand it to the radar
+        # builder so it isn't recomputed there (stats_season_with_data is an
+        # uncached DB query). None for week/month ranges → radar uses its own
+        # season-scoped default for the league overlay.
+        season: int | None = None
 
         if date_range == "week":
             week_start = request.args.get("week_start")
@@ -1187,7 +1192,7 @@ def get_chart_data():
 
             # Let the service auto-select axes unless caller explicitly provided stat_keys
             explicit_keys = stat_keys if stat_keys_param else None
-            radar = get_radar_chart_data(player_id, fixtures_data, stat_keys=explicit_keys)
+            radar = get_radar_chart_data(player_id, fixtures_data, stat_keys=explicit_keys, season=season)
 
             response.update(radar)
             response["player"] = player_info
@@ -1865,6 +1870,10 @@ def _fetch_chart_data_for_rendering(
 
         # Get fixtures data based on date range
         fixtures_data = []
+        # Only the "season" range computes a DISPLAY season; pass it to the radar
+        # builder to avoid recomputing stats_season_with_data (an uncached DB
+        # query) there. None for other ranges → radar uses its own default.
+        season: int | None = None
 
         if date_range == "week" and week_start and week_end:
             try:
@@ -1931,7 +1940,7 @@ def _fetch_chart_data_for_rendering(
         elif chart_type == "radar":
             from src.services.radar_stats_service import get_radar_chart_data
 
-            radar = get_radar_chart_data(player_id, fixtures_data, stat_keys=stat_keys or None)
+            radar = get_radar_chart_data(player_id, fixtures_data, stat_keys=stat_keys or None, season=season)
             response.update(radar)
             response["player"] = player_info
 
