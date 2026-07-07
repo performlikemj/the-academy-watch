@@ -52,6 +52,20 @@ One row **per player per parent academy club**. This is the spine of the product
   `resolve_player_name()` (utils/player_names.py) and a placeholder must NEVER overwrite
   a real name (invariants.md §5).
 
+## Status is two axes; seasons are start-years
+
+- `TrackedPlayer.status` is RELATIVE to the tracked academy (`sold`/`left` = left THAT
+  club; the 6th status `left` = at another club with no recorded parent departure). The
+  player's ACTUAL situation lives on the journey: `player_journeys.current_status` /
+  `current_owner_*` (set by `JourneySyncService._set_current_status`; repair:
+  `POST /api/admin/journeys/backfill-current-status`). Player-page headlines read the
+  journey axis; team/academy views read the per-academy axis. Affiliates
+  (Jong Ajax → Ajax, …) resolve via `utils/affiliates.py`.
+- A season value is the START YEAR (2025 = the 2025-26 season). Rollover is
+  inconsistent by design-accident: profile endpoints flip in **August**
+  (`routes/players.py`, month >= 8) while the academy window flips in **July**
+  (`utils/academy_window.py`, month >= 7) — mind the gap in June–August work.
+
 ## The pipelines (all fed by API-Football)
 
 1. **Player tracking**: API-Football → `TrackedPlayer` records.

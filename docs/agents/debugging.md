@@ -70,6 +70,37 @@ install deps, so the deploy build is the first real install test. Dry-run first 
 worktree: `pip install --dry-run --ignore-installed -r requirements.txt`. See workflow.md
 for the batching rule.
 
+## Playbook: need an admin/diagnostic op against prod from a local shell
+
+`az containerapp exec` needs a TTY, and the direct DB host is IPv6-only (no local route).
+Use the prod HTTP admin endpoints — auth is two-factor: `Authorization: Bearer <token>`
+AND `X-API-Key`. Mint the Bearer locally with itsdangerous:
+`URLSafeTimedSerializer(secret_key=<inline secret-key>, salt='user-auth').dumps({'email': <admin email>, 'role': 'admin', 'iat': <now>})`.
+Read CURRENT inline secrets — the Key Vault copies are stale (invariants.md §9) — and
+never echo the values into the transcript:
+
+```bash
+az containerapp secret show -g rg-loan-army-westus2 -n ca-loan-army-backend \
+  --secret-name secret-key --query value -o tsv
+```
+
+Raw SQL: the pooler host, with `PGOPTIONS='-c default_transaction_read_only=on'` for
+read-only work.
+
+## Playbook: a POST 405s on theacademywatch.com but the route looks right
+
+The SWA front door can 405 POSTs at the custom domain. Test against the container-app
+FQDN (`https://ca-loan-army-backend.<env>.azurecontainerapps.io/api/...`) before
+debugging the backend.
+
+## Playbook: exercising Film Room locally (no cloud GPU)
+
+Runs against the LOCAL DB (`soccer_newsletter`), never prod. Load real spike artifacts:
+`python src/scripts/load_video_artifacts.py --match-id N --artifacts-dir spike/video-analysis/results/...`.
+Media routes need a match-scoped token (`utils/auth.py::mint_media_token`, salt
+`video-media`). Known prod gaps: crop serving 501s (no blob persistence yet); SWA CSP
+lacks `media-src blob:`.
+
 ## DB bloat (context, not usually an incident)
 
 `api_cache` (API-Football TTL cache) dominates DB size; a pg_cron job
