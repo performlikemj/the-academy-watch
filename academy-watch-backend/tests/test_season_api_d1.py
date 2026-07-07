@@ -31,6 +31,14 @@ PARENT_API = 33
 LOAN_API = 777
 OPP_API = 999
 
+# Limited-coverage (PlayerStatsCache) and shadow (PlayerShadowStats) fixtures for
+# the ?season-scoping regressions below.
+LIMITED_PLAYER_API = 500500
+LIMITED_CLUB_API = 501
+SHADOW_PLAYER_API = 600600
+SHADOW_CLUB_API = 601
+GENERIC_OPP_API = 909
+
 
 @pytest.fixture
 def app(monkeypatch):
@@ -43,7 +51,7 @@ def app(monkeypatch):
 
     # Import the models so their tables register on the metadata before
     # create_all (players_bp imports them lazily, inside the endpoints).
-    from src.models import journey, tracked_player, weekly  # noqa: F401
+    from src.models import follow, journey, tracked_player, weekly  # noqa: F401
     from src.models.league import db
     from src.routes.players import players_bp
 
@@ -235,3 +243,160 @@ class TestSeasonBoundsValidation:
         _seed_gore()
         # `?season=` (present but empty) must not 400 — it means "no season".
         assert client.get(f"/api/players/{PLAYER_API}/{endpoint}?season=").status_code == 200
+
+
+def _seed_limited_player():
+    """events_only player with PlayerStatsCache ONLY for season 2025 (20 apps,
+    4 goals, 1700 min). A lone 2025 fixture anchors season_bounds and
+    stats_season_with_data to 2025, so ``compute_stats()`` — pinned to the
+    with-data season — speaks only for 2025. current_club is wired so the clubs
+    breakdown renders (guards the zero-path clubs block against a stray
+    ``computed`` reference)."""
+    from src.models.league import PlayerStatsCache, db
+    from src.models.tracked_player import TrackedPlayer
+    from src.models.weekly import Fixture
+
+    club = _team(LIMITED_CLUB_API, "Limited FC")
+    _team(GENERIC_OPP_API, "Opp FC")
+    db.session.add(
+        Fixture(
+            fixture_id_api=8200,
+            season=2025,
+            date_utc=datetime(2025, 9, 1, tzinfo=UTC),
+            competition_name="League Two",
+            home_team_api_id=LIMITED_CLUB_API,
+            away_team_api_id=GENERIC_OPP_API,
+            home_goals=0,
+            away_goals=0,
+        )
+    )
+    tp = TrackedPlayer(
+        player_api_id=LIMITED_PLAYER_API,
+        player_name="Limited Guy",
+        position="Forward",
+        team_id=club.id,
+        status="on_loan",
+        current_club_api_id=LIMITED_CLUB_API,
+        current_club_db_id=club.id,
+        current_club_name="Limited FC",
+        data_depth="events_only",
+        is_active=True,
+    )
+    db.session.add(tp)
+    db.session.add(
+        PlayerStatsCache(
+            player_api_id=LIMITED_PLAYER_API,
+            team_api_id=LIMITED_CLUB_API,
+            season=2025,
+            stats_coverage="limited",
+            appearances=20,
+            goals=4,
+            assists=3,
+            minutes_played=1700,
+        )
+    )
+    db.session.commit()
+
+
+def _seed_shadow_player():
+    """Worldwide-followed shadow (NO TrackedPlayer) with PlayerShadowStats only
+    for season 2025 (15 apps, 6 goals, 1200 min). A lone 2025 fixture anchors
+    the valid season range."""
+    from src.models.follow import PlayerShadow, PlayerShadowStats
+    from src.models.league import db
+    from src.models.weekly import Fixture
+
+    db.session.add(
+        Fixture(
+            fixture_id_api=8300,
+            season=2025,
+            date_utc=datetime(2025, 9, 1, tzinfo=UTC),
+            competition_name="Serie B",
+            home_team_api_id=SHADOW_CLUB_API,
+            away_team_api_id=GENERIC_OPP_API,
+            home_goals=0,
+            away_goals=0,
+        )
+    )
+    db.session.add(
+        PlayerShadow(
+            player_api_id=SHADOW_PLAYER_API,
+            player_name="Shadow Guy",
+            current_club_name="Shadow FC",
+            is_active=True,
+        )
+    )
+    db.session.add(
+        PlayerShadowStats(
+            player_api_id=SHADOW_PLAYER_API,
+            team_api_id=SHADOW_CLUB_API,
+            season=2025,
+            appearances=15,
+            goals=6,
+            assists=2,
+            minutes=1200,
+        )
+    )
+    db.session.commit()
+
+
+class TestLimitedCoverageSeasonScoping:
+    """The limited-coverage branch must not serve compute_stats()'s (single-season)
+    numbers under a DIFFERENT requested season label."""
+
+    def test_no_param_serves_with_data_season(self, app, client):
+        _seed_limited_player()
+        data = client.get(f"/api/players/{LIMITED_PLAYER_API}/season-stats").get_json()
+        assert data["source"] == "limited-coverage"
+        assert data["appearances"] == 20
+        assert data["goals"] == 4
+        assert data["clubs"][0]["appearances"] == 20  # breakdown mirrors headline
+
+    def test_explicit_matching_season_serves_data(self, app, client):
+        _seed_limited_player()
+        data = client.get(f"/api/players/{LIMITED_PLAYER_API}/season-stats?season=2025").get_json()
+        assert data["appearances"] == 20
+        assert data["goals"] == 4
+
+    def test_explicit_off_season_returns_zeros_not_mislabel(self, app, client):
+        _seed_limited_player()
+        data = client.get(f"/api/players/{LIMITED_PLAYER_API}/season-stats?season=2026").get_json()
+        # The 2025 cache numbers must NOT be served under the 2026/27 label.
+        assert data["season"] == "2026/2027"
+        assert data["source"] == "limited-coverage"
+        assert data["appearances"] == 0
+        assert data["minutes"] == 0
+        assert data["goals"] == 0
+        assert data["assists"] == 0
+        assert data["clubs"][0]["appearances"] == 0  # no stray `computed` ref → no 500
+        # headline now AGREES with the season-scoped provenance (all-zero)
+        assert data["provenance"]["fixtures_minutes"] == 0
+        assert data["provenance"]["journey_minutes"] == 0
+
+
+class TestShadowSeasonScoping:
+    """The shadow branch must scope to the requested season, not blanket-serve
+    MAX(PlayerShadowStats.season)."""
+
+    def test_no_param_serves_latest_shadow_season(self, app, client):
+        _seed_shadow_player()
+        data = client.get(f"/api/players/{SHADOW_PLAYER_API}/season-stats").get_json()
+        assert data["source"] == "shadow"
+        assert data["appearances"] == 15
+        assert data["goals"] == 6
+
+    def test_explicit_matching_season_serves_data(self, app, client):
+        _seed_shadow_player()
+        data = client.get(f"/api/players/{SHADOW_PLAYER_API}/season-stats?season=2025").get_json()
+        assert data["source"] == "shadow"
+        assert data["appearances"] == 15
+
+    def test_explicit_off_season_returns_zeros_not_latest(self, app, client):
+        _seed_shadow_player()
+        data = client.get(f"/api/players/{SHADOW_PLAYER_API}/season-stats?season=2026").get_json()
+        # 2025 shadow totals must NOT be served under the 2026/27 label.
+        assert data["season"] == "2026/2027"
+        assert data["source"] == "shadow"
+        assert data["appearances"] == 0
+        assert data["goals"] == 0
+        assert data["minutes"] == 0

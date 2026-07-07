@@ -562,10 +562,9 @@ def get_public_player_season_stats(player_id: int):
         # validated to the fixture-data range — scopes every read below to it.
         from src.utils.academy_window import resolve_stats_season
 
+        requested_season = request.args.get("season") or None
         try:
-            season_start_year = resolve_stats_season(
-                db.session, requested=request.args.get("season") or None, surface="discovery"
-            )
+            season_start_year = resolve_stats_season(db.session, requested=requested_season, surface="discovery")
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
         season_prefix = f"{season_start_year}-{str(season_start_year + 1)[-2:]}"
@@ -615,14 +614,26 @@ def get_public_player_season_stats(player_id: int):
 
         # Check for limited coverage
         if all_tracked and all_tracked[0].data_depth in ("events_only", "profile_only"):
+            from src.utils.academy_window import stats_season_with_data
+
             tp = all_tracked[0]
-            computed = tp.compute_stats()
-            result["appearances"] = computed["appearances"]
-            result["minutes"] = computed["minutes_played"]
-            result["goals"] = computed["goals"]
-            result["assists"] = computed["assists"]
-            result["yellows"] = computed["yellows"]
-            result["reds"] = computed["reds"]
+            # compute_stats() is pinned to stats_season_with_data() (plus its own
+            # latest-cached-season fallback), so it only ever speaks for ONE
+            # season. For the default (no ?season) request that IS the display
+            # season, so keep it verbatim (byte-compat). For an explicit ?season
+            # that differs, its numbers are another season's totals — serving
+            # them under the requested season label would contradict the
+            # (season-scoped) provenance object, so leave the zero baseline
+            # ("no data for this season"). Threading the season into the cache
+            # read waits for compute_stats(season=) in D4.
+            if requested_season is None or season_start_year == stats_season_with_data(db.session):
+                computed = tp.compute_stats()
+                result["appearances"] = computed["appearances"]
+                result["minutes"] = computed["minutes_played"]
+                result["goals"] = computed["goals"]
+                result["assists"] = computed["assists"]
+                result["yellows"] = computed["yellows"]
+                result["reds"] = computed["reds"]
             result["source"] = "limited-coverage"
             result["stats_coverage"] = "limited"
 
@@ -632,9 +643,9 @@ def get_public_player_season_stats(player_id: int):
                     {
                         "team_name": tp.current_club.name,
                         "team_logo": tp.current_club.logo,
-                        "appearances": computed["appearances"],
-                        "goals": computed["goals"],
-                        "assists": computed["assists"],
+                        "appearances": result["appearances"],
+                        "goals": result["goals"],
+                        "assists": result["assists"],
                         "is_current": tp.is_active,
                     }
                 ]
@@ -643,18 +654,24 @@ def get_public_player_season_stats(player_id: int):
 
         if not all_tracked:
             # Shadow player fallback — no tracked rows, but a worldwide-followed
-            # PlayerShadow exists: serve its LATEST-season PlayerShadowStats as
-            # limited coverage so the profile's stats view renders. Latest-season
-            # (not wall-clock) is immune to API-Football client season drift.
+            # PlayerShadow exists: serve PlayerShadowStats as limited coverage so
+            # the profile's stats view renders. Default (no ?season) serves the
+            # LATEST season with shadow rows (not wall-clock) so it is immune to
+            # API-Football client season drift; an explicit ?season scopes to
+            # exactly that season (PlayerShadowStats is season-keyed) so the
+            # totals match the response's season label and the provenance object.
             from src.models.follow import PlayerShadow, PlayerShadowStats
 
             shadow = PlayerShadow.query.filter_by(player_api_id=player_id, is_active=True).first()
             if shadow:
-                latest_season = (
-                    db.session.query(func.max(PlayerShadowStats.season))
-                    .filter(PlayerShadowStats.player_api_id == player_id)
-                    .scalar()
-                )
+                if requested_season is not None:
+                    target_season = season_start_year
+                else:
+                    target_season = (
+                        db.session.query(func.max(PlayerShadowStats.season))
+                        .filter(PlayerShadowStats.player_api_id == player_id)
+                        .scalar()
+                    )
                 totals = (
                     db.session.query(
                         func.coalesce(func.sum(PlayerShadowStats.appearances), 0),
@@ -664,10 +681,10 @@ def get_public_player_season_stats(player_id: int):
                     )
                     .filter(
                         PlayerShadowStats.player_api_id == player_id,
-                        PlayerShadowStats.season == latest_season,
+                        PlayerShadowStats.season == target_season,
                     )
                     .first()
-                    if latest_season is not None
+                    if target_season is not None
                     else None
                 )
                 apps, goals, assists, minutes = (int(v or 0) for v in (totals or (0, 0, 0, 0)))
