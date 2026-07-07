@@ -289,6 +289,45 @@ class PlayerJourneyEntry(db.Model):
     assists = db.Column(db.Integer, default=0)
     minutes = db.Column(db.Integer, default=0)
 
+    # Denormalized player id (copied from the parent PlayerJourney) so this
+    # table can be read per-player-per-season without joining player_journeys.
+    # Set on new entries at create time; backfilled for legacy rows off-path
+    # via POST /api/admin/journeys/backfill-entry-player-ids.
+    player_api_id = db.Column(db.Integer)
+
+    # Rich per-season stats (sea01) — banked from the API-Football
+    # players?id&season statistics block the sync already fetches. All nullable
+    # (payload fields are frequently null/absent) and durable (api_cache TTL is
+    # 7 days). stats_source distinguishes 'journey-api' (rich) from the
+    # 'legacy-basic' rows written before this extraction existed.
+    rating = db.Column(db.Float)
+    position = db.Column(db.String(10))
+    lineups = db.Column(db.Integer)
+    shots_total = db.Column(db.Integer)
+    shots_on = db.Column(db.Integer)
+    passes_total = db.Column(db.Integer)
+    passes_key = db.Column(db.Integer)
+    passes_accuracy = db.Column(db.Integer)
+    tackles_total = db.Column(db.Integer)
+    tackles_blocks = db.Column(db.Integer)
+    tackles_interceptions = db.Column(db.Integer)
+    duels_total = db.Column(db.Integer)
+    duels_won = db.Column(db.Integer)
+    dribbles_attempts = db.Column(db.Integer)
+    dribbles_success = db.Column(db.Integer)
+    fouls_drawn = db.Column(db.Integer)
+    fouls_committed = db.Column(db.Integer)
+    cards_yellow = db.Column(db.Integer)
+    cards_red = db.Column(db.Integer)
+    penalty_scored = db.Column(db.Integer)
+    penalty_missed = db.Column(db.Integer)
+    penalty_saved = db.Column(db.Integer)
+    goals_conceded = db.Column(db.Integer)
+    saves = db.Column(db.Integer)
+    stats_source = db.Column(db.String(24), default="legacy-basic")  # journey-api|legacy-basic|manual
+    stats_synced_at = db.Column(db.DateTime(timezone=True))
+    season_phase = db.Column(db.String(12))  # dormant Apertura/Clausura hook
+
     # Transfer date (YYYY-MM-DD) — when the player moved to this club
     # Populated from transfer API for loan entries; used as tiebreaker
     # when multiple clubs share the same season and sort_priority.

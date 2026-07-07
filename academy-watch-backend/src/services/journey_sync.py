@@ -30,6 +30,41 @@ from src.utils.player_names import clean_name, is_placeholder_name, resolve_play
 logger = logging.getLogger(__name__)
 
 
+def _stat_int(value) -> int | None:
+    """Coerce an API-Football stat field to int, preserving NULL.
+
+    Rich per-season fields are frequently null/absent; a missing field must
+    stay NULL (unknown), never collapse to 0 (a real observed zero). Accepts
+    numeric strings and percentage strings like "82%".
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, str):
+        value = value.strip().rstrip("%").strip()
+        if not value:
+            return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _stat_float(value) -> float | None:
+    """Coerce an API-Football stat field to float, preserving NULL (e.g. rating)."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 # Regex to extract a specific level token from a club name.
 # Ordered so longer / more specific tokens match first (U23 before U2, etc).
 _CLUB_NAME_LEVEL_RE = re.compile(
@@ -215,7 +250,7 @@ class JourneySyncService:
                         if not self._is_official_competition(stat):
                             logger.debug(f"Skipping non-official competition: {stat.get('league', {}).get('name')}")
                             continue
-                        entry = self._create_entry_from_stat(journey.id, season, stat)
+                        entry = self._create_entry_from_stat(journey.id, season, stat, player_api_id)
                         if entry:
                             all_entries.append(entry)
 
@@ -329,12 +364,30 @@ class JourneySyncService:
             logger.error(f"Failed to get player {player_api_id} season {season}: {e}")
             return None
 
-    def _create_entry_from_stat(self, journey_id: int, season: int, stat: dict) -> PlayerJourneyEntry | None:
-        """Create a journey entry from API-Football statistics block"""
+    def _create_entry_from_stat(
+        self, journey_id: int, season: int, stat: dict, player_api_id: int | None = None
+    ) -> PlayerJourneyEntry | None:
+        """Create a journey entry from API-Football statistics block.
+
+        Persists the full rich per-season block the /players?id&season payload
+        carries (shots, passes, tackles, duels, dribbles, fouls, cards,
+        penalties, rating, position, keeper numbers) into the sea01 columns —
+        the same payload the sync already fetched, previously discarded down to
+        4 fields. Zero extra API calls. All rich fields are defensively coerced
+        and may be NULL (the payload is frequently sparse).
+        """
         team = stat.get("team", {})
         league = stat.get("league", {})
-        games = stat.get("games", {})
-        goals = stat.get("goals", {})
+        games = stat.get("games", {}) or {}
+        goals = stat.get("goals", {}) or {}
+        shots = stat.get("shots", {}) or {}
+        passes = stat.get("passes", {}) or {}
+        tackles = stat.get("tackles", {}) or {}
+        duels = stat.get("duels", {}) or {}
+        dribbles = stat.get("dribbles", {}) or {}
+        fouls = stat.get("fouls", {}) or {}
+        cards = stat.get("cards", {}) or {}
+        penalty = stat.get("penalty", {}) or {}
 
         team_id = team.get("id")
         league_id = league.get("id")
@@ -353,8 +406,13 @@ class JourneySyncService:
         is_youth = level in YOUTH_LEVELS
         is_international = self._is_international(league_name)
 
+        position = games.get("position")
+        if position:
+            position = str(position)[:10]
+
         entry = PlayerJourneyEntry(
             journey_id=journey_id,
+            player_api_id=player_api_id,
             season=season,
             club_api_id=team_id,
             club_name=team_name,
@@ -372,6 +430,33 @@ class JourneySyncService:
             assists=goals.get("assists") or 0,
             minutes=games.get("minutes") or 0,
             sort_priority=LEVEL_PRIORITY.get(level, 0),
+            # Rich per-season fields (sea01) — durable archive of the free payload.
+            rating=_stat_float(games.get("rating")),
+            position=position,
+            lineups=_stat_int(games.get("lineups")),
+            shots_total=_stat_int(shots.get("total")),
+            shots_on=_stat_int(shots.get("on")),
+            passes_total=_stat_int(passes.get("total")),
+            passes_key=_stat_int(passes.get("key")),
+            passes_accuracy=_stat_int(passes.get("accuracy")),
+            tackles_total=_stat_int(tackles.get("total")),
+            tackles_blocks=_stat_int(tackles.get("blocks")),
+            tackles_interceptions=_stat_int(tackles.get("interceptions")),
+            duels_total=_stat_int(duels.get("total")),
+            duels_won=_stat_int(duels.get("won")),
+            dribbles_attempts=_stat_int(dribbles.get("attempts")),
+            dribbles_success=_stat_int(dribbles.get("success")),
+            fouls_drawn=_stat_int(fouls.get("drawn")),
+            fouls_committed=_stat_int(fouls.get("committed")),
+            cards_yellow=_stat_int(cards.get("yellow")),
+            cards_red=_stat_int(cards.get("red")),
+            penalty_scored=_stat_int(penalty.get("scored")),
+            penalty_missed=_stat_int(penalty.get("missed")),
+            penalty_saved=_stat_int(penalty.get("saved")),
+            goals_conceded=_stat_int(goals.get("conceded")),
+            saves=_stat_int(goals.get("saves")),
+            stats_source="journey-api",
+            stats_synced_at=datetime.now(UTC),
         )
 
         return entry
@@ -765,10 +850,19 @@ class JourneySyncService:
         """Merge entries that share (club_api_id, league_api_id, season).
 
         After _correct_club_ids_from_transfers, a corrected entry may now
-        share the same club+league+season as an existing entry.  Keep the
-        one with more appearances (more complete data).
+        share the same club+league+season as an existing entry. Keep the one
+        with more appearances (more complete data); the whole winning entry is
+        retained, so its rich per-season fields (sea01) ride along. When
+        appearances tie, prefer the 'journey-api' (rich) source, then the newer
+        stats_synced_at — so a duplicate never drops the richer/newer row.
         """
         from collections import defaultdict
+
+        def _winner_key(e):
+            source_rank = 1 if getattr(e, "stats_source", None) == "journey-api" else 0
+            synced = getattr(e, "stats_synced_at", None)
+            synced_ts = synced.timestamp() if synced else 0.0
+            return (e.appearances or 0, source_rank, synced_ts)
 
         groups = defaultdict(list)
         for entry in entries:
@@ -781,7 +875,7 @@ class JourneySyncService:
             if len(group) == 1:
                 result.append(group[0])
                 continue
-            winner = max(group, key=lambda e: e.appearances or 0)
+            winner = max(group, key=_winner_key)
             merged += len(group) - 1
             result.append(winner)
 
