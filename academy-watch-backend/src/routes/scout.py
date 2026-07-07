@@ -157,51 +157,65 @@ def _attach_recent_form(player_dicts):
         p["recent_form"] = form_by_pair.get((p["player_id"], p.get("loan_team_api_id")), [])
 
 
-def _fixture_stats_subquery():
-    """Aggregate FixturePlayerStats per (player, team)."""
+def _fixture_stats_subquery(season):
+    """Aggregate FixturePlayerStats per player for one stats season.
+
+    Grouped per player (NOT per (player, team)) and season-scoped: the Scout Desk
+    shows a single season figure per player, summed across every club they played
+    for. The old (player, team) grain forced the base query to join on
+    ``current_club_api_id``, which hid a returned loanee's whole season once his
+    tracked row pointed the current club back at the parent. ``avg_rating`` is now
+    a cross-club season average, which is the intended cross-club view.
+    """
     return (
         db.session.query(
             FixturePlayerStats.player_api_id.label("player_api_id"),
-            FixturePlayerStats.team_api_id.label("team_api_id"),
             func.count(FixturePlayerStats.id).label("appearances"),
             func.coalesce(func.sum(FixturePlayerStats.goals), 0).label("goals"),
             func.coalesce(func.sum(FixturePlayerStats.assists), 0).label("assists"),
             func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label("minutes_played"),
             func.avg(FixturePlayerStats.rating).label("avg_rating"),
         )
-        .group_by(FixturePlayerStats.player_api_id, FixturePlayerStats.team_api_id)
+        .join(Fixture, Fixture.id == FixturePlayerStats.fixture_id)
+        .filter(Fixture.season == season)
+        .group_by(FixturePlayerStats.player_api_id)
         .subquery()
     )
 
 
 def _cache_stats_subquery():
-    """Latest-season PlayerStatsCache row per (player, team)."""
+    """Latest-cached-season PlayerStatsCache summed per player.
+
+    Limited-coverage players have no fixture rows; their stats live in
+    PlayerStatsCache. Per player, take their most recent cached season and sum
+    across every club in it — dropping the old per-(player, team) grain and the
+    base query's join on current_club_api_id, so one season figure lands per
+    player regardless of which club the tracked row points at.
+    """
     latest = (
         db.session.query(
             PlayerStatsCache.player_api_id.label("player_api_id"),
-            PlayerStatsCache.team_api_id.label("team_api_id"),
             func.max(PlayerStatsCache.season).label("season"),
         )
-        .group_by(PlayerStatsCache.player_api_id, PlayerStatsCache.team_api_id)
+        .group_by(PlayerStatsCache.player_api_id)
         .subquery()
     )
     return (
         db.session.query(
             PlayerStatsCache.player_api_id.label("player_api_id"),
-            PlayerStatsCache.team_api_id.label("team_api_id"),
-            PlayerStatsCache.appearances.label("appearances"),
-            PlayerStatsCache.goals.label("goals"),
-            PlayerStatsCache.assists.label("assists"),
-            PlayerStatsCache.minutes_played.label("minutes_played"),
+            func.coalesce(func.sum(PlayerStatsCache.appearances), 0).label("appearances"),
+            func.coalesce(func.sum(PlayerStatsCache.goals), 0).label("goals"),
+            func.coalesce(func.sum(PlayerStatsCache.assists), 0).label("assists"),
+            func.coalesce(func.sum(PlayerStatsCache.minutes_played), 0).label("minutes_played"),
         )
         .join(
             latest,
             and_(
                 PlayerStatsCache.player_api_id == latest.c.player_api_id,
-                PlayerStatsCache.team_api_id == latest.c.team_api_id,
                 PlayerStatsCache.season == latest.c.season,
             ),
         )
+        .group_by(PlayerStatsCache.player_api_id)
         .subquery()
     )
 
@@ -264,7 +278,13 @@ def _preferred_row_filter():
 
 def _base_scout_query():
     """TrackedPlayer rows joined to aggregated stats, deduped per player."""
-    fps = _fixture_stats_subquery()
+    from src.utils.academy_window import stats_season_with_data
+
+    # Season-scope the fixture aggregate to the current stats season (latest with
+    # data on rollover). One grouped join over the fixture rows, resolved once as
+    # a subquery and outer-joined per player — no per-row N+1.
+    season = stats_season_with_data(db.session)
+    fps = _fixture_stats_subquery(season)
     cache = _cache_stats_subquery()
 
     goals = func.coalesce(fps.c.goals, cache.c.goals, 0).label("goals")
@@ -298,20 +318,11 @@ def _base_scout_query():
             journey_owner_name,
         )
         .outerjoin(PlayerJourney, PlayerJourney.player_api_id == TrackedPlayer.player_api_id)
-        .outerjoin(
-            fps,
-            and_(
-                fps.c.player_api_id == TrackedPlayer.player_api_id,
-                fps.c.team_api_id == TrackedPlayer.current_club_api_id,
-            ),
-        )
-        .outerjoin(
-            cache,
-            and_(
-                cache.c.player_api_id == TrackedPlayer.player_api_id,
-                cache.c.team_api_id == TrackedPlayer.current_club_api_id,
-            ),
-        )
+        # Stats join per player (not per current club): the aggregates are now
+        # one season figure per player, so a returned loanee whose current club
+        # points back at the parent still gets his loan-club season attributed.
+        .outerjoin(fps, fps.c.player_api_id == TrackedPlayer.player_api_id)
+        .outerjoin(cache, cache.c.player_api_id == TrackedPlayer.player_api_id)
         .filter(TrackedPlayer.is_active.is_(True))
         # owning-club rows are deprecated (senior signings, not academy
         # products) — never surface them even before a data repair runs.

@@ -139,6 +139,35 @@ def get_public_player_stats(player_id: int):
                     },
                 )
 
+        # UNION in every club the player actually appeared for THIS stats season,
+        # taken straight from FixturePlayerStats (the source of truth for where a
+        # player played). A returned loanee's tracked row points current_club back
+        # at the parent club, so his loan club is absent from the sets above and
+        # the match log renders empty even though the fixture rows exist — this is
+        # exactly how /season-stats stays correct (it derives its club list from
+        # FixturePlayerStats). Season-scoped via the fixtures.season index so a
+        # prior-season-only club doesn't leak into the current club set.
+        fixture_team_rows = (
+            db.session.query(FixturePlayerStats.team_api_id)
+            .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+            .filter(
+                FixturePlayerStats.player_api_id == player_id,
+                Fixture.season == season,
+            )
+            .distinct()
+            .all()
+        )
+        for (fixture_team_api_id,) in fixture_team_rows:
+            if not fixture_team_api_id or fixture_team_api_id in loan_teams_info:
+                continue
+            fixture_team_name, fixture_team_logo = resolve_team_name_and_logo(fixture_team_api_id, season)
+            loan_teams_info[fixture_team_api_id] = {
+                "name": fixture_team_name or "Unknown",
+                "logo": fixture_team_logo,
+                "window_type": "Summer",
+                "is_active": True,
+            }
+
         loan_team_api_ids = list(loan_teams_info.keys())
 
         # Query local stats for ALL loan teams
