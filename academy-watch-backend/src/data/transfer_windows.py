@@ -2,8 +2,14 @@
 Transfer window data for loan detection system.
 
 This module contains hard-coded transfer window boundaries for European football leagues
-from seasons 2022-23 through 2025-26. These dates are based on league-specific deadlines
+from seasons 2022-23 through 2027-28. These dates are based on league-specific deadlines
 and stored as ISO date strings for precise date filtering.
+
+Each season maps to two windows on the standard European convention: SUMMER runs
+Jun 1 – Sep 1 of the season-start year, WINTER runs Dec 1 – Feb 1. Keep future
+seasons ahead of the calendar so the nightly transfer heal always has window data
+for the window that is currently open (a missing season silently resolves every
+lookup to "out of window" — see api_football_client._in_window).
 
 Window Keys Format: "<YYYY-YY>::<SUMMER|WINTER|FULL>"
 - SUMMER: Summer transfer window
@@ -21,6 +27,8 @@ WINDOWS = {
         "SUMMER": ("2025-06-01", "2025-09-01"),
         "WINTER": ("2025-12-01", "2026-02-01"),
     },
+    "2026-27": {"SUMMER": ("2026-06-01", "2026-09-01"), "WINTER": ("2026-12-01", "2027-02-01")},
+    "2027-28": {"SUMMER": ("2027-06-01", "2027-09-01"), "WINTER": ("2027-12-01", "2028-02-01")},
 }
 
 
