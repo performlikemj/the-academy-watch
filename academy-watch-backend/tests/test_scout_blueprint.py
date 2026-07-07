@@ -378,6 +378,81 @@ class TestScoutCompare:
         assert scout_client.get("/api/scout/compare?ids=1,2,3,4,5").status_code == 400
 
 
+@pytest.fixture
+def returned_loanee(scout_app):
+    """A returned loanee: the journey flipped his current club back to the
+    parent (current_club_api_id == parent), but his real season is a full loan
+    spell at ANOTHER club plus one parent cup cameo. Reproduces the Gore-class
+    stat-attribution bug that keying /scout/compare on current_club_api_id hid."""
+    with scout_app.app_context():
+        league = League(
+            league_id=39, name="Premier League", country="England", season=2025, is_european_top_league=True
+        )
+        db.session.add(league)
+        db.session.flush()
+        parent = Team(
+            team_id=33, name="Manchester United", country="England", season=2025, league_id=league.id, is_active=True
+        )
+        db.session.add(parent)
+        db.session.flush()
+
+        player = TrackedPlayer(
+            player_api_id=2001,
+            player_name="Danny Returnee",
+            position="Midfielder",
+            nationality="England",
+            age=20,
+            team_id=parent.id,
+            status="first_team",
+            current_club_api_id=33,  # journey flipped current club back to the parent
+            current_club_name="Manchester United",
+            data_depth="full_stats",
+            is_active=True,
+        )
+        db.session.add(player)
+
+        # One parent-club cameo (team 33) + three loan-club league apps (team 777).
+        fixtures = []
+        for i in range(4):
+            fixtures.append(
+                Fixture(
+                    fixture_id_api=7000 + i,
+                    season=2025,
+                    home_team_api_id=33 if i == 0 else 777,
+                    away_team_api_id=999,
+                    date_utc=datetime(2025, 9, 1 + 7 * i),
+                )
+            )
+        db.session.add_all(fixtures)
+        db.session.flush()
+        db.session.add(
+            FixturePlayerStats(
+                fixture_id=fixtures[0].id, player_api_id=2001, team_api_id=33, minutes=10, goals=0, rating=6.5
+            )
+        )
+        for i in range(1, 4):
+            db.session.add(
+                FixturePlayerStats(
+                    fixture_id=fixtures[i].id, player_api_id=2001, team_api_id=777, minutes=90, goals=1, rating=7.5
+                )
+            )
+        db.session.commit()
+
+
+class TestScoutCompareReturnedLoanee:
+    def test_compare_reports_full_season_not_current_club_cameo(self, scout_client, returned_loanee):
+        # Keyed on current_club_api_id (the bug), compare returned only the single
+        # parent cameo (1 app / 10 min / 0 goals). Season-scoped and de-keyed it
+        # reports the whole season across both clubs, matching /scout/players.
+        resp = scout_client.get("/api/scout/compare?ids=2001")
+        assert resp.status_code == 200
+        totals = resp.get_json()["players"][0]["totals"]
+        assert totals["appearances"] == 4
+        assert totals["minutes_played"] == 280
+        assert totals["goals"] == 3
+        assert totals["stats_coverage"] == "full"
+
+
 class TestRecentForm:
     def test_browse_includes_recent_form_newest_first(self, scout_client, seeded_players):
         resp = scout_client.get("/api/scout/players?position=Attacker")

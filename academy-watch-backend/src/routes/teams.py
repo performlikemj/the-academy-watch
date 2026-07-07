@@ -383,11 +383,18 @@ def get_team_loans(team_identifier):
 
         # Batch-fetch stats for all TrackedPlayers
         from sqlalchemy import func as sa_func
-        from src.models.weekly import FixturePlayerStats
+        from src.models.weekly import Fixture, FixturePlayerStats
+        from src.utils.academy_window import stats_season_with_data
 
         tp_api_ids = [tp.player_api_id for tp in tracked]
         stats_by_player = {}
         if tp_api_ids:
+            # Season-scope the aggregate to the current stats season (latest with
+            # data on rollover) so team-roster numbers match the season-scoped
+            # profile / Scout Desk figures. Without this, once next-season
+            # fixtures land the roster would show career-summed apps/minutes while
+            # the profile shows the season total — contradictory one click apart.
+            season = stats_season_with_data(db.session)
             stats_rows = (
                 db.session.query(
                     FixturePlayerStats.player_api_id,
@@ -396,7 +403,11 @@ def get_team_loans(team_identifier):
                     sa_func.coalesce(sa_func.sum(FixturePlayerStats.assists), 0).label("assists"),
                     sa_func.coalesce(sa_func.sum(FixturePlayerStats.minutes), 0).label("minutes_played"),
                 )
-                .filter(FixturePlayerStats.player_api_id.in_(tp_api_ids))
+                .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+                .filter(
+                    FixturePlayerStats.player_api_id.in_(tp_api_ids),
+                    Fixture.season == season,
+                )
                 .group_by(FixturePlayerStats.player_api_id)
                 .all()
             )

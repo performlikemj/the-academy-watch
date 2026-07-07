@@ -552,6 +552,16 @@ def scout_compare():
         except ValueError:
             return jsonify({"error": "ids must be integers"}), 400
 
+        from src.utils.academy_window import stats_season_with_data
+
+        # One season figure per player, summed across EVERY club the player
+        # appeared for — mirrors the season-scoped /scout/players list and
+        # /players/<id>/season-stats. Keying this on current_club_api_id (as it
+        # was) both hid a returned loanee's whole loan season and let a stray
+        # parent-club cup cameo masquerade as his season, so the compare panel
+        # contradicted the list on the same Scout Desk page.
+        season = stats_season_with_data(db.session)
+
         players = []
         for player_id in player_ids:
             tracked_player = (
@@ -564,64 +574,66 @@ def scout_compare():
                 continue
 
             totals = None
-            if tracked_player.current_club_api_id:
-                row = (
-                    db.session.query(
-                        func.count(FixturePlayerStats.id).label("appearances"),
-                        func.coalesce(func.sum(FixturePlayerStats.goals), 0).label("goals"),
-                        func.coalesce(func.sum(FixturePlayerStats.assists), 0).label("assists"),
-                        func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label("minutes"),
-                        func.avg(FixturePlayerStats.rating).label("avg_rating"),
-                        func.coalesce(func.sum(FixturePlayerStats.shots_total), 0).label("shots_total"),
-                        func.coalesce(func.sum(FixturePlayerStats.shots_on), 0).label("shots_on"),
-                        func.coalesce(func.sum(FixturePlayerStats.passes_total), 0).label("passes_total"),
-                        func.coalesce(func.sum(FixturePlayerStats.passes_key), 0).label("key_passes"),
-                        func.coalesce(func.sum(FixturePlayerStats.dribbles_attempts), 0).label("dribbles_attempts"),
-                        func.coalesce(func.sum(FixturePlayerStats.dribbles_success), 0).label("dribbles_success"),
-                        func.coalesce(func.sum(FixturePlayerStats.tackles_total), 0).label("tackles"),
-                        func.coalesce(func.sum(FixturePlayerStats.tackles_interceptions), 0).label("interceptions"),
-                        func.coalesce(func.sum(FixturePlayerStats.duels_total), 0).label("duels_total"),
-                        func.coalesce(func.sum(FixturePlayerStats.duels_won), 0).label("duels_won"),
-                        func.coalesce(func.sum(FixturePlayerStats.fouls_drawn), 0).label("fouls_drawn"),
-                        func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label("yellows"),
-                        func.coalesce(func.sum(FixturePlayerStats.reds), 0).label("reds"),
-                        func.coalesce(func.sum(FixturePlayerStats.saves), 0).label("saves"),
-                        func.coalesce(func.sum(FixturePlayerStats.goals_conceded), 0).label("goals_conceded"),
-                    )
-                    .filter(
-                        FixturePlayerStats.player_api_id == player_id,
-                        FixturePlayerStats.team_api_id == tracked_player.current_club_api_id,
-                    )
-                    .first()
+            row = (
+                db.session.query(
+                    func.count(FixturePlayerStats.id).label("appearances"),
+                    func.coalesce(func.sum(FixturePlayerStats.goals), 0).label("goals"),
+                    func.coalesce(func.sum(FixturePlayerStats.assists), 0).label("assists"),
+                    func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label("minutes"),
+                    func.avg(FixturePlayerStats.rating).label("avg_rating"),
+                    func.coalesce(func.sum(FixturePlayerStats.shots_total), 0).label("shots_total"),
+                    func.coalesce(func.sum(FixturePlayerStats.shots_on), 0).label("shots_on"),
+                    func.coalesce(func.sum(FixturePlayerStats.passes_total), 0).label("passes_total"),
+                    func.coalesce(func.sum(FixturePlayerStats.passes_key), 0).label("key_passes"),
+                    func.coalesce(func.sum(FixturePlayerStats.dribbles_attempts), 0).label("dribbles_attempts"),
+                    func.coalesce(func.sum(FixturePlayerStats.dribbles_success), 0).label("dribbles_success"),
+                    func.coalesce(func.sum(FixturePlayerStats.tackles_total), 0).label("tackles"),
+                    func.coalesce(func.sum(FixturePlayerStats.tackles_interceptions), 0).label("interceptions"),
+                    func.coalesce(func.sum(FixturePlayerStats.duels_total), 0).label("duels_total"),
+                    func.coalesce(func.sum(FixturePlayerStats.duels_won), 0).label("duels_won"),
+                    func.coalesce(func.sum(FixturePlayerStats.fouls_drawn), 0).label("fouls_drawn"),
+                    func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label("yellows"),
+                    func.coalesce(func.sum(FixturePlayerStats.reds), 0).label("reds"),
+                    func.coalesce(func.sum(FixturePlayerStats.saves), 0).label("saves"),
+                    func.coalesce(func.sum(FixturePlayerStats.goals_conceded), 0).label("goals_conceded"),
                 )
-                if row and row.appearances:
-                    minutes = int(row.minutes or 0)
-                    totals = {
-                        "appearances": int(row.appearances),
-                        "goals": int(row.goals),
-                        "assists": int(row.assists),
-                        "minutes_played": minutes,
-                        "avg_rating": round(float(row.avg_rating), 2) if row.avg_rating else None,
-                        "shots_total": int(row.shots_total),
-                        "shots_on": int(row.shots_on),
-                        "passes_total": int(row.passes_total),
-                        "key_passes": int(row.key_passes),
-                        "dribbles_attempts": int(row.dribbles_attempts),
-                        "dribbles_success": int(row.dribbles_success),
-                        "tackles": int(row.tackles),
-                        "interceptions": int(row.interceptions),
-                        "duels_total": int(row.duels_total),
-                        "duels_won": int(row.duels_won),
-                        "fouls_drawn": int(row.fouls_drawn),
-                        "yellows": int(row.yellows),
-                        "reds": int(row.reds),
-                        "saves": int(row.saves),
-                        "goals_conceded": int(row.goals_conceded),
-                        "stats_coverage": "full",
-                    }
+                .join(Fixture, Fixture.id == FixturePlayerStats.fixture_id)
+                .filter(
+                    FixturePlayerStats.player_api_id == player_id,
+                    Fixture.season == season,
+                )
+                .first()
+            )
+            if row and row.appearances:
+                minutes = int(row.minutes or 0)
+                totals = {
+                    "appearances": int(row.appearances),
+                    "goals": int(row.goals),
+                    "assists": int(row.assists),
+                    "minutes_played": minutes,
+                    "avg_rating": round(float(row.avg_rating), 2) if row.avg_rating else None,
+                    "shots_total": int(row.shots_total),
+                    "shots_on": int(row.shots_on),
+                    "passes_total": int(row.passes_total),
+                    "key_passes": int(row.key_passes),
+                    "dribbles_attempts": int(row.dribbles_attempts),
+                    "dribbles_success": int(row.dribbles_success),
+                    "tackles": int(row.tackles),
+                    "interceptions": int(row.interceptions),
+                    "duels_total": int(row.duels_total),
+                    "duels_won": int(row.duels_won),
+                    "fouls_drawn": int(row.fouls_drawn),
+                    "yellows": int(row.yellows),
+                    "reds": int(row.reds),
+                    "saves": int(row.saves),
+                    "goals_conceded": int(row.goals_conceded),
+                    "stats_coverage": "full",
+                }
 
             if totals is None:
-                # Fall back to basic limited-coverage stats
+                # No fixture rows this season (limited-coverage / no-data) — fall
+                # back to basic totals. This keeps the detailed shot/duel/per-90
+                # panel for full-coverage players while degrading gracefully.
                 basic = tracked_player.compute_stats()
                 totals = {**basic, "minutes_played": basic.get("minutes_played", 0)}
 
