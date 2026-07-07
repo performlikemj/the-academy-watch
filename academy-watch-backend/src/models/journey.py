@@ -260,7 +260,10 @@ class PlayerJourneyEntry(db.Model):
     __tablename__ = "player_journey_entries"
 
     id = db.Column(db.Integer, primary_key=True)
-    journey_id = db.Column(db.Integer, db.ForeignKey("player_journeys.id"), nullable=False, index=True)
+    # No index=True here — the journey_id index is declared by name in __table_args__
+    # below to match the migration-created ix_journey_entry_journey_id (index=True would
+    # mint the default ix_player_journey_entries_journey_id and churn autogenerate).
+    journey_id = db.Column(db.Integer, db.ForeignKey("player_journeys.id"), nullable=False)
 
     # Season
     season = db.Column(db.Integer, nullable=False)  # e.g., 2021
@@ -342,12 +345,21 @@ class PlayerJourneyEntry(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
 
     __table_args__ = (
+        # journey_id FK lookups. x2y3z4a5b6c7 created this as ix_journey_entry_journey_id;
+        # declared here by that exact name (see journey_id column note) so autogenerate
+        # does not churn an add/drop rename pair against prod.
+        db.Index("ix_journey_entry_journey_id", "journey_id"),
         db.Index("ix_journey_entry_lookup", "journey_id", "season", "club_api_id", "league_api_id"),
         # Denormalized per-player-per-season read path (D1 provenance / D2 aggregation).
-        # Named to match migration sea01's create_index_safe so `flask db migrate`
-        # autogenerate sees no diff and never proposes dropping it.
+        # Named to match migration sea01's create_index_safe so autogenerate keeps it.
         db.Index("ix_pje_player_season", "player_api_id", "season"),
-        db.UniqueConstraint("journey_id", "season", "club_api_id", "league_api_id", name="uq_journey_entry"),
+        # NB: intentionally no uq_journey_entry UniqueConstraint. x2y3z4a5b6c7 created
+        # only the NON-unique ix_journey_entry_lookup on these four columns — the DB has
+        # never held a unique constraint here. Dedup is enforced in application code
+        # (JourneySyncService._merge_corrected_duplicates), and declaring the constraint
+        # in metadata would make autogenerate emit a create_unique_constraint that could
+        # ABORT on pre-existing duplicate rows. Omitting it keeps autogenerate a true
+        # no-op on this table.
     )
 
     def to_dict(self):

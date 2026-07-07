@@ -1,4 +1,4 @@
-"""Widen player_journey_entries with rich per-season stats + missing indexes
+"""Widen player_journey_entries with rich per-season stats + read-path index
 
 Revision ID: sea01
 Revises: aw23
@@ -12,12 +12,14 @@ the raw response is otherwise lost). All columns are nullable and guarded via
 add_column_safe — prod schema has drifted out-of-band, and a re-applied or
 partially-applied DDL must never crash `flask db upgrade` on deploy.
 
-Also adds two indexes the seasons work needs on every hot path:
-  ix_fps_player            — fixture_player_stats(player_api_id) was unindexed;
-                             every per-player season aggregation seq-scanned FPS
-                             (~100k rows/season on a 0.5 CPU box).
+Also adds one index the seasons work needs on the denormalized read path:
   ix_pje_player_season     — player_journey_entries(player_api_id, season) for
-                             the denormalized per-player-per-season reads.
+                             the per-player-per-season reads.
+
+fixture_player_stats(player_api_id) is deliberately NOT indexed separately here:
+aw15's composite ix_fps_player_team already leads on player_api_id, so every
+per-player FPS scan is index-served. A single-column duplicate would only add
+write overhead on the hottest write table.
 
 ADD COLUMN does not touch RLS, and player_journey_entries already has RLS
 enabled, so no RLS statement is needed here.
@@ -30,7 +32,8 @@ that is psycopg UndefinedColumn -> 500 on all journey / D1-provenance surfaces.
 Chosen sequence: PRE-APPLY this migration out-of-band against prod BEFORE merging —
 from a local checkout with the prod DB env (IPv4 pooler + `postgresql+psycopg://`,
 invariants #1) run `FLASK_APP=src/main.py flask db upgrade`. ADD COLUMN is a
-metadata-only instant op in Postgres; the two CREATE INDEXes are the only real work.
+metadata-only instant op in Postgres; the single CREATE INDEX (ix_pje_player_season)
+is the only real work.
 Then merge: when CI deploys the image the columns already exist -> zero 500 window,
 and the manual in-container `flask db upgrade` is a pure no-op stamp (all DDL guarded
 via *_safe / index_exists). Fallback if pre-apply is skipped: run `flask db upgrade`
@@ -96,15 +99,14 @@ def upgrade():
         sa.Column("stats_source", sa.String(length=24), nullable=True, server_default="legacy-basic"),
     )
 
-    create_index_safe("ix_fps_player", "fixture_player_stats", ["player_api_id"])
+    # fixture_player_stats(player_api_id) needs no index here — aw15's
+    # ix_fps_player_team (player_api_id, team_api_id) already covers player-only scans.
     create_index_safe("ix_pje_player_season", "player_journey_entries", ["player_api_id", "season"])
 
 
 def downgrade():
     if index_exists("ix_pje_player_season"):
         op.drop_index("ix_pje_player_season", table_name="player_journey_entries")
-    if index_exists("ix_fps_player"):
-        op.drop_index("ix_fps_player", table_name="fixture_player_stats")
 
     for name, _ in [*_COLUMNS, ("stats_source", None)]:
         if column_exists("player_journey_entries", name):

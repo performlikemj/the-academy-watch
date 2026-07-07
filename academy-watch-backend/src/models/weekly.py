@@ -120,11 +120,13 @@ class FixturePlayerStats(db.Model):
     raw_json = db.Column(db.Text)
 
     __table_args__ = (
-        # Per-player season aggregation scans FPS by player_api_id; without this
-        # it seq-scans ~100k rows/season on the 0.5-CPU prod box. Named to match
-        # migration sea01's create_index_safe so `flask db migrate` autogenerate
-        # sees no diff and never proposes dropping it.
-        db.Index("ix_fps_player", "player_api_id"),
+        # aw15 created this composite on (player_api_id, team_api_id). Its leading
+        # column already index-serves every per-player FPS scan (compute_stats,
+        # recent-form, season aggregation), so a separate single-column player index
+        # would be a redundant duplicate — pure write overhead on the hottest write
+        # table. Declared here with aw15's exact name so `flask db migrate`
+        # autogenerate does NOT propose dropping the index prod has relied on since aw15.
+        db.Index("ix_fps_player_team", "player_api_id", "team_api_id"),
         db.UniqueConstraint("fixture_id", "player_api_id", name="uq_fixture_player"),
     )
 
