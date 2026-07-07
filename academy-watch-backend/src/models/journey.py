@@ -343,6 +343,10 @@ class PlayerJourneyEntry(db.Model):
 
     __table_args__ = (
         db.Index("ix_journey_entry_lookup", "journey_id", "season", "club_api_id", "league_api_id"),
+        # Denormalized per-player-per-season read path (D1 provenance / D2 aggregation).
+        # Named to match migration sea01's create_index_safe so `flask db migrate`
+        # autogenerate sees no diff and never proposes dropping it.
+        db.Index("ix_pje_player_season", "player_api_id", "season"),
         db.UniqueConstraint("journey_id", "season", "club_api_id", "league_api_id", name="uq_journey_entry"),
     )
 

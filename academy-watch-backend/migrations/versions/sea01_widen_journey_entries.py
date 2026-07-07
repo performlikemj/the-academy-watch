@@ -21,6 +21,20 @@ Also adds two indexes the seasons work needs on every hot path:
 
 ADD COLUMN does not touch RLS, and player_journey_entries already has RLS
 enabled, so no RLS statement is needed here.
+
+DEPLOY ORDERING (migrations do NOT auto-run — deploy.yml only runs the RLS
+security-check; the container CMD is gunicorn, nothing runs `flask db upgrade`).
+The shipped ORM model declares these 28 columns, so the moment the new image takes
+traffic every read of PlayerJourneyEntry SELECTs them; if the DDL is not yet applied
+that is psycopg UndefinedColumn -> 500 on all journey / D1-provenance surfaces.
+Chosen sequence: PRE-APPLY this migration out-of-band against prod BEFORE merging —
+from a local checkout with the prod DB env (IPv4 pooler + `postgresql+psycopg://`,
+invariants #1) run `FLASK_APP=src/main.py flask db upgrade`. ADD COLUMN is a
+metadata-only instant op in Postgres; the two CREATE INDEXes are the only real work.
+Then merge: when CI deploys the image the columns already exist -> zero 500 window,
+and the manual in-container `flask db upgrade` is a pure no-op stamp (all DDL guarded
+via *_safe / index_exists). Fallback if pre-apply is skipped: run `flask db upgrade`
+in the container immediately after the deploy goes green and accept the brief window.
 """
 
 import sqlalchemy as sa

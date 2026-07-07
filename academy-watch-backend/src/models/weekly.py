@@ -119,7 +119,14 @@ class FixturePlayerStats(db.Model):
     # Raw JSON for future expansion
     raw_json = db.Column(db.Text)
 
-    __table_args__ = (db.UniqueConstraint("fixture_id", "player_api_id", name="uq_fixture_player"),)
+    __table_args__ = (
+        # Per-player season aggregation scans FPS by player_api_id; without this
+        # it seq-scans ~100k rows/season on the 0.5-CPU prod box. Named to match
+        # migration sea01's create_index_safe so `flask db migrate` autogenerate
+        # sees no diff and never proposes dropping it.
+        db.Index("ix_fps_player", "player_api_id"),
+        db.UniqueConstraint("fixture_id", "player_api_id", name="uq_fixture_player"),
+    )
 
     def to_dict(self):
         """Convert player stats to dictionary for API responses."""
