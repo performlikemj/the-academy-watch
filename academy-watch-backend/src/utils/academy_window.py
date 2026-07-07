@@ -83,6 +83,64 @@ def stats_season_with_data(db_session, today: date | datetime | None = None) -> 
     return latest if latest is not None else calendar_season
 
 
+def season_bounds(db_session, today: date | datetime | None = None) -> tuple[int, int]:
+    """Valid range for an explicit ``?season`` request: ``(low, high)`` inclusive.
+
+    - ``low`` = ``MIN(fixtures.season)`` — the platform only holds per-match
+      fixture data from 2025-26 onward, so an older season has no fixtures to
+      scope a stats read to. Falls back to ``current_stats_season`` when no
+      fixtures exist yet, so the range never inverts.
+    - ``high`` = ``current_stats_season() + 1`` — a caller may look one season
+      ahead (request the upcoming season before its fixtures land).
+
+    Season values are API-Football season-start years (2025 == 2025-26).
+    """
+    from sqlalchemy import func
+    from src.models.weekly import Fixture
+
+    high = current_stats_season(today) + 1
+    min_season = db_session.query(func.min(Fixture.season)).scalar()
+    low = int(min_season) if min_season is not None else current_stats_season(today)
+    return (low, high)
+
+
+def resolve_stats_season(
+    db_session,
+    requested=None,
+    surface: str = "discovery",
+    today: date | datetime | None = None,
+) -> int:
+    """The ONE season resolver every stats read routes through.
+
+    - ``requested`` given: validated against :func:`season_bounds`. A non-integer
+      value, or one outside the inclusive bounds, raises ``ValueError`` (routes
+      turn it into HTTP 400). The validated integer is returned verbatim — an
+      explicit request is honoured on every surface.
+    - ``requested`` omitted, ``surface="discovery"`` (default): the DISPLAY
+      default — :func:`stats_season_with_data`, which never points at a
+      not-yet-started season (fixtures-keyed fallback). Identical to the pre-param
+      behaviour of the single-player endpoints.
+    - ``requested`` omitted, ``surface="compare"``: the wall-clock
+      :func:`current_stats_season` with NO with-data fallback, so a compare
+      column for a season that has produced no fixtures renders empty ("season
+      not started") instead of silently borrowing the prior season's numbers.
+
+    Season values are API-Football season-start years (2025 == 2025-26).
+    """
+    if requested is not None:
+        try:
+            season = int(requested)
+        except (TypeError, ValueError):
+            raise ValueError(f"season must be an integer start-year, got {requested!r}") from None
+        low, high = season_bounds(db_session, today)
+        if season < low or season > high:
+            raise ValueError(f"season {season} is out of range [{low}, {high}]")
+        return season
+    if surface == "compare":
+        return current_stats_season(today)
+    return stats_season_with_data(db_session, today)
+
+
 def age_from_birth_date(birth_date, today: date | None = None) -> int | None:
     """Floor years between a 'YYYY-MM-DD...' birth date string and today.
 
