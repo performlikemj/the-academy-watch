@@ -94,30 +94,45 @@ def _sqlite_index_exists(name):
     return any(name in {ix["name"] for ix in inspector.get_indexes(t)} for t in inspector.get_table_names())
 
 
-# Rich columns the migration must add (a representative spread — keeper, shooter,
-# passer, discipline, provenance, and the dormant split-season hook).
-_EXPECTED_RICH_COLUMNS = {
-    "player_api_id",
-    "rating",
-    "position",
-    "lineups",
-    "shots_total",
-    "shots_on",
-    "passes_total",
-    "passes_key",
-    "passes_accuracy",
-    "tackles_total",
-    "duels_won",
-    "dribbles_success",
-    "fouls_committed",
-    "cards_red",
-    "penalty_saved",
-    "goals_conceded",
-    "saves",
-    "stats_source",
-    "stats_synced_at",
-    "season_phase",
-}
+# The FULL 28-column contract sea01 adds to player_journey_entries (27 rich
+# columns + the server-defaulted stats_source). Pinned here as an explicit
+# literal, INDEPENDENTLY of both the migration's own _COLUMNS list and the ORM
+# model — so a column silently dropped or renamed on either side fails a test.
+# That drift (migration omits a column the shipped model still SELECTs) is the
+# exact failure mode that 500s every journey / D1-provenance read with psycopg
+# UndefinedColumn; a hand-picked subset let 8 of these slip through unpinned.
+_SEA01_COLUMNS = frozenset(
+    {
+        "player_api_id",
+        "rating",
+        "position",
+        "lineups",
+        "shots_total",
+        "shots_on",
+        "passes_total",
+        "passes_key",
+        "passes_accuracy",
+        "tackles_total",
+        "tackles_blocks",
+        "tackles_interceptions",
+        "duels_total",
+        "duels_won",
+        "dribbles_attempts",
+        "dribbles_success",
+        "fouls_drawn",
+        "fouls_committed",
+        "cards_yellow",
+        "cards_red",
+        "penalty_scored",
+        "penalty_missed",
+        "penalty_saved",
+        "goals_conceded",
+        "saves",
+        "season_phase",
+        "stats_synced_at",
+        "stats_source",
+    }
+)
 
 
 @pytest.fixture
@@ -130,6 +145,40 @@ def _pje_base_engine():
             sa.text("CREATE TABLE player_journey_entries (id INTEGER PRIMARY KEY, journey_id INTEGER, season INTEGER)")
         )
         conn.execute(sa.text("INSERT INTO player_journey_entries (id, journey_id, season) VALUES (1, 7, 2024)"))
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def _pje_partial_engine():
+    """A `player_journey_entries` where a SUBSET of sea01's artifacts already
+    exists out-of-band: the `player_api_id` + `rating` columns and the
+    `ix_pje_player_season` index, plus a legacy row carrying a real rating.
+
+    This is the documented drift mode (invariants §8): prod schema has had
+    columns/indexes hand-added, so `flask db upgrade` runs against a schema where
+    part of the migration's target already exists. upgrade() must ADD only the
+    26 missing columns, SKIP the 2 pre-existing ones and the pre-existing index,
+    and leave the seeded data untouched — never crash with DuplicateColumn."""
+    engine = sa.create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "CREATE TABLE player_journey_entries ("
+                "id INTEGER PRIMARY KEY, journey_id INTEGER, season INTEGER, "
+                "player_api_id INTEGER, rating REAL)"
+            )
+        )
+        # The read-path index sea01 also creates — already present out-of-band.
+        conn.execute(sa.text("CREATE INDEX ix_pje_player_season ON player_journey_entries (player_api_id, season)"))
+        conn.execute(
+            sa.text(
+                "INSERT INTO player_journey_entries (id, journey_id, season, player_api_id, rating) "
+                "VALUES (1, 7, 2024, 303010, 6.5)"
+            )
+        )
     try:
         yield engine
     finally:
@@ -158,10 +207,69 @@ class TestSea01Idempotency:
 
         inspector = sa.inspect(engine)
         columns = {c["name"] for c in inspector.get_columns("player_journey_entries")}
-        assert _EXPECTED_RICH_COLUMNS.issubset(columns)
+        # All 28 contract columns land (not just a hand-picked subset).
+        assert columns >= _SEA01_COLUMNS
         index_names = [ix["name"] for ix in inspector.get_indexes("player_journey_entries")]
         # Created exactly once despite two upgrade passes.
         assert index_names.count("ix_pje_player_season") == 1
+
+    def test_upgrade_over_partial_out_of_band_schema(self, _pje_partial_engine, _sea01_module):
+        """Partial-application replay — the drift mode the file docstring claims
+        but the double-upgrade test never exercised (that starts from a bare
+        table where the first pass adds everything and the second full-skips).
+
+        Here 2 of the 28 columns and the read-path index already exist
+        out-of-band. A SINGLE upgrade() must: complete without a mid-DDL
+        DuplicateColumn crash, add the other 26 columns, and leave the
+        pre-existing column data and index untouched. This is what catches a
+        future 'consolidate the 28 guards into one sentinel probe' refactor:
+        the sentinel would be absent here, the batch would re-add `rating`, and
+        upgrade() would raise instead of no-op'ing."""
+        engine = _pje_partial_engine
+        # A single pass (not a double-upgrade) — the crash, if any, is here.
+        with _alembic_ops(engine):
+            _sea01_module.upgrade()
+
+        inspector = sa.inspect(engine)
+        columns = {c["name"] for c in inspector.get_columns("player_journey_entries")}
+        # Every contract column present: the 26 missing were added, the 2
+        # pre-existing were skipped (no duplicate, no crash).
+        assert columns >= _SEA01_COLUMNS
+        # The pre-existing index survived exactly once (create_index_safe skipped it).
+        index_names = [ix["name"] for ix in inspector.get_indexes("player_journey_entries")]
+        assert index_names.count("ix_pje_player_season") == 1
+        # The pre-existing columns' data is untouched (columns were not dropped/re-added),
+        # while a freshly-added rich column defaults NULL and stats_source takes its
+        # server default.
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.text("SELECT rating, player_api_id, stats_source, saves FROM player_journey_entries WHERE id=1")
+            ).one()
+        assert row.rating == 6.5  # pre-existing value preserved
+        assert row.player_api_id == 303010  # pre-existing value preserved
+        assert row.stats_source == "legacy-basic"  # newly-added column's server default
+        assert row.saves is None  # newly-added rich column defaults NULL
+
+    def test_migration_ddl_matches_model_contract(self, _sea01_module):
+        """DDL ↔ ORM-model parity. The migration's own _COLUMNS list AND the
+        shipped model must both agree with the 28-column sea01 contract. Drop or
+        rename a column on either side and this fails — instead of shipping a
+        migration that omits a column the model still SELECTs, which 500s every
+        journey / D1-provenance read with psycopg UndefinedColumn (the drift a
+        prior fix on this branch already had to undo once)."""
+        from src.models.journey import PlayerJourneyEntry
+
+        migration_cols = {name for name, _ in _sea01_module._COLUMNS} | {"stats_source"}
+        assert migration_cols == _SEA01_COLUMNS, (
+            "sea01 _COLUMNS drifted from the 28-column contract — "
+            f"missing={sorted(_SEA01_COLUMNS - migration_cols)}, "
+            f"extra={sorted(migration_cols - _SEA01_COLUMNS)}"
+        )
+
+        model_cols = {c.name for c in PlayerJourneyEntry.__table__.columns}
+        assert model_cols >= _SEA01_COLUMNS, (
+            f"the ORM model is missing sea01 columns it will SELECT at runtime: {sorted(_SEA01_COLUMNS - model_cols)}"
+        )
 
     def test_legacy_row_backfills_source_default(self, _pje_base_engine, _sea01_module):
         """The pre-existing row reads as 'legacy-basic' (server_default) with NULL
