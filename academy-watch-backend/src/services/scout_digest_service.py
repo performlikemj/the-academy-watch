@@ -31,6 +31,16 @@ MAX_DIGEST_USERS = 200
 # One run touches at most this many entries across all users — keeps a
 # synchronous admin request bounded; callers page with `cursor`.
 MAX_DIGEST_ENTRIES = 2000
+# A single digest window (weekly cadence, occasionally longer) can plausibly add
+# only a handful of appearances / minutes. A delta far beyond that is not real
+# activity but a SHIFTED BASELINE — e.g. a one-off stats re-keying that makes a
+# returned loanee's stored season jump from 0 to a full season in one step. When
+# a delta looks like a baseline shift we suppress the "since last digest" chips
+# and let the accurate season line stand, so a re-keying/backfill deploy can't
+# email "+30 apps / +2,583 mins" as if it happened this week. The fresh snapshot
+# is still written, so the next digest self-heals to real deltas.
+MAX_PLAUSIBLE_WINDOW_APPS = 15
+MAX_PLAUSIBLE_WINDOW_MINUTES = 1000
 # Full rendered HTML only for the first few dry-run previews; at 200 users
 # the response would otherwise be a multi-megabyte JSON blob.
 MAX_PREVIEW_HTML = 5
@@ -240,14 +250,19 @@ def _entry_update(entry, cache: dict, api_client=None) -> dict | None:
         new_goals = int(stats.get("goals") or 0) - int(previous.get("goals") or 0)
         new_assists = int(stats.get("assists") or 0) - int(previous.get("assists") or 0)
         new_minutes = int(stats.get("minutes_played") or 0) - int(previous.get("minutes_played") or 0)
-        if new_goals > 0:
-            chips.append(f"+{_plural(new_goals, 'goal')}")
-        if new_assists > 0:
-            chips.append(f"+{_plural(new_assists, 'assist')}")
-        if new_apps > 0:
-            chips.append(f"+{_plural(new_apps, 'app')}")
-        if new_minutes > 0:
-            chips.append(f"+{new_minutes} mins")
+        # A baseline shift (a re-keying/backfill that moved the stored totals, not
+        # real match activity) produces implausibly large deltas — suppress ALL
+        # numeric chips for it and let the season line carry the truth.
+        baseline_shift = new_apps > MAX_PLAUSIBLE_WINDOW_APPS or new_minutes > MAX_PLAUSIBLE_WINDOW_MINUTES
+        if not baseline_shift:
+            if new_goals > 0:
+                chips.append(f"+{_plural(new_goals, 'goal')}")
+            if new_assists > 0:
+                chips.append(f"+{_plural(new_assists, 'assist')}")
+            if new_apps > 0:
+                chips.append(f"+{_plural(new_apps, 'app')}")
+            if new_minutes > 0:
+                chips.append(f"+{new_minutes} mins")
 
         # Status headlines only apply to tracked players (shadows have no status).
         previous_status = previous.get("status")

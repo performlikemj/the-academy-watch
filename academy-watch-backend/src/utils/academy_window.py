@@ -36,6 +36,53 @@ def academy_window_start(today: date | None = None) -> int:
     return current_academy_season(today) - _window_years()
 
 
+def current_stats_season(today: date | datetime | None = None) -> int:
+    """Season-start year for STATS DISPLAY / fixture data (August rollover).
+
+    Two "current season" rules exist on purpose — do NOT collapse them:
+
+    - ``current_academy_season`` rolls over on **1 July** because it gates the
+      ACADEMY TRACKING WINDOW: when the youth calendar turns over in summer a
+      player's academy eligibility should advance immediately, so July is the
+      right hinge for who is still "in window".
+    - ``current_stats_season`` rolls over on **1 August** because it selects
+      which SEASON'S FIXTURES to show. European league football starts in
+      August; rolling in July would point at a season that has no matches yet
+      and blank every stats page for a month.
+
+    Callers that display or sync fixture/stats data want THIS helper; callers
+    that gate academy eligibility want ``current_academy_season``.
+    """
+    if isinstance(today, datetime):
+        today = today.date()
+    today = today or date.today()
+    return today.year if today.month >= 8 else today.year - 1
+
+
+def stats_season_with_data(db_session, today: date | datetime | None = None) -> int:
+    """``current_stats_season`` but never point at a season with no fixtures.
+
+    The calendar season (e.g. 2026 on 1 Aug 2026) can roll over before any
+    fixtures for it have been ingested. Using it directly would blank every
+    stats page platform-wide until the new season's fixtures land. When the
+    calendar season has zero fixture rows this falls back to the latest season
+    that actually HAS fixtures (``MAX(fixtures.season)``).
+
+    DISPLAY paths only. Data-fetching / sync paths (transfer heal, newsletter
+    generation, API-Football season priming) must use ``current_stats_season``
+    so they fetch the real upcoming season instead of being pinned to old data.
+    """
+    from sqlalchemy import func
+    from src.models.weekly import Fixture
+
+    calendar_season = current_stats_season(today)
+    has_current = db_session.query(Fixture.id).filter(Fixture.season == calendar_season).first() is not None
+    if has_current:
+        return calendar_season
+    latest = db_session.query(func.max(Fixture.season)).scalar()
+    return latest if latest is not None else calendar_season
+
+
 def age_from_birth_date(birth_date, today: date | None = None) -> int | None:
     """Floor years between a 'YYYY-MM-DD...' birth date string and today.
 

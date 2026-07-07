@@ -207,7 +207,12 @@ class TestGetRadarChartData:
             },
         ]
 
-        result = get_radar_chart_data(player_id=123, fixtures_data=fixtures)
+        # Pass an explicit season: resolve_player_league and
+        # fetch_league_position_averages are mocked, so season is a passthrough
+        # here. Supplying it keeps the test deterministic and avoids the
+        # season default, which now reads db.session (stats_season_with_data)
+        # and would require a Flask app context this pure unit test doesn't set up.
+        result = get_radar_chart_data(player_id=123, fixtures_data=fixtures, season=2025)
 
         assert result["chart_type"] == "radar"
         assert result["position_group"] == "FB"
@@ -229,7 +234,9 @@ class TestGetRadarChartData:
         fixtures = [
             {"stats": {"minutes": 90, "position": "D", "formation_position": "CB"}},
         ]
-        result = get_radar_chart_data(player_id=456, fixtures_data=fixtures)
+        # Explicit season (passthrough while resolve/fetch are mocked) — see
+        # test_response_shape_with_league for why the default is avoided here.
+        result = get_radar_chart_data(player_id=456, fixtures_data=fixtures, season=2025)
         assert result["league_name"] is None
         assert result["league_peers"] == 0
         # Should still have data items

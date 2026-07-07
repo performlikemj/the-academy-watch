@@ -9,7 +9,6 @@ import logging
 import os
 import time
 from collections import Counter
-from datetime import UTC
 from typing import Any
 
 from src.models.league import db
@@ -574,10 +573,14 @@ def resolve_player_league(
     from src.models.tracked_player import TrackedPlayer
 
     if season is None:
-        from datetime import datetime
+        # Radar league comparison is a request-scoped DISPLAY. Default to the
+        # current stats season with the latest-season-with-data fallback so the
+        # senior-minutes gate (Fixture.season == season, below) and league
+        # averages never blank during the July/Aug rollover. One source of
+        # truth — utils/academy_window. Callers may still pass an explicit season.
+        from src.utils.academy_window import stats_season_with_data
 
-        now = datetime.now(UTC)
-        season = now.year if now.month >= 7 else now.year - 1
+        season = stats_season_with_data(db.session)
 
     def _league_from_team(team: "Team") -> tuple[int, str] | None:
         if not team or not team.league_id:
@@ -705,11 +708,12 @@ def get_radar_chart_data(
     average. Both values are normalized to 0-100 where 100 = the best
     performer at that position in the league.
     """
-    from datetime import datetime
-
     if season is None:
-        now = datetime.now(UTC)
-        season = now.year if now.month >= 7 else now.year - 1
+        # DISPLAY default (see resolve_player_league) — latest-season-with-data
+        # fallback keeps the radar populated across the July/Aug rollover.
+        from src.utils.academy_window import stats_season_with_data
+
+        season = stats_season_with_data(db.session)
 
     # Determine primary position
     primary_fp, fp_count, fp_total = get_primary_formation_position(fixtures_data)

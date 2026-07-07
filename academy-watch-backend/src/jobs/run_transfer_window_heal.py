@@ -41,7 +41,7 @@ def is_transfer_window() -> bool:
 
 
 def run(dry_run=False):
-    from src.services.transfer_heal_service import refresh_and_heal
+    from src.services.transfer_heal_service import MAX_ORPHAN_REQUEUE, refresh_and_heal
 
     # Clean transaction state
     try:
@@ -72,6 +72,12 @@ def run(dry_run=False):
     team_ids = teams_with_active_tracked_players()
     logger.info("Processing %d teams", len(team_ids))
 
+    # Orphan requeue budget is JOB-GLOBAL, not per-team: refresh_and_heal is
+    # called once per team, so a per-call cap would multiply into cap×len(teams)
+    # force_full re-syncs a night (API-Football quota + 3AM runtime). Decrement
+    # a shared budget across teams so the nightly ceiling is MAX_ORPHAN_REQUEUE.
+    orphan_budget_remaining = MAX_ORPHAN_REQUEUE
+
     results = []
     for team_db_id in team_ids:
         if is_job_paused("transfer_heal_paused"):
@@ -89,7 +95,9 @@ def run(dry_run=False):
                 resync_journeys=resync,
                 dry_run=dry_run,
                 cascade_fixtures=True,
+                orphan_budget=orphan_budget_remaining,
             )
+            orphan_budget_remaining = max(0, orphan_budget_remaining - result.get("orphans_requeued", 0))
             results.append({"team_id": team_db_id, **result})
             logger.info(
                 "Team %d: %d/%d updated, %d changed, %d fixture syncs",

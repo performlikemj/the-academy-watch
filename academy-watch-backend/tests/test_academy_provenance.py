@@ -810,3 +810,235 @@ class TestUpsertReactivatesOrphanedAcademyRows:
         sync_service._compute_academy_club_ids(journey)
 
         assert row.is_active is False
+
+    def test_reactivated_owning_club_row_becomes_visible_journey_sync(self, app, sync_service):
+        # The Gore heal: an inactive 'owning-club' row whose club IS the academy
+        # origin (in keep_ids). Reactivation must also flip data_source to
+        # 'journey-sync' — otherwise the row comes back ACTIVE but still invisible
+        # on Scout Desk / Teams (which exclude data_source='owning-club',
+        # invariant #3), i.e. healed-but-hidden.
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = _academy_alumnus_journey(434, [recent])
+        row = _tracked(434, team, data_source="owning-club", journey_id=journey.id, active=False)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is True
+        assert row.data_source == "journey-sync"
+
+
+class TestStoredAttributionFloor:
+    """A transient sync that resolves NO academy evidence (API youth-coverage
+    gap / tenure-gate flicker → empty academy_ids) must never orphan an
+    established in-window academy row. Canonical case: Daniel Gore."""
+
+    def _stored_journey(self, player_api_id, *, stored_last_seasons, senior_entry=None):
+        """Journey with a PERSISTED academy attribution but NO youth entries
+        this run — so _compute takes an empty-computation path and the floor
+        must lean on the stored attribution to spare the row."""
+        journey = PlayerJourney(
+            player_api_id=player_api_id,
+            player_name=f"Test Player {player_api_id}",
+            academy_club_ids=sorted(int(k) for k in stored_last_seasons),
+            academy_last_seasons={str(k): v for k, v in stored_last_seasons.items()},
+        )
+        db.session.add(journey)
+        db.session.flush()
+        if senior_entry is not None:
+            season, club_api_id, club_name = senior_entry
+            db.session.add(_entry(journey.id, season, club_api_id, club_name, entry_type="first_team", appearances=20))
+            db.session.flush()
+        return journey
+
+    def test_empty_computation_spares_in_window_row(self, app, sync_service):
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = self._stored_journey(500, stored_last_seasons={100: recent})
+        row = _tracked(500, team, data_source="journey-sync", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is True
+
+    def test_homegrown_owned_row_spared_from_owning_block(self, app, sync_service):
+        # Gore-shaped: the owning club IS the academy club (a homegrown player
+        # still owned by his academy, e.g. on loan). A transient empty run would
+        # otherwise nuke the row via BOTH the stale sweep and the owning-club
+        # block; the floor must protect it in both.
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = self._stored_journey(501, stored_last_seasons={100: recent}, senior_entry=(recent, 100, "Feyenoord"))
+        # owning-club data_source mirrors the real orphaned Gore row.
+        row = _tracked(501, team, data_source="owning-club", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is True
+
+    def test_floor_does_not_protect_out_of_window_stored_row(self, app, sync_service):
+        # Stored attribution present but its last youth season is OUT of window
+        # → a genuine aged-out alumnus; the floor must NOT keep it alive.
+        from src.utils.academy_window import academy_window_start
+
+        old = academy_window_start() - 2
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = self._stored_journey(502, stored_last_seasons={100: old})
+        row = _tracked(502, team, data_source="journey-sync", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is False
+
+    def test_floor_ignores_stale_ids_without_season_evidence(self, app, sync_service):
+        # academy_club_ids lists the club but there is NO season evidence
+        # (academy_last_seasons empty) — a merely-stale stored value. This is the
+        # recompute contradiction shape; the floor must NOT protect it.
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = PlayerJourney(
+            player_api_id=503,
+            player_name="Test Player 503",
+            academy_club_ids=[100],
+            academy_last_seasons={},
+        )
+        db.session.add(journey)
+        db.session.flush()
+        row = _tracked(503, team, data_source="journey-sync", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is False
+
+    def test_floor_ignores_season_less_stale_ids_even_for_u21(self, app, sync_service):
+        # Same season-less stale shape, but now the player is a U21 WITH a birth
+        # date. The floor must key on stored SEASON evidence only — the birth-date
+        # development-age fallback in is_within_academy_window must NOT stand in
+        # for it, or every young player's season-less stale attribution would be
+        # spared (defeating the one-shot recompute repair).
+        from datetime import date
+
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        nineteen = date.today().year - 19
+        journey = PlayerJourney(
+            player_api_id=504,
+            player_name="Test Player 504",
+            academy_club_ids=[100],
+            academy_last_seasons={},
+            birth_date=f"{nineteen}-01-15",
+        )
+        db.session.add(journey)
+        db.session.flush()
+        row = _tracked(504, team, data_source="journey-sync", journey_id=journey.id)
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+
+        assert row.is_active is False
+
+    def test_floor_survives_two_consecutive_empty_runs(self, app, sync_service):
+        # An API coverage gap that lasts two nightly syncs must not orphan the
+        # row on run 2. Run 1 spares it AND retains the stored attribution the
+        # floor depends on (instead of zeroing it), so run 2 still fires.
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = self._stored_journey(505, stored_last_seasons={100: recent})
+        row = _tracked(505, team, data_source="journey-sync", journey_id=journey.id)
+        db.session.commit()
+
+        # Run 1: empty computation spares the row and keeps the attribution.
+        sync_service._compute_academy_club_ids(journey)
+        assert row.is_active is True
+        assert (journey.academy_club_ids or []) == [100]
+        assert (journey.academy_last_seasons or {}) == {"100": recent}
+        db.session.commit()
+
+        # Run 2: gap persists — the floor must still protect the row.
+        sync_service._compute_academy_club_ids(journey)
+        assert row.is_active is True
+
+    def test_floor_honours_in_window_row_local_season(self, app, sync_service):
+        # The journey's per-club season map is EMPTY (legacy pre-aw18 map, or
+        # youth entries whose seasons are NULL) but the tracked ROW carries an
+        # in-window last_academy_season. Keying the floor on the journey map
+        # alone would orphan it on a single empty run (and, since retention
+        # would zero academy_club_ids, put it beyond the transfer-heal requeue
+        # gate too). Row-local season evidence must spare it AND be recovered
+        # into the journey map so the floor survives a second empty run.
+        from src.utils.academy_window import current_academy_season
+
+        recent = current_academy_season()
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = PlayerJourney(
+            player_api_id=510,
+            player_name="Test Player 510",
+            academy_club_ids=[100],
+            academy_last_seasons={},
+        )
+        db.session.add(journey)
+        db.session.flush()
+        row = _tracked(510, team, data_source="journey-sync", journey_id=journey.id)
+        row.last_academy_season = recent
+        db.session.commit()
+
+        # Run 1: empty computation, but the row's own season spares it and the
+        # attribution is recovered into the journey map.
+        sync_service._compute_academy_club_ids(journey)
+        assert row.is_active is True
+        assert (journey.academy_club_ids or []) == [100]
+        assert (journey.academy_last_seasons or {}) == {"100": recent}
+        db.session.commit()
+
+        # Run 2: gap persists — the recovered attribution keeps the floor firing.
+        sync_service._compute_academy_club_ids(journey)
+        assert row.is_active is True
+
+    def test_floor_honours_row_status_academy_when_journey_level_lags(self, app, sync_service):
+        # Row says status='academy' (a current academy kid) but the journey's
+        # current_level lags (First Team / legacy) and the season map is empty.
+        # The aged-out branch already spares status='academy' rows, but only on
+        # runs with evidence; on a NO-evidence run academy_ids (and aged_out) are
+        # empty, so the floor must itself honour the row's status.
+        league = _seed_league()
+        team = _seed_team(league, 100, "Feyenoord")
+        journey = PlayerJourney(
+            player_api_id=511,
+            player_name="Test Player 511",
+            academy_club_ids=[100],
+            academy_last_seasons={},
+            current_level="First Team",
+        )
+        db.session.add(journey)
+        db.session.flush()
+        row = _tracked(511, team, data_source="journey-sync", journey_id=journey.id)
+        row.status = "academy"
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+        assert row.is_active is True
+        # Retained via the row's status so the requeue gate could still see it.
+        assert (journey.academy_club_ids or []) == [100]
+        db.session.commit()
+
+        sync_service._compute_academy_club_ids(journey)
+        assert row.is_active is True

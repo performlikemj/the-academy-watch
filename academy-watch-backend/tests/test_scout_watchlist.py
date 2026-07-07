@@ -549,6 +549,33 @@ class TestDigests:
         assert self._post(client, {"cursor": -1}).status_code == 400
         assert self._post(client, {"cursor": "abc"}).status_code == 400
 
+    def test_baseline_shift_suppresses_implausible_delta_chips(self, client, seeded):
+        """A re-keying/backfill can move a stored snapshot from ~0 to a full
+        season in one step. The digest must NOT advertise that as huge weekly
+        deltas — it suppresses the delta chips and lets the season line stand."""
+        from src.services.scout_digest_service import build_user_digest
+
+        user = _make_user("shift@example.com")
+        # Keeper 1003: current season is 12 apps / 1080 mins (PlayerStatsCache).
+        # Stale baseline of ~0 → a +1080-minute delta, far beyond one window.
+        stale = json.dumps(
+            {"appearances": 0, "goals": 0, "assists": 0, "minutes_played": 0, "status": "on_loan", "absences": 0}
+        )
+        entry = ScoutWatchlistEntry(user_account_id=user.id, player_api_id=1003, last_snapshot=stale)
+        db.session.add(entry)
+        db.session.commit()
+
+        digest = build_user_digest(user, [entry], api_client=None)
+        assert digest is not None
+        text = digest["text"]
+        # Accurate season total is still shown...
+        assert "12 apps" in text
+        assert "1080 mins" in text
+        # ...but the implausible "since last digest" delta chips are suppressed.
+        assert "+12 apps" not in text
+        assert "+1080 mins" not in text
+        assert "+1 assist" not in text
+
 
 class TestCsvInjectionEscaping:
     def test_formula_prefixed_names_are_neutralised(self, client, seeded, watchlist_app):

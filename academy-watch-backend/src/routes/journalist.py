@@ -1114,6 +1114,11 @@ def get_chart_data():
 
         # Get fixtures data based on date range
         fixtures_data = []
+        # Only the "season" range computes a DISPLAY season; hand it to the radar
+        # builder so it isn't recomputed there (stats_season_with_data is an
+        # uncached DB query). None for week/month ranges → radar uses its own
+        # season-scoped default for the league overlay.
+        season: int | None = None
 
         if date_range == "week":
             week_start = request.args.get("week_start")
@@ -1142,11 +1147,14 @@ def get_chart_data():
             )
 
         elif date_range == "season":
-            # Get current season (assume July-June cycle)
-            now_utc = datetime.now(UTC)
-            current_year = now_utc.year
-            current_month = now_utc.month
-            season = current_year if current_month >= 7 else current_year - 1
+            # Stats DISPLAY season. _get_season_stats filters Fixture.season == season,
+            # so an inline July hinge blanks the chart all summer (fixtures roll over in
+            # Aug, not July) and again on any rollover before new fixtures land. Route
+            # through the shared helper with the latest-season-with-data fallback so
+            # "current season" has one source of truth (utils/academy_window).
+            from src.utils.academy_window import stats_season_with_data
+
+            season = stats_season_with_data(db.session)
             fixtures_data = _get_season_stats(player_id, season, current_club_api_id=current_club_api_id)
 
         # Get player info
@@ -1184,7 +1192,7 @@ def get_chart_data():
 
             # Let the service auto-select axes unless caller explicitly provided stat_keys
             explicit_keys = stat_keys if stat_keys_param else None
-            radar = get_radar_chart_data(player_id, fixtures_data, stat_keys=explicit_keys)
+            radar = get_radar_chart_data(player_id, fixtures_data, stat_keys=explicit_keys, season=season)
 
             response.update(radar)
             response["player"] = player_info
@@ -1862,6 +1870,10 @@ def _fetch_chart_data_for_rendering(
 
         # Get fixtures data based on date range
         fixtures_data = []
+        # Only the "season" range computes a DISPLAY season; pass it to the radar
+        # builder to avoid recomputing stats_season_with_data (an uncached DB
+        # query) there. None for other ranges → radar uses its own default.
+        season: int | None = None
 
         if date_range == "week" and week_start and week_end:
             try:
@@ -1880,10 +1892,11 @@ def _fetch_chart_data_for_rendering(
                 player_id, start_date, end_date, current_club_api_id=current_club_api_id
             )
         elif date_range == "season":
-            now_utc = datetime.now(UTC)
-            current_year = now_utc.year
-            current_month = now_utc.month
-            season = current_year if current_month >= 7 else current_year - 1
+            # Stats DISPLAY season with latest-season-with-data fallback — same rationale
+            # as the get_chart_data path above (never blank on the July/Aug rollover gap).
+            from src.utils.academy_window import stats_season_with_data
+
+            season = stats_season_with_data(db.session)
             fixtures_data = _get_season_stats(player_id, season, current_club_api_id=current_club_api_id)
         else:
             # Default to last 30 days if no specific range
@@ -1927,7 +1940,7 @@ def _fetch_chart_data_for_rendering(
         elif chart_type == "radar":
             from src.services.radar_stats_service import get_radar_chart_data
 
-            radar = get_radar_chart_data(player_id, fixtures_data, stat_keys=stat_keys or None)
+            radar = get_radar_chart_data(player_id, fixtures_data, stat_keys=stat_keys or None, season=season)
             response.update(radar)
             response["player"] = player_info
 
@@ -2493,7 +2506,6 @@ def get_player_stats(player_id):
             return jsonify({"error": "Not authorized as a writer"}), 403
 
         # Import models here to avoid circular imports if any
-        from datetime import datetime
 
         from src.api_football_client import APIFootballClient
         from src.models.league import Team
@@ -2501,10 +2513,9 @@ def get_player_stats(player_id):
         from src.routes.api import _sync_player_club_fixtures, resolve_team_name_and_logo
 
         # Get current season
-        now_utc = datetime.now(UTC)
-        current_year = now_utc.year
-        current_month = now_utc.month
-        season = current_year if current_month >= 8 else current_year - 1
+        from src.utils.academy_window import current_stats_season
+
+        season = current_stats_season()
 
         # Auto-sync: Check if we're missing fixtures compared to API-Football
         loaned = TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True).first()

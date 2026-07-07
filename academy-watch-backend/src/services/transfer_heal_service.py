@@ -25,8 +25,27 @@ from src.utils.academy_classifier import (
 
 logger = logging.getLogger(__name__)
 
+# Budget on how many orphaned rows may be requeued for a force_full journey
+# re-sync. Each requeued row costs ~7s + several API-Football calls, so an
+# unbounded requeue (e.g. after a mass-orphaning incident) would blow the
+# nightly job's runtime and API quota.
+#
+# This is the DEFAULT per-call cap. The nightly job runners iterate ~137 teams
+# and call refresh_and_heal once per team, so a per-call cap would multiply into
+# 50×137 re-syncs a night — the exact quota/runtime blow-up the cap is meant to
+# prevent. Those runners therefore pass an ``orphan_budget`` that they DECREMENT
+# across teams, making the ceiling job-global (this constant) rather than
+# per-team. Callers that fire a single refresh (admin endpoint, team-verify,
+# newsletter pre-refresh) omit ``orphan_budget`` and get this cap for that call.
+#
+# Genuinely-healable orphans reactivate and leave the pool; non-healable rows
+# have their updated_at touched on the skipped requeue so the oldest-touched
+# ordering ROUND-ROBINS through the backlog instead of pinning the same stuck
+# tail every night — so the budget rotates fairly and the backlog drains.
+MAX_ORPHAN_REQUEUE = 50
 
-def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_fixtures=True):
+
+def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_fixtures=True, orphan_budget=None):
     """Re-derive statuses for tracked players, detecting loan club changes.
 
     Args:
@@ -35,19 +54,100 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
         dry_run: If True, do not commit changes or cascade fixture syncs.
         cascade_fixtures: If True, sync fixtures for players whose loan club
             changed. Set False for admin endpoint (preserves old behavior).
+        orphan_budget: Max orphan rows this call may requeue for a force_full
+            journey re-sync. None → the per-call default MAX_ORPHAN_REQUEUE.
+            The nightly per-team job loops pass a shrinking budget so the
+            ceiling stays job-global (see MAX_ORPHAN_REQUEUE) rather than
+            multiplying by the team count.
 
     Returns:
         dict with keys: total, updated, journeys_resynced, players_changed,
-        fixture_syncs_triggered.
+        fixture_syncs_triggered, orphans_requeued.
 
     Note: Fixture syncs are independent — status changes persist even if
     a fixture sync fails for an individual player.
     """
+    orphan_cap = MAX_ORPHAN_REQUEUE if orphan_budget is None else max(int(orphan_budget), 0)
     query = TrackedPlayer.query.filter_by(is_active=True)
     if team_id:
         query = query.filter_by(team_id=team_id)
 
     players = query.all()
+
+    # ── Orphan self-heal ──
+    # Requeue is_active=false rows that were orphaned by an earlier transient
+    # empty computation so a transfers-fed journey re-sync can reactivate them
+    # via the upsert's reactivation branch (invariant #10 — status only changes
+    # through the transfers-fed sync). The journey upsert's reactivation branch
+    # only fires during a full journey re-sync, and the heal historically looked
+    # at ACTIVE rows only, so orphans were never revisited.
+    #
+    # Bounded and TERMINAL by construction, so the nightly job doesn't force_full
+    # re-sync a never-healable tail forever (API-Football quota + runtime):
+    #   1. Journey-attribution gate — only requeue a row whose LINKED journey
+    #      STILL attributes the row's academy club IN-WINDOW. Those are the only
+    #      rows the upsert can actually reactivate; graveyard rows (no journey /
+    #      journey no longer attributes the club / aged-out season) are excluded,
+    #      and once an evidenced re-sync overwrites the attribution or the season
+    #      ages out, a row drops out of the set (terminal). This also catches the
+    #      legacy owning-club orphans (the canonical Gore row) that carry NO row-
+    #      local season, which the old row-local filter silently missed.
+    #   2. MAX_ORPHAN_REQUEUE cap, oldest-touched first, so a mass orphaning
+    #      can't blow up a single run.
+    # Reactivation requires a journey re-sync, so this is gated on resync_journeys;
+    # scoped by team_id like the active set.
+    orphans = []
+    if resync_journeys and orphan_cap > 0:
+        from src.utils.academy_window import academy_window_start, is_within_academy_window
+
+        window_start = academy_window_start()
+        candidate_q = TrackedPlayer.query.filter(
+            TrackedPlayer.is_active.is_(False),
+            TrackedPlayer.pinned_parent.isnot(True),
+            TrackedPlayer.data_source != "manual",
+            TrackedPlayer.player_api_id.isnot(None),
+            db.or_(
+                TrackedPlayer.last_academy_season >= window_start,
+                TrackedPlayer.status == "academy",
+                # Legacy owning-club orphans were created without row-local season
+                # evidence; keep them in the candidate net and let the journey
+                # gate below decide.
+                TrackedPlayer.data_source == "owning-club",
+            ),
+        ).order_by(TrackedPlayer.updated_at.asc())
+        if team_id:
+            candidate_q = candidate_q.filter(TrackedPlayer.team_id == team_id)
+        candidates = candidate_q.all()
+
+        if candidates:
+            cand_team_ids = {tp.team_id for tp in candidates}
+            teams_by_id = {t.id: t for t in Team.query.filter(Team.id.in_(cand_team_ids)).all()}
+            cand_api_ids = {tp.player_api_id for tp in candidates}
+            journeys_by_api = {
+                j.player_api_id: j
+                for j in PlayerJourney.query.filter(PlayerJourney.player_api_id.in_(cand_api_ids)).all()
+            }
+            for tp in candidates:
+                if len(orphans) >= orphan_cap:
+                    break
+                parent = teams_by_id.get(tp.team_id)
+                journey = journeys_by_api.get(tp.player_api_id)
+                if not parent or not journey:
+                    continue
+                if parent.team_id not in set(journey.academy_club_ids or []):
+                    continue
+                season = (journey.academy_last_seasons or {}).get(str(parent.team_id))
+                window_status = "academy" if tp.status == "academy" else None
+                if is_within_academy_window(season, status=window_status, birth_date=journey.birth_date):
+                    orphans.append(tp)
+
+        if orphans:
+            logger.info(
+                "transfer-heal: requeuing %d journey-attributed in-window orphan row(s) for reactivation (budget %d)",
+                len(orphans),
+                orphan_cap,
+            )
+            players = players + orphans
 
     updated = 0
     journeys_resynced = 0
@@ -126,6 +226,7 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
     skipped_by_failed_prefetch = 0
     for tp in players:
         journey = None
+        was_inactive = not tp.is_active
 
         # Re-sync journey from API-Football if requested
         if resync_journeys and journey_svc and tp.player_api_id:
@@ -141,6 +242,22 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
                     tp.player_api_id,
                     sync_err,
                 )
+
+        # Orphan requeue that the re-sync could NOT reactivate (still inactive
+        # after the journey upsert ran — e.g. the API coverage gap persists) must
+        # not have its status rewritten or its fixtures cascaded: it is not
+        # displayed anywhere. Writing to it and appending it to players_changed
+        # would fire a fixture sync for a hidden player. Leave it for a future
+        # run where the re-sync actually has evidence to revive it.
+        if was_inactive and not tp.is_active:
+            # Rotate the queue: this row keeps its old updated_at otherwise, so
+            # the oldest-touched candidate ordering (ORDER BY updated_at ASC)
+            # would re-select the SAME never-healable rows first every night —
+            # perpetual force_full churn that starves healable orphans behind
+            # them once a team accumulates a budget's worth of stuck rows. Touch
+            # updated_at so the backlog round-robins and drains instead.
+            tp.updated_at = datetime.now(UTC)
+            continue
 
         if not journey:
             if tp.journey_id:
@@ -260,9 +377,12 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
     fixture_syncs_triggered = 0
     if not dry_run and cascade_fixtures and players_changed:
         from src.routes.api import _sync_player_club_fixtures
+        from src.utils.academy_window import current_stats_season
 
-        now = datetime.now(UTC)
-        season = now.year if now.month >= 8 else now.year - 1
+        # Transfer heal fetches fixtures for the UPCOMING season — use the pure
+        # calendar season (NO latest-with-data fallback) so a newly-started
+        # season actually gets synced instead of being pinned to old data.
+        season = current_stats_season()
 
         for pc in players_changed:
             try:
@@ -324,4 +444,5 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
         "fixture_syncs_triggered": fixture_syncs_triggered,
         "skipped_by_failed_prefetch": skipped_by_failed_prefetch,
         "failed_squad_clubs": sorted(failed_squad_clubs),
+        "orphans_requeued": len(orphans),
     }

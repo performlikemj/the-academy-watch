@@ -9,7 +9,6 @@ This blueprint handles:
 """
 
 import logging
-from datetime import UTC, datetime
 
 from flask import Blueprint, jsonify, request
 from sqlalchemy import cast
@@ -383,12 +382,22 @@ def get_team_loans(team_identifier):
         tracked = tp_query.order_by(TrackedPlayer.updated_at.desc()).all()
 
         # Batch-fetch stats for all TrackedPlayers
+        from sqlalchemy import and_ as sa_and
         from sqlalchemy import func as sa_func
-        from src.models.weekly import FixturePlayerStats
+        from src.models.league import PlayerStatsCache
+        from src.models.weekly import Fixture, FixturePlayerStats
+        from src.utils.academy_window import stats_season_with_data
 
         tp_api_ids = [tp.player_api_id for tp in tracked]
         stats_by_player = {}
+        cache_by_player = {}
         if tp_api_ids:
+            # Season-scope the aggregate to the current stats season (latest with
+            # data on rollover) so team-roster numbers match the season-scoped
+            # profile / Scout Desk figures. Without this, once next-season
+            # fixtures land the roster would show career-summed apps/minutes while
+            # the profile shows the season total — contradictory one click apart.
+            season = stats_season_with_data(db.session)
             stats_rows = (
                 db.session.query(
                     FixturePlayerStats.player_api_id,
@@ -397,7 +406,11 @@ def get_team_loans(team_identifier):
                     sa_func.coalesce(sa_func.sum(FixturePlayerStats.assists), 0).label("assists"),
                     sa_func.coalesce(sa_func.sum(FixturePlayerStats.minutes), 0).label("minutes_played"),
                 )
-                .filter(FixturePlayerStats.player_api_id.in_(tp_api_ids))
+                .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+                .filter(
+                    FixturePlayerStats.player_api_id.in_(tp_api_ids),
+                    Fixture.season == season,
+                )
                 .group_by(FixturePlayerStats.player_api_id)
                 .all()
             )
@@ -409,10 +422,64 @@ def get_team_loans(team_identifier):
                     "minutes_played": int(row.minutes_played),
                 }
 
+            # Limited-coverage rows (events_only / profile_only) have no
+            # FixturePlayerStats — their season lives in PlayerStatsCache. Mirror
+            # compute_stats and the Scout Desk _cache_stats_subquery (latest cached
+            # season per player, summed) so these players show their real
+            # apps/mins on the roster instead of zeros, matching the season-scoped
+            # profile / Scout figures rather than contradicting them one click away.
+            limited_ids = [tp.player_api_id for tp in tracked if tp.data_depth in ("events_only", "profile_only")]
+            if limited_ids:
+                latest_cached = (
+                    db.session.query(
+                        PlayerStatsCache.player_api_id.label("player_api_id"),
+                        sa_func.max(PlayerStatsCache.season).label("season"),
+                    )
+                    .filter(PlayerStatsCache.player_api_id.in_(limited_ids))
+                    .group_by(PlayerStatsCache.player_api_id)
+                    .subquery()
+                )
+                cache_rows = (
+                    db.session.query(
+                        PlayerStatsCache.player_api_id,
+                        sa_func.coalesce(sa_func.sum(PlayerStatsCache.appearances), 0).label("appearances"),
+                        sa_func.coalesce(sa_func.sum(PlayerStatsCache.goals), 0).label("goals"),
+                        sa_func.coalesce(sa_func.sum(PlayerStatsCache.assists), 0).label("assists"),
+                        sa_func.coalesce(sa_func.sum(PlayerStatsCache.minutes_played), 0).label("minutes_played"),
+                        sa_func.coalesce(sa_func.sum(PlayerStatsCache.saves), 0).label("saves"),
+                        sa_func.coalesce(sa_func.sum(PlayerStatsCache.yellows), 0).label("yellows"),
+                        sa_func.coalesce(sa_func.sum(PlayerStatsCache.reds), 0).label("reds"),
+                    )
+                    .join(
+                        latest_cached,
+                        sa_and(
+                            PlayerStatsCache.player_api_id == latest_cached.c.player_api_id,
+                            PlayerStatsCache.season == latest_cached.c.season,
+                        ),
+                    )
+                    .group_by(PlayerStatsCache.player_api_id)
+                    .all()
+                )
+                for row in cache_rows:
+                    cache_by_player[row.player_api_id] = {
+                        "appearances": int(row.appearances),
+                        "goals": int(row.goals),
+                        "assists": int(row.assists),
+                        "minutes_played": int(row.minutes_played),
+                        "saves": int(row.saves),
+                        "yellows": int(row.yellows),
+                        "reds": int(row.reds),
+                    }
+
         result = []
         for tp in tracked:
             tp_dict = tp.to_public_dict()
-            if tp.player_api_id in stats_by_player:
+            # Route stats by coverage tier exactly like compute_stats: limited
+            # rows read from the cache, everyone else from the fixture aggregate.
+            if tp.data_depth in ("events_only", "profile_only"):
+                if tp.player_api_id in cache_by_player:
+                    tp_dict.update(cache_by_player[tp.player_api_id])
+            elif tp.player_api_id in stats_by_player:
                 tp_dict.update(stats_by_player[tp.player_api_id])
             result.append(tp_dict)
 
@@ -502,8 +569,9 @@ def get_academy_network(team_identifier):
 
         years = request.args.get("years", 4, type=int)
         limit = request.args.get("limit", 200, type=int)
-        now = datetime.now(UTC)
-        current_season = now.year if now.month >= 8 else now.year - 1
+        from src.utils.academy_window import current_stats_season
+
+        current_season = current_stats_season()
         min_season = current_season - years + 1
 
         # Find the parent team for name/logo

@@ -68,12 +68,21 @@ def get_public_player_stats(player_id: int):
         resolve_team_name_and_logo = _get_resolve_team_name_and_logo()
         force_sync = request.args.get("force_sync", "").lower() == "true"
 
-        # Get current season
-        now_utc = datetime.now(UTC)
-        current_year = now_utc.year
-        current_month = now_utc.month
-        season = current_year if current_month >= 8 else current_year - 1
+        # Stats DISPLAY season: the current calendar season, but fall back to
+        # the latest season that actually has fixtures so a not-yet-started
+        # season never blanks the page (utils/academy_window docstrings).
+        from src.utils.academy_window import current_stats_season, stats_season_with_data
+
+        season = stats_season_with_data(db.session)
         season_prefix = f"{season}-{str(season + 1)[-2:]}"
+        # SYNC/FETCH season must be the pure calendar season, NOT the with-data
+        # fallback. During the Aug rollover `season` pins to the OLD season
+        # (no new fixtures yet); fetching/syncing that would re-pull completed
+        # fixtures and could never ingest the first new-season match, leaving the
+        # page permanently blank at the new club. current_stats_season() lets the
+        # view-driven sync land the new season and self-heal the fallback for all
+        # readers (mirrors journalist.get_player_stats' auto-sync).
+        sync_season = current_stats_season()
 
         # Find ALL tracked players for this player (prefer academy-origin rows)
         tracked = (
@@ -130,6 +139,35 @@ def get_public_player_stats(player_id: int):
                     },
                 )
 
+        # UNION in every club the player actually appeared for THIS stats season,
+        # taken straight from FixturePlayerStats (the source of truth for where a
+        # player played). A returned loanee's tracked row points current_club back
+        # at the parent club, so his loan club is absent from the sets above and
+        # the match log renders empty even though the fixture rows exist — this is
+        # exactly how /season-stats stays correct (it derives its club list from
+        # FixturePlayerStats). Season-scoped via the fixtures.season index so a
+        # prior-season-only club doesn't leak into the current club set.
+        fixture_team_rows = (
+            db.session.query(FixturePlayerStats.team_api_id)
+            .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+            .filter(
+                FixturePlayerStats.player_api_id == player_id,
+                Fixture.season == season,
+            )
+            .distinct()
+            .all()
+        )
+        for (fixture_team_api_id,) in fixture_team_rows:
+            if not fixture_team_api_id or fixture_team_api_id in loan_teams_info:
+                continue
+            fixture_team_name, fixture_team_logo = resolve_team_name_and_logo(fixture_team_api_id, season)
+            loan_teams_info[fixture_team_api_id] = {
+                "name": fixture_team_name or "Unknown",
+                "logo": fixture_team_logo,
+                "window_type": "Summer",
+                "is_active": True,
+            }
+
         loan_team_api_ids = list(loan_teams_info.keys())
 
         # Query local stats for ALL loan teams
@@ -154,7 +192,7 @@ def get_public_player_stats(player_id: int):
                 api_totals = api_client._fetch_player_team_season_totals_api(
                     player_id=player_id,
                     team_id=loan_team_api_id,
-                    season=season,
+                    season=sync_season,
                 )
                 api_appearances = api_totals.get("games_played", 0)
                 api_totals_failed = not api_totals  # empty dict = API call failed
@@ -165,7 +203,9 @@ def get_public_player_stats(player_id: int):
                     )
                     from src.routes.api import _sync_player_club_fixtures
 
-                    _sync_player_club_fixtures(player_id, loan_team_api_id, season, player_name=player_name_for_sync)
+                    _sync_player_club_fixtures(
+                        player_id, loan_team_api_id, sync_season, player_name=player_name_for_sync
+                    )
             except Exception as e:
                 logger.warning(f"Failed to sync for player {player_id} at team {loan_team_api_id}: {e}")
 
@@ -432,10 +472,11 @@ def get_public_player_season_stats(player_id: int):
         from src.api_football_client import APIFootballClient
         from src.models.weekly import Fixture, FixturePlayerStats
 
-        now_utc = datetime.now(UTC)
-        current_year = now_utc.year
-        current_month = now_utc.month
-        season_start_year = current_year if current_month >= 8 else current_year - 1
+        # Stats DISPLAY season with latest-season-with-data fallback (see
+        # utils/academy_window.stats_season_with_data) — never blank on rollover.
+        from src.utils.academy_window import stats_season_with_data
+
+        season_start_year = stats_season_with_data(db.session)
         season_start = datetime(season_start_year, 8, 1, tzinfo=UTC)
         season_prefix = f"{season_start_year}-{str(season_start_year + 1)[-2:]}"
 

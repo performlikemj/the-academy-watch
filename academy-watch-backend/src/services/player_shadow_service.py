@@ -58,8 +58,9 @@ def _current_season_start_year(client=None) -> int:
     year = getattr(client, "current_season_start_year", None)
     if isinstance(year, int):
         return year
-    now = datetime.now(UTC)
-    return now.year if now.month >= 8 else now.year - 1
+    from src.utils.academy_window import current_stats_season
+
+    return current_stats_season()
 
 
 # --------------------------------------------------------------------------- #

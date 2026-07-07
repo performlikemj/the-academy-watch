@@ -28,7 +28,10 @@ class Fixture(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     fixture_id_api = db.Column(db.Integer, unique=True, nullable=False)
     date_utc = db.Column(db.DateTime)
-    season = db.Column(db.Integer, nullable=False)
+    # Indexed: stats_season_with_data() and every season-scoped stats/radar query
+    # filter on season; without this the current-season rows (heap tail) force a
+    # near-full seq scan on the 0.5 CPU prod container. See migration aw23.
+    season = db.Column(db.Integer, nullable=False, index=True)
     competition_name = db.Column(db.String(100))
     home_team_api_id = db.Column(db.Integer)
     away_team_api_id = db.Column(db.Integer)

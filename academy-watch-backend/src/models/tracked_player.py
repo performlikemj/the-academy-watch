@@ -81,11 +81,24 @@ class TrackedPlayer(db.Model):
         return age_from_birth_date(self.birth_date) or self.age
 
     def compute_stats(self):
-        """Compute stats independently of AcademyPlayer.
+        """Compute a player's CURRENT-SEASON stats.
 
-        - full_stats: aggregate from FixturePlayerStats
-        - events_only / limited: read from PlayerStatsCache
+        - full_stats: aggregate FixturePlayerStats for the current stats season
+          across EVERY club the player actually appeared for.
+        - events_only / profile_only: sum PlayerStatsCache across the player's
+          clubs for that season (limited-coverage leagues).
+
+        The season's clubs are derived from the stat rows themselves rather than
+        keyed on ``current_club_api_id``. Two failure modes that keying created:
+        a returned loanee's journey flips his current club back to the parent, so
+        his whole loan season was dropped; and first-team rows commonly have a
+        NULL current club, which returned zeros outright. A player who moved
+        mid-season (sold/released) now reports the season total across both
+        clubs, matching /players/<id>/season-stats.
         """
+        from sqlalchemy import func
+        from src.utils.academy_window import stats_season_with_data
+
         default_stats = {
             "appearances": 0,
             "goals": 0,
@@ -97,41 +110,67 @@ class TrackedPlayer(db.Model):
             "stats_coverage": self.data_depth or "full_stats",
         }
 
-        if not self.current_club_api_id:
-            return default_stats
+        # Stats DISPLAY season, with the latest-season-with-fixtures fallback so a
+        # not-yet-started calendar season never zeroes every player (see
+        # utils/academy_window.stats_season_with_data).
+        season = stats_season_with_data(db.session)
 
-        # Limited / events-only coverage → read from PlayerStatsCache
+        # Limited / events-only coverage → read from PlayerStatsCache.
         if self.data_depth in ("events_only", "profile_only"):
             from src.models.league import PlayerStatsCache
 
-            cache = (
-                PlayerStatsCache.query.filter_by(
-                    player_api_id=self.player_api_id,
-                    team_api_id=self.current_club_api_id,
+            def _cache_totals(season_value):
+                return (
+                    db.session.query(
+                        func.count(PlayerStatsCache.id).label("n"),
+                        func.coalesce(func.sum(PlayerStatsCache.appearances), 0).label("appearances"),
+                        func.coalesce(func.sum(PlayerStatsCache.goals), 0).label("goals"),
+                        func.coalesce(func.sum(PlayerStatsCache.assists), 0).label("assists"),
+                        func.coalesce(func.sum(PlayerStatsCache.minutes_played), 0).label("minutes_played"),
+                        func.coalesce(func.sum(PlayerStatsCache.saves), 0).label("saves"),
+                        func.coalesce(func.sum(PlayerStatsCache.yellows), 0).label("yellows"),
+                        func.coalesce(func.sum(PlayerStatsCache.reds), 0).label("reds"),
+                        func.max(PlayerStatsCache.stats_coverage).label("stats_coverage"),
+                    )
+                    .filter(
+                        PlayerStatsCache.player_api_id == self.player_api_id,
+                        PlayerStatsCache.season == season_value,
+                    )
+                    .first()
                 )
-                .order_by(PlayerStatsCache.season.desc())
-                .first()
-            )
-            if cache:
+
+            cache = _cache_totals(season)
+            if not cache or not cache.n:
+                # Lower-league feeds lag; fall back to the player's most recent
+                # cached season so a limited player doesn't blank on rollover.
+                latest = (
+                    db.session.query(func.max(PlayerStatsCache.season))
+                    .filter(PlayerStatsCache.player_api_id == self.player_api_id)
+                    .scalar()
+                )
+                if latest is not None and latest != season:
+                    cache = _cache_totals(latest)
+            if cache and cache.n:
                 return {
-                    "appearances": cache.appearances or 0,
-                    "goals": cache.goals or 0,
-                    "assists": cache.assists or 0,
-                    "minutes_played": cache.minutes_played or 0,
-                    "saves": cache.saves or 0,
-                    "yellows": cache.yellows or 0,
-                    "reds": cache.reds or 0,
+                    "appearances": int(cache.appearances or 0),
+                    "goals": int(cache.goals or 0),
+                    "assists": int(cache.assists or 0),
+                    "minutes_played": int(cache.minutes_played or 0),
+                    "saves": int(cache.saves or 0),
+                    "yellows": int(cache.yellows or 0),
+                    "reds": int(cache.reds or 0),
                     "stats_coverage": cache.stats_coverage or "limited",
                 }
             return default_stats
 
-        # Full stats → aggregate from FixturePlayerStats
-        from sqlalchemy import func
-        from src.models.weekly import FixturePlayerStats
+        # Full stats → aggregate FixturePlayerStats across ALL clubs the player
+        # appeared for this season (join Fixture to season-scope; the
+        # fixtures.season index keeps this a single cheap grouped scan).
+        from src.models.weekly import Fixture, FixturePlayerStats
 
         stats = (
             db.session.query(
-                func.count().label("appearances"),
+                func.count(FixturePlayerStats.id).label("appearances"),
                 func.coalesce(func.sum(FixturePlayerStats.goals), 0).label("goals"),
                 func.coalesce(func.sum(FixturePlayerStats.assists), 0).label("assists"),
                 func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label("minutes_played"),
@@ -139,9 +178,10 @@ class TrackedPlayer(db.Model):
                 func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label("yellows"),
                 func.coalesce(func.sum(FixturePlayerStats.reds), 0).label("reds"),
             )
+            .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
             .filter(
                 FixturePlayerStats.player_api_id == self.player_api_id,
-                FixturePlayerStats.team_api_id == self.current_club_api_id,
+                Fixture.season == season,
             )
             .first()
         )

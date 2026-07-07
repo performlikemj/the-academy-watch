@@ -77,11 +77,25 @@ How the automated maintenance jobs work and when to use them.
 Bought players (owning-club rows) are excluded from academy views but exist in the DB so the GOL bot can show correct parent clubs for loan display.
 
 ### TrackedPlayer Row Types
-Each player can have multiple rows:
-- **Academy-origin** (`data_source: journey-sync`): Links player to their youth academy. This is how they appear on the academy's Teams page.
-- **Owning-club** (`data_source: owning-club`): Links player to their current contract holder. Used for GOL bot parent club display.
+The **academy-origin** row (`data_source: journey-sync`) is canonical. It links a
+player to the youth academy that formed him and is how he surfaces on that
+academy's Teams page, in Scout Desk, and in newsletters. Clubs only track players
+formed in their OWN academy (see the academy provenance rule).
 
-The stale row cleanup (runs automatically in transfer-heal) deactivates academy-origin rows when they're superseded by an owning-club row.
+Legacy **owning-club** rows (`data_source: owning-club`) linked a player to his
+current contract holder. These are **deprecated and auto-deactivated** — the
+journey upsert never creates them, and academy/Scout/Teams surfaces exclude them
+entirely.
+
+The stale row cleanup (runs automatically in transfer-heal) enforces
+academy-canonical precedence: it deactivates the **owning-club** duplicate
+whenever an active **academy-origin** sibling exists, so the academy row always
+wins. (The previous direction — retiring the academy row in favour of an
+owning-club row — would make the player invisible everywhere.)
+
+The nightly heal also **requeues orphaned in-window academy rows** (`is_active=false`,
+non-manual, non-pinned) so a transfers-fed journey re-sync can reactivate them,
+recovering rows that an earlier transient sync wrongly deactivated.
 
 ### Transfer Classification
 - `"Loan"` → player is on loan, status = `on_loan`
