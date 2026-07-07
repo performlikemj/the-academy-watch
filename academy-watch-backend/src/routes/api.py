@@ -3769,7 +3769,12 @@ def _build_squad_watch(items: list[dict], n: Newsletter) -> list[dict]:
     injury_budget = _INJURY_LOOKUP_CAP
     week_start = getattr(n, "week_start_date", None)
     week_end = getattr(n, "week_end_date", None)
-    # Season the newsletter week falls in (European seasons start in July).
+    # Season the SPECIFIC newsletter week falls in (for the API-Football injury
+    # lookup below) — a per-date mapping of week_start, NOT a "current season"
+    # default, so the current_stats_season / stats_season_with_data helpers do not
+    # apply. The July hinge is intentional and matches current_academy_season's
+    # cutoff: a preseason July fixture already belongs to the upcoming season, so
+    # month>=7 maps July friendly weeks to the right (upcoming) API-Football season.
     season = None
     if week_start:
         season = week_start.year if week_start.month >= 7 else week_start.year - 1

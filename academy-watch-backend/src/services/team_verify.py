@@ -25,7 +25,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from src.models.league import Team, db
@@ -35,9 +34,16 @@ logger = logging.getLogger(__name__)
 
 
 def _current_season() -> int:
-    """European season cycle: Aug-Jul. Mirrors get_radar_chart_data."""
-    now = datetime.now(UTC)
-    return now.year if now.month >= 7 else now.year - 1
+    """Current stats season (European Aug rollover) for the API-Football league
+    lookup that drives parent_league_drift detection.
+
+    This is a data-FETCH/audit path, so it uses the pure calendar helper
+    (utils/academy_window.current_stats_season) — one source of truth. (The old
+    inline month>=7 hinge disagreed with its own "Aug-Jul" docstring.)
+    """
+    from src.utils.academy_window import current_stats_season
+
+    return current_stats_season()
 
 
 def audit_team_consistency(team_db_id: int) -> dict[str, Any]:

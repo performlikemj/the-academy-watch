@@ -71,10 +71,18 @@ def get_public_player_stats(player_id: int):
         # Stats DISPLAY season: the current calendar season, but fall back to
         # the latest season that actually has fixtures so a not-yet-started
         # season never blanks the page (utils/academy_window docstrings).
-        from src.utils.academy_window import stats_season_with_data
+        from src.utils.academy_window import current_stats_season, stats_season_with_data
 
         season = stats_season_with_data(db.session)
         season_prefix = f"{season}-{str(season + 1)[-2:]}"
+        # SYNC/FETCH season must be the pure calendar season, NOT the with-data
+        # fallback. During the Aug rollover `season` pins to the OLD season
+        # (no new fixtures yet); fetching/syncing that would re-pull completed
+        # fixtures and could never ingest the first new-season match, leaving the
+        # page permanently blank at the new club. current_stats_season() lets the
+        # view-driven sync land the new season and self-heal the fallback for all
+        # readers (mirrors journalist.get_player_stats' auto-sync).
+        sync_season = current_stats_season()
 
         # Find ALL tracked players for this player (prefer academy-origin rows)
         tracked = (
@@ -155,7 +163,7 @@ def get_public_player_stats(player_id: int):
                 api_totals = api_client._fetch_player_team_season_totals_api(
                     player_id=player_id,
                     team_id=loan_team_api_id,
-                    season=season,
+                    season=sync_season,
                 )
                 api_appearances = api_totals.get("games_played", 0)
                 api_totals_failed = not api_totals  # empty dict = API call failed
@@ -166,7 +174,9 @@ def get_public_player_stats(player_id: int):
                     )
                     from src.routes.api import _sync_player_club_fixtures
 
-                    _sync_player_club_fixtures(player_id, loan_team_api_id, season, player_name=player_name_for_sync)
+                    _sync_player_club_fixtures(
+                        player_id, loan_team_api_id, sync_season, player_name=player_name_for_sync
+                    )
             except Exception as e:
                 logger.warning(f"Failed to sync for player {player_id} at team {loan_team_api_id}: {e}")
 

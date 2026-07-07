@@ -1142,11 +1142,14 @@ def get_chart_data():
             )
 
         elif date_range == "season":
-            # Get current season (assume July-June cycle)
-            now_utc = datetime.now(UTC)
-            current_year = now_utc.year
-            current_month = now_utc.month
-            season = current_year if current_month >= 7 else current_year - 1
+            # Stats DISPLAY season. _get_season_stats filters Fixture.season == season,
+            # so an inline July hinge blanks the chart all summer (fixtures roll over in
+            # Aug, not July) and again on any rollover before new fixtures land. Route
+            # through the shared helper with the latest-season-with-data fallback so
+            # "current season" has one source of truth (utils/academy_window).
+            from src.utils.academy_window import stats_season_with_data
+
+            season = stats_season_with_data(db.session)
             fixtures_data = _get_season_stats(player_id, season, current_club_api_id=current_club_api_id)
 
         # Get player info
@@ -1880,10 +1883,11 @@ def _fetch_chart_data_for_rendering(
                 player_id, start_date, end_date, current_club_api_id=current_club_api_id
             )
         elif date_range == "season":
-            now_utc = datetime.now(UTC)
-            current_year = now_utc.year
-            current_month = now_utc.month
-            season = current_year if current_month >= 7 else current_year - 1
+            # Stats DISPLAY season with latest-season-with-data fallback — same rationale
+            # as the get_chart_data path above (never blank on the July/Aug rollover gap).
+            from src.utils.academy_window import stats_season_with_data
+
+            season = stats_season_with_data(db.session)
             fixtures_data = _get_season_stats(player_id, season, current_club_api_id=current_club_api_id)
         else:
             # Default to last 30 days if no specific range
