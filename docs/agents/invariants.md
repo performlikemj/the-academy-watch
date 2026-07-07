@@ -84,3 +84,37 @@ Bearer token with it via `itsdangerous`. Changing it 401s **every outstanding to
 instant it changes. The KV copy `kv-loan-army/secret-key` is stale and differs — do not mint
 tokens from it. Rotation needs a planned window + user re-login. Read live truth via
 `az containerapp secret show`. Same inline-vs-KV divergence applies to `admin-api-key`.
+
+## 10. `recompute-academy` is attribution-only — it must never re-derive `status`
+
+PR #512: the recompute repair handed `classify_tracked_player()` an **empty transfer
+list**; the empty-list→'left' rule fired and unconditionally overwrote statuses
+platform-wide (on_loan 188→0, sold 688→0). Status flips (on_loan→sold/released/…)
+require a journey RE-SYNC with real transfer data. `recompute-academy` repairs
+attribution only; `backfill-names` repairs names; `backfill-current-status` repairs the
+journey's current-status axis. Never wire status derivation into a transfers-less path.
+
+## 11. API-Football crawl scope is env-gated — never widen it in code
+
+`DEFAULT_CRAWL_LEAGUE_IDS` (`src/utils/supported_leagues.py`) pins the expensive
+crawl/loan-sweep to the European top-5. Quota-exceeded incidents made this a hard
+requirement: widening scope is a `CRAWL_LEAGUE_IDS` env decision after quota sign-off,
+never a code side-effect. (Related: `League.is_european_top_league` deliberately kept
+its name — it now means "supported league" — because prod DDL drifted out-of-band.)
+
+## 12. Never fabricate content attributed to real people or outlets
+
+28 invented "demo tweets" with fake handles nearly shipped to a club stakeholder. Real
+integrations exist (`services/twitter_client.py`); fetch real content, ask the user, or
+flag the gap loudly. Corollary: curated stakeholder content is judged on VALUE, not just
+authenticity — drop opposition-perspective items, losses, and in-passing mentions.
+Better empty than padded.
+
+## 13. Before declaring a credential missing, read `.env`
+
+A source-tree grep missed `TWITTER_BEARER_TOKEN` sitting unused in
+`academy-watch-backend/.env` — that wrong conclusion cascaded into the fabrication
+incident above. Check `.env`, `env.template`, AND `az containerapp secret show` before
+concluding a secret is absent. (Local quirk: the login shell exports its own
+`ADMIN_API_KEY` that overrides `.env` — echo the effective value when local admin auth
+401s unexpectedly.)

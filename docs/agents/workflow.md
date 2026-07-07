@@ -12,9 +12,6 @@ watch-deploy sequence on **every** change — never a direct push to main.
   Never `git checkout` away from a dirty tree.
 - Stage specific files by path. `git add -A` / `git add .`, `--no-verify`, and
   force-push-main are blocked by the global git hook (`~/.claude/hooks/git_guard.sh`).
-- This repo also runs its own pre-commit harness: `~/bin/harness-check --project . --scope
-  staged` (ruff lint + format + secret scan); auto-fix with `--fix`. Install if missing:
-  `~/bin/harness-install .`.
 
 ## Pre-push checklist (each maps to a CI gate a plain local run does NOT cover)
 
@@ -42,7 +39,8 @@ watch-deploy sequence on **every** change — never a direct push to main.
   rebase cascade + one deploy each. Combine into a single hand-authored
   `chore(deps): batch backend bumps` PR, then close the superseded ones (squash drops
   `Closes #N` for all but the first). **Never merge a standalone `pydantic_core` bump**
-  (pydantic pins it exactly — breaks the deploy; debugging.md).
+  (pydantic pins it exactly — breaks the deploy; debugging.md). **numpy stays <2.5**
+  (needs py≥3.12; the image is 3.11) — `dependabot.yml` already ignores it, don't override.
 - **Frontend** bumps (`package.json`/`pnpm-lock.yaml`) are independent — merge directly.
 - Dependabot PRs auto-merge (`dependabot-auto-merge.yml`, squash). The only red check is
   usually the non-gating `auto-merge` job; real CI (Lint+Build) is green.

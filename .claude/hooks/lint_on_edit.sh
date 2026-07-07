@@ -21,7 +21,7 @@ case "$FILE" in
     ;;
 
   # --- Frontend JS/JSX/TS/TSX: mirror `pnpm lint` (eslint flat config) ---
-  *academy-watch-frontend/*.js|*academy-watch-frontend/*.jsx|*academy-watch-frontend/*.ts|*academy-watch-frontend/*.tsx)
+  *academy-watch-frontend/*.js|*academy-watch-frontend/*.mjs|*academy-watch-frontend/*.jsx|*academy-watch-frontend/*.ts|*academy-watch-frontend/*.tsx)
     cd "$CLAUDE_PROJECT_DIR/academy-watch-frontend" || exit 0
     npx --no-install eslint --fix --quiet "$FILE" 2>/dev/null
     ;;

@@ -23,6 +23,7 @@ each doc encodes hard-won lessons, and skipping them repeats old mistakes.
 | Committing, pushing, merging, deploying, migrating, or handling Dependabot | `docs/agents/workflow.md` |
 | Writing backend code (Flask / SQLAlchemy / Alembic) | `docs/agents/backend.md` |
 | Writing frontend code (React / Vite / Tailwind / Radix) | `docs/agents/frontend.md` |
+| Running Ralph, scheduled/autonomous loops, or sub-agent fan-outs | `docs/agents/loops.md` |
 
 **Ledger protocol (this repo's own system, still in force):** before ANY work read
 `AGENTS.md` + `CONTINUITY.md` and check `ledgers/` for an active planning ledger;
@@ -60,6 +61,7 @@ cd academy-watch-frontend && pnpm exec playwright test tests/<file>.mjs   # sing
 - **Prod DB is reached via the IPv4 pooler + `postgresql+psycopg://` only** — the direct (IPv6) host is unreachable from ACA and a bare `postgresql://` loads the absent psycopg2. See `invariants.md`.
 - **Never reference the deleted `AcademyPlayer`/`SupplementalLoan` models** — use `TrackedPlayer`. **Alembic migrations guard every DDL** (prod schema drifted out-of-band). **Never bulk-sync/recompute against the live prod container** — it's tiny and falls over. See `invariants.md`.
 - **Secrets:** never print secrets or dump env; read live values via `az containerapp secret show`. Prod `SECRET_KEY` is a `kvref:` literal — do NOT "fix"/rotate it without a token-revocation plan (`invariants.md`).
+- **Real sources only:** never fabricate content attributed to real people/outlets (tweets, quotes, articles) — not even as "demo" data. And keep the API-Football crawl scope env-gated (`CRAWL_LEAGUE_IDS`). See `invariants.md`.
 
 ## Commit convention
 
