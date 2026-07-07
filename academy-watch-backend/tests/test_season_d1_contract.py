@@ -46,8 +46,10 @@ class _StubAPIClient:
 
 # Distinct id spaces per concern so a stray cross-test collision would be loud.
 FULL_PLAYER_API = 700700
+GK_PLAYER_API = 700701  # goalkeeper spanning two clubs across two seasons
 PARENT_API = 33
 LOAN_API = 777
+LOAN2_API = 778  # a second, later-season-only loan club
 OPP_API = 999
 
 PROV_PLAYER_API = 710710  # provenance-unit player (no TrackedPlayer needed)
@@ -108,9 +110,14 @@ def _team(api_id, name):
     return team
 
 
-def _add_fixture_stats(player_api_id, team_api_id, season, minutes_list, *, fx_base, goals=1, assists=0):
+def _add_fixture_stats(
+    player_api_id, team_api_id, season, minutes_list, *, fx_base, goals=1, assists=0, goals_conceded=None
+):
     """Seed one Fixture + one FixturePlayerStats per entry in ``minutes_list``,
-    all in ``season`` at ``team_api_id``. ``fx_base`` keys unique fixture ids."""
+    all in ``season`` at ``team_api_id``. ``fx_base`` keys unique fixture ids.
+    ``goals_conceded`` defaults to ``None`` (NULL) so existing callers are
+    byte-identical; pass ``0`` to seed a GK clean sheet that the clean-sheets
+    read (``goals_conceded == 0``) will count."""
     from src.models.league import db
     from src.models.weekly import Fixture, FixturePlayerStats
 
@@ -135,6 +142,7 @@ def _add_fixture_stats(player_api_id, team_api_id, season, minutes_list, *, fx_b
                 minutes=minutes,
                 goals=goals,
                 assists=assists,
+                goals_conceded=goals_conceded,
                 rating=7.0,
             )
         )
@@ -218,6 +226,51 @@ def _seed_two_season_full_player():
     )
     _add_fixture_stats(FULL_PLAYER_API, LOAN_API, 2025, [90, 90], fx_base=9700, goals=1)
     _add_fixture_stats(FULL_PLAYER_API, LOAN_API, 2026, [90], fx_base=9750, goals=1)
+    db.session.commit()
+
+
+def _seed_gk_two_seasons_two_clubs():
+    """A full-coverage on-loan GOALKEEPER whose fixtures make BOTH open-range
+    Q12 sites REVEAL a season-filter regression that the single-club/no-clean-
+    sheet seeds above cannot (both mutations stay green against them):
+
+    - **Clean-sheets** (team-filtered to the resolved-season club list): club A
+      (``LOAN_API``) keeps a clean sheet in BOTH seasons — 2025: two 90' clean
+      sheets, 2026: one 90' clean sheet. A 2025 read scoped by ``Fixture.season``
+      counts 2; reverting that one site to an open ``date_utc >=`` filter folds
+      in A's 2026 clean sheet and reports 3. Club A must appear in both seasons
+      or the club-list filter would mask the leak on its own.
+    - **Distinct-teams club list**: club B (``LOAN2_API``) plays a SINGLE 2026
+      fixture (a goal conceded — not a clean sheet, but still a distinct club).
+      A 2025 read's club set is therefore ``{A}`` (``has_multiple_clubs`` False);
+      an open-range revert leaks B in and flips ``has_multiple_clubs`` / the
+      ``loan_team`` label.
+    """
+    from src.models.league import db
+    from src.models.tracked_player import TrackedPlayer
+
+    parent = _team(PARENT_API, "Parent FC")
+    _team(LOAN_API, "Loan FC")
+    _team(LOAN2_API, "Loan FC 2")
+    _team(OPP_API, "Opponent FC")
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=GK_PLAYER_API,
+            player_name="Keeper Guy",
+            position="Goalkeeper",
+            team_id=parent.id,
+            status="on_loan",
+            current_club_api_id=LOAN_API,
+            current_club_name="Loan FC",
+            data_depth="full_stats",
+            is_active=True,
+        )
+    )
+    # Club A: clean sheets in BOTH seasons (2 in 2025, 1 in 2026).
+    _add_fixture_stats(GK_PLAYER_API, LOAN_API, 2025, [90, 90], fx_base=9900, goals=0, goals_conceded=0)
+    _add_fixture_stats(GK_PLAYER_API, LOAN_API, 2026, [90], fx_base=9950, goals=0, goals_conceded=0)
+    # Club B: one 2026 appearance, a goal conceded (a distinct 2026-only club).
+    _add_fixture_stats(GK_PLAYER_API, LOAN2_API, 2026, [90], fx_base=9980, goals=0, goals_conceded=1)
     db.session.commit()
 
 
@@ -436,6 +489,43 @@ class TestClosedSeasonRanges:
         ss = client.get(f"/api/players/{FULL_PLAYER_API}/season-stats").get_json()
         assert ss["minutes"] in (180, 90)
         assert ss["minutes"] != 270
+
+    def test_clean_sheets_scoped_per_season(self, app, client):
+        # The clean-sheets read is the third Q12 site and is team-filtered to the
+        # resolved-season club list, so a cross-season leak is only observable
+        # when the SAME club keeps clean sheets in a later season. Club A does
+        # (1 in 2026), so a 2025 read must count exactly its two 2025 clean
+        # sheets; an open-ended ``date_utc >=`` revert of THIS site alone would
+        # fold in A's 2026 clean sheet and report 3.
+        _seed_gk_two_seasons_two_clubs()
+        ss_25 = client.get(f"/api/players/{GK_PLAYER_API}/season-stats?season=2025").get_json()
+        ss_26 = client.get(f"/api/players/{GK_PLAYER_API}/season-stats?season=2026").get_json()
+        assert ss_25["clean_sheets"] == 2, "2025 clean sheets must exclude the club's 2026 clean sheet"
+        # 2026: club A's clean sheet + club B's goal-conceded appearance = 1.
+        assert ss_26["clean_sheets"] == 1
+
+    def test_distinct_club_list_scoped_per_season(self, app, client):
+        # The distinct-teams club list is the fourth Q12 site. Club B plays ONLY
+        # in 2026, so a 2025 read's club set is {A}: has_multiple_clubs False,
+        # loan_team "Loan FC". An open-range revert leaks B into 2025 and flips
+        # both. 2026 legitimately spans both clubs.
+        _seed_gk_two_seasons_two_clubs()
+        ss_25 = client.get(f"/api/players/{GK_PLAYER_API}/season-stats?season=2025").get_json()
+        assert ss_25["loan_team"] == "Loan FC"
+        assert ss_25["has_multiple_clubs"] is False, "the 2026-only club must not leak into the 2025 club set"
+
+        ss_26 = client.get(f"/api/players/{GK_PLAYER_API}/season-stats?season=2026").get_json()
+        assert ss_26["has_multiple_clubs"] is True
+
+        # The /stats match log for 2025 shows only club A's rows (season-scoped);
+        # 2026 spans two distinct clubs (club B's name resolves via the team
+        # resolver, so assert distinctness rather than pinning its label).
+        rows_25 = client.get(f"/api/players/{GK_PLAYER_API}/stats?season=2025").get_json()
+        assert {r["loan_team_name"] for r in rows_25} == {"Loan FC"}
+        rows_26 = client.get(f"/api/players/{GK_PLAYER_API}/stats?season=2026").get_json()
+        assert len(rows_26) == 2
+        assert len({r["loan_team_name"] for r in rows_26}) == 2
+        assert "Loan FC" in {r["loan_team_name"] for r in rows_26}
 
 
 # ---------------------------------------------------------------------------
