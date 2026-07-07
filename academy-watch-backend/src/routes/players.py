@@ -68,11 +68,12 @@ def get_public_player_stats(player_id: int):
         resolve_team_name_and_logo = _get_resolve_team_name_and_logo()
         force_sync = request.args.get("force_sync", "").lower() == "true"
 
-        # Get current season
-        now_utc = datetime.now(UTC)
-        current_year = now_utc.year
-        current_month = now_utc.month
-        season = current_year if current_month >= 8 else current_year - 1
+        # Stats DISPLAY season: the current calendar season, but fall back to
+        # the latest season that actually has fixtures so a not-yet-started
+        # season never blanks the page (utils/academy_window docstrings).
+        from src.utils.academy_window import stats_season_with_data
+
+        season = stats_season_with_data(db.session)
         season_prefix = f"{season}-{str(season + 1)[-2:]}"
 
         # Find ALL tracked players for this player (prefer academy-origin rows)
@@ -432,10 +433,11 @@ def get_public_player_season_stats(player_id: int):
         from src.api_football_client import APIFootballClient
         from src.models.weekly import Fixture, FixturePlayerStats
 
-        now_utc = datetime.now(UTC)
-        current_year = now_utc.year
-        current_month = now_utc.month
-        season_start_year = current_year if current_month >= 8 else current_year - 1
+        # Stats DISPLAY season with latest-season-with-data fallback (see
+        # utils/academy_window.stats_season_with_data) — never blank on rollover.
+        from src.utils.academy_window import stats_season_with_data
+
+        season_start_year = stats_season_with_data(db.session)
         season_start = datetime(season_start_year, 8, 1, tzinfo=UTC)
         season_prefix = f"{season_start_year}-{str(season_start_year + 1)[-2:]}"
 

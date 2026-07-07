@@ -3494,7 +3494,9 @@ def compose_team_weekly_newsletter(
     week_start, week_end = _monday_range(target_date)
 
     # Derive season from the week we are processing (European season starts Aug 1)
-    season_start_year = week_start.year if week_start.month >= 8 else week_start.year - 1
+    from src.utils.academy_window import current_stats_season
+
+    season_start_year = current_stats_season(week_start)
 
     if force_refresh:
         api_client.clear_stats_cache(season=season_start_year)

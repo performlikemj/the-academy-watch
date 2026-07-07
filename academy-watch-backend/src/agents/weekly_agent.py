@@ -853,7 +853,9 @@ async def fetch_weekly_report(ctx, args) -> dict[str, Any]:
         raise ValueError(f"Team DB id {parent_team_db_id} not found")
 
     # Sync season to target date's season (European season starts Aug 1)
-    season_start_year = tdate.year if tdate.month >= 8 else tdate.year - 1
+    from src.utils.academy_window import current_stats_season
+
+    season_start_year = current_stats_season(tdate)
     api_client.set_season_year(season_start_year)
     api_client._prime_team_cache(season_start_year)
 

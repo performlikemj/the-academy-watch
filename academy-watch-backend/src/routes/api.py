@@ -4594,7 +4594,9 @@ def generate_weekly_mcp_team():
 
         # Resolve DB id if only API id provided (use inferred season from date)
         if not team_db_id and api_team_id:
-            season = tdate.year if tdate.month >= 8 else tdate.year - 1
+            from src.utils.academy_window import current_stats_season
+
+            season = current_stats_season(tdate)
             row = Team.query.filter_by(team_id=int(api_team_id), season=season).first()
             if not row:
                 return jsonify({"error": f"Team api_id={api_team_id} not found for season {season}"}), 404
@@ -4991,11 +4993,9 @@ def admin_sync_player_fixtures(player_id: int):
         data = request.get_json() or {}
         dry_run = data.get("dry_run", False)
 
-        # Get current season
-        now_utc = datetime.now(UTC)
-        current_year = now_utc.year
-        current_month = now_utc.month
-        season = data.get("season", current_year if current_month >= 8 else current_year - 1)
+        from src.utils.academy_window import current_stats_season
+
+        season = data.get("season", current_stats_season())
 
         # Try TrackedPlayer first (newer model)
         tp = TrackedPlayer.query.filter_by(
@@ -5286,10 +5286,10 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
     dry_run = bool(data.get("dry_run", False))
     delay = float(data.get("delay", 0.1))
 
+    from src.utils.academy_window import current_stats_season
+
     now_utc = datetime.now(UTC)
-    current_year = now_utc.year
-    current_month = now_utc.month
-    season = data.get("season", current_year if current_month >= 8 else current_year - 1)
+    season = data.get("season", current_stats_season())
 
     # ── 1. Gather all players grouped by current team API ID ──
     team_players = defaultdict(list)  # {team_api_id: [(player_api_id, player_name), ...]}
@@ -5992,11 +5992,9 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
     try:
         dry_run = data.get("dry_run", False)
 
-        # Get current season
-        now_utc = datetime.now(UTC)
-        current_year = now_utc.year
-        current_month = now_utc.month
-        season = data.get("season", current_year if current_month >= 8 else current_year - 1)
+        from src.utils.academy_window import current_stats_season
+
+        season = data.get("season", current_stats_season())
 
         team = Team.query.get(team_id)
         if not team:
@@ -11790,9 +11788,9 @@ def _run_seed_team_process(job_id, team_id, max_age=30, sync_journeys=True, year
             # Phase 1: Cohort discovery (youth league data)
             try:
                 from src.services.big6_seeding_service import run_big6_seed
+                from src.utils.academy_window import current_stats_season
 
-                now = datetime.now()
-                current_season = now.year if now.month >= 8 else now.year - 1
+                current_season = current_stats_season()
                 run_big6_seed(job_id, seasons=[current_season], team_ids=[team.team_id])
             except Exception as cohort_err:
                 logger.warning("Cohort discovery for %s failed (continuing with squad seed): %s", team.name, cohort_err)
@@ -11898,9 +11896,9 @@ def _run_seed_teams_process(job_id, team_db_ids, max_age=30, sync_journeys=True,
             # Phase 1: Cohort discovery for all target teams
             try:
                 from src.services.big6_seeding_service import run_big6_seed
+                from src.utils.academy_window import current_stats_season
 
-                now = datetime.now()
-                current_season = now.year if now.month >= 8 else now.year - 1
+                current_season = current_stats_season()
                 team_api_ids = [t.team_id for t in target_teams]
                 update_job(job_id, current_player="Discovering cohorts...")
                 run_big6_seed(job_id, seasons=[current_season], team_ids=team_api_ids)
@@ -12028,9 +12026,9 @@ def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=
             # Phase 1: Cohort discovery for all empty teams
             try:
                 from src.services.big6_seeding_service import run_big6_seed
+                from src.utils.academy_window import current_stats_season
 
-                now = datetime.now()
-                current_season = now.year if now.month >= 8 else now.year - 1
+                current_season = current_stats_season()
                 team_api_ids = [t.team_id for t in empty_teams]
                 update_job(job_id, current_player="Discovering cohorts for all teams...")
                 run_big6_seed(job_id, seasons=[current_season], team_ids=team_api_ids)

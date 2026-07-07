@@ -9,7 +9,6 @@ This blueprint handles:
 """
 
 import logging
-from datetime import UTC, datetime
 
 from flask import Blueprint, jsonify, request
 from sqlalchemy import cast
@@ -502,8 +501,9 @@ def get_academy_network(team_identifier):
 
         years = request.args.get("years", 4, type=int)
         limit = request.args.get("limit", 200, type=int)
-        now = datetime.now(UTC)
-        current_season = now.year if now.month >= 8 else now.year - 1
+        from src.utils.academy_window import current_stats_season
+
+        current_season = current_stats_season()
         min_season = current_season - years + 1
 
         # Find the parent team for name/logo

@@ -2493,7 +2493,6 @@ def get_player_stats(player_id):
             return jsonify({"error": "Not authorized as a writer"}), 403
 
         # Import models here to avoid circular imports if any
-        from datetime import datetime
 
         from src.api_football_client import APIFootballClient
         from src.models.league import Team
@@ -2501,10 +2500,9 @@ def get_player_stats(player_id):
         from src.routes.api import _sync_player_club_fixtures, resolve_team_name_and_logo
 
         # Get current season
-        now_utc = datetime.now(UTC)
-        current_year = now_utc.year
-        current_month = now_utc.month
-        season = current_year if current_month >= 8 else current_year - 1
+        from src.utils.academy_window import current_stats_season
+
+        season = current_stats_season()
 
         # Auto-sync: Check if we're missing fixtures compared to API-Football
         loaned = TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True).first()

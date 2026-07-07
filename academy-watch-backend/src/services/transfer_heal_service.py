@@ -9,7 +9,6 @@ directly, without depending on AcademyPlayer rows.
 """
 
 import logging
-from datetime import UTC, datetime
 
 from sqlalchemy import text
 from src.api_football_client import APIFootballClient
@@ -260,9 +259,12 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
     fixture_syncs_triggered = 0
     if not dry_run and cascade_fixtures and players_changed:
         from src.routes.api import _sync_player_club_fixtures
+        from src.utils.academy_window import current_stats_season
 
-        now = datetime.now(UTC)
-        season = now.year if now.month >= 8 else now.year - 1
+        # Transfer heal fetches fixtures for the UPCOMING season — use the pure
+        # calendar season (NO latest-with-data fallback) so a newly-started
+        # season actually gets synced instead of being pinned to old data.
+        season = current_stats_season()
 
         for pc in players_changed:
             try:

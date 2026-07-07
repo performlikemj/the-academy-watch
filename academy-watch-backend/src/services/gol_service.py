@@ -437,8 +437,10 @@ class GolService:
             # Inject current date and season into system prompt
             from datetime import datetime
 
+            from src.utils.academy_window import current_stats_season
+
             now = datetime.now(UTC)
-            season_int = now.year if now.month >= 8 else now.year - 1
+            season_int = current_stats_season(now)
             season_label = f"{season_int}/{str(season_int + 1)[-2:]}"
             system_content = SYSTEM_PROMPT.format(
                 today=now.strftime("%d %B %Y"),

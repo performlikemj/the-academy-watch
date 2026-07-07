@@ -340,17 +340,12 @@ class APIFootballClient:
 
     def _set_default_season_from_date(self):
         """Set default season based on current date."""
-        current_year = self.current_date.year
+        # European football season runs Aug→May/June: the shared stats/fixture
+        # season rule (August rollover) selects the start year.
+        from src.utils.academy_window import current_stats_season
 
-        # European football season typically runs from August to May/June
-        # If it's January-July, we're in the second half of the season
-        # If it's August-December, we're in the first half of the season
-        if self.current_date.month >= 8:  # August or later
-            self.current_season_start_year = current_year
-            self.current_season_end_year = current_year + 1
-        else:  # January to July
-            self.current_season_start_year = current_year - 1
-            self.current_season_end_year = current_year
+        self.current_season_start_year = current_stats_season(self.current_date)
+        self.current_season_end_year = self.current_season_start_year + 1
 
         self.current_season = f"{self.current_season_start_year}-{self.current_season_end_year}"
         self.season_start_date = date(self.current_season_start_year, 8, 1)
