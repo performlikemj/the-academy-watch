@@ -313,12 +313,19 @@ class TestLimitedCoverageComputeStats:
         from src.models.league import db
         from src.models.tracked_player import TrackedPlayer
 
-        # Two cache rows in the display season at DIFFERENT clubs, neither of them
-        # the tracked row's current club (parent / NULL).
+        # Two cache rows in the DISPLAY season (2025) at DIFFERENT clubs, neither of
+        # them the tracked row's current club (parent / NULL), PLUS a prior-season
+        # (2024) decoy at one of those clubs. Correct season-scoped code sums only
+        # the two 2025 rows (12 apps / 1080 min); a regression that drops the
+        # ``season == season_value`` filter — or re-keys onto a player-wide "sum
+        # every cached season" — folds the 2024 row's 30 apps / 2700 min / 9 goals
+        # in and blows past the assertions below, so this pins season scoping and
+        # display-season preference alongside the cross-club sum.
         tp_id = _seed_limited_loanee(
             current_club,
             depth=depth,
             cache_rows=[
+                (LOAN_API, 2024, {"appearances": 30, "minutes_played": 2700, "goals": 9, "assists": 7, "saves": 60}),
                 (LOAN_API, 2025, {"appearances": 8, "minutes_played": 720, "goals": 1, "assists": 2, "saves": 20}),
                 (
                     SECOND_LOAN_API,
@@ -332,7 +339,8 @@ class TestLimitedCoverageComputeStats:
         stats = tp.compute_stats()
 
         # Keyed on current_club_api_id (the pre-A1 bug) this returned zeros; keyed
-        # on the player and summed across clubs it returns the whole loan season.
+        # on the player and summed across clubs for the display season it returns
+        # the whole 2025 loan season — and excludes the 2024 decoy.
         assert stats["appearances"] == 12
         assert stats["minutes_played"] == 1080
         assert stats["goals"] == 1
