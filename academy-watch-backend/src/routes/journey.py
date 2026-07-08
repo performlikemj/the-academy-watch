@@ -352,6 +352,58 @@ def admin_backfill_current_status():
     )
 
 
+@journey_bp.route("/admin/journeys/backfill-entry-player-ids", methods=["POST"])
+@require_api_key
+def admin_backfill_entry_player_ids():
+    """Backfill player_journey_entries.player_api_id (sea01) from the parent
+    player_journeys row, for NULL rows only. No API calls.
+
+    New entries get player_api_id at create time; this fills the ~77k legacy
+    rows that predate the column. Batched, idempotent and restartable — it only
+    touches rows where player_api_id IS NULL, so each call strictly shrinks the
+    remaining set and re-running after completion is a no-op.
+
+    Query: ?batch_size=<int, default 5000, max 50000>
+    Returns: {"updated": <this call>, "remaining": <still NULL>, "batch_size"}
+    """
+    from sqlalchemy import text
+
+    batch_size = request.args.get("batch_size", 5000, type=int)
+    if not isinstance(batch_size, int) or batch_size < 1:
+        batch_size = 5000
+    batch_size = min(batch_size, 50000)
+
+    # Bounded batch: fill only NULL rows from the parent journey's player id.
+    # Every PJE row has a NOT NULL journey_id FK to a journey with a NOT NULL
+    # unique player_api_id, so the set is exhaustible and `remaining` reaches 0.
+    result = db.session.execute(
+        text(
+            """
+            WITH batch AS (
+                SELECT id FROM player_journey_entries
+                WHERE player_api_id IS NULL
+                ORDER BY id
+                LIMIT :batch_size
+            )
+            UPDATE player_journey_entries AS pje
+            SET player_api_id = pj.player_api_id
+            FROM player_journeys AS pj, batch
+            WHERE pje.id = batch.id
+              AND pje.journey_id = pj.id
+            """
+        ),
+        {"batch_size": batch_size},
+    )
+    updated = result.rowcount
+    db.session.commit()
+
+    remaining = db.session.execute(
+        text("SELECT COUNT(*) FROM player_journey_entries WHERE player_api_id IS NULL")
+    ).scalar()
+
+    return jsonify({"updated": updated, "remaining": int(remaining or 0), "batch_size": batch_size})
+
+
 # Maps FixturePlayerStats.position codes to TrackedPlayer.position conventions
 _PROFILE_POSITION_MAP = {"G": "Goalkeeper", "D": "Defender", "M": "Midfielder", "F": "Attacker"}
 

@@ -260,7 +260,10 @@ class PlayerJourneyEntry(db.Model):
     __tablename__ = "player_journey_entries"
 
     id = db.Column(db.Integer, primary_key=True)
-    journey_id = db.Column(db.Integer, db.ForeignKey("player_journeys.id"), nullable=False, index=True)
+    # No index=True here — the journey_id index is declared by name in __table_args__
+    # below to match the migration-created ix_journey_entry_journey_id (index=True would
+    # mint the default ix_player_journey_entries_journey_id and churn autogenerate).
+    journey_id = db.Column(db.Integer, db.ForeignKey("player_journeys.id"), nullable=False)
 
     # Season
     season = db.Column(db.Integer, nullable=False)  # e.g., 2021
@@ -289,6 +292,45 @@ class PlayerJourneyEntry(db.Model):
     assists = db.Column(db.Integer, default=0)
     minutes = db.Column(db.Integer, default=0)
 
+    # Denormalized player id (copied from the parent PlayerJourney) so this
+    # table can be read per-player-per-season without joining player_journeys.
+    # Set on new entries at create time; backfilled for legacy rows off-path
+    # via POST /api/admin/journeys/backfill-entry-player-ids.
+    player_api_id = db.Column(db.Integer)
+
+    # Rich per-season stats (sea01) — banked from the API-Football
+    # players?id&season statistics block the sync already fetches. All nullable
+    # (payload fields are frequently null/absent) and durable (api_cache TTL is
+    # 7 days). stats_source distinguishes 'journey-api' (rich) from the
+    # 'legacy-basic' rows written before this extraction existed.
+    rating = db.Column(db.Float)
+    position = db.Column(db.String(10))
+    lineups = db.Column(db.Integer)
+    shots_total = db.Column(db.Integer)
+    shots_on = db.Column(db.Integer)
+    passes_total = db.Column(db.Integer)
+    passes_key = db.Column(db.Integer)
+    passes_accuracy = db.Column(db.Integer)
+    tackles_total = db.Column(db.Integer)
+    tackles_blocks = db.Column(db.Integer)
+    tackles_interceptions = db.Column(db.Integer)
+    duels_total = db.Column(db.Integer)
+    duels_won = db.Column(db.Integer)
+    dribbles_attempts = db.Column(db.Integer)
+    dribbles_success = db.Column(db.Integer)
+    fouls_drawn = db.Column(db.Integer)
+    fouls_committed = db.Column(db.Integer)
+    cards_yellow = db.Column(db.Integer)
+    cards_red = db.Column(db.Integer)
+    penalty_scored = db.Column(db.Integer)
+    penalty_missed = db.Column(db.Integer)
+    penalty_saved = db.Column(db.Integer)
+    goals_conceded = db.Column(db.Integer)
+    saves = db.Column(db.Integer)
+    stats_source = db.Column(db.String(24), default="legacy-basic")  # journey-api|legacy-basic|manual
+    stats_synced_at = db.Column(db.DateTime(timezone=True))
+    season_phase = db.Column(db.String(12))  # dormant Apertura/Clausura hook
+
     # Transfer date (YYYY-MM-DD) — when the player moved to this club
     # Populated from transfer API for loan entries; used as tiebreaker
     # when multiple clubs share the same season and sort_priority.
@@ -303,8 +345,21 @@ class PlayerJourneyEntry(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
 
     __table_args__ = (
+        # journey_id FK lookups. x2y3z4a5b6c7 created this as ix_journey_entry_journey_id;
+        # declared here by that exact name (see journey_id column note) so autogenerate
+        # does not churn an add/drop rename pair against prod.
+        db.Index("ix_journey_entry_journey_id", "journey_id"),
         db.Index("ix_journey_entry_lookup", "journey_id", "season", "club_api_id", "league_api_id"),
-        db.UniqueConstraint("journey_id", "season", "club_api_id", "league_api_id", name="uq_journey_entry"),
+        # Denormalized per-player-per-season read path (D1 provenance / D2 aggregation).
+        # Named to match migration sea01's create_index_safe so autogenerate keeps it.
+        db.Index("ix_pje_player_season", "player_api_id", "season"),
+        # NB: intentionally no uq_journey_entry UniqueConstraint. x2y3z4a5b6c7 created
+        # only the NON-unique ix_journey_entry_lookup on these four columns — the DB has
+        # never held a unique constraint here. Dedup is enforced in application code
+        # (JourneySyncService._merge_corrected_duplicates), and declaring the constraint
+        # in metadata would make autogenerate emit a create_unique_constraint that could
+        # ABORT on pre-existing duplicate rows. Omitting it keeps autogenerate a true
+        # no-op on this table.
     )
 
     def to_dict(self):
