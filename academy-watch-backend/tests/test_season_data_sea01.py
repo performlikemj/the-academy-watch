@@ -2,8 +2,9 @@
 
 Locks the four load-bearing guarantees of the PR2 (`sea01`) work:
 
-1. **Migration head stays single** and is `sea01` (chained off `aw23`) — a second
-   head would make `flask db upgrade` ambiguous on deploy.
+1. **Migration head stays single** — `sea01` chains off `aw23`, and D3's `sea02`
+   now chains off `sea01`, so the single tip has advanced to `sea02`; a second head
+   would make `flask db upgrade` ambiguous on deploy.
 2. **`sea01` is idempotent** — every DDL is guarded, so a re-applied or
    partially-applied upgrade is a pure no-op (migrations do NOT auto-run on
    deploy; prod schema has drifted out-of-band, invariants §8).
@@ -49,10 +50,12 @@ def _script_directory():
 
 
 class TestMigrationHead:
-    def test_single_head_is_sea01(self):
-        """The whole chain resolves to exactly one head, and it is sea01."""
+    def test_single_head_is_sea02(self):
+        """The whole chain resolves to exactly one head. D3's sea02 now sits on top
+        of sea01, so the tip has advanced from sea01 to sea02 — a second head would
+        make `flask db upgrade` ambiguous on deploy."""
         heads = _script_directory().get_heads()
-        assert heads == ["sea01"], f"expected the single head to be sea01, got {heads}"
+        assert heads == ["sea02"], f"expected the single head to be sea02, got {heads}"
 
     def test_sea01_chains_off_aw23(self):
         """sea01 branches from the real prod tip (aw23), keeping the line linear."""
@@ -60,6 +63,13 @@ class TestMigrationHead:
         sea01 = script.get_revision("sea01")
         assert sea01.down_revision == "aw23"
         assert script.get_revision("aw23") is not None
+
+    def test_sea02_chains_off_sea01(self):
+        """sea02 (D3 rollup tables) branches from sea01 (D2), keeping the line linear."""
+        script = _script_directory()
+        sea02 = script.get_revision("sea02")
+        assert sea02.down_revision == "sea01"
+        assert script.get_revision("sea01") is not None
 
 
 # ---------------------------------------------------------------------------

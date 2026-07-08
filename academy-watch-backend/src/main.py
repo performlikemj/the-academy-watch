@@ -13,6 +13,11 @@ from flask_talisman import Talisman
 from sqlalchemy.engine.url import URL, make_url
 from werkzeug.exceptions import HTTPException
 
+# Side-effect import: register the sea02 season-rollup tables in db.metadata so
+# `flask db migrate` autogenerate sees them (no spurious drop/create) and so the
+# tables exist for db.create_all(). D3a has no service consumer yet (that is D3b),
+# so nothing else imports these models — this is the registration site.
+import src.models.season_rollup  # noqa: E402, F401
 from src.extensions import limiter
 from src.models.league import League, Newsletter, Team, UserSubscription, db
 from src.models.tracked_player import TrackedPlayer
