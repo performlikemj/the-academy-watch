@@ -3233,6 +3233,21 @@ class APIFootballClient:
                                             .delete()
                                         )
                                         if ghost_deleted:
+                                            # Sole-writer contract: rebuild the OLD
+                                            # id's rollup from what remains after the
+                                            # ghost FPS delete.
+                                            try:
+                                                from src.services.season_rollup_service import (
+                                                    refresh_player as _refresh_rollup,
+                                                )
+
+                                                with db_session.begin_nested():
+                                                    _refresh_rollup(info["player_api_id"], season, session=db_session)
+                                            except Exception:
+                                                logger.exception(
+                                                    "season-rollup refresh after ghost-delete failed for player=%s",
+                                                    info["player_api_id"],
+                                                )
                                             db_session.commit()
                                             logger.info(f"🗑️ Deleted {ghost_deleted} ghost stats")
                                 except Exception as db_err:

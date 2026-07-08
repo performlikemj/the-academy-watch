@@ -355,6 +355,79 @@ def test_journey_hook_savepoint_rollback_preserves_journey(app, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# youth-fixture level_group (regression: youth-team FPS must not read senior)
+# ---------------------------------------------------------------------------
+def test_youth_fixture_folds_into_youth_level_group(app):
+    """A youth-team FPS row (academy sync path, e.g. 'Premier League 2') folds
+    into the youth level_group, never senior — a pure academy kid must not rank
+    on the senior Scout list on U21 minutes (proposal §6 Q10)."""
+    player = 606
+    senior_fx = _fixture(30, 2025, comp="Championship")
+    youth_fx = _fixture(31, 2025, comp="Premier League 2 Division One")
+    _fps(senior_fx, player, 100, minutes=900, goals=2, rating=7.0)
+    _fps(youth_fx, player, 101, minutes=800, goals=5, rating=8.0)
+    db.session.commit()
+
+    svc.refresh_player(player, season=2025)
+    db.session.commit()
+
+    groups = {t.level_group: t for t in PlayerSeasonTotal.query.filter_by(player_api_id=player).all()}
+    assert set(groups) == {"senior", "youth"}
+    assert groups["senior"].minutes == 900
+    assert groups["senior"].primary_source == "fixtures"
+    assert groups["youth"].minutes == 800
+    assert groups["youth"].primary_source == "fixtures"
+    youth_cells = PlayerSeasonCell.query.filter_by(player_api_id=player, level_group="youth").all()
+    assert youth_cells and all(c.competition_tier == "youth" for c in youth_cells)
+
+
+def test_youth_competition_classifier():
+    assert svc._is_youth_competition("Premier League 2 Division One") is True
+    assert svc._is_youth_competition("U18 Premier League - North") is True
+    assert svc._is_youth_competition("UEFA Youth League") is True
+    assert svc._is_youth_competition("Premier League") is False
+    assert svc._is_youth_competition("Championship") is False
+    assert svc._is_youth_competition(None) is False
+    assert svc._fixture_level_and_tier("Premier League 2 Division One") == ("youth", "youth")
+    assert svc._fixture_level_and_tier("Premier League") == ("senior", "league")
+
+
+# ---------------------------------------------------------------------------
+# journey feeder robustness (regression: NULL denormalized player_api_id)
+# ---------------------------------------------------------------------------
+def test_journey_feeder_reads_via_journey_join_when_denorm_null(app):
+    """PJE rows with a NULL denormalized player_api_id (every ~77k legacy row
+    pre-sea01-backfill) still feed the rollup, resolved through the parent
+    journey — otherwise a pre-backfill refresh silently drops the journey source
+    and the Gore anchor would not hold in prod."""
+    player = 707
+    j = _journey(player)
+    db.session.add(
+        PlayerJourneyEntry(
+            journey_id=j.id,
+            player_api_id=None,  # legacy row: denormalized column unset
+            season=2025,
+            club_api_id=808,
+            club_name="Legacy FC",
+            league_name="Championship",
+            minutes=1800,
+            goals=4,
+            appearances=20,
+            stats_source="legacy-basic",
+        )
+    )
+    db.session.commit()
+
+    svc.refresh_player(player, season=2025)
+    db.session.commit()
+
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player, level_group="senior").one()
+    assert total.primary_source == "journey"
+    assert total.minutes == 1800
+    assert total.journey_minutes == 1800
+
+
+# ---------------------------------------------------------------------------
 # tier classifier
 # ---------------------------------------------------------------------------
 def test_competition_tier_classifier():

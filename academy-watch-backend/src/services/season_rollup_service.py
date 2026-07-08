@@ -11,13 +11,19 @@ Sources (feeders)
 -----------------
 - ``fixtures`` — :class:`FixturePlayerStats` joined to :class:`Fixture`, grouped
   per ``(season, team, competition_tier)``; rich per-match detail summed,
-  ``avg_rating`` minutes-weighted; ``level_group`` always ``senior`` (FPS is
-  senior per-match data).
-- ``journey``  — :class:`PlayerJourneyEntry` read by the denormalized
-  ``player_api_id`` (ix_pje_player_season), grouped per ``(season, club,
+  ``avg_rating`` minutes-weighted. ``level_group`` is derived from the fixture's
+  competition NAME: the academy fixture-sync path writes YOUTH-team FPS rows
+  (U18/U21 comps), which fold into ``youth`` like journey ``is_youth`` entries —
+  everything else is ``senior``.
+- ``journey``  — :class:`PlayerJourneyEntry` read via the parent
+  :class:`PlayerJourney` (``journey_id -> player_journeys.player_api_id``, the
+  same join D1 provenance uses), grouped per ``(season, club,
   competition_tier)``; ``level_group`` from ``is_international`` / ``is_youth``
   exactly as the D1 provenance code partitions senior/youth/international; rich
   detail lifted from the sea01 columns when ``stats_source == 'journey-api'``.
+  The join keys off the canonical journey id, NOT the denormalized
+  ``PlayerJourneyEntry.player_api_id`` column (NULL on ~77k legacy rows until the
+  sea01 backfill runs), so the feeder is correct pre- and post-backfill.
 - ``apss``     — :class:`AcademyPlayerSeasonStats` → ``level_group='youth'``.
 - ``shadow``   — :class:`PlayerShadowStats` → ``source='shadow'``.
 
@@ -51,7 +57,7 @@ import logging
 from datetime import UTC, datetime
 
 from src.models.follow import PlayerShadowStats
-from src.models.journey import PlayerJourneyEntry
+from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, db
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.weekly import Fixture, FixturePlayerStats
@@ -134,6 +140,50 @@ def classify_competition_tier(name: str | None) -> str:
     ):
         return TIER_DOMESTIC_CUP
     return TIER_LEAGUE
+
+
+# Youth-competition NAME tokens. FixturePlayerStats is usually senior per-match
+# data, but the academy fixture-sync path (routes/api.py::_run_team_fixtures_sync
+# via _YOUTH_LEVEL_LEAGUES → leagues 702/695/696) also writes YOUTH-team FPS rows
+# for U18/U21 competitions and pushes them through the SAME FPS insert/choke-point
+# loop. Those minutes must fold into the ``youth`` level_group like journey
+# ``is_youth`` entries — never headline as senior — or a pure academy kid ranks on
+# the senior Scout list on U21 minutes (proposal §6 Q10). The Fixture row carries
+# no structural youth flag (no league_api_id column), so classify by name.
+_YOUTH_COMP_TOKENS = (
+    "u18",
+    "u19",
+    "u20",
+    "u21",
+    "u23",
+    "premier league 2",
+    "premier league international",
+    "youth league",
+    "youth alliance",
+    "youth cup",
+    "primavera",
+)
+
+
+def _is_youth_competition(name: str | None) -> bool:
+    """True when a competition NAME is a youth/academy competition."""
+    if not name:
+        return False
+    n = name.lower()
+    return any(tok in n for tok in _YOUTH_COMP_TOKENS)
+
+
+def _fixture_level_and_tier(name: str | None) -> tuple[str, str]:
+    """Partition a fixture's competition into ``(level_group, tier)``.
+
+    Youth competitions fold into ``(youth, youth)`` so youth-team FPS rows join
+    the youth totals row (mirroring ``_journey_level_and_tier`` for is_youth
+    entries); every other competition stays ``senior`` with its normal
+    league/cup/continental tier.
+    """
+    if _is_youth_competition(name):
+        return LEVEL_YOUTH, TIER_YOUTH
+    return LEVEL_SENIOR, classify_competition_tier(name)
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +275,12 @@ def _finish_cell(
 # Feeders — each returns a list of cell payload dicts for the player[, season]
 # ---------------------------------------------------------------------------
 def _fixture_cells(player_api_id: int, season: int | None, session, now: datetime) -> list[dict]:
-    """Aggregate FixturePlayerStats (joined to fixtures) per (season, team, tier)."""
+    """Aggregate FixturePlayerStats (joined to fixtures) per (season, team, tier).
+
+    ``level_group`` is derived from each fixture's competition (youth-team FPS
+    rows fold into ``youth``), NOT hard-coded to senior — see
+    :func:`_fixture_level_and_tier`.
+    """
     q = (
         session.query(FixturePlayerStats, Fixture.season, Fixture.competition_name)
         .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
@@ -236,11 +291,12 @@ def _fixture_cells(player_api_id: int, season: int | None, session, now: datetim
 
     groups: dict[tuple, dict] = {}
     for fps, fx_season, comp_name in q.all():
-        tier = classify_competition_tier(comp_name)
+        level_group, tier = _fixture_level_and_tier(comp_name)
         key = (fx_season, fps.team_api_id, tier)
         agg = groups.get(key)
         if agg is None:
             agg = _blank_agg()
+            agg["_level"] = level_group
             groups[key] = agg
         minutes = fps.minutes or 0
         if minutes > 0:
@@ -285,7 +341,7 @@ def _fixture_cells(player_api_id: int, season: int | None, session, now: datetim
             club_api_id=team_api_id or 0,
             club_name=None,
             competition_tier=tier,
-            level_group=LEVEL_SENIOR,
+            level_group=agg["_level"],
             now=now,
         )
         if cell:
@@ -311,8 +367,22 @@ def _journey_level_and_tier(entry: PlayerJourneyEntry) -> tuple[str, str]:
 
 
 def _journey_cells(player_api_id: int, season: int | None, session, now: datetime) -> list[dict]:
-    """Aggregate PlayerJourneyEntry per (season, club, tier) via ix_pje_player_season."""
-    q = session.query(PlayerJourneyEntry).filter(PlayerJourneyEntry.player_api_id == player_api_id)
+    """Aggregate PlayerJourneyEntry per (season, club, tier) for the player.
+
+    Reads through the parent :class:`PlayerJourney` (``journey_id ->
+    player_journeys.player_api_id``) rather than the denormalized
+    ``PlayerJourneyEntry.player_api_id`` column, which is NULL on ~77k legacy
+    rows until the sea01 backfill endpoint runs. Keying off the canonical
+    (unique-indexed) journey id makes the feeder correct pre- and post-backfill —
+    otherwise a pre-backfill refresh silently drops the entire journey source and
+    writes under-reported totals (the Gore anchor would not hold in prod). This
+    is the same journey join D1's ``_season_provenance`` uses.
+    """
+    q = (
+        session.query(PlayerJourneyEntry)
+        .join(PlayerJourney, PlayerJourneyEntry.journey_id == PlayerJourney.id)
+        .filter(PlayerJourney.player_api_id == player_api_id)
+    )
     if season is not None:
         q = q.filter(PlayerJourneyEntry.season == season)
 

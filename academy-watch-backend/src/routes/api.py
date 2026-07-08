@@ -1538,6 +1538,16 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                 FixturePlayerStats.minutes == 0,
             ).delete()
             if ghost_deleted:
+                # Sole-writer contract: those ghost FPS rows fed the rollup under
+                # the OLD id — rebuild that id's rollup from what remains so no
+                # phantom fixtures cell survives (player_id is still the old id here).
+                try:
+                    from src.services.season_rollup_service import refresh_player as _refresh_rollup
+
+                    with db.session.begin_nested():
+                        _refresh_rollup(player_id, season=season)
+                except Exception:
+                    logger.exception("season-rollup refresh after ghost-delete failed for player=%s", player_id)
                 db.session.commit()
                 logger.info(f"🗑️ Deleted {ghost_deleted} ghost stat records with old ID {player_id}")
 
@@ -6653,6 +6663,28 @@ def admin_delete_team_data(team_id: int):
         team.newsletters_active = False
 
         db.session.commit()
+
+        # Season-rollup sole-writer contract: the FPS bulk-delete above fed
+        # player_season_cells/totals — rebuild each affected player's rollup from
+        # the REMAINING sources so no phantom fixtures cell/total survives (the
+        # rows-behind gauge can't detect it once the source rows are gone).
+        # season=None covers every season the deleted rows spanned; one bounded
+        # refresh per player (a team roster, not a platform-wide sweep).
+        affected_pids = {pid for pid in player_api_ids if pid is not None}
+        if affected_pids:
+            try:
+                from src.services.season_rollup_service import refresh_player as _refresh_rollup
+
+                for _pid in affected_pids:
+                    try:
+                        with db.session.begin_nested():
+                            _refresh_rollup(_pid, season=None)
+                    except Exception:
+                        logger.exception("season-rollup refresh after team-delete failed for player=%s", _pid)
+                db.session.commit()
+            except Exception:
+                logger.exception("season-rollup post-delete rebuild failed for team %s", team_id)
+                db.session.rollback()
 
         summary["message"] = f"Successfully deleted all tracking data for {team.name}"
         return jsonify(summary)
