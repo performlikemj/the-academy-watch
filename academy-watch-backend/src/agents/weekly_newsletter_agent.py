@@ -37,6 +37,7 @@ from src.models.journey import PlayerJourney, PlayerJourneyEntry, derive_journey
 from src.models.league import AdminSetting, Newsletter, NewsletterCommentary, Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.graph_service import GraphService
+from src.utils.fixture_stats_mapper import map_player_stat_block
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 
 dotenv.load_dotenv(dotenv.find_dotenv())
@@ -1938,16 +1939,6 @@ def _sync_team_fixtures_for_week(
                     st = statistics[0]
 
                     games = st.get("games", {}) or {}
-                    goals_obj = st.get("goals", {}) or {}
-                    cards = st.get("cards", {}) or {}
-                    shots = st.get("shots", {}) or {}
-                    passes = st.get("passes", {}) or {}
-                    tackles = st.get("tackles", {}) or {}
-                    duels = st.get("duels", {}) or {}
-                    dribbles = st.get("dribbles", {}) or {}
-                    fouls = st.get("fouls", {}) or {}
-                    penalty = st.get("penalty", {}) or {}
-
                     minutes = games.get("minutes", 0) or 0
 
                     if minutes > 0 or games.get("substitute") is not None:
@@ -1955,28 +1946,9 @@ def _sync_team_fixtures_for_week(
                             fixture_id=existing_fixture.id,
                             player_api_id=pid,
                             team_api_id=club_api_id,
-                            minutes=minutes,
-                            position=games.get("position"),
-                            rating=games.get("rating"),
-                            captain=bool(games.get("captain")),
-                            substitute=bool(games.get("substitute")),
-                            goals=goals_obj.get("total", 0) or 0,
-                            assists=goals_obj.get("assists", 0) or 0,
-                            yellows=cards.get("yellow", 0) or 0,
-                            reds=cards.get("red", 0) or 0,
-                            shots_total=shots.get("total"),
-                            shots_on=shots.get("on"),
-                            passes_total=passes.get("total"),
-                            passes_key=passes.get("key"),
-                            tackles_total=tackles.get("total"),
-                            duels_won=duels.get("won"),
-                            duels_total=duels.get("total"),
-                            dribbles_success=dribbles.get("success"),
-                            saves=goals_obj.get("saves"),
-                            goals_conceded=goals_obj.get("conceded"),
-                            fouls_drawn=fouls.get("drawn"),
-                            fouls_committed=fouls.get("committed"),
-                            penalty_saved=penalty.get("saved"),
+                            raw_json=json.dumps(p),
+                            # Full API-Football stat block (minutes, substitute, cards, ...)
+                            **map_player_stat_block(st),
                         )
                         db.session.add(fps)
                         total_synced += 1

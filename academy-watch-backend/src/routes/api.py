@@ -96,6 +96,7 @@ from src.utils.background_jobs import (
 from src.utils.background_jobs import (
     update_job as _update_job,
 )
+from src.utils.fixture_stats_mapper import map_player_stat_block
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 from src.utils.player_names import resolve_player_name
 from src.utils.sanitize import (
@@ -1596,26 +1597,13 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                     continue
                 st = stat_list[0] if isinstance(stat_list, list) else stat_list
 
-                # Extract stats from the nested structure
                 games = st.get("games", {}) or {}
-                goals_obj = st.get("goals", {}) or {}
-                cards = st.get("cards", {}) or {}
-                shots = st.get("shots", {}) or {}
-                passes = st.get("passes", {}) or {}
-                tackles = st.get("tackles", {}) or {}
-                duels = st.get("duels", {}) or {}
-                dribbles = st.get("dribbles", {}) or {}
-
                 minutes = games.get("minutes", 0) or 0
 
                 # Record if player played (minutes > 0) or was listed as substitute
                 # API-Football returns null minutes for some leagues, so we also
                 # check the substitute flag to avoid dropping valid appearances
                 if minutes > 0 or games.get("substitute") is not None:
-                    # Fouls and penalties for more complete stats
-                    fouls = st.get("fouls", {}) or {}
-                    penalty = st.get("penalty", {}) or {}
-
                     formation, grid, formation_pos = _extract_lineup_info(
                         api_client, fixture_id_api, player_id, loan_team_api_id
                     )
@@ -1624,33 +1612,13 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                         fixture_id=existing_fixture.id,
                         player_api_id=player_id,
                         team_api_id=loan_team_api_id,
-                        minutes=minutes,
-                        substitute=bool(games.get("substitute")),
-                        position=games.get("position"),
-                        rating=games.get("rating"),
-                        goals=goals_obj.get("total", 0) or 0,
-                        assists=goals_obj.get("assists", 0) or 0,
-                        yellows=cards.get("yellow", 0) or 0,
-                        reds=cards.get("red", 0) or 0,
-                        shots_total=shots.get("total"),
-                        shots_on=shots.get("on"),
-                        passes_total=passes.get("total"),
-                        passes_key=passes.get("key"),
-                        tackles_total=tackles.get("total"),
-                        duels_won=duels.get("won"),
-                        duels_total=duels.get("total"),
-                        dribbles_success=dribbles.get("success"),
-                        # Goalkeeper stats - saves and conceded are in goals block
-                        saves=goals_obj.get("saves"),
-                        goals_conceded=goals_obj.get("conceded"),
-                        # Additional stats
-                        fouls_drawn=fouls.get("drawn"),
-                        fouls_committed=fouls.get("committed"),
-                        penalty_saved=penalty.get("saved"),
                         # Formation & tactical position
                         formation=formation,
                         grid=grid,
                         formation_position=formation_pos,
+                        raw_json=json.dumps(player_stats),
+                        # Full API-Football stat block (minutes, substitute, cards, ...)
+                        **map_player_stat_block(st),
                     )
                     db.session.add(fps)
                     synced += 1
@@ -5097,18 +5065,7 @@ def admin_sync_player_fixtures(player_id: int):
                         continue
                     st = stat_list[0] if isinstance(stat_list, list) else stat_list
 
-                    # Extract stats from the nested structure
                     games = st.get("games", {}) or {}
-                    goals_block = st.get("goals", {}) or {}
-                    cards = st.get("cards", {}) or {}
-                    shots = st.get("shots", {}) or {}
-                    passes = st.get("passes", {}) or {}
-                    tackles = st.get("tackles", {}) or {}
-                    duels = st.get("duels", {}) or {}
-                    dribbles = st.get("dribbles", {}) or {}
-                    fouls = st.get("fouls", {}) or {}
-                    penalty = st.get("penalty", {}) or {}
-
                     minutes = games.get("minutes", 0) or 0
 
                     # Record if player played or was listed as substitute
@@ -5120,30 +5077,12 @@ def admin_sync_player_fixtures(player_id: int):
                             fixture_id=existing_fixture.id,
                             player_api_id=player_id,
                             team_api_id=team_api_id,
-                            minutes=minutes,
-                            substitute=bool(games.get("substitute")),
-                            position=games.get("position"),
-                            rating=games.get("rating"),
-                            goals=goals_block.get("total", 0) or 0,
-                            assists=goals_block.get("assists", 0) or 0,
-                            yellows=cards.get("yellow", 0) or 0,
-                            reds=cards.get("red", 0) or 0,
-                            shots_total=shots.get("total"),
-                            shots_on=shots.get("on"),
-                            passes_total=passes.get("total"),
-                            passes_key=passes.get("key"),
-                            tackles_total=tackles.get("total"),
-                            duels_won=duels.get("won"),
-                            duels_total=duels.get("total"),
-                            dribbles_success=dribbles.get("success"),
-                            saves=goals_block.get("saves"),
-                            goals_conceded=goals_block.get("conceded"),
-                            fouls_drawn=fouls.get("drawn"),
-                            fouls_committed=fouls.get("committed"),
-                            penalty_saved=penalty.get("saved"),
                             formation=formation,
                             grid=grid,
                             formation_position=formation_pos,
+                            raw_json=json.dumps(player_stats),
+                            # Full API-Football stat block (minutes, substitute, cards, ...)
+                            **map_player_stat_block(st),
                         )
                         db.session.add(fps)
                         synced += 1
@@ -5550,16 +5489,6 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                         st = statistics[0]
 
                         games = st.get("games", {}) or {}
-                        goals_obj = st.get("goals", {}) or {}
-                        cards = st.get("cards", {}) or {}
-                        shots = st.get("shots", {}) or {}
-                        passes = st.get("passes", {}) or {}
-                        tackles = st.get("tackles", {}) or {}
-                        duels = st.get("duels", {}) or {}
-                        dribbles = st.get("dribbles", {}) or {}
-                        fouls = st.get("fouls", {}) or {}
-                        penalty = st.get("penalty", {}) or {}
-
                         minutes = games.get("minutes", 0) or 0
 
                         if minutes > 0 or games.get("substitute") is not None:
@@ -5571,29 +5500,12 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                                     fixture_id=existing_fixture.id,
                                     player_api_id=pid,
                                     team_api_id=team_api_id,
-                                    minutes=minutes,
-                                    position=games.get("position"),
-                                    rating=games.get("rating"),
-                                    goals=goals_obj.get("total", 0) or 0,
-                                    assists=goals_obj.get("assists", 0) or 0,
-                                    yellows=cards.get("yellow", 0) or 0,
-                                    reds=cards.get("red", 0) or 0,
-                                    shots_total=shots.get("total"),
-                                    shots_on=shots.get("on"),
-                                    passes_total=passes.get("total"),
-                                    passes_key=passes.get("key"),
-                                    tackles_total=tackles.get("total"),
-                                    duels_won=duels.get("won"),
-                                    duels_total=duels.get("total"),
-                                    dribbles_success=dribbles.get("success"),
-                                    saves=goals_obj.get("saves"),
-                                    goals_conceded=goals_obj.get("conceded"),
-                                    fouls_drawn=fouls.get("drawn"),
-                                    fouls_committed=fouls.get("committed"),
-                                    penalty_saved=penalty.get("saved"),
                                     formation=formation,
                                     grid=grid_val,
                                     formation_position=formation_pos,
+                                    raw_json=json.dumps(p),
+                                    # Full API-Football stat block (minutes, substitute, cards, ...)
+                                    **map_player_stat_block(st),
                                 )
                                 db.session.add(fps)
                             team_result["synced"] += 1
@@ -6137,18 +6049,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                                 continue
                             st = stat_list[0] if isinstance(stat_list, list) else stat_list
 
-                            # Extract stats
                             games = st.get("games", {}) or {}
-                            goals_block = st.get("goals", {}) or {}
-                            cards = st.get("cards", {}) or {}
-                            shots = st.get("shots", {}) or {}
-                            passes = st.get("passes", {}) or {}
-                            tackles = st.get("tackles", {}) or {}
-                            duels = st.get("duels", {}) or {}
-                            dribbles = st.get("dribbles", {}) or {}
-                            fouls = st.get("fouls", {}) or {}
-                            penalty = st.get("penalty", {}) or {}
-
                             minutes = games.get("minutes", 0) or 0
 
                             if (
@@ -6163,29 +6064,12 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                                     fixture_id=existing_fixture.id,
                                     player_api_id=p_api_id,
                                     team_api_id=p_team_api_id,
-                                    minutes=minutes,
-                                    position=games.get("position"),
-                                    rating=games.get("rating"),
-                                    goals=goals_block.get("total", 0) or 0,
-                                    assists=goals_block.get("assists", 0) or 0,
-                                    yellows=cards.get("yellow", 0) or 0,
-                                    reds=cards.get("red", 0) or 0,
-                                    shots_total=shots.get("total"),
-                                    shots_on=shots.get("on"),
-                                    passes_total=passes.get("total"),
-                                    passes_key=passes.get("key"),
-                                    tackles_total=tackles.get("total"),
-                                    duels_won=duels.get("won"),
-                                    duels_total=duels.get("total"),
-                                    dribbles_success=dribbles.get("success"),
-                                    saves=goals_block.get("saves"),
-                                    goals_conceded=goals_block.get("conceded"),
-                                    fouls_drawn=fouls.get("drawn"),
-                                    fouls_committed=fouls.get("committed"),
-                                    penalty_saved=penalty.get("saved"),
                                     formation=formation,
                                     grid=grid_val,
                                     formation_position=formation_pos,
+                                    raw_json=json.dumps(player_stats),
+                                    # Full API-Football stat block (minutes, substitute, cards, ...)
+                                    **map_player_stat_block(st),
                                 )
                                 db.session.add(fps)
                                 player_result["synced"] += 1
