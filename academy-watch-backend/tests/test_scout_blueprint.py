@@ -762,3 +762,217 @@ class TestAgeDerivationAndOwningClubExclusion:
         data = resp.get_json()
         assert data["players"] == []
         assert data["missing_ids"] == [3003]
+
+
+@pytest.fixture
+def phase_seeded(scout_app):
+    """Seed a full-coverage GK, a full-coverage defender, and a high-minutes
+    outfielder to exercise the phase-of-play aggregates and GK board clamp."""
+    with scout_app.app_context():
+        league = League(league_id=40, name="Championship", country="England", season=2025)
+        db.session.add(league)
+        db.session.flush()
+        parent = Team(team_id=34, name="Parent FC", country="England", season=2025, league_id=league.id)
+        db.session.add(parent)
+        db.session.flush()
+
+        gk_busy = TrackedPlayer(
+            player_api_id=7001,
+            player_name="Gary Gloves",
+            position="Goalkeeper",
+            age=20,
+            team_id=parent.id,
+            status="on_loan",
+            data_depth="full_stats",
+            is_active=True,
+        )
+        gk_calm = TrackedPlayer(
+            player_api_id=7002,
+            player_name="Kenny Keeper",
+            position="Goalkeeper",
+            age=19,
+            team_id=parent.id,
+            status="on_loan",
+            data_depth="full_stats",
+            is_active=True,
+        )
+        defender = TrackedPlayer(
+            player_api_id=7003,
+            player_name="Terry Tackler",
+            position="Defender",
+            age=21,
+            team_id=parent.id,
+            status="on_loan",
+            data_depth="full_stats",
+            is_active=True,
+        )
+        db.session.add_all([gk_busy, gk_calm, defender])
+
+        fixtures = []
+        for i in range(4):
+            fixture = Fixture(
+                fixture_id_api=7100 + i,
+                season=2025,
+                home_team_api_id=903,
+                away_team_api_id=960 + i,
+                date_utc=datetime(2025, 10, 1 + 7 * i),
+            )
+            fixtures.append(fixture)
+        db.session.add_all(fixtures)
+        db.session.flush()
+
+        # gk_busy: 4 x 90' — conceded 0,0,2,1; saves 3,4,5,2 → CS=2, GA=3, saves=14
+        for i, (conceded, saves) in enumerate([(0, 3), (0, 4), (2, 5), (1, 2)]):
+            db.session.add(
+                FixturePlayerStats(
+                    fixture_id=fixtures[i].id,
+                    player_api_id=7001,
+                    team_api_id=903,
+                    minutes=90,
+                    position="G",
+                    goals_conceded=conceded,
+                    saves=saves,
+                )
+            )
+        # gk_calm: 90' clean sheet, then a 50' nil-conceded cameo that must NOT
+        # earn clean-sheet credit; then two more 90' with 1 conceded each so he
+        # clears the 270' per-90 floor. CS=1, GA=2, mins=320, saves=6.
+        for i, (mins, conceded, saves) in enumerate([(90, 0, 2), (50, 0, 1), (90, 1, 2), (90, 1, 1)]):
+            db.session.add(
+                FixturePlayerStats(
+                    fixture_id=fixtures[i].id,
+                    player_api_id=7002,
+                    team_api_id=903,
+                    minutes=mins,
+                    position="G",
+                    goals_conceded=conceded,
+                    saves=saves,
+                )
+            )
+        # defender: huge minutes with duels + tackles; an outfielder must never
+        # enter GK boards despite topping most_minutes overall.
+        for i in range(4):
+            db.session.add(
+                FixturePlayerStats(
+                    fixture_id=fixtures[i].id,
+                    player_api_id=7003,
+                    team_api_id=903,
+                    minutes=90,
+                    position="D",
+                    tackles_total=4,
+                    duels_total=10,
+                    duels_won=7,
+                    fouls_committed=2,
+                    yellows=1,
+                )
+            )
+        db.session.commit()
+
+
+class TestPhaseStats:
+    def test_browse_includes_phase_stats(self, scout_client, seeded_players):
+        resp = scout_client.get("/api/scout/players?sort=goals")
+        players = {p["player_name"]: p for p in resp.get_json()["players"]}
+        striker = players["Alfie Striker"]
+        assert striker["has_detailed_stats"] is True
+        assert striker["shots_total"] == 7
+        assert striker["shots_on"] == 4
+        assert striker["key_passes"] == 3
+        assert striker["dribbles_success"] == 6
+        assert striker["tackles"] == 1
+        assert striker["duels_won"] == 9
+        # duels_total was never recorded → 0 → pct must be None, not div-by-zero
+        assert striker["duel_win_pct"] is None
+        midfielder = players["Billy Passer"]
+        assert midfielder["passes_total"] == 70
+        assert midfielder["key_passes"] == 4
+        assert midfielder["tackles"] == 3
+        assert midfielder["key_passes_per90"] == 4.0
+
+    def test_limited_coverage_player_gets_null_phase_stats(self, scout_client, seeded_players):
+        resp = scout_client.get("/api/scout/players?search=Gloves")
+        player = resp.get_json()["players"][0]
+        # Cache-backed basics still flow…
+        assert player["appearances"] == 12
+        # …but phase stats must be null (unknown), never fabricated zeros.
+        assert player["has_detailed_stats"] is False
+        assert player["tackles"] is None
+        assert player["saves"] is None
+        assert player["clean_sheets"] is None
+        assert player["duel_win_pct"] is None
+
+    def test_sort_by_tackles(self, scout_client, seeded_players):
+        resp = scout_client.get("/api/scout/players?sort=tackles")
+        names = [p["player_name"] for p in resp.get_json()["players"]]
+        assert names.index("Billy Passer") < names.index("Alfie Striker")
+        # no-coverage player sorts last (NULLs last)
+        assert names[-1] == "Charlie Gloves"
+
+    def test_gk_aggregates_and_clean_sheet_minutes_rule(self, scout_client, phase_seeded):
+        resp = scout_client.get("/api/scout/players?position=Goalkeeper&sort=saves")
+        players = {p["player_name"]: p for p in resp.get_json()["players"]}
+        busy = players["Gary Gloves"]
+        assert busy["saves"] == 14
+        assert busy["goals_conceded"] == 3
+        assert busy["clean_sheets"] == 2
+        assert busy["conceded_per90"] == 0.75
+        assert busy["save_pct"] == 82.4
+        calm = players["Kenny Keeper"]
+        # the 50' nil-conceded cameo earns no clean-sheet credit
+        assert calm["clean_sheets"] == 1
+
+    def test_defender_derived_metrics(self, scout_client, phase_seeded):
+        resp = scout_client.get("/api/scout/players?search=Tackler")
+        defender = resp.get_json()["players"][0]
+        assert defender["tackles"] == 16
+        assert defender["duels_total"] == 40
+        assert defender["duels_won"] == 28
+        assert defender["duel_win_pct"] == 70.0
+        assert defender["tackles_per90"] == 4.0
+        assert defender["fouls_committed"] == 8
+        assert defender["yellows"] == 4
+
+    def test_conceded_per90_sort_applies_minutes_floor(self, scout_client, phase_seeded):
+        resp = scout_client.get("/api/scout/players?sort=conceded_per90&order=asc&position=Goalkeeper")
+        names = [p["player_name"] for p in resp.get_json()["players"]]
+        # both GKs clear 270'; ascending puts the calmer conceded rate… busy has
+        # 3/360*90=0.75, calm has 2/320*90=0.5625 → calm first
+        assert names == ["Kenny Keeper", "Gary Gloves"]
+
+
+class TestPhaseLeaderboards:
+    def test_default_phase_shape_unchanged(self, scout_client, seeded_players):
+        resp = scout_client.get("/api/scout/leaderboards")
+        data = resp.get_json()
+        assert set(data["leaderboards"].keys()) == {"top_scorers", "top_assists", "most_minutes", "best_per90"}
+        assert data["phase"] == "all"
+
+    def test_invalid_phase_rejected(self, scout_client, seeded_players):
+        resp = scout_client.get("/api/scout/leaderboards?phase=banana")
+        assert resp.status_code == 400
+
+    def test_defense_phase_boards(self, scout_client, phase_seeded):
+        resp = scout_client.get("/api/scout/leaderboards?phase=defense")
+        boards = resp.get_json()["leaderboards"]
+        assert set(boards.keys()) == {"most_tackles", "most_duels_won", "best_tackles_per90", "most_minutes"}
+        assert boards["most_tackles"][0]["player_name"] == "Terry Tackler"
+
+    def test_gk_phase_clamps_to_goalkeepers(self, scout_client, phase_seeded):
+        resp = scout_client.get("/api/scout/leaderboards?phase=gk")
+        boards = resp.get_json()["leaderboards"]
+        assert set(boards.keys()) == {"most_clean_sheets", "most_saves", "best_conceded_per90", "most_minutes"}
+        for board_key, entries in boards.items():
+            for entry in entries:
+                assert entry["position"] == "Goalkeeper", f"non-GK in {board_key}"
+        assert boards["most_clean_sheets"][0]["player_name"] == "Gary Gloves"
+        # ascending conceded-rate board: calm keeper (0.5625) beats busy (0.75)
+        assert boards["best_conceded_per90"][0]["player_name"] == "Kenny Keeper"
+
+
+class TestComparePhaseAdditions:
+    def test_compare_includes_clean_sheets_and_pen_saves(self, scout_client, phase_seeded):
+        resp = scout_client.get("/api/scout/compare?ids=7001")
+        totals = resp.get_json()["players"][0]["totals"]
+        assert totals["clean_sheets"] == 2
+        assert totals["penalty_saved"] == 0
+        assert totals["goals_conceded"] == 3

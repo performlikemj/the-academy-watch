@@ -16,7 +16,12 @@ from src.models.weekly import Fixture, FixturePlayerStats
 
 CSV_HEADER_LINE = (
     "player_id,name,age,position,nationality,status,parent_club,current_club,"
-    "appearances,goals,assists,minutes,avg_rating,goal_contributions,contributions_per90"
+    "appearances,goals,assists,minutes,avg_rating,goal_contributions,contributions_per90,"
+    # phase-of-play columns are appended AFTER the original set so existing
+    # consumers' column positions stay stable
+    "shots_total,shots_on,passes_total,key_passes,dribbles_success,tackles,duels_total,"
+    "duels_won,duel_win_pct,fouls_drawn,fouls_committed,yellows,reds,saves,goals_conceded,"
+    "clean_sheets,penalty_saved"
 )
 
 
@@ -380,7 +385,11 @@ class TestCsvExport:
         lines = resp.data.decode().splitlines()
         assert lines[0] == CSV_HEADER_LINE
         assert lines[1] == (
-            "1001,Alfie Striker,19,Attacker,England,on_loan,Manchester United,Loan FC,2,3,1,170,7.6,4,2.12"
+            # phase columns: this seed records no shots/passes/duels etc., so the
+            # aggregates are 0 for a fixture-covered player; duel_win_pct (a
+            # ratio over zero duels) stays blank
+            "1001,Alfie Striker,19,Attacker,England,on_loan,Manchester United,Loan FC,2,3,1,170,7.6,4,2.12,"
+            "0,0,0,0,0,0,0,0,,0,0,0,0,0,0,0,0"
         )
         assert len(lines) == 3  # header + striker + keeper
 
