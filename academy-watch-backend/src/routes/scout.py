@@ -66,12 +66,60 @@ scout_bp = Blueprint("scout", __name__)
 VALID_POSITIONS = {"Goalkeeper", "Defender", "Midfielder", "Attacker"}
 VALID_STATUSES = {"academy", "on_loan", "first_team", "released", "sold", "left"}
 PER90_MIN_MINUTES = 270  # floor for per-90 rankings so 10-minute cameos don't top the boards
+# Rate-normalised sort keys that need the minutes floor to be meaningful.
+PER90_SORT_KEYS = {"per90", "tackles_per90", "key_passes_per90", "conceded_per90", "save_pct"}
+# A goalkeeper gets clean-sheet credit for a nil-conceded appearance of 60'+.
+CLEAN_SHEET_MIN_MINUTES = 60
+# Phase-of-play stat keys aggregated from FixturePlayerStats only (no
+# PlayerStatsCache fallback exists for them) — emitted as null for players
+# without per-fixture coverage so the UI shows a dash, never a fake zero.
+PHASE_STAT_KEYS = (
+    "shots_total",
+    "shots_on",
+    "passes_total",
+    "key_passes",
+    "dribbles_attempts",
+    "dribbles_success",
+    "tackles",
+    "duels_total",
+    "duels_won",
+    "fouls_drawn",
+    "fouls_committed",
+    "yellows",
+    "reds",
+    "saves",
+    "goals_conceded",
+    "penalty_saved",
+    "clean_sheets",
+)
 MAX_PER_PAGE = 100
 MAX_COMPARE_PLAYERS = 4
 FORM_MATCHES = 5
 WATCHLIST_LIMIT = 200
 MAX_NOTE_LENGTH = 2000
 CSV_EXPORT_ROWS = 1000
+# Phase-of-play columns — appended after the original header so existing
+# consumers' column positions stay stable. Blank when the player has no
+# fixture coverage. Shared by the header and the row writer.
+CSV_PHASE_KEYS = (
+    "shots_total",
+    "shots_on",
+    "passes_total",
+    "key_passes",
+    "dribbles_success",
+    "tackles",
+    "duels_total",
+    "duels_won",
+    "duel_win_pct",
+    "fouls_drawn",
+    "fouls_committed",
+    "yellows",
+    "reds",
+    "saves",
+    "goals_conceded",
+    "clean_sheets",
+    "penalty_saved",
+)
 CSV_HEADER = [
     "player_id",
     "name",
@@ -88,6 +136,7 @@ CSV_HEADER = [
     "avg_rating",
     "goal_contributions",
     "contributions_per90",
+    *CSV_PHASE_KEYS,
 ]
 
 
@@ -167,6 +216,24 @@ def _fixture_stats_subquery(season):
     tracked row pointed the current club back at the parent. ``avg_rating`` is now
     a cross-club season average, which is the intended cross-club view.
     """
+    # GK stats are gated to fixtures the player actually kept goal in
+    # (per-fixture position code 'G'). API-Football reports conceded:0 for
+    # every OUTFIELD appearance too, so an ungated aggregate hands every
+    # 60'+ outfield appearance a phantom clean sheet and a vacuous 0-conceded
+    # total. Gated, outfielders sum over zero rows → NULL → rendered as a dash.
+    is_gk_row = FixturePlayerStats.position == "G"
+    clean_sheet_app = case(
+        (
+            and_(
+                is_gk_row,
+                FixturePlayerStats.goals_conceded == 0,
+                FixturePlayerStats.minutes >= CLEAN_SHEET_MIN_MINUTES,
+            ),
+            1,
+        ),
+        (is_gk_row, 0),
+        else_=None,
+    )
     return (
         db.session.query(
             FixturePlayerStats.player_api_id.label("player_api_id"),
@@ -175,6 +242,33 @@ def _fixture_stats_subquery(season):
             func.coalesce(func.sum(FixturePlayerStats.assists), 0).label("assists"),
             func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label("minutes_played"),
             func.avg(FixturePlayerStats.rating).label("avg_rating"),
+            # Phase-of-play aggregates — same season-scoped scan, wider SUM list.
+            # NULL-in-the-API means zero, so per-column COALESCE(SUM(..), 0) is
+            # honest here; coverage gating happens in the outer query (a player
+            # with no fixture rows gets NULL for the whole block).
+            func.coalesce(func.sum(FixturePlayerStats.shots_total), 0).label("shots_total"),
+            func.coalesce(func.sum(FixturePlayerStats.shots_on), 0).label("shots_on"),
+            func.coalesce(func.sum(FixturePlayerStats.passes_total), 0).label("passes_total"),
+            func.coalesce(func.sum(FixturePlayerStats.passes_key), 0).label("key_passes"),
+            func.coalesce(func.sum(FixturePlayerStats.dribbles_attempts), 0).label("dribbles_attempts"),
+            func.coalesce(func.sum(FixturePlayerStats.dribbles_success), 0).label("dribbles_success"),
+            func.coalesce(func.sum(FixturePlayerStats.tackles_total), 0).label("tackles"),
+            func.coalesce(func.sum(FixturePlayerStats.duels_total), 0).label("duels_total"),
+            func.coalesce(func.sum(FixturePlayerStats.duels_won), 0).label("duels_won"),
+            func.coalesce(func.sum(FixturePlayerStats.fouls_drawn), 0).label("fouls_drawn"),
+            func.coalesce(func.sum(FixturePlayerStats.fouls_committed), 0).label("fouls_committed"),
+            func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label("yellows"),
+            func.coalesce(func.sum(FixturePlayerStats.reds), 0).label("reds"),
+            # No outer COALESCE on the GK block: NULL means "not a goalkeeper
+            # here" and must survive to the payload as null, not become 0.
+            func.sum(case((is_gk_row, func.coalesce(FixturePlayerStats.saves, 0)), else_=None)).label("saves"),
+            func.sum(case((is_gk_row, func.coalesce(FixturePlayerStats.goals_conceded, 0)), else_=None)).label(
+                "goals_conceded"
+            ),
+            func.sum(case((is_gk_row, func.coalesce(FixturePlayerStats.penalty_saved, 0)), else_=None)).label(
+                "penalty_saved"
+            ),
+            func.sum(clean_sheet_app).label("clean_sheets"),
         )
         .join(Fixture, Fixture.id == FixturePlayerStats.fixture_id)
         .filter(Fixture.season == season)
@@ -305,6 +399,11 @@ def _base_scout_query():
     journey_owner_name = PlayerJourney.current_owner_name.label("journey_owner_name")
     effective_status = func.coalesce(PlayerJourney.current_status, TrackedPlayer.status).label("effective_status")
 
+    # Phase-of-play stats are fixture-coverage only: no cache fallback, no outer
+    # COALESCE — the whole block stays NULL for players without fixture rows so
+    # consumers can tell "no data" from a real zero.
+    phase_stats = [getattr(fps.c, key).label(key) for key in PHASE_STAT_KEYS]
+
     query = (
         db.session.query(
             TrackedPlayer,
@@ -316,6 +415,7 @@ def _base_scout_query():
             journey_status,
             journey_owner_id,
             journey_owner_name,
+            *phase_stats,
         )
         .outerjoin(PlayerJourney, PlayerJourney.player_api_id == TrackedPlayer.player_api_id)
         # Stats join per player (not per current club): the aggregates are now
@@ -342,6 +442,8 @@ def _base_scout_query():
         # falling back to academy-relative status).
         "effective_status": effective_status,
     }
+    for key in PHASE_STAT_KEYS:
+        columns[key] = getattr(fps.c, key)
     return query, columns
 
 
@@ -396,6 +498,33 @@ def _row_to_dict(row):
     contributions = payload["goals"] + payload["assists"]
     payload["goal_contributions"] = contributions
     payload["contributions_per90"] = round(contributions * 90.0 / minutes, 2) if minutes else None
+
+    # Phase-of-play stats: the fixture aggregate never yields NULL for a player
+    # WITH fixture rows (per-column COALESCE inside the subquery), so a NULL
+    # here means "no per-fixture coverage this season" — emit the whole block
+    # as null rather than fabricating zeros for limited-coverage players.
+    has_detailed = row.tackles is not None
+    payload["has_detailed_stats"] = has_detailed
+    for key in PHASE_STAT_KEYS:
+        value = getattr(row, key) if has_detailed else None
+        # GK stats (saves/goals_conceded/penalty_saved/clean_sheets) stay NULL
+        # for outfielders even with full fixture coverage — keep them null.
+        payload[key] = int(value) if value is not None else None
+    if has_detailed:
+        duels_total = payload["duels_total"]
+        payload["duel_win_pct"] = round(100.0 * payload["duels_won"] / duels_total, 1) if duels_total else None
+        payload["tackles_per90"] = _per90(payload["tackles"], minutes)
+        payload["key_passes_per90"] = _per90(payload["key_passes"], minutes)
+        payload["conceded_per90"] = _per90(payload["goals_conceded"], minutes)
+        if payload["saves"] is not None and payload["goals_conceded"] is not None:
+            shots_faced = payload["saves"] + payload["goals_conceded"]
+            payload["save_pct"] = round(100.0 * payload["saves"] / shots_faced, 1) if shots_faced else None
+        else:
+            payload["save_pct"] = None
+    else:
+        for key in ("duel_win_pct", "tackles_per90", "key_passes_per90", "conceded_per90", "save_pct"):
+            payload[key] = None
+
     # Surface the player's actual current situation (mirrors the player profile
     # endpoint): when stored, it overrides the academy-relative status and adds
     # the owning club so the CLUB column reads "from <owner>", not "from <academy>".
@@ -408,7 +537,9 @@ def _row_to_dict(row):
 
 def _sort_expression(sort, columns):
     contributions = columns["goals"] + columns["assists"]
-    per90 = (contributions * 90.0) / func.nullif(columns["minutes_played"], 0)
+    minutes_nonzero = func.nullif(columns["minutes_played"], 0)
+    per90 = (contributions * 90.0) / minutes_nonzero
+    shots_faced = func.nullif(columns["saves"] + columns["goals_conceded"], 0)
     sort_map = {
         "goals": columns["goals"],
         "assists": columns["assists"],
@@ -419,6 +550,22 @@ def _sort_expression(sort, columns):
         "per90": per90,
         "age": _age_expression(),
         "name": TrackedPlayer.player_name,
+        # Phase-of-play keys (NULL for players without fixture coverage — they
+        # sort last via nullslast either direction).
+        "shots": columns["shots_total"],
+        "passes": columns["passes_total"],
+        "key_passes": columns["key_passes"],
+        "dribbles": columns["dribbles_success"],
+        "tackles": columns["tackles"],
+        "duels_won": columns["duels_won"],
+        "fouls_won": columns["fouls_drawn"],
+        "saves": columns["saves"],
+        "goals_conceded": columns["goals_conceded"],
+        "clean_sheets": columns["clean_sheets"],
+        "tackles_per90": (columns["tackles"] * 90.0) / minutes_nonzero,
+        "key_passes_per90": (columns["key_passes"] * 90.0) / minutes_nonzero,
+        "conceded_per90": (columns["goals_conceded"] * 90.0) / minutes_nonzero,
+        "save_pct": (columns["saves"] * 100.0) / shots_faced,
     }
     return sort_map.get(sort)
 
@@ -435,7 +582,10 @@ def scout_players():
     - search: player name substring
     - min_minutes: minimum minutes played
     - sort: goals | assists | minutes | appearances | rating | contributions |
-            per90 | age | name (default: contributions)
+            per90 | age | name | shots | passes | key_passes | dribbles |
+            tackles | duels_won | fouls_won | saves | goals_conceded |
+            clean_sheets | tackles_per90 | key_passes_per90 | conceded_per90 |
+            save_pct (default: contributions)
     - order: asc | desc (default desc; name/age default asc)
     - page / per_page: pagination (per_page max 100)
     """
@@ -449,8 +599,8 @@ def scout_players():
         sort_expr = _sort_expression(sort, columns)
         if sort_expr is None:
             return jsonify({"error": f"Invalid sort '{sort}'"}), 400
-        if sort == "per90":
-            # per-90 rankings need a minutes floor to be meaningful
+        if sort in PER90_SORT_KEYS:
+            # rate-normalised rankings need a minutes floor to be meaningful
             min_minutes = request.args.get("min_minutes", type=int) or 0
             query = query.filter(columns["minutes_played"] >= max(min_minutes, PER90_MIN_MINUTES))
 
@@ -484,42 +634,85 @@ def scout_players():
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
+# Board tuples: (response key, sort key, minutes floor, order). One request
+# always runs exactly 4 aggregate queries regardless of phase — the phase
+# swaps WHICH boards run, it never adds more.
+PHASE_BOARDS = {
+    "all": (
+        ("top_scorers", "goals", 0, "desc"),
+        ("top_assists", "assists", 0, "desc"),
+        ("most_minutes", "minutes", 0, "desc"),
+        ("best_per90", "per90", PER90_MIN_MINUTES, "desc"),
+    ),
+    "attack": (
+        ("top_scorers", "goals", 0, "desc"),
+        ("top_assists", "assists", 0, "desc"),
+        ("best_per90", "per90", PER90_MIN_MINUTES, "desc"),
+        ("most_shots", "shots", 0, "desc"),
+    ),
+    "midfield": (
+        ("most_key_passes", "key_passes", 0, "desc"),
+        ("top_assists", "assists", 0, "desc"),
+        ("most_passes", "passes", 0, "desc"),
+        ("best_kp_per90", "key_passes_per90", PER90_MIN_MINUTES, "desc"),
+    ),
+    "defense": (
+        ("most_tackles", "tackles", 0, "desc"),
+        ("most_duels_won", "duels_won", 0, "desc"),
+        ("best_tackles_per90", "tackles_per90", PER90_MIN_MINUTES, "desc"),
+        ("most_minutes", "minutes", 0, "desc"),
+    ),
+    "gk": (
+        ("most_clean_sheets", "clean_sheets", 0, "desc"),
+        ("most_saves", "saves", 0, "desc"),
+        ("best_conceded_per90", "conceded_per90", PER90_MIN_MINUTES, "asc"),
+        ("most_minutes", "minutes", 0, "desc"),
+    ),
+}
+
+
 @scout_bp.route("/scout/leaderboards", methods=["GET"])
 def scout_leaderboards():
     """Top performers across all tracked players.
 
     Query params:
     - limit: entries per board (default 10, max 25)
+    - phase: all | attack | midfield | defense | gk (default all) — selects
+      which four boards are computed
     - position / status / min_age / max_age / nationality: same as /scout/players
     """
     try:
         limit = min(max(request.args.get("limit", 10, type=int), 1), 25)
+        phase = request.args.get("phase", "all").strip().lower() or "all"
+        if phase not in PHASE_BOARDS:
+            return jsonify({"error": f"Invalid phase. One of: {sorted(PHASE_BOARDS)}"}), 400
 
-        def board(sort_key, extra_min_minutes=0):
+        def board(sort_key, extra_min_minutes=0, board_order="desc"):
             query, columns = _base_scout_query()
             query, error = _apply_filters(query, columns)
             if error:
                 return None, error
+            if phase == "gk":
+                # Outfielders aggregate goals_conceded/saves as 0, which would
+                # top every ascending GK board — clamp regardless of the
+                # caller's position filter.
+                query = query.filter(TrackedPlayer.position == "Goalkeeper")
             if extra_min_minutes:
                 query = query.filter(columns["minutes_played"] >= extra_min_minutes)
             sort_expr = _sort_expression(sort_key, columns)
             query = query.filter(columns["appearances"] > 0)
-            rows = query.order_by(sort_expr.desc().nullslast(), TrackedPlayer.id).limit(limit).all()
+            ordered = sort_expr.asc().nullslast() if board_order == "asc" else sort_expr.desc().nullslast()
+            rows = query.order_by(ordered, TrackedPlayer.id).limit(limit).all()
             return [_row_to_dict(row) for row in rows], None
 
         boards = {}
-        for key, sort_key, min_minutes in (
-            ("top_scorers", "goals", 0),
-            ("top_assists", "assists", 0),
-            ("most_minutes", "minutes", 0),
-            ("best_per90", "per90", PER90_MIN_MINUTES),
-        ):
-            entries, error = board(sort_key, min_minutes)
+        for key, sort_key, min_minutes, board_order in PHASE_BOARDS[phase]:
+            entries, error = board(sort_key, min_minutes, board_order)
             if error:
                 return error
             boards[key] = entries
 
-        return jsonify({"leaderboards": boards, "limit": limit})
+        return jsonify({"leaderboards": boards, "limit": limit, "phase": phase})
     except Exception as e:
         logger.error(f"Error in scout_leaderboards: {e}")
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
@@ -574,6 +767,9 @@ def scout_compare():
                 continue
 
             totals = None
+            # Same GK gating as _fixture_stats_subquery: conceded:0 on outfield
+            # rows must not fabricate clean sheets / 0-conceded totals here.
+            compare_is_gk_row = FixturePlayerStats.position == "G"
             row = (
                 db.session.query(
                     func.count(FixturePlayerStats.id).label("appearances"),
@@ -594,8 +790,29 @@ def scout_compare():
                     func.coalesce(func.sum(FixturePlayerStats.fouls_drawn), 0).label("fouls_drawn"),
                     func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label("yellows"),
                     func.coalesce(func.sum(FixturePlayerStats.reds), 0).label("reds"),
-                    func.coalesce(func.sum(FixturePlayerStats.saves), 0).label("saves"),
-                    func.coalesce(func.sum(FixturePlayerStats.goals_conceded), 0).label("goals_conceded"),
+                    func.sum(case((compare_is_gk_row, func.coalesce(FixturePlayerStats.saves, 0)), else_=None)).label(
+                        "saves"
+                    ),
+                    func.sum(
+                        case((compare_is_gk_row, func.coalesce(FixturePlayerStats.goals_conceded, 0)), else_=None)
+                    ).label("goals_conceded"),
+                    func.sum(
+                        case((compare_is_gk_row, func.coalesce(FixturePlayerStats.penalty_saved, 0)), else_=None)
+                    ).label("penalty_saved"),
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    compare_is_gk_row,
+                                    FixturePlayerStats.goals_conceded == 0,
+                                    FixturePlayerStats.minutes >= CLEAN_SHEET_MIN_MINUTES,
+                                ),
+                                1,
+                            ),
+                            (compare_is_gk_row, 0),
+                            else_=None,
+                        )
+                    ).label("clean_sheets"),
                 )
                 .join(Fixture, Fixture.id == FixturePlayerStats.fixture_id)
                 .filter(
@@ -625,8 +842,12 @@ def scout_compare():
                     "fouls_drawn": int(row.fouls_drawn),
                     "yellows": int(row.yellows),
                     "reds": int(row.reds),
-                    "saves": int(row.saves),
-                    "goals_conceded": int(row.goals_conceded),
+                    # NULL = "never kept goal this season" — emit null so the
+                    # compare UI shows a dash instead of a best-in-class 0.
+                    "saves": int(row.saves) if row.saves is not None else None,
+                    "goals_conceded": int(row.goals_conceded) if row.goals_conceded is not None else None,
+                    "penalty_saved": int(row.penalty_saved) if row.penalty_saved is not None else None,
+                    "clean_sheets": int(row.clean_sheets) if row.clean_sheets is not None else None,
                     "stats_coverage": "full",
                 }
 
@@ -972,7 +1193,7 @@ def scout_export_csv():
         sort_expr = _sort_expression(sort, columns)
         if sort_expr is None:
             return jsonify({"error": f"Invalid sort '{sort}'"}), 400
-        if sort == "per90" and not raw_ids:
+        if sort in PER90_SORT_KEYS and not raw_ids:
             min_minutes = request.args.get("min_minutes", type=int) or 0
             query = query.filter(columns["minutes_played"] >= max(min_minutes, PER90_MIN_MINUTES))
 
@@ -1005,6 +1226,7 @@ def scout_export_csv():
                     p["avg_rating"] if p["avg_rating"] is not None else "",
                     p["goal_contributions"],
                     p["contributions_per90"] if p["contributions_per90"] is not None else "",
+                    *[p[key] if p[key] is not None else "" for key in CSV_PHASE_KEYS],
                 ]
             )
 

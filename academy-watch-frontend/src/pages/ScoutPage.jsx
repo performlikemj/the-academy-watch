@@ -11,10 +11,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   Loader2, Search, ArrowUpDown, ArrowLeft, ArrowRight,
   Trophy, Zap, Clock, Gauge, X, GitCompareArrows, Globe,
   Star, Download, Link2, ListChecks,
+  Crosshair, Sparkles, Send, Swords, Shield, ShieldCheck, Hand,
 } from 'lucide-react'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
 
@@ -25,24 +27,159 @@ const AGE_PRESETS = [
   { key: 'u23', label: 'U23', params: { max_age: 23 } },
 ]
 
-const SORT_OPTIONS = [
-  { value: 'contributions', label: 'Goal contributions' },
-  { value: 'goals', label: 'Goals' },
-  { value: 'assists', label: 'Assists' },
+// Sorts that default ascending because lower is better (or alphabetical).
+const ASC_DEFAULT_SORTS = new Set(['name', 'age', 'goals_conceded', 'conceded_per90'])
+
+const fmtStat = (value) => (value === null || value === undefined ? '—' : value)
+
+// Stat column registry. Phase stats (tackles, saves, …) arrive as null for
+// players without per-fixture coverage — render a dash, never a fake zero.
+// Columns without a sortKey render a static (non-sortable) header.
+const STAT_COLUMNS = {
+  apps: { sortKey: 'appearances', label: 'Apps', render: (p) => p.appearances },
+  mins: { sortKey: 'minutes', label: 'Mins', render: (p) => p.minutes_played?.toLocaleString() },
+  goals: { sortKey: 'goals', label: 'G', title: 'Goals', cellClass: 'font-semibold text-emerald-700', render: (p) => p.goals },
+  assists: { sortKey: 'assists', label: 'A', title: 'Assists', cellClass: 'font-semibold text-amber-700', render: (p) => p.assists },
+  rating: { sortKey: 'rating', label: 'Rating', render: (p) => fmtStat(p.avg_rating) },
+  ga90: { sortKey: 'per90', label: 'G+A/90', cellClass: 'font-semibold text-primary', render: (p) => fmtStat(p.contributions_per90) },
+  shots: { sortKey: 'shots', label: 'Sh (OT)', title: 'Shots (on target)', render: (p) => (p.shots_total == null ? '—' : `${p.shots_total} (${p.shots_on ?? 0})`) },
+  dribbles: { sortKey: 'dribbles', label: 'Drb', title: 'Successful dribbles', render: (p) => fmtStat(p.dribbles_success) },
+  foulsWon: { sortKey: 'fouls_won', label: 'FW', title: 'Fouls won', render: (p) => fmtStat(p.fouls_drawn) },
+  passes: { sortKey: 'passes', label: 'Passes', render: (p) => (p.passes_total == null ? '—' : p.passes_total.toLocaleString()) },
+  keyPasses: { sortKey: 'key_passes', label: 'KP', title: 'Key passes', render: (p) => fmtStat(p.key_passes) },
+  kp90: { sortKey: 'key_passes_per90', label: 'KP/90', title: 'Key passes per 90', cellClass: 'font-semibold text-primary', render: (p) => fmtStat(p.key_passes_per90) },
+  tackles: { sortKey: 'tackles', label: 'Tkl', title: 'Tackles', render: (p) => fmtStat(p.tackles) },
+  tkl90: { sortKey: 'tackles_per90', label: 'Tkl/90', title: 'Tackles per 90', cellClass: 'font-semibold text-primary', render: (p) => fmtStat(p.tackles_per90) },
+  duelsWon: { sortKey: 'duels_won', label: 'Duels W', title: 'Duels won', render: (p) => fmtStat(p.duels_won) },
+  duelPct: { label: 'Duel %', title: 'Duel win rate', render: (p) => (p.duel_win_pct == null ? '—' : `${p.duel_win_pct}%`) },
+  cards: { label: 'Y/R', title: 'Yellow / red cards', render: (p) => (p.yellows == null ? '—' : `${p.yellows}/${p.reds ?? 0}`) },
+  saves: { sortKey: 'saves', label: 'Saves', render: (p) => fmtStat(p.saves) },
+  savePct: { sortKey: 'save_pct', label: 'Save %', title: 'Save percentage', render: (p) => (p.save_pct == null ? '—' : `${p.save_pct}%`) },
+  conceded: { sortKey: 'goals_conceded', label: 'GA', title: 'Goals against', render: (p) => fmtStat(p.goals_conceded) },
+  concededPer90: { sortKey: 'conceded_per90', label: 'GA/90', title: 'Goals against per 90', render: (p) => fmtStat(p.conceded_per90) },
+  cleanSheets: { sortKey: 'clean_sheets', label: 'CS', title: 'Clean sheets', cellClass: 'font-semibold text-primary', render: (p) => fmtStat(p.clean_sheets) },
+  penSaved: { label: 'Pen SV', title: 'Penalties saved', render: (p) => fmtStat(p.penalty_saved) },
+}
+
+const BASE_SORT_OPTIONS = [
   { value: 'minutes', label: 'Minutes played' },
   { value: 'appearances', label: 'Appearances' },
   { value: 'rating', label: 'Avg rating' },
-  { value: 'per90', label: 'G+A per 90' },
   { value: 'age', label: 'Age' },
   { value: 'name', label: 'Name' },
 ]
 
-const BOARD_META = [
-  { key: 'top_scorers', title: 'Top Scorers', icon: Trophy, metric: (p) => p.goals, suffix: 'goals' },
-  { key: 'top_assists', title: 'Top Assists', icon: Zap, metric: (p) => p.assists, suffix: 'assists' },
-  { key: 'most_minutes', title: 'Most Minutes', icon: Clock, metric: (p) => p.minutes_played?.toLocaleString(), suffix: 'mins' },
-  { key: 'best_per90', title: 'Best G+A / 90', icon: Gauge, metric: (p) => p.contributions_per90, suffix: '/90' },
-]
+// Phase-of-play views: each phase filters to its position group and swaps the
+// stat columns, sort options, default sort, and leaderboard cards. 'all' is
+// the original Scout Desk view, unchanged.
+const PHASES = {
+  all: {
+    label: 'All',
+    position: null,
+    defaultSort: 'contributions',
+    columns: ['apps', 'goals', 'assists', 'mins', 'rating', 'ga90'],
+    sortOptions: [
+      { value: 'contributions', label: 'Goal contributions' },
+      { value: 'goals', label: 'Goals' },
+      { value: 'assists', label: 'Assists' },
+      { value: 'per90', label: 'G+A per 90' },
+      ...BASE_SORT_OPTIONS,
+    ],
+    boards: [
+      { key: 'top_scorers', title: 'Top Scorers', icon: Trophy, metric: (p) => p.goals, suffix: 'goals' },
+      { key: 'top_assists', title: 'Top Assists', icon: Zap, metric: (p) => p.assists, suffix: 'assists' },
+      { key: 'most_minutes', title: 'Most Minutes', icon: Clock, metric: (p) => p.minutes_played?.toLocaleString(), suffix: 'mins' },
+      { key: 'best_per90', title: 'Best G+A / 90', icon: Gauge, metric: (p) => p.contributions_per90, suffix: '/90' },
+    ],
+  },
+  attack: {
+    label: 'Attack',
+    position: 'Attacker',
+    description: 'Showing attackers ranked on attacking output — goals, shots, dribbles, fouls won.',
+    defaultSort: 'goals',
+    columns: ['apps', 'mins', 'goals', 'assists', 'shots', 'dribbles', 'foulsWon', 'rating', 'ga90'],
+    sortOptions: [
+      { value: 'goals', label: 'Goals' },
+      { value: 'assists', label: 'Assists' },
+      { value: 'contributions', label: 'Goal contributions' },
+      { value: 'per90', label: 'G+A per 90' },
+      { value: 'shots', label: 'Shots' },
+      { value: 'dribbles', label: 'Dribbles won' },
+      { value: 'fouls_won', label: 'Fouls won' },
+      ...BASE_SORT_OPTIONS,
+    ],
+    boards: [
+      { key: 'top_scorers', title: 'Top Scorers', icon: Trophy, metric: (p) => p.goals, suffix: 'goals' },
+      { key: 'top_assists', title: 'Top Assists', icon: Zap, metric: (p) => p.assists, suffix: 'assists' },
+      { key: 'best_per90', title: 'Best G+A / 90', icon: Gauge, metric: (p) => p.contributions_per90, suffix: '/90' },
+      { key: 'most_shots', title: 'Most Shots', icon: Crosshair, metric: (p) => p.shots_total, suffix: 'shots' },
+    ],
+  },
+  midfield: {
+    label: 'Midfield',
+    position: 'Midfielder',
+    description: 'Showing midfielders ranked on creative output — key passes, passing volume, duels.',
+    defaultSort: 'key_passes',
+    columns: ['apps', 'mins', 'passes', 'keyPasses', 'kp90', 'assists', 'goals', 'duelPct', 'rating'],
+    sortOptions: [
+      { value: 'key_passes', label: 'Key passes' },
+      { value: 'key_passes_per90', label: 'Key passes per 90' },
+      { value: 'assists', label: 'Assists' },
+      { value: 'passes', label: 'Passes' },
+      { value: 'goals', label: 'Goals' },
+      { value: 'duels_won', label: 'Duels won' },
+      ...BASE_SORT_OPTIONS,
+    ],
+    boards: [
+      { key: 'most_key_passes', title: 'Most Key Passes', icon: Sparkles, metric: (p) => p.key_passes, suffix: 'key passes' },
+      { key: 'top_assists', title: 'Top Assists', icon: Zap, metric: (p) => p.assists, suffix: 'assists' },
+      { key: 'most_passes', title: 'Most Passes', icon: Send, metric: (p) => p.passes_total?.toLocaleString(), suffix: 'passes' },
+      { key: 'best_kp_per90', title: 'Best KP / 90', icon: Gauge, metric: (p) => p.key_passes_per90, suffix: '/90' },
+    ],
+  },
+  defense: {
+    label: 'Defense',
+    position: 'Defender',
+    description: 'Showing defenders ranked on defensive output — tackles, duels, discipline.',
+    defaultSort: 'tackles',
+    columns: ['apps', 'mins', 'tackles', 'tkl90', 'duelsWon', 'duelPct', 'cards', 'rating'],
+    sortOptions: [
+      { value: 'tackles', label: 'Tackles' },
+      { value: 'tackles_per90', label: 'Tackles per 90' },
+      { value: 'duels_won', label: 'Duels won' },
+      ...BASE_SORT_OPTIONS,
+    ],
+    boards: [
+      { key: 'most_tackles', title: 'Most Tackles', icon: Swords, metric: (p) => p.tackles, suffix: 'tackles' },
+      { key: 'most_duels_won', title: 'Most Duels Won', icon: Shield, metric: (p) => p.duels_won, suffix: 'duels' },
+      { key: 'best_tackles_per90', title: 'Best Tkl / 90', icon: Gauge, metric: (p) => p.tackles_per90, suffix: '/90' },
+      { key: 'most_minutes', title: 'Most Minutes', icon: Clock, metric: (p) => p.minutes_played?.toLocaleString(), suffix: 'mins' },
+    ],
+  },
+  gk: {
+    label: 'Goalkeepers',
+    position: 'Goalkeeper',
+    description: 'Showing goalkeepers ranked on goalkeeping output — clean sheets, saves, goals against.',
+    defaultSort: 'clean_sheets',
+    columns: ['apps', 'mins', 'saves', 'savePct', 'conceded', 'concededPer90', 'cleanSheets', 'penSaved', 'rating'],
+    sortOptions: [
+      { value: 'clean_sheets', label: 'Clean sheets' },
+      { value: 'saves', label: 'Saves' },
+      { value: 'save_pct', label: 'Save %' },
+      { value: 'conceded_per90', label: 'Goals against per 90' },
+      { value: 'goals_conceded', label: 'Goals against' },
+      ...BASE_SORT_OPTIONS,
+    ],
+    boards: [
+      { key: 'most_clean_sheets', title: 'Most Clean Sheets', icon: ShieldCheck, metric: (p) => p.clean_sheets, suffix: 'CS' },
+      { key: 'most_saves', title: 'Most Saves', icon: Hand, metric: (p) => p.saves, suffix: 'saves' },
+      { key: 'best_conceded_per90', title: 'Best GA / 90', icon: Gauge, metric: (p) => p.conceded_per90, suffix: '/90' },
+      { key: 'most_minutes', title: 'Most Minutes', icon: Clock, metric: (p) => p.minutes_played?.toLocaleString(), suffix: 'mins' },
+    ],
+  },
+}
+
+const PHASE_ORDER = ['all', 'attack', 'midfield', 'defense', 'gk']
 
 const RANK_CHIP_CLASSES = [
   'bg-primary text-primary-foreground',
@@ -63,6 +200,9 @@ const COMPARE_ROWS = [
   { key: 'interceptions', label: 'Interceptions', source: 'totals' },
   { key: 'duels_won', label: 'Duels won', source: 'totals' },
   { key: 'saves', label: 'Saves', source: 'totals', position: 'Goalkeeper' },
+  { key: 'goals_conceded', label: 'Goals conceded', source: 'totals', position: 'Goalkeeper', lowerBetter: true },
+  { key: 'clean_sheets', label: 'Clean sheets', source: 'totals', position: 'Goalkeeper' },
+  { key: 'penalty_saved', label: 'Penalties saved', source: 'totals', position: 'Goalkeeper' },
   { section: 'Per 90', key: 'goal_contributions', label: 'G+A / 90', source: 'per90' },
   { key: 'goals', label: 'Goals / 90', source: 'per90' },
   { key: 'assists', label: 'Assists / 90', source: 'per90' },
@@ -282,8 +422,12 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
                     return value === null || value === undefined ? null : value
                   })
                   if (values.every((v) => v === null)) return null
-                  const numeric = values.map((v) => (typeof v === 'number' ? v : -Infinity))
-                  const best = Math.max(...numeric)
+                  // Lower-is-better rows (e.g. goals conceded) highlight the
+                  // minimum — and a best of 0 is a real best there, so only the
+                  // maximum-style rows keep the historical `best > 0` guard.
+                  const numeric = values.map((v) => (typeof v === 'number' ? v : (row.lowerBetter ? Infinity : -Infinity)))
+                  const best = row.lowerBetter ? Math.min(...numeric) : Math.max(...numeric)
+                  const bestIsHighlightable = row.lowerBetter ? Number.isFinite(best) : best > 0
                   return (
                     <Fragment key={`${row.source}-${row.key}-${index}`}>
                       {row.section && (
@@ -298,7 +442,7 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
                         {values.map((value, i) => (
                           <td
                             key={i}
-                            className={`p-2 text-center tabular-nums ${!row.noHighlight && value !== null && numeric[i] === best && players.length > 1 && best > 0 ? 'font-bold text-primary' : 'text-foreground'}`}
+                            className={`p-2 text-center tabular-nums ${!row.noHighlight && value !== null && numeric[i] === best && players.length > 1 && bestIsHighlightable ? 'font-bold text-primary' : 'text-foreground'}`}
                           >
                             {value === null ? '—' : typeof value === 'number' ? value.toLocaleString() : value}
                           </td>
@@ -328,10 +472,18 @@ export function ScoutPage() {
 
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  // Phase-of-play view — deep-linkable via /scout?phase=defense
+  const [phase, setPhase] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get('phase')
+    return PHASES[requested] ? requested : 'all'
+  })
   const [position, setPosition] = useState('all')
   const [status, setStatus] = useState('all')
   const [agePreset, setAgePreset] = useState('all')
-  const [sort, setSort] = useState('contributions')
+  const [sort, setSort] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get('phase')
+    return (PHASES[requested] || PHASES.all).defaultSort
+  })
   const [order, setOrder] = useState('desc')
   const [page, setPage] = useState(1)
 
@@ -343,7 +495,40 @@ export function ScoutPage() {
   const { openLoginModal } = useAuthUI()
   const [watchedIds, setWatchedIds] = useState(null)
   const [exporting, setExporting] = useState(false)
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const phaseConfig = PHASES[phase]
+  // The phase IS a position filter when active; the standalone position
+  // Select only applies on the 'all' view (it's hidden otherwise).
+  const effectivePosition = phase === 'all' ? (position !== 'all' ? position : null) : phaseConfig.position
+
+  // Keep phase in sync with the URL after mount: same-route navigation (the
+  // header's Scout link renders bare /scout without remounting) and browser
+  // back/forward change searchParams without going through changePhase.
+  useEffect(() => {
+    const requested = searchParams.get('phase')
+    const next = PHASES[requested] ? requested : 'all'
+    setPhase((current) => {
+      if (next === current) return current
+      setSort(PHASES[next].defaultSort)
+      setOrder(ASC_DEFAULT_SORTS.has(PHASES[next].defaultSort) ? 'asc' : 'desc')
+      return next
+    })
+  }, [searchParams])
+
+  const changePhase = useCallback((next) => {
+    if (!next || !PHASES[next]) return // Radix emits '' when re-clicking the active item
+    setPhase(next)
+    setSort(PHASES[next].defaultSort)
+    setOrder(ASC_DEFAULT_SORTS.has(PHASES[next].defaultSort) ? 'asc' : 'desc')
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev)
+      if (next === 'all') params.delete('phase')
+      else params.set('phase', next)
+      return params
+    }, { replace: true })
+    track('scout_phase_changed', { phase: next })
+  }, [setSearchParams])
 
   // Compare deep links: /scout?compare=1,2,3
   useEffect(() => {
@@ -407,7 +592,7 @@ export function ScoutPage() {
     try {
       const params = {}
       if (debouncedSearch) params.search = debouncedSearch
-      if (position !== 'all') params.position = position
+      if (effectivePosition) params.position = effectivePosition
       if (status !== 'all') params.status = status
       const preset = AGE_PRESETS.find((p) => p.key === agePreset)
       Object.assign(params, preset?.params || {})
@@ -417,7 +602,7 @@ export function ScoutPage() {
     } finally {
       setExporting(false)
     }
-  }, [auth?.token, openLoginModal, debouncedSearch, position, status, agePreset, sort, order])
+  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, agePreset, sort, order])
 
   useEffect(() => {
     clearTimeout(searchTimer.current)
@@ -432,12 +617,12 @@ export function ScoutPage() {
   const filterParams = useMemo(() => {
     const params = {}
     if (debouncedSearch) params.search = debouncedSearch
-    if (position !== 'all') params.position = position
+    if (effectivePosition) params.position = effectivePosition
     if (status !== 'all') params.status = status
     const preset = AGE_PRESETS.find((p) => p.key === agePreset)
     Object.assign(params, preset?.params || {})
     return params
-  }, [debouncedSearch, position, status, agePreset])
+  }, [debouncedSearch, effectivePosition, status, agePreset])
 
   // Reset to first page when filters change
   useEffect(() => { setPage(1) }, [filterParams, sort, order])
@@ -463,10 +648,10 @@ export function ScoutPage() {
   useEffect(() => {
     let cancelled = false
     setBoardsLoading(true)
-    const boardFilters = { limit: 5 }
+    const boardFilters = { limit: 5, phase }
     const preset = AGE_PRESETS.find((p) => p.key === agePreset)
     Object.assign(boardFilters, preset?.params || {})
-    if (position !== 'all') boardFilters.position = position
+    if (effectivePosition) boardFilters.position = effectivePosition
     if (status !== 'all') boardFilters.status = status
     APIService.getScoutLeaderboards(boardFilters)
       .then((data) => { if (!cancelled) setBoards(data?.leaderboards || null) })
@@ -476,7 +661,7 @@ export function ScoutPage() {
       })
       .finally(() => { if (!cancelled) setBoardsLoading(false) })
     return () => { cancelled = true }
-  }, [position, status, agePreset])
+  }, [phase, effectivePosition, status, agePreset])
 
   const toggleCompare = useCallback((playerId) => {
     setCompareIds((current) => {
@@ -492,13 +677,14 @@ export function ScoutPage() {
         setOrder((o) => (o === 'desc' ? 'asc' : 'desc'))
         return currentSort
       }
-      setOrder(key === 'name' || key === 'age' ? 'asc' : 'desc')
+      setOrder(ASC_DEFAULT_SORTS.has(key) ? 'asc' : 'desc')
       return key
     })
   }, [])
 
-  const headerCell = (key, label, alignRight = true) => (
+  const headerCell = (key, label, alignRight = true, title = undefined) => (
     <th
+      title={title}
       className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors whitespace-nowrap ${alignRight ? 'text-right' : 'text-left'}`}
       onClick={() => toggleSort(key)}
     >
@@ -508,6 +694,9 @@ export function ScoutPage() {
       </span>
     </th>
   )
+
+  const statColumns = phaseConfig.columns.map((key) => STAT_COLUMNS[key])
+  const tableColumnCount = 7 + statColumns.length
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
@@ -552,9 +741,36 @@ export function ScoutPage() {
           </div>
         </header>
 
+        {/* Phase-of-play view switcher */}
+        <section aria-label="Phase of play" className="mb-6">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            value={phase}
+            onValueChange={changePhase}
+            className="w-full overflow-x-auto sm:w-fit"
+          >
+            {PHASE_ORDER.map((key) => (
+              <ToggleGroupItem
+                key={key}
+                value={key}
+                aria-label={`${PHASES[key].label} view`}
+                className="px-4 text-xs font-semibold uppercase tracking-wide data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+              >
+                {PHASES[key].label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          {phase !== 'all' && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {phaseConfig.description} Dashes mean no per-match coverage for that player.
+            </p>
+          )}
+        </section>
+
         {/* Leaderboards */}
         <section aria-label="Leaderboards" className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {BOARD_META.map((board) => (
+          {phaseConfig.boards.map((board) => (
             <LeaderboardCard key={board.key} board={board} entries={boards?.[board.key]} loading={boardsLoading} />
           ))}
         </section>
@@ -591,18 +807,20 @@ export function ScoutPage() {
                 aria-label="Search players"
               />
             </div>
-            <Select value={position} onValueChange={setPosition}>
-              <SelectTrigger className="w-full sm:w-44" aria-label="Filter by position">
-                <SelectValue placeholder="Position" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All positions</SelectItem>
-                <SelectItem value="Goalkeeper">Goalkeeper</SelectItem>
-                <SelectItem value="Defender">Defender</SelectItem>
-                <SelectItem value="Midfielder">Midfielder</SelectItem>
-                <SelectItem value="Attacker">Attacker</SelectItem>
-              </SelectContent>
-            </Select>
+            {phase === 'all' && (
+              <Select value={position} onValueChange={setPosition}>
+                <SelectTrigger className="w-full sm:w-44" aria-label="Filter by position">
+                  <SelectValue placeholder="Position" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All positions</SelectItem>
+                  <SelectItem value="Goalkeeper">Goalkeeper</SelectItem>
+                  <SelectItem value="Defender">Defender</SelectItem>
+                  <SelectItem value="Midfielder">Midfielder</SelectItem>
+                  <SelectItem value="Attacker">Attacker</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
             <Select value={status} onValueChange={setStatus}>
               <SelectTrigger className="w-full sm:w-44" aria-label="Filter by pathway status">
                 <SelectValue placeholder="Status" />
@@ -617,12 +835,12 @@ export function ScoutPage() {
                 <SelectItem value="left">Left</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={sort} onValueChange={(value) => { setSort(value); setOrder(value === 'name' || value === 'age' ? 'asc' : 'desc') }}>
+            <Select value={sort} onValueChange={(value) => { setSort(value); setOrder(ASC_DEFAULT_SORTS.has(value) ? 'asc' : 'desc') }}>
               <SelectTrigger className="w-full sm:w-52" aria-label="Sort by">
                 <SelectValue placeholder="Sort by" />
               </SelectTrigger>
               <SelectContent>
-                {SORT_OPTIONS.map((option) => (
+                {phaseConfig.sortOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                 ))}
               </SelectContent>
@@ -633,7 +851,7 @@ export function ScoutPage() {
         {/* Results table */}
         <Card className="overflow-hidden border-border/80">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] border-collapse">
+            <table className={`w-full border-collapse ${statColumns.length > 6 ? 'min-w-[920px]' : 'min-w-[760px]'}`}>
               <thead>
                 <tr className="border-b border-border/60 bg-secondary/60">
                   <th className="w-10 px-2 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -647,19 +865,26 @@ export function ScoutPage() {
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Club</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Form</th>
-                  {headerCell('appearances', 'Apps')}
-                  {headerCell('goals', 'G')}
-                  {headerCell('assists', 'A')}
-                  {headerCell('minutes', 'Mins')}
-                  {headerCell('rating', 'Rating')}
-                  {headerCell('per90', 'G+A/90')}
+                  {statColumns.map((col) =>
+                    col.sortKey ? (
+                      <Fragment key={col.label}>{headerCell(col.sortKey, col.label, true, col.title)}</Fragment>
+                    ) : (
+                      <th
+                        key={col.label}
+                        title={col.title}
+                        className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap"
+                      >
+                        {col.label}
+                      </th>
+                    )
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
                 {loading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={13} className="px-3 py-2.5"><Skeleton className="h-9 w-full" /></td>
+                      <td colSpan={tableColumnCount} className="px-3 py-2.5"><Skeleton className="h-9 w-full" /></td>
                     </tr>
                   ))
                 ) : players.length ? (
@@ -709,18 +934,17 @@ export function ScoutPage() {
                             <FormIndicator form={player.recent_form} />
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-right text-sm tabular-nums">{player.appearances}</td>
-                        <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-emerald-700">{player.goals}</td>
-                        <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-amber-700">{player.assists}</td>
-                        <td className="px-3 py-2.5 text-right text-sm tabular-nums">{player.minutes_played?.toLocaleString()}</td>
-                        <td className="px-3 py-2.5 text-right text-sm tabular-nums">{player.avg_rating ?? '—'}</td>
-                        <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-primary">{player.contributions_per90 ?? '—'}</td>
+                        {statColumns.map((col) => (
+                          <td key={col.label} className={`px-3 py-2.5 text-right text-sm tabular-nums ${col.cellClass || ''}`}>
+                            {col.render(player)}
+                          </td>
+                        ))}
                       </tr>
                     )
                   })
                 ) : (
                   <tr>
-                    <td colSpan={13} className="px-3 py-12 text-center text-sm text-muted-foreground">
+                    <td colSpan={tableColumnCount} className="px-3 py-12 text-center text-sm text-muted-foreground">
                       No players match these filters.
                     </td>
                   </tr>
