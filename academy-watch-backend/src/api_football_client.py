@@ -2250,6 +2250,11 @@ class APIFootballClient:
                             f"fixture_id={fixture_id}, player_id={player_id}"
                         )
                         self._upsert_player_fixture_stats(db_session, db_fixture.id, player_id, loan_team_id, pstats)
+                        # FPS choke point: mark this (player, season) rollup dirty
+                        # (deduped in-memory; flushed once after the outer commit).
+                        from src.services.season_rollup_service import queue_player_refresh
+
+                        queue_player_refresh(player_id, season, session=db_session)
                         # Refresh the player_stats_row from what we just stored/updated
                         player_stats_row = (
                             db_session.query(FixturePlayerStats)

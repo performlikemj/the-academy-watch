@@ -1654,6 +1654,10 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                     )
                     db.session.add(fps)
                     synced += 1
+                    # FPS choke point: mark this (player, season) rollup dirty.
+                    from src.services.season_rollup_service import queue_player_refresh
+
+                    queue_player_refresh(player_id, season)
                     logger.debug(f"Added stats for fixture {fixture_id_api}: {minutes}' played")
         except Exception as e:
             logger.warning(f"Failed to get player stats for fixture {fixture_id_api}: {e}")
@@ -1661,6 +1665,10 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
 
     if synced > 0:
         db.session.commit()
+        # One refresh per affected player, after the batch commit.
+        from src.services.season_rollup_service import flush_player_refresh_queue
+
+        flush_player_refresh_queue()
         logger.info(f"Synced {synced} fixtures for player {player_id} at team {loan_team_api_id}")
 
     return synced
@@ -5147,6 +5155,10 @@ def admin_sync_player_fixtures(player_id: int):
                         )
                         db.session.add(fps)
                         synced += 1
+                        # FPS choke point: mark this (player, season) rollup dirty.
+                        from src.services.season_rollup_service import queue_player_refresh
+
+                        queue_player_refresh(player_id, season)
                     elif minutes > 0 or games.get("substitute") is not None:
                         synced += 1  # Dry run counts this as would-sync
                     else:
@@ -5159,6 +5171,10 @@ def admin_sync_player_fixtures(player_id: int):
 
         if not dry_run:
             db.session.commit()
+            # One refresh per affected player, after the batch commit.
+            from src.services.season_rollup_service import flush_player_refresh_queue
+
+            flush_player_refresh_queue()
 
         return jsonify(
             {
@@ -5596,6 +5612,10 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                                     formation_position=formation_pos,
                                 )
                                 db.session.add(fps)
+                                # FPS choke point: mark (player, season) dirty.
+                                from src.services.season_rollup_service import queue_player_refresh
+
+                                queue_player_refresh(pid, season)
                             team_result["synced"] += 1
                         else:
                             team_result["skipped"] += 1
@@ -5608,6 +5628,10 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
 
             if not dry_run:
                 db.session.commit()
+                # One refresh per affected player, after this team's batch commit.
+                from src.services.season_rollup_service import flush_player_refresh_queue
+
+                flush_player_refresh_queue()
 
         except Exception as e:
             logger.warning(f"Batch sync error for team {team_api_id}: {e}")
@@ -6189,6 +6213,10 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                                 )
                                 db.session.add(fps)
                                 player_result["synced"] += 1
+                                # FPS choke point: mark (player, season) dirty.
+                                from src.services.season_rollup_service import queue_player_refresh
+
+                                queue_player_refresh(p_api_id, season)
                             elif minutes > 0 or games.get("substitute") is not None:
                                 player_result["synced"] += 1  # Dry run counts this
                             else:
@@ -6201,6 +6229,10 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
 
                 if not dry_run:
                     db.session.commit()
+                    # One refresh per affected player, after the batch commit.
+                    from src.services.season_rollup_service import flush_player_refresh_queue
+
+                    flush_player_refresh_queue()
 
             except Exception as e:
                 player_result["errors"].append(str(e)[:100])

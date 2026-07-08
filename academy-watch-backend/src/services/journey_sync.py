@@ -323,6 +323,23 @@ class JourneySyncService:
             journey.last_synced_at = datetime.now(UTC)
             journey.sync_error = None
 
+            # Season-rollup steady-state hook (proposal §3): rebuild this
+            # player's rollup cells + totals for every season re-synced, in the
+            # SAME transaction as the journey write so a club-ID correction can
+            # never orphan a cell. refresh_player does NOT commit — the commit
+            # below persists journey + rollup atomically. Wrapped in a SAVEPOINT
+            # so a rollup bug rolls back only the derived rows, never the
+            # (API-expensive) journey sync itself.
+            try:
+                from src.services.season_rollup_service import refresh_player as _refresh_rollup
+
+                db.session.flush()
+                with db.session.begin_nested():
+                    for _rollup_season in sorted(set(seasons_to_sync)):
+                        _refresh_rollup(player_api_id, season=_rollup_season, session=db.session)
+            except Exception as _rollup_err:
+                logger.warning(f"season-rollup refresh failed for player {player_api_id}: {_rollup_err}")
+
             db.session.commit()
             logger.info(f"Successfully synced journey for player {player_api_id}: {len(all_entries)} entries")
 

@@ -1980,6 +1980,10 @@ def _sync_team_fixtures_for_week(
                         )
                         db.session.add(fps)
                         total_synced += 1
+                        # FPS choke point: mark (player, season) rollup dirty.
+                        from src.services.season_rollup_service import queue_player_refresh
+
+                        queue_player_refresh(pid, season)
 
                     missing.discard(pid)
 
@@ -1987,6 +1991,10 @@ def _sync_team_fixtures_for_week(
                 _time.sleep(delay)
 
         db.session.commit()
+        # One refresh per affected player, after the batch commit.
+        from src.services.season_rollup_service import flush_player_refresh_queue
+
+        flush_player_refresh_queue()
 
     result = {
         "synced": total_synced,
