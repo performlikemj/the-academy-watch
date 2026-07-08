@@ -82,7 +82,7 @@ types-requests==2.33.0.20260518
 typing-inspection==0.4.2
 typing_extensions==4.16.0
 urllib3==2.7.0
-uvicorn==0.50.2
+uvicorn==0.51.0
 weasyprint==69.0
 webencodings==0.5.1
 Werkzeug==3.1.8
