@@ -850,7 +850,10 @@ def phase_seeded(scout_app):
                 )
             )
         # defender: huge minutes with duels + tackles; an outfielder must never
-        # enter GK boards despite topping most_minutes overall.
+        # enter GK boards despite topping most_minutes overall. goals_conceded=0
+        # is PROD SHAPE: API-Football reports conceded:0 for outfield
+        # appearances too, so GK aggregates must be position-gated or every
+        # outfielder accrues phantom clean sheets.
         for i in range(4):
             db.session.add(
                 FixturePlayerStats(
@@ -859,6 +862,7 @@ def phase_seeded(scout_app):
                     team_api_id=903,
                     minutes=90,
                     position="D",
+                    goals_conceded=0,
                     tackles_total=4,
                     duels_total=10,
                     duels_won=7,
@@ -931,6 +935,36 @@ class TestPhaseStats:
         assert defender["tackles_per90"] == 4.0
         assert defender["fouls_committed"] == 8
         assert defender["yellows"] == 4
+
+    def test_outfielders_get_no_phantom_gk_stats(self, scout_client, phase_seeded):
+        """Prod stores goals_conceded=0 on OUTFIELD rows too (API-Football sends
+        conceded:0 for outfielders). GK stats must be gated to position='G'
+        rows or a 60'+ outfield appearance mints a phantom clean sheet."""
+        resp = scout_client.get("/api/scout/players?search=Tackler")
+        defender = resp.get_json()["players"][0]
+        assert defender["has_detailed_stats"] is True
+        assert defender["clean_sheets"] is None
+        assert defender["goals_conceded"] is None
+        assert defender["saves"] is None
+        assert defender["penalty_saved"] is None
+        assert defender["conceded_per90"] is None
+        assert defender["save_pct"] is None
+        # sorting by clean sheets must rank real keepers above outfielders
+        resp = scout_client.get("/api/scout/players?sort=clean_sheets")
+        names = [p["player_name"] for p in resp.get_json()["players"]]
+        assert names[0] == "Gary Gloves"
+        assert names.index("Kenny Keeper") < names.index("Terry Tackler")
+
+    def test_compare_outfielder_gk_stats_are_null(self, scout_client, phase_seeded):
+        resp = scout_client.get("/api/scout/compare?ids=7003,7001")
+        players = {p["profile"]["player_name"]: p["totals"] for p in resp.get_json()["players"]}
+        defender = players["Terry Tackler"]
+        assert defender["clean_sheets"] is None
+        assert defender["goals_conceded"] is None
+        assert defender["saves"] is None
+        keeper = players["Gary Gloves"]
+        assert keeper["clean_sheets"] == 2
+        assert keeper["goals_conceded"] == 3
 
     def test_conceded_per90_sort_applies_minutes_floor(self, scout_client, phase_seeded):
         resp = scout_client.get("/api/scout/players?sort=conceded_per90&order=asc&position=Goalkeeper")

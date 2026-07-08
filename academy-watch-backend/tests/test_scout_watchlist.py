@@ -387,9 +387,11 @@ class TestCsvExport:
         assert lines[1] == (
             # phase columns: this seed records no shots/passes/duels etc., so the
             # aggregates are 0 for a fixture-covered player; duel_win_pct (a
-            # ratio over zero duels) stays blank
+            # ratio over zero duels) stays blank, and the GK block (saves, GA,
+            # CS, pen saved) is blank for outfielders — it is gated to rows
+            # where the player actually kept goal (per-fixture position 'G')
             "1001,Alfie Striker,19,Attacker,England,on_loan,Manchester United,Loan FC,2,3,1,170,7.6,4,2.12,"
-            "0,0,0,0,0,0,0,0,,0,0,0,0,0,0,0,0"
+            "0,0,0,0,0,0,0,0,,0,0,0,0,,,,"
         )
         assert len(lines) == 3  # header + striker + keeper
 

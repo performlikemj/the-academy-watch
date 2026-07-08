@@ -502,6 +502,20 @@ export function ScoutPage() {
   // Select only applies on the 'all' view (it's hidden otherwise).
   const effectivePosition = phase === 'all' ? (position !== 'all' ? position : null) : phaseConfig.position
 
+  // Keep phase in sync with the URL after mount: same-route navigation (the
+  // header's Scout link renders bare /scout without remounting) and browser
+  // back/forward change searchParams without going through changePhase.
+  useEffect(() => {
+    const requested = searchParams.get('phase')
+    const next = PHASES[requested] ? requested : 'all'
+    setPhase((current) => {
+      if (next === current) return current
+      setSort(PHASES[next].defaultSort)
+      setOrder(ASC_DEFAULT_SORTS.has(PHASES[next].defaultSort) ? 'asc' : 'desc')
+      return next
+    })
+  }, [searchParams])
+
   const changePhase = useCallback((next) => {
     if (!next || !PHASES[next]) return // Radix emits '' when re-clicking the active item
     setPhase(next)

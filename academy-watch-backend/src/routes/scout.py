@@ -216,15 +216,23 @@ def _fixture_stats_subquery(season):
     tracked row pointed the current club back at the parent. ``avg_rating`` is now
     a cross-club season average, which is the intended cross-club view.
     """
+    # GK stats are gated to fixtures the player actually kept goal in
+    # (per-fixture position code 'G'). API-Football reports conceded:0 for
+    # every OUTFIELD appearance too, so an ungated aggregate hands every
+    # 60'+ outfield appearance a phantom clean sheet and a vacuous 0-conceded
+    # total. Gated, outfielders sum over zero rows → NULL → rendered as a dash.
+    is_gk_row = FixturePlayerStats.position == "G"
     clean_sheet_app = case(
         (
             and_(
+                is_gk_row,
                 FixturePlayerStats.goals_conceded == 0,
                 FixturePlayerStats.minutes >= CLEAN_SHEET_MIN_MINUTES,
             ),
             1,
         ),
-        else_=0,
+        (is_gk_row, 0),
+        else_=None,
     )
     return (
         db.session.query(
@@ -251,10 +259,16 @@ def _fixture_stats_subquery(season):
             func.coalesce(func.sum(FixturePlayerStats.fouls_committed), 0).label("fouls_committed"),
             func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label("yellows"),
             func.coalesce(func.sum(FixturePlayerStats.reds), 0).label("reds"),
-            func.coalesce(func.sum(FixturePlayerStats.saves), 0).label("saves"),
-            func.coalesce(func.sum(FixturePlayerStats.goals_conceded), 0).label("goals_conceded"),
-            func.coalesce(func.sum(FixturePlayerStats.penalty_saved), 0).label("penalty_saved"),
-            func.coalesce(func.sum(clean_sheet_app), 0).label("clean_sheets"),
+            # No outer COALESCE on the GK block: NULL means "not a goalkeeper
+            # here" and must survive to the payload as null, not become 0.
+            func.sum(case((is_gk_row, func.coalesce(FixturePlayerStats.saves, 0)), else_=None)).label("saves"),
+            func.sum(case((is_gk_row, func.coalesce(FixturePlayerStats.goals_conceded, 0)), else_=None)).label(
+                "goals_conceded"
+            ),
+            func.sum(case((is_gk_row, func.coalesce(FixturePlayerStats.penalty_saved, 0)), else_=None)).label(
+                "penalty_saved"
+            ),
+            func.sum(clean_sheet_app).label("clean_sheets"),
         )
         .join(Fixture, Fixture.id == FixturePlayerStats.fixture_id)
         .filter(Fixture.season == season)
@@ -492,15 +506,21 @@ def _row_to_dict(row):
     has_detailed = row.tackles is not None
     payload["has_detailed_stats"] = has_detailed
     for key in PHASE_STAT_KEYS:
-        payload[key] = int(getattr(row, key)) if has_detailed else None
+        value = getattr(row, key) if has_detailed else None
+        # GK stats (saves/goals_conceded/penalty_saved/clean_sheets) stay NULL
+        # for outfielders even with full fixture coverage — keep them null.
+        payload[key] = int(value) if value is not None else None
     if has_detailed:
         duels_total = payload["duels_total"]
         payload["duel_win_pct"] = round(100.0 * payload["duels_won"] / duels_total, 1) if duels_total else None
         payload["tackles_per90"] = _per90(payload["tackles"], minutes)
         payload["key_passes_per90"] = _per90(payload["key_passes"], minutes)
         payload["conceded_per90"] = _per90(payload["goals_conceded"], minutes)
-        shots_faced = payload["saves"] + payload["goals_conceded"]
-        payload["save_pct"] = round(100.0 * payload["saves"] / shots_faced, 1) if shots_faced else None
+        if payload["saves"] is not None and payload["goals_conceded"] is not None:
+            shots_faced = payload["saves"] + payload["goals_conceded"]
+            payload["save_pct"] = round(100.0 * payload["saves"] / shots_faced, 1) if shots_faced else None
+        else:
+            payload["save_pct"] = None
     else:
         for key in ("duel_win_pct", "tackles_per90", "key_passes_per90", "conceded_per90", "save_pct"):
             payload[key] = None
@@ -747,6 +767,9 @@ def scout_compare():
                 continue
 
             totals = None
+            # Same GK gating as _fixture_stats_subquery: conceded:0 on outfield
+            # rows must not fabricate clean sheets / 0-conceded totals here.
+            compare_is_gk_row = FixturePlayerStats.position == "G"
             row = (
                 db.session.query(
                     func.count(FixturePlayerStats.id).label("appearances"),
@@ -767,23 +790,28 @@ def scout_compare():
                     func.coalesce(func.sum(FixturePlayerStats.fouls_drawn), 0).label("fouls_drawn"),
                     func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label("yellows"),
                     func.coalesce(func.sum(FixturePlayerStats.reds), 0).label("reds"),
-                    func.coalesce(func.sum(FixturePlayerStats.saves), 0).label("saves"),
-                    func.coalesce(func.sum(FixturePlayerStats.goals_conceded), 0).label("goals_conceded"),
-                    func.coalesce(func.sum(FixturePlayerStats.penalty_saved), 0).label("penalty_saved"),
-                    func.coalesce(
-                        func.sum(
-                            case(
-                                (
-                                    and_(
-                                        FixturePlayerStats.goals_conceded == 0,
-                                        FixturePlayerStats.minutes >= CLEAN_SHEET_MIN_MINUTES,
-                                    ),
-                                    1,
+                    func.sum(case((compare_is_gk_row, func.coalesce(FixturePlayerStats.saves, 0)), else_=None)).label(
+                        "saves"
+                    ),
+                    func.sum(
+                        case((compare_is_gk_row, func.coalesce(FixturePlayerStats.goals_conceded, 0)), else_=None)
+                    ).label("goals_conceded"),
+                    func.sum(
+                        case((compare_is_gk_row, func.coalesce(FixturePlayerStats.penalty_saved, 0)), else_=None)
+                    ).label("penalty_saved"),
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    compare_is_gk_row,
+                                    FixturePlayerStats.goals_conceded == 0,
+                                    FixturePlayerStats.minutes >= CLEAN_SHEET_MIN_MINUTES,
                                 ),
-                                else_=0,
-                            )
-                        ),
-                        0,
+                                1,
+                            ),
+                            (compare_is_gk_row, 0),
+                            else_=None,
+                        )
                     ).label("clean_sheets"),
                 )
                 .join(Fixture, Fixture.id == FixturePlayerStats.fixture_id)
@@ -814,10 +842,12 @@ def scout_compare():
                     "fouls_drawn": int(row.fouls_drawn),
                     "yellows": int(row.yellows),
                     "reds": int(row.reds),
-                    "saves": int(row.saves),
-                    "goals_conceded": int(row.goals_conceded),
-                    "penalty_saved": int(row.penalty_saved),
-                    "clean_sheets": int(row.clean_sheets),
+                    # NULL = "never kept goal this season" — emit null so the
+                    # compare UI shows a dash instead of a best-in-class 0.
+                    "saves": int(row.saves) if row.saves is not None else None,
+                    "goals_conceded": int(row.goals_conceded) if row.goals_conceded is not None else None,
+                    "penalty_saved": int(row.penalty_saved) if row.penalty_saved is not None else None,
+                    "clean_sheets": int(row.clean_sheets) if row.clean_sheets is not None else None,
                     "stats_coverage": "full",
                 }
 
