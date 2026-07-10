@@ -120,6 +120,8 @@ import { UniversalDatePicker } from '@/components/ui/UniversalDatePicker'
 import { AuthContext, AuthUIContext, useAuth, useAuthUI, buildAuthSnapshot } from '@/context/AuthContext'
 import { GlobalSearchContext, useGlobalSearchContext } from '@/context/GlobalSearchContext'
 import { AuthModal } from '@/components/auth/AuthModal'
+import { MobileTabBar } from '@/components/layouts/MobileTabBar'
+import { isNativeApp, useDeepLinks } from '@/lib/platform'
 import './App.css'
 import { useQueryParam } from '@/hooks/useQueryParam'
 
@@ -533,6 +535,7 @@ function Navigation() {
   const location = useLocation()
   const isMobile = useIsMobile()
   const { token, isAdmin, hasApiKey, isJournalist, isCurator } = useAuth()
+  const { openLoginModal } = useAuthUI()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const { open: openSearch } = useGlobalSearchContext()
 
@@ -607,17 +610,38 @@ function Navigation() {
   return (
     <nav className="border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 gap-4">
-        <Link to="/" className="flex items-center gap-2 text-foreground no-underline hover:no-underline sm:gap-3 shrink-0">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded bg-slate-900 shadow">
+        {/* min-w-0 + truncate so the brand yields to the actions on narrow phones */}
+        <Link to="/" className="flex min-w-0 items-center gap-2 text-foreground no-underline hover:no-underline sm:gap-3 md:shrink-0">
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-900 shadow">
             <img src={BRAND_LOGO_SRC} alt="The Academy Watch logo" className="h-7 w-7" />
           </span>
-          <div className="flex flex-col leading-tight">
-            <span className="text-lg font-semibold">The Academy Watch</span>
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span className="truncate text-base font-semibold sm:text-lg">The Academy Watch</span>
             <span className="hidden text-xs text-muted-foreground sm:block">Academy player tracker</span>
           </div>
         </Link>
 
         {isMobile ? (
+          <>
+          {/* Below md the bottom tab bar + More sheet own navigation, so the top
+              bar slims to brand + search + auth. The hamburger drawer is kept
+              only for the md–lg tablet range (unchanged legacy behavior). */}
+          <div className="flex shrink-0 items-center gap-2 md:hidden">
+            <button
+              type="button"
+              onClick={openSearch}
+              aria-label="Search"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:bg-secondary hover:text-foreground/80"
+            >
+              <Search className="h-5 w-5" />
+            </button>
+            {!token && (
+              <Button size="sm" onClick={() => openLoginModal()}>
+                <LogIn className="mr-1.5 h-4 w-4" /> Sign In
+              </Button>
+            )}
+          </div>
+          <div className="hidden md:block">
           <Drawer open={drawerOpen} onOpenChange={setDrawerOpen} autoFocus>
             <DrawerTrigger asChild>
               <button
@@ -652,6 +676,8 @@ function Navigation() {
               </DrawerFooter>
             </DrawerContent>
           </Drawer>
+          </div>
+          </>
         ) : (
           <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
             <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3 md:gap-4 overflow-x-auto pr-2">
@@ -4034,6 +4060,11 @@ function AppWithRouter() {
   const globalSearch = useGlobalSearch()
   const location = useLocation()
 
+  // Native deep links (appUrlOpen -> router navigate). No-op on the web.
+  useDeepLinks()
+
+  const native = isNativeApp()
+
   // Central pageview tracking — fires on every route change (inside <Router> so useLocation is safe)
   useEffect(() => {
     trackPageview(location.pathname + location.search)
@@ -4051,15 +4082,17 @@ function AppWithRouter() {
           onSelect={globalSearch.addRecentSearch}
           onClearRecent={globalSearch.clearRecentSearches}
         />
-        <main>
+        {/* Bottom padding on mobile so content never hides behind the tab bar. */}
+        <main className="pb-20 md:pb-0">
           <AppRoutes />
         </main>
         <footer className="bg-secondary border-t border-border py-8 mt-auto">
           <div className="max-w-6xl mx-auto px-4 text-center">
-            <BuyMeCoffeeButton />
-            <p className="text-sm text-muted-foreground mt-4">&copy; {new Date().getFullYear()} The Academy Watch. All rights reserved.</p>
+            {!native && <BuyMeCoffeeButton />}
+            <p className={`text-sm text-muted-foreground ${native ? '' : 'mt-4'}`}>&copy; {new Date().getFullYear()} The Academy Watch. All rights reserved.</p>
           </div>
         </footer>
+        <MobileTabBar />
         <LoginModal />
       </div>
     </GlobalSearchContext.Provider>
@@ -4068,6 +4101,10 @@ function AppWithRouter() {
 
 // App routes extracted for cleaner structure
 function AppRoutes() {
+  // App Store safety (Apple guideline 3.1.1 + admin exclusion): in the native
+  // shell the whole /admin subtree is never registered and /pricing redirects
+  // home. On mobile/desktop web everything renders as normal.
+  const native = isNativeApp()
   return (
     <Routes>
       <Route path="/" element={<HomePage />} />
@@ -4098,10 +4135,11 @@ function AppRoutes() {
       <Route path="/scout" element={<ScoutPage />} />
       <Route path="/scout/watchlist" element={<WatchlistPage />} />
       <Route path="/scout/lists" element={<ListsPage />} />
-      <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/pricing" element={native ? <Navigate to="/" replace /> : <PricingPage />} />
       <Route path="/academy" element={<CohortBrowser />} />
       <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
       <Route path="/academy/analytics" element={<CohortAnalytics />} />
+      {!native && (
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard" element={<AdminDashboard />} />
@@ -4130,6 +4168,7 @@ function AppRoutes() {
             routes, so without this the parent renders an empty <Outlet/>. */}
         <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
+      )}
       <Route path="/journalists/:id" element={<JournalistProfile />} />
       <Route path="/newsletters/:newsletterId/writer/:journalistId" element={<JournalistNewsletterView />} />
 
