@@ -151,6 +151,30 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Known pre-existing (NOT this slice): full migration chain cannot replay
     on an EMPTY DB (old unguarded supplemental_loans migration)
   - **See `ledgers/ROADMAP_talent-showcase-vision.md` + `docs/showcase.md`**
+- iOS app migration Phase 1 — SHIPPED to branch (2026-07-10, /goal)
+  - MJ: begin the iOS app; two purposes (talent discovery incl. team footage;
+    scout/fan connection). Admin EXCLUDED from app. Multi-agent per MJ
+    (Fable 5 orchestrating + design pass; Opus 4.8 shell + engagement,
+    Sonnet 5 Capacitor/integrations).
+  - Architecture: Capacitor 8 wrapper (ios/ Xcode project committed — SPM,
+    no CocoaPods; generated on Linux). platform.js (isNativeApp/useDeepLinks),
+    native share via @capacitor/share, AASA scaffold (placeholder TEAMID),
+    docs/ios.md = Mac runbook (signing, build:app, cap sync, CORS operator
+    step: append capacitor://localhost to CORS_ALLOW_ORIGINS).
+  - App shell: bottom tab bar (Home/Discover/Search/Following/More) < md +
+    More sheet; top bar slims on phones; native gating = /admin never
+    registered, /pricing redirects home, BMC hidden (Apple 3.1.1).
+  - Mobile UX: Scout = player cards + filter bottom-sheet + swipe
+    leaderboards + compare tray; Home = search + quick-nav grid first;
+    Lists/Watchlist touch polish. Desktop byte-identical (verified).
+  - Fable design pass: brand truncation fix (Sign In was clipped at 390px),
+    Gol ball z-50→z-40 (was floating over sheets), compare-tray clearance,
+    tray count nowrap. NOTE: black floating ball in dev = Agentation dev
+    toolbar (DEV-gated, never ships) — do not chase it as a bug.
+  - Gates: frozen-lockfile install, lint 0 errors, build, ruff all green;
+    Playwright-verified at 390×844 + desktop 1280.
+  - Commits d82ff57 (capacitor) / 920851d (shell) / 13ad38a (mobile UX).
+  - **See `ledgers/CONTINUITY_ios-migration.md`** (local, gitignored)
 - Player Profiles redesign — SHIPPED to branch (2026-07-10)
   - Player pages redesigned as identity-first PROFILES (MJ directive: pages
     players want to claim; social-first sharing). Built multi-agent per MJ:
