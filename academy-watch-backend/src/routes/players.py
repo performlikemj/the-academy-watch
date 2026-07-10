@@ -19,6 +19,7 @@ from src.models.league import (
     db,
 )
 from src.models.tracked_player import TrackedPlayer
+from src.utils.sanitize import is_safe_https_url
 
 logger = logging.getLogger(__name__)
 
@@ -1139,16 +1140,33 @@ def get_player_share_page(player_api_id: int):
     page. No auth, no JSON — a small HTML document is the entire contract.
     """
     if not _player_exists(player_api_id):
-        return Response("Player not found", status=404, mimetype="text/plain")
+        resp = Response("Player not found", status=404, mimetype="text/plain")
+        resp.headers["Cache-Control"] = "public, max-age=60"
+        return resp
 
     # get_public_player_profile() is a Flask view function — it can return
     # either a bare Response or a (body, status) tuple; make_response()
     # normalizes both so .get_json() always works here.
     profile_resp = make_response(get_public_player_profile(player_api_id))
+    if profile_resp.status_code >= 400:
+        # Don't unfurl a placeholder for a transient backend failure — tell
+        # crawlers to retry instead of caching a nameless preview.
+        logger.warning(
+            "share page: profile builder returned %s for player %s",
+            profile_resp.status_code,
+            player_api_id,
+        )
+        resp = Response("Profile temporarily unavailable", status=503, mimetype="text/plain")
+        resp.headers["Retry-After"] = "60"
+        return resp
     profile = profile_resp.get_json() or {}
 
     name = profile.get("name") or f"Player #{player_api_id}"
     photo = profile.get("photo")
+    # Same allow-list the showcase/link endpoints use — escape() alone does
+    # not reject javascript:/data: schemes in og:image.
+    if photo and not is_safe_https_url(photo):
+        photo = None
     position = profile.get("position")
     nationality = profile.get("nationality")
     current_club = profile.get("loan_team_name") or profile.get("parent_team_name")
@@ -1206,4 +1224,6 @@ def get_player_share_page(player_api_id: int):
   </body>
 </html>
 """
-    return Response(html, mimetype="text/html")
+    resp = Response(html, mimetype="text/html")
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
