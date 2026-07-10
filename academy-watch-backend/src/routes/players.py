@@ -8,8 +8,10 @@ This blueprint handles:
 """
 
 import logging
+import os
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, make_response, request
+from markupsafe import escape
 from src.auth import _safe_error_payload
 from src.models.league import (
     NewsletterCommentary,
@@ -1063,3 +1065,145 @@ def get_player_commentaries(player_id: int):
 
         traceback.print_exc()
         return jsonify(_safe_error_payload(e, "Failed to fetch player commentaries")), 500
+
+
+# ---------------------------------------------------------------------------
+# Player share / OG-unfurl endpoint
+# ---------------------------------------------------------------------------
+
+
+def _player_exists(player_api_id: int) -> bool:
+    """Cheap existence check so /share can 404 unknown players.
+
+    get_public_player_profile() never 404s — it always returns a payload,
+    falling back to a "Player #<id>" placeholder name — so this endpoint
+    needs its own check across the same three sources that view checks
+    (Player, TrackedPlayer, PlayerShadow) before it will build unfurl meta.
+    """
+    from src.models.follow import PlayerShadow
+
+    if Player.query.filter_by(player_id=player_api_id).first() is not None:
+        return True
+    if TrackedPlayer.query.filter_by(player_api_id=player_api_id).first() is not None:
+        return True
+    return PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True).first() is not None
+
+
+def _player_season_snapshot(player_api_id: int) -> tuple[int, int]:
+    """Cheap local-only (appearances, goals) for the current stats season.
+
+    Deliberately does NOT call the API-Football sync used by /stats and
+    /season-stats — this endpoint is hit by link-preview crawlers on every
+    share, so it stays a single indexed local read. Flavor text only; the
+    real page (loaded after the redirect) shows the authoritative numbers.
+    """
+    from sqlalchemy import func
+    from src.models.weekly import Fixture, FixturePlayerStats
+    from src.utils.academy_window import current_stats_season
+
+    season = current_stats_season()
+    row = (
+        db.session.query(
+            func.count(FixturePlayerStats.id),
+            func.coalesce(func.sum(FixturePlayerStats.goals), 0),
+        )
+        .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
+        .filter(
+            FixturePlayerStats.player_api_id == player_api_id,
+            Fixture.season == season,
+        )
+        .first()
+    )
+    apps, goals = row if row else (0, 0)
+    return int(apps or 0), int(goals or 0)
+
+
+def _frontend_base_url() -> str:
+    """SPA origin for canonical/redirect links.
+
+    Reuses the exact same FRONTEND_URL env var (+ default) that
+    journalist.py already uses for claim-account emails, so this endpoint
+    doesn't introduce a second, possibly-drifting notion of "the frontend".
+    """
+    return os.getenv("FRONTEND_URL", "https://theacademywatch.com").rstrip("/")
+
+
+@players_bp.route("/players/<int:player_api_id>/share", methods=["GET"])
+def get_player_share_page(player_api_id: int):
+    """Public OG-unfurl + human-redirect page for a player's SPA profile.
+
+    Social crawlers (X/Twitter, Facebook, WhatsApp, Slack, iMessage, ...)
+    request this URL directly for link-preview metadata — it is what makes
+    a shared player link "unfurl beautifully" instead of showing a bare
+    URL. Humans who click through get bounced straight to the real SPA
+    page. No auth, no JSON — a small HTML document is the entire contract.
+    """
+    if not _player_exists(player_api_id):
+        return Response("Player not found", status=404, mimetype="text/plain")
+
+    # get_public_player_profile() is a Flask view function — it can return
+    # either a bare Response or a (body, status) tuple; make_response()
+    # normalizes both so .get_json() always works here.
+    profile_resp = make_response(get_public_player_profile(player_api_id))
+    profile = profile_resp.get_json() or {}
+
+    name = profile.get("name") or f"Player #{player_api_id}"
+    photo = profile.get("photo")
+    position = profile.get("position")
+    nationality = profile.get("nationality")
+    current_club = profile.get("loan_team_name") or profile.get("parent_team_name")
+
+    apps, goals = _player_season_snapshot(player_api_id)
+
+    description_parts = []
+    if position:
+        description_parts.append(position)
+    if nationality:
+        description_parts.append(nationality)
+    if current_club:
+        description_parts.append(f"currently at {current_club}")
+    if apps:
+        stat_bit = f"{apps} appearance{'s' if apps != 1 else ''}"
+        if goals:
+            stat_bit += f", {goals} goal{'s' if goals != 1 else ''}"
+        description_parts.append(f"{stat_bit} this season")
+    description = " · ".join(description_parts) or "Follow their journey on The Academy Watch."
+
+    title = f"{name} — Player Profile | The Academy Watch"
+    frontend_base = _frontend_base_url()
+    canonical_url = f"{frontend_base}/players/{player_api_id}"
+    twitter_card = "summary_large_image" if photo else "summary"
+
+    safe_title = escape(title)
+    safe_description = escape(description)
+    safe_name = escape(name)
+    safe_canonical = escape(canonical_url)
+    photo_meta = f'<meta property="og:image" content="{escape(photo)}">\n    ' if photo else ""
+
+    html = f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>{safe_title}</title>
+    <meta name="description" content="{safe_description}">
+    <link rel="canonical" href="{safe_canonical}">
+
+    <meta property="og:type" content="profile">
+    <meta property="og:title" content="{safe_title}">
+    <meta property="og:description" content="{safe_description}">
+    <meta property="og:url" content="{safe_canonical}">
+    <meta property="og:site_name" content="The Academy Watch">
+    {photo_meta}<meta name="twitter:card" content="{twitter_card}">
+    <meta name="twitter:title" content="{safe_title}">
+    <meta name="twitter:description" content="{safe_description}">
+
+    <meta http-equiv="refresh" content="0;url={safe_canonical}">
+    <script>window.location.replace({canonical_url!r});</script>
+  </head>
+  <body>
+    <p>Redirecting to {safe_name}&#8217;s profile on The Academy Watch&hellip;</p>
+    <p><a href="{safe_canonical}">Continue to {safe_name}&#8217;s profile</a></p>
+  </body>
+</html>
+"""
+    return Response(html, mimetype="text/html")
