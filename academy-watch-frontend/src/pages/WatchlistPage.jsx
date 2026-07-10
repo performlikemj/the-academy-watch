@@ -47,7 +47,7 @@ function NoteEditor({ entry, onSaved }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={`inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${entry.note ? 'text-primary' : 'text-muted-foreground/60 hover:text-muted-foreground'}`}
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8 sm:w-8 ${entry.note ? 'text-primary' : 'text-muted-foreground/60 hover:text-muted-foreground'}`}
           aria-label={`Edit note for ${playerName}`}
           title={entry.note ? 'Edit note' : 'Add note'}
         >
@@ -179,9 +179,9 @@ export function WatchlistPage() {
               <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
                 <Star className="h-6 w-6 text-primary" />
               </span>
-              <h1 className="text-xl font-bold tracking-tight text-foreground">Sign in to build your watchlist</h1>
+              <h1 className="text-xl font-bold tracking-tight text-foreground">Build your scouting radar</h1>
               <p className="text-sm text-muted-foreground">
-                Star players across the Scout Desk and keep their form, stats and availability one click away.
+                Follow players to build your scouting radar — star anyone on Discover and keep their form, stats and availability one tap away.
               </p>
               <Button onClick={openLoginModal}>Sign in</Button>
             </CardContent>
@@ -193,7 +193,7 @@ export function WatchlistPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 sm:py-8 lg:px-8">
         {/* Header */}
         <header className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -258,12 +258,12 @@ export function WatchlistPage() {
               <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
                 <Star className="h-6 w-6 text-primary" />
               </span>
-              <h2 className="text-lg font-bold tracking-tight text-foreground">Nothing watched yet</h2>
+              <h2 className="text-lg font-bold tracking-tight text-foreground">Your radar is empty</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                Star players on the Scout Desk and they&apos;ll show up here with live form, stats and availability.
+                Follow players to build your scouting radar — star anyone on Discover and they&apos;ll show up here with live form, stats and availability.
               </p>
               <Button asChild>
-                <Link to="/scout" className="no-underline hover:no-underline">Open the Scout Desk</Link>
+                <Link to="/scout" className="no-underline hover:no-underline">Discover players</Link>
               </Button>
             </CardContent>
           </Card>
@@ -346,7 +346,7 @@ export function WatchlistPage() {
                               <button
                                 type="button"
                                 onClick={() => handleRemove(entry.player_api_id)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8 sm:w-8"
                                 aria-label={`Remove ${playerName} from watchlist`}
                                 title="Remove from watchlist"
                               >

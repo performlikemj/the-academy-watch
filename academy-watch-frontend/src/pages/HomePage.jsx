@@ -18,6 +18,7 @@ import { APIService } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { useGlobalSearchContext } from '@/context/GlobalSearchContext'
 import { SponsorSidebar, SponsorStrip } from '@/components/SponsorSidebar'
+import { MobileQuickNav } from '@/components/home/MobileQuickNav'
 
 export function HomePage() {
   const auth = useAuth()
@@ -47,12 +48,12 @@ export function HomePage() {
         <div className="flex-1 min-w-0 px-4 py-6 sm:px-0">
 
           {/* Hero Section */}
-          <div className="text-center mb-16">
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-foreground tracking-tight mb-4 leading-tight">
+          <div className="text-center mb-8 sm:mb-16">
+            <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold text-foreground tracking-tight mb-3 sm:mb-4 leading-tight">
               Track Every Academy{' '}
               <span className="text-primary">Prospect's Journey</span>
             </h1>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
+            <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto mb-6 sm:mb-8">
               Weekly AI-generated newsletters, career journey maps, and stats for the world's brightest academy and loan prospects — wherever they play.
             </p>
 
@@ -71,7 +72,8 @@ export function HomePage() {
                 </kbd>
               </button>
 
-              <div className="flex flex-wrap justify-center gap-3">
+              {/* Desktop CTA row — on mobile the quick-nav grid below carries navigation */}
+              <div className="hidden sm:flex flex-wrap justify-center gap-3">
                 <Link to="/scout">
                   <Button size="lg">
                     <Search className="h-5 w-5 mr-2" />
@@ -102,9 +104,12 @@ export function HomePage() {
             </div>
           </div>
 
+          {/* Mobile front door — primary destinations one tap away */}
+          <MobileQuickNav className="sm:hidden mb-10" />
+
           {/* Stats Bar */}
           {loading ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-16">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10 sm:mb-16">
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="bg-card rounded-xl border border-border p-5 text-center">
                   <div className="h-8 w-16 bg-secondary rounded animate-pulse mx-auto mb-2" />
@@ -114,7 +119,7 @@ export function HomePage() {
               ))}
             </div>
           ) : stats ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-16">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10 sm:mb-16">
               <div className="bg-card rounded-xl border border-border p-5 text-center">
                 <p className="text-3xl font-bold text-foreground">{stats.teams_with_loans}</p>
                 <p className="text-sm text-muted-foreground mt-1">Academies Tracked</p>

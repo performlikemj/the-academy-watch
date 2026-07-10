@@ -706,7 +706,7 @@ export function ListsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 sm:py-8 lg:px-8">
         {/* Header */}
         <header className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -813,7 +813,7 @@ export function ListsPage() {
                               <AlertDialogTrigger asChild>
                                 <button
                                   type="button"
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  className="inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8 sm:w-8"
                                   aria-label={`Delete ${list.name}`}
                                   title="Delete list"
                                 >
@@ -913,7 +913,7 @@ export function ListsPage() {
                                   <button
                                     type="button"
                                     onClick={() => handleRemoveFollow(follow)}
-                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8 sm:w-8"
                                     aria-label={`Remove ${followLabel(follow)}`}
                                     title="Remove follow"
                                   >

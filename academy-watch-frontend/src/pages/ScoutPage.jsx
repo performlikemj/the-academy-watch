@@ -17,8 +17,11 @@ import {
   Trophy, Zap, Clock, Gauge, X, GitCompareArrows, Globe,
   Star, Download, Link2, ListChecks,
   Crosshair, Sparkles, Send, Swords, Shield, ShieldCheck, Hand,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
+import { PlayerScoutCard } from '@/components/scout/PlayerScoutCard'
+import { ScoutFilterSheet } from '@/components/scout/ScoutFilterSheet'
 
 const AGE_PRESETS = [
   { key: 'all', label: 'All ages', params: {} },
@@ -489,6 +492,7 @@ export function ScoutPage() {
 
   const [compareIds, setCompareIds] = useState([])
   const [compareOpen, setCompareOpen] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const searchTimer = useRef(null)
 
   const auth = useAuth()
@@ -695,8 +699,38 @@ export function ScoutPage() {
     </th>
   )
 
+  const handleSortChange = useCallback((value) => {
+    setSort(value)
+    setOrder(ASC_DEFAULT_SORTS.has(value) ? 'asc' : 'desc')
+  }, [])
+
+  const resetFilters = useCallback(() => {
+    setPosition('all')
+    setStatus('all')
+    setAgePreset('all')
+  }, [])
+
+  // Count only the filters surfaced in the mobile sheet (position applies on the
+  // All phase only, matching where the control is shown).
+  const activeFilterCount =
+    (phase === 'all' && position !== 'all' ? 1 : 0) +
+    (status !== 'all' ? 1 : 0) +
+    (agePreset !== 'all' ? 1 : 0)
+
   const statColumns = phaseConfig.columns.map((key) => STAT_COLUMNS[key])
   const tableColumnCount = 7 + statColumns.length
+
+  const pagination = totalPages > 1 && (
+    <div className="flex items-center justify-between border-t border-border/60 px-4 py-3">
+      <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+        <ArrowLeft className="mr-1 h-4 w-4" /> Previous
+      </Button>
+      <span className="text-xs text-muted-foreground tabular-nums">Page {page} of {totalPages}</span>
+      <Button variant="outline" size="sm" disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>
+        Next <ArrowRight className="ml-1 h-4 w-4" />
+      </Button>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
@@ -768,15 +802,70 @@ export function ScoutPage() {
           )}
         </section>
 
-        {/* Leaderboards */}
-        <section aria-label="Leaderboards" className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {/* Leaderboards — swipeable snap strip on mobile, grid on desktop */}
+        <section
+          aria-label="Leaderboards"
+          className="mb-6 -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:mb-8 sm:grid sm:snap-none sm:grid-cols-2 sm:gap-4 sm:px-0 sm:pb-0 xl:grid-cols-4"
+        >
           {phaseConfig.boards.map((board) => (
-            <LeaderboardCard key={board.key} board={board} entries={boards?.[board.key]} loading={boardsLoading} />
+            <div key={board.key} className="w-[82%] shrink-0 snap-start sm:w-auto">
+              <LeaderboardCard board={board} entries={boards?.[board.key]} loading={boardsLoading} />
+            </div>
           ))}
         </section>
 
-        {/* Filters */}
-        <section aria-label="Filters" className="mb-4 flex flex-col gap-3">
+        {/* Filters — mobile: sticky search + Filters pill opening a bottom sheet */}
+        <section aria-label="Filters" className="mb-4 sm:hidden">
+          <div className="sticky top-0 z-20 -mx-4 flex items-center gap-2 border-b border-border/60 bg-background/95 px-4 py-2.5 backdrop-blur">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search players…"
+                className="h-11 pl-9"
+                aria-label="Search players"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(true)}
+              className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary active:bg-secondary"
+              aria-label="Open filters"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold tabular-nums text-primary-foreground">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+            {loading ? 'Loading…' : `${total.toLocaleString()} players`}
+          </p>
+          <ScoutFilterSheet
+            open={filtersOpen}
+            onOpenChange={setFiltersOpen}
+            phase={phase}
+            agePresets={AGE_PRESETS}
+            agePreset={agePreset}
+            onAgePresetChange={setAgePreset}
+            position={position}
+            onPositionChange={setPosition}
+            status={status}
+            onStatusChange={setStatus}
+            sort={sort}
+            onSortChange={handleSortChange}
+            sortOptions={phaseConfig.sortOptions}
+            activeCount={activeFilterCount}
+            onReset={resetFilters}
+          />
+        </section>
+
+        {/* Filters — desktop */}
+        <section aria-label="Filters" className="mb-4 hidden flex-col gap-3 sm:flex">
           <div className="flex flex-wrap items-center gap-2">
             {AGE_PRESETS.map((preset) => (
               <button
@@ -848,8 +937,37 @@ export function ScoutPage() {
           </div>
         </section>
 
-        {/* Results table */}
-        <Card className="overflow-hidden border-border/80">
+        {/* Results — card list on mobile */}
+        <div className="space-y-3 sm:hidden">
+          {loading ? (
+            Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-40 w-full rounded-xl" />)
+          ) : players.length ? (
+            players.map((player) => (
+              <PlayerScoutCard
+                key={player.id}
+                player={player}
+                statColumns={statColumns}
+                watched={!!watchedIds?.has(player.player_id)}
+                selected={compareIds.includes(player.player_id)}
+                onToggleWatch={() => toggleWatch(player)}
+                onToggleCompare={() => toggleCompare(player.player_id)}
+                compareDisabled={!compareIds.includes(player.player_id) && compareIds.length >= 4}
+              />
+            ))
+          ) : (
+            <Card className="border-border/80">
+              <CardContent className="px-4 py-12 text-center text-sm text-muted-foreground">
+                No players match these filters.
+              </CardContent>
+            </Card>
+          )}
+          {totalPages > 1 && (
+            <Card className="overflow-hidden border-border/80">{pagination}</Card>
+          )}
+        </div>
+
+        {/* Results table — desktop */}
+        <Card className="hidden overflow-hidden border-border/80 sm:block">
           <div className="overflow-x-auto">
             <table className={`w-full border-collapse ${statColumns.length > 6 ? 'min-w-[920px]' : 'min-w-[760px]'}`}>
               <thead>
@@ -954,25 +1072,28 @@ export function ScoutPage() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-border/60 px-4 py-3">
-              <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
-                <ArrowLeft className="mr-1 h-4 w-4" /> Previous
-              </Button>
-              <span className="text-xs text-muted-foreground tabular-nums">Page {page} of {totalPages}</span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>
-                Next <ArrowRight className="ml-1 h-4 w-4" />
-              </Button>
-            </div>
-          )}
+          {pagination}
         </Card>
 
-        {/* Compare tray */}
+        {/* Compare tray — lifted above the mobile tab bar, standard on desktop */}
         {compareIds.length > 0 && (
-          <div className="fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 pointer-events-none">
-            <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border bg-card/95 px-4 py-2.5 shadow-lg backdrop-blur">
-              <span className="text-sm text-foreground/80 tabular-nums">
-                {compareIds.length} of 4 selected
+          <div className="pointer-events-none fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex justify-center pl-4 pr-24 sm:bottom-4 sm:px-4">
+            <div className="pointer-events-auto flex items-center gap-2.5 rounded-full border border-border bg-card/95 py-2 pl-3 pr-2 shadow-lg backdrop-blur sm:gap-3 sm:py-2.5 sm:pl-4">
+              {/* Selected player avatars (resolvable on the current page) */}
+              <div className="flex -space-x-2">
+                {compareIds.slice(0, 4).map((id) => {
+                  const p = players.find((pl) => pl.player_id === id)
+                  return p?.player_photo ? (
+                    <img key={id} src={p.player_photo} alt="" className="h-7 w-7 rounded-full border-2 border-card bg-secondary object-cover" />
+                  ) : (
+                    <span key={id} className="inline-flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-secondary text-[10px] font-semibold text-muted-foreground">
+                      {p?.player_name?.slice(0, 2).toUpperCase() || '··'}
+                    </span>
+                  )
+                })}
+              </div>
+              <span className="whitespace-nowrap text-sm text-foreground/80 tabular-nums">
+                {compareIds.length} of 4
               </span>
               <Button
                 size="sm"
@@ -986,7 +1107,7 @@ export function ScoutPage() {
               <button
                 type="button"
                 onClick={() => setCompareIds([])}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                 aria-label="Clear comparison selection"
               >
                 <X className="h-4 w-4" />
