@@ -52,7 +52,7 @@ openai==2.43.0
 openai-agents==0.18.1
 ordered-set==4.1.0
 packaging==26.2
-pillow==12.2.0
+pillow==12.3.0
 pluggy==1.6.0
 psycopg==3.3.4
 psycopg-binary==3.3.4
