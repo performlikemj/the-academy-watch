@@ -4,7 +4,10 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  { ignores: ['dist', 'test-results'] },
+  // 'ios' excludes the generated native Xcode project (academy-watch-frontend/ios/),
+  // which bundles a full copy of the built dist/ (minified/bundled JS ESLint
+  // shouldn't parse as source) under ios/App/App/public — see docs/ios.md.
+  { ignores: ['dist', 'test-results', 'ios'] },
   {
     // Node-context files: vite/playwright config + e2e helpers all run in
     // Node, not the browser, so they need Node globals (process, __dirname,

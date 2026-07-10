@@ -44,6 +44,11 @@ logger = logging.getLogger(__name__)
 logger.info("🚀 Starting Flask application...")
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), "static"))
+# iOS app shell: the Capacitor WKWebView's origin is `capacitor://localhost`
+# (and legacy `ionic://localhost`), not a real https host, so once the app
+# needs an explicit CORS_ALLOW_ORIGINS allowlist (i.e. once it's no longer
+# unset "*"), that origin must be appended too — see docs/ios.md's CORS
+# operator step. No code change needed here; this is env-only.
 cors_origins_env = os.getenv("CORS_ALLOW_ORIGINS", "")
 allowed_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()]
 

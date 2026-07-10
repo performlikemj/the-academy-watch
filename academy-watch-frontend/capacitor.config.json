@@ -1,0 +1,6 @@
+{
+  "appId": "com.theacademywatch.app",
+  "appName": "The Academy Watch",
+  "webDir": "dist",
+  "ios": {}
+}

@@ -49,6 +49,10 @@ change: interactive targets ≥44px (h-11), no hover-only affordances (pair ever
 with `env(safe-area-inset-*)`, prefer the Web Share API / system-sheet patterns over
 custom popovers for OS-level actions.
 
+The Capacitor iOS shell itself (native detection, deep links, native share, universal
+links, CORS, the Mac-side build/release runbook) is documented in `docs/ios.md` — read
+it before touching `src/lib/platform.js`, `src/lib/share.js`, or anything under `ios/`.
+
 ## Verify a UI change
 
 Don't iterate blind. Run `pnpm dev`, drive the affected page (Playwright for anything

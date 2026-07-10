@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appID": "TEAMID.com.theacademywatch.app",
+        "appIDs": ["TEAMID.com.theacademywatch.app"],
+        "paths": [
+          "/players/*",
+          "/teams/*",
+          "/newsletters/*",
+          "/writeups/*"
+        ]
+      }
+    ]
+  }
+}
