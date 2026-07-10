@@ -21,7 +21,8 @@ import {
 } from 'lucide-react'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
 import { PlayerScoutCard } from '@/components/scout/PlayerScoutCard'
-import { ScoutFilterSheet } from '@/components/scout/ScoutFilterSheet'
+import { ScoutFilterSheet, SCOUT_POSITION_OPTIONS, SCOUT_STATUS_OPTIONS } from '@/components/scout/ScoutFilterSheet'
+import { isNativeApp } from '@/lib/platform'
 
 const AGE_PRESETS = [
   { key: 'all', label: 'All ages', params: {} },
@@ -859,6 +860,8 @@ export function ScoutPage() {
             sort={sort}
             onSortChange={handleSortChange}
             sortOptions={phaseConfig.sortOptions}
+            order={order}
+            onOrderChange={setOrder}
             activeCount={activeFilterCount}
             onReset={resetFilters}
           />
@@ -902,11 +905,9 @@ export function ScoutPage() {
                   <SelectValue placeholder="Position" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All positions</SelectItem>
-                  <SelectItem value="Goalkeeper">Goalkeeper</SelectItem>
-                  <SelectItem value="Defender">Defender</SelectItem>
-                  <SelectItem value="Midfielder">Midfielder</SelectItem>
-                  <SelectItem value="Attacker">Attacker</SelectItem>
+                  {SCOUT_POSITION_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             )}
@@ -915,13 +916,9 @@ export function ScoutPage() {
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="academy">Academy</SelectItem>
-                <SelectItem value="on_loan">On loan</SelectItem>
-                <SelectItem value="first_team">First team</SelectItem>
-                <SelectItem value="sold">Sold</SelectItem>
-                <SelectItem value="released">Released</SelectItem>
-                <SelectItem value="left">Left</SelectItem>
+                {SCOUT_STATUS_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={sort} onValueChange={(value) => { setSort(value); setOrder(ASC_DEFAULT_SORTS.has(value) ? 'asc' : 'desc') }}>
@@ -1041,6 +1038,11 @@ export function ScoutPage() {
                         </td>
                         <td className="px-3 py-2.5">
                           {player.appearances === 0 && player.data_depth === 'profile_only' ? (
+                            isNativeApp() ? (
+                              <span className="text-[11px] text-muted-foreground" title="No stats provider covers this league yet">
+                                No coverage
+                              </span>
+                            ) : (
                             <Link
                               to="/pricing"
                               className="text-[11px] text-muted-foreground underline decoration-dotted hover:text-primary"
@@ -1048,6 +1050,7 @@ export function ScoutPage() {
                             >
                               No coverage
                             </Link>
+                            )
                           ) : (
                             <FormIndicator form={player.recent_form} />
                           )}

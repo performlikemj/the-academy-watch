@@ -83,7 +83,7 @@ export function ShareMenu({ playerId, playerName, profile, seasonTotals, positio
                         Share
                     </Button>
                 ) : (
-                    <Button variant="ghost" size="icon" aria-label={ariaLabel}>
+                    <Button variant="ghost" size="icon" className="h-11 w-11" aria-label={ariaLabel}>
                         <Share2 className="size-4" aria-hidden="true" />
                     </Button>
                 )}

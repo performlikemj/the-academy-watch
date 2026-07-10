@@ -576,6 +576,7 @@ export function PlayerPage() {
                 position={position}
                 seasonTotals={seasonTotals}
                 academyStats={academyStats}
+                hasMatchStats={stats.length > 0}
                 currentClub={currentClub}
                 isWatched={isWatched}
                 onToggleWatch={handleToggleWatch}

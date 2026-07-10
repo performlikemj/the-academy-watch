@@ -27,13 +27,20 @@ import { Capacitor } from '@capacitor/core'
  * false on the web — mobile web included — so nothing here ever hides
  * content from a mobile *browser* user, only from the native app binary.
  */
+let _nativeApp = null
+
 export function isNativeApp() {
-    try {
-        return Capacitor.isNativePlatform()
-    } catch (err) {
-        console.warn('[platform] Capacitor.isNativePlatform() check failed — assuming web', err)
-        return false
+    // The platform cannot change during a session — compute once and cache,
+    // since App.jsx calls this on every route render.
+    if (_nativeApp === null) {
+        try {
+            _nativeApp = Capacitor.isNativePlatform()
+        } catch (err) {
+            console.warn('[platform] Capacitor.isNativePlatform() check failed — assuming web', err)
+            _nativeApp = false
+        }
     }
+    return _nativeApp
 }
 
 /**

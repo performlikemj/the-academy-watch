@@ -38,6 +38,7 @@ import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
 import { isYouTubeUrl } from '@/lib/youtube'
 import { VideoEmbed } from '@/components/VideoEmbed'
+import { deriveClaimState } from '@/components/profile/useShowcase'
 
 const RELATIONSHIP_OPTIONS = [
   { value: 'player', label: 'Player' },
@@ -153,8 +154,8 @@ export function ShowcaseSection({
   const verified = Array.isArray(showcase.verified_footage) ? showcase.verified_footage : []
   const claimStatus = showcase.claim_status // 'unclaimed' | 'claimed'
 
-  const myClaim = myClaims.find((c) => Number(c.player_api_id) === Number(playerApiId))
-  const isOwner = myClaim?.status === 'approved'
+  // Same classifier the hero CTA uses — the two surfaces can never disagree.
+  const { myClaim, isOwner } = deriveClaimState(showcase, myClaims, playerApiId)
 
   // Claim strip shows for non-owners who either have a claim (show its status) or
   // can still claim an unclaimed profile.

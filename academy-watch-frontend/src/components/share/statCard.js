@@ -1,3 +1,4 @@
+import { getInitials } from '@/lib/name'
 // Pure canvas-based branded stat card generator for player profile shares.
 // No React — a plain function that draws a 1080x1350 (4:5) PNG and triggers
 // a browser download. Never lets a CORS-tainted photo fail the download: it
@@ -48,13 +49,6 @@ function loadImage(src) {
         img.onerror = () => reject(new Error('image failed to load'))
         img.src = src
     })
-}
-
-function getInitials(name) {
-    const parts = (name || '').trim().split(/\s+/).filter(Boolean)
-    if (parts.length === 0) return '?'
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
 }
 
 function roundedRectPath(ctx, x, y, w, h, r) {

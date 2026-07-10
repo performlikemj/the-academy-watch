@@ -23,6 +23,7 @@ import {
   UserPlus,
   MessageCircle,
   UserCog,
+  Settings,
   CreditCard,
   PenSquare,
   ClipboardCheck,
@@ -94,11 +95,14 @@ function MoreGroup({ title, children }) {
 export function MobileTabBar() {
   const location = useLocation()
   const { open: openSearch } = useGlobalSearchContext()
-  const { token, isJournalist, isCurator } = useAuth()
+  const { token, isAdmin, hasApiKey, isJournalist, isCurator } = useAuth()
   const { openLoginModal, logout } = useAuthUI()
   const [moreOpen, setMoreOpen] = useState(false)
 
   const native = isNativeApp()
+  // Same unlock rule as the desktop nav — and never in the native app,
+  // where admin is excluded entirely.
+  const adminUnlocked = !native && !!token && isAdmin && hasApiKey
   const path = location.pathname
 
   const isHome = path === '/'
@@ -210,6 +214,7 @@ export function MobileTabBar() {
 
             <MoreGroup title="Account">
               {token && <MoreRow icon={UserCog} label="Settings" to="/settings" />}
+              {adminUnlocked && <MoreRow icon={Settings} label="Admin" to="/admin" />}
               {!native && <MoreRow icon={CreditCard} label="Pricing" to="/pricing" />}
               {token ? (
                 <MoreRow

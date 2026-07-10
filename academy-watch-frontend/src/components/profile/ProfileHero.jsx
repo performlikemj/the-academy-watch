@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button'
 import { MiniProgressBar } from '@/components/MiniProgressBar'
 import { STATUS_BADGE_CLASSES } from '@/lib/theme-constants'
 import { ShareMenu } from '@/components/share/ShareMenu'
+import { getInitials } from '@/lib/name'
+import { useJourney } from '@/contexts/JourneyContext'
 import {
   ArrowLeft,
   ArrowRight,
@@ -131,6 +133,7 @@ export function ProfileHero({
   position,
   seasonTotals,
   academyStats,
+  hasMatchStats,
   currentClub,
   isWatched,
   onToggleWatch,
@@ -141,10 +144,18 @@ export function ProfileHero({
   onClaim,
 }) {
   const heroStats = buildHeroStats({ position, seasonTotals, academyStats })
+  // Show the academy chip alongside senior stats — either signal counts, so an
+  // API season total of 0 can't hide it while match rows exist (and vice versa).
+  const hasSeniorStats = seasonTotals?.appearances > 0 || hasMatchStats
   const academyApps =
-    academyStats?.appearances > 0 && seasonTotals?.appearances > 0
-      ? academyStats.appearances
-      : null
+    academyStats?.appearances > 0 && hasSeniorStats ? academyStats.appearances : null
+
+  // When a PAST career stop is selected via MiniProgressBar (rendered inside
+  // this hero), dim the current-season stat strip so its numbers aren't read
+  // as the selected stop's — SeasonStatsPanel carries those.
+  const { selectedNode, progressionNodes } = useJourney()
+  const viewingPastStop =
+    !!selectedNode && selectedNode.id !== progressionNodes?.[progressionNodes.length - 1]?.id
 
   // Slim sticky bar fades in once the hero is scrolled past.
   const [showBar, setShowBar] = useState(false)
@@ -177,7 +188,7 @@ export function ProfileHero({
             variant="ghost"
             size="icon"
             onClick={onToggleWatch}
-            className={isWatched ? 'text-amber-500' : 'text-muted-foreground'}
+            className={`h-11 w-11 ${isWatched ? 'text-amber-500' : 'text-muted-foreground'}`}
             aria-label={isWatched ? 'Remove from watchlist' : 'Watch this player'}
           >
             <Star className={`h-4 w-4 ${isWatched ? 'fill-amber-400 text-amber-500' : ''}`} />
@@ -245,7 +256,7 @@ export function ProfileHero({
               ) : (
                 <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-primary-foreground/15 shadow-lg ring-4 ring-primary-foreground/30 sm:h-32 sm:w-32 dark:bg-primary/15 dark:ring-primary/40">
                   <span className="text-3xl font-bold sm:text-4xl">
-                    {playerName?.trim()?.charAt(0)?.toUpperCase() || <User className="h-10 w-10" />}
+                    {getInitials(playerName)}
                   </span>
                 </div>
               )}
@@ -328,7 +339,11 @@ export function ProfileHero({
 
           {/* Key-stat strip — only stats that exist */}
           {heroStats.length > 0 && (
-            <div className="mt-6 grid grid-cols-2 gap-2 sm:mt-7 sm:flex sm:flex-wrap sm:gap-3">
+            <div
+              className={`mt-6 grid grid-cols-2 gap-2 transition-opacity duration-300 sm:mt-7 sm:flex sm:flex-wrap sm:gap-3 ${
+                viewingPastStop ? 'opacity-30' : ''
+              }`}
+            >
               {heroStats.map((s) => (
                 <div
                   key={s.label}

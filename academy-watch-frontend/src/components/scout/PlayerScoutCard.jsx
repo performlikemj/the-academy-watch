@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Star, Check, GitCompareArrows } from 'lucide-react'
 import { StatusBadge, FormIndicator } from '@/pages/ScoutPage'
+import { getInitials } from '@/lib/name'
 
 /**
  * Mobile-first player card for the Scout Desk (< sm). The wide ranked table
@@ -46,7 +47,7 @@ export function PlayerScoutCard({
             <img src={player.player_photo} alt="" loading="lazy" className="h-12 w-12 shrink-0 rounded-full bg-secondary object-cover" />
           ) : (
             <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold text-muted-foreground">
-              {player.player_name?.slice(0, 2).toUpperCase()}
+              {getInitials(player.player_name)}
             </span>
           )}
           <div className="min-w-0 flex-1">

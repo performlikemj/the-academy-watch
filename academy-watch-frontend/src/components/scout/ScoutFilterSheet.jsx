@@ -1,7 +1,29 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Button } from '@/components/ui/button'
 import { SlidersHorizontal } from 'lucide-react'
+
+// Single source for the filter vocabularies — the desktop inline selects on
+// ScoutPage consume these same lists, so a new pathway status or position
+// only ever needs adding here.
+export const SCOUT_POSITION_OPTIONS = [
+  { value: 'all', label: 'All positions' },
+  { value: 'Goalkeeper', label: 'Goalkeeper' },
+  { value: 'Defender', label: 'Defender' },
+  { value: 'Midfielder', label: 'Midfielder' },
+  { value: 'Attacker', label: 'Attacker' },
+]
+
+export const SCOUT_STATUS_OPTIONS = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'academy', label: 'Academy' },
+  { value: 'on_loan', label: 'On loan' },
+  { value: 'first_team', label: 'First team' },
+  { value: 'sold', label: 'Sold' },
+  { value: 'released', label: 'Released' },
+  { value: 'left', label: 'Left' },
+]
 
 /**
  * Bottom-sheet home for the Scout Desk filters on mobile (< sm). On desktop
@@ -24,6 +46,8 @@ export function ScoutFilterSheet({
   sort,
   onSortChange,
   sortOptions,
+  order,
+  onOrderChange,
   activeCount,
   onReset,
 }) {
@@ -74,11 +98,9 @@ export function ScoutFilterSheet({
                   <SelectValue placeholder="Position" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All positions</SelectItem>
-                  <SelectItem value="Goalkeeper">Goalkeeper</SelectItem>
-                  <SelectItem value="Defender">Defender</SelectItem>
-                  <SelectItem value="Midfielder">Midfielder</SelectItem>
-                  <SelectItem value="Attacker">Attacker</SelectItem>
+                  {SCOUT_POSITION_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </label>
@@ -92,13 +114,9 @@ export function ScoutFilterSheet({
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="academy">Academy</SelectItem>
-                <SelectItem value="on_loan">On loan</SelectItem>
-                <SelectItem value="first_team">First team</SelectItem>
-                <SelectItem value="sold">Sold</SelectItem>
-                <SelectItem value="released">Released</SelectItem>
-                <SelectItem value="left">Left</SelectItem>
+                {SCOUT_STATUS_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </label>
@@ -117,6 +135,21 @@ export function ScoutFilterSheet({
               </SelectContent>
             </Select>
           </label>
+
+          {/* Direction — desktop flips this by re-clicking a column header */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Direction</p>
+            <ToggleGroup
+              type="single"
+              value={order}
+              onValueChange={(v) => v && onOrderChange(v)}
+              className="w-full"
+              aria-label="Sort direction"
+            >
+              <ToggleGroupItem value="desc" className="h-11 flex-1">Highest first</ToggleGroupItem>
+              <ToggleGroupItem value="asc" className="h-11 flex-1">Lowest first</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
