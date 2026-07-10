@@ -151,6 +151,25 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Known pre-existing (NOT this slice): full migration chain cannot replay
     on an EMPTY DB (old unguarded supplemental_loans migration)
   - **See `ledgers/ROADMAP_talent-showcase-vision.md` + `docs/showcase.md`**
+- Player Profiles redesign — SHIPPED to branch (2026-07-10)
+  - Player pages redesigned as identity-first PROFILES (MJ directive: pages
+    players want to claim; social-first sharing). Built multi-agent per MJ:
+    Fable 5 orchestrating, Opus 4.8 (ProfileHero + PlayerPage restructure),
+    Sonnet 5 (share system + OG endpoint).
+  - New: `components/profile/` (ProfileHero — claret hero band, key-stat
+    strip, 4-state claim CTA, sticky action bar w/ inert-when-hidden;
+    useShowcase hook = single showcase fetch shared with ShowcaseSection),
+    `components/share/` (ShareMenu: native/copy/X/WhatsApp/Facebook +
+    1080×1350 canvas stat-card PNG download, CORS-safe photo fallback),
+    `lib/share.js`.
+  - Backend: `GET /api/players/<id>/share` — OG/Twitter meta + SPA redirect
+    (reuses FRONTEND_URL; local-only stats snapshot, no API-Football calls;
+    markupsafe-escaped). 4 new tests (test_player_share.py); showcase suite
+    still green (44 pass). No models/migrations.
+  - Verified: pnpm lint 0 errors, build green, ruff clean; Playwright
+    visual verify (light/dark/mobile, share menu, claim→login gate).
+  - Branch `claude/player-profiles-redesign-186g93`
+  - **See `ledgers/CONTINUITY_player-profiles-redesign.md`** (local, gitignored)
 - Follow Graph + Shadow Tracking — Phase 1 SHIPPED to branch (2026-07-02)
   - Scouts organize tracking into named LISTS of FOLLOWS (kinds: player |
     academy_club | geo playing_in/nationality | saved query) — one resolver
