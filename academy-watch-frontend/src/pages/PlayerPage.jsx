@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { STATUS_BADGE_CLASSES } from '@/lib/theme-constants'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
     Drawer,
@@ -25,7 +24,7 @@ import {
     ResponsiveContainer,
     ReferenceLine,
 } from 'recharts'
-import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, PenTool, ChevronRight, ChevronDown, Users, ExternalLink, MapPin, Flag, Star } from 'lucide-react'
+import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, PenTool, ChevronRight, ChevronDown, Users, ExternalLink, MapPin } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import FlagDataDialog from '@/components/FlagDataDialog'
 import { APIService } from '@/lib/api'
@@ -36,11 +35,12 @@ import { SponsorStrip } from '@/components/SponsorSidebar'
 import { MatchDetailDrawer } from '@/components/MatchDetailDrawer'
 import PlayerJourneyView from '@/components/PlayerJourneyView'
 import { JourneyProvider, useJourney } from '@/contexts/JourneyContext'
-import { MiniProgressBar } from '@/components/MiniProgressBar'
 import { SeasonStatsPanel } from '@/components/SeasonStatsPanel'
 import { CommentSection } from '@/components/CommentSection'
 import { PlayerLinksSection } from '@/components/PlayerLinksSection'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
+import { ProfileHero } from '@/components/profile/ProfileHero'
+import { useShowcase, deriveClaimState } from '@/components/profile/useShowcase'
 import { PlayerAvailability } from '@/components/PlayerAvailability'
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, CHART_TOOLTIP_BG, CHART_TOOLTIP_BORDER } from '../lib/theme-constants'
 
@@ -288,6 +288,19 @@ export function PlayerPage() {
     const playerApiId = parseInt(playerId, 10)
     const isWatched = !!watchedIds?.has(playerApiId)
 
+    // Shared showcase + claim state — fetched ONCE and passed to both the
+    // hero (claim CTA) and ShowcaseSection (claim strip, reel, profile).
+    const showcaseData = useShowcase(playerApiId)
+    const claimState = deriveClaimState(showcaseData.showcase, showcaseData.myClaims, playerApiId)
+    const [claimOpen, setClaimOpen] = useState(false)
+    const requestClaim = () => {
+        if (!auth?.token) {
+            openLoginModal()
+            return
+        }
+        setClaimOpen(true)
+    }
+
     useEffect(() => {
         if (!auth?.token) {
             setWatchedIds(null)
@@ -519,6 +532,8 @@ export function PlayerPage() {
 
     const currentConfig = METRIC_CONFIG[position] || METRIC_CONFIG[DEFAULT_POSITION]
     const playerName = profile?.name || `Player #${playerId}`
+    // Current club for the hero journey affordance (parent crest → current club)
+    const currentClub = seasonStats?.clubs?.find((c) => c.is_current) || seasonStats?.clubs?.[0] || null
 
     // Calculate season totals - prefer API season stats, fallback to calculated from match data
     const seasonTotals = {
@@ -565,99 +580,38 @@ export function PlayerPage() {
     return (
         <JourneyProvider journeyData={journeyData}>
         <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
-            {/* Header */}
-            <div className="bg-card border-b sticky top-0 z-10">
-                <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                        <div className="flex items-center gap-2 self-start">
-                            <Button variant="ghost" size="sm" onClick={handleBack}>
-                                <ArrowLeft className="mr-2 h-4 w-4" />
-                                Back
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setFlagOpen(true)}
-                                className="text-muted-foreground hover:text-amber-500"
-                                title="Report incorrect data"
-                                aria-label="Report incorrect data"
-                            >
-                                <Flag className="h-4 w-4" />
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleToggleWatch}
-                                className={isWatched ? 'text-amber-500 hover:text-amber-600' : 'text-muted-foreground hover:text-amber-500'}
-                                title={isWatched ? 'Remove from watchlist' : 'Watch this player'}
-                                aria-label={isWatched ? 'Remove from watchlist' : 'Watch this player'}
-                            >
-                                <Star className={`h-4 w-4 ${isWatched ? 'fill-amber-400 text-amber-500' : ''}`} />
-                            </Button>
-                        </div>
-                        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                            {profile?.photo ? (
-                                <img
-                                    src={profile.photo}
-                                    alt={playerName}
-                                    width={64}
-                                    height={64}
-                                    className="w-12 h-12 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-border shadow-md flex-shrink-0"
-                                />
-                            ) : (
-                                <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-md flex-shrink-0">
-                                    <User className="h-6 w-6 sm:h-8 sm:w-8 text-primary-foreground" />
-                                </div>
-                            )}
-                            <div className="min-w-0">
-                                <h1 className="text-xl sm:text-2xl font-bold text-foreground text-balance">{playerName}</h1>
-                                <div className="flex flex-wrap items-center gap-2 mt-1">
-                                    <Badge variant="secondary">{position}</Badge>
-                                    {profile?.age && (
-                                        <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
-                                            {profile.age} yrs
-                                        </Badge>
-                                    )}
-                                    {profile?.nationality && (
-                                        <Badge variant="outline" className="text-muted-foreground">{profile.nationality}</Badge>
-                                    )}
-                                    {profile?.status && (
-                                        <Badge className={STATUS_BADGE_CLASSES[profile.status] || 'bg-secondary text-muted-foreground'}>
-                                            {profile.status.replace('_', ' ')}{profile.status === 'on_loan' && profile.owner_team_name ? ` · from ${profile.owner_team_name}` : ''}{profile.sale_fee ? ` · ${profile.sale_fee}` : ''}
-                                        </Badge>
-                                    )}
-                                    {academyStats?.appearances > 0 && stats.length > 0 && (
-                                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
-                                            Academy: {academyStats.appearances} apps
-                                        </Badge>
-                                    )}
-                                </div>
-                                {/* Mini Progress Bar — career stops at a glance */}
-                                <MiniProgressBar />
-                                {/* Academy link — opens drawer to browse other academy players */}
-                                {profile?.parent_team_name && (
-                                    <div className="mt-2">
-                                        <button
-                                            onClick={handleParentClubClick}
-                                            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md"
-                                        >
-                                            {profile.parent_team_logo && (
-                                                <img src={profile.parent_team_logo} alt="" width={20} height={20} className="w-5 h-5 rounded-full object-cover" />
-                                            )}
-                                            <span className="font-medium group-hover:underline">{profile.parent_team_name} Academy</span>
-                                            <Users className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-primary" />
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            {/* Identity-first hero */}
+            <ProfileHero
+                playerApiId={playerApiId}
+                playerName={playerName}
+                profile={profile}
+                position={position}
+                seasonTotals={seasonTotals}
+                academyStats={academyStats}
+                currentClub={currentClub}
+                isWatched={isWatched}
+                onToggleWatch={handleToggleWatch}
+                onFlag={() => setFlagOpen(true)}
+                onBack={handleBack}
+                onParentClubClick={handleParentClubClick}
+                claimState={claimState}
+                onClaim={requestClaim}
+            />
 
-            <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 pb-24 sm:pb-6">
+            <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-24 sm:pb-6">
                     <div className="space-y-8">
-                        <ShowcaseSection playerApiId={playerApiId} playerName={playerName} />
+                        <ShowcaseSection
+                            playerApiId={playerApiId}
+                            playerName={playerName}
+                            showcase={showcaseData.showcase}
+                            myClaims={showcaseData.myClaims}
+                            loading={showcaseData.loading}
+                            error={showcaseData.error}
+                            refresh={showcaseData.refresh}
+                            claimOpen={claimOpen}
+                            onClaimOpenChange={setClaimOpen}
+                            onRequestClaim={requestClaim}
+                        />
                         {stats.length === 0 && academyStats?.appearances > 0 ? (
                             /* Academy player with no loan stats — academy section below is the primary view */
                             null

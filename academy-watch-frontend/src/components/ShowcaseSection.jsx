@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -38,7 +38,6 @@ import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
 import { isYouTubeUrl } from '@/lib/youtube'
 import { VideoEmbed } from '@/components/VideoEmbed'
-import { useAuth, useAuthUI } from '@/context/AuthContext'
 
 const RELATIONSHIP_OPTIONS = [
   { value: 'player', label: 'Player' },
@@ -80,17 +79,26 @@ function SectionHeader({ icon: Icon, eyebrow, title, action }) {
   )
 }
 
-export function ShowcaseSection({ playerApiId, playerName }) {
-  const { token } = useAuth()
-  const { openLoginModal } = useAuthUI()
-
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(false)
-  const [showcase, setShowcase] = useState(null)
-  const [myClaims, setMyClaims] = useState([])
-
-  // Claim dialog
-  const [claimOpen, setClaimOpen] = useState(false)
+/**
+ * Showcase card. Data (showcase + the viewer's claims) is fetched ONCE by
+ * PlayerPage via useShowcase and passed in — hero and this card share one
+ * source of truth. The claim dialog's open state is controlled by PlayerPage
+ * (`claimOpen` / `onClaimOpenChange`) so the hero's claim CTA can open the
+ * same dialog; all claim/video/profile submission logic still lives here.
+ */
+export function ShowcaseSection({
+  playerApiId,
+  playerName,
+  showcase,
+  myClaims = [],
+  loading = false,
+  error = false,
+  refresh,
+  claimOpen = false,
+  onClaimOpenChange,
+  onRequestClaim,
+}) {
+  // Claim dialog form state (open/close is controlled by the parent)
   const [claimRelationship, setClaimRelationship] = useState('player')
   const [claimMessage, setClaimMessage] = useState('')
   const [claimBusy, setClaimBusy] = useState(false)
@@ -115,50 +123,13 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   // Reel mutation busy state
   const [reelBusy, setReelBusy] = useState(false)
 
-  const fetchData = useCallback(async () => {
-    const [sc, claims] = await Promise.all([
-      APIService.getPlayerShowcase(playerApiId),
-      token ? APIService.getMyClaims().catch(() => null) : Promise.resolve(null),
-    ])
-    const claimsArr = Array.isArray(claims) ? claims : claims?.claims || []
-    return { sc, claimsArr }
-  }, [playerApiId, token])
-
-  // PlayerPage is reused across /players/:id navigations — track the active
-  // player so an in-flight refresh for the previous player never lands.
-  const activePlayerRef = useRef(playerApiId)
-
+  // Reset the claim form each time the (parent-controlled) dialog opens.
   useEffect(() => {
-    let cancelled = false
-    activePlayerRef.current = playerApiId
-    setLoading(true)
-    setError(false)
-    fetchData()
-      .then(({ sc, claimsArr }) => {
-        if (cancelled) return
-        setShowcase(sc || null)
-        setMyClaims(claimsArr)
-      })
-      .catch(() => {
-        if (!cancelled) setError(true)
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => { cancelled = true }
-  }, [fetchData, playerApiId])
-
-  const refresh = useCallback(async () => {
-    const pid = playerApiId
-    try {
-      const { sc, claimsArr } = await fetchData()
-      if (activePlayerRef.current !== pid) return
-      setShowcase(sc || null)
-      setMyClaims(claimsArr)
-    } catch {
-      // best-effort refresh
+    if (claimOpen) {
+      setClaimError(null)
+      setClaimDone(false)
     }
-  }, [fetchData, playerApiId])
+  }, [claimOpen])
 
   if (loading) {
     return (
@@ -194,16 +165,6 @@ export function ShowcaseSection({ playerApiId, playerName }) {
 
   const reorderableIds = reel.filter((i) => !isSynthetic(i)).map((i) => i.id)
 
-  const openClaimDialog = () => {
-    if (!token) {
-      openLoginModal()
-      return
-    }
-    setClaimError(null)
-    setClaimDone(false)
-    setClaimOpen(true)
-  }
-
   const submitClaim = async () => {
     if (claimBusy) return
     setClaimBusy(true)
@@ -215,8 +176,8 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       })
       track('claim_submitted', { player_api_id: playerApiId, relationship: claimRelationship })
       setClaimDone(true)
-      await refresh()
-      setTimeout(() => setClaimOpen(false), 1600)
+      await refresh?.()
+      setTimeout(() => onClaimOpenChange?.(false), 1600)
     } catch (err) {
       setClaimError(err.body?.error || err.message || 'Failed to submit claim')
     } finally {
@@ -238,7 +199,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       setVideoDone(true)
       setVideoUrl('')
       setVideoTitle('')
-      await refresh()
+      await refresh?.()
       setTimeout(() => { setVideoOpen(false); setVideoDone(false) }, 1600)
     } catch (err) {
       setVideoError(err.body?.error || err.message || 'Failed to add video')
@@ -272,7 +233,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
         height_cm: heightRaw ? parseInt(heightRaw, 10) : null,
       })
       setProfileDone(true)
-      await refresh()
+      await refresh?.()
       setTimeout(() => setProfileOpen(false), 1600)
     } catch (err) {
       setProfileError(err.body?.error || err.message || 'Failed to update profile')
@@ -291,7 +252,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     setReelBusy(true)
     try {
       await APIService.reorderShowcaseReel(playerApiId, { ordered_ids })
-      await refresh()
+      await refresh?.()
     } catch {
       // ignore — order unchanged on failure
     } finally {
@@ -304,7 +265,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     setReelBusy(true)
     try {
       await APIService.deleteShowcaseReelItem(playerApiId, linkId)
-      await refresh()
+      await refresh?.()
     } catch {
       // ignore
     } finally {
@@ -503,7 +464,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
             ) : (
               <>
                 <p className="text-sm text-muted-foreground">Is this you, or someone you represent?</p>
-                <Button variant="outline" size="sm" onClick={openClaimDialog}>
+                <Button variant="outline" size="sm" onClick={onRequestClaim}>
                   Claim this profile
                 </Button>
               </>
@@ -513,7 +474,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       </CardContent>
 
       {/* Claim dialog */}
-      <Dialog open={claimOpen} onOpenChange={setClaimOpen}>
+      <Dialog open={claimOpen} onOpenChange={onClaimOpenChange}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Claim {playerName || 'this profile'}</DialogTitle>
@@ -556,7 +517,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
           )}
           {!claimDone && (
             <DialogFooter>
-              <Button variant="ghost" onClick={() => setClaimOpen(false)}>Cancel</Button>
+              <Button variant="ghost" onClick={() => onClaimOpenChange?.(false)}>Cancel</Button>
               <Button onClick={submitClaim} disabled={claimBusy}>
                 {claimBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
                 Submit claim
