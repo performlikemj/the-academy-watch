@@ -280,7 +280,6 @@ export function ShowcaseSection({
         <SectionHeader
           icon={Sparkles}
           eyebrow="Showcase"
-          title={`${playerName || 'Player'} — Showcase`}
           action={
             isOwner ? (
               <div className="flex shrink-0 items-center gap-2">
@@ -301,6 +300,19 @@ export function ShowcaseSection({
           <p className="-mt-4 text-xs text-muted-foreground">
             You manage this profile. Videos and profile edits are reviewed before they appear publicly.
           </p>
+        )}
+
+        {/* Empty state — invite, never a dead end */}
+        {!hasContent && (
+          <div className="rounded-lg border border-dashed border-border/80 bg-secondary/30 px-4 py-6 text-center">
+            <Clapperboard className="mx-auto mb-2 h-6 w-6 text-muted-foreground/60" />
+            <p className="text-sm font-medium text-foreground">No highlights yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {isOwner
+                ? 'Add your first video to bring this profile to life.'
+                : 'Highlight reels and player details appear here once this profile is claimed.'}
+            </p>
+          </div>
         )}
 
         {/* 1. Highlight reel */}

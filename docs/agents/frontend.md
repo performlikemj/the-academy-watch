@@ -41,6 +41,14 @@ Push touching only `academy-watch-frontend/**` triggers the fast `Deploy Fronten
 workflow (~1–2 min, no backend rebuild). The `Deploy Frontend` job can intermittently 403 on
 the MCR base image — just `gh run rerun <id> --failed` (debugging.md), not a code bug.
 
+## Native iOS is coming (MJ, 2026-07)
+
+The SPA will eventually ship inside a native iOS app. Design accordingly on every UI
+change: interactive targets ≥44px (h-11), no hover-only affordances (pair every
+`group-hover` reveal with a touch-visible state), viewport-pinned `fixed` elements pad
+with `env(safe-area-inset-*)`, prefer the Web Share API / system-sheet patterns over
+custom popovers for OS-level actions.
+
 ## Verify a UI change
 
 Don't iterate blind. Run `pnpm dev`, drive the affected page (Playwright for anything

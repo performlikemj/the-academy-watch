@@ -24,7 +24,7 @@ import {
     ResponsiveContainer,
     ReferenceLine,
 } from 'recharts'
-import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, PenTool, ChevronRight, ChevronDown, Users, ExternalLink, MapPin } from 'lucide-react'
+import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, PenTool, ChevronRight, ChevronDown, Users, MapPin } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import FlagDataDialog from '@/components/FlagDataDialog'
 import { APIService } from '@/lib/api'
@@ -34,7 +34,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { SponsorStrip } from '@/components/SponsorSidebar'
 import { MatchDetailDrawer } from '@/components/MatchDetailDrawer'
 import PlayerJourneyView from '@/components/PlayerJourneyView'
-import { JourneyProvider, useJourney } from '@/contexts/JourneyContext'
+import { JourneyProvider } from '@/contexts/JourneyContext'
 import { SeasonStatsPanel } from '@/components/SeasonStatsPanel'
 import { CommentSection } from '@/components/CommentSection'
 import { PlayerLinksSection } from '@/components/PlayerLinksSection'
@@ -43,18 +43,6 @@ import { ProfileHero } from '@/components/profile/ProfileHero'
 import { useShowcase, deriveClaimState } from '@/components/profile/useShowcase'
 import { PlayerAvailability } from '@/components/PlayerAvailability'
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, CHART_TOOLTIP_BG, CHART_TOOLTIP_BORDER } from '../lib/theme-constants'
-
-/** Dims children when viewing a past career stop so SeasonStatsPanel takes focus. */
-function JourneyDimmer({ children, className = '' }) {
-    const { selectedNode, progressionNodes } = useJourney()
-    const isLatest = selectedNode && selectedNode.id === progressionNodes[progressionNodes.length - 1]?.id
-    const dimmed = selectedNode && !isLatest
-    return (
-        <div className={`transition-opacity duration-300 ${dimmed ? 'opacity-30 pointer-events-none' : ''} ${className}`}>
-            {children}
-        </div>
-    )
-}
 
 const METRIC_CONFIG = {
     'Attacker': {
@@ -700,60 +688,7 @@ export function PlayerPage() {
                             </div>
                         ) : (
                             <div className="space-y-6">
-                        {/* Season Summary Cards - Position-aware (dimmed when viewing past stop) */}
-                        <JourneyDimmer>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-foreground tabular-nums">{seasonTotals.appearances}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Appearances</div>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-foreground tabular-nums">{seasonTotals.minutes}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Minutes</div>
-                                </CardContent>
-                            </Card>
-                            {position === 'Goalkeeper' ? (
-                                <>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-emerald-600 tabular-nums">{seasonTotals.saves}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Saves</div>
-                                        </CardContent>
-                                    </Card>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-orange-600 tabular-nums">{seasonTotals.goalsConceded}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Conceded</div>
-                                        </CardContent>
-                                    </Card>
-                                </>
-                            ) : (
-                                <>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-emerald-600 tabular-nums">{seasonTotals.goals}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Goals</div>
-                                        </CardContent>
-                                    </Card>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-amber-600 tabular-nums">{seasonTotals.assists}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Assists</div>
-                                        </CardContent>
-                                    </Card>
-                                </>
-                            )}
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-violet-600 tabular-nums">{seasonTotals.avgRating}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Avg Rating</div>
-                                </CardContent>
-                            </Card>
-                        </div>
-                        </JourneyDimmer>
+                        {/* Season totals live in the hero key-stat strip — no duplicate card row here */}
 
                         {/* Season Stats Panel — slides in when a past career stop is selected */}
                         <SeasonStatsPanel />
@@ -1007,7 +942,8 @@ export function PlayerPage() {
                                                                         <div className="font-medium group-hover:text-primary transition-colors truncate">{s.opponent}</div>
                                                                         <div className="text-xs text-muted-foreground truncate">{s.competition}</div>
                                                                     </div>
-                                                                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-primary transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0" />
+                                                                    {/* Visible on touch devices; hover-reveal only where hover exists */}
+                                                                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary sm:opacity-0 sm:group-hover:opacity-100" />
                                                                 </div>
                                                             </td>
                                                             <td className="px-2 py-2.5 sm:p-3 tabular-nums">{s.minutes}'</td>

@@ -23,8 +23,9 @@ const HERO_CHIP =
   'dark:border-primary/30 dark:bg-primary/15 dark:text-foreground'
 
 // Icon action button styled for the hero band.
+// 44px — Apple HIG minimum touch target, ready for the native iOS wrapper.
 const HERO_ICON_BTN =
-  'inline-flex h-10 w-10 items-center justify-center rounded-full border transition-colors ' +
+  'inline-flex h-11 w-11 items-center justify-center rounded-full border transition-colors ' +
   'border-primary-foreground/25 bg-primary-foreground/10 text-primary-foreground ' +
   'hover:bg-primary-foreground/20 focus-visible:outline-none focus-visible:ring-2 ' +
   'focus-visible:ring-primary-foreground/60 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent ' +
@@ -33,10 +34,11 @@ const HERO_ICON_BTN =
 /** Build the hero key-stat strip, rendering only stats that actually exist. */
 function buildHeroStats({ position, seasonTotals, academyStats }) {
   const gk = position === 'Goalkeeper'
-  let apps, goals, assists, saves, conceded, rating
+  let apps, minutes, goals, assists, saves, conceded, rating
 
   if (seasonTotals?.appearances > 0) {
     apps = seasonTotals.appearances
+    minutes = seasonTotals.minutes
     goals = seasonTotals.goals
     assists = seasonTotals.assists
     saves = seasonTotals.saves
@@ -44,6 +46,7 @@ function buildHeroStats({ position, seasonTotals, academyStats }) {
     rating = seasonTotals.avgRating
   } else if (academyStats?.appearances > 0) {
     apps = academyStats.appearances
+    minutes = academyStats.minutes
     goals = academyStats.goals
     assists = academyStats.assists
     rating = academyStats.rating
@@ -52,6 +55,9 @@ function buildHeroStats({ position, seasonTotals, academyStats }) {
   }
 
   const out = [{ label: 'Apps', value: apps }]
+  if (minutes > 0) {
+    out.push({ label: 'Minutes', value: minutes.toLocaleString() })
+  }
   if (gk && saves != null) {
     out.push({ label: 'Saves', value: saves })
     out.push({ label: 'Conceded', value: conceded ?? 0 })
@@ -60,7 +66,8 @@ function buildHeroStats({ position, seasonTotals, academyStats }) {
     out.push({ label: 'Assists', value: assists ?? 0 })
   }
   if (rating != null && rating !== '-') {
-    out.push({ label: 'Avg Rating', value: rating })
+    // Marked wide so an odd tile count still lands balanced on the 2-col mobile grid.
+    out.push({ label: 'Avg Rating', value: rating, wide: true })
   }
   return out
 }
@@ -90,7 +97,7 @@ function ClaimAffordance({ claimState, onClaim }) {
     return (
       <Button
         onClick={onClaim}
-        className="gap-1.5 bg-primary-foreground text-primary shadow-sm hover:bg-primary-foreground/90 dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90"
+        className="h-11 gap-1.5 bg-primary-foreground px-5 text-primary shadow-sm hover:bg-primary-foreground/90 dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90"
       >
         <BadgeCheck className="h-4 w-4" />
         Is this you? Claim your profile
@@ -154,7 +161,7 @@ export function ProfileHero({
           inert while hidden so its controls can't take keyboard focus. */}
       <div
         inert={!showBar}
-        className={`fixed inset-x-0 top-0 z-30 border-b border-border bg-card/95 backdrop-blur transition-all duration-200 ${
+        className={`fixed inset-x-0 top-0 z-30 border-b border-border bg-card/95 pt-[env(safe-area-inset-top)] backdrop-blur transition-all duration-200 ${
           showBar ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-full opacity-0'
         }`}
       >
@@ -197,7 +204,7 @@ export function ProfileHero({
           <div className="mb-4 flex items-center justify-between">
             <button
               onClick={onBack}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-primary-foreground/90 transition-colors hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/60 dark:text-foreground/80 dark:hover:text-foreground dark:focus-visible:ring-primary/60"
+              className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 py-2 text-sm font-medium text-primary-foreground/90 transition-colors hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/60 dark:text-foreground/80 dark:hover:text-foreground dark:focus-visible:ring-primary/60"
             >
               <ArrowLeft className="h-4 w-4" />
               Back
@@ -325,7 +332,9 @@ export function ProfileHero({
               {heroStats.map((s) => (
                 <div
                   key={s.label}
-                  className="rounded-xl border border-primary-foreground/15 bg-primary-foreground/10 px-4 py-3 text-center sm:min-w-[104px] sm:flex-1 dark:border-primary/20 dark:bg-primary/10"
+                  className={`rounded-xl border border-primary-foreground/15 bg-primary-foreground/10 px-4 py-3 text-center sm:min-w-[104px] sm:flex-1 dark:border-primary/20 dark:bg-primary/10 ${
+                    s.wide && heroStats.length % 2 === 1 ? 'col-span-2 sm:col-auto' : ''
+                  }`}
                 >
                   <div className="text-2xl font-bold tabular-nums sm:text-3xl">{s.value}</div>
                   <div className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-primary-foreground/70 dark:text-muted-foreground">

@@ -72,10 +72,10 @@ export function ShareMenu({ playerId, playerName, profile, seasonTotals, positio
                 {isHero ? (
                     <Button
                         variant="ghost"
-                        size="sm"
                         aria-label={ariaLabel}
                         className={cn(
-                            'gap-1.5 border border-border/60 bg-background/90 text-foreground shadow-sm backdrop-blur-sm',
+                            // h-11 = 44px Apple HIG touch target for the primary hero action
+                            'h-11 gap-1.5 border border-border/60 bg-background/90 px-5 text-foreground shadow-sm backdrop-blur-sm',
                             'hover:bg-background dark:bg-background/80 dark:hover:bg-background/95'
                         )}
                     >
