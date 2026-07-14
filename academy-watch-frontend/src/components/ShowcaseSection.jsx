@@ -38,6 +38,7 @@ import {
   Star,
   Copy,
   Search,
+  Building2,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
@@ -69,6 +70,19 @@ const AVAILABILITY_OPTIONS = [
   { value: 'not_looking', label: 'Not looking' },
   { value: 'trial_available', label: 'Available for trials' },
 ]
+
+const CLUB_LEVEL_OPTIONS = [
+  { value: 'grassroots', label: 'Grassroots' },
+  { value: 'academy', label: 'Academy' },
+  { value: 'youth', label: 'Youth' },
+  { value: 'semi_pro', label: 'Semi-professional' },
+  { value: 'professional', label: 'Professional' },
+  { value: 'other', label: 'Other' },
+]
+
+const EMPTY_CLUB_RESULTS = { api_teams: [], local_clubs: [] }
+const EMPTY_LOCAL_CLUB_FORM = { name: '', country: '', city: '', level: '' }
+const PUBLIC_AFFILIATION_STATUSES = new Set(['self_reported', 'club_confirmed'])
 
 const PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const PHOTO_MAX_BYTES = 8 * 1024 * 1024
@@ -165,6 +179,31 @@ function VerificationInstructions() {
   )
 }
 
+function AffiliationStatusBadge({ status }) {
+  if (status === 'club_confirmed') {
+    return (
+      <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
+        Club-confirmed
+      </Badge>
+    )
+  }
+  if (status === 'pending') {
+    return (
+      <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+        Pending review
+      </Badge>
+    )
+  }
+  if (status === 'rejected') {
+    return (
+      <Badge variant="outline" className="border-rose-200 bg-rose-50 text-rose-800">
+        Rejected
+      </Badge>
+    )
+  }
+  return <Badge variant="secondary">Self-reported</Badge>
+}
+
 export function ShowcaseSection({ playerApiId, playerName }) {
   const { token } = useAuth()
   const { openLoginModal } = useAuthUI()
@@ -215,6 +254,27 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   const [photoActionCopy, setPhotoActionCopy] = useState({ title: 'Update photos', done: 'Photos updated' })
   const [photoDeleteTarget, setPhotoDeleteTarget] = useState(null)
 
+  // Club affiliation dialog + delete confirmation
+  const [clubOpen, setClubOpen] = useState(false)
+  const [clubSearch, setClubSearch] = useState('')
+  const [clubSearchBusy, setClubSearchBusy] = useState(false)
+  const [clubSearchComplete, setClubSearchComplete] = useState(false)
+  const [clubSearchError, setClubSearchError] = useState(null)
+  const [clubResults, setClubResults] = useState(EMPTY_CLUB_RESULTS)
+  const [selectedClub, setSelectedClub] = useState(null)
+  const [clubSeason, setClubSeason] = useState('')
+  const [createClubMode, setCreateClubMode] = useState(false)
+  const [localClubForm, setLocalClubForm] = useState(EMPTY_LOCAL_CLUB_FORM)
+  const [duplicateClub, setDuplicateClub] = useState(null)
+  const [clubBusy, setClubBusy] = useState(false)
+  const [clubDone, setClubDone] = useState(false)
+  const [clubError, setClubError] = useState(null)
+  const [clubDeleteOpen, setClubDeleteOpen] = useState(false)
+  const [clubDeleteTarget, setClubDeleteTarget] = useState(null)
+  const [clubDeleteBusy, setClubDeleteBusy] = useState(false)
+  const [clubDeleteDone, setClubDeleteDone] = useState(false)
+  const [clubDeleteError, setClubDeleteError] = useState(null)
+
   // Edit-profile dialog
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileForm, setProfileForm] = useState({
@@ -251,6 +311,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   const activePlayerRef = useRef(playerApiId)
   const previousPlayerRef = useRef(playerApiId)
   const closeTimersRef = useRef({})
+  const clubSearchRequestRef = useRef(0)
 
   const clearCloseTimer = useCallback((key) => {
     const timer = closeTimersRef.current[key]
@@ -310,6 +371,26 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       setPhotoActionError(null)
       setPhotoDeleteTarget(null)
       setPhotoInputKey((key) => key + 1)
+      clubSearchRequestRef.current += 1
+      setClubOpen(false)
+      setClubSearch('')
+      setClubSearchBusy(false)
+      setClubSearchComplete(false)
+      setClubSearchError(null)
+      setClubResults(EMPTY_CLUB_RESULTS)
+      setSelectedClub(null)
+      setClubSeason('')
+      setCreateClubMode(false)
+      setLocalClubForm(EMPTY_LOCAL_CLUB_FORM)
+      setDuplicateClub(null)
+      setClubBusy(false)
+      setClubDone(false)
+      setClubError(null)
+      setClubDeleteOpen(false)
+      setClubDeleteTarget(null)
+      setClubDeleteBusy(false)
+      setClubDeleteDone(false)
+      setClubDeleteError(null)
       setProfileOpen(false)
       setProfileBusy(false)
       setReelBusy(false)
@@ -333,6 +414,43 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       })
     return () => { cancelled = true }
   }, [clearAllCloseTimers, fetchData, playerApiId])
+
+  useEffect(() => {
+    const query = clubSearch.trim()
+    if (!clubOpen || createClubMode || query.length < 2) return undefined
+
+    const requestId = clubSearchRequestRef.current + 1
+    clubSearchRequestRef.current = requestId
+    const pid = playerApiId
+    const timer = setTimeout(async () => {
+      if (clubSearchRequestRef.current !== requestId || activePlayerRef.current !== pid) return
+      setClubSearchBusy(true)
+      setClubSearchError(null)
+      try {
+        const response = await APIService.searchClubs(query)
+        if (clubSearchRequestRef.current !== requestId || activePlayerRef.current !== pid) return
+        setClubResults({
+          api_teams: Array.isArray(response?.api_teams) ? response.api_teams : [],
+          local_clubs: Array.isArray(response?.local_clubs) ? response.local_clubs : [],
+        })
+        setClubSearchComplete(true)
+      } catch (err) {
+        if (clubSearchRequestRef.current !== requestId || activePlayerRef.current !== pid) return
+        setClubResults(EMPTY_CLUB_RESULTS)
+        setClubSearchComplete(false)
+        setClubSearchError(err.body?.error || err.message || 'Failed to search clubs')
+      } finally {
+        if (clubSearchRequestRef.current === requestId && activePlayerRef.current === pid) {
+          setClubSearchBusy(false)
+        }
+      }
+    }, 300)
+
+    return () => {
+      clearTimeout(timer)
+      if (clubSearchRequestRef.current === requestId) clubSearchRequestRef.current += 1
+    }
+  }, [clubOpen, clubSearch, createClubMode, playerApiId])
 
   const refresh = useCallback(async () => {
     const pid = playerApiId
@@ -365,12 +483,16 @@ export function ShowcaseSection({ playerApiId, playerName }) {
 
   const reel = Array.isArray(showcase.reel) ? showcase.reel : []
   const photos = Array.isArray(showcase.photos) ? showcase.photos : []
+  const affiliations = Array.isArray(showcase.affiliations) ? showcase.affiliations : []
   const profile = showcase.profile || null
   const verified = Array.isArray(showcase.verified_footage) ? showcase.verified_footage : []
   const claimStatus = showcase.claim_status // 'unclaimed' | 'claimed'
 
   const myClaim = myClaims.find((c) => Number(c.player_api_id) === Number(playerApiId))
   const isOwner = myClaim?.status === 'approved'
+  const visibleAffiliations = affiliations.filter(
+    (affiliation) => isOwner || PUBLIC_AFFILIATION_STATUSES.has(affiliation.status),
+  )
 
   const approvedPhotos = photos
     .filter((photo) => photo.status === 'approved')
@@ -393,7 +515,11 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   // can still claim an unclaimed profile.
   const showClaimStrip = !isOwner && (myClaim ? true : claimStatus === 'unclaimed')
 
-  const hasContent = reel.length > 0 || visiblePhotos.length > 0 || profile || verified.length > 0
+  const hasContent = reel.length > 0
+    || visiblePhotos.length > 0
+    || visibleAffiliations.length > 0
+    || profile
+    || verified.length > 0
   if (!hasContent && !isOwner && !showClaimStrip) return null
 
   const reorderableIds = reel.filter((i) => !isSynthetic(i)).map((i) => i.id)
@@ -765,6 +891,160 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     }
   }
 
+  const resetClubDialog = () => {
+    clubSearchRequestRef.current += 1
+    setClubSearch('')
+    setClubSearchBusy(false)
+    setClubSearchComplete(false)
+    setClubSearchError(null)
+    setClubResults(EMPTY_CLUB_RESULTS)
+    setSelectedClub(null)
+    setClubSeason('')
+    setCreateClubMode(false)
+    setLocalClubForm(EMPTY_LOCAL_CLUB_FORM)
+    setDuplicateClub(null)
+    setClubBusy(false)
+    setClubDone(false)
+    setClubError(null)
+  }
+
+  const openClubDialog = () => {
+    clearCloseTimer('clubAdd')
+    resetClubDialog()
+    setClubOpen(true)
+  }
+
+  const updateClubSearch = (value) => {
+    clubSearchRequestRef.current += 1
+    setClubSearch(value)
+    setClubSearchBusy(false)
+    setClubSearchComplete(false)
+    setClubSearchError(null)
+    setClubResults(EMPTY_CLUB_RESULTS)
+    setSelectedClub(null)
+    setDuplicateClub(null)
+    setClubError(null)
+  }
+
+  const chooseClub = (kind, club) => {
+    setSelectedClub({ kind, club })
+    setCreateClubMode(false)
+    setDuplicateClub(null)
+    setClubError(null)
+  }
+
+  const toggleCreateClub = () => {
+    const next = !createClubMode
+    clubSearchRequestRef.current += 1
+    setClubSearchBusy(false)
+    setCreateClubMode(next)
+    setSelectedClub(null)
+    setDuplicateClub(null)
+    setClubError(null)
+    if (next) {
+      setLocalClubForm({ ...EMPTY_LOCAL_CLUB_FORM, name: clubSearch.trim() })
+    }
+  }
+
+  const submitClub = async () => {
+    if (clubBusy) return
+    if (createClubMode && !localClubForm.name.trim()) {
+      setClubError('Enter the club name.')
+      return
+    }
+    if (!createClubMode && !selectedClub) {
+      setClubError('Select a club from the search results.')
+      return
+    }
+
+    const pid = playerApiId
+    let stage = createClubMode ? 'create' : 'affiliation'
+    setClubBusy(true)
+    setClubDone(false)
+    setClubError(null)
+    setDuplicateClub(null)
+    try {
+      let selection = selectedClub
+      if (createClubMode) {
+        const response = await APIService.createLocalClub({
+          name: localClubForm.name.trim(),
+          country: localClubForm.country.trim() || undefined,
+          city: localClubForm.city.trim() || undefined,
+          level: localClubForm.level || undefined,
+        })
+        const club = response?.club
+        if (!club?.id) throw new Error('The club was created without an id')
+        selection = { kind: 'local', club }
+        stage = 'affiliation'
+      }
+
+      const affiliationPayload = selection.kind === 'api'
+        ? { team_api_id: selection.club.team_api_id }
+        : { local_club_id: selection.club.id }
+      const season = clubSeason.trim()
+      await APIService.addPlayerAffiliation(pid, {
+        ...affiliationPayload,
+        season: season || undefined,
+      })
+      if (activePlayerRef.current === pid) setClubDone(true)
+      await refresh()
+      scheduleClose('clubAdd', pid, () => {
+        setClubOpen(false)
+        setClubDone(false)
+      })
+    } catch (err) {
+      if (activePlayerRef.current !== pid) return
+      if (stage === 'create' && err.status === 409 && err.body?.existing) {
+        setDuplicateClub(err.body.existing)
+        setClubError('A matching community club already exists. Use that club instead.')
+      } else {
+        setClubError(err.body?.error || err.message || 'Failed to add club')
+      }
+    } finally {
+      if (activePlayerRef.current === pid) setClubBusy(false)
+    }
+  }
+
+  const requestDeleteClub = (affiliation) => {
+    if (clubDeleteBusy) return
+    clearCloseTimer('clubDelete')
+    setClubDeleteTarget(affiliation)
+    setClubDeleteDone(false)
+    setClubDeleteError(null)
+    setClubDeleteOpen(true)
+  }
+
+  const deleteClub = async () => {
+    if (clubDeleteBusy || !clubDeleteTarget?.id) return
+    const pid = playerApiId
+    const affiliationId = clubDeleteTarget.id
+    setClubDeleteBusy(true)
+    setClubDeleteDone(false)
+    setClubDeleteError(null)
+    try {
+      await APIService.deletePlayerAffiliation(pid, affiliationId)
+      if (activePlayerRef.current === pid) setClubDeleteDone(true)
+      await refresh()
+      scheduleClose('clubDelete', pid, () => {
+        setClubDeleteOpen(false)
+        setClubDeleteDone(false)
+        setClubDeleteTarget(null)
+      })
+    } catch (err) {
+      if (activePlayerRef.current === pid) {
+        setClubDeleteError(err.body?.error || err.message || 'Failed to remove club')
+      }
+    } finally {
+      if (activePlayerRef.current === pid) setClubDeleteBusy(false)
+    }
+  }
+
+  const clubResultCount = clubResults.api_teams.length + clubResults.local_clubs.length
+  const canCreateClub = clubSearch.trim().length >= 2
+    && clubSearchComplete
+    && !clubSearchBusy
+    && clubResultCount === 0
+
   return (
     <Card>
       <CardContent className="space-y-8 py-6">
@@ -950,7 +1230,73 @@ export function ShowcaseSection({ playerApiId, playerName }) {
           </div>
         )}
 
-        {/* 2. Highlight reel */}
+        {/* 2. Clubs */}
+        {(visibleAffiliations.length > 0 || isOwner) && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Building2 className="h-3.5 w-3.5" />
+                Clubs
+              </p>
+              {isOwner && (
+                <Button variant="outline" size="sm" onClick={openClubDialog} disabled={clubBusy} className="gap-1.5">
+                  <Plus className="h-3.5 w-3.5" />
+                  Add club
+                </Button>
+              )}
+            </div>
+
+            {visibleAffiliations.length > 0 ? (
+              <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
+                {visibleAffiliations.map((affiliation) => (
+                  <div key={affiliation.id} className="px-3 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-semibold text-foreground">
+                          {affiliation.club_name || 'Club'}
+                        </p>
+                        {affiliation.season && (
+                          <p className="mt-0.5 text-xs text-muted-foreground">Season {affiliation.season}</p>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <AffiliationStatusBadge status={affiliation.status} />
+                        {isOwner && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            disabled={clubDeleteBusy}
+                            onClick={() => requestDeleteClub(affiliation)}
+                            aria-label={`Remove ${affiliation.club_name || 'club'}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    {isOwner && affiliation.status === 'rejected' && affiliation.review_note && (
+                      <p className="mt-2 break-words text-xs leading-relaxed text-rose-700">
+                        Review note: {affiliation.review_note}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={openClubDialog}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-6 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
+              >
+                <Plus className="h-4 w-4" />
+                Add your first club
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* 3. Highlight reel */}
         {reel.length > 0 && (
           <div className="space-y-3">
             <p className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1020,7 +1366,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
           </div>
         )}
 
-        {/* 3. Self-reported profile */}
+        {/* 4. Self-reported profile */}
         {profile && (
           <div className="min-w-0 space-y-3 rounded-lg border border-border/70 bg-secondary/40 p-4">
             <div className="flex items-center gap-2">
@@ -1098,7 +1444,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
           </div>
         )}
 
-        {/* 4. Club-verified footage */}
+        {/* 5. Club-verified footage */}
         {verified.length > 0 && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -1141,7 +1487,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
           </div>
         )}
 
-        {/* 5. Claim strip */}
+        {/* 6. Claim strip */}
         {showClaimStrip && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4">
             {myClaim ? (
@@ -1515,6 +1861,318 @@ export function ShowcaseSection({ playerApiId, playerName }) {
               )}
             </DialogFooter>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add-club affiliation dialog */}
+      <Dialog
+        open={clubOpen}
+        onOpenChange={(open) => {
+          if (clubBusy) return
+          setClubOpen(open)
+          if (!open) {
+            clearCloseTimer('clubAdd')
+            resetClubDialog()
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Add a club</DialogTitle>
+            <DialogDescription>
+              Search official and community clubs first. New community clubs and affiliations are reviewed before appearing publicly.
+            </DialogDescription>
+          </DialogHeader>
+
+          {clubDone ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-emerald-600" role="status" aria-live="polite">
+              <Check className="h-4 w-4" />
+              Submitted for review
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor={`showcase-club-search-${playerApiId}`}>Search clubs</Label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id={`showcase-club-search-${playerApiId}`}
+                    type="search"
+                    placeholder="Search by club name"
+                    value={clubSearch}
+                    onChange={(event) => updateClubSearch(event.target.value)}
+                    maxLength={200}
+                    disabled={clubBusy || createClubMode}
+                    className="pl-9"
+                    autoComplete="off"
+                  />
+                </div>
+                {clubSearch.trim().length > 0 && clubSearch.trim().length < 2 ? (
+                  <p className="text-xs text-muted-foreground">Enter at least 2 characters.</p>
+                ) : null}
+              </div>
+
+              {clubSearchBusy ? (
+                <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground" role="status">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Searching clubs…
+                </div>
+              ) : null}
+
+              {clubSearchError ? (
+                <p className="text-xs text-destructive" role="alert">{clubSearchError}</p>
+              ) : null}
+
+              {!clubSearchBusy && clubSearchComplete && clubResultCount > 0 && !createClubMode ? (
+                <div className="max-h-64 space-y-4 overflow-y-auto pr-1">
+                  {clubResults.api_teams.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        Official clubs
+                      </p>
+                      <div className="space-y-1" role="listbox" aria-label="Official clubs">
+                        {clubResults.api_teams.map((club) => {
+                          const selected = selectedClub?.kind === 'api'
+                            && Number(selectedClub.club.team_api_id) === Number(club.team_api_id)
+                          return (
+                            <button
+                              key={`api-${club.team_api_id}`}
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              onClick={() => chooseClub('api', club)}
+                              className={`flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors ${selected
+                                ? 'border-primary/50 bg-primary/5'
+                                : 'border-border/70 hover:border-primary/30 hover:bg-muted/50'}`}
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium text-foreground">{club.name}</span>
+                                {club.country ? (
+                                  <span className="block truncate text-xs text-muted-foreground">{club.country}</span>
+                                ) : null}
+                              </span>
+                              {selected ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {clubResults.local_clubs.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        Community clubs
+                      </p>
+                      <div className="space-y-1" role="listbox" aria-label="Community clubs">
+                        {clubResults.local_clubs.map((club) => {
+                          const selected = selectedClub?.kind === 'local'
+                            && Number(selectedClub.club.id) === Number(club.id)
+                          const location = [club.city, club.country].filter(Boolean).join(', ')
+                          const level = optionLabel(CLUB_LEVEL_OPTIONS, club.level)
+                          return (
+                            <button
+                              key={`local-${club.id}`}
+                              type="button"
+                              role="option"
+                              aria-selected={selected}
+                              onClick={() => chooseClub('local', club)}
+                              className={`flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors ${selected
+                                ? 'border-primary/50 bg-primary/5'
+                                : 'border-border/70 hover:border-primary/30 hover:bg-muted/50'}`}
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium text-foreground">{club.name}</span>
+                                {location || level ? (
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    {[location, level].filter(Boolean).join(' · ')}
+                                  </span>
+                                ) : null}
+                              </span>
+                              {selected ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {canCreateClub || createClubMode ? (
+                <div className="rounded-lg border border-dashed border-border p-3">
+                  <Button type="button" variant="ghost" size="sm" onClick={toggleCreateClub} disabled={clubBusy}>
+                    {createClubMode ? 'Back to search' : "Can't find your club? Add it"}
+                  </Button>
+
+                  {createClubMode ? (
+                    <div className="mt-3 space-y-3 border-t border-border/70 pt-3">
+                      <div className="space-y-2">
+                        <Label htmlFor={`showcase-local-club-name-${playerApiId}`}>Club name</Label>
+                        <Input
+                          id={`showcase-local-club-name-${playerApiId}`}
+                          value={localClubForm.name}
+                          onChange={(event) => setLocalClubForm((form) => ({ ...form, name: event.target.value }))}
+                          maxLength={200}
+                          disabled={clubBusy}
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor={`showcase-local-club-country-${playerApiId}`}>Country (optional)</Label>
+                          <Input
+                            id={`showcase-local-club-country-${playerApiId}`}
+                            value={localClubForm.country}
+                            onChange={(event) => setLocalClubForm((form) => ({ ...form, country: event.target.value }))}
+                            maxLength={100}
+                            disabled={clubBusy}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`showcase-local-club-city-${playerApiId}`}>City (optional)</Label>
+                          <Input
+                            id={`showcase-local-club-city-${playerApiId}`}
+                            value={localClubForm.city}
+                            onChange={(event) => setLocalClubForm((form) => ({ ...form, city: event.target.value }))}
+                            maxLength={100}
+                            disabled={clubBusy}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`showcase-local-club-level-${playerApiId}`}>Level (optional)</Label>
+                        <Select
+                          value={localClubForm.level || 'not_specified'}
+                          onValueChange={(value) => setLocalClubForm((form) => ({
+                            ...form,
+                            level: value === 'not_specified' ? '' : value,
+                          }))}
+                          disabled={clubBusy}
+                        >
+                          <SelectTrigger id={`showcase-local-club-level-${playerApiId}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="not_specified">Not specified</SelectItem>
+                            {CLUB_LEVEL_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {duplicateClub ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                  <div className="min-w-0 text-sm text-amber-900">
+                    <p className="font-medium">{duplicateClub.name || duplicateClub.club?.name || 'Existing club found'}</p>
+                    <p className="text-xs text-amber-800">Use the existing community club instead.</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => chooseClub('local', duplicateClub.club || duplicateClub)}
+                    disabled={clubBusy}
+                  >
+                    Use this club
+                  </Button>
+                </div>
+              ) : null}
+
+              {selectedClub ? (
+                <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                  <Check className="h-4 w-4 shrink-0 text-primary" />
+                  <span className="min-w-0 truncate font-medium text-foreground">
+                    Selected: {selectedClub.club.name}
+                  </span>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <Label htmlFor={`showcase-club-season-${playerApiId}`}>Season (optional)</Label>
+                <Input
+                  id={`showcase-club-season-${playerApiId}`}
+                  placeholder="e.g. 2025/26"
+                  value={clubSeason}
+                  onChange={(event) => setClubSeason(event.target.value)}
+                  maxLength={20}
+                  disabled={clubBusy}
+                />
+              </div>
+
+              {clubError ? <p className="text-xs text-destructive" role="alert">{clubError}</p> : null}
+            </div>
+          )}
+
+          {!clubDone ? (
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setClubOpen(false)} disabled={clubBusy}>Cancel</Button>
+              <Button
+                onClick={submitClub}
+                disabled={clubBusy || (createClubMode ? !localClubForm.name.trim() : !selectedClub)}
+              >
+                {clubBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                {clubBusy ? 'Adding…' : 'Add club'}
+              </Button>
+            </DialogFooter>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* Club affiliation delete dialog */}
+      <Dialog
+        open={clubDeleteOpen}
+        onOpenChange={(open) => {
+          if (clubDeleteBusy) return
+          setClubDeleteOpen(open)
+          if (!open) {
+            clearCloseTimer('clubDelete')
+            setClubDeleteTarget(null)
+            setClubDeleteDone(false)
+            setClubDeleteError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove club</DialogTitle>
+            <DialogDescription>
+              This removes the affiliation from this player&apos;s showcase.
+            </DialogDescription>
+          </DialogHeader>
+
+          {clubDeleteDone ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-emerald-600" role="status" aria-live="polite">
+              <Check className="h-4 w-4" />
+              Club removed
+            </div>
+          ) : clubDeleteError ? (
+            <p className="py-2 text-sm text-destructive" role="alert">{clubDeleteError}</p>
+          ) : clubDeleteBusy ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground" role="status" aria-live="polite">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Removing club…
+            </div>
+          ) : (
+            <p className="py-2 text-sm text-foreground/90">
+              Remove {clubDeleteTarget?.club_name || 'this club'}? This cannot be undone.
+            </p>
+          )}
+
+          {!clubDeleteDone && !clubDeleteBusy ? (
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setClubDeleteOpen(false)}>
+                {clubDeleteError ? 'Close' : 'Cancel'}
+              </Button>
+              {!clubDeleteError ? (
+                <Button variant="destructive" onClick={deleteClub}>Remove club</Button>
+              ) : null}
+            </DialogFooter>
+          ) : null}
         </DialogContent>
       </Dialog>
 

@@ -1200,6 +1200,33 @@ export class APIService {
         return this.request(`/players/${encodeURIComponent(playerId)}/showcase`)
     }
 
+    static async searchClubs(q) {
+        const query = new URLSearchParams({ q: q || '' }).toString()
+        return this.request(`/clubs/search?${query}`)
+    }
+
+    static async createLocalClub(payload) {
+        return this.request('/local-clubs', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async addPlayerAffiliation(playerId, payload) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/affiliations`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async deletePlayerAffiliation(playerId, affId) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/affiliations/${encodeURIComponent(affId)}`, {
+            method: 'DELETE',
+        })
+    }
+
     static async submitProfileClaim(playerId, { relationship_type, message }) {
         if (!playerId) throw new Error('playerId is required')
         return this.request(`/players/${encodeURIComponent(playerId)}/claim`, {
@@ -1339,6 +1366,44 @@ export class APIService {
 
     static async adminReviewShowcaseMedia(mediaId, { action, note }) {
         return this.request(`/admin/showcase/media/${encodeURIComponent(mediaId)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
+        }, { admin: true })
+    }
+
+    static async adminListLocalClubs(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/local-clubs${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewLocalClub(id, { action, note }) {
+        return this.request(`/admin/local-clubs/${encodeURIComponent(id)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
+        }, { admin: true })
+    }
+
+    static async adminMergeLocalClub(id, { into_local_club_id }) {
+        return this.request(`/admin/local-clubs/${encodeURIComponent(id)}/merge`, {
+            method: 'POST',
+            body: JSON.stringify({ into_local_club_id }),
+        }, { admin: true })
+    }
+
+    static async adminLinkLocalClubApi(id, { team_api_id }) {
+        return this.request(`/admin/local-clubs/${encodeURIComponent(id)}/link-api`, {
+            method: 'POST',
+            body: JSON.stringify({ team_api_id }),
+        }, { admin: true })
+    }
+
+    static async adminListAffiliations(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/showcase/affiliations${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewAffiliation(id, { action, note }) {
+        return this.request(`/admin/showcase/affiliations/${encodeURIComponent(id)}/review`, {
             method: 'POST',
             body: JSON.stringify({ action, note }),
         }, { admin: true })

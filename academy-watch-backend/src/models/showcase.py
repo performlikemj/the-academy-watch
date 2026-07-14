@@ -11,6 +11,8 @@ edits reverts to ``pending`` and is hidden from the public until re-approved.
   api-football id is used directly (no FK) to mirror ``PlayerLink``.
 - ``PlayerShowcaseProfile`` — at most one self-reported card per player.
 - ``PlayerShowcaseMedia`` — pre-moderated, self-hosted player photos.
+- ``LocalClub`` — a moderated, user-created club outside the synced team layer.
+- ``PlayerClubAffiliation`` — a pre-moderated self-reported club affiliation.
 
 Reel storage reuses the existing ``PlayerLink`` model (``link_type='highlight'``)
 plus the ``sort_order`` column added in migration ``aw19``.
@@ -18,6 +20,7 @@ plus the ``sort_order`` column added in migration ``aw19``.
 
 from datetime import UTC, datetime
 
+from sqlalchemy.orm import validates
 from src.models.league import db
 
 
@@ -152,6 +155,81 @@ class PlayerShowcaseMedia(db.Model):
     sort_order = db.Column(db.Integer, nullable=False, default=0, server_default="0")
     status = db.Column(db.String(20), nullable=False, default="pending_upload", server_default="pending_upload")
     uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=True)
+    reviewed_by = db.Column(db.String(200))
+    reviewed_at = db.Column(db.DateTime)
+    review_note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+
+class LocalClub(db.Model):
+    """A moderated local club kept separate from API-synced teams."""
+
+    __tablename__ = "local_clubs"
+    __table_args__ = (
+        db.Index("ix_local_clubs_normalized_name", "normalized_name"),
+        db.Index("ix_local_clubs_status", "status"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    normalized_name = db.Column(db.String(220), nullable=False)
+    country = db.Column(db.String(100))
+    city = db.Column(db.String(120))
+    level = db.Column(db.String(30))
+    status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending")
+    api_team_id = db.Column(db.Integer)
+    merged_into_local_club_id = db.Column(db.Integer, db.ForeignKey("local_clubs.id"), nullable=True)
+    provenance = db.Column(db.String(20), nullable=False, default="user", server_default="user")
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=True)
+    reviewed_by = db.Column(db.String(200))
+    reviewed_at = db.Column(db.DateTime)
+    review_note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    @staticmethod
+    def normalize_name(value: str) -> str:
+        """Lowercase and collapse whitespace for duplicate detection."""
+        return " ".join(value.lower().split())
+
+    @validates("name")
+    def _sync_normalized_name(self, _key, value):
+        if isinstance(value, str):
+            self._setting_normalized_name = True
+            try:
+                self.normalized_name = self.normalize_name(value)
+            finally:
+                self._setting_normalized_name = False
+        return value
+
+    @validates("normalized_name")
+    def _enforce_normalized_name(self, _key, value):
+        if getattr(self, "_setting_normalized_name", False):
+            return self.normalize_name(value) if isinstance(value, str) else value
+        source = self.name if isinstance(self.name, str) else value
+        return self.normalize_name(source) if isinstance(source, str) else source
+
+
+class PlayerClubAffiliation(db.Model):
+    """A player's pre-moderated self-reported club affiliation."""
+
+    __tablename__ = "player_club_affiliations"
+    __table_args__ = (
+        db.Index(
+            "ix_player_club_affiliations_player_status",
+            "player_api_id",
+            "status",
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    player_api_id = db.Column(db.Integer, nullable=False)
+    local_club_id = db.Column(db.Integer, db.ForeignKey("local_clubs.id"), nullable=True)
+    team_api_id = db.Column(db.Integer)
+    season = db.Column(db.String(20))
+    status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending")
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=True)
     reviewed_by = db.Column(db.String(200))
     reviewed_at = db.Column(db.DateTime)
     review_note = db.Column(db.Text)

@@ -35,8 +35,14 @@ from src.auth import (
     require_user_auth,
 )
 from src.extensions import limiter
-from src.models.league import NewsletterPlayerYoutubeLink, PlayerLink, UserAccount, db
-from src.models.showcase import PlayerProfileClaim, PlayerShowcaseMedia, PlayerShowcaseProfile
+from src.models.league import NewsletterPlayerYoutubeLink, PlayerLink, Team, UserAccount, db
+from src.models.showcase import (
+    LocalClub,
+    PlayerClubAffiliation,
+    PlayerProfileClaim,
+    PlayerShowcaseMedia,
+    PlayerShowcaseProfile,
+)
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
 from src.services import showcase_media_storage, social_proof
@@ -75,6 +81,15 @@ VERIFIED_FOOTAGE_CAP = 10
 PLAYER_SEARCH_CAP = 20
 VERIFICATION_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 VERIFICATION_NOTE_MAX_LENGTH = 500
+LOCAL_CLUB_LEVELS = {"grassroots", "academy", "youth", "semi_pro", "professional", "other"}
+LOCAL_CLUB_STATUSES = {"pending", "verified", "merged", "rejected"}
+AFFILIATION_STATUSES = {"pending", "self_reported", "club_confirmed", "rejected"}
+PUBLIC_AFFILIATION_STATUSES = {"self_reported", "club_confirmed"}
+MAX_LOCAL_CLUB_NAME_LENGTH = 200
+MAX_LOCAL_CLUB_COUNTRY_LENGTH = 100
+MAX_LOCAL_CLUB_CITY_LENGTH = 120
+MAX_AFFILIATION_SEASON_LENGTH = 20
+MAX_AFFILIATIONS = 5
 
 # The only identity gate strong enough for public display (see models/video.py).
 VERIFIED_IDENTITY = "human_confirmed"
@@ -184,8 +199,22 @@ def _clean_optional_text(value, max_len: int):
     """Bleach-clean a free-text field; empty/whitespace/non-str → None."""
     if value is None or not isinstance(value, str):
         return None
-    cleaned = sanitize_plain_text(value).strip()
+    cleaned = _sanitize_text(value).strip()
     return cleaned[:max_len] if cleaned else None
+
+
+def _sanitize_text(value: str) -> str:
+    """Sanitize plain text and defensively remove any residual markup.
+
+    ``sanitize_plain_text`` is authoritative in production. The residual-tag
+    pass is defense in depth for alternate/test sanitizer implementations.
+    """
+    return re.sub(r"<[^>]*>", "", sanitize_plain_text(value))
+
+
+def _normalize_club_name(value: str) -> str:
+    """Canonical key for local-club duplicate detection."""
+    return LocalClub.normalize_name(value)
 
 
 def _mint_verification_code() -> str:
@@ -308,6 +337,79 @@ def _media_dict(media: PlayerShowcaseMedia, *, include_preview: bool = False) ->
     return payload
 
 
+def _local_club_dict(club: LocalClub) -> dict:
+    """Full local-club contract for creators and administrators."""
+    return {
+        "id": club.id,
+        "name": club.name,
+        "normalized_name": club.normalized_name,
+        "country": club.country,
+        "city": club.city,
+        "level": club.level,
+        "status": club.status,
+        "api_team_id": club.api_team_id,
+        "merged_into_local_club_id": club.merged_into_local_club_id,
+        "provenance": club.provenance,
+        "created_by_user_id": club.created_by_user_id,
+        "reviewed_by": club.reviewed_by,
+        "reviewed_at": club.reviewed_at.isoformat() if club.reviewed_at else None,
+        "review_note": club.review_note,
+        "created_at": club.created_at.isoformat() if club.created_at else None,
+        "updated_at": club.updated_at.isoformat() if club.updated_at else None,
+    }
+
+
+def _local_club_search_dict(club: LocalClub) -> dict:
+    """Public search result shape; moderation/audit metadata stays private."""
+    return {
+        "id": club.id,
+        "name": club.name,
+        "country": club.country,
+        "city": club.city,
+        "level": club.level,
+        "status": club.status,
+    }
+
+
+def _affiliation_club_name(affiliation: PlayerClubAffiliation) -> str | None:
+    """Resolve the display club, following one local-club merge hop."""
+    if affiliation.team_api_id is not None:
+        team = (
+            Team.query.filter_by(team_id=affiliation.team_api_id).order_by(Team.season.desc(), Team.id.desc()).first()
+        )
+        return team.name if team else None
+
+    club = db.session.get(LocalClub, affiliation.local_club_id) if affiliation.local_club_id else None
+    if club and club.status == "merged" and club.merged_into_local_club_id:
+        club = db.session.get(LocalClub, club.merged_into_local_club_id) or club
+    return club.name if club else None
+
+
+def _affiliation_dict(affiliation: PlayerClubAffiliation, *, include_review_note: bool = False) -> dict:
+    """Stable affiliation contract shared by showcase and admin responses."""
+    payload = {
+        "id": affiliation.id,
+        "player_api_id": affiliation.player_api_id,
+        "team_api_id": affiliation.team_api_id,
+        "local_club_id": affiliation.local_club_id,
+        "club_name": _affiliation_club_name(affiliation),
+        "season": affiliation.season,
+        "status": affiliation.status,
+        "created_at": affiliation.created_at.isoformat() if affiliation.created_at else None,
+    }
+    if include_review_note:
+        payload["review_note"] = affiliation.review_note
+    return payload
+
+
+def _player_affiliations(player_api_id: int, *, include_private: bool) -> list[dict]:
+    query = PlayerClubAffiliation.query.filter_by(player_api_id=player_api_id)
+    if not include_private:
+        query = query.filter(PlayerClubAffiliation.status.in_(PUBLIC_AFFILIATION_STATUSES))
+    rows = query.order_by(PlayerClubAffiliation.created_at.asc(), PlayerClubAffiliation.id.asc()).all()
+    return [_affiliation_dict(row, include_review_note=include_private) for row in rows]
+
+
 def _lock_photo_cap(player_api_id: int) -> None:
     """Serialize photo-row creation per player on PostgreSQL.
 
@@ -319,6 +421,15 @@ def _lock_photo_cap(player_api_id: int) -> None:
         db.session.execute(
             text("SELECT pg_advisory_xact_lock(:namespace, :player_api_id)"),
             {"namespace": 5_455_001, "player_api_id": player_api_id},
+        )
+
+
+def _lock_affiliation_cap(player_api_id: int) -> None:
+    """Serialize affiliation cap/duplicate checks per player on PostgreSQL."""
+    if db.session.get_bind().dialect.name == "postgresql":
+        db.session.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, :player_api_id)"),
+            {"namespace": 5_455_002, "player_api_id": player_api_id},
         )
 
 
@@ -461,6 +572,142 @@ def _verified_footage(player_api_id: int) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Authenticated local-club discovery + creation
+# ---------------------------------------------------------------------------
+
+
+@showcase_bp.route("/clubs/search", methods=["GET"])
+@require_user_auth
+def search_clubs():
+    """Search API-synced teams and the isolated self-reported club layer."""
+    try:
+        raw_q = request.args.get("q")
+        q = _sanitize_text(raw_q).strip() if isinstance(raw_q, str) else ""
+        q = re.sub(r"\s+", " ", q)
+        if len(q) < 2:
+            return jsonify({"error": "q must be at least 2 characters"}), 400
+
+        ranked_teams = (
+            db.session.query(
+                Team.team_id.label("team_api_id"),
+                Team.name.label("name"),
+                Team.country.label("country"),
+                func.row_number()
+                .over(
+                    partition_by=Team.team_id,
+                    order_by=(Team.season.desc(), Team.id.desc()),
+                )
+                .label("row_number"),
+            )
+            .filter(Team.name.ilike(f"%{q}%"))
+            .subquery()
+        )
+        teams = (
+            db.session.query(
+                ranked_teams.c.team_api_id,
+                ranked_teams.c.name,
+                ranked_teams.c.country,
+            )
+            .filter(ranked_teams.c.row_number == 1)
+            .order_by(ranked_teams.c.name.asc(), ranked_teams.c.team_api_id.asc())
+            .limit(10)
+            .all()
+        )
+        local_clubs = (
+            LocalClub.query.filter(
+                LocalClub.name.ilike(f"%{q}%"),
+                LocalClub.status.in_(("pending", "verified")),
+            )
+            .order_by(LocalClub.name.asc(), LocalClub.id.asc())
+            .limit(10)
+            .all()
+        )
+        return jsonify(
+            {
+                "api_teams": [
+                    {"team_api_id": team.team_api_id, "name": team.name, "country": team.country} for team in teams
+                ],
+                "local_clubs": [_local_club_search_dict(club) for club in local_clubs],
+            }
+        )
+    except Exception as e:
+        logger.error("Error in search_clubs: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to search clubs")), 500
+
+
+@showcase_bp.route("/local-clubs", methods=["POST"])
+@require_user_auth
+@limiter.limit("10 per hour", key_func=_user_rate_limit_key)
+def create_local_club():
+    """Create a pending community club without touching API-synced teams."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+
+        raw_name = payload.get("name")
+        if not isinstance(raw_name, str):
+            return jsonify({"error": "name is required and must be a string"}), 400
+        name = _sanitize_text(raw_name).strip()
+        if not 2 <= len(name) <= MAX_LOCAL_CLUB_NAME_LENGTH:
+            return jsonify({"error": "name must be between 2 and 200 characters"}), 400
+
+        country = _clean_optional_text(payload.get("country"), MAX_LOCAL_CLUB_COUNTRY_LENGTH)
+        city = _clean_optional_text(payload.get("city"), MAX_LOCAL_CLUB_CITY_LENGTH)
+        raw_level = payload.get("level")
+        if raw_level is None or (isinstance(raw_level, str) and not raw_level.strip()):
+            level = None
+        elif isinstance(raw_level, str):
+            level = _sanitize_text(raw_level).strip().lower()
+            if level not in LOCAL_CLUB_LEVELS:
+                return jsonify({"error": f"level must be one of {sorted(LOCAL_CLUB_LEVELS)}"}), 400
+        else:
+            return jsonify({"error": f"level must be one of {sorted(LOCAL_CLUB_LEVELS)}"}), 400
+
+        normalized_name = _normalize_club_name(name)
+        existing = (
+            LocalClub.query.filter(
+                LocalClub.normalized_name == normalized_name,
+                func.lower(func.coalesce(LocalClub.country, "")) == (country or "").lower(),
+                LocalClub.status != "rejected",
+            )
+            .order_by(LocalClub.id.asc())
+            .first()
+        )
+        if existing is not None:
+            return (
+                jsonify(
+                    {
+                        "error": "A local club with this name and country already exists",
+                        "existing": _local_club_search_dict(existing),
+                    }
+                ),
+                409,
+            )
+
+        club = LocalClub(
+            name=name,
+            country=country,
+            city=city,
+            level=level,
+            status="pending",
+            provenance="user",
+            created_by_user_id=user.id,
+        )
+        db.session.add(club)
+        db.session.commit()
+        return jsonify({"club": _local_club_dict(club)}), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in create_local_club: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to create local club")), 500
+
+
+# ---------------------------------------------------------------------------
 # Public
 # ---------------------------------------------------------------------------
 
@@ -479,7 +726,6 @@ def get_player_showcase(player_api_id: int):
         authenticated = auth_context is not None
         auth_user = auth_context["user"] if auth_context else None
         is_owner = bool(auth_user and _has_approved_claim(player_api_id, auth_user.id))
-
         profile_row = PlayerShowcaseProfile.query.filter_by(player_api_id=player_api_id).first()
         if profile_row and profile_row.status == "approved":
             profile = profile_row.public_dict(include_agent_contact=authenticated)
@@ -500,6 +746,10 @@ def get_player_showcase(player_api_id: int):
                 "profile": profile,
                 "reel": reel,
                 "photos": photos,
+                "affiliations": _player_affiliations(
+                    player_api_id,
+                    include_private=is_owner,
+                ),
                 "verified_footage": _verified_footage(player_api_id),
                 "claim_status": "claimed" if claimed else "unclaimed",
             }
@@ -699,8 +949,107 @@ def verify_my_claim(claim_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Owner-gated — profile + reel curation
+# Owner-gated — affiliations, profile + reel curation
 # ---------------------------------------------------------------------------
+
+
+@showcase_bp.route("/players/<int:player_api_id>/showcase/affiliations", methods=["POST"])
+@require_user_auth
+@limiter.limit("10 per hour", key_func=_user_rate_limit_key)
+def create_player_affiliation(player_api_id: int):
+    """Submit one pre-moderated self-reported club affiliation."""
+    try:
+        user, error = _approved_claim_or_403(player_api_id)
+        if error:
+            return error
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+
+        local_club_id = payload.get("local_club_id")
+        team_api_id = payload.get("team_api_id")
+        has_local_club = local_club_id is not None
+        has_api_team = team_api_id is not None
+        if has_local_club == has_api_team:
+            return jsonify({"error": "exactly one of local_club_id or team_api_id is required"}), 400
+
+        if has_local_club:
+            if isinstance(local_club_id, bool) or not isinstance(local_club_id, int) or local_club_id <= 0:
+                return jsonify({"error": "local_club_id must reference an active local club"}), 400
+            local_club = db.session.get(LocalClub, local_club_id)
+            if local_club is None or local_club.status in ("merged", "rejected"):
+                return jsonify({"error": "local_club_id must reference an active local club"}), 400
+        elif isinstance(team_api_id, bool) or not isinstance(team_api_id, int) or team_api_id <= 0:
+            return jsonify({"error": "team_api_id must be a positive integer"}), 400
+
+        raw_season = payload.get("season")
+        if raw_season is None:
+            season = None
+        elif not isinstance(raw_season, str):
+            return jsonify({"error": "season must be a string of at most 20 characters"}), 400
+        else:
+            season = _sanitize_text(raw_season).strip() or None
+            if season is not None and len(season) > MAX_AFFILIATION_SEASON_LENGTH:
+                return jsonify({"error": "season must be a string of at most 20 characters"}), 400
+
+        _lock_affiliation_cap(player_api_id)
+        duplicate_query = PlayerClubAffiliation.query.filter(
+            PlayerClubAffiliation.player_api_id == player_api_id,
+            PlayerClubAffiliation.status != "rejected",
+        )
+        if has_local_club:
+            duplicate_query = duplicate_query.filter(PlayerClubAffiliation.local_club_id == local_club_id)
+        else:
+            duplicate_query = duplicate_query.filter(PlayerClubAffiliation.team_api_id == team_api_id)
+        if duplicate_query.first() is not None:
+            return jsonify({"error": "This club affiliation has already been submitted"}), 409
+
+        active_count = PlayerClubAffiliation.query.filter(
+            PlayerClubAffiliation.player_api_id == player_api_id,
+            PlayerClubAffiliation.status != "rejected",
+        ).count()
+        if active_count >= MAX_AFFILIATIONS:
+            return jsonify({"error": f"affiliation limit reached ({MAX_AFFILIATIONS})"}), 409
+
+        affiliation = PlayerClubAffiliation(
+            player_api_id=player_api_id,
+            local_club_id=local_club_id if has_local_club else None,
+            team_api_id=team_api_id if has_api_team else None,
+            season=season,
+            status="pending",
+            created_by_user_id=user.id,
+        )
+        db.session.add(affiliation)
+        db.session.commit()
+        return jsonify({"affiliation": _affiliation_dict(affiliation, include_review_note=True)}), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in create_player_affiliation: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to create affiliation")), 500
+
+
+@showcase_bp.route(
+    "/players/<int:player_api_id>/showcase/affiliations/<int:aff_id>",
+    methods=["DELETE"],
+)
+@require_user_auth
+def delete_player_affiliation(player_api_id: int, aff_id: int):
+    """Delete an affiliation belonging to a player whose profile the caller owns."""
+    try:
+        _, error = _approved_claim_or_403(player_api_id)
+        if error:
+            return error
+        affiliation = PlayerClubAffiliation.query.filter_by(id=aff_id, player_api_id=player_api_id).first()
+        if affiliation is None:
+            return jsonify({"error": "affiliation not found"}), 404
+        db.session.delete(affiliation)
+        db.session.commit()
+        return jsonify({"deleted": True})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in delete_player_affiliation: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to delete affiliation")), 500
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/profile", methods=["PUT"])
@@ -1129,6 +1478,194 @@ def delete_reel_item(player_api_id: int, link_id: int):
         db.session.rollback()
         logger.error("Error in delete_reel_item: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to delete reel item")), 500
+
+
+# ---------------------------------------------------------------------------
+# Admin — local clubs + affiliation review
+# ---------------------------------------------------------------------------
+
+
+@showcase_bp.route("/admin/local-clubs", methods=["GET"])
+@require_api_key
+def admin_list_local_clubs():
+    """List local clubs, optionally filtered by moderation status."""
+    try:
+        status = (request.args.get("status") or "").strip().lower()
+        query = LocalClub.query
+        if status:
+            if status not in LOCAL_CLUB_STATUSES:
+                return jsonify({"error": f"invalid status; one of {sorted(LOCAL_CLUB_STATUSES)}"}), 400
+            query = query.filter(LocalClub.status == status)
+        clubs = query.order_by(LocalClub.created_at.desc(), LocalClub.id.desc()).all()
+        return jsonify({"clubs": [_local_club_dict(club) for club in clubs]})
+    except Exception as e:
+        logger.error("Error in admin_list_local_clubs: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to load local clubs")), 500
+
+
+@showcase_bp.route("/admin/local-clubs/<int:club_id>/review", methods=["POST"])
+@require_api_key
+def admin_review_local_club(club_id: int):
+    """Verify or reject a pending local club."""
+    try:
+        club = LocalClub.query.filter_by(id=club_id).with_for_update().first()
+        if club is None:
+            return jsonify({"error": "local club not found"}), 404
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        raw_action = payload.get("action")
+        action = raw_action.strip().lower() if isinstance(raw_action, str) else ""
+        if action not in ("verify", "reject"):
+            return jsonify({"error": "action must be verify or reject"}), 400
+        if club.status != "pending":
+            return jsonify({"error": f"cannot {action} a {club.status} local club"}), 409
+
+        now = datetime.now(UTC)
+        club.status = "verified" if action == "verify" else "rejected"
+        club.review_note = _clean_optional_text(payload.get("note"), MAX_REVIEW_NOTE_LENGTH)
+        club.reviewed_by = getattr(g, "user_email", None)
+        club.reviewed_at = now
+        club.updated_at = now
+        db.session.commit()
+        return jsonify({"club": _local_club_dict(club)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in admin_review_local_club: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to review local club")), 500
+
+
+@showcase_bp.route("/admin/local-clubs/<int:club_id>/merge", methods=["POST"])
+@require_api_key
+def admin_merge_local_club(club_id: int):
+    """Merge one local club into another and repoint every affiliation."""
+    try:
+        source = LocalClub.query.filter_by(id=club_id).with_for_update().first()
+        if source is None:
+            return jsonify({"error": "local club not found"}), 404
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        target_id = payload.get("into_local_club_id")
+        if isinstance(target_id, bool) or not isinstance(target_id, int) or target_id <= 0:
+            return jsonify({"error": "into_local_club_id must be a positive integer"}), 400
+        if target_id == source.id:
+            return jsonify({"error": "A local club cannot be merged into itself"}), 400
+        if source.status in ("merged", "rejected"):
+            return jsonify({"error": f"cannot merge a {source.status} local club"}), 409
+
+        target = LocalClub.query.filter_by(id=target_id).with_for_update().first()
+        if target is None or target.status in ("merged", "rejected"):
+            return jsonify({"error": "merge target must be an active local club"}), 400
+
+        now = datetime.now(UTC)
+        moved_affiliations = PlayerClubAffiliation.query.filter_by(local_club_id=source.id).update(
+            {
+                PlayerClubAffiliation.local_club_id: target.id,
+                PlayerClubAffiliation.updated_at: now,
+            },
+            synchronize_session=False,
+        )
+        source.status = "merged"
+        source.merged_into_local_club_id = target.id
+        source.reviewed_by = getattr(g, "user_email", None)
+        source.reviewed_at = now
+        source.updated_at = now
+        db.session.commit()
+        return jsonify(
+            {
+                "club": _local_club_dict(source),
+                "moved_affiliations": moved_affiliations,
+            }
+        )
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in admin_merge_local_club: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to merge local club")), 500
+
+
+@showcase_bp.route("/admin/local-clubs/<int:club_id>/link-api", methods=["POST"])
+@require_api_key
+def admin_link_local_club_api(club_id: int):
+    """Store an API-Football bridge id on the local row only."""
+    try:
+        club = db.session.get(LocalClub, club_id)
+        if club is None:
+            return jsonify({"error": "local club not found"}), 404
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        team_api_id = payload.get("team_api_id")
+        if isinstance(team_api_id, bool) or not isinstance(team_api_id, int) or team_api_id <= 0:
+            return jsonify({"error": "team_api_id must be a positive integer"}), 400
+
+        club.api_team_id = team_api_id
+        club.updated_at = datetime.now(UTC)
+        db.session.commit()
+        return jsonify({"club": _local_club_dict(club)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in admin_link_local_club_api: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to link local club")), 500
+
+
+@showcase_bp.route("/admin/showcase/affiliations", methods=["GET"])
+@require_api_key
+def admin_list_affiliations():
+    """List player affiliations with resolved club names."""
+    try:
+        status = (request.args.get("status") or "").strip().lower()
+        query = PlayerClubAffiliation.query
+        if status:
+            if status not in AFFILIATION_STATUSES:
+                return jsonify({"error": f"invalid status; one of {sorted(AFFILIATION_STATUSES)}"}), 400
+            query = query.filter(PlayerClubAffiliation.status == status)
+        affiliations = query.order_by(
+            PlayerClubAffiliation.created_at.desc(),
+            PlayerClubAffiliation.id.desc(),
+        ).all()
+        return jsonify(
+            {"affiliations": [_affiliation_dict(affiliation, include_review_note=True) for affiliation in affiliations]}
+        )
+    except Exception as e:
+        logger.error("Error in admin_list_affiliations: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to load affiliations")), 500
+
+
+@showcase_bp.route("/admin/showcase/affiliations/<int:aff_id>/review", methods=["POST"])
+@require_api_key
+def admin_review_affiliation(aff_id: int):
+    """Approve a pending self-report or reject it with an optional note."""
+    try:
+        affiliation = PlayerClubAffiliation.query.filter_by(id=aff_id).with_for_update().first()
+        if affiliation is None:
+            return jsonify({"error": "affiliation not found"}), 404
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        raw_action = payload.get("action")
+        action = raw_action.strip().lower() if isinstance(raw_action, str) else ""
+        if action not in ("approve", "reject"):
+            return jsonify({"error": "action must be approve or reject"}), 400
+        if affiliation.status != "pending":
+            return jsonify({"error": f"cannot {action} a {affiliation.status} affiliation"}), 409
+
+        now = datetime.now(UTC)
+        affiliation.status = "self_reported" if action == "approve" else "rejected"
+        affiliation.review_note = _clean_optional_text(payload.get("note"), MAX_REVIEW_NOTE_LENGTH)
+        affiliation.reviewed_by = getattr(g, "user_email", None)
+        affiliation.reviewed_at = now
+        affiliation.updated_at = now
+        db.session.commit()
+        return jsonify({"affiliation": _affiliation_dict(affiliation, include_review_note=True)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in admin_review_affiliation: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to review affiliation")), 500
 
 
 # ---------------------------------------------------------------------------

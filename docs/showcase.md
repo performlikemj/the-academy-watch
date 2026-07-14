@@ -71,7 +71,49 @@ action; opposition players have no roster rows and can never appear.
   reorder approved photos, select one primary photo, and delete their media; anonymous
   visitors see approved photos only.
 
-## 4. API surface (all under /api)
+## 4. Local clubs & affiliations
+
+A **local club** is a community-created club record for a team that is not covered by
+API-Football. It lives separately from the API-synced `teams` table and lets a player name
+their real club on Showcase without inventing an API team. Authenticated users search both
+API teams and pending/verified local clubs before creating a local club.
+
+The local-club lifecycle is:
+
+1. Creation starts at `pending` and records user provenance; an admin either moves it to
+   `verified` or `rejected`.
+2. An admin can merge a duplicate into an active target. The source becomes `merged`, all
+   affiliations pointing at it move to the target, and merged/rejected clubs disappear from
+   user search and cannot receive new affiliations.
+3. If API-Football later covers the club, an admin may store its API team id as a bridge on
+   the local-club row. Linking does not create or modify a `teams` row and does not turn the
+   local club into synced data.
+
+An approved profile owner can submit an affiliation to exactly one API team or local club.
+Affiliations are pre-moderated: `pending` → `self_reported` after admin approval, or
+`rejected`. `club_confirmed` is reserved for the club-official confirmation flow in Chunk 4.
+Anonymous/public responses include only `self_reported` and `club_confirmed` affiliations;
+owners can also see their pending/rejected rows and moderation notes.
+
+**Hard isolation rule:** local clubs and affiliations are a parallel, self-reported Showcase
+layer only. They must never enter player journeys, team sync, crawl scope, classifiers, Scout
+queries, leaderboards, or any other API-Football-derived data pipeline.
+
+New API surface (all under `/api`):
+
+- Authenticated: `GET /clubs/search?q=<name>` and `POST /local-clubs`.
+- Approved profile owner: `POST /players/<id>/showcase/affiliations` and
+  `DELETE /players/<id>/showcase/affiliations/<affiliation_id>`.
+- Public: `GET /players/<id>/showcase` includes the visibility-filtered `affiliations` list;
+  an approved owner may authenticate to see their moderation state.
+- Admin (`require_api_key`): `GET /admin/local-clubs?status=<status>`,
+  `POST /admin/local-clubs/<club_id>/review`,
+  `POST /admin/local-clubs/<club_id>/merge`,
+  `POST /admin/local-clubs/<club_id>/link-api`,
+  `GET /admin/showcase/affiliations?status=<status>`, and
+  `POST /admin/showcase/affiliations/<affiliation_id>/review`.
+
+## 5. API surface (all under /api)
 
 Public: `GET /players/<id>/showcase` includes approved `photos` (optional Bearer: approved
 owners also get their pending/rejected items and preview URLs). It exposes claim status but
@@ -118,7 +160,7 @@ URL safety: Showcase reel links must be https + YouTube (server-side `_is_youtub
 Instagram, TikTok, X/Twitter, Facebook, or YouTube; the checker rejects IP literals,
 userinfo, explicit ports, and unsafe redirects, and applies strict time and body-size caps.
 
-## 5. Operator notes
+## 6. Operator notes
 
 - **Migration `aw19`** merges the `cs01` + `vid02` heads back to one and adds
   `player_profile_claims`, `player_showcase_profiles`, `player_links.sort_order`.
@@ -131,6 +173,9 @@ userinfo, explicit ports, and unsafe redirects, and applies strict time and body
 - **Migration `shp02`** adds social-proof code, URL, method, result, checked-at, and note
   fields to `player_profile_claims`. No external credentials or social-platform API keys
   are required; checks fetch only public profile pages and fail closed as advisory results.
+- **Migration `shp03`** adds the guarded, RLS-enabled `local_clubs` and
+  `player_club_affiliations` tables. Both remain Showcase-only and never feed API-Football
+  sync, crawl, classifier, journey, or Scout paths.
 - **Local dev DB caveat (2026-07-02):** the local DB is stamped `vid03` (uncommitted
   migration); aw19's DDL was applied there manually (guarded SQL) without touching
   `alembic_version`. After the vid-chain work lands, rebase vid03 onto aw19
@@ -138,12 +183,17 @@ userinfo, explicit ports, and unsafe redirects, and applies strict time and body
 - **Known pre-existing issue:** the historical migration chain cannot replay on an EMPTY
   database (an old unguarded migration alters the deleted `supplemental_loans` table).
   Existing stamped DBs are unaffected.
-- Tests: `pytest tests/test_showcase.py tests/test_showcase_media.py tests/test_claim_verification.py`.
+- Tests: `pytest tests/test_showcase.py tests/test_showcase_media.py tests/test_claim_verification.py
+  tests/test_local_clubs.py`.
   Demo data on local dev DB: player 403064
   (H. Amass) has a claimed profile, curated reel, and a club-verified appearance from
   Film Room match 4.
 
-## 6. Changelog
+## 7. Changelog
+
+- **2026-07-14** — Added community-created local clubs, admin verification/merge/API-bridge
+  tooling, and pre-moderated player affiliations. Local clubs remain permanently isolated
+  from journey/team sync, crawl scope, classifiers, and Scout data.
 
 - **2026-07-14** — Added the claim-verification ladder: one-time code in a known public
   social profile, SSRF-hardened best-effort checking, claimant retry and admin re-check.
