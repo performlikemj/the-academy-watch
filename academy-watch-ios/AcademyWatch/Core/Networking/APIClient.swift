@@ -13,6 +13,10 @@ protocol PlayerDetailAPIClientProtocol: Sendable {
     func fetchPlayerAvailability(playerID: Int) async throws -> PlayerAvailability
 }
 
+protocol ShowcaseAPIClientProtocol: Sendable {
+    func fetchPlayerShowcase(playerID: Int) async throws -> PlayerShowcaseResponse
+}
+
 protocol WatchlistAPIClientProtocol: Sendable {
     func fetchWatchlist() async throws -> WatchlistResponse
     func fetchWatchlistIDs() async throws -> WatchlistIDsResponse
@@ -33,6 +37,7 @@ protocol FollowListsAPIClientProtocol: Sendable {
 
 struct APIClient: ScoutAPIClientProtocol,
     PlayerDetailAPIClientProtocol,
+    ShowcaseAPIClientProtocol,
     AuthAPIClientProtocol,
     WatchlistAPIClientProtocol,
     FollowListsAPIClientProtocol,
@@ -110,6 +115,10 @@ struct APIClient: ScoutAPIClientProtocol,
 
     func fetchPlayerAvailability(playerID: Int) async throws -> PlayerAvailability {
         try await get(path: "players/\(playerID)/availability", queryItems: [])
+    }
+
+    func fetchPlayerShowcase(playerID: Int) async throws -> PlayerShowcaseResponse {
+        try await get(path: "players/\(playerID)/showcase", queryItems: [])
     }
 
     func requestLoginCode(email: String) async throws -> LoginCodeResponse {

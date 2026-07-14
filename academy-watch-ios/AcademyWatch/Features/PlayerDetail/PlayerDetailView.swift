@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 struct PlayerDetailView: View {
     @StateObject private var viewModel: PlayerDetailViewModel
+    @StateObject private var showcaseViewModel: ShowcaseViewModel
     private let onSignInRequested: () -> Void
 
     init(
@@ -10,6 +11,7 @@ struct PlayerDetailView: View {
         onSignInRequested: @escaping () -> Void = {}
     ) {
         _viewModel = StateObject(wrappedValue: PlayerDetailViewModel(playerID: playerID))
+        _showcaseViewModel = StateObject(wrappedValue: ShowcaseViewModel(playerID: playerID))
         self.onSignInRequested = onSignInRequested
     }
 
@@ -18,6 +20,9 @@ struct PlayerDetailView: View {
         onSignInRequested: @escaping () -> Void = {}
     ) {
         _viewModel = StateObject(wrappedValue: viewModel)
+        _showcaseViewModel = StateObject(
+            wrappedValue: ShowcaseViewModel(playerID: viewModel.playerID)
+        )
         self.onSignInRequested = onSignInRequested
     }
 
@@ -56,7 +61,9 @@ struct PlayerDetailView: View {
             }
         }
         .task {
-            await viewModel.loadIfNeeded()
+            async let detailLoad: Void = viewModel.loadIfNeeded()
+            async let showcaseLoad: Void = showcaseViewModel.loadIfNeeded()
+            _ = await (detailLoad, showcaseLoad)
         }
     }
 
@@ -69,6 +76,7 @@ struct PlayerDetailView: View {
                     playerName: profile.name,
                     onSignInRequested: onSignInRequested
                 )
+                ShowcaseSectionView(viewModel: showcaseViewModel)
                 seasonSection(profile: profile)
                 recentFormSection
                 journeySection(profile: profile)
@@ -78,7 +86,9 @@ struct PlayerDetailView: View {
             .padding(.vertical, 14)
         }
         .refreshable {
-            await viewModel.reload()
+            async let detailReload: Void = viewModel.reload()
+            async let showcaseReload: Void = showcaseViewModel.reload()
+            _ = await (detailReload, showcaseReload)
         }
     }
 
