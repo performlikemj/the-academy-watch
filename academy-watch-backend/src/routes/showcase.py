@@ -20,6 +20,7 @@ Reuse decisions (see the build contract):
 
 import logging
 import re
+import secrets
 from datetime import UTC, date, datetime
 from urllib.parse import parse_qs, urlparse
 
@@ -38,7 +39,7 @@ from src.models.league import NewsletterPlayerYoutubeLink, PlayerLink, UserAccou
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseMedia, PlayerShowcaseProfile
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
-from src.services import showcase_media_storage
+from src.services import showcase_media_storage, social_proof
 from src.services.photo_processing import process_photo
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
@@ -72,6 +73,8 @@ MIN_HEIGHT_CM = 100
 MAX_HEIGHT_CM = 260
 VERIFIED_FOOTAGE_CAP = 10
 PLAYER_SEARCH_CAP = 20
+VERIFICATION_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+VERIFICATION_NOTE_MAX_LENGTH = 500
 
 # The only identity gate strong enough for public display (see models/video.py).
 VERIFIED_IDENTITY = "human_confirmed"
@@ -183,6 +186,34 @@ def _clean_optional_text(value, max_len: int):
         return None
     cleaned = sanitize_plain_text(value).strip()
     return cleaned[:max_len] if cleaned else None
+
+
+def _mint_verification_code() -> str:
+    """Mint a short code without visually ambiguous 0/O/1/I characters."""
+    return "AW-" + "".join(secrets.choice(VERIFICATION_ALPHABET) for _ in range(8))
+
+
+def _proof_url_error():
+    allowed = ", ".join(social_proof.ALLOWED_SOCIAL_HOSTS)
+    return jsonify(
+        {
+            "error": (
+                "proof_url must be an HTTPS public profile URL on one of: "
+                f"{allowed}; IP addresses, userinfo, and explicit ports are not allowed"
+            )
+        }
+    ), 400
+
+
+def _run_claim_proof_check(claim: PlayerProfileClaim, proof_url: str) -> None:
+    """Apply one advisory social-profile check result to a claim row."""
+    result = social_proof.check_proof(proof_url, claim.verification_code)
+    found = bool(result.get("found"))
+    note = str(result.get("note") or "The public profile could not be checked.")
+    claim.verification_proof_url = proof_url
+    claim.verification_checked_at = datetime.now(UTC)
+    claim.verification_status = "code_found" if found else "code_not_found"
+    claim.verification_note = note[:VERIFICATION_NOTE_MAX_LENGTH]
 
 
 def _json_object_or_400():
@@ -561,6 +592,12 @@ def submit_profile_claim(player_api_id: int):
                 existing.reviewed_by = None
                 existing.reviewed_at = None
                 existing.created_at = datetime.now(UTC)
+                existing.verification_code = _mint_verification_code()
+                existing.verification_proof_url = None
+                existing.verification_status = "unverified"
+                existing.verification_checked_at = None
+                existing.verification_note = None
+                existing.verification_method = None
                 db.session.commit()
                 return jsonify({"claim": existing.to_dict()}), 201
             return jsonify(
@@ -573,6 +610,8 @@ def submit_profile_claim(player_api_id: int):
             relationship_type=relationship_type,
             message=message,
             status="pending",
+            verification_code=_mint_verification_code(),
+            verification_status="unverified",
         )
         db.session.add(claim)
         try:
@@ -607,6 +646,11 @@ def my_claims():
             .order_by(PlayerProfileClaim.created_at.desc(), PlayerProfileClaim.id.desc())
             .all()
         )
+        if any(claim.verification_code is None for claim in claims):
+            for claim in claims:
+                if claim.verification_code is None:
+                    claim.verification_code = _mint_verification_code()
+            db.session.commit()
         out = []
         for claim in claims:
             payload = claim.to_dict()
@@ -614,8 +658,44 @@ def my_claims():
             out.append(payload)
         return jsonify({"claims": out})
     except Exception as e:
+        db.session.rollback()
         logger.error("Error in my_claims: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load claims")), 500
+
+
+@showcase_bp.route("/me/claims/<int:claim_id>/verify", methods=["POST"])
+@require_user_auth
+@limiter.limit("6 per hour", key_func=_user_rate_limit_key)
+def verify_my_claim(claim_id: int):
+    """Run an advisory social-profile proof check for the caller's pending claim."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        claim = PlayerProfileClaim.query.filter_by(id=claim_id, user_account_id=user.id).first()
+        if claim is None:
+            return jsonify({"error": "claim not found"}), 404
+        if claim.status != "pending":
+            return jsonify({"error": f"cannot verify a {claim.status} claim"}), 409
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        raw_proof_url = payload.get("proof_url")
+        proof_url = raw_proof_url.strip() if isinstance(raw_proof_url, str) else ""
+        valid, _ = social_proof.validate_proof_url(proof_url)
+        if not valid or len(proof_url) > MAX_URL_LENGTH:
+            return _proof_url_error()
+
+        if claim.verification_code is None:
+            claim.verification_code = _mint_verification_code()
+        _run_claim_proof_check(claim, proof_url)
+        db.session.commit()
+        return jsonify({"claim": claim.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in verify_my_claim: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to verify claim proof")), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1170,6 +1250,32 @@ def admin_list_claims():
     except Exception as e:
         logger.error("Error in admin_list_claims: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load claims")), 500
+
+
+@showcase_bp.route("/admin/showcase/claims/<int:claim_id>/recheck", methods=["POST"])
+@require_api_key
+def admin_recheck_claim(claim_id: int):
+    """Re-run the advisory check against a claim's stored social proof URL."""
+    try:
+        claim = db.session.get(PlayerProfileClaim, claim_id)
+        if claim is None:
+            return jsonify({"error": "claim not found"}), 404
+        proof_url = (claim.verification_proof_url or "").strip()
+        if not proof_url:
+            return jsonify({"error": "claim has no stored proof_url"}), 400
+        valid, _ = social_proof.validate_proof_url(proof_url)
+        if not valid or len(proof_url) > MAX_URL_LENGTH:
+            return _proof_url_error()
+        if claim.verification_code is None:
+            claim.verification_code = _mint_verification_code()
+
+        _run_claim_proof_check(claim, proof_url)
+        db.session.commit()
+        return jsonify({"claim": claim.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in admin_recheck_claim: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to re-check claim proof")), 500
 
 
 @showcase_bp.route("/admin/showcase/claims/<int:claim_id>/review", methods=["POST"])

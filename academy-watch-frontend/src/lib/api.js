@@ -1212,6 +1212,13 @@ export class APIService {
         return this.request('/me/claims')
     }
 
+    static async verifyClaimProof(claimId, { proof_url }) {
+        return this.request(`/me/claims/${encodeURIComponent(claimId)}/verify`, {
+            method: 'POST',
+            body: JSON.stringify({ proof_url }),
+        })
+    }
+
     static async updateShowcaseProfile(playerId, payload) {
         if (!playerId) throw new Error('playerId is required')
         return this.request(`/players/${encodeURIComponent(playerId)}/showcase/profile`, {
@@ -1304,6 +1311,12 @@ export class APIService {
         return this.request(`/admin/showcase/claims/${encodeURIComponent(id)}/review`, {
             method: 'POST',
             body: JSON.stringify({ action, note }),
+        }, { admin: true })
+    }
+
+    static async adminRecheckClaim(claimId) {
+        return this.request(`/admin/showcase/claims/${encodeURIComponent(claimId)}/recheck`, {
+            method: 'POST',
         }, { admin: true })
     }
 

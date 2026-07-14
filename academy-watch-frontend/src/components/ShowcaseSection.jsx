@@ -36,6 +36,8 @@ import {
   Image as ImageIcon,
   ImagePlus,
   Star,
+  Copy,
+  Search,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
@@ -126,6 +128,43 @@ function SectionHeader({ icon: Icon, eyebrow, title, action }) {
   )
 }
 
+function VerificationCode({ code, copyState, onCopy }) {
+  return (
+    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        Your one-time code
+      </p>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+        <code className="text-xl font-bold tracking-[0.16em] text-foreground sm:text-2xl">
+          {code || 'Code unavailable'}
+        </code>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onCopy(code)}
+          disabled={!code}
+          className="gap-1.5"
+          aria-label="Copy verification code"
+        >
+          {copyState === 'copied' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          <span role="status" aria-live="polite">
+            {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy code'}
+          </span>
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function VerificationInstructions() {
+  return (
+    <p className="text-sm leading-relaxed text-muted-foreground">
+      Add this code to the bio of your public Instagram, TikTok, X, Facebook or YouTube profile, then paste that profile&apos;s URL below.
+    </p>
+  )
+}
+
 export function ShowcaseSection({ playerApiId, playerName }) {
   const { token } = useAuth()
   const { openLoginModal } = useAuthUI()
@@ -143,6 +182,16 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   const [claimBusy, setClaimBusy] = useState(false)
   const [claimDone, setClaimDone] = useState(false)
   const [claimError, setClaimError] = useState(null)
+  const [createdClaim, setCreatedClaim] = useState(null)
+
+  // Social-proof verification dialog
+  const [verifyOpen, setVerifyOpen] = useState(false)
+  const [proofUrl, setProofUrl] = useState('')
+  const [verifyBusy, setVerifyBusy] = useState(false)
+  const [verifyDone, setVerifyDone] = useState(false)
+  const [verifyError, setVerifyError] = useState(null)
+  const [verifyResult, setVerifyResult] = useState(null)
+  const [codeCopyState, setCodeCopyState] = useState('idle')
 
   // Add-video dialog
   const [videoOpen, setVideoOpen] = useState(false)
@@ -238,6 +287,16 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       clearAllCloseTimers()
       setClaimOpen(false)
       setClaimBusy(false)
+      setClaimDone(false)
+      setClaimError(null)
+      setCreatedClaim(null)
+      setVerifyOpen(false)
+      setProofUrl('')
+      setVerifyBusy(false)
+      setVerifyDone(false)
+      setVerifyError(null)
+      setVerifyResult(null)
+      setCodeCopyState('idle')
       setVideoOpen(false)
       setVideoBusy(false)
       setPhotoOpen(false)
@@ -347,6 +406,8 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     clearCloseTimer('claim')
     setClaimError(null)
     setClaimDone(false)
+    setCreatedClaim(null)
+    setCodeCopyState('idle')
     setClaimOpen(true)
   }
 
@@ -356,20 +417,79 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     setClaimBusy(true)
     setClaimError(null)
     try {
-      await APIService.submitProfileClaim(pid, {
+      const response = await APIService.submitProfileClaim(pid, {
         relationship_type: claimRelationship,
         message: claimMessage.trim() || undefined,
       })
       track('claim_submitted', { player_api_id: pid, relationship: claimRelationship })
-      if (activePlayerRef.current === pid) setClaimDone(true)
+      if (activePlayerRef.current === pid) {
+        setCreatedClaim(response?.claim || null)
+        setClaimDone(true)
+      }
       await refresh()
-      scheduleClose('claim', pid, () => setClaimOpen(false))
     } catch (err) {
       if (activePlayerRef.current === pid) {
         setClaimError(err.body?.error || err.message || 'Failed to submit claim')
       }
     } finally {
       if (activePlayerRef.current === pid) setClaimBusy(false)
+    }
+  }
+
+  const copyVerificationCode = async (code) => {
+    if (!code) return
+    const pid = playerApiId
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      if (activePlayerRef.current === pid) setCodeCopyState('failed')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(code)
+      if (activePlayerRef.current === pid) setCodeCopyState('copied')
+    } catch {
+      if (activePlayerRef.current === pid) setCodeCopyState('failed')
+    }
+  }
+
+  const openVerificationDialog = () => {
+    clearCloseTimer('verify')
+    setProofUrl(myClaim?.verification_proof_url || '')
+    setVerifyError(null)
+    setVerifyDone(false)
+    setVerifyResult(null)
+    setCodeCopyState('idle')
+    setVerifyOpen(true)
+  }
+
+  const submitVerification = async () => {
+    const url = proofUrl.trim()
+    if (!url || verifyBusy || !myClaim?.id) return
+    const pid = playerApiId
+    const claimId = myClaim.id
+    setVerifyBusy(true)
+    setVerifyError(null)
+    setVerifyDone(false)
+    setVerifyResult(null)
+    try {
+      const response = await APIService.verifyClaimProof(claimId, { proof_url: url })
+      const checkedClaim = response?.claim || null
+      if (activePlayerRef.current === pid) {
+        setVerifyResult(checkedClaim)
+        setVerifyDone(true)
+      }
+      await refresh()
+      if (checkedClaim?.verification_status === 'code_found') {
+        scheduleClose('verify', pid, () => {
+          setVerifyOpen(false)
+          setVerifyDone(false)
+        })
+      }
+    } catch (err) {
+      if (activePlayerRef.current === pid) {
+        setVerifyError(err.body?.error || err.message || 'Failed to check this profile')
+      }
+    } finally {
+      if (activePlayerRef.current === pid) setVerifyBusy(false)
     }
   }
 
@@ -1026,9 +1146,26 @@ export function ShowcaseSection({ playerApiId, playerName }) {
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4">
             {myClaim ? (
               myClaim.status === 'pending' ? (
-                <p className="text-sm text-amber-700">
-                  Your claim for this profile is <span className="font-medium">pending review</span>.
-                </p>
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm text-amber-700">
+                      Your claim for this profile is <span className="font-medium">pending review</span>.
+                    </p>
+                    {myClaim.verification_status === 'code_found' ? (
+                      <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+                        Code detected
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+                        Unverified
+                      </Badge>
+                    )}
+                  </div>
+                  <Button variant="outline" size="sm" onClick={openVerificationDialog} className="gap-1.5">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Verify it&apos;s you
+                  </Button>
+                </>
               ) : myClaim.status === 'rejected' ? (
                 <p className="text-sm text-muted-foreground">Your previous claim for this profile was not approved.</p>
               ) : (
@@ -1056,9 +1193,17 @@ export function ShowcaseSection({ playerApiId, playerName }) {
             </DialogDescription>
           </DialogHeader>
           {claimDone ? (
-            <div className="flex items-center gap-2 py-4 text-sm text-emerald-600">
-              <Check className="h-4 w-4" />
-              Submitted for review
+            <div className="space-y-4 py-2">
+              <div className="flex items-center gap-2 text-sm text-emerald-600" role="status" aria-live="polite">
+                <Check className="h-4 w-4" />
+                Submitted for review
+              </div>
+              <VerificationCode
+                code={createdClaim?.verification_code || myClaim?.verification_code}
+                copyState={codeCopyState}
+                onCopy={copyVerificationCode}
+              />
+              <VerificationInstructions />
             </div>
           ) : (
             <div className="space-y-4 py-2">
@@ -1088,7 +1233,11 @@ export function ShowcaseSection({ playerApiId, playerName }) {
               {claimError && <p className="text-xs text-destructive">{claimError}</p>}
             </div>
           )}
-          {!claimDone && (
+          {claimDone ? (
+            <DialogFooter>
+              <Button onClick={() => setClaimOpen(false)}>Done</Button>
+            </DialogFooter>
+          ) : (
             <DialogFooter>
               <Button variant="ghost" onClick={() => setClaimOpen(false)}>Cancel</Button>
               <Button onClick={submitClaim} disabled={claimBusy}>
@@ -1097,6 +1246,105 @@ export function ShowcaseSection({ playerApiId, playerName }) {
               </Button>
             </DialogFooter>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Social-proof verification dialog */}
+      <Dialog
+        open={verifyOpen}
+        onOpenChange={(open) => {
+          if (verifyBusy) return
+          setVerifyOpen(open)
+          if (!open) {
+            clearCloseTimer('verify')
+            setVerifyDone(false)
+            setVerifyError(null)
+            setVerifyResult(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Verify it&apos;s you</DialogTitle>
+            <DialogDescription>
+              A best-effort social profile check helps our admin review your claim. It does not approve the claim automatically.
+            </DialogDescription>
+          </DialogHeader>
+
+          {verifyDone ? (
+            <div className="space-y-3 py-2" role="status" aria-live="polite">
+              <div className={verifyResult?.verification_status === 'code_found'
+                ? 'flex items-start gap-2 text-sm font-medium text-emerald-700'
+                : 'flex items-start gap-2 text-sm font-medium text-amber-800'}>
+                {verifyResult?.verification_status === 'code_found' ? (
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                ) : (
+                  <Search className="mt-0.5 h-4 w-4 shrink-0" />
+                )}
+                <span>
+                  {verifyResult?.verification_status === 'code_found'
+                    ? 'Code detected — an admin will review your claim'
+                    : "We couldn't find the code"}
+                </span>
+              </div>
+              {verifyResult?.verification_note && (
+                <p className="rounded-md bg-muted/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                  {verifyResult.verification_note}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <VerificationCode
+                code={myClaim?.verification_code}
+                copyState={codeCopyState}
+                onCopy={copyVerificationCode}
+              />
+              <VerificationInstructions />
+              <div className="space-y-2">
+                <Label htmlFor={`claim-proof-url-${playerApiId}`}>Public profile URL</Label>
+                <Input
+                  id={`claim-proof-url-${playerApiId}`}
+                  type="url"
+                  placeholder="https://instagram.com/your-profile"
+                  value={proofUrl}
+                  onChange={(event) => setProofUrl(event.target.value)}
+                  maxLength={500}
+                  disabled={verifyBusy}
+                  aria-invalid={Boolean(verifyError)}
+                  aria-describedby={verifyError ? `claim-proof-error-${playerApiId}` : undefined}
+                />
+              </div>
+              {verifyError && (
+                <p id={`claim-proof-error-${playerApiId}`} className="text-xs text-destructive" role="alert">
+                  {verifyError}
+                </p>
+              )}
+            </div>
+          )}
+
+          {!verifyDone ? (
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setVerifyOpen(false)} disabled={verifyBusy}>Cancel</Button>
+              <Button onClick={submitVerification} disabled={verifyBusy || !proofUrl.trim()}>
+                {verifyBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                {verifyBusy ? 'Checking…' : 'Verify'}
+              </Button>
+            </DialogFooter>
+          ) : verifyResult?.verification_status !== 'code_found' ? (
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setVerifyOpen(false)}>Close</Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setVerifyDone(false)
+                  setVerifyResult(null)
+                }}
+              >
+                Try again
+              </Button>
+            </DialogFooter>
+          ) : null}
         </DialogContent>
       </Dialog>
 

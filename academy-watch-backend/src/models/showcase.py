@@ -37,6 +37,17 @@ class PlayerProfileClaim(db.Model):
     relationship_type = db.Column(db.String(20), nullable=False)  # player | agent | guardian | club_official
     status = db.Column(db.String(20), nullable=False, default="pending")  # pending | approved | rejected | revoked
     message = db.Column(db.Text)  # claimant note to the admin reviewer
+    verification_code = db.Column(db.String(24), nullable=True)
+    verification_proof_url = db.Column(db.String(500), nullable=True)
+    verification_status = db.Column(
+        db.String(20),
+        nullable=False,
+        default="unverified",
+        server_default="unverified",
+    )
+    verification_checked_at = db.Column(db.DateTime, nullable=True)
+    verification_note = db.Column(db.String(500), nullable=True)
+    verification_method = db.Column(db.String(20), nullable=True)  # reserved for club vouching
     reviewed_by = db.Column(db.String(200))  # admin email
     reviewed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
@@ -51,6 +62,14 @@ class PlayerProfileClaim(db.Model):
             "relationship_type": self.relationship_type,
             "status": self.status,
             "message": self.message,
+            "verification_code": self.verification_code,
+            "verification_proof_url": self.verification_proof_url,
+            "verification_status": self.verification_status,
+            "verification_checked_at": (
+                self.verification_checked_at.isoformat() if self.verification_checked_at else None
+            ),
+            "verification_note": self.verification_note,
+            "verification_method": self.verification_method,
             "reviewed_by": self.reviewed_by,
             "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,

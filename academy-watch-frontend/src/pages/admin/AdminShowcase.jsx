@@ -28,6 +28,7 @@ import {
     UserSquare,
     Link2,
     Image as ImageIcon,
+    RefreshCw,
 } from 'lucide-react'
 
 const CLAIM_STATUS_COLORS = {
@@ -35,6 +36,21 @@ const CLAIM_STATUS_COLORS = {
     approved: 'bg-emerald-50 text-emerald-800 border-emerald-200',
     rejected: 'bg-rose-50 text-rose-800 border-rose-200',
     revoked: 'bg-stone-100 text-stone-700 border-stone-200',
+}
+
+const VERIFICATION_STATUS = {
+    unverified: {
+        label: 'Unverified',
+        className: 'bg-amber-50 text-amber-800 border-amber-200',
+    },
+    code_found: {
+        label: 'Code detected',
+        className: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+    },
+    code_not_found: {
+        label: 'Code not found',
+        className: 'bg-rose-50 text-rose-800 border-rose-200',
+    },
 }
 
 const IDENTITY_COLORS = {
@@ -140,6 +156,19 @@ function ClaimsTab({ setMessage }) {
         }
     }
 
+    const recheckProof = async (claim) => {
+        setActingId(claim.id)
+        try {
+            await APIService.adminRecheckClaim(claim.id)
+            setMessage({ type: 'success', text: 'Social profile check refreshed' })
+            setReloadKey((k) => k + 1)
+        } catch (err) {
+            setMessage({ type: 'error', text: err.message || 'Failed to re-check social profile' })
+        } finally {
+            setActingId(null)
+        }
+    }
+
     return (
         <Card>
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -169,6 +198,7 @@ function ClaimsTab({ setMessage }) {
                     <div className="space-y-3">
                         {claims.map((claim) => {
                             const claimant = claim.claimant_display_name || claim.claimant_email || claim.user_email || `User #${claim.user_account_id ?? '—'}`
+                            const verification = VERIFICATION_STATUS[claim.verification_status] || VERIFICATION_STATUS.unverified
                             return (
                                 <div key={claim.id} className="flex flex-col justify-between gap-4 rounded-lg border bg-card p-4 sm:flex-row sm:items-start">
                                     <div className="min-w-0 flex-1 space-y-1">
@@ -189,6 +219,68 @@ function ClaimsTab({ setMessage }) {
                                         {formatDate(claim.created_at) && (
                                             <p className="text-xs text-muted-foreground">Submitted {formatDate(claim.created_at)}</p>
                                         )}
+                                        <div className="mt-3 rounded-md border border-border/70 bg-secondary/30 p-3">
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                        Social profile check
+                                                    </span>
+                                                    <Badge className={verification.className}>{verification.label}</Badge>
+                                                </div>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="self-start sm:self-auto"
+                                                    disabled={!claim.verification_proof_url || actingId === claim.id}
+                                                    onClick={() => recheckProof(claim)}
+                                                    title={claim.verification_proof_url ? 'Run the automated check again' : 'No proof URL has been submitted'}
+                                                >
+                                                    {actingId === claim.id ? (
+                                                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                                    ) : (
+                                                        <RefreshCw className="mr-1 h-4 w-4" />
+                                                    )}
+                                                    Re-check
+                                                </Button>
+                                            </div>
+                                            <dl className="mt-3 grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
+                                                <div>
+                                                    <dt className="text-muted-foreground">Verification code</dt>
+                                                    <dd className="mt-0.5 font-mono font-semibold tracking-wide text-foreground">
+                                                        {claim.verification_code || '—'}
+                                                    </dd>
+                                                </div>
+                                                <div>
+                                                    <dt className="text-muted-foreground">Last checked</dt>
+                                                    <dd className="mt-0.5 text-foreground">
+                                                        {formatDate(claim.verification_checked_at) || 'Not checked yet'}
+                                                    </dd>
+                                                </div>
+                                                <div className="sm:col-span-2">
+                                                    <dt className="text-muted-foreground">Public profile</dt>
+                                                    <dd className="mt-0.5 min-w-0">
+                                                        {claim.verification_proof_url ? (
+                                                            <a
+                                                                href={claim.verification_proof_url}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="break-all font-medium text-primary hover:underline"
+                                                            >
+                                                                {claim.verification_proof_url}
+                                                            </a>
+                                                        ) : (
+                                                            <span className="text-foreground">No profile URL submitted</span>
+                                                        )}
+                                                    </dd>
+                                                </div>
+                                                {claim.verification_note && (
+                                                    <div className="sm:col-span-2">
+                                                        <dt className="text-muted-foreground">Check note</dt>
+                                                        <dd className="mt-0.5 text-foreground">{claim.verification_note}</dd>
+                                                    </div>
+                                                )}
+                                            </dl>
+                                        </div>
                                     </div>
                                     <div className="flex shrink-0 items-center gap-2">
                                         {claim.status === 'pending' && (
