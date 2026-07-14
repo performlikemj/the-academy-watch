@@ -168,14 +168,15 @@ function AffiliationStatusBadge({ status }) {
   return <Badge variant="secondary">Self-reported</Badge>
 }
 
-export function ShowcaseSection({ playerApiId, playerName }) {
+export function ShowcaseSection({ playerApiId, playerName, local = false }) {
   const { token } = useAuth()
   const { openLoginModal } = useAuthUI()
+  const subjectKey = `${local ? 'local' : 'api'}:${playerApiId}`
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [showcase, setShowcase] = useState(null)
-  const [loadedPlayerId, setLoadedPlayerId] = useState(null)
+  const [loadedSubjectKey, setLoadedSubjectKey] = useState(null)
   const [myClaims, setMyClaims] = useState([])
 
   // Claim dialog
@@ -263,19 +264,20 @@ export function ShowcaseSection({ playerApiId, playerName }) {
 
   const fetchData = useCallback(async () => {
     const [sc, claims] = await Promise.all([
-      APIService.getPlayerShowcase(playerApiId),
+      APIService.getPlayerShowcase(playerApiId, { local }),
       token ? APIService.getMyClaims().catch(() => null) : Promise.resolve(null),
     ])
     const claimsArr = Array.isArray(claims) ? claims : claims?.claims || []
     return { sc, claimsArr }
-  }, [playerApiId, token])
+  }, [local, playerApiId, token])
 
   // PlayerPage is reused across /players/:id navigations — track the active
-  // player so an in-flight refresh for the previous player never lands.
-  const activePlayerRef = useRef(playerApiId)
-  const previousPlayerRef = useRef(playerApiId)
+  // subject so an in-flight refresh for another API/local player never lands.
+  const activeSubjectRef = useRef(subjectKey)
+  const previousSubjectRef = useRef(subjectKey)
   const closeTimersRef = useRef({})
   const clubSearchRequestRef = useRef(0)
+  const isActiveSubject = () => activeSubjectRef.current === subjectKey
 
   const clearCloseTimer = useCallback((key) => {
     const timer = closeTimersRef.current[key]
@@ -290,25 +292,25 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     closeTimersRef.current = {}
   }, [])
 
-  const scheduleClose = useCallback((key, pid, close) => {
-    if (activePlayerRef.current !== pid) return
+  const scheduleClose = useCallback((key, subject, close) => {
+    if (activeSubjectRef.current !== subject) return
     clearCloseTimer(key)
     closeTimersRef.current[key] = setTimeout(() => {
       delete closeTimersRef.current[key]
-      if (activePlayerRef.current === pid) close()
+      if (activeSubjectRef.current === subject) close()
     }, 1600)
   }, [clearCloseTimer])
 
   useLayoutEffect(() => {
-    activePlayerRef.current = playerApiId
-  }, [playerApiId])
+    activeSubjectRef.current = subjectKey
+  }, [subjectKey])
 
   useEffect(() => clearAllCloseTimers, [clearAllCloseTimers])
 
   useEffect(() => {
     let cancelled = false
-    if (previousPlayerRef.current !== playerApiId) {
-      previousPlayerRef.current = playerApiId
+    if (previousSubjectRef.current !== subjectKey) {
+      previousSubjectRef.current = subjectKey
       clearAllCloseTimers()
       setClaimOpen(false)
       setClaimBusy(false)
@@ -372,12 +374,12 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       })
       .finally(() => {
         if (!cancelled) {
-          setLoadedPlayerId(playerApiId)
+          setLoadedSubjectKey(subjectKey)
           setLoading(false)
         }
       })
     return () => { cancelled = true }
-  }, [clearAllCloseTimers, fetchData, playerApiId])
+  }, [clearAllCloseTimers, fetchData, subjectKey])
 
   useEffect(() => {
     const query = clubSearch.trim()
@@ -385,26 +387,26 @@ export function ShowcaseSection({ playerApiId, playerName }) {
 
     const requestId = clubSearchRequestRef.current + 1
     clubSearchRequestRef.current = requestId
-    const pid = playerApiId
+    const subject = subjectKey
     const timer = setTimeout(async () => {
-      if (clubSearchRequestRef.current !== requestId || activePlayerRef.current !== pid) return
+      if (clubSearchRequestRef.current !== requestId || activeSubjectRef.current !== subject) return
       setClubSearchBusy(true)
       setClubSearchError(null)
       try {
         const response = await APIService.searchClubs(query)
-        if (clubSearchRequestRef.current !== requestId || activePlayerRef.current !== pid) return
+        if (clubSearchRequestRef.current !== requestId || activeSubjectRef.current !== subject) return
         setClubResults({
           api_teams: Array.isArray(response?.api_teams) ? response.api_teams : [],
           local_clubs: Array.isArray(response?.local_clubs) ? response.local_clubs : [],
         })
         setClubSearchComplete(true)
       } catch (err) {
-        if (clubSearchRequestRef.current !== requestId || activePlayerRef.current !== pid) return
+        if (clubSearchRequestRef.current !== requestId || activeSubjectRef.current !== subject) return
         setClubResults(EMPTY_CLUB_RESULTS)
         setClubSearchComplete(false)
         setClubSearchError(err.body?.error || err.message || 'Failed to search clubs')
       } finally {
-        if (clubSearchRequestRef.current === requestId && activePlayerRef.current === pid) {
+        if (clubSearchRequestRef.current === requestId && activeSubjectRef.current === subject) {
           setClubSearchBusy(false)
         }
       }
@@ -414,21 +416,21 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       clearTimeout(timer)
       if (clubSearchRequestRef.current === requestId) clubSearchRequestRef.current += 1
     }
-  }, [clubOpen, clubSearch, createClubMode, playerApiId])
+  }, [clubOpen, clubSearch, createClubMode, subjectKey])
 
   const refresh = useCallback(async () => {
-    const pid = playerApiId
+    const subject = subjectKey
     try {
       const { sc, claimsArr } = await fetchData()
-      if (activePlayerRef.current !== pid) return
+      if (activeSubjectRef.current !== subject) return
       setShowcase(sc || null)
       setMyClaims(claimsArr)
     } catch {
       // best-effort refresh
     }
-  }, [fetchData, playerApiId])
+  }, [fetchData, subjectKey])
 
-  if (loading || loadedPlayerId !== playerApiId) {
+  if (loading || loadedSubjectKey !== subjectKey) {
     return (
       <Card>
         <CardContent className="space-y-4 py-6">
@@ -449,10 +451,14 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   const photos = Array.isArray(showcase.photos) ? showcase.photos : []
   const affiliations = Array.isArray(showcase.affiliations) ? showcase.affiliations : []
   const profile = showcase.profile || null
-  const verified = Array.isArray(showcase.verified_footage) ? showcase.verified_footage : []
+  const verified = !local && Array.isArray(showcase.verified_footage) ? showcase.verified_footage : []
   const claimStatus = showcase.claim_status // 'unclaimed' | 'claimed'
 
-  const myClaim = myClaims.find((c) => Number(c.player_api_id) === Number(playerApiId))
+  const myClaim = myClaims.find((claim) => (
+    local
+      ? Number(claim.local_player_id) === Number(playerApiId)
+      : Number(claim.player_api_id) === Number(playerApiId)
+  ))
   const isOwner = myClaim?.status === 'approved'
   const visibleAffiliations = affiliations.filter(
     (affiliation) => isOwner || PUBLIC_AFFILIATION_STATUSES.has(affiliation.status),
@@ -477,7 +483,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
 
   // Claim strip shows for non-owners who either have a claim (show its status) or
   // can still claim an unclaimed profile.
-  const showClaimStrip = !isOwner && (myClaim ? true : claimStatus === 'unclaimed')
+  const showClaimStrip = !local && !isOwner && (myClaim ? true : claimStatus === 'unclaimed')
 
   const hasContent = reel.length > 0
     || visiblePhotos.length > 0
@@ -489,6 +495,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   const reorderableIds = reel.filter((i) => !isSynthetic(i)).map((i) => i.id)
 
   const openClaimDialog = () => {
+    if (local) return
     if (!token) {
       openLoginModal()
       return
@@ -502,7 +509,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   }
 
   const submitClaim = async () => {
-    if (claimBusy) return
+    if (local || claimBusy) return
     const pid = playerApiId
     setClaimBusy(true)
     setClaimError(null)
@@ -510,38 +517,38 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       const response = await APIService.submitProfileClaim(pid, {
         relationship_type: claimRelationship,
         message: claimMessage.trim() || undefined,
-      })
+      }, { local })
       track('claim_submitted', { player_api_id: pid, relationship: claimRelationship })
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setCreatedClaim(response?.claim || null)
         setClaimDone(true)
       }
       await refresh()
     } catch (err) {
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setClaimError(err.body?.error || err.message || 'Failed to submit claim')
       }
     } finally {
-      if (activePlayerRef.current === pid) setClaimBusy(false)
+      if (isActiveSubject()) setClaimBusy(false)
     }
   }
 
   const copyVerificationCode = async (code) => {
     if (!code) return
-    const pid = playerApiId
     if (typeof navigator === 'undefined' || !navigator.clipboard) {
-      if (activePlayerRef.current === pid) setCodeCopyState('failed')
+      if (isActiveSubject()) setCodeCopyState('failed')
       return
     }
     try {
       await navigator.clipboard.writeText(code)
-      if (activePlayerRef.current === pid) setCodeCopyState('copied')
+      if (isActiveSubject()) setCodeCopyState('copied')
     } catch {
-      if (activePlayerRef.current === pid) setCodeCopyState('failed')
+      if (isActiveSubject()) setCodeCopyState('failed')
     }
   }
 
   const openVerificationDialog = () => {
+    if (local) return
     clearCloseTimer('verify')
     setProofUrl(myClaim?.verification_proof_url || '')
     setVerifyError(null)
@@ -553,8 +560,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
 
   const submitVerification = async () => {
     const url = proofUrl.trim()
-    if (!url || verifyBusy || !myClaim?.id) return
-    const pid = playerApiId
+    if (local || !url || verifyBusy || !myClaim?.id) return
     const claimId = myClaim.id
     setVerifyBusy(true)
     setVerifyError(null)
@@ -563,23 +569,23 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     try {
       const response = await APIService.verifyClaimProof(claimId, { proof_url: url })
       const checkedClaim = response?.claim || null
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setVerifyResult(checkedClaim)
         setVerifyDone(true)
       }
       await refresh()
       if (checkedClaim?.verification_status === 'code_found') {
-        scheduleClose('verify', pid, () => {
+        scheduleClose('verify', subjectKey, () => {
           setVerifyOpen(false)
           setVerifyDone(false)
         })
       }
     } catch (err) {
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setVerifyError(err.body?.error || err.message || 'Failed to check this profile')
       }
     } finally {
-      if (activePlayerRef.current === pid) setVerifyBusy(false)
+      if (isActiveSubject()) setVerifyBusy(false)
     }
   }
 
@@ -601,23 +607,23 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     setVideoBusy(true)
     setVideoError(null)
     try {
-      await APIService.addShowcaseReelItem(pid, { url, title: videoTitle.trim() || undefined })
-      if (activePlayerRef.current === pid) {
+      await APIService.addShowcaseReelItem(pid, { url, title: videoTitle.trim() || undefined }, { local })
+      if (isActiveSubject()) {
         setVideoDone(true)
         setVideoUrl('')
         setVideoTitle('')
       }
       await refresh()
-      scheduleClose('video', pid, () => {
+      scheduleClose('video', subjectKey, () => {
         setVideoOpen(false)
         setVideoDone(false)
       })
     } catch (err) {
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setVideoError(err.body?.error || err.message || 'Failed to add video')
       }
     } finally {
-      if (activePlayerRef.current === pid) setVideoBusy(false)
+      if (isActiveSubject()) setVideoBusy(false)
     }
   }
 
@@ -654,21 +660,21 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       const created = await APIService.createShowcasePhoto(pid, {
         content_type: file.type,
         size_bytes: file.size,
-      })
+      }, { local })
       await APIService.uploadPhotoToUrl(created.upload, file)
-      await APIService.completeShowcasePhoto(pid, created.media.id)
-      if (activePlayerRef.current === pid) {
+      await APIService.completeShowcasePhoto(pid, created.media.id, { local })
+      if (isActiveSubject()) {
         setPhotoDone(true)
         setPhotoFile(null)
         setPhotoInputKey((key) => key + 1)
       }
       await refresh()
-      scheduleClose('photoUpload', pid, () => {
+      scheduleClose('photoUpload', subjectKey, () => {
         setPhotoOpen(false)
         setPhotoDone(false)
       })
     } catch (err) {
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setPhotoError(
           err.status === 503
             ? "Photo uploads aren't enabled yet"
@@ -677,7 +683,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
         await refresh()
       }
     } finally {
-      if (activePlayerRef.current === pid) setPhotoBusy(false)
+      if (isActiveSubject()) setPhotoBusy(false)
     }
   }
 
@@ -720,16 +726,16 @@ export function ShowcaseSection({ playerApiId, playerName }) {
         languages: profileForm.languages.trim() || null,
         agent_name: profileForm.agent_name.trim() || null,
         agent_contact_email: profileForm.agent_contact_email.trim() || null,
-      })
-      if (activePlayerRef.current === pid) setProfileDone(true)
+      }, { local })
+      if (isActiveSubject()) setProfileDone(true)
       await refresh()
-      scheduleClose('profile', pid, () => setProfileOpen(false))
+      scheduleClose('profile', subjectKey, () => setProfileOpen(false))
     } catch (err) {
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setProfileError(err.body?.error || err.message || 'Failed to update profile')
       }
     } finally {
-      if (activePlayerRef.current === pid) setProfileBusy(false)
+      if (isActiveSubject()) setProfileBusy(false)
     }
   }
 
@@ -743,12 +749,12 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     const pid = playerApiId
     setReelBusy(true)
     try {
-      await APIService.reorderShowcaseReel(pid, { ordered_ids })
+      await APIService.reorderShowcaseReel(pid, { ordered_ids }, { local })
       await refresh()
     } catch {
       // ignore — order unchanged on failure
     } finally {
-      if (activePlayerRef.current === pid) setReelBusy(false)
+      if (isActiveSubject()) setReelBusy(false)
     }
   }
 
@@ -757,12 +763,12 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     const pid = playerApiId
     setReelBusy(true)
     try {
-      await APIService.deleteShowcaseReelItem(pid, linkId)
+      await APIService.deleteShowcaseReelItem(pid, linkId, { local })
       await refresh()
     } catch {
       // ignore
     } finally {
-      if (activePlayerRef.current === pid) setReelBusy(false)
+      if (isActiveSubject()) setReelBusy(false)
     }
   }
 
@@ -776,10 +782,10 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     setPhotoDeleteTarget(null)
   }
 
-  const finishPhotoAction = (pid) => {
-    if (activePlayerRef.current !== pid) return
+  const finishPhotoAction = (subject) => {
+    if (activeSubjectRef.current !== subject) return
     setPhotoActionDone(true)
-    scheduleClose('photoAction', pid, () => {
+    scheduleClose('photoAction', subject, () => {
       setPhotoActionOpen(false)
       setPhotoActionDone(false)
     })
@@ -806,16 +812,16 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     const pid = playerApiId
     beginPhotoAction({ title: 'Reorder photos', done: 'Photo order updated' })
     try {
-      await APIService.reorderShowcasePhotos(pid, { ordered_ids })
-      if (activePlayerRef.current === pid) setPhotoActionDone(true)
+      await APIService.reorderShowcasePhotos(pid, { ordered_ids }, { local })
+      if (isActiveSubject()) setPhotoActionDone(true)
       await refresh()
-      finishPhotoAction(pid)
+      finishPhotoAction(subjectKey)
     } catch (err) {
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setPhotoActionError(err.body?.error || err.message || 'Failed to reorder photos')
       }
     } finally {
-      if (activePlayerRef.current === pid) setPhotoActionBusy(false)
+      if (isActiveSubject()) setPhotoActionBusy(false)
     }
   }
 
@@ -824,16 +830,16 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     const pid = playerApiId
     beginPhotoAction({ title: 'Set primary photo', done: 'Primary photo updated' })
     try {
-      await APIService.setShowcasePhotoPrimary(pid, mediaId)
-      if (activePlayerRef.current === pid) setPhotoActionDone(true)
+      await APIService.setShowcasePhotoPrimary(pid, mediaId, { local })
+      if (isActiveSubject()) setPhotoActionDone(true)
       await refresh()
-      finishPhotoAction(pid)
+      finishPhotoAction(subjectKey)
     } catch (err) {
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setPhotoActionError(err.body?.error || err.message || 'Failed to set primary photo')
       }
     } finally {
-      if (activePlayerRef.current === pid) setPhotoActionBusy(false)
+      if (isActiveSubject()) setPhotoActionBusy(false)
     }
   }
 
@@ -842,16 +848,16 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     const pid = playerApiId
     beginPhotoAction({ title: 'Delete photo', done: 'Photo deleted' })
     try {
-      await APIService.deleteShowcasePhoto(pid, mediaId)
-      if (activePlayerRef.current === pid) setPhotoActionDone(true)
+      await APIService.deleteShowcasePhoto(pid, mediaId, { local })
+      if (isActiveSubject()) setPhotoActionDone(true)
       await refresh()
-      finishPhotoAction(pid)
+      finishPhotoAction(subjectKey)
     } catch (err) {
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setPhotoActionError(err.body?.error || err.message || 'Failed to delete photo')
       }
     } finally {
-      if (activePlayerRef.current === pid) setPhotoActionBusy(false)
+      if (isActiveSubject()) setPhotoActionBusy(false)
     }
   }
 
@@ -949,15 +955,15 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       await APIService.addPlayerAffiliation(pid, {
         ...affiliationPayload,
         season: season || undefined,
-      })
-      if (activePlayerRef.current === pid) setClubDone(true)
+      }, { local })
+      if (isActiveSubject()) setClubDone(true)
       await refresh()
-      scheduleClose('clubAdd', pid, () => {
+      scheduleClose('clubAdd', subjectKey, () => {
         setClubOpen(false)
         setClubDone(false)
       })
     } catch (err) {
-      if (activePlayerRef.current !== pid) return
+      if (!isActiveSubject()) return
       if (stage === 'create' && err.status === 409 && err.body?.existing) {
         setDuplicateClub(err.body.existing)
         setClubError('A matching community club already exists. Use that club instead.')
@@ -965,7 +971,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
         setClubError(err.body?.error || err.message || 'Failed to add club')
       }
     } finally {
-      if (activePlayerRef.current === pid) setClubBusy(false)
+      if (isActiveSubject()) setClubBusy(false)
     }
   }
 
@@ -986,20 +992,20 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     setClubDeleteDone(false)
     setClubDeleteError(null)
     try {
-      await APIService.deletePlayerAffiliation(pid, affiliationId)
-      if (activePlayerRef.current === pid) setClubDeleteDone(true)
+      await APIService.deletePlayerAffiliation(pid, affiliationId, { local })
+      if (isActiveSubject()) setClubDeleteDone(true)
       await refresh()
-      scheduleClose('clubDelete', pid, () => {
+      scheduleClose('clubDelete', subjectKey, () => {
         setClubDeleteOpen(false)
         setClubDeleteDone(false)
         setClubDeleteTarget(null)
       })
     } catch (err) {
-      if (activePlayerRef.current === pid) {
+      if (isActiveSubject()) {
         setClubDeleteError(err.body?.error || err.message || 'Failed to remove club')
       }
     } finally {
-      if (activePlayerRef.current === pid) setClubDeleteBusy(false)
+      if (isActiveSubject()) setClubDeleteBusy(false)
     }
   }
 
@@ -1409,7 +1415,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
         )}
 
         {/* 5. Club-verified footage */}
-        {verified.length > 0 && (
+        {!local && verified.length > 0 && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-emerald-600" />
@@ -1494,7 +1500,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       </CardContent>
 
       {/* Claim dialog */}
-      <Dialog open={claimOpen} onOpenChange={setClaimOpen}>
+      <Dialog open={!local && claimOpen} onOpenChange={setClaimOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Claim {playerName || 'this profile'}</DialogTitle>
@@ -1570,7 +1576,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
 
       {/* Social-proof verification dialog */}
       <Dialog
-        open={verifyOpen}
+        open={!local && verifyOpen}
         onOpenChange={(open) => {
           if (verifyBusy) return
           setVerifyOpen(open)

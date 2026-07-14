@@ -179,11 +179,18 @@ def _extension_for(content_type: str) -> str:
         raise ValueError("unsupported showcase photo content type")
 
 
-def _pending_blob_path(player_api_id: int, media_id: int, content_type: str) -> str:
+def _pending_blob_path(
+    player_api_id: int,
+    media_id: int,
+    content_type: str,
+    *,
+    path_prefix: str | None = None,
+) -> str:
     if player_api_id <= 0 or media_id <= 0:
         raise ValueError("player_api_id and media_id must be positive")
     extension = _extension_for(content_type)
-    return f"players/{player_api_id}/{media_id}/{uuid4().hex}.{extension}"
+    prefix = _validate_blob_path(path_prefix) if path_prefix is not None else f"players/{player_api_id}"
+    return f"{prefix}/{media_id}/{uuid4().hex}.{extension}"
 
 
 def _published_blob_path(blob_path: str) -> str:
@@ -196,10 +203,26 @@ def _quoted_dev_url(route_blob_path: str) -> str:
     return f"{DEV_ROUTE_PREFIX}/{quote(route_blob_path, safe='/')}"
 
 
-def mint_upload(player_api_id: int, media_id: int, content_type: str) -> dict:
-    """Mint a direct single-shot BlockBlob PUT for a new pending photo."""
+def mint_upload(
+    player_api_id: int,
+    media_id: int,
+    content_type: str,
+    *,
+    path_prefix: str | None = None,
+) -> dict:
+    """Mint a direct single-shot BlockBlob PUT for a new pending photo.
+
+    ``path_prefix`` lets local subjects use an explicit namespace such as
+    ``local-players/<id>``. Omitting it preserves the existing
+    ``players/<api-id>`` layout and call contract.
+    """
     _require_configured()
-    blob_path = _pending_blob_path(player_api_id, media_id, content_type)
+    blob_path = _pending_blob_path(
+        player_api_id,
+        media_id,
+        content_type,
+        path_prefix=path_prefix,
+    )
     expiry = datetime.now(UTC) + timedelta(minutes=UPLOAD_SAS_MINUTES)
     headers = {"x-ms-blob-type": "BlockBlob", "Content-Type": content_type}
 

@@ -1819,9 +1819,13 @@ class PlayerLink(db.Model):
     """User-submitted links on player pages (articles, highlights, etc.)."""
 
     __tablename__ = "player_links"
+    __table_args__ = (db.Index("ix_player_links_local_player_id", "local_player_id"),)
 
     id = db.Column(db.Integer, primary_key=True)
-    player_id = db.Column(db.Integer, nullable=False)  # API-Football player ID
+    player_id = db.Column(db.Integer, nullable=True)  # API-Football player ID
+    # Alembic owns the FK. Keeping this a plain Integer avoids making every
+    # minimal league-model test import the separate showcase model registry.
+    local_player_id = db.Column(db.Integer, nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=True)
     url = db.Column(db.String(500), nullable=False)
     title = db.Column(db.String(200))
@@ -1836,7 +1840,7 @@ class PlayerLink(db.Model):
     user = db.relationship("UserAccount", backref="player_links")
 
     def to_dict(self):
-        return {
+        payload = {
             "id": self.id,
             "player_id": self.player_id,
             "url": self.url,
@@ -1846,6 +1850,9 @@ class PlayerLink(db.Model):
             "upvotes": self.upvotes,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+        if self.local_player_id is not None:
+            payload["local_player_id"] = self.local_player_id
+        return payload
 
 
 class RebuildConfigLog(db.Model):

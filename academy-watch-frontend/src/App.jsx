@@ -91,6 +91,8 @@ import { ScoutPage } from '@/pages/ScoutPage'
 import { WatchlistPage } from '@/pages/WatchlistPage'
 import { ListsPage } from '@/pages/ListsPage'
 import { MyClub } from '@/pages/MyClub'
+import { LocalPlayerPage } from '@/pages/LocalPlayerPage'
+import { LocalPlayerCreate } from '@/pages/LocalPlayerCreate'
 import { PricingPage } from '@/pages/PricingPage'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
@@ -4081,6 +4083,8 @@ function AppRoutes() {
       <Route path="/newsletters/historical" element={<HistoricalNewslettersPage />} />
       <Route path="/writeups/:commentaryId" element={<WriteupPage />} />
       <Route path="/players/:playerId" element={<PlayerPage />} />
+      <Route path="/local-players/new" element={<LocalPlayerCreate />} />
+      <Route path="/local-players/:localPlayerId" element={<LocalPlayerPage />} />
       <Route path="/journalists" element={<JournalistList apiService={APIService} />} />
       <Route
         path="/settings"

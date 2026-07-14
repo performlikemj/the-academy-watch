@@ -30,10 +30,12 @@ export function VerificationCode({ code, copyState, onCopy }) {
   )
 }
 
-export function VerificationInstructions() {
+export function VerificationInstructions({ includeProofStep = true }) {
   return (
     <p className="text-sm leading-relaxed text-muted-foreground">
-      Add this code to the bio of your public Instagram, TikTok, X, Facebook or YouTube profile, then paste that profile&apos;s URL below.
+      {includeProofStep
+        ? 'Add this code to the bio of your public Instagram, TikTok, X, Facebook or YouTube profile, then paste that profile\'s URL below.'
+        : 'Add this code to the bio of your public Instagram, TikTok, X, Facebook or YouTube profile and keep it there while your profile is reviewed.'}
     </p>
   )
 }

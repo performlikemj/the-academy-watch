@@ -11,6 +11,7 @@ edits reverts to ``pending`` and is hidden from the public until re-approved.
   api-football id is used directly (no FK) to mirror ``PlayerLink``.
 - ``PlayerShowcaseProfile`` — at most one self-reported card per player.
 - ``PlayerShowcaseMedia`` — pre-moderated, self-hosted player photos.
+- ``LocalPlayer`` — a moderated, community-created showcase-only identity.
 - ``LocalClub`` — a moderated, user-created club outside the synced team layer.
 - ``PlayerClubAffiliation`` — a pre-moderated self-reported club affiliation.
 - ``ClubOfficialClaim`` — a moderated claim to represent a club.
@@ -21,8 +22,59 @@ plus the ``sort_order`` column added in migration ``aw19``.
 
 from datetime import UTC, datetime
 
+from sqlalchemy import event
 from sqlalchemy.orm import validates
 from src.models.league import db
+
+
+class LocalPlayer(db.Model):
+    """A moderated local player kept outside API-synced player tracking."""
+
+    __tablename__ = "local_players"
+    __table_args__ = (
+        db.Index("ix_local_players_normalized_name", "normalized_name"),
+        db.Index("ix_local_players_status", "status"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    display_name = db.Column(db.String(200), nullable=False)
+    normalized_name = db.Column(db.String(220), nullable=False)
+    birth_year = db.Column(db.Integer)
+    position = db.Column(db.String(50))
+    country = db.Column(db.String(100))
+    city = db.Column(db.String(120))
+    status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending")
+    api_player_id = db.Column(db.Integer)
+    merged_into_local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"), nullable=True)
+    provenance = db.Column(db.String(20), nullable=False, default="user", server_default="user")
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=True)
+    reviewed_by = db.Column(db.String(200))
+    reviewed_at = db.Column(db.DateTime)
+    review_note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    @staticmethod
+    def normalize_name(value: str) -> str:
+        """Lowercase and collapse whitespace for duplicate detection."""
+        return " ".join(value.lower().split())
+
+    @validates("display_name")
+    def _sync_normalized_name(self, _key, value):
+        if isinstance(value, str):
+            self._setting_normalized_name = True
+            try:
+                self.normalized_name = self.normalize_name(value)
+            finally:
+                self._setting_normalized_name = False
+        return value
+
+    @validates("normalized_name")
+    def _enforce_normalized_name(self, _key, value):
+        if getattr(self, "_setting_normalized_name", False):
+            return self.normalize_name(value) if isinstance(value, str) else value
+        source = self.display_name if isinstance(self.display_name, str) else value
+        return self.normalize_name(source) if isinstance(source, str) else source
 
 
 class PlayerProfileClaim(db.Model):
@@ -31,12 +83,20 @@ class PlayerProfileClaim(db.Model):
     __tablename__ = "player_profile_claims"
     __table_args__ = (
         db.UniqueConstraint("player_api_id", "user_account_id", name="uq_profile_claim_player_user"),
+        db.Index(
+            "uq_profile_claim_local_player_user",
+            "local_player_id",
+            "user_account_id",
+            unique=True,
+        ),
         db.Index("ix_profile_claims_player", "player_api_id"),
+        db.Index("ix_profile_claims_local_player", "local_player_id"),
         db.Index("ix_profile_claims_user", "user_account_id"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
-    player_api_id = db.Column(db.Integer, nullable=False)  # API-Football player id
+    player_api_id = db.Column(db.Integer, nullable=True)  # API-Football player id
+    local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"), nullable=True)
     user_account_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=False)
     relationship_type = db.Column(db.String(20), nullable=False)  # player | agent | guardian | club_official
     status = db.Column(db.String(20), nullable=False, default="pending")  # pending | approved | rejected | revoked
@@ -84,10 +144,14 @@ class PlayerShowcaseProfile(db.Model):
     """A player's self-reported profile card — pre-moderated before it goes public."""
 
     __tablename__ = "player_showcase_profiles"
-    __table_args__ = (db.Index("ix_showcase_profiles_player", "player_api_id", unique=True),)
+    __table_args__ = (
+        db.Index("ix_showcase_profiles_player", "player_api_id", unique=True),
+        db.Index("ix_showcase_profiles_local_player", "local_player_id", unique=True),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    player_api_id = db.Column(db.Integer, nullable=False)  # API-Football player id (unique)
+    player_api_id = db.Column(db.Integer, nullable=True)  # API-Football player id (unique)
+    local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"), nullable=True)
     bio = db.Column(db.Text)
     positions = db.Column(db.String(100))
     preferred_foot = db.Column(db.String(10))  # left | right | both
@@ -126,6 +190,8 @@ class PlayerShowcaseProfile(db.Model):
             "languages": self.languages,
             "self_reported": True,
         }
+        if self.local_player_id is not None:
+            payload["local_player_id"] = self.local_player_id
         if include_agent_contact:
             payload["agent_contact_email"] = self.agent_contact_email
         return payload
@@ -143,10 +209,14 @@ class PlayerShowcaseMedia(db.Model):
     """A self-hosted player photo that remains private until moderation."""
 
     __tablename__ = "player_showcase_media"
-    __table_args__ = (db.Index("ix_showcase_media_player_status", "player_api_id", "status"),)
+    __table_args__ = (
+        db.Index("ix_showcase_media_player_status", "player_api_id", "status"),
+        db.Index("ix_showcase_media_local_player", "local_player_id"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    player_api_id = db.Column(db.Integer, nullable=False)  # API-Football player id
+    player_api_id = db.Column(db.Integer, nullable=True)  # API-Football player id
+    local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"), nullable=True)
     kind = db.Column(db.String(20), nullable=False, default="photo", server_default="photo")
     blob_path = db.Column(db.Text, nullable=False)
     public_url = db.Column(db.Text)
@@ -222,10 +292,12 @@ class PlayerClubAffiliation(db.Model):
             "player_api_id",
             "status",
         ),
+        db.Index("ix_player_club_affiliations_local_player", "local_player_id"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
-    player_api_id = db.Column(db.Integer, nullable=False)
+    player_api_id = db.Column(db.Integer, nullable=True)
+    local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"), nullable=True)
     local_club_id = db.Column(db.Integer, db.ForeignKey("local_clubs.id"), nullable=True)
     team_api_id = db.Column(db.Integer)
     season = db.Column(db.String(20))
@@ -301,3 +373,21 @@ class ClubOfficialClaim(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+def _enforce_player_subject_xor(_mapper, _connection, target) -> None:
+    """Reject showcase rows that identify both or neither player subject."""
+    has_api_player = target.player_api_id is not None
+    has_local_player = target.local_player_id is not None
+    if has_api_player == has_local_player:
+        raise ValueError("exactly one of player_api_id or local_player_id is required")
+
+
+for _subject_model in (
+    PlayerProfileClaim,
+    PlayerShowcaseProfile,
+    PlayerShowcaseMedia,
+    PlayerClubAffiliation,
+):
+    event.listen(_subject_model, "before_insert", _enforce_player_subject_xor)
+    event.listen(_subject_model, "before_update", _enforce_player_subject_xor)

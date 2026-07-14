@@ -21,11 +21,12 @@ Reuse decisions (see the build contract):
 import logging
 import re
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from urllib.parse import parse_qs, urlparse
 
 from flask import Blueprint, g, jsonify, request, send_file
-from sqlalchemy import func, text
+from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
 from src.auth import (
     _ensure_user_account,
@@ -39,6 +40,7 @@ from src.models.league import NewsletterPlayerYoutubeLink, PlayerLink, Team, Use
 from src.models.showcase import (
     ClubOfficialClaim,
     LocalClub,
+    LocalPlayer,
     PlayerClubAffiliation,
     PlayerProfileClaim,
     PlayerShowcaseMedia,
@@ -93,9 +95,64 @@ MAX_LOCAL_CLUB_CITY_LENGTH = 120
 MAX_AFFILIATION_SEASON_LENGTH = 20
 MAX_AFFILIATIONS = 5
 MAX_CLUB_ROLE_TITLE_LENGTH = 100
+LOCAL_PLAYER_STATUSES = {"pending", "approved", "rejected", "merged"}
+LOCAL_PLAYER_RELATIONSHIP_TYPES = {"player", "agent", "guardian"}
+MAX_LOCAL_PLAYER_NAME_LENGTH = 200
+MAX_LOCAL_PLAYER_POSITION_LENGTH = 50
+MAX_LOCAL_PLAYER_COUNTRY_LENGTH = 100
+MAX_LOCAL_PLAYER_CITY_LENGTH = 120
+MIN_LOCAL_PLAYER_BIRTH_YEAR = 1950
+MAX_LOCAL_PLAYER_BIRTH_YEAR = 2020
 
 # The only identity gate strong enough for public display (see models/video.py).
 VERIFIED_IDENTITY = "human_confirmed"
+
+
+@dataclass(frozen=True)
+class ShowcaseSubject:
+    """One explicit showcase identity key (API-Football XOR local)."""
+
+    player_api_id: int | None = None
+    local_player_id: int | None = None
+
+    def __post_init__(self):
+        if (self.player_api_id is None) == (self.local_player_id is None):
+            raise ValueError("exactly one showcase subject id is required")
+        subject_id = self.player_api_id if self.player_api_id is not None else self.local_player_id
+        if isinstance(subject_id, bool) or not isinstance(subject_id, int) or subject_id <= 0:
+            raise ValueError("showcase subject ids must be positive integers")
+
+    @property
+    def is_local(self) -> bool:
+        return self.local_player_id is not None
+
+    @property
+    def subject_id(self) -> int:
+        return self.local_player_id if self.local_player_id is not None else self.player_api_id
+
+
+def _api_subject(player_api_id: int) -> ShowcaseSubject:
+    return ShowcaseSubject(player_api_id=player_api_id)
+
+
+def _local_subject(local_player_id: int) -> ShowcaseSubject:
+    return ShowcaseSubject(local_player_id=local_player_id)
+
+
+def _subject_filters(model, subject: ShowcaseSubject, *, api_field: str = "player_api_id") -> tuple:
+    """SQL predicates that enforce both sides of the subject XOR."""
+    api_column = getattr(model, api_field)
+    local_column = model.local_player_id
+    if subject.is_local:
+        return api_column.is_(None), local_column == subject.local_player_id
+    return api_column == subject.player_api_id, local_column.is_(None)
+
+
+def _subject_values(subject: ShowcaseSubject, *, api_field: str = "player_api_id") -> dict:
+    return {
+        api_field: subject.player_api_id,
+        "local_player_id": subject.local_player_id,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -124,10 +181,28 @@ def _current_user_account():
     return user
 
 
-def _has_approved_claim(player_api_id: int, user_id: int) -> bool:
+def _has_approved_subject_claim(subject: ShowcaseSubject, user_id: int) -> bool:
     return (
-        PlayerProfileClaim.query.filter_by(
-            player_api_id=player_api_id, user_account_id=user_id, status="approved"
+        PlayerProfileClaim.query.filter(
+            *_subject_filters(PlayerProfileClaim, subject),
+            PlayerProfileClaim.user_account_id == user_id,
+            PlayerProfileClaim.status == "approved",
+        ).first()
+        is not None
+    )
+
+
+def _has_approved_claim(player_api_id: int, user_id: int) -> bool:
+    """Compatibility wrapper for the existing API-player routes."""
+    return _has_approved_subject_claim(_api_subject(player_api_id), user_id)
+
+
+def _has_visible_local_claim(local_player_id: int, user_id: int) -> bool:
+    return (
+        PlayerProfileClaim.query.filter(
+            *_subject_filters(PlayerProfileClaim, _local_subject(local_player_id)),
+            PlayerProfileClaim.user_account_id == user_id,
+            PlayerProfileClaim.status.in_(("pending", "approved")),
         ).first()
         is not None
     )
@@ -179,8 +254,8 @@ def _optional_owner_user(player_api_id: int):
         return None
 
 
-def _approved_claim_or_403(player_api_id: int):
-    """Resolve the caller and require an approved claim for the player.
+def _approved_subject_claim_or_403(subject: ShowcaseSubject):
+    """Resolve the caller and require an approved claim for one subject.
 
     Returns ``(user, None)`` when the caller owns an approved claim, otherwise
     ``(None, (response, status))`` for the route to return directly.
@@ -188,9 +263,18 @@ def _approved_claim_or_403(player_api_id: int):
     user = _current_user_account()
     if user is None:
         return None, (jsonify({"error": "auth context missing email"}), 401)
-    if not _has_approved_claim(player_api_id, user.id):
+    if subject.is_local:
+        player = db.session.get(LocalPlayer, subject.local_player_id)
+        if player is None or player.status in ("merged", "rejected"):
+            return None, (jsonify({"error": "local player not found"}), 404)
+    if not _has_approved_subject_claim(subject, user.id):
         return None, (jsonify({"error": "You do not have an approved claim for this player"}), 403)
     return user, None
+
+
+def _approved_claim_or_403(player_api_id: int):
+    """Compatibility wrapper for the existing API-player owner gate."""
+    return _approved_subject_claim_or_403(_api_subject(player_api_id))
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +302,11 @@ def _sanitize_text(value: str) -> str:
 def _normalize_club_name(value: str) -> str:
     """Canonical key for local-club duplicate detection."""
     return LocalClub.normalize_name(value)
+
+
+def _normalize_local_player_name(value: str) -> str:
+    """Canonical key for local-player duplicate detection."""
+    return LocalPlayer.normalize_name(value)
 
 
 def _mint_verification_code() -> str:
@@ -299,7 +388,7 @@ def _is_youtube_url(url: str) -> bool:
 
 def _link_dict(link: PlayerLink) -> dict:
     """Compose a reel item dict — PlayerLink.to_dict lacks sort_order."""
-    return {
+    payload = {
         "id": link.id,
         "player_id": link.player_id,
         "url": link.url,
@@ -311,6 +400,9 @@ def _link_dict(link: PlayerLink) -> dict:
         "source": "user",
         "created_at": link.created_at.isoformat() if link.created_at else None,
     }
+    if link.local_player_id is not None:
+        payload["local_player_id"] = link.local_player_id
+    return payload
 
 
 def _media_dict(media: PlayerShowcaseMedia, *, include_preview: bool = False) -> dict:
@@ -328,6 +420,8 @@ def _media_dict(media: PlayerShowcaseMedia, *, include_preview: bool = False) ->
         "created_at": media.created_at.isoformat() if media.created_at else None,
         "review_note": media.review_note,
     }
+    if media.local_player_id is not None:
+        payload["local_player_id"] = media.local_player_id
     if include_preview and media.status != "approved":
         if media.status == "rejected":
             payload["pending_preview_url"] = None
@@ -338,6 +432,63 @@ def _media_dict(media: PlayerShowcaseMedia, *, include_preview: bool = False) ->
                 logger.warning("Unable to mint pending preview for media %s: %s", media.id, exc)
                 payload["pending_preview_url"] = None
     return payload
+
+
+def _profile_claim_dict(claim: PlayerProfileClaim, *, include_null_local_id: bool = False) -> dict:
+    """Serialize a profile claim without changing legacy API-player responses."""
+    payload = claim.to_dict()
+    if include_null_local_id or claim.local_player_id is not None:
+        payload["local_player_id"] = claim.local_player_id
+    return payload
+
+
+def _local_player_public_dict(player: LocalPlayer) -> dict:
+    return {
+        "id": player.id,
+        "display_name": player.display_name,
+        "birth_year": player.birth_year,
+        "position": player.position,
+        "country": player.country,
+        "city": player.city,
+        "status": player.status,
+        "api_player_id": player.api_player_id,
+    }
+
+
+def _local_player_admin_dict(player: LocalPlayer) -> dict:
+    payload = _local_player_public_dict(player)
+    payload.update(
+        {
+            "normalized_name": player.normalized_name,
+            "merged_into_local_player_id": player.merged_into_local_player_id,
+            "provenance": player.provenance,
+            "created_by_user_id": player.created_by_user_id,
+            "reviewed_by": player.reviewed_by,
+            "reviewed_at": player.reviewed_at.isoformat() if player.reviewed_at else None,
+            "review_note": player.review_note,
+            "created_at": player.created_at.isoformat() if player.created_at else None,
+            "updated_at": player.updated_at.isoformat() if player.updated_at else None,
+        }
+    )
+    return payload
+
+
+def _local_player_mini_dict(player: LocalPlayer) -> dict:
+    return {
+        "id": player.id,
+        "display_name": player.display_name,
+        "status": player.status,
+    }
+
+
+def _resolved_local_player(local_player_id: int) -> tuple[LocalPlayer | None, int | None]:
+    """Resolve one merge hop, returning ``(target-or-row, target_id)``."""
+    player = db.session.get(LocalPlayer, local_player_id)
+    if player and player.status == "merged" and player.merged_into_local_player_id:
+        target = db.session.get(LocalPlayer, player.merged_into_local_player_id)
+        if target is not None:
+            return target, target.id
+    return player, None
 
 
 def _local_club_dict(club: LocalClub) -> dict:
@@ -411,9 +562,9 @@ def _club_claim_dict(claim: ClubOfficialClaim, *, include_verification_code: boo
 
 def _player_claim_for_official_dict(claim: PlayerProfileClaim) -> dict:
     """Cross-user claim shape: verification result is visible, secret code is not."""
-    payload = claim.to_dict()
+    payload = _profile_claim_dict(claim)
     payload.pop("verification_code", None)
-    payload["player_name"] = _resolve_player_name(claim.player_api_id)
+    payload["player_name"] = _resolve_claim_player_name(claim)
     return payload
 
 
@@ -507,40 +658,60 @@ def _affiliation_dict(affiliation: PlayerClubAffiliation, *, include_review_note
         "status": affiliation.status,
         "created_at": affiliation.created_at.isoformat() if affiliation.created_at else None,
     }
+    if affiliation.local_player_id is not None:
+        payload["local_player_id"] = affiliation.local_player_id
     if include_review_note:
         payload["review_note"] = affiliation.review_note
     return payload
 
 
-def _player_affiliations(player_api_id: int, *, include_private: bool) -> list[dict]:
-    query = PlayerClubAffiliation.query.filter_by(player_api_id=player_api_id)
+def _subject_affiliations(subject: ShowcaseSubject, *, include_private: bool) -> list[dict]:
+    query = PlayerClubAffiliation.query.filter(*_subject_filters(PlayerClubAffiliation, subject))
     if not include_private:
         query = query.filter(PlayerClubAffiliation.status.in_(PUBLIC_AFFILIATION_STATUSES))
     rows = query.order_by(PlayerClubAffiliation.created_at.asc(), PlayerClubAffiliation.id.asc()).all()
     return [_affiliation_dict(row, include_review_note=include_private) for row in rows]
 
 
-def _lock_photo_cap(player_api_id: int) -> None:
+def _player_affiliations(player_api_id: int, *, include_private: bool) -> list[dict]:
+    """Compatibility wrapper for API-player showcase responses."""
+    return _subject_affiliations(_api_subject(player_api_id), include_private=include_private)
+
+
+def _lock_subject_cap(subject: ShowcaseSubject, *, api_namespace: int, local_namespace: int) -> None:
+    if db.session.get_bind().dialect.name == "postgresql":
+        db.session.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, :subject_id)"),
+            {
+                "namespace": local_namespace if subject.is_local else api_namespace,
+                "subject_id": subject.subject_id,
+            },
+        )
+
+
+def _lock_photo_cap_subject(subject: ShowcaseSubject) -> None:
     """Serialize photo-row creation per player on PostgreSQL.
 
     The eight-row cap is a conditional count and cannot be expressed as a
     portable table constraint. A transaction-scoped advisory lock closes the
     count-then-insert race in production; SQLite tests remain a no-op.
     """
-    if db.session.get_bind().dialect.name == "postgresql":
-        db.session.execute(
-            text("SELECT pg_advisory_xact_lock(:namespace, :player_api_id)"),
-            {"namespace": 5_455_001, "player_api_id": player_api_id},
-        )
+    _lock_subject_cap(subject, api_namespace=5_455_001, local_namespace=5_455_011)
+
+
+def _lock_affiliation_cap_subject(subject: ShowcaseSubject) -> None:
+    """Serialize affiliation cap/duplicate checks per player on PostgreSQL."""
+    _lock_subject_cap(subject, api_namespace=5_455_002, local_namespace=5_455_012)
+
+
+def _lock_photo_cap(player_api_id: int) -> None:
+    """Compatibility wrapper for the existing API-player cap lock."""
+    _lock_photo_cap_subject(_api_subject(player_api_id))
 
 
 def _lock_affiliation_cap(player_api_id: int) -> None:
-    """Serialize affiliation cap/duplicate checks per player on PostgreSQL."""
-    if db.session.get_bind().dialect.name == "postgresql":
-        db.session.execute(
-            text("SELECT pg_advisory_xact_lock(:namespace, :player_api_id)"),
-            {"namespace": 5_455_002, "player_api_id": player_api_id},
-        )
+    """Compatibility wrapper for the existing API-player cap lock."""
+    _lock_affiliation_cap_subject(_api_subject(player_api_id))
 
 
 def _lock_club_claims(user_id: int) -> None:
@@ -562,8 +733,11 @@ def _cleanup_failed_publication(public_url: str | None, media_id: int) -> None:
         logger.error("Failed to compensate public blob for media %s: %s", media_id, exc)
 
 
-def _player_photos(player_api_id: int, *, include_unapproved: bool) -> list[dict]:
-    query = PlayerShowcaseMedia.query.filter_by(player_api_id=player_api_id, kind="photo")
+def _subject_photos(subject: ShowcaseSubject, *, include_unapproved: bool) -> list[dict]:
+    query = PlayerShowcaseMedia.query.filter(
+        *_subject_filters(PlayerShowcaseMedia, subject),
+        PlayerShowcaseMedia.kind == "photo",
+    )
     if not include_unapproved:
         query = query.filter(PlayerShowcaseMedia.status == "approved")
     rows = query.order_by(
@@ -575,7 +749,12 @@ def _player_photos(player_api_id: int, *, include_unapproved: bool) -> list[dict
     return [_media_dict(row, include_preview=include_unapproved) for row in rows]
 
 
-def _highlight_reel(player_api_id: int, *, include_pending: bool) -> list[dict]:
+def _player_photos(player_api_id: int, *, include_unapproved: bool) -> list[dict]:
+    """Compatibility wrapper for API-player photo queries."""
+    return _subject_photos(_api_subject(player_api_id), include_unapproved=include_unapproved)
+
+
+def _subject_highlight_reel(subject: ShowcaseSubject, *, include_pending: bool) -> list[dict]:
     """The player's highlight reel: approved (and, for owners, pending) highlight
     ``PlayerLink`` rows ordered by sort_order, then newsletter YouTube links
     appended as synthetic read-only entries (dedup by URL; not reorderable)."""
@@ -583,7 +762,7 @@ def _highlight_reel(player_api_id: int, *, include_pending: bool) -> list[dict]:
     order_col = func.coalesce(PlayerLink.sort_order, 0)
     links = (
         PlayerLink.query.filter(
-            PlayerLink.player_id == player_api_id,
+            *_subject_filters(PlayerLink, subject, api_field="player_id"),
             PlayerLink.link_type == "highlight",
             PlayerLink.status.in_(statuses),
         )
@@ -598,11 +777,13 @@ def _highlight_reel(player_api_id: int, *, include_pending: bool) -> list[dict]:
         return _youtube_video_id(url) or url
 
     seen_urls = {_dedup_key(r["url"]) for r in results}
-    yt_rows = (
-        NewsletterPlayerYoutubeLink.query.filter_by(player_id=player_api_id)
-        .order_by(NewsletterPlayerYoutubeLink.created_at.desc())
-        .all()
-    )
+    yt_rows = []
+    if not subject.is_local:
+        yt_rows = (
+            NewsletterPlayerYoutubeLink.query.filter_by(player_id=subject.player_api_id)
+            .order_by(NewsletterPlayerYoutubeLink.created_at.desc())
+            .all()
+        )
     for yt in yt_rows:
         # Newsletter links are admin-entered with no write-side URL validation —
         # only merge ones that are verifiably YouTube (defense in depth: a stored
@@ -629,10 +810,29 @@ def _highlight_reel(player_api_id: int, *, include_pending: bool) -> list[dict]:
     return results
 
 
+def _highlight_reel(player_api_id: int, *, include_pending: bool) -> list[dict]:
+    """Compatibility wrapper for the existing API-player reel."""
+    return _subject_highlight_reel(_api_subject(player_api_id), include_pending=include_pending)
+
+
 def _resolve_player_name(player_api_id: int):
     """Best-effort display name from the tracking universe (may be None)."""
     tracked = TrackedPlayer.query.filter_by(player_api_id=player_api_id).order_by(TrackedPlayer.id).first()
     return tracked.player_name if tracked and tracked.player_name else None
+
+
+def _resolve_claim_player_name(claim: PlayerProfileClaim) -> str | None:
+    if claim.local_player_id is not None:
+        local_player = db.session.get(LocalPlayer, claim.local_player_id)
+        return local_player.display_name if local_player else None
+    return _resolve_player_name(claim.player_api_id)
+
+
+def _claim_subject(claim: PlayerProfileClaim) -> ShowcaseSubject:
+    return ShowcaseSubject(
+        player_api_id=claim.player_api_id,
+        local_player_id=claim.local_player_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -826,9 +1026,184 @@ def create_local_club():
         return jsonify(_safe_error_payload(e, "Failed to create local club")), 500
 
 
+@showcase_bp.route("/local-players", methods=["POST"])
+@require_user_auth
+@limiter.limit("5 per hour", key_func=_user_rate_limit_key)
+def create_local_player():
+    """Create a pending showcase-only identity and auto-claim it for its creator."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+
+        raw_name = payload.get("display_name")
+        if not isinstance(raw_name, str):
+            return jsonify({"error": "display_name is required and must be a string"}), 400
+        display_name = _sanitize_text(raw_name).strip()
+        if not 2 <= len(display_name) <= MAX_LOCAL_PLAYER_NAME_LENGTH:
+            return jsonify({"error": "display_name must be between 2 and 200 characters"}), 400
+
+        birth_year = payload.get("birth_year")
+        if birth_year is not None:
+            if isinstance(birth_year, bool) or not isinstance(birth_year, int):
+                return jsonify({"error": "birth_year must be an integer between 1950 and 2020"}), 400
+            if not MIN_LOCAL_PLAYER_BIRTH_YEAR <= birth_year <= MAX_LOCAL_PLAYER_BIRTH_YEAR:
+                return jsonify({"error": "birth_year must be between 1950 and 2020"}), 400
+
+        position = _clean_optional_text(payload.get("position"), MAX_LOCAL_PLAYER_POSITION_LENGTH)
+        country = _clean_optional_text(payload.get("country"), MAX_LOCAL_PLAYER_COUNTRY_LENGTH)
+        city = _clean_optional_text(payload.get("city"), MAX_LOCAL_PLAYER_CITY_LENGTH)
+
+        raw_relationship = payload.get("relationship_type", "player")
+        relationship_type = raw_relationship.strip().lower() if isinstance(raw_relationship, str) else ""
+        if relationship_type not in LOCAL_PLAYER_RELATIONSHIP_TYPES:
+            return (
+                jsonify({"error": f"relationship_type must be one of {sorted(LOCAL_PLAYER_RELATIONSHIP_TYPES)}"}),
+                400,
+            )
+
+        duplicate_query = LocalPlayer.query.filter(
+            LocalPlayer.normalized_name == _normalize_local_player_name(display_name),
+            LocalPlayer.status.notin_(("rejected", "merged")),
+        )
+        if birth_year is None:
+            duplicate_query = duplicate_query.filter(LocalPlayer.birth_year.is_(None))
+        else:
+            duplicate_query = duplicate_query.filter(LocalPlayer.birth_year == birth_year)
+        existing = duplicate_query.order_by(LocalPlayer.id.asc()).first()
+        if existing is not None:
+            return (
+                jsonify(
+                    {
+                        "error": "A local player with this name and birth year already exists",
+                        "existing": {
+                            "id": existing.id,
+                            "display_name": existing.display_name,
+                            "birth_year": existing.birth_year,
+                            "position": existing.position,
+                            "country": existing.country,
+                            "city": existing.city,
+                            "status": existing.status,
+                        },
+                    }
+                ),
+                409,
+            )
+
+        player = LocalPlayer(
+            display_name=display_name,
+            birth_year=birth_year,
+            position=position,
+            country=country,
+            city=city,
+            status="pending",
+            provenance="user",
+            created_by_user_id=user.id,
+        )
+        db.session.add(player)
+        db.session.flush()
+        claim = PlayerProfileClaim(
+            player_api_id=None,
+            local_player_id=player.id,
+            user_account_id=user.id,
+            relationship_type=relationship_type,
+            status="pending",
+            verification_code=_mint_verification_code(),
+            verification_status="unverified",
+        )
+        db.session.add(claim)
+        db.session.commit()
+        return jsonify({"player": _local_player_public_dict(player), "claim": _profile_claim_dict(claim)}), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in create_local_player: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to create local player")), 500
+
+
 # ---------------------------------------------------------------------------
 # Public
 # ---------------------------------------------------------------------------
+
+
+def _subject_showcase_payload(subject: ShowcaseSubject, *, auth_context=None) -> dict:
+    """Compose the shared showcase contract for an explicit subject."""
+    if auth_context is None:
+        auth_context = _optional_authenticated_context()
+    authenticated = auth_context is not None
+    auth_user = auth_context["user"] if auth_context else None
+    is_owner = bool(auth_user and _has_approved_subject_claim(subject, auth_user.id))
+    profile_row = PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, subject)).first()
+    if profile_row and profile_row.status == "approved":
+        profile = profile_row.public_dict(include_agent_contact=authenticated)
+    elif profile_row and is_owner and profile_row.status == "pending":
+        profile = profile_row.owner_dict()
+    else:
+        profile = None
+
+    claimed = (
+        PlayerProfileClaim.query.filter(
+            *_subject_filters(PlayerProfileClaim, subject),
+            PlayerProfileClaim.status == "approved",
+        ).first()
+        is not None
+    )
+    payload = {
+        "profile": profile,
+        "reel": _subject_highlight_reel(subject, include_pending=is_owner),
+        "photos": _subject_photos(subject, include_unapproved=is_owner),
+        "affiliations": _subject_affiliations(subject, include_private=is_owner),
+        "verified_footage": [] if subject.is_local else _verified_footage(subject.player_api_id),
+        "claim_status": "claimed" if claimed else "unclaimed",
+    }
+    if subject.is_local:
+        return {"local_player_id": subject.local_player_id, **payload}
+    return {"player_api_id": subject.player_api_id, **payload}
+
+
+def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
+    if player.status == "approved":
+        return True
+    user = auth_context["user"] if auth_context else None
+    return bool(user and _has_visible_local_claim(player.id, user.id))
+
+
+@showcase_bp.route("/local-players/<int:lp_id>", methods=["GET"])
+def get_local_player(lp_id: int):
+    """Public local-player identity, with claimant-only pending visibility."""
+    try:
+        player, merged_into = _resolved_local_player(lp_id)
+        if player is None:
+            return jsonify({"error": "local player not found"}), 404
+        auth_context = _optional_authenticated_context()
+        if not _local_player_visible_to_context(player, auth_context):
+            return jsonify({"error": "local player not found"}), 404
+        payload = {"player": _local_player_public_dict(player)}
+        if merged_into is not None:
+            payload["merged_into"] = merged_into
+        return jsonify(payload)
+    except Exception as e:
+        logger.error("Error in get_local_player: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to load local player")), 500
+
+
+@showcase_bp.route("/local-players/<int:lp_id>/showcase", methods=["GET"])
+def get_local_player_showcase(lp_id: int):
+    """Showcase-only local profile; local subjects never have Film Room evidence."""
+    try:
+        player, _ = _resolved_local_player(lp_id)
+        if player is None:
+            return jsonify({"error": "local player not found"}), 404
+        auth_context = _optional_authenticated_context()
+        if not _local_player_visible_to_context(player, auth_context):
+            return jsonify({"error": "local player not found"}), 404
+        return jsonify(_subject_showcase_payload(_local_subject(player.id), auth_context=auth_context))
+    except Exception as e:
+        logger.error("Error in get_local_player_showcase: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to load showcase")), 500
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase", methods=["GET"])
@@ -841,38 +1216,7 @@ def get_player_showcase(player_api_id: int):
     or bad-token callers get the approved-only public view — never a 401.
     """
     try:
-        auth_context = _optional_authenticated_context()
-        authenticated = auth_context is not None
-        auth_user = auth_context["user"] if auth_context else None
-        is_owner = bool(auth_user and _has_approved_claim(player_api_id, auth_user.id))
-        profile_row = PlayerShowcaseProfile.query.filter_by(player_api_id=player_api_id).first()
-        if profile_row and profile_row.status == "approved":
-            profile = profile_row.public_dict(include_agent_contact=authenticated)
-        elif profile_row and is_owner and profile_row.status == "pending":
-            # Owner sees their unpublished draft with its status; public does not.
-            profile = profile_row.owner_dict()
-        else:
-            profile = None
-
-        reel = _highlight_reel(player_api_id, include_pending=is_owner)
-        photos = _player_photos(player_api_id, include_unapproved=is_owner)
-
-        claimed = PlayerProfileClaim.query.filter_by(player_api_id=player_api_id, status="approved").first() is not None
-
-        return jsonify(
-            {
-                "player_api_id": player_api_id,
-                "profile": profile,
-                "reel": reel,
-                "photos": photos,
-                "affiliations": _player_affiliations(
-                    player_api_id,
-                    include_private=is_owner,
-                ),
-                "verified_footage": _verified_footage(player_api_id),
-                "claim_status": "claimed" if claimed else "unclaimed",
-            }
-        )
+        return jsonify(_subject_showcase_payload(_api_subject(player_api_id)))
     except Exception as e:
         logger.error("Error in get_player_showcase: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load showcase")), 500
@@ -1022,8 +1366,11 @@ def my_claims():
             db.session.commit()
         out = []
         for claim in claims:
-            payload = claim.to_dict()
-            payload["player_name"] = _resolve_player_name(claim.player_api_id)
+            payload = _profile_claim_dict(claim, include_null_local_id=True)
+            payload["player_name"] = _resolve_claim_player_name(claim)
+            if claim.local_player_id is not None:
+                local_player = db.session.get(LocalPlayer, claim.local_player_id)
+                payload["local_player"] = _local_player_mini_dict(local_player) if local_player else None
             out.append(payload)
         return jsonify({"claims": out})
     except Exception as e:
@@ -1060,7 +1407,7 @@ def verify_my_claim(claim_id: int):
             claim.verification_code = _mint_verification_code()
         _run_claim_proof_check(claim, proof_url)
         db.session.commit()
-        return jsonify({"claim": claim.to_dict()})
+        return jsonify({"claim": _profile_claim_dict(claim)})
     except Exception as e:
         db.session.rollback()
         logger.error("Error in verify_my_claim: %s", e)
@@ -1231,12 +1578,28 @@ def my_club():
                 official_claim,
                 exclude_rejected=True,
             )
-            player_ids = {affiliation.player_api_id for affiliation in eligible_affiliations}
+            player_ids = {
+                affiliation.player_api_id for affiliation in eligible_affiliations if affiliation.player_api_id
+            }
+            local_player_ids = {
+                affiliation.local_player_id for affiliation in eligible_affiliations if affiliation.local_player_id
+            }
+            subject_predicates = []
             if player_ids:
+                subject_predicates.append(
+                    (PlayerProfileClaim.player_api_id.in_(sorted(player_ids)))
+                    & PlayerProfileClaim.local_player_id.is_(None)
+                )
+            if local_player_ids:
+                subject_predicates.append(
+                    (PlayerProfileClaim.local_player_id.in_(sorted(local_player_ids)))
+                    & PlayerProfileClaim.player_api_id.is_(None)
+                )
+            if subject_predicates:
                 player_claims = (
                     PlayerProfileClaim.query.filter(
                         PlayerProfileClaim.status == "pending",
-                        PlayerProfileClaim.player_api_id.in_(sorted(player_ids)),
+                        or_(*subject_predicates),
                     )
                     .order_by(PlayerProfileClaim.created_at.asc(), PlayerProfileClaim.id.asc())
                     .all()
@@ -1344,9 +1707,10 @@ def vouch_for_player_claim(claim_id: int):
         official_claims = _approved_official_claims(user.id)
         if not official_claims:
             return jsonify({"error": "You do not have an approved club-official claim"}), 403
+        subject = _claim_subject(player_claim)
         affiliations = (
             PlayerClubAffiliation.query.filter(
-                PlayerClubAffiliation.player_api_id == player_claim.player_api_id,
+                *_subject_filters(PlayerClubAffiliation, subject),
                 PlayerClubAffiliation.status != "rejected",
             )
             .order_by(PlayerClubAffiliation.created_at.asc(), PlayerClubAffiliation.id.asc())
@@ -1392,8 +1756,19 @@ def vouch_for_player_claim(claim_id: int):
 @limiter.limit("10 per hour", key_func=_user_rate_limit_key)
 def create_player_affiliation(player_api_id: int):
     """Submit one pre-moderated self-reported club affiliation."""
+    return _create_subject_affiliation(_api_subject(player_api_id))
+
+
+@showcase_bp.route("/local-players/<int:lp_id>/showcase/affiliations", methods=["POST"])
+@require_user_auth
+@limiter.limit("10 per hour", key_func=_user_rate_limit_key)
+def create_local_player_affiliation(lp_id: int):
+    return _create_subject_affiliation(_local_subject(lp_id))
+
+
+def _create_subject_affiliation(subject: ShowcaseSubject):
     try:
-        user, error = _approved_claim_or_403(player_api_id)
+        user, error = _approved_subject_claim_or_403(subject)
         if error:
             return error
 
@@ -1427,9 +1802,9 @@ def create_player_affiliation(player_api_id: int):
             if season is not None and len(season) > MAX_AFFILIATION_SEASON_LENGTH:
                 return jsonify({"error": "season must be a string of at most 20 characters"}), 400
 
-        _lock_affiliation_cap(player_api_id)
+        _lock_affiliation_cap_subject(subject)
         duplicate_query = PlayerClubAffiliation.query.filter(
-            PlayerClubAffiliation.player_api_id == player_api_id,
+            *_subject_filters(PlayerClubAffiliation, subject),
             PlayerClubAffiliation.status != "rejected",
         )
         if has_local_club:
@@ -1440,14 +1815,14 @@ def create_player_affiliation(player_api_id: int):
             return jsonify({"error": "This club affiliation has already been submitted"}), 409
 
         active_count = PlayerClubAffiliation.query.filter(
-            PlayerClubAffiliation.player_api_id == player_api_id,
+            *_subject_filters(PlayerClubAffiliation, subject),
             PlayerClubAffiliation.status != "rejected",
         ).count()
         if active_count >= MAX_AFFILIATIONS:
             return jsonify({"error": f"affiliation limit reached ({MAX_AFFILIATIONS})"}), 409
 
         affiliation = PlayerClubAffiliation(
-            player_api_id=player_api_id,
+            **_subject_values(subject),
             local_club_id=local_club_id if has_local_club else None,
             team_api_id=team_api_id if has_api_team else None,
             season=season,
@@ -1470,11 +1845,27 @@ def create_player_affiliation(player_api_id: int):
 @require_user_auth
 def delete_player_affiliation(player_api_id: int, aff_id: int):
     """Delete an affiliation belonging to a player whose profile the caller owns."""
+    return _delete_subject_affiliation(_api_subject(player_api_id), aff_id)
+
+
+@showcase_bp.route(
+    "/local-players/<int:lp_id>/showcase/affiliations/<int:aff_id>",
+    methods=["DELETE"],
+)
+@require_user_auth
+def delete_local_player_affiliation(lp_id: int, aff_id: int):
+    return _delete_subject_affiliation(_local_subject(lp_id), aff_id)
+
+
+def _delete_subject_affiliation(subject: ShowcaseSubject, aff_id: int):
     try:
-        _, error = _approved_claim_or_403(player_api_id)
+        _, error = _approved_subject_claim_or_403(subject)
         if error:
             return error
-        affiliation = PlayerClubAffiliation.query.filter_by(id=aff_id, player_api_id=player_api_id).first()
+        affiliation = PlayerClubAffiliation.query.filter(
+            PlayerClubAffiliation.id == aff_id,
+            *_subject_filters(PlayerClubAffiliation, subject),
+        ).first()
         if affiliation is None:
             return jsonify({"error": "affiliation not found"}), 404
         db.session.delete(affiliation)
@@ -1492,8 +1883,19 @@ def delete_player_affiliation(player_api_id: int, aff_id: int):
 def upsert_showcase_profile(player_api_id: int):
     """Upsert the self-reported profile card. Any edit reverts to pending
     (hidden from public until an admin re-approves)."""
+    return _upsert_subject_showcase_profile(_api_subject(player_api_id))
+
+
+@showcase_bp.route("/local-players/<int:lp_id>/showcase/profile", methods=["PUT"])
+@require_user_auth
+@limiter.limit("20 per hour", key_func=_user_rate_limit_key)
+def upsert_local_showcase_profile(lp_id: int):
+    return _upsert_subject_showcase_profile(_local_subject(lp_id))
+
+
+def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
     try:
-        user, error = _approved_claim_or_403(player_api_id)
+        user, error = _approved_subject_claim_or_403(subject)
         if error:
             return error
 
@@ -1553,9 +1955,9 @@ def upsert_showcase_profile(player_api_id: int):
         nationality_secondary = _clean_optional_text(payload.get("nationality_secondary"), MAX_NATIONALITY_LENGTH)
         languages = _clean_optional_text(payload.get("languages"), MAX_LANGUAGES_LENGTH)
 
-        profile = PlayerShowcaseProfile.query.filter_by(player_api_id=player_api_id).first()
+        profile = PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, subject)).first()
         if profile is None:
-            profile = PlayerShowcaseProfile(player_api_id=player_api_id)
+            profile = PlayerShowcaseProfile(**_subject_values(subject))
             db.session.add(profile)
         profile.bio = bio
         profile.positions = positions
@@ -1583,8 +1985,19 @@ def upsert_showcase_profile(player_api_id: int):
 @limiter.limit("20 per hour", key_func=_user_rate_limit_key)
 def create_showcase_photo(player_api_id: int):
     """Create a private pending-upload row and mint a direct browser PUT URL."""
+    return _create_subject_showcase_photo(_api_subject(player_api_id))
+
+
+@showcase_bp.route("/local-players/<int:lp_id>/showcase/photos", methods=["POST"])
+@require_user_auth
+@limiter.limit("20 per hour", key_func=_user_rate_limit_key)
+def create_local_showcase_photo(lp_id: int):
+    return _create_subject_showcase_photo(_local_subject(lp_id))
+
+
+def _create_subject_showcase_photo(subject: ShowcaseSubject):
     try:
-        user, error = _approved_claim_or_403(player_api_id)
+        user, error = _approved_subject_claim_or_403(subject)
         if error:
             return error
         if not showcase_media_storage.is_configured():
@@ -1605,9 +2018,9 @@ def create_showcase_photo(player_api_id: int):
         if size_bytes > max_bytes:
             return jsonify({"error": f"photo exceeds the {max_bytes // (1024**2)}MB limit"}), 400
 
-        _lock_photo_cap(player_api_id)
+        _lock_photo_cap_subject(subject)
         active_count = PlayerShowcaseMedia.query.filter(
-            PlayerShowcaseMedia.player_api_id == player_api_id,
+            *_subject_filters(PlayerShowcaseMedia, subject),
             PlayerShowcaseMedia.kind == "photo",
             PlayerShowcaseMedia.status != "rejected",
         ).count()
@@ -1615,7 +2028,7 @@ def create_showcase_photo(player_api_id: int):
             return jsonify({"error": f"photo limit reached ({MAX_PHOTOS})"}), 409
 
         media = PlayerShowcaseMedia(
-            player_api_id=player_api_id,
+            **_subject_values(subject),
             kind="photo",
             blob_path="pending",
             content_type=content_type,
@@ -1626,7 +2039,13 @@ def create_showcase_photo(player_api_id: int):
         )
         db.session.add(media)
         db.session.flush()
-        upload = showcase_media_storage.mint_upload(player_api_id, media.id, content_type)
+        path_prefix = f"local-players/{subject.local_player_id}" if subject.is_local else None
+        upload = showcase_media_storage.mint_upload(
+            subject.subject_id,
+            media.id,
+            content_type,
+            path_prefix=path_prefix,
+        )
         media.blob_path = upload["blob_path"]
         db.session.commit()
         return (
@@ -1659,12 +2078,30 @@ def create_showcase_photo(player_api_id: int):
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def complete_showcase_photo(player_api_id: int, media_id: int):
     """Verify a direct upload and move it into the private moderation queue."""
+    return _complete_subject_showcase_photo(_api_subject(player_api_id), media_id)
+
+
+@showcase_bp.route(
+    "/local-players/<int:lp_id>/showcase/photos/<int:media_id>/complete",
+    methods=["POST"],
+)
+@require_user_auth
+@limiter.limit("30 per hour", key_func=_user_rate_limit_key)
+def complete_local_showcase_photo(lp_id: int, media_id: int):
+    return _complete_subject_showcase_photo(_local_subject(lp_id), media_id)
+
+
+def _complete_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
     try:
-        _, error = _approved_claim_or_403(player_api_id)
+        _, error = _approved_subject_claim_or_403(subject)
         if error:
             return error
         media = (
-            PlayerShowcaseMedia.query.filter_by(id=media_id, player_api_id=player_api_id, kind="photo")
+            PlayerShowcaseMedia.query.filter(
+                PlayerShowcaseMedia.id == media_id,
+                *_subject_filters(PlayerShowcaseMedia, subject),
+                PlayerShowcaseMedia.kind == "photo",
+            )
             .with_for_update()
             .first()
         )
@@ -1703,8 +2140,19 @@ def complete_showcase_photo(player_api_id: int, media_id: int):
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def reorder_showcase_photos(player_api_id: int):
     """Reorder approved photos; pending/rejected/foreign ids are ignored."""
+    return _reorder_subject_showcase_photos(_api_subject(player_api_id))
+
+
+@showcase_bp.route("/local-players/<int:lp_id>/showcase/photos/order", methods=["PATCH"])
+@require_user_auth
+@limiter.limit("30 per hour", key_func=_user_rate_limit_key)
+def reorder_local_showcase_photos(lp_id: int):
+    return _reorder_subject_showcase_photos(_local_subject(lp_id))
+
+
+def _reorder_subject_showcase_photos(subject: ShowcaseSubject):
     try:
-        _, error = _approved_claim_or_403(player_api_id)
+        _, error = _approved_subject_claim_or_403(subject)
         if error:
             return error
         payload, payload_error = _json_object_or_400()
@@ -1715,7 +2163,11 @@ def reorder_showcase_photos(player_api_id: int):
             return jsonify({"error": "ordered_ids must be a list"}), 400
 
         approved = (
-            PlayerShowcaseMedia.query.filter_by(player_api_id=player_api_id, kind="photo", status="approved")
+            PlayerShowcaseMedia.query.filter(
+                *_subject_filters(PlayerShowcaseMedia, subject),
+                PlayerShowcaseMedia.kind == "photo",
+                PlayerShowcaseMedia.status == "approved",
+            )
             .order_by(PlayerShowcaseMedia.sort_order.asc(), PlayerShowcaseMedia.id.asc())
             .all()
         )
@@ -1745,8 +2197,19 @@ def reorder_showcase_photos(player_api_id: int):
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def set_primary_showcase_photo(player_api_id: int, media_id: int):
     """Set one approved photo as primary, clearing every prior primary."""
+    return _set_primary_subject_showcase_photo(_api_subject(player_api_id), media_id)
+
+
+@showcase_bp.route("/local-players/<int:lp_id>/showcase/photos/<int:media_id>", methods=["PATCH"])
+@require_user_auth
+@limiter.limit("30 per hour", key_func=_user_rate_limit_key)
+def set_primary_local_showcase_photo(lp_id: int, media_id: int):
+    return _set_primary_subject_showcase_photo(_local_subject(lp_id), media_id)
+
+
+def _set_primary_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
     try:
-        _, error = _approved_claim_or_403(player_api_id)
+        _, error = _approved_subject_claim_or_403(subject)
         if error:
             return error
         payload, payload_error = _json_object_or_400()
@@ -1755,7 +2218,11 @@ def set_primary_showcase_photo(player_api_id: int, media_id: int):
         if payload.get("is_primary") is not True:
             return jsonify({"error": "is_primary must be true"}), 400
         media = (
-            PlayerShowcaseMedia.query.filter_by(id=media_id, player_api_id=player_api_id, kind="photo")
+            PlayerShowcaseMedia.query.filter(
+                PlayerShowcaseMedia.id == media_id,
+                *_subject_filters(PlayerShowcaseMedia, subject),
+                PlayerShowcaseMedia.kind == "photo",
+            )
             .with_for_update()
             .first()
         )
@@ -1764,9 +2231,10 @@ def set_primary_showcase_photo(player_api_id: int, media_id: int):
         if media.status != "approved":
             return jsonify({"error": "only approved photos can be primary"}), 409
 
-        PlayerShowcaseMedia.query.filter_by(player_api_id=player_api_id, kind="photo").update(
-            {PlayerShowcaseMedia.is_primary: False}, synchronize_session=False
-        )
+        PlayerShowcaseMedia.query.filter(
+            *_subject_filters(PlayerShowcaseMedia, subject),
+            PlayerShowcaseMedia.kind == "photo",
+        ).update({PlayerShowcaseMedia.is_primary: False}, synchronize_session=False)
         media.is_primary = True
         db.session.commit()
         return jsonify({"media": _media_dict(media)})
@@ -1781,12 +2249,27 @@ def set_primary_showcase_photo(player_api_id: int, media_id: int):
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def delete_showcase_photo(player_api_id: int, media_id: int):
     """Delete a photo row and both its private and published blob representations."""
+    return _delete_subject_showcase_photo(_api_subject(player_api_id), media_id)
+
+
+@showcase_bp.route("/local-players/<int:lp_id>/showcase/photos/<int:media_id>", methods=["DELETE"])
+@require_user_auth
+@limiter.limit("30 per hour", key_func=_user_rate_limit_key)
+def delete_local_showcase_photo(lp_id: int, media_id: int):
+    return _delete_subject_showcase_photo(_local_subject(lp_id), media_id)
+
+
+def _delete_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
     try:
-        _, error = _approved_claim_or_403(player_api_id)
+        _, error = _approved_subject_claim_or_403(subject)
         if error:
             return error
         media = (
-            PlayerShowcaseMedia.query.filter_by(id=media_id, player_api_id=player_api_id, kind="photo")
+            PlayerShowcaseMedia.query.filter(
+                PlayerShowcaseMedia.id == media_id,
+                *_subject_filters(PlayerShowcaseMedia, subject),
+                PlayerShowcaseMedia.kind == "photo",
+            )
             .with_for_update()
             .first()
         )
@@ -1815,8 +2298,19 @@ def delete_showcase_photo(player_api_id: int, media_id: int):
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def add_reel_item(player_api_id: int):
     """Add a pending YouTube highlight to the player's reel (goes to moderation)."""
+    return _add_subject_reel_item(_api_subject(player_api_id))
+
+
+@showcase_bp.route("/local-players/<int:lp_id>/showcase/reel", methods=["POST"])
+@require_user_auth
+@limiter.limit("30 per hour", key_func=_user_rate_limit_key)
+def add_local_reel_item(lp_id: int):
+    return _add_subject_reel_item(_local_subject(lp_id))
+
+
+def _add_subject_reel_item(subject: ShowcaseSubject):
     try:
-        user, error = _approved_claim_or_403(player_api_id)
+        user, error = _approved_subject_claim_or_403(subject)
         if error:
             return error
 
@@ -1831,12 +2325,15 @@ def add_reel_item(player_api_id: int):
         title = _clean_optional_text(payload.get("title"), MAX_TITLE_LENGTH)
 
         # Cap the whole player's reel (any status) so pending submissions can't grow unbounded.
-        count = PlayerLink.query.filter_by(player_id=player_api_id, link_type="highlight").count()
+        count = PlayerLink.query.filter(
+            *_subject_filters(PlayerLink, subject, api_field="player_id"),
+            PlayerLink.link_type == "highlight",
+        ).count()
         if count >= MAX_REEL_ITEMS:
             return jsonify({"error": f"reel limit reached ({MAX_REEL_ITEMS})"}), 400
 
         link = PlayerLink(
-            player_id=player_api_id,
+            **_subject_values(subject, api_field="player_id"),
             user_id=user.id,
             url=raw_url,
             title=title,
@@ -1860,8 +2357,19 @@ def reorder_reel(player_api_id: int):
     """Set sort_order from an ordered id list. Only integer PlayerLink ids that
     belong to this player and are highlights apply; foreign and synthetic
     ``yt-*`` ids are ignored."""
+    return _reorder_subject_reel(_api_subject(player_api_id))
+
+
+@showcase_bp.route("/local-players/<int:lp_id>/showcase/reel/order", methods=["PATCH"])
+@require_user_auth
+@limiter.limit("30 per hour", key_func=_user_rate_limit_key)
+def reorder_local_reel(lp_id: int):
+    return _reorder_subject_reel(_local_subject(lp_id))
+
+
+def _reorder_subject_reel(subject: ShowcaseSubject):
     try:
-        user, error = _approved_claim_or_403(player_api_id)
+        _, error = _approved_subject_claim_or_403(subject)
         if error:
             return error
 
@@ -1871,7 +2379,11 @@ def reorder_reel(player_api_id: int):
             return jsonify({"error": "ordered_ids must be a list"}), 400
 
         own_links = {
-            link.id: link for link in PlayerLink.query.filter_by(player_id=player_api_id, link_type="highlight").all()
+            link.id: link
+            for link in PlayerLink.query.filter(
+                *_subject_filters(PlayerLink, subject, api_field="player_id"),
+                PlayerLink.link_type == "highlight",
+            ).all()
         }
         position = 0
         for link_id in ordered_ids:
@@ -1883,7 +2395,7 @@ def reorder_reel(player_api_id: int):
             link.sort_order = position
             position += 1
         db.session.commit()
-        return jsonify({"reel": _highlight_reel(player_api_id, include_pending=True)})
+        return jsonify({"reel": _subject_highlight_reel(subject, include_pending=True)})
     except Exception as e:
         db.session.rollback()
         logger.error("Error in reorder_reel: %s", e)
@@ -1896,14 +2408,29 @@ def reorder_reel(player_api_id: int):
 def delete_reel_item(player_api_id: int, link_id: int):
     """Delete a reel item — only the submitter or an approved owner of the player.
     Synthetic ``yt-*`` ids never match this integer route (not deletable)."""
+    return _delete_subject_reel_item(_api_subject(player_api_id), link_id)
+
+
+@showcase_bp.route("/local-players/<int:lp_id>/showcase/reel/<int:link_id>", methods=["DELETE"])
+@require_user_auth
+@limiter.limit("30 per hour", key_func=_user_rate_limit_key)
+def delete_local_reel_item(lp_id: int, link_id: int):
+    return _delete_subject_reel_item(_local_subject(lp_id), link_id)
+
+
+def _delete_subject_reel_item(subject: ShowcaseSubject, link_id: int):
     try:
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        link = PlayerLink.query.filter_by(id=link_id, player_id=player_api_id, link_type="highlight").first()
+        link = PlayerLink.query.filter(
+            PlayerLink.id == link_id,
+            *_subject_filters(PlayerLink, subject, api_field="player_id"),
+            PlayerLink.link_type == "highlight",
+        ).first()
         if link is None:
             return jsonify({"error": "reel item not found"}), 404
-        if link.user_id != user.id and not _has_approved_claim(player_api_id, user.id):
+        if link.user_id != user.id and not _has_approved_subject_claim(subject, user.id):
             return jsonify({"error": "You are not permitted to delete this reel item"}), 403
         db.session.delete(link)
         db.session.commit()
@@ -2135,6 +2662,323 @@ def admin_link_local_club_api(club_id: int):
         return jsonify(_safe_error_payload(e, "Failed to link local club")), 500
 
 
+@showcase_bp.route("/admin/local-players", methods=["GET"])
+@require_api_key
+def admin_list_local_players():
+    """List local identities with creator email and full moderation metadata."""
+    try:
+        status = (request.args.get("status") or "").strip().lower()
+        query = LocalPlayer.query
+        if status:
+            if status not in LOCAL_PLAYER_STATUSES:
+                return jsonify({"error": f"invalid status; one of {sorted(LOCAL_PLAYER_STATUSES)}"}), 400
+            query = query.filter(LocalPlayer.status == status)
+        players = query.order_by(LocalPlayer.created_at.desc(), LocalPlayer.id.desc()).all()
+        out = []
+        for player in players:
+            payload = _local_player_admin_dict(player)
+            creator = db.session.get(UserAccount, player.created_by_user_id) if player.created_by_user_id else None
+            payload["created_by_email"] = creator.email if creator else None
+            out.append(payload)
+        return jsonify({"players": out})
+    except Exception as e:
+        logger.error("Error in admin_list_local_players: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to load local players")), 500
+
+
+@showcase_bp.route("/admin/local-players/<int:lp_id>/review", methods=["POST"])
+@require_api_key
+def admin_review_local_player(lp_id: int):
+    """Approve or reject a pending local identity."""
+    try:
+        player = LocalPlayer.query.filter_by(id=lp_id).with_for_update().first()
+        if player is None:
+            return jsonify({"error": "local player not found"}), 404
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        raw_action = payload.get("action")
+        action = raw_action.strip().lower() if isinstance(raw_action, str) else ""
+        if action not in ("approve", "reject"):
+            return jsonify({"error": "action must be approve or reject"}), 400
+        if player.status != "pending":
+            return jsonify({"error": f"cannot {action} a {player.status} local player"}), 409
+
+        now = datetime.now(UTC)
+        player.status = "approved" if action == "approve" else "rejected"
+        player.review_note = _clean_optional_text(payload.get("note"), MAX_REVIEW_NOTE_LENGTH)
+        player.reviewed_by = getattr(g, "user_email", None)
+        player.reviewed_at = now
+        player.updated_at = now
+        db.session.commit()
+        return jsonify({"player": _local_player_admin_dict(player)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in admin_review_local_player: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to review local player")), 500
+
+
+_PROFILE_MERGE_FIELDS = (
+    "bio",
+    "positions",
+    "preferred_foot",
+    "height_cm",
+    "contract_status",
+    "contract_until",
+    "availability",
+    "agent_name",
+    "agent_contact_email",
+    "nationality_secondary",
+    "languages",
+)
+_CLAIM_MERGE_STATUS_RANK = {
+    "pending": 0,
+    "approved": 1,
+    "rejected": 2,
+    "revoked": 3,
+}
+_CLAIM_EVIDENCE_STATUS_RANK = {
+    "unverified": 0,
+    "code_not_found": 1,
+    "code_found": 2,
+}
+
+
+def _merge_local_player_claims(source_id: int, target_id: int) -> int:
+    """Move claims while retaining one canonical row per claimant.
+
+    A user may have claimed both duplicate identities before an admin discovers
+    the duplicate. The target row survives. Explicit denial is precedence-safe
+    (revoked/rejected cannot be resurrected), while the strongest independent
+    social-proof evidence and club-vouch provenance are retained.
+    """
+    source_subject = _local_subject(source_id)
+    target_subject = _local_subject(target_id)
+    source_claims = (
+        PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, source_subject)).with_for_update().all()
+    )
+    if not source_claims:
+        return 0
+
+    target_claims = (
+        PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, target_subject)).with_for_update().all()
+    )
+    target_by_user = {claim.user_account_id: claim for claim in target_claims}
+    for source_claim in source_claims:
+        target_claim = target_by_user.get(source_claim.user_account_id)
+        if target_claim is None:
+            continue
+
+        source_rank = _CLAIM_MERGE_STATUS_RANK.get(source_claim.status, -1)
+        target_rank = _CLAIM_MERGE_STATUS_RANK.get(target_claim.status, -1)
+        source_status_wins = source_rank > target_rank
+        if source_rank == target_rank and source_claim.reviewed_at is not None:
+            source_status_wins = target_claim.reviewed_at is None or source_claim.reviewed_at > target_claim.reviewed_at
+        if source_status_wins:
+            for field in (
+                "relationship_type",
+                "status",
+                "message",
+                "reviewed_by",
+                "reviewed_at",
+            ):
+                setattr(target_claim, field, getattr(source_claim, field))
+        elif target_claim.message is None and source_claim.message is not None:
+            target_claim.message = source_claim.message
+
+        source_evidence_rank = _CLAIM_EVIDENCE_STATUS_RANK.get(source_claim.verification_status, -1)
+        target_evidence_rank = _CLAIM_EVIDENCE_STATUS_RANK.get(target_claim.verification_status, -1)
+        source_evidence_wins = source_evidence_rank > target_evidence_rank
+        if source_evidence_rank == target_evidence_rank:
+            if source_claim.verification_proof_url and not target_claim.verification_proof_url:
+                source_evidence_wins = True
+            elif source_claim.verification_checked_at is not None:
+                source_evidence_wins = (
+                    target_claim.verification_checked_at is None
+                    or source_claim.verification_checked_at > target_claim.verification_checked_at
+                )
+        if source_evidence_wins:
+            for field in (
+                "verification_code",
+                "verification_proof_url",
+                "verification_status",
+                "verification_checked_at",
+            ):
+                setattr(target_claim, field, getattr(source_claim, field))
+
+        if source_claim.verification_method == "vouch" or target_claim.verification_method == "vouch":
+            target_claim.verification_method = "vouch"
+        elif target_claim.verification_method is None:
+            target_claim.verification_method = source_claim.verification_method
+
+        target_note = target_claim.verification_note
+        source_note = source_claim.verification_note
+        if target_note and source_note and target_note != source_note:
+            delimiter = " | "
+            note_budget = VERIFICATION_NOTE_MAX_LENGTH - len(delimiter)
+            target_budget = note_budget // 2
+            target_claim.verification_note = (
+                f"{target_note[:target_budget]}{delimiter}{source_note[: note_budget - target_budget]}"
+            )
+        else:
+            target_claim.verification_note = (target_note or source_note or "")[:VERIFICATION_NOTE_MAX_LENGTH] or None
+
+        if source_claim.created_at and (
+            target_claim.created_at is None or source_claim.created_at < target_claim.created_at
+        ):
+            target_claim.created_at = source_claim.created_at
+        db.session.delete(source_claim)
+
+    # Flush duplicate removals before the bulk move meets the local claimant
+    # uniqueness constraint.
+    db.session.flush()
+    PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, source_subject)).update(
+        {PlayerProfileClaim.local_player_id: target_id},
+        synchronize_session=False,
+    )
+    return len(source_claims)
+
+
+def _merge_local_player_profiles(source_id: int, target_id: int, now: datetime) -> int:
+    """Move the source profile, consolidating a target collision safely."""
+    source_subject = _local_subject(source_id)
+    target_subject = _local_subject(target_id)
+    source_profile = (
+        PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, source_subject))
+        .with_for_update()
+        .first()
+    )
+    if source_profile is None:
+        return 0
+
+    target_profile = (
+        PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, target_subject))
+        .with_for_update()
+        .first()
+    )
+    if target_profile is None:
+        return PlayerShowcaseProfile.query.filter(PlayerShowcaseProfile.id == source_profile.id).update(
+            {
+                PlayerShowcaseProfile.local_player_id: target_id,
+                PlayerShowcaseProfile.updated_at: now,
+            },
+            synchronize_session=False,
+        )
+
+    changed = False
+    for field in _PROFILE_MERGE_FIELDS:
+        if getattr(target_profile, field) is None and getattr(source_profile, field) is not None:
+            setattr(target_profile, field, getattr(source_profile, field))
+            changed = True
+    if changed:
+        # Any source-authored material entering the canonical card must pass
+        # through pre-moderation again before becoming public.
+        target_profile.status = "pending"
+        target_profile.reviewed_by = None
+        target_profile.reviewed_at = None
+        target_profile.updated_by_user_id = source_profile.updated_by_user_id
+        target_profile.updated_at = now
+    db.session.delete(source_profile)
+    db.session.flush()
+    return 1
+
+
+@showcase_bp.route("/admin/local-players/<int:lp_id>/merge", methods=["POST"])
+@require_api_key
+def admin_merge_local_player(lp_id: int):
+    """Merge a duplicate and repoint every explicit local showcase key."""
+    try:
+        source = LocalPlayer.query.filter_by(id=lp_id).with_for_update().first()
+        if source is None:
+            return jsonify({"error": "local player not found"}), 404
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        target_id = payload.get("into_local_player_id")
+        if isinstance(target_id, bool) or not isinstance(target_id, int) or target_id <= 0:
+            return jsonify({"error": "into_local_player_id must be a positive integer"}), 400
+        if target_id == source.id:
+            return jsonify({"error": "A local player cannot be merged into itself"}), 400
+        if source.status in ("merged", "rejected"):
+            return jsonify({"error": f"cannot merge a {source.status} local player"}), 409
+
+        target = LocalPlayer.query.filter_by(id=target_id).with_for_update().first()
+        if target is None or target.status in ("merged", "rejected"):
+            return jsonify({"error": "merge target must be an active local player"}), 400
+
+        now = datetime.now(UTC)
+        claims = _merge_local_player_claims(source.id, target.id)
+        profiles = _merge_local_player_profiles(source.id, target.id, now)
+        media = PlayerShowcaseMedia.query.filter(
+            *_subject_filters(PlayerShowcaseMedia, _local_subject(source.id))
+        ).update(
+            {
+                PlayerShowcaseMedia.local_player_id: target.id,
+                PlayerShowcaseMedia.updated_at: now,
+            },
+            synchronize_session=False,
+        )
+        affiliations = PlayerClubAffiliation.query.filter(
+            *_subject_filters(PlayerClubAffiliation, _local_subject(source.id))
+        ).update(
+            {
+                PlayerClubAffiliation.local_player_id: target.id,
+                PlayerClubAffiliation.updated_at: now,
+            },
+            synchronize_session=False,
+        )
+        links = PlayerLink.query.filter(
+            *_subject_filters(PlayerLink, _local_subject(source.id), api_field="player_id")
+        ).update({PlayerLink.local_player_id: target.id}, synchronize_session=False)
+
+        source.status = "merged"
+        source.merged_into_local_player_id = target.id
+        source.reviewed_by = getattr(g, "user_email", None)
+        source.reviewed_at = now
+        source.updated_at = now
+        db.session.commit()
+        return jsonify(
+            {
+                "player": _local_player_admin_dict(source),
+                "moved": {
+                    "claims": claims,
+                    "profiles": profiles,
+                    "media": media,
+                    "affiliations": affiliations,
+                    "links": links,
+                },
+            }
+        )
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in admin_merge_local_player: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to merge local player")), 500
+
+
+@showcase_bp.route("/admin/local-players/<int:lp_id>/link-api", methods=["POST"])
+@require_api_key
+def admin_link_local_player_api(lp_id: int):
+    """Store a future API-Football bridge without moving or syncing content."""
+    try:
+        player = db.session.get(LocalPlayer, lp_id)
+        if player is None:
+            return jsonify({"error": "local player not found"}), 404
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        player_api_id = payload.get("player_api_id")
+        if isinstance(player_api_id, bool) or not isinstance(player_api_id, int) or player_api_id <= 0:
+            return jsonify({"error": "player_api_id must be a positive integer"}), 400
+        player.api_player_id = player_api_id
+        player.updated_at = datetime.now(UTC)
+        db.session.commit()
+        return jsonify({"player": _local_player_admin_dict(player)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in admin_link_local_player_api: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to link local player")), 500
+
+
 @showcase_bp.route("/admin/showcase/affiliations", methods=["GET"])
 @require_api_key
 def admin_list_affiliations():
@@ -2302,8 +3146,8 @@ def admin_list_claims():
         claims = query.order_by(PlayerProfileClaim.created_at.desc(), PlayerProfileClaim.id.desc()).all()
         out = []
         for claim in claims:
-            payload = claim.to_dict()
-            payload["player_name"] = _resolve_player_name(claim.player_api_id)
+            payload = _profile_claim_dict(claim)
+            payload["player_name"] = _resolve_claim_player_name(claim)
             payload["user_email"] = claim.user.email if claim.user else None
             out.append(payload)
         return jsonify({"claims": out})
@@ -2331,7 +3175,7 @@ def admin_recheck_claim(claim_id: int):
 
         _run_claim_proof_check(claim, proof_url)
         db.session.commit()
-        return jsonify({"claim": claim.to_dict()})
+        return jsonify({"claim": _profile_claim_dict(claim)})
     except Exception as e:
         db.session.rollback()
         logger.error("Error in admin_recheck_claim: %s", e)
@@ -2366,7 +3210,7 @@ def admin_review_claim(claim_id: int):
         claim.reviewed_by = getattr(g, "user_email", None)
         claim.reviewed_at = datetime.now(UTC)
         db.session.commit()
-        return jsonify({"claim": claim.to_dict()})
+        return jsonify({"claim": _profile_claim_dict(claim)})
     except Exception as e:
         db.session.rollback()
         logger.error("Error in admin_review_claim: %s", e)
@@ -2388,7 +3232,11 @@ def admin_list_profiles():
         out = []
         for profile in profiles:
             payload = profile.owner_dict()
-            payload["player_name"] = _resolve_player_name(profile.player_api_id)
+            if profile.local_player_id is not None:
+                local_player = db.session.get(LocalPlayer, profile.local_player_id)
+                payload["player_name"] = local_player.display_name if local_player else None
+            else:
+                payload["player_name"] = _resolve_player_name(profile.player_api_id)
             out.append(payload)
         return jsonify({"profiles": out})
     except Exception as e:
@@ -2400,8 +3248,19 @@ def admin_list_profiles():
 @require_api_key
 def admin_review_profile(player_api_id: int):
     """Approve (publish) or reject (keep hidden/pending) a showcase profile edit."""
+    return _admin_review_subject_profile(_api_subject(player_api_id))
+
+
+@showcase_bp.route("/admin/showcase/local-profiles/<int:lp_id>/review", methods=["POST"])
+@require_api_key
+def admin_review_local_profile(lp_id: int):
+    """Approve or hide a local-player profile edit."""
+    return _admin_review_subject_profile(_local_subject(lp_id))
+
+
+def _admin_review_subject_profile(subject: ShowcaseSubject):
     try:
-        profile = PlayerShowcaseProfile.query.filter_by(player_api_id=player_api_id).first()
+        profile = PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, subject)).first()
         if profile is None:
             return jsonify({"error": "profile not found"}), 404
         payload = request.get_json(silent=True) or {}

@@ -92,6 +92,9 @@ function SignedOutState({ onSignIn }) {
               <LogIn className="mr-1.5 h-4 w-4" />
               Sign in
             </Button>
+            <Link to="/local-players/new" className="text-sm font-medium text-primary hover:underline">
+              Create a player profile
+            </Link>
           </CardContent>
         </Card>
       </div>
@@ -549,6 +552,9 @@ function AuthenticatedMyClub() {
                     </p>
                   </div>
                   <Button onClick={openClaimDialog}>Claim your club</Button>
+                  <Link to="/local-players/new" className="text-sm font-medium text-primary hover:underline">
+                    Create a player profile
+                  </Link>
                 </CardContent>
               </Card>
             ) : (

@@ -113,7 +113,51 @@ New API surface (all under `/api`):
   `GET /admin/showcase/affiliations?status=<status>`, and
   `POST /admin/showcase/affiliations/<affiliation_id>/review`.
 
-## 5. Club officials & vouching
+## 5. Local players
+
+A **local player** is a community-created identity for a young player who is not covered by
+API-Football. It is a first-class Showcase profile, but it is deliberately not a tracked-player
+record: every local profile carries the **Self-reported** presentation, has no synced statistics
+or journey, never appears in Scout/search/leaderboards, and always has an empty Film Room
+`verified_footage` list. Local players can curate the same moderated profile card, YouTube reel,
+photos, and club affiliations as API-backed players.
+
+**Safeguarding decision:** creation may collect an integer `birth_year` only. The platform never
+collects or stores a full date of birth for these community-created identities, many of whom are
+minors. The accepted range is 1950–2020.
+
+Lifecycle:
+
+1. An authenticated user creates a local player after duplicate checking by normalized name and
+   birth year. The identity starts `pending`, and the creator automatically receives a pending
+   player-profile claim with the same one-time social verification code used elsewhere.
+2. Pending and rejected identities return 404 publicly. A pending or approved claimant may see
+   their own identity; curation still requires an approved claim. An admin approves or rejects
+   the identity independently from the claim/content moderation gates.
+3. An admin may merge a duplicate into an active local player. Claims, profiles, photos,
+   affiliations, and reel links are repointed by their explicit `local_player_id`; the source
+   records one merge hop to the target. If both identities already have a claim from the same
+   user or a profile card, merge consolidates the collision into one canonical row; source-only
+   profile fields return the combined card to pending moderation. Local ids are never encoded as
+   negative API ids.
+4. If API-Football later gains coverage, an admin may store a positive `api_player_id` bridge on
+   the local row. This is metadata only: it does not move content, create a `TrackedPlayer`, opt
+   the player into sync/Scout/journey pipelines, or expose Film Room evidence.
+
+Local-player API surface (all under `/api`):
+
+- Authenticated: `POST /local-players`; `GET /me/claims` includes `local_player_id` and a local
+  player summary; the existing `POST /me/claims/<claim_id>/verify` works for local claims.
+- Public/claimant: `GET /local-players/<id>` and `GET /local-players/<id>/showcase`.
+- Approved claimant: the profile, reel, photo, and affiliation routes mirror the existing
+  `/players/<id>/showcase/...` routes under `/local-players/<id>/showcase/...`.
+- Admin (`require_api_key`): `GET /admin/local-players?status=<status>`,
+  `POST /admin/local-players/<id>/review`, `POST /admin/local-players/<id>/merge`, and
+  `POST /admin/local-players/<id>/link-api`. Local profile-card moderation uses
+  `POST /admin/showcase/local-profiles/<id>/review`; row-id media, link, claim, and affiliation
+  moderation queues work for both subject kinds.
+
+## 6. Club officials & vouching
 
 A club official claims exactly one API-Football team or active local club. Official claims
 reuse the player-claim social-proof ladder: the claimant receives a one-time code, places it
@@ -150,7 +194,7 @@ Club-official API surface (all under `/api`):
   `POST /admin/club-claims/<claim_id>/review` (`approve`, `reject`, or `revoke`), and
   `POST /admin/club-claims/<claim_id>/recheck`.
 
-## 6. API surface (all under /api)
+## 7. API surface (all under /api)
 
 Public: `GET /players/<id>/showcase` includes approved `photos` (optional Bearer: approved
 owners also get their pending/rejected items and preview URLs). It exposes claim status but
@@ -197,7 +241,7 @@ URL safety: Showcase reel links must be https + YouTube (server-side `_is_youtub
 Instagram, TikTok, X/Twitter, Facebook, or YouTube; the checker rejects IP literals,
 userinfo, explicit ports, and unsafe redirects, and applies strict time and body-size caps.
 
-## 7. Operator notes
+## 8. Operator notes
 
 - **Migration `aw19`** merges the `cs01` + `vid02` heads back to one and adds
   `player_profile_claims`, `player_showcase_profiles`, `player_links.sort_order`.
@@ -216,6 +260,10 @@ userinfo, explicit ports, and unsafe redirects, and applies strict time and body
 - **Migration `shp04`** adds the guarded, RLS-enabled `club_official_claims` table. Official
   claims reuse the social-proof evidence fields but remain a separate lifecycle from player
   claims; vouching records identity approval without bypassing content moderation.
+- **Migration `shp05`** adds the guarded, RLS-enabled `local_players` table and explicit nullable
+  `local_player_id` keys on claims, profiles, media, affiliations, and reel links. The legacy API
+  key columns become nullable so the application can enforce an exact API-player XOR local-player
+  subject without negative-id overloading.
 - **Local dev DB caveat (2026-07-02):** the local DB is stamped `vid03` (uncommitted
   migration); aw19's DDL was applied there manually (guarded SQL) without touching
   `alembic_version`. After the vid-chain work lands, rebase vid03 onto aw19
@@ -224,12 +272,17 @@ userinfo, explicit ports, and unsafe redirects, and applies strict time and body
   database (an old unguarded migration alters the deleted `supplemental_loans` table).
   Existing stamped DBs are unaffected.
 - Tests: `pytest tests/test_showcase.py tests/test_showcase_media.py tests/test_claim_verification.py
-  tests/test_local_clubs.py tests/test_club_officials.py`.
+  tests/test_local_clubs.py tests/test_club_officials.py tests/test_local_players.py`.
   Demo data on local dev DB: player 403064
   (H. Amass) has a claimed profile, curated reel, and a club-verified appearance from
   Film Room match 4.
 
-## 8. Changelog
+## 9. Changelog
+
+- **2026-07-14** — Added community-created local player identities with birth-year-only
+  safeguarding, automatic pending claims, the full pre-moderated Showcase curation surface,
+  duplicate merge/repoint tooling, and a metadata-only API-Football bridge. Local players remain
+  excluded from stats, journeys, Film Room, tracked-player search, Scout, and leaderboards.
 
 - **2026-07-14** — Added club-official claims using the social-proof ladder, a My Club queue
   for confirming or rejecting player affiliations, and verified-official vouching for player
