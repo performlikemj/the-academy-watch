@@ -64,6 +64,11 @@ struct PlayerDetailView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
                 PlayerProfileHeader(profile: profile)
+                AddPlayerToListButton(
+                    playerID: viewModel.playerID,
+                    playerName: profile.name,
+                    onSignInRequested: onSignInRequested
+                )
                 seasonSection(profile: profile)
                 recentFormSection
                 journeySection(profile: profile)

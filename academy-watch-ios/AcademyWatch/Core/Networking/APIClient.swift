@@ -22,10 +22,21 @@ protocol WatchlistAPIClientProtocol: Sendable {
     func updateWatchlistSettings(digestOptIn: Bool) async throws -> WatchlistSettingsResponse
 }
 
+protocol FollowListsAPIClientProtocol: Sendable {
+    func fetchFollowLists() async throws -> FollowListsResponse
+    func createFollowList(name: String) async throws -> FollowListResponse
+    func deleteFollowList(listID: Int) async throws -> FollowListDeleteResponse
+    func addPlayerFollow(listID: Int, playerID: Int) async throws -> FollowResponse
+    func removeFollow(listID: Int, followID: Int) async throws -> FollowRemoveResponse
+    func resolveFollowList(listID: Int, limit: Int, offset: Int) async throws -> ResolvedFollowListResponse
+}
+
 struct APIClient: ScoutAPIClientProtocol,
     PlayerDetailAPIClientProtocol,
     AuthAPIClientProtocol,
     WatchlistAPIClientProtocol,
+    FollowListsAPIClientProtocol,
+    CompareAPIClientProtocol,
     Sendable
 {
     static let productionBaseURL = URL(
@@ -155,6 +166,74 @@ struct APIClient: ScoutAPIClientProtocol,
             path: "scout/watchlist/settings",
             method: "PATCH",
             body: WatchlistSettingsRequest(digestOptIn: digestOptIn)
+        )
+    }
+
+    func fetchFollowLists() async throws -> FollowListsResponse {
+        try await get(path: "scout/lists", queryItems: [])
+    }
+
+    func createFollowList(name: String) async throws -> FollowListResponse {
+        try await send(
+            path: "scout/lists",
+            method: "POST",
+            body: FollowListCreateRequest(name: name)
+        )
+    }
+
+    func deleteFollowList(listID: Int) async throws -> FollowListDeleteResponse {
+        try await perform(
+            path: "scout/lists/\(listID)",
+            method: "DELETE",
+            queryItems: [],
+            body: nil
+        )
+    }
+
+    func addPlayerFollow(listID: Int, playerID: Int) async throws -> FollowResponse {
+        try await send(
+            path: "scout/lists/\(listID)/follows",
+            method: "POST",
+            body: PlayerFollowRequest(
+                kind: "player",
+                selector: PlayerFollowSelectorRequest(playerApiId: playerID)
+            )
+        )
+    }
+
+    func removeFollow(listID: Int, followID: Int) async throws -> FollowRemoveResponse {
+        try await perform(
+            path: "scout/lists/\(listID)/follows/\(followID)",
+            method: "DELETE",
+            queryItems: [],
+            body: nil
+        )
+    }
+
+    func resolveFollowList(
+        listID: Int,
+        limit: Int,
+        offset: Int
+    ) async throws -> ResolvedFollowListResponse {
+        try await get(
+            path: "scout/lists/\(listID)/resolve",
+            queryItems: [
+                URLQueryItem(name: "limit", value: String(limit)),
+                URLQueryItem(name: "offset", value: String(offset)),
+            ]
+        )
+    }
+
+    func fetchComparison(
+        playerIDs: [Int],
+        includeAvailability: Bool
+    ) async throws -> CompareResponse {
+        try await get(
+            path: "scout/compare",
+            queryItems: [
+                URLQueryItem(name: "ids", value: playerIDs.map(String.init).joined(separator: ",")),
+                URLQueryItem(name: "include_availability", value: includeAvailability ? "true" : "false"),
+            ]
         )
     }
 
@@ -325,6 +404,19 @@ private struct WatchlistNoteRequest: Encodable {
 
 private struct WatchlistSettingsRequest: Encodable {
     let digestOptIn: Bool
+}
+
+private struct FollowListCreateRequest: Encodable {
+    let name: String
+}
+
+private struct PlayerFollowRequest: Encodable {
+    let kind: String
+    let selector: PlayerFollowSelectorRequest
+}
+
+private struct PlayerFollowSelectorRequest: Encodable {
+    let playerApiId: Int
 }
 
 private struct APIErrorPayload: Decodable {

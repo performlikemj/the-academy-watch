@@ -10,6 +10,18 @@ struct AcademyWatchApp: App {
         else { return nil }
         return Int(arguments[flagIndex + 1])
     }()
+    private let initialComparePlayerIDs: [Int] = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let flagIndex = arguments.firstIndex(of: "-comparePlayerIds"),
+              arguments.indices.contains(flagIndex + 1)
+        else { return [] }
+        return Array(
+            arguments[flagIndex + 1]
+                .split(separator: ",")
+                .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                .prefix(4)
+        )
+    }()
     private let initialTab = RootTab.fromLaunchArguments(ProcessInfo.processInfo.arguments)
     private let initiallyShowsSignIn = ProcessInfo.processInfo.arguments.contains("-showSignIn")
 
@@ -18,6 +30,7 @@ struct AcademyWatchApp: App {
             RootTabView(
                 initialPhase: initialPhase,
                 initialPlayerID: initialPlayerID,
+                initialComparePlayerIDs: initialComparePlayerIDs,
                 initialTab: initialTab,
                 initiallyShowsSignIn: initiallyShowsSignIn
             )

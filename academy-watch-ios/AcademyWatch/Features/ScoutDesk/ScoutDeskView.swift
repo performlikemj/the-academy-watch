@@ -5,14 +5,21 @@ import SwiftUI
 struct ScoutDeskView: View {
     @StateObject private var viewModel: ScoutDeskViewModel
     @State private var navigationPath: [Int]
+    @State private var selectedPlayerIDs: [Int]
+    @State private var isComparePresented: Bool
     private let onSignInRequested: () -> Void
 
     init(
         apiClient: any ScoutAPIClientProtocol = APIClient(),
         initialPhase: ScoutPhase = .all,
         initialPlayerID: Int? = nil,
+        initialComparePlayerIDs: [Int] = [],
         onSignInRequested: @escaping () -> Void = {}
     ) {
+        var seenPlayerIDs = Set<Int>()
+        let comparePlayerIDs = initialComparePlayerIDs
+            .filter { $0 > 0 && seenPlayerIDs.insert($0).inserted }
+            .prefix(4)
         _viewModel = StateObject(
             wrappedValue: ScoutDeskViewModel(
                 apiClient: apiClient,
@@ -20,6 +27,8 @@ struct ScoutDeskView: View {
             )
         )
         _navigationPath = State(initialValue: initialPlayerID.map { [$0] } ?? [])
+        _selectedPlayerIDs = State(initialValue: Array(comparePlayerIDs))
+        _isComparePresented = State(initialValue: comparePlayerIDs.count >= 2)
         self.onSignInRequested = onSignInRequested
     }
 
@@ -29,6 +38,8 @@ struct ScoutDeskView: View {
     ) {
         _viewModel = StateObject(wrappedValue: viewModel)
         _navigationPath = State(initialValue: [])
+        _selectedPlayerIDs = State(initialValue: [])
+        _isComparePresented = State(initialValue: false)
         self.onSignInRequested = onSignInRequested
     }
 
@@ -66,6 +77,19 @@ struct ScoutDeskView: View {
                     playerID: playerID,
                     onSignInRequested: onSignInRequested
                 )
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !selectedPlayerIDs.isEmpty {
+                compareTray
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .sheet(isPresented: $isComparePresented) {
+            NavigationStack {
+                CompareView(playerIDs: selectedPlayerIDs)
             }
         }
         .task(id: navigationPath.isEmpty) {
@@ -331,12 +355,16 @@ struct ScoutDeskView: View {
                     .buttonStyle(.plain)
                     .accessibilityHint("Opens player detail")
 
-                    WatchlistStarButton(
-                        playerID: player.playerId,
-                        playerName: player.playerName,
-                        onSignInRequested: onSignInRequested
-                    )
-                    .padding(9)
+                    VStack(spacing: 4) {
+                        WatchlistStarButton(
+                            playerID: player.playerId,
+                            playerName: player.playerName,
+                            onSignInRequested: onSignInRequested
+                        )
+                        compareSelectionButton(for: player)
+                    }
+                    .padding(.top, 9)
+                    .padding(.trailing, 9)
                     .zIndex(1)
                 }
                 .padding(.horizontal, 16)
@@ -370,6 +398,84 @@ struct ScoutDeskView: View {
                 .padding(.vertical, 12)
             }
         }
+    }
+
+    private var compareTray: some View {
+        HStack(spacing: 12) {
+            Label(
+                "\(selectedPlayerIDs.count) of 4 selected",
+                systemImage: "rectangle.on.rectangle.angled"
+            )
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+
+            Spacer(minLength: 0)
+
+            Button("Compare") {
+                isComparePresented = true
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(selectedPlayerIDs.count < 2)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    selectedPlayerIDs = []
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Clear comparison selection")
+        }
+        .padding(.leading, 15)
+        .padding(.trailing, 9)
+        .padding(.vertical, 9)
+        .background(.regularMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.14), radius: 12, y: 5)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func compareSelectionButton(for player: ScoutPlayerSummary) -> some View {
+        let isSelected = selectedPlayerIDs.contains(player.playerId)
+        let hasReachedLimit = selectedPlayerIDs.count >= 4
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                if isSelected {
+                    selectedPlayerIDs.removeAll { $0 == player.playerId }
+                } else if !hasReachedLimit {
+                    selectedPlayerIDs.append(player.playerId)
+                }
+            }
+        } label: {
+            Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(isSelected ? AcademyColors.claret : Color.secondary)
+                .frame(width: 34, height: 34)
+                .background(AcademyColors.surface.opacity(0.96), in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isSelected && hasReachedLimit)
+        .opacity(!isSelected && hasReachedLimit ? 0.45 : 1)
+        .accessibilityLabel(
+            isSelected
+                ? "Remove \(player.playerName) from comparison"
+                : "Add \(player.playerName) to comparison"
+        )
+        .accessibilityHint(hasReachedLimit && !isSelected ? "Four players are already selected" : "")
     }
 }
 
@@ -540,36 +646,15 @@ struct ScoutPlayerRow: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                playerPhoto
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(player.playerName)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    Text(metadataLine)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    Label(clubLine, systemImage: "shield.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    HStack(spacing: 6) {
-                        BadgeView(text: player.position ?? "Position TBD")
-                        BadgeView(
-                            text: displayStatus,
-                            foregroundColor: statusColor,
-                            backgroundColor: statusColor.opacity(0.12)
-                        )
-                    }
-                }
-                Spacer(minLength: 34)
-            }
+            PlayerIdentityHeader(
+                name: player.playerName,
+                photoURL: player.photoURL,
+                position: player.position ?? "Position TBD",
+                metadata: metadataLine,
+                club: clubLine,
+                status: player.status,
+                reservesTrailingControlSpace: true
+            )
 
             Divider()
 
@@ -590,45 +675,6 @@ struct ScoutPlayerRow: View {
                 .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
         }
         .accessibilityElement(children: .contain)
-    }
-
-    @ViewBuilder
-    private var playerPhoto: some View {
-        Group {
-            if let photoURL = player.photoURL {
-                AsyncImage(url: photoURL, transaction: Transaction(animation: .easeInOut(duration: 0.2))) { phase in
-                    switch phase {
-                    case let .success(image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    case .empty:
-                        ProgressView()
-                            .tint(AcademyColors.claret)
-                    case .failure:
-                        photoPlaceholder
-                    @unknown default:
-                        photoPlaceholder
-                    }
-                }
-            } else {
-                photoPlaceholder
-            }
-        }
-        .frame(width: 60, height: 60)
-        .background(Color(uiColor: .tertiarySystemFill))
-        .clipShape(Circle())
-        .overlay {
-            Circle().stroke(AcademyColors.claret.opacity(0.18), lineWidth: 1)
-        }
-        .accessibilityLabel("Photo of \(player.playerName)")
-    }
-
-    private var photoPlaceholder: some View {
-        Image(systemName: "person.crop.circle.fill")
-            .resizable()
-            .scaledToFit()
-            .foregroundStyle(.tertiary)
     }
 
     private var metadataLine: String {
@@ -659,23 +705,6 @@ struct ScoutPlayerRow: View {
         return player.loanTeamName ?? player.primaryTeamName ?? "Club unavailable"
     }
 
-    private var displayStatus: String {
-        player.status
-            .split(separator: "_")
-            .map { $0.capitalized }
-            .joined(separator: " ")
-    }
-
-    private var statusColor: Color {
-        switch player.status {
-        case "academy": .blue
-        case "on_loan": Color(red: 0.66, green: 0.32, blue: 0.02)
-        case "first_team": Color(red: 0.04, green: 0.45, blue: 0.20)
-        case "sold": .purple
-        case "released", "left": .secondary
-        default: AcademyColors.claret
-        }
-    }
 }
 
 private struct StatCell: View {
