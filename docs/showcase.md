@@ -27,8 +27,7 @@ Every player page carries a **Showcase** section (top of page, above stats):
 user (logged in) claims player  →  receives a one-time code
   →  places the code in the bio of a public Instagram / TikTok / X / Facebook / YouTube profile
   →  submits that profile URL for a best-effort automated check
-  →  admin reviews the claim and the advisory check (Admin → Showcase → Claims)
-  →  admin approves
+  →  admin reviews and approves, OR an eligible verified club official vouches for identity
   →  owner curates: upload/reorder photos, add/reorder/delete reel videos, edit profile card
   →  every content edit is PRE-MODERATED (pending → admin approves → public)
 ```
@@ -37,7 +36,8 @@ user (logged in) claims player  →  receives a one-time code
   per player are allowed (player + agent may co-own).
 - Social proof demonstrates control of a known public profile; it does not prove legal
   identity. The automated result is advisory (`unverified`, `code_found`, or
-  `code_not_found`) and **admin approval remains the only gate that approves a claim**.
+  `code_not_found`) and never approves a claim by itself. Identity approval comes from
+  admin review or an eligible verified-club-official vouch.
 - Claimants may retry with the same one-time code. Admins can re-run the check against the
   stored profile URL before deciding a claim.
 - **There is no document or ID upload, ever.** The platform does not collect or store KYC
@@ -113,7 +113,44 @@ New API surface (all under `/api`):
   `GET /admin/showcase/affiliations?status=<status>`, and
   `POST /admin/showcase/affiliations/<affiliation_id>/review`.
 
-## 5. API surface (all under /api)
+## 5. Club officials & vouching
+
+A club official claims exactly one API-Football team or active local club. Official claims
+reuse the player-claim social-proof ladder: the claimant receives a one-time code, places it
+on an allowlisted public social profile, submits that profile URL for a best-effort check,
+and remains `pending` until an admin approves or rejects the claim. An approved claim may
+later be revoked. Automated social proof remains advisory; only an approved official claim
+opens the club trust actions below.
+
+An approved official's **My Club** queue contains pending or self-reported affiliations that
+name their club and pending player-profile claims linked to it by a non-rejected affiliation.
+Local-club matching follows one merge hop, so work attached to a merged duplicate reaches the
+official for the surviving club.
+
+- Confirming an affiliation changes it to `club_confirmed`; rejecting it changes it to
+  `rejected` and may record a review note.
+- Vouching auto-approves a pending player-profile claim and records verification method
+  `vouch`. **A vouch approves identity only.** Every owner-submitted photo, reel link, and
+  profile edit remains pre-moderated before it can appear publicly.
+- A club-claim verification code is returned only in the authenticated creation response,
+  the claimant's own `/me/club-claims` list, and the admin list. It is never included in
+  public or cross-user payloads.
+- Player-claim verification codes are likewise stripped from the cross-user My Club vouch
+  queue and vouch response; advisory status and check timestamps remain visible.
+
+Club-official API surface (all under `/api`):
+
+- Authenticated: `POST /clubs/claim`, `GET /me/club-claims`,
+  `POST /me/club-claims/<claim_id>/verify`, and `GET /me/club`.
+- Approved official for the referenced club:
+  `POST /me/club/affiliations/<affiliation_id>/confirm`,
+  `POST /me/club/affiliations/<affiliation_id>/reject`, and
+  `POST /me/club/player-claims/<claim_id>/vouch`.
+- Admin (`require_api_key`): `GET /admin/club-claims?status=<status>`,
+  `POST /admin/club-claims/<claim_id>/review` (`approve`, `reject`, or `revoke`), and
+  `POST /admin/club-claims/<claim_id>/recheck`.
+
+## 6. API surface (all under /api)
 
 Public: `GET /players/<id>/showcase` includes approved `photos` (optional Bearer: approved
 owners also get their pending/rejected items and preview URLs). It exposes claim status but
@@ -160,7 +197,7 @@ URL safety: Showcase reel links must be https + YouTube (server-side `_is_youtub
 Instagram, TikTok, X/Twitter, Facebook, or YouTube; the checker rejects IP literals,
 userinfo, explicit ports, and unsafe redirects, and applies strict time and body-size caps.
 
-## 6. Operator notes
+## 7. Operator notes
 
 - **Migration `aw19`** merges the `cs01` + `vid02` heads back to one and adds
   `player_profile_claims`, `player_showcase_profiles`, `player_links.sort_order`.
@@ -176,6 +213,9 @@ userinfo, explicit ports, and unsafe redirects, and applies strict time and body
 - **Migration `shp03`** adds the guarded, RLS-enabled `local_clubs` and
   `player_club_affiliations` tables. Both remain Showcase-only and never feed API-Football
   sync, crawl, classifier, journey, or Scout paths.
+- **Migration `shp04`** adds the guarded, RLS-enabled `club_official_claims` table. Official
+  claims reuse the social-proof evidence fields but remain a separate lifecycle from player
+  claims; vouching records identity approval without bypassing content moderation.
 - **Local dev DB caveat (2026-07-02):** the local DB is stamped `vid03` (uncommitted
   migration); aw19's DDL was applied there manually (guarded SQL) without touching
   `alembic_version`. After the vid-chain work lands, rebase vid03 onto aw19
@@ -184,12 +224,16 @@ userinfo, explicit ports, and unsafe redirects, and applies strict time and body
   database (an old unguarded migration alters the deleted `supplemental_loans` table).
   Existing stamped DBs are unaffected.
 - Tests: `pytest tests/test_showcase.py tests/test_showcase_media.py tests/test_claim_verification.py
-  tests/test_local_clubs.py`.
+  tests/test_local_clubs.py tests/test_club_officials.py`.
   Demo data on local dev DB: player 403064
   (H. Amass) has a claimed profile, curated reel, and a club-verified appearance from
   Film Room match 4.
 
-## 7. Changelog
+## 8. Changelog
+
+- **2026-07-14** — Added club-official claims using the social-proof ladder, a My Club queue
+  for confirming or rejecting player affiliations, and verified-official vouching for player
+  identity claims. Vouching approves identity only; all owner content remains pre-moderated.
 
 - **2026-07-14** — Added community-created local clubs, admin verification/merge/API-bridge
   tooling, and pre-moderated player affiliations. Local clubs remain permanently isolated
@@ -197,8 +241,9 @@ userinfo, explicit ports, and unsafe redirects, and applies strict time and body
 
 - **2026-07-14** — Added the claim-verification ladder: one-time code in a known public
   social profile, SSRF-hardened best-effort checking, claimant retry and admin re-check.
-  Automated evidence remains advisory and admin approval remains the sole approval gate;
-  document/ID upload is explicitly never part of Showcase verification.
+  Automated evidence remains advisory and never self-approves; identity approval is an admin
+  decision or, since Chunk 4, an eligible verified-official vouch. Document/ID upload is
+  explicitly never part of Showcase verification.
 - **2026-07-08** — Added pre-moderated, self-hosted player photos with direct blob upload,
   EXIF/GPS stripping, gallery ordering/primary selection, admin media review, and enriched
   contract/availability/agent/nationality/language profile fields. Codified the permanent

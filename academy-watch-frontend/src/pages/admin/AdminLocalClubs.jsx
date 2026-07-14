@@ -30,7 +30,10 @@ import {
     Landmark,
     Link2,
     Loader2,
+    RefreshCw,
     Search,
+    ShieldCheck,
+    Undo2,
     X,
 } from 'lucide-react'
 
@@ -53,6 +56,28 @@ const AFFILIATION_STATUS_LABELS = {
     self_reported: 'Self-reported',
     club_confirmed: 'Club-confirmed',
     rejected: 'Rejected',
+}
+
+const CLUB_CLAIM_STATUS_STYLES = {
+    pending: 'bg-amber-50 text-amber-800 border-amber-200',
+    approved: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    rejected: 'bg-rose-50 text-rose-800 border-rose-200',
+    revoked: 'bg-stone-100 text-stone-700 border-stone-200',
+}
+
+const VERIFICATION_STATUS = {
+    unverified: {
+        label: 'Unverified',
+        className: 'bg-amber-50 text-amber-800 border-amber-200',
+    },
+    code_found: {
+        label: 'Code detected',
+        className: 'bg-emerald-50 text-emerald-800 border-emerald-300',
+    },
+    code_not_found: {
+        label: 'Code not found',
+        className: 'bg-rose-50 text-rose-800 border-rose-200',
+    },
 }
 
 const LEVEL_LABELS = {
@@ -632,6 +657,268 @@ function AffiliationsTab({ setMessage }) {
     )
 }
 
+function OfficialsTab({ setMessage }) {
+    const [claims, setClaims] = useState([])
+    const [loading, setLoading] = useState(true)
+    const [loadFailed, setLoadFailed] = useState(false)
+    const [status, setStatus] = useState('pending')
+    const [reloadKey, setReloadKey] = useState(0)
+    const [actingId, setActingId] = useState(null)
+    const [notes, setNotes] = useState({})
+
+    useEffect(() => {
+        let cancelled = false
+        const params = status === 'all' ? {} : { status }
+        APIService.adminListClubClaims(params)
+            .then((data) => {
+                if (!cancelled) {
+                    setClaims(Array.isArray(data?.claims) ? data.claims : [])
+                    setLoadFailed(false)
+                }
+            })
+            .catch((err) => {
+                if (!cancelled) {
+                    setLoadFailed(true)
+                    setMessage({ type: 'error', text: err.message || 'Failed to load club-official claims' })
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false)
+            })
+        return () => { cancelled = true }
+    }, [reloadKey, setMessage, status])
+
+    const reviewClaim = async (claim, action) => {
+        if (actingId !== null) return
+        setActingId(claim.id)
+        try {
+            await APIService.adminReviewClubClaim(claim.id, {
+                action,
+                note: notes[claim.id]?.trim() || '',
+            })
+            const actionLabel = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'revoked'
+            setMessage({ type: 'success', text: `${claim.club_name || 'Club-official claim'} ${actionLabel}` })
+            setNotes((current) => {
+                const next = { ...current }
+                delete next[claim.id]
+                return next
+            })
+            setClaims([])
+            setLoadFailed(false)
+            setLoading(true)
+            setReloadKey((key) => key + 1)
+        } catch (err) {
+            setMessage({ type: 'error', text: err.message || 'Failed to review club-official claim' })
+        } finally {
+            setActingId(null)
+        }
+    }
+
+    const recheckProof = async (claim) => {
+        if (actingId !== null) return
+        setActingId(claim.id)
+        try {
+            await APIService.adminRecheckClubClaim(claim.id)
+            setMessage({ type: 'success', text: 'Social profile check refreshed' })
+            setClaims([])
+            setLoadFailed(false)
+            setLoading(true)
+            setReloadKey((key) => key + 1)
+        } catch (err) {
+            setMessage({ type: 'error', text: err.message || 'Failed to re-check social profile' })
+        } finally {
+            setActingId(null)
+        }
+    }
+
+    return (
+        <Card>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <CardTitle>Club officials</CardTitle>
+                    <CardDescription>Review people requesting authority to act for a club</CardDescription>
+                </div>
+                <Select
+                    value={status}
+                    onValueChange={(value) => { setClaims([]); setLoadFailed(false); setLoading(true); setStatus(value) }}
+                    disabled={actingId !== null}
+                >
+                    <SelectTrigger className="w-40" aria-label="Filter club-official claims by status">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="approved">Approved</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                        <SelectItem value="revoked">Revoked</SelectItem>
+                        <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                </Select>
+            </CardHeader>
+            <CardContent>
+                {loading ? (
+                    <Loading />
+                ) : loadFailed ? (
+                    <p className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
+                        Club-official claims could not be loaded. Change the filter to try again.
+                    </p>
+                ) : claims.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                        No {status === 'all' ? '' : status} club-official claims.
+                    </p>
+                ) : (
+                    <div className="space-y-3">
+                        {claims.map((claim) => {
+                            const isActing = actingId === claim.id
+                            const isPending = claim.status === 'pending'
+                            const isApproved = claim.status === 'approved'
+                            const claimant = claim.claimant_display_name
+                                || claim.claimant_email
+                                || claim.user_email
+                                || `User #${claim.user_account_id ?? '—'}`
+                            const verification = VERIFICATION_STATUS[claim.verification_status] || VERIFICATION_STATUS.unverified
+                            return (
+                                <div key={claim.id} className="space-y-4 rounded-lg border bg-card p-4">
+                                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                        <div className="min-w-0 flex-1 space-y-2">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <StatusBadge status={claim.status} styles={CLUB_CLAIM_STATUS_STYLES} />
+                                                <span className="text-sm font-semibold text-foreground">{claim.club_name || 'Unknown club'}</span>
+                                                <Badge variant="secondary">{claim.role_title || 'Club official'}</Badge>
+                                            </div>
+                                            <p className="text-sm font-medium text-foreground">{claimant}</p>
+                                            {claim.message && (
+                                                <p className="text-sm text-muted-foreground">“{claim.message}”</p>
+                                            )}
+                                            {formatDate(claim.created_at) && (
+                                                <p className="text-xs text-muted-foreground">Submitted {formatDate(claim.created_at)}</p>
+                                            )}
+
+                                            <div className="mt-3 rounded-md border border-border/70 bg-secondary/30 p-3">
+                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                            Social profile check
+                                                        </span>
+                                                        <Badge className={verification.className}>{verification.label}</Badge>
+                                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="self-start sm:self-auto"
+                                                        disabled={!claim.verification_proof_url || actingId !== null}
+                                                        onClick={() => recheckProof(claim)}
+                                                        title={claim.verification_proof_url ? 'Run the automated check again' : 'No proof URL has been submitted'}
+                                                    >
+                                                        {isActing ? (
+                                                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <RefreshCw className="mr-1 h-4 w-4" />
+                                                        )}
+                                                        Re-check
+                                                    </Button>
+                                                </div>
+                                                <dl className="mt-3 grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
+                                                    <div>
+                                                        <dt className="text-muted-foreground">Verification code</dt>
+                                                        <dd className="mt-0.5 font-mono font-semibold tracking-wide text-foreground">
+                                                            {claim.verification_code || '—'}
+                                                        </dd>
+                                                    </div>
+                                                    <div>
+                                                        <dt className="text-muted-foreground">Last checked</dt>
+                                                        <dd className="mt-0.5 text-foreground">
+                                                            {formatDate(claim.verification_checked_at) || 'Not checked yet'}
+                                                        </dd>
+                                                    </div>
+                                                    <div className="sm:col-span-2">
+                                                        <dt className="text-muted-foreground">Public profile</dt>
+                                                        <dd className="mt-0.5 min-w-0">
+                                                            {claim.verification_proof_url ? (
+                                                                <a
+                                                                    href={claim.verification_proof_url}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="break-all font-medium text-primary hover:underline"
+                                                                >
+                                                                    {claim.verification_proof_url}
+                                                                </a>
+                                                            ) : (
+                                                                <span className="text-foreground">No profile URL submitted</span>
+                                                            )}
+                                                        </dd>
+                                                    </div>
+                                                    {claim.verification_note && (
+                                                        <div className="sm:col-span-2">
+                                                            <dt className="text-muted-foreground">Check note</dt>
+                                                            <dd className="mt-0.5 text-foreground">{claim.verification_note}</dd>
+                                                        </div>
+                                                    )}
+                                                </dl>
+                                            </div>
+                                        </div>
+
+                                        {(isPending || isApproved) && (
+                                            <div className="flex w-full shrink-0 flex-col gap-2 lg:w-80">
+                                                <Input
+                                                    value={notes[claim.id] || ''}
+                                                    onChange={(event) => setNotes((current) => ({ ...current, [claim.id]: event.target.value }))}
+                                                    placeholder="Review note (optional)"
+                                                    aria-label={`Review note for club-official claim ${claim.id}`}
+                                                    maxLength={1000}
+                                                    disabled={isActing}
+                                                />
+                                                <div className="flex flex-wrap justify-end gap-2">
+                                                    {isPending && (
+                                                        <>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="border-emerald-600 text-emerald-600 hover:bg-emerald-50"
+                                                                disabled={actingId !== null}
+                                                                onClick={() => reviewClaim(claim, 'approve')}
+                                                            >
+                                                                {isActing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />}
+                                                                Approve
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="border-rose-600 text-rose-600 hover:bg-rose-50"
+                                                                disabled={actingId !== null}
+                                                                onClick={() => reviewClaim(claim, 'reject')}
+                                                            >
+                                                                {isActing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <X className="mr-1 h-4 w-4" />}
+                                                                Reject
+                                                            </Button>
+                                                        </>
+                                                    )}
+                                                    {isApproved && (
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="border-stone-400 text-stone-600 hover:bg-stone-50"
+                                                            disabled={actingId !== null}
+                                                            onClick={() => reviewClaim(claim, 'revoke')}
+                                                        >
+                                                            {isActing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Undo2 className="mr-1 h-4 w-4" />}
+                                                            Revoke
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    )
+}
+
 export function AdminLocalClubs() {
     const [message, setMessage] = useState(null)
     const [tab, setTab] = useState('clubs')
@@ -644,7 +931,7 @@ export function AdminLocalClubs() {
                 </div>
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight">Local Clubs</h2>
-                    <p className="text-muted-foreground">Moderate community clubs and player affiliations</p>
+                    <p className="text-muted-foreground">Moderate community clubs, player affiliations and club officials</p>
                 </div>
             </div>
 
@@ -671,6 +958,10 @@ export function AdminLocalClubs() {
                         <Link2 className="mr-1.5 h-4 w-4" />
                         Affiliations
                     </TabsTrigger>
+                    <TabsTrigger value="officials">
+                        <ShieldCheck className="mr-1.5 h-4 w-4" />
+                        Officials
+                    </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="clubs" className="mt-4">
@@ -678,6 +969,9 @@ export function AdminLocalClubs() {
                 </TabsContent>
                 <TabsContent value="affiliations" className="mt-4">
                     {tab === 'affiliations' && <AffiliationsTab setMessage={setMessage} />}
+                </TabsContent>
+                <TabsContent value="officials" className="mt-4">
+                    {tab === 'officials' && <OfficialsTab setMessage={setMessage} />}
                 </TabsContent>
             </Tabs>
         </div>

@@ -13,6 +13,7 @@ edits reverts to ``pending`` and is hidden from the public until re-approved.
 - ``PlayerShowcaseMedia`` — pre-moderated, self-hosted player photos.
 - ``LocalClub`` — a moderated, user-created club outside the synced team layer.
 - ``PlayerClubAffiliation`` — a pre-moderated self-reported club affiliation.
+- ``ClubOfficialClaim`` — a moderated claim to represent a club.
 
 Reel storage reuses the existing ``PlayerLink`` model (``link_type='highlight'``)
 plus the ``sort_order`` column added in migration ``aw19``.
@@ -235,3 +236,68 @@ class PlayerClubAffiliation(db.Model):
     review_note = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+
+class ClubOfficialClaim(db.Model):
+    """A user's moderated claim to represent an API or local club."""
+
+    __tablename__ = "club_official_claims"
+    __table_args__ = (
+        db.Index(
+            "ix_club_official_claims_user_status",
+            "user_account_id",
+            "status",
+        ),
+        db.Index("ix_club_official_claims_team", "team_api_id"),
+        db.Index("ix_club_official_claims_local_club", "local_club_id"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_account_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=False)
+    team_api_id = db.Column(db.Integer)
+    local_club_id = db.Column(db.Integer, db.ForeignKey("local_clubs.id"), nullable=True)
+    role_title = db.Column(db.String(100))
+    message = db.Column(db.Text)
+    status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending")
+    verification_code = db.Column(db.String(24), nullable=True)
+    verification_proof_url = db.Column(db.String(500), nullable=True)
+    verification_status = db.Column(
+        db.String(20),
+        nullable=False,
+        default="unverified",
+        server_default="unverified",
+    )
+    verification_checked_at = db.Column(db.DateTime, nullable=True)
+    verification_note = db.Column(db.String(500), nullable=True)
+    verification_method = db.Column(db.String(20), nullable=True)
+    reviewed_by = db.Column(db.String(200))
+    reviewed_at = db.Column(db.DateTime)
+    review_note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+    user = db.relationship("UserAccount", backref=db.backref("club_official_claims", lazy="dynamic"))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_account_id": self.user_account_id,
+            "team_api_id": self.team_api_id,
+            "local_club_id": self.local_club_id,
+            "role_title": self.role_title,
+            "message": self.message,
+            "status": self.status,
+            "verification_code": self.verification_code,
+            "verification_proof_url": self.verification_proof_url,
+            "verification_status": self.verification_status,
+            "verification_checked_at": (
+                self.verification_checked_at.isoformat() if self.verification_checked_at else None
+            ),
+            "verification_note": self.verification_note,
+            "verification_method": self.verification_method,
+            "reviewed_by": self.reviewed_by,
+            "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
+            "review_note": self.review_note,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }

@@ -37,6 +37,7 @@ from src.auth import (
 from src.extensions import limiter
 from src.models.league import NewsletterPlayerYoutubeLink, PlayerLink, Team, UserAccount, db
 from src.models.showcase import (
+    ClubOfficialClaim,
     LocalClub,
     PlayerClubAffiliation,
     PlayerProfileClaim,
@@ -55,6 +56,7 @@ showcase_bp = Blueprint("showcase", __name__)
 
 RELATIONSHIP_TYPES = {"player", "agent", "guardian", "club_official"}
 CLAIM_STATUSES = {"pending", "approved", "rejected", "revoked"}
+CLUB_OFFICIAL_CLAIM_STATUSES = {"pending", "approved", "rejected", "revoked"}
 PROFILE_STATUSES = {"pending", "approved"}
 MEDIA_STATUSES = {"pending_upload", "pending", "approved", "rejected"}
 PREFERRED_FEET = {"left", "right", "both"}
@@ -90,6 +92,7 @@ MAX_LOCAL_CLUB_COUNTRY_LENGTH = 100
 MAX_LOCAL_CLUB_CITY_LENGTH = 120
 MAX_AFFILIATION_SEASON_LENGTH = 20
 MAX_AFFILIATIONS = 5
+MAX_CLUB_ROLE_TITLE_LENGTH = 100
 
 # The only identity gate strong enough for public display (see models/video.py).
 VERIFIED_IDENTITY = "human_confirmed"
@@ -234,7 +237,7 @@ def _proof_url_error():
     ), 400
 
 
-def _run_claim_proof_check(claim: PlayerProfileClaim, proof_url: str) -> None:
+def _run_claim_proof_check(claim: PlayerProfileClaim | ClubOfficialClaim, proof_url: str) -> None:
     """Apply one advisory social-profile check result to a claim row."""
     result = social_proof.check_proof(proof_url, claim.verification_code)
     found = bool(result.get("found"))
@@ -371,18 +374,125 @@ def _local_club_search_dict(club: LocalClub) -> dict:
     }
 
 
+def _latest_team_name(team_api_id: int | None) -> str | None:
+    """Resolve an API-Football team's latest-season display name."""
+    if team_api_id is None:
+        return None
+    team = Team.query.filter_by(team_id=team_api_id).order_by(Team.season.desc(), Team.id.desc()).first()
+    return team.name if team else None
+
+
+def _resolved_local_club(local_club_id: int | None) -> LocalClub | None:
+    """Resolve one local-club merge hop for display and matching."""
+    club = db.session.get(LocalClub, local_club_id) if local_club_id else None
+    if club and club.status == "merged" and club.merged_into_local_club_id:
+        return db.session.get(LocalClub, club.merged_into_local_club_id) or club
+    return club
+
+
+def _club_reference_name(*, team_api_id: int | None, local_club_id: int | None) -> str | None:
+    if team_api_id is not None:
+        return _latest_team_name(team_api_id)
+    club = _resolved_local_club(local_club_id)
+    return club.name if club else None
+
+
+def _club_claim_dict(claim: ClubOfficialClaim, *, include_verification_code: bool = True) -> dict:
+    """Serialize an official claim while making code exposure explicit."""
+    payload = claim.to_dict()
+    if not include_verification_code:
+        payload.pop("verification_code", None)
+    payload["club_name"] = _club_reference_name(
+        team_api_id=claim.team_api_id,
+        local_club_id=claim.local_club_id,
+    )
+    return payload
+
+
+def _player_claim_for_official_dict(claim: PlayerProfileClaim) -> dict:
+    """Cross-user claim shape: verification result is visible, secret code is not."""
+    payload = claim.to_dict()
+    payload.pop("verification_code", None)
+    payload["player_name"] = _resolve_player_name(claim.player_api_id)
+    return payload
+
+
+def _local_club_match_ids(local_club_id: int | None) -> set[int]:
+    """Ids equivalent to a local club under the single-hop merge rule."""
+    if local_club_id is None:
+        return set()
+    original = db.session.get(LocalClub, local_club_id)
+    canonical_id = local_club_id
+    if original and original.status == "merged" and original.merged_into_local_club_id:
+        canonical_id = original.merged_into_local_club_id
+
+    ids = {local_club_id, canonical_id}
+    merged_sources = (
+        db.session.query(LocalClub.id)
+        .filter(
+            LocalClub.status == "merged",
+            LocalClub.merged_into_local_club_id == canonical_id,
+        )
+        .all()
+    )
+    ids.update(row[0] for row in merged_sources)
+    return ids
+
+
+def _club_claim_matches_affiliation(claim: ClubOfficialClaim, affiliation: PlayerClubAffiliation) -> bool:
+    """Whether an approved official claim covers an affiliation's club."""
+    if claim.team_api_id is not None:
+        return affiliation.team_api_id == claim.team_api_id
+    if claim.local_club_id is None or affiliation.local_club_id is None:
+        return False
+    return affiliation.local_club_id in _local_club_match_ids(claim.local_club_id)
+
+
+def _approved_official_claims(user_id: int) -> list[ClubOfficialClaim]:
+    return (
+        ClubOfficialClaim.query.filter_by(user_account_id=user_id, status="approved")
+        .order_by(ClubOfficialClaim.created_at.asc(), ClubOfficialClaim.id.asc())
+        .all()
+    )
+
+
+def _matching_approved_official_claim(
+    user_id: int,
+    affiliation: PlayerClubAffiliation,
+) -> ClubOfficialClaim | None:
+    for claim in _approved_official_claims(user_id):
+        if _club_claim_matches_affiliation(claim, affiliation):
+            return claim
+    return None
+
+
+def _affiliations_for_club_claim(
+    claim: ClubOfficialClaim,
+    *,
+    statuses: set[str] | None = None,
+    exclude_rejected: bool = False,
+) -> list[PlayerClubAffiliation]:
+    query = PlayerClubAffiliation.query
+    if claim.team_api_id is not None:
+        query = query.filter(PlayerClubAffiliation.team_api_id == claim.team_api_id)
+    elif claim.local_club_id is not None:
+        match_ids = sorted(_local_club_match_ids(claim.local_club_id))
+        query = query.filter(PlayerClubAffiliation.local_club_id.in_(match_ids))
+    else:
+        return []
+    if statuses is not None:
+        query = query.filter(PlayerClubAffiliation.status.in_(statuses))
+    elif exclude_rejected:
+        query = query.filter(PlayerClubAffiliation.status != "rejected")
+    return query.order_by(PlayerClubAffiliation.created_at.asc(), PlayerClubAffiliation.id.asc()).all()
+
+
 def _affiliation_club_name(affiliation: PlayerClubAffiliation) -> str | None:
     """Resolve the display club, following one local-club merge hop."""
-    if affiliation.team_api_id is not None:
-        team = (
-            Team.query.filter_by(team_id=affiliation.team_api_id).order_by(Team.season.desc(), Team.id.desc()).first()
-        )
-        return team.name if team else None
-
-    club = db.session.get(LocalClub, affiliation.local_club_id) if affiliation.local_club_id else None
-    if club and club.status == "merged" and club.merged_into_local_club_id:
-        club = db.session.get(LocalClub, club.merged_into_local_club_id) or club
-    return club.name if club else None
+    return _club_reference_name(
+        team_api_id=affiliation.team_api_id,
+        local_club_id=affiliation.local_club_id,
+    )
 
 
 def _affiliation_dict(affiliation: PlayerClubAffiliation, *, include_review_note: bool = False) -> dict:
@@ -430,6 +540,15 @@ def _lock_affiliation_cap(player_api_id: int) -> None:
         db.session.execute(
             text("SELECT pg_advisory_xact_lock(:namespace, :player_api_id)"),
             {"namespace": 5_455_002, "player_api_id": player_api_id},
+        )
+
+
+def _lock_club_claims(user_id: int) -> None:
+    """Serialize active-club duplicate checks per claimant on PostgreSQL."""
+    if db.session.get_bind().dialect.name == "postgresql":
+        db.session.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, :user_id)"),
+            {"namespace": 5_455_003, "user_id": user_id},
         )
 
 
@@ -946,6 +1065,321 @@ def verify_my_claim(claim_id: int):
         db.session.rollback()
         logger.error("Error in verify_my_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to verify claim proof")), 500
+
+
+# ---------------------------------------------------------------------------
+# User-authed — club-official claims and My Club trust actions
+# ---------------------------------------------------------------------------
+
+
+@showcase_bp.route("/clubs/claim", methods=["POST"])
+@require_user_auth
+@limiter.limit("5 per hour", key_func=_user_rate_limit_key)
+def submit_club_official_claim():
+    """Submit a pending claim to represent one API team or local club."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+
+        local_club_id = payload.get("local_club_id")
+        team_api_id = payload.get("team_api_id")
+        has_local_club = local_club_id is not None
+        has_api_team = team_api_id is not None
+        if has_local_club == has_api_team:
+            return jsonify({"error": "exactly one of local_club_id or team_api_id is required"}), 400
+
+        if has_local_club:
+            if isinstance(local_club_id, bool) or not isinstance(local_club_id, int) or local_club_id <= 0:
+                return jsonify({"error": "local_club_id must reference an active local club"}), 400
+            local_club = db.session.get(LocalClub, local_club_id)
+            if local_club is None or local_club.status in ("merged", "rejected"):
+                return jsonify({"error": "local_club_id must reference an active local club"}), 400
+        elif isinstance(team_api_id, bool) or not isinstance(team_api_id, int) or team_api_id <= 0:
+            return jsonify({"error": "team_api_id must be a positive integer"}), 400
+
+        raw_role_title = payload.get("role_title")
+        if not isinstance(raw_role_title, str):
+            return jsonify({"error": "role_title is required and must be a string"}), 400
+        role_title = _sanitize_text(raw_role_title).strip()
+        if not 2 <= len(role_title) <= MAX_CLUB_ROLE_TITLE_LENGTH:
+            return jsonify({"error": "role_title must be between 2 and 100 characters"}), 400
+
+        raw_message = payload.get("message")
+        if raw_message is not None and not isinstance(raw_message, str):
+            return jsonify({"error": "message must be a string of at most 1000 characters"}), 400
+        message = _sanitize_text(raw_message).strip() if isinstance(raw_message, str) else None
+        message = message or None
+        if message is not None and len(message) > MAX_MESSAGE_LENGTH:
+            return jsonify({"error": "message must be a string of at most 1000 characters"}), 400
+
+        _lock_club_claims(user.id)
+        duplicate_query = ClubOfficialClaim.query.filter(
+            ClubOfficialClaim.user_account_id == user.id,
+            ClubOfficialClaim.status.in_(("pending", "approved")),
+        )
+        if has_local_club:
+            duplicate_query = duplicate_query.filter(
+                ClubOfficialClaim.local_club_id.in_(sorted(_local_club_match_ids(local_club_id)))
+            )
+        else:
+            duplicate_query = duplicate_query.filter(ClubOfficialClaim.team_api_id == team_api_id)
+        if duplicate_query.first() is not None:
+            return jsonify({"error": "You already have an active claim for this club"}), 409
+
+        claim = ClubOfficialClaim(
+            user_account_id=user.id,
+            team_api_id=team_api_id if has_api_team else None,
+            local_club_id=local_club_id if has_local_club else None,
+            role_title=role_title,
+            message=message,
+            status="pending",
+            verification_code=_mint_verification_code(),
+            verification_status="unverified",
+        )
+        db.session.add(claim)
+        db.session.commit()
+        return jsonify({"claim": _club_claim_dict(claim)}), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in submit_club_official_claim: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to submit club-official claim")), 500
+
+
+@showcase_bp.route("/me/club-claims", methods=["GET"])
+@require_user_auth
+def my_club_claims():
+    """The caller's club-official claims, including their own verification codes."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        claims = (
+            ClubOfficialClaim.query.filter_by(user_account_id=user.id)
+            .order_by(ClubOfficialClaim.created_at.desc(), ClubOfficialClaim.id.desc())
+            .all()
+        )
+        if any(claim.verification_code is None for claim in claims):
+            for claim in claims:
+                if claim.verification_code is None:
+                    claim.verification_code = _mint_verification_code()
+                    claim.updated_at = datetime.now(UTC)
+            db.session.commit()
+        return jsonify({"claims": [_club_claim_dict(claim) for claim in claims]})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in my_club_claims: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to load club-official claims")), 500
+
+
+@showcase_bp.route("/me/club-claims/<int:claim_id>/verify", methods=["POST"])
+@require_user_auth
+@limiter.limit("6 per hour", key_func=_user_rate_limit_key)
+def verify_my_club_claim(claim_id: int):
+    """Run an advisory social-profile proof check for the caller's club claim."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        claim = ClubOfficialClaim.query.filter_by(id=claim_id, user_account_id=user.id).first()
+        if claim is None:
+            return jsonify({"error": "club-official claim not found"}), 404
+        if claim.status != "pending":
+            return jsonify({"error": f"cannot verify a {claim.status} club-official claim"}), 409
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        raw_proof_url = payload.get("proof_url")
+        proof_url = raw_proof_url.strip() if isinstance(raw_proof_url, str) else ""
+        valid, _ = social_proof.validate_proof_url(proof_url)
+        if not valid or len(proof_url) > MAX_URL_LENGTH:
+            return _proof_url_error()
+
+        if claim.verification_code is None:
+            claim.verification_code = _mint_verification_code()
+        _run_claim_proof_check(claim, proof_url)
+        claim.updated_at = datetime.now(UTC)
+        db.session.commit()
+        return jsonify({"claim": _club_claim_dict(claim, include_verification_code=False)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in verify_my_club_claim: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to verify club-official claim proof")), 500
+
+
+@showcase_bp.route("/me/club", methods=["GET"])
+@require_user_auth
+def my_club():
+    """Approved club workspaces with affiliation review and vouch candidates."""
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+
+        clubs = []
+        for official_claim in _approved_official_claims(user.id):
+            pending_affiliations = _affiliations_for_club_claim(
+                official_claim,
+                statuses={"pending", "self_reported"},
+            )
+            eligible_affiliations = _affiliations_for_club_claim(
+                official_claim,
+                exclude_rejected=True,
+            )
+            player_ids = {affiliation.player_api_id for affiliation in eligible_affiliations}
+            if player_ids:
+                player_claims = (
+                    PlayerProfileClaim.query.filter(
+                        PlayerProfileClaim.status == "pending",
+                        PlayerProfileClaim.player_api_id.in_(sorted(player_ids)),
+                    )
+                    .order_by(PlayerProfileClaim.created_at.asc(), PlayerProfileClaim.id.asc())
+                    .all()
+                )
+            else:
+                player_claims = []
+
+            club_name = _club_reference_name(
+                team_api_id=official_claim.team_api_id,
+                local_club_id=official_claim.local_club_id,
+            )
+            clubs.append(
+                {
+                    # This workspace is caller-owned but not one of the explicit
+                    # claim-code surfaces; keep exposure narrowly allowlisted.
+                    "claim": _club_claim_dict(official_claim, include_verification_code=False),
+                    "club_name": club_name,
+                    "pending_affiliations": [
+                        _affiliation_dict(affiliation, include_review_note=True) for affiliation in pending_affiliations
+                    ],
+                    "vouchable_player_claims": [_player_claim_for_official_dict(claim) for claim in player_claims],
+                }
+            )
+        return jsonify({"clubs": clubs})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in my_club: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to load club workspace")), 500
+
+
+def _official_affiliation_action(aff_id: int, *, target_status: str, note: str | None = None):
+    """Apply a club-confirm/reject transition after the shared official gate."""
+    user = _current_user_account()
+    if user is None:
+        return jsonify({"error": "auth context missing email"}), 401
+    affiliation = PlayerClubAffiliation.query.filter_by(id=aff_id).with_for_update().first()
+    if affiliation is None:
+        return jsonify({"error": "affiliation not found"}), 404
+    if _matching_approved_official_claim(user.id, affiliation) is None:
+        return jsonify({"error": "You are not an approved official for this club"}), 403
+    if affiliation.status not in ("pending", "self_reported"):
+        action = "confirm" if target_status == "club_confirmed" else "reject"
+        return jsonify({"error": f"cannot {action} a {affiliation.status} affiliation"}), 409
+
+    now = datetime.now(UTC)
+    affiliation.status = target_status
+    if target_status == "rejected":
+        affiliation.review_note = note
+    affiliation.reviewed_by = getattr(g, "user_email", None)
+    affiliation.reviewed_at = now
+    affiliation.updated_at = now
+    db.session.commit()
+    return jsonify({"affiliation": _affiliation_dict(affiliation, include_review_note=True)})
+
+
+@showcase_bp.route("/me/club/affiliations/<int:aff_id>/confirm", methods=["POST"])
+@require_user_auth
+@limiter.limit("30 per hour", key_func=_user_rate_limit_key)
+def confirm_club_affiliation(aff_id: int):
+    """Confirm a pending/self-reported affiliation for the caller's club."""
+    try:
+        return _official_affiliation_action(aff_id, target_status="club_confirmed")
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in confirm_club_affiliation: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to confirm affiliation")), 500
+
+
+@showcase_bp.route("/me/club/affiliations/<int:aff_id>/reject", methods=["POST"])
+@require_user_auth
+@limiter.limit("30 per hour", key_func=_user_rate_limit_key)
+def reject_club_affiliation(aff_id: int):
+    """Reject a pending/self-reported affiliation for the caller's club."""
+    try:
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        note = _clean_optional_text(payload.get("note"), MAX_REVIEW_NOTE_LENGTH)
+        return _official_affiliation_action(aff_id, target_status="rejected", note=note)
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in reject_club_affiliation: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to reject affiliation")), 500
+
+
+@showcase_bp.route("/me/club/player-claims/<int:claim_id>/vouch", methods=["POST"])
+@require_user_auth
+@limiter.limit("10 per hour", key_func=_user_rate_limit_key)
+def vouch_for_player_claim(claim_id: int):
+    """Approve a player's IDENTITY via a verified club official.
+
+    Vouching never approves profile content: every owner-authored bio, reel item,
+    photo, and other showcase content remains pre-moderated.
+    """
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        player_claim = PlayerProfileClaim.query.filter_by(id=claim_id).with_for_update().first()
+        if player_claim is None:
+            return jsonify({"error": "player claim not found"}), 404
+        if player_claim.status != "pending":
+            return jsonify({"error": f"cannot vouch for a {player_claim.status} player claim"}), 409
+
+        official_claims = _approved_official_claims(user.id)
+        if not official_claims:
+            return jsonify({"error": "You do not have an approved club-official claim"}), 403
+        affiliations = (
+            PlayerClubAffiliation.query.filter(
+                PlayerClubAffiliation.player_api_id == player_claim.player_api_id,
+                PlayerClubAffiliation.status != "rejected",
+            )
+            .order_by(PlayerClubAffiliation.created_at.asc(), PlayerClubAffiliation.id.asc())
+            .all()
+        )
+        matching_official = next(
+            (
+                official
+                for official in official_claims
+                if any(_club_claim_matches_affiliation(official, affiliation) for affiliation in affiliations)
+            ),
+            None,
+        )
+        if matching_official is None:
+            return jsonify({"error": "The player has no eligible affiliation with one of your clubs"}), 403
+
+        club_name = _club_reference_name(
+            team_api_id=matching_official.team_api_id,
+            local_club_id=matching_official.local_club_id,
+        )
+        descriptor = f"{club_name} " if club_name else ""
+        now = datetime.now(UTC)
+        player_claim.status = "approved"
+        player_claim.verification_method = "vouch"
+        player_claim.verification_note = f"Vouched by a verified {descriptor}official"[:VERIFICATION_NOTE_MAX_LENGTH]
+        player_claim.reviewed_by = getattr(g, "user_email", None)
+        player_claim.reviewed_at = now
+        db.session.commit()
+        return jsonify({"claim": _player_claim_for_official_dict(player_claim)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in vouch_for_player_claim: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to vouch for player claim")), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1481,8 +1915,97 @@ def delete_reel_item(player_api_id: int, link_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Admin — local clubs + affiliation review
+# Admin — club-official claims, local clubs + affiliation review
 # ---------------------------------------------------------------------------
+
+
+@showcase_bp.route("/admin/club-claims", methods=["GET"])
+@require_api_key
+def admin_list_club_claims():
+    """List club-official claims, optionally filtered by lifecycle status."""
+    try:
+        status = (request.args.get("status") or "").strip().lower()
+        query = ClubOfficialClaim.query
+        if status:
+            if status not in CLUB_OFFICIAL_CLAIM_STATUSES:
+                return jsonify({"error": f"invalid status; one of {sorted(CLUB_OFFICIAL_CLAIM_STATUSES)}"}), 400
+            query = query.filter(ClubOfficialClaim.status == status)
+        claims = query.order_by(ClubOfficialClaim.created_at.desc(), ClubOfficialClaim.id.desc()).all()
+        out = []
+        for claim in claims:
+            payload = _club_claim_dict(claim)
+            payload["user_email"] = claim.user.email if claim.user else None
+            out.append(payload)
+        return jsonify({"claims": out})
+    except Exception as e:
+        logger.error("Error in admin_list_club_claims: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to load club-official claims")), 500
+
+
+@showcase_bp.route("/admin/club-claims/<int:claim_id>/review", methods=["POST"])
+@require_api_key
+def admin_review_club_claim(claim_id: int):
+    """Approve/reject a pending official claim, or revoke an approved one."""
+    try:
+        claim = ClubOfficialClaim.query.filter_by(id=claim_id).with_for_update().first()
+        if claim is None:
+            return jsonify({"error": "club-official claim not found"}), 404
+
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        raw_action = payload.get("action")
+        action = raw_action.strip().lower() if isinstance(raw_action, str) else ""
+        transitions = {
+            "approve": ({"pending"}, "approved"),
+            "reject": ({"pending"}, "rejected"),
+            "revoke": ({"approved"}, "revoked"),
+        }
+        if action not in transitions:
+            return jsonify({"error": "action must be approve, reject, or revoke"}), 400
+        allowed_from, target = transitions[action]
+        if claim.status not in allowed_from:
+            return jsonify({"error": f"cannot {action} a {claim.status} club-official claim"}), 409
+
+        now = datetime.now(UTC)
+        claim.status = target
+        claim.review_note = _clean_optional_text(payload.get("note"), MAX_REVIEW_NOTE_LENGTH)
+        claim.reviewed_by = getattr(g, "user_email", None)
+        claim.reviewed_at = now
+        claim.updated_at = now
+        db.session.commit()
+        return jsonify({"claim": _club_claim_dict(claim, include_verification_code=False)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in admin_review_club_claim: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to review club-official claim")), 500
+
+
+@showcase_bp.route("/admin/club-claims/<int:claim_id>/recheck", methods=["POST"])
+@require_api_key
+def admin_recheck_club_claim(claim_id: int):
+    """Re-run social proof against a club claim's stored proof URL."""
+    try:
+        claim = db.session.get(ClubOfficialClaim, claim_id)
+        if claim is None:
+            return jsonify({"error": "club-official claim not found"}), 404
+        proof_url = (claim.verification_proof_url or "").strip()
+        if not proof_url:
+            return jsonify({"error": "club-official claim has no stored proof_url"}), 400
+        valid, _ = social_proof.validate_proof_url(proof_url)
+        if not valid or len(proof_url) > MAX_URL_LENGTH:
+            return _proof_url_error()
+        if claim.verification_code is None:
+            claim.verification_code = _mint_verification_code()
+
+        _run_claim_proof_check(claim, proof_url)
+        claim.updated_at = datetime.now(UTC)
+        db.session.commit()
+        return jsonify({"claim": _club_claim_dict(claim, include_verification_code=False)})
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error in admin_recheck_club_claim: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to re-check club-official claim proof")), 500
 
 
 @showcase_bp.route("/admin/local-clubs", methods=["GET"])

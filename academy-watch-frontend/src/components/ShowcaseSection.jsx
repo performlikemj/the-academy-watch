@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -36,7 +37,6 @@ import {
   Image as ImageIcon,
   ImagePlus,
   Star,
-  Copy,
   Search,
   Building2,
 } from 'lucide-react'
@@ -44,6 +44,7 @@ import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
 import { isYouTubeUrl } from '@/lib/youtube'
 import { VideoEmbed } from '@/components/VideoEmbed'
+import { VerificationCode, VerificationInstructions } from '@/components/showcase/VerificationCode'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 
 const RELATIONSHIP_OPTIONS = [
@@ -139,43 +140,6 @@ function SectionHeader({ icon: Icon, eyebrow, title, action }) {
       </div>
       {action}
     </div>
-  )
-}
-
-function VerificationCode({ code, copyState, onCopy }) {
-  return (
-    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        Your one-time code
-      </p>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-        <code className="text-xl font-bold tracking-[0.16em] text-foreground sm:text-2xl">
-          {code || 'Code unavailable'}
-        </code>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onCopy(code)}
-          disabled={!code}
-          className="gap-1.5"
-          aria-label="Copy verification code"
-        >
-          {copyState === 'copied' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          <span role="status" aria-live="polite">
-            {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy code'}
-          </span>
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function VerificationInstructions() {
-  return (
-    <p className="text-sm leading-relaxed text-muted-foreground">
-      Add this code to the bio of your public Instagram, TikTok, X, Facebook or YouTube profile, then paste that profile&apos;s URL below.
-    </p>
   )
 }
 
@@ -1565,6 +1529,15 @@ export function ShowcaseSection({ playerApiId, playerName }) {
                     ))}
                   </SelectContent>
                 </Select>
+                {claimRelationship === 'club_official' ? (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Club officials can claim their club directly on the{' '}
+                    <Link to="/my-club" className="font-medium text-primary hover:underline">
+                      My Club page
+                    </Link>
+                    .
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label>Message (optional)</Label>

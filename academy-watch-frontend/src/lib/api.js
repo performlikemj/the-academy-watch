@@ -1227,6 +1227,47 @@ export class APIService {
         })
     }
 
+    static async submitClubClaim(payload) {
+        return this.request('/clubs/claim', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async getMyClubClaims() {
+        return this.request('/me/club-claims')
+    }
+
+    static async verifyClubClaimProof(claimId, { proof_url }) {
+        return this.request(`/me/club-claims/${encodeURIComponent(claimId)}/verify`, {
+            method: 'POST',
+            body: JSON.stringify({ proof_url }),
+        })
+    }
+
+    static async getMyClub() {
+        return this.request('/me/club')
+    }
+
+    static async confirmClubAffiliation(affId) {
+        return this.request(`/me/club/affiliations/${encodeURIComponent(affId)}/confirm`, {
+            method: 'POST',
+        })
+    }
+
+    static async rejectClubAffiliation(affId, { note }) {
+        return this.request(`/me/club/affiliations/${encodeURIComponent(affId)}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ note }),
+        })
+    }
+
+    static async vouchPlayerClaim(claimId) {
+        return this.request(`/me/club/player-claims/${encodeURIComponent(claimId)}/vouch`, {
+            method: 'POST',
+        })
+    }
+
     static async submitProfileClaim(playerId, { relationship_type, message }) {
         if (!playerId) throw new Error('playerId is required')
         return this.request(`/players/${encodeURIComponent(playerId)}/claim`, {
@@ -1368,6 +1409,24 @@ export class APIService {
         return this.request(`/admin/showcase/media/${encodeURIComponent(mediaId)}/review`, {
             method: 'POST',
             body: JSON.stringify({ action, note }),
+        }, { admin: true })
+    }
+
+    static async adminListClubClaims(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/club-claims${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewClubClaim(id, { action, note }) {
+        return this.request(`/admin/club-claims/${encodeURIComponent(id)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
+        }, { admin: true })
+    }
+
+    static async adminRecheckClubClaim(id) {
+        return this.request(`/admin/club-claims/${encodeURIComponent(id)}/recheck`, {
+            method: 'POST',
         }, { admin: true })
     }
 
