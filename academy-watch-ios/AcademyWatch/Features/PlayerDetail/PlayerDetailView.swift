@@ -3,13 +3,22 @@ import SwiftUI
 @MainActor
 struct PlayerDetailView: View {
     @StateObject private var viewModel: PlayerDetailViewModel
+    private let onSignInRequested: () -> Void
 
-    init(playerID: Int) {
+    init(
+        playerID: Int,
+        onSignInRequested: @escaping () -> Void = {}
+    ) {
         _viewModel = StateObject(wrappedValue: PlayerDetailViewModel(playerID: playerID))
+        self.onSignInRequested = onSignInRequested
     }
 
-    init(viewModel: PlayerDetailViewModel) {
+    init(
+        viewModel: PlayerDetailViewModel,
+        onSignInRequested: @escaping () -> Void = {}
+    ) {
         _viewModel = StateObject(wrappedValue: viewModel)
+        self.onSignInRequested = onSignInRequested
     }
 
     var body: some View {
@@ -36,6 +45,16 @@ struct PlayerDetailView: View {
         }
         .navigationTitle(viewModel.profile?.name ?? "Player Detail")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                WatchlistStarButton(
+                    playerID: viewModel.playerID,
+                    playerName: viewModel.profile?.name ?? "this player",
+                    onSignInRequested: onSignInRequested,
+                    showsBackground: false
+                )
+            }
+        }
         .task {
             await viewModel.loadIfNeeded()
         }

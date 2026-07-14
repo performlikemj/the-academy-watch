@@ -5,15 +5,31 @@ import SwiftUI
 struct ScoutDeskView: View {
     @StateObject private var viewModel: ScoutDeskViewModel
     @State private var navigationPath: [Int]
+    private let onSignInRequested: () -> Void
 
-    init(initialPhase: ScoutPhase = .all, initialPlayerID: Int? = nil) {
-        _viewModel = StateObject(wrappedValue: ScoutDeskViewModel(initialPhase: initialPhase))
+    init(
+        apiClient: any ScoutAPIClientProtocol = APIClient(),
+        initialPhase: ScoutPhase = .all,
+        initialPlayerID: Int? = nil,
+        onSignInRequested: @escaping () -> Void = {}
+    ) {
+        _viewModel = StateObject(
+            wrappedValue: ScoutDeskViewModel(
+                apiClient: apiClient,
+                initialPhase: initialPhase
+            )
+        )
         _navigationPath = State(initialValue: initialPlayerID.map { [$0] } ?? [])
+        self.onSignInRequested = onSignInRequested
     }
 
-    init(viewModel: ScoutDeskViewModel) {
+    init(
+        viewModel: ScoutDeskViewModel,
+        onSignInRequested: @escaping () -> Void = {}
+    ) {
         _viewModel = StateObject(wrappedValue: viewModel)
         _navigationPath = State(initialValue: [])
+        self.onSignInRequested = onSignInRequested
     }
 
     var body: some View {
@@ -46,7 +62,10 @@ struct ScoutDeskView: View {
             .navigationTitle("Scout Desk")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: Int.self) { playerID in
-                PlayerDetailView(playerID: playerID)
+                PlayerDetailView(
+                    playerID: playerID,
+                    onSignInRequested: onSignInRequested
+                )
             }
         }
         .task(id: navigationPath.isEmpty) {
@@ -305,17 +324,27 @@ struct ScoutDeskView: View {
             }
 
             ForEach(viewModel.players, id: \.playerId) { player in
-                NavigationLink(value: player.playerId) {
-                    ScoutPlayerRow(player: player, phase: viewModel.selectedPhase)
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 16)
-                .accessibilityHint("Opens player detail")
-                    .onAppear {
-                        Task {
-                            await viewModel.loadNextPageIfNeeded(currentPlayer: player)
-                        }
+                ZStack(alignment: .topTrailing) {
+                    NavigationLink(value: player.playerId) {
+                        ScoutPlayerRow(player: player, phase: viewModel.selectedPhase)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens player detail")
+
+                    WatchlistStarButton(
+                        playerID: player.playerId,
+                        playerName: player.playerName,
+                        onSignInRequested: onSignInRequested
+                    )
+                    .padding(9)
+                    .zIndex(1)
+                }
+                .padding(.horizontal, 16)
+                .onAppear {
+                    Task {
+                        await viewModel.loadNextPageIfNeeded(currentPlayer: player)
+                    }
+                }
             }
 
             if viewModel.isLoadingNextPage {
@@ -505,7 +534,7 @@ private struct RankChip: View {
     }
 }
 
-private struct ScoutPlayerRow: View {
+struct ScoutPlayerRow: View {
     let player: ScoutPlayerSummary
     let phase: ScoutPhase
 
@@ -539,7 +568,7 @@ private struct ScoutPlayerRow: View {
                         )
                     }
                 }
-                Spacer(minLength: 0)
+                Spacer(minLength: 34)
             }
 
             Divider()

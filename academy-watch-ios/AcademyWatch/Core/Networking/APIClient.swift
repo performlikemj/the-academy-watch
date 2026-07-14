@@ -13,17 +13,37 @@ protocol PlayerDetailAPIClientProtocol: Sendable {
     func fetchPlayerAvailability(playerID: Int) async throws -> PlayerAvailability
 }
 
-struct APIClient: ScoutAPIClientProtocol, PlayerDetailAPIClientProtocol, Sendable {
+protocol WatchlistAPIClientProtocol: Sendable {
+    func fetchWatchlist() async throws -> WatchlistResponse
+    func fetchWatchlistIDs() async throws -> WatchlistIDsResponse
+    func addToWatchlist(playerID: Int) async throws -> WatchlistEntryResponse
+    func removeFromWatchlist(playerID: Int) async throws -> WatchlistRemoveResponse
+    func updateWatchlistNote(playerID: Int, note: String) async throws -> WatchlistEntryResponse
+    func updateWatchlistSettings(digestOptIn: Bool) async throws -> WatchlistSettingsResponse
+}
+
+struct APIClient: ScoutAPIClientProtocol,
+    PlayerDetailAPIClientProtocol,
+    AuthAPIClientProtocol,
+    WatchlistAPIClientProtocol,
+    Sendable
+{
     static let productionBaseURL = URL(
         string: "https://ca-loan-army-backend.lemonmoss-23c9ec03.westus2.azurecontainerapps.io/api"
     )!
 
     private let baseURL: URL
     private let session: URLSession
+    private let authSession: (any AuthSessionProtocol)?
 
-    init(baseURL: URL = APIClient.productionBaseURL, session: URLSession = .shared) {
+    init(
+        baseURL: URL = APIClient.productionBaseURL,
+        session: URLSession = .shared,
+        authSession: (any AuthSessionProtocol)? = nil
+    ) {
         self.baseURL = baseURL
         self.session = session
+        self.authSession = authSession
     }
 
     func fetchScoutPlayers(_ request: ScoutPlayersRequest) async throws -> ScoutPlayersResponse {
@@ -81,23 +101,138 @@ struct APIClient: ScoutAPIClientProtocol, PlayerDetailAPIClientProtocol, Sendabl
         try await get(path: "players/\(playerID)/availability", queryItems: [])
     }
 
+    func requestLoginCode(email: String) async throws -> LoginCodeResponse {
+        try await send(
+            path: "auth/request-code",
+            method: "POST",
+            body: LoginCodeRequest(email: email)
+        )
+    }
+
+    func verifyLoginCode(email: String, code: String) async throws -> AuthTokenResponse {
+        try await send(
+            path: "auth/verify-code",
+            method: "POST",
+            body: VerifyLoginCodeRequest(email: email, code: code)
+        )
+    }
+
+    func fetchWatchlist() async throws -> WatchlistResponse {
+        try await get(path: "scout/watchlist", queryItems: [])
+    }
+
+    func fetchWatchlistIDs() async throws -> WatchlistIDsResponse {
+        try await get(path: "scout/watchlist/ids", queryItems: [])
+    }
+
+    func addToWatchlist(playerID: Int) async throws -> WatchlistEntryResponse {
+        try await send(
+            path: "scout/watchlist",
+            method: "POST",
+            body: WatchlistPlayerRequest(playerApiId: playerID)
+        )
+    }
+
+    func removeFromWatchlist(playerID: Int) async throws -> WatchlistRemoveResponse {
+        try await perform(
+            path: "scout/watchlist/\(playerID)",
+            method: "DELETE",
+            queryItems: [],
+            body: nil
+        )
+    }
+
+    func updateWatchlistNote(playerID: Int, note: String) async throws -> WatchlistEntryResponse {
+        try await send(
+            path: "scout/watchlist/\(playerID)",
+            method: "PATCH",
+            body: WatchlistNoteRequest(note: note)
+        )
+    }
+
+    func updateWatchlistSettings(digestOptIn: Bool) async throws -> WatchlistSettingsResponse {
+        try await send(
+            path: "scout/watchlist/settings",
+            method: "PATCH",
+            body: WatchlistSettingsRequest(digestOptIn: digestOptIn)
+        )
+    }
+
     private func get<Response: Decodable>(
         path: String,
         queryItems: [URLQueryItem]
     ) async throws -> Response {
+        try await perform(
+            path: path,
+            method: "GET",
+            queryItems: queryItems,
+            body: nil
+        )
+    }
+
+    private func send<Body: Encodable, Response: Decodable>(
+        path: String,
+        method: String,
+        body: Body
+    ) async throws -> Response {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let bodyData: Data
+        do {
+            bodyData = try encoder.encode(body)
+        } catch {
+            throw APIClientError.encoding(error)
+        }
+
+        return try await perform(
+            path: path,
+            method: method,
+            queryItems: [],
+            body: bodyData
+        )
+    }
+
+    private func perform<Response: Decodable>(
+        path: String,
+        method: String,
+        queryItems: [URLQueryItem],
+        body: Data?
+    ) async throws -> Response {
         let url = try makeURL(path: path, queryItems: queryItems)
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+
+        let token = await authSession?.accessToken()
+            .flatMap { value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        if let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
         // Scout aggregation can approach 30 seconds during an Azure cold start.
         request.timeoutInterval = 60
-        request.cachePolicy = .reloadRevalidatingCacheData
+        if method == "GET" {
+            request.cachePolicy = .reloadRevalidatingCacheData
+        }
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIClientError.invalidResponse
         }
         guard (200 ... 299).contains(httpResponse.statusCode) else {
+            if httpResponse.statusCode == 401, token != nil {
+                await authSession?.invalidate()
+            }
+            if let message = Self.errorMessage(from: data) {
+                throw APIClientError.server(statusCode: httpResponse.statusCode, message: message)
+            }
             throw APIClientError.httpStatus(httpResponse.statusCode)
         }
 
@@ -108,6 +243,15 @@ struct APIClient: ScoutAPIClientProtocol, PlayerDetailAPIClientProtocol, Sendabl
         } catch {
             throw APIClientError.decoding(error)
         }
+    }
+
+    private static func errorMessage(from data: Data) -> String? {
+        guard let payload = try? JSONDecoder().decode(APIErrorPayload.self, from: data) else {
+            return nil
+        }
+        return [payload.error, payload.message]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
     }
 
     private func makeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
@@ -140,6 +284,8 @@ enum APIClientError: LocalizedError {
     case invalidURL
     case invalidResponse
     case httpStatus(Int)
+    case server(statusCode: Int, message: String)
+    case encoding(Error)
     case decoding(Error)
 
     var errorDescription: String? {
@@ -150,8 +296,38 @@ enum APIClientError: LocalizedError {
             return "The service returned an unreadable response."
         case let .httpStatus(statusCode):
             return "The service returned an error (HTTP \(statusCode))."
+        case let .server(_, message):
+            return message
+        case .encoding:
+            return "The request could not be prepared."
         case .decoding:
-            return "The player data format was not recognized."
+            return "The service response format was not recognized."
         }
     }
+}
+
+private struct LoginCodeRequest: Encodable {
+    let email: String
+}
+
+private struct VerifyLoginCodeRequest: Encodable {
+    let email: String
+    let code: String
+}
+
+private struct WatchlistPlayerRequest: Encodable {
+    let playerApiId: Int
+}
+
+private struct WatchlistNoteRequest: Encodable {
+    let note: String
+}
+
+private struct WatchlistSettingsRequest: Encodable {
+    let digestOptIn: Bool
+}
+
+private struct APIErrorPayload: Decodable {
+    let error: String?
+    let message: String?
 }

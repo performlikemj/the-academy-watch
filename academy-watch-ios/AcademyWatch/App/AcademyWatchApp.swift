@@ -10,10 +10,17 @@ struct AcademyWatchApp: App {
         else { return nil }
         return Int(arguments[flagIndex + 1])
     }()
+    private let initialTab = RootTab.fromLaunchArguments(ProcessInfo.processInfo.arguments)
+    private let initiallyShowsSignIn = ProcessInfo.processInfo.arguments.contains("-showSignIn")
 
     var body: some Scene {
         WindowGroup {
-            ScoutDeskView(initialPhase: initialPhase, initialPlayerID: initialPlayerID)
+            RootTabView(
+                initialPhase: initialPhase,
+                initialPlayerID: initialPlayerID,
+                initialTab: initialTab,
+                initiallyShowsSignIn: initiallyShowsSignIn
+            )
                 .tint(AcademyColors.claret)
         }
     }
