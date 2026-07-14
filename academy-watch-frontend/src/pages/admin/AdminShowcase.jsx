@@ -27,6 +27,7 @@ import {
     Inbox,
     UserSquare,
     Link2,
+    Image as ImageIcon,
 } from 'lucide-react'
 
 const CLAIM_STATUS_COLORS = {
@@ -50,11 +51,39 @@ const RELATIONSHIP_LABELS = {
     club_official: 'Club official',
 }
 
+const CONTRACT_STATUS_LABELS = {
+    under_contract: 'Under contract',
+    expiring: 'Contract expiring',
+    free_agent: 'Free agent',
+}
+
+const AVAILABILITY_LABELS = {
+    open_to_moves: 'Open to moves',
+    not_looking: 'Not looking',
+    trial_available: 'Available for trials',
+}
+
 function formatDate(value) {
     if (!value) return null
     const d = new Date(value)
     if (Number.isNaN(d.getTime())) return null
     return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function formatDateOnly(value) {
+    if (!value) return null
+    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/)
+    if (!match) return formatDate(value)
+    const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function formatBytes(value) {
+    const bytes = Number(value)
+    if (!Number.isFinite(bytes) || bytes < 0) return 'Size unavailable'
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`
 }
 
 function asArray(data, ...keys) {
@@ -238,7 +267,7 @@ function ProfilesTab({ setMessage }) {
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <CardTitle>Profile edits</CardTitle>
-                    <CardDescription>Self-reported bio, positions, foot and height awaiting review</CardDescription>
+                    <CardDescription>Self-reported profile and availability details awaiting review</CardDescription>
                 </div>
                 <Select value={status} onValueChange={setStatus}>
                     <SelectTrigger className="w-40">
@@ -271,6 +300,13 @@ function ProfilesTab({ setMessage }) {
                                         {profile.positions && <span>Positions: <span className="text-foreground">{profile.positions}</span></span>}
                                         {profile.preferred_foot && <span>Foot: <span className="capitalize text-foreground">{profile.preferred_foot}</span></span>}
                                         {profile.height_cm != null && <span>Height: <span className="text-foreground">{profile.height_cm} cm</span></span>}
+                                        {profile.contract_status && <span>Contract: <span className="text-foreground">{CONTRACT_STATUS_LABELS[profile.contract_status] || profile.contract_status}</span></span>}
+                                        {profile.contract_until && <span>Contract until: <span className="text-foreground">{formatDateOnly(profile.contract_until)}</span></span>}
+                                        {profile.availability && <span>Availability: <span className="text-foreground">{AVAILABILITY_LABELS[profile.availability] || profile.availability}</span></span>}
+                                        {profile.nationality_secondary && <span>Second nationality: <span className="text-foreground">{profile.nationality_secondary}</span></span>}
+                                        {profile.languages && <span>Languages: <span className="text-foreground">{profile.languages}</span></span>}
+                                        {profile.agent_name && <span>Agent: <span className="text-foreground">{profile.agent_name}</span></span>}
+                                        {profile.agent_contact_email && <span>Agent email: <span className="text-foreground">{profile.agent_contact_email}</span></span>}
                                     </div>
                                     {formatDate(profile.updated_at) && (
                                         <p className="text-xs text-muted-foreground">Updated {formatDate(profile.updated_at)}</p>
@@ -290,6 +326,159 @@ function ProfilesTab({ setMessage }) {
                                 )}
                             </div>
                         ))}
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Photo moderation
+// ---------------------------------------------------------------------------
+
+function MediaTab({ setMessage }) {
+    const [media, setMedia] = useState([])
+    const [loading, setLoading] = useState(true)
+    const [status, setStatus] = useState('pending')
+    const [reloadKey, setReloadKey] = useState(0)
+    const [actingId, setActingId] = useState(null)
+    const [notes, setNotes] = useState({})
+
+    useEffect(() => {
+        let cancelled = false
+        setLoading(true)
+        const params = status === 'all' ? {} : { status }
+        APIService.adminListShowcaseMedia(params)
+            .then((data) => { if (!cancelled) setMedia(asArray(data, 'media')) })
+            .catch((err) => {
+                if (!cancelled) setMessage({ type: 'error', text: err.message || 'Failed to load showcase media' })
+            })
+            .finally(() => { if (!cancelled) setLoading(false) })
+        return () => { cancelled = true }
+    }, [status, reloadKey, setMessage])
+
+    const act = async (item, action) => {
+        setActingId(item.id)
+        try {
+            await APIService.adminReviewShowcaseMedia(item.id, {
+                action,
+                note: notes[item.id]?.trim() || undefined,
+            })
+            setMessage({ type: 'success', text: `Photo ${action === 'approve' ? 'approved' : 'rejected'}` })
+            setNotes((current) => {
+                const next = { ...current }
+                delete next[item.id]
+                return next
+            })
+            setReloadKey((k) => k + 1)
+        } catch (err) {
+            setMessage({ type: 'error', text: err.message || 'Failed to review photo' })
+        } finally {
+            setActingId(null)
+        }
+    }
+
+    return (
+        <Card>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <CardTitle>Showcase photos</CardTitle>
+                    <CardDescription>Review player-uploaded photos before they appear publicly</CardDescription>
+                </div>
+                <Select value={status} onValueChange={setStatus}>
+                    <SelectTrigger className="w-40">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="approved">Approved</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                        <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                </Select>
+            </CardHeader>
+            <CardContent>
+                {loading ? (
+                    <Loading />
+                ) : media.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">No {status === 'all' ? '' : status} photos.</p>
+                ) : (
+                    <div className="space-y-3">
+                        {media.map((item) => {
+                            const thumbnail = item.pending_preview_url || item.public_url
+                            const isActing = actingId === item.id
+                            return (
+                                <div key={item.id} className="flex flex-col gap-4 rounded-lg border bg-card p-4 lg:flex-row lg:items-start">
+                                    <div className="flex min-w-0 flex-1 flex-col gap-4 sm:flex-row">
+                                        <div className="flex aspect-[4/3] w-full shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted sm:w-36">
+                                            {thumbnail ? (
+                                                <img
+                                                    src={thumbnail}
+                                                    alt={`Showcase photo for player ${item.player_api_id}`}
+                                                    className="h-full w-full object-cover"
+                                                    loading="lazy"
+                                                />
+                                            ) : (
+                                                <ImageIcon className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+                                            )}
+                                        </div>
+                                        <div className="min-w-0 flex-1 space-y-2">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Badge className={CLAIM_STATUS_COLORS[item.status] || CLAIM_STATUS_COLORS.revoked}>
+                                                    {String(item.status || 'unknown').replace('_', ' ')}
+                                                </Badge>
+                                                <Badge variant="outline">Player #{item.player_api_id}</Badge>
+                                            </div>
+                                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                                                <span>{formatBytes(item.size_bytes)}</span>
+                                                {item.content_type && <span>{item.content_type}</span>}
+                                                {formatDate(item.created_at) && <span>Uploaded {formatDate(item.created_at)}</span>}
+                                            </div>
+                                            {item.review_note && (
+                                                <p className="text-xs text-muted-foreground">Review note: {item.review_note}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex w-full shrink-0 flex-col gap-2 lg:w-72">
+                                        <Input
+                                            value={notes[item.id] || ''}
+                                            onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))}
+                                            placeholder="Review note (optional)"
+                                            aria-label={`Review note for photo ${item.id}`}
+                                            maxLength={1000}
+                                            disabled={isActing}
+                                        />
+                                        <div className="flex items-center justify-end gap-2">
+                                            {item.status !== 'approved' && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="border-emerald-600 text-emerald-600 hover:bg-emerald-50"
+                                                    disabled={isActing}
+                                                    onClick={() => act(item, 'approve')}
+                                                >
+                                                    {isActing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />}
+                                                    Approve
+                                                </Button>
+                                            )}
+                                            {item.status !== 'rejected' && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="border-rose-600 text-rose-600 hover:bg-rose-50"
+                                                    disabled={isActing}
+                                                    onClick={() => act(item, 'reject')}
+                                                >
+                                                    {isActing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <X className="mr-1 h-4 w-4" />}
+                                                    Reject
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })}
                     </div>
                 )}
             </CardContent>
@@ -508,7 +697,7 @@ export function AdminShowcase() {
                 </div>
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight">Talent Showcase</h2>
-                    <p className="text-muted-foreground">Moderate profile claims, self-reported edits and Film Room evidence</p>
+                    <p className="text-muted-foreground">Moderate profile claims, self-reported edits, photos and Film Room evidence</p>
                 </div>
             </div>
 
@@ -531,7 +720,7 @@ export function AdminShowcase() {
             </div>
 
             <Tabs value={tab} onValueChange={setTab}>
-                <TabsList>
+                <TabsList className="h-auto flex-wrap justify-start">
                     <TabsTrigger value="claims">
                         <UserSquare className="mr-1.5 h-4 w-4" />
                         Claims
@@ -544,6 +733,10 @@ export function AdminShowcase() {
                         <Film className="mr-1.5 h-4 w-4" />
                         Film Room links
                     </TabsTrigger>
+                    <TabsTrigger value="media">
+                        <ImageIcon className="mr-1.5 h-4 w-4" />
+                        Media
+                    </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="claims" className="mt-4">
@@ -554,6 +747,9 @@ export function AdminShowcase() {
                 </TabsContent>
                 <TabsContent value="rosters" className="mt-4">
                     {tab === 'rosters' && <RostersTab setMessage={setMessage} />}
+                </TabsContent>
+                <TabsContent value="media" className="mt-4">
+                    {tab === 'media' && <MediaTab setMessage={setMessage} />}
                 </TabsContent>
             </Tabs>
         </div>

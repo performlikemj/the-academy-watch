@@ -1220,6 +1220,57 @@ export class APIService {
         })
     }
 
+    static async createShowcasePhoto(playerId, { content_type, size_bytes }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/photos`, {
+            method: 'POST',
+            body: JSON.stringify({ content_type, size_bytes }),
+        })
+    }
+
+    static async uploadPhotoToUrl(upload, file) {
+        const response = await fetch(upload.url, {
+            method: 'PUT',
+            headers: upload.headers,
+            body: file,
+        })
+        if (!response.ok) {
+            const err = new Error(`Photo upload failed (HTTP ${response.status})`)
+            err.status = response.status
+            throw err
+        }
+    }
+
+    static async completeShowcasePhoto(playerId, mediaId) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/photos/${encodeURIComponent(mediaId)}/complete`, {
+            method: 'POST',
+        })
+    }
+
+    static async reorderShowcasePhotos(playerId, { ordered_ids }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/photos/order`, {
+            method: 'PATCH',
+            body: JSON.stringify({ ordered_ids }),
+        })
+    }
+
+    static async setShowcasePhotoPrimary(playerId, mediaId) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/photos/${encodeURIComponent(mediaId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_primary: true }),
+        })
+    }
+
+    static async deleteShowcasePhoto(playerId, mediaId) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/photos/${encodeURIComponent(mediaId)}`, {
+            method: 'DELETE',
+        })
+    }
+
     static async addShowcaseReelItem(playerId, { url, title }) {
         if (!playerId) throw new Error('playerId is required')
         return this.request(`/players/${encodeURIComponent(playerId)}/showcase/reel`, {
@@ -1265,6 +1316,18 @@ export class APIService {
         return this.request(`/admin/showcase/profiles/${encodeURIComponent(playerApiId)}/review`, {
             method: 'POST',
             body: JSON.stringify({ action }),
+        }, { admin: true })
+    }
+
+    static async adminListShowcaseMedia(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/showcase/media${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewShowcaseMedia(mediaId, { action, note }) {
+        return this.request(`/admin/showcase/media/${encodeURIComponent(mediaId)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
         }, { admin: true })
     }
 

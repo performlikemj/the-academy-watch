@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -33,6 +33,9 @@ import {
   Loader2,
   Check,
   Sparkles,
+  Image as ImageIcon,
+  ImagePlus,
+  Star,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
@@ -53,6 +56,21 @@ const FOOT_OPTIONS = [
   { value: 'both', label: 'Both' },
 ]
 
+const CONTRACT_STATUS_OPTIONS = [
+  { value: 'under_contract', label: 'Under contract' },
+  { value: 'expiring', label: 'Contract expiring' },
+  { value: 'free_agent', label: 'Free agent' },
+]
+
+const AVAILABILITY_OPTIONS = [
+  { value: 'open_to_moves', label: 'Open to moves' },
+  { value: 'not_looking', label: 'Not looking' },
+  { value: 'trial_available', label: 'Available for trials' },
+]
+
+const PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const PHOTO_MAX_BYTES = 8 * 1024 * 1024
+
 // Synthetic newsletter-sourced reel items carry string ids like "yt-123" and
 // are not owner-editable (no reorder/delete). Real PlayerLink rows are integers.
 const isSynthetic = (item) =>
@@ -65,10 +83,38 @@ function formatDate(value) {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+function toDateInputValue(value) {
+  if (!value) return ''
+  const text = String(value)
+  const dateOnly = text.match(/^\d{4}-\d{2}-\d{2}/)?.[0]
+  if (dateOnly) return dateOnly
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
+}
+
+function formatDateOnly(value) {
+  if (!value) return null
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return formatDate(value)
+  const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function optionLabel(options, value) {
+  return options.find((option) => option.value === value)?.label || null
+}
+
+function validatePhoto(file) {
+  if (!file) return 'Choose a photo to upload.'
+  if (!PHOTO_TYPES.has(file.type)) return 'Choose a JPEG, PNG or WebP image.'
+  if (file.size > PHOTO_MAX_BYTES) return 'Photos must be 8MB or smaller.'
+  return null
+}
+
 function SectionHeader({ icon: Icon, eyebrow, title, action }) {
   return (
-    <div className="flex items-start justify-between gap-3">
-      <div>
+    <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-start">
+      <div className="min-w-0">
         <p className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
           <Icon className="h-3.5 w-3.5" />
           {eyebrow}
@@ -87,6 +133,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [showcase, setShowcase] = useState(null)
+  const [loadedPlayerId, setLoadedPlayerId] = useState(null)
   const [myClaims, setMyClaims] = useState([])
 
   // Claim dialog
@@ -105,9 +152,35 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   const [videoDone, setVideoDone] = useState(false)
   const [videoError, setVideoError] = useState(null)
 
+  // Photo upload dialog + inline gallery mutations
+  const [photoOpen, setPhotoOpen] = useState(false)
+  const [photoFile, setPhotoFile] = useState(null)
+  const [photoInputKey, setPhotoInputKey] = useState(0)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [photoDone, setPhotoDone] = useState(false)
+  const [photoError, setPhotoError] = useState(null)
+  const [photoActionOpen, setPhotoActionOpen] = useState(false)
+  const [photoActionBusy, setPhotoActionBusy] = useState(false)
+  const [photoActionDone, setPhotoActionDone] = useState(false)
+  const [photoActionError, setPhotoActionError] = useState(null)
+  const [photoActionCopy, setPhotoActionCopy] = useState({ title: 'Update photos', done: 'Photos updated' })
+  const [photoDeleteTarget, setPhotoDeleteTarget] = useState(null)
+
   // Edit-profile dialog
   const [profileOpen, setProfileOpen] = useState(false)
-  const [profileForm, setProfileForm] = useState({ bio: '', positions: '', preferred_foot: '', height_cm: '' })
+  const [profileForm, setProfileForm] = useState({
+    bio: '',
+    positions: '',
+    preferred_foot: '',
+    height_cm: '',
+    contract_status: '',
+    contract_until: '',
+    availability: '',
+    nationality_secondary: '',
+    languages: '',
+    agent_name: '',
+    agent_contact_email: '',
+  })
   const [profileBusy, setProfileBusy] = useState(false)
   const [profileDone, setProfileDone] = useState(false)
   const [profileError, setProfileError] = useState(null)
@@ -127,10 +200,61 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   // PlayerPage is reused across /players/:id navigations — track the active
   // player so an in-flight refresh for the previous player never lands.
   const activePlayerRef = useRef(playerApiId)
+  const previousPlayerRef = useRef(playerApiId)
+  const closeTimersRef = useRef({})
+
+  const clearCloseTimer = useCallback((key) => {
+    const timer = closeTimersRef.current[key]
+    if (timer) {
+      clearTimeout(timer)
+      delete closeTimersRef.current[key]
+    }
+  }, [])
+
+  const clearAllCloseTimers = useCallback(() => {
+    Object.values(closeTimersRef.current).forEach((timer) => clearTimeout(timer))
+    closeTimersRef.current = {}
+  }, [])
+
+  const scheduleClose = useCallback((key, pid, close) => {
+    if (activePlayerRef.current !== pid) return
+    clearCloseTimer(key)
+    closeTimersRef.current[key] = setTimeout(() => {
+      delete closeTimersRef.current[key]
+      if (activePlayerRef.current === pid) close()
+    }, 1600)
+  }, [clearCloseTimer])
+
+  useLayoutEffect(() => {
+    activePlayerRef.current = playerApiId
+  }, [playerApiId])
+
+  useEffect(() => clearAllCloseTimers, [clearAllCloseTimers])
 
   useEffect(() => {
     let cancelled = false
-    activePlayerRef.current = playerApiId
+    if (previousPlayerRef.current !== playerApiId) {
+      previousPlayerRef.current = playerApiId
+      clearAllCloseTimers()
+      setClaimOpen(false)
+      setClaimBusy(false)
+      setVideoOpen(false)
+      setVideoBusy(false)
+      setPhotoOpen(false)
+      setPhotoFile(null)
+      setPhotoBusy(false)
+      setPhotoDone(false)
+      setPhotoError(null)
+      setPhotoActionOpen(false)
+      setPhotoActionBusy(false)
+      setPhotoActionDone(false)
+      setPhotoActionError(null)
+      setPhotoDeleteTarget(null)
+      setPhotoInputKey((key) => key + 1)
+      setProfileOpen(false)
+      setProfileBusy(false)
+      setReelBusy(false)
+    }
     setLoading(true)
     setError(false)
     fetchData()
@@ -143,10 +267,13 @@ export function ShowcaseSection({ playerApiId, playerName }) {
         if (!cancelled) setError(true)
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoadedPlayerId(playerApiId)
+          setLoading(false)
+        }
       })
     return () => { cancelled = true }
-  }, [fetchData, playerApiId])
+  }, [clearAllCloseTimers, fetchData, playerApiId])
 
   const refresh = useCallback(async () => {
     const pid = playerApiId
@@ -160,7 +287,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     }
   }, [fetchData, playerApiId])
 
-  if (loading) {
+  if (loading || loadedPlayerId !== playerApiId) {
     return (
       <Card>
         <CardContent className="space-y-4 py-6">
@@ -178,6 +305,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   if (error || !showcase) return null
 
   const reel = Array.isArray(showcase.reel) ? showcase.reel : []
+  const photos = Array.isArray(showcase.photos) ? showcase.photos : []
   const profile = showcase.profile || null
   const verified = Array.isArray(showcase.verified_footage) ? showcase.verified_footage : []
   const claimStatus = showcase.claim_status // 'unclaimed' | 'claimed'
@@ -185,11 +313,28 @@ export function ShowcaseSection({ playerApiId, playerName }) {
   const myClaim = myClaims.find((c) => Number(c.player_api_id) === Number(playerApiId))
   const isOwner = myClaim?.status === 'approved'
 
+  const approvedPhotos = photos
+    .filter((photo) => photo.status === 'approved')
+    .sort((a, b) => {
+      const primaryOrder = Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary))
+      if (primaryOrder) return primaryOrder
+      const aOrder = a.sort_order == null ? Number.MAX_SAFE_INTEGER : a.sort_order
+      const bOrder = b.sort_order == null ? Number.MAX_SAFE_INTEGER : b.sort_order
+      return aOrder - bOrder || a.id - b.id
+    })
+  const pendingPhotos = photos.filter((photo) => photo.status === 'pending' || photo.status === 'pending_upload')
+  const rejectedPhotos = photos.filter((photo) => photo.status === 'rejected')
+  const visiblePhotos = isOwner
+    ? [...approvedPhotos, ...pendingPhotos, ...rejectedPhotos]
+    : approvedPhotos.filter((photo) => photo.public_url)
+  const primaryPhotos = approvedPhotos.filter((photo) => photo.is_primary)
+  const reorderablePhotos = approvedPhotos.filter((photo) => !photo.is_primary)
+
   // Claim strip shows for non-owners who either have a claim (show its status) or
   // can still claim an unclaimed profile.
   const showClaimStrip = !isOwner && (myClaim ? true : claimStatus === 'unclaimed')
 
-  const hasContent = reel.length > 0 || profile || verified.length > 0
+  const hasContent = reel.length > 0 || visiblePhotos.length > 0 || profile || verified.length > 0
   if (!hasContent && !isOwner && !showClaimStrip) return null
 
   const reorderableIds = reel.filter((i) => !isSynthetic(i)).map((i) => i.id)
@@ -199,6 +344,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       openLoginModal()
       return
     }
+    clearCloseTimer('claim')
     setClaimError(null)
     setClaimDone(false)
     setClaimOpen(true)
@@ -206,22 +352,32 @@ export function ShowcaseSection({ playerApiId, playerName }) {
 
   const submitClaim = async () => {
     if (claimBusy) return
+    const pid = playerApiId
     setClaimBusy(true)
     setClaimError(null)
     try {
-      await APIService.submitProfileClaim(playerApiId, {
+      await APIService.submitProfileClaim(pid, {
         relationship_type: claimRelationship,
         message: claimMessage.trim() || undefined,
       })
-      track('claim_submitted', { player_api_id: playerApiId, relationship: claimRelationship })
-      setClaimDone(true)
+      track('claim_submitted', { player_api_id: pid, relationship: claimRelationship })
+      if (activePlayerRef.current === pid) setClaimDone(true)
       await refresh()
-      setTimeout(() => setClaimOpen(false), 1600)
+      scheduleClose('claim', pid, () => setClaimOpen(false))
     } catch (err) {
-      setClaimError(err.body?.error || err.message || 'Failed to submit claim')
+      if (activePlayerRef.current === pid) {
+        setClaimError(err.body?.error || err.message || 'Failed to submit claim')
+      }
     } finally {
-      setClaimBusy(false)
+      if (activePlayerRef.current === pid) setClaimBusy(false)
     }
+  }
+
+  const openVideoDialog = () => {
+    clearCloseTimer('video')
+    setVideoError(null)
+    setVideoDone(false)
+    setVideoOpen(true)
   }
 
   const submitVideo = async () => {
@@ -231,28 +387,104 @@ export function ShowcaseSection({ playerApiId, playerName }) {
       setVideoError('Please enter a valid YouTube link.')
       return
     }
+    const pid = playerApiId
     setVideoBusy(true)
     setVideoError(null)
     try {
-      await APIService.addShowcaseReelItem(playerApiId, { url, title: videoTitle.trim() || undefined })
-      setVideoDone(true)
-      setVideoUrl('')
-      setVideoTitle('')
+      await APIService.addShowcaseReelItem(pid, { url, title: videoTitle.trim() || undefined })
+      if (activePlayerRef.current === pid) {
+        setVideoDone(true)
+        setVideoUrl('')
+        setVideoTitle('')
+      }
       await refresh()
-      setTimeout(() => { setVideoOpen(false); setVideoDone(false) }, 1600)
+      scheduleClose('video', pid, () => {
+        setVideoOpen(false)
+        setVideoDone(false)
+      })
     } catch (err) {
-      setVideoError(err.body?.error || err.message || 'Failed to add video')
+      if (activePlayerRef.current === pid) {
+        setVideoError(err.body?.error || err.message || 'Failed to add video')
+      }
     } finally {
-      setVideoBusy(false)
+      if (activePlayerRef.current === pid) setVideoBusy(false)
+    }
+  }
+
+  const openPhotoDialog = () => {
+    clearCloseTimer('photoUpload')
+    setPhotoFile(null)
+    setPhotoError(null)
+    setPhotoDone(false)
+    setPhotoInputKey((key) => key + 1)
+    setPhotoOpen(true)
+  }
+
+  const choosePhoto = (event) => {
+    const file = event.target.files?.[0] || null
+    const validationError = validatePhoto(file)
+    setPhotoFile(validationError ? null : file)
+    setPhotoError(validationError)
+    if (validationError) event.target.value = ''
+  }
+
+  const submitPhoto = async () => {
+    if (photoBusy) return
+    const validationError = validatePhoto(photoFile)
+    if (validationError) {
+      setPhotoError(validationError)
+      return
+    }
+
+    const pid = playerApiId
+    const file = photoFile
+    setPhotoBusy(true)
+    setPhotoError(null)
+    try {
+      const created = await APIService.createShowcasePhoto(pid, {
+        content_type: file.type,
+        size_bytes: file.size,
+      })
+      await APIService.uploadPhotoToUrl(created.upload, file)
+      await APIService.completeShowcasePhoto(pid, created.media.id)
+      if (activePlayerRef.current === pid) {
+        setPhotoDone(true)
+        setPhotoFile(null)
+        setPhotoInputKey((key) => key + 1)
+      }
+      await refresh()
+      scheduleClose('photoUpload', pid, () => {
+        setPhotoOpen(false)
+        setPhotoDone(false)
+      })
+    } catch (err) {
+      if (activePlayerRef.current === pid) {
+        setPhotoError(
+          err.status === 503
+            ? "Photo uploads aren't enabled yet"
+            : err.body?.error || err.message || 'Failed to upload photo',
+        )
+        await refresh()
+      }
+    } finally {
+      if (activePlayerRef.current === pid) setPhotoBusy(false)
     }
   }
 
   const openProfileDialog = () => {
+    clearCloseTimer('profile')
     setProfileForm({
       bio: profile?.bio || '',
       positions: profile?.positions || '',
       preferred_foot: profile?.preferred_foot || '',
       height_cm: profile?.height_cm != null ? String(profile.height_cm) : '',
+      contract_status: profile?.contract_status || '',
+      contract_until: toDateInputValue(profile?.contract_until),
+      availability: profile?.availability || '',
+      nationality_secondary: profile?.nationality_secondary || '',
+      languages: profile?.languages || '',
+      agent_name: profile?.agent_name || '',
+      agent_contact_email: profile?.agent_contact_email || '',
     })
     setProfileError(null)
     setProfileDone(false)
@@ -261,23 +493,33 @@ export function ShowcaseSection({ playerApiId, playerName }) {
 
   const submitProfile = async () => {
     if (profileBusy) return
+    const pid = playerApiId
     setProfileBusy(true)
     setProfileError(null)
     try {
       const heightRaw = profileForm.height_cm.trim()
-      await APIService.updateShowcaseProfile(playerApiId, {
+      await APIService.updateShowcaseProfile(pid, {
         bio: profileForm.bio.trim(),
         positions: profileForm.positions.trim(),
         preferred_foot: profileForm.preferred_foot || null,
         height_cm: heightRaw ? parseInt(heightRaw, 10) : null,
+        contract_status: profileForm.contract_status || null,
+        contract_until: profileForm.contract_until || null,
+        availability: profileForm.availability || null,
+        nationality_secondary: profileForm.nationality_secondary.trim() || null,
+        languages: profileForm.languages.trim() || null,
+        agent_name: profileForm.agent_name.trim() || null,
+        agent_contact_email: profileForm.agent_contact_email.trim() || null,
       })
-      setProfileDone(true)
+      if (activePlayerRef.current === pid) setProfileDone(true)
       await refresh()
-      setTimeout(() => setProfileOpen(false), 1600)
+      scheduleClose('profile', pid, () => setProfileOpen(false))
     } catch (err) {
-      setProfileError(err.body?.error || err.message || 'Failed to update profile')
+      if (activePlayerRef.current === pid) {
+        setProfileError(err.body?.error || err.message || 'Failed to update profile')
+      }
     } finally {
-      setProfileBusy(false)
+      if (activePlayerRef.current === pid) setProfileBusy(false)
     }
   }
 
@@ -288,27 +530,118 @@ export function ShowcaseSection({ playerApiId, playerName }) {
     const next = [...reel]
     ;[next[index], next[target]] = [next[target], next[index]]
     const ordered_ids = next.filter((i) => !isSynthetic(i)).map((i) => i.id)
+    const pid = playerApiId
     setReelBusy(true)
     try {
-      await APIService.reorderShowcaseReel(playerApiId, { ordered_ids })
+      await APIService.reorderShowcaseReel(pid, { ordered_ids })
       await refresh()
     } catch {
       // ignore — order unchanged on failure
     } finally {
-      setReelBusy(false)
+      if (activePlayerRef.current === pid) setReelBusy(false)
     }
   }
 
   const deleteReelItem = async (linkId) => {
     if (reelBusy) return
+    const pid = playerApiId
     setReelBusy(true)
     try {
-      await APIService.deleteShowcaseReelItem(playerApiId, linkId)
+      await APIService.deleteShowcaseReelItem(pid, linkId)
       await refresh()
     } catch {
       // ignore
     } finally {
-      setReelBusy(false)
+      if (activePlayerRef.current === pid) setReelBusy(false)
+    }
+  }
+
+  const beginPhotoAction = (copy) => {
+    clearCloseTimer('photoAction')
+    setPhotoActionCopy(copy)
+    setPhotoActionOpen(true)
+    setPhotoActionBusy(true)
+    setPhotoActionDone(false)
+    setPhotoActionError(null)
+    setPhotoDeleteTarget(null)
+  }
+
+  const finishPhotoAction = (pid) => {
+    if (activePlayerRef.current !== pid) return
+    setPhotoActionDone(true)
+    scheduleClose('photoAction', pid, () => {
+      setPhotoActionOpen(false)
+      setPhotoActionDone(false)
+    })
+  }
+
+  const requestDeletePhoto = (mediaId) => {
+    if (photoActionBusy) return
+    clearCloseTimer('photoAction')
+    setPhotoActionCopy({ title: 'Delete photo', done: 'Photo deleted' })
+    setPhotoDeleteTarget(mediaId)
+    setPhotoActionDone(false)
+    setPhotoActionError(null)
+    setPhotoActionOpen(true)
+  }
+
+  const movePhoto = async (mediaId, dir) => {
+    if (photoActionBusy) return
+    const index = reorderablePhotos.findIndex((photo) => photo.id === mediaId)
+    const target = index + dir
+    if (index < 0 || target < 0 || target >= reorderablePhotos.length) return
+    const next = [...reorderablePhotos]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    const ordered_ids = [...primaryPhotos, ...next].map((photo) => photo.id)
+    const pid = playerApiId
+    beginPhotoAction({ title: 'Reorder photos', done: 'Photo order updated' })
+    try {
+      await APIService.reorderShowcasePhotos(pid, { ordered_ids })
+      if (activePlayerRef.current === pid) setPhotoActionDone(true)
+      await refresh()
+      finishPhotoAction(pid)
+    } catch (err) {
+      if (activePlayerRef.current === pid) {
+        setPhotoActionError(err.body?.error || err.message || 'Failed to reorder photos')
+      }
+    } finally {
+      if (activePlayerRef.current === pid) setPhotoActionBusy(false)
+    }
+  }
+
+  const setPrimaryPhoto = async (mediaId) => {
+    if (photoActionBusy) return
+    const pid = playerApiId
+    beginPhotoAction({ title: 'Set primary photo', done: 'Primary photo updated' })
+    try {
+      await APIService.setShowcasePhotoPrimary(pid, mediaId)
+      if (activePlayerRef.current === pid) setPhotoActionDone(true)
+      await refresh()
+      finishPhotoAction(pid)
+    } catch (err) {
+      if (activePlayerRef.current === pid) {
+        setPhotoActionError(err.body?.error || err.message || 'Failed to set primary photo')
+      }
+    } finally {
+      if (activePlayerRef.current === pid) setPhotoActionBusy(false)
+    }
+  }
+
+  const deletePhoto = async (mediaId) => {
+    if (photoActionBusy) return
+    const pid = playerApiId
+    beginPhotoAction({ title: 'Delete photo', done: 'Photo deleted' })
+    try {
+      await APIService.deleteShowcasePhoto(pid, mediaId)
+      if (activePlayerRef.current === pid) setPhotoActionDone(true)
+      await refresh()
+      finishPhotoAction(pid)
+    } catch (err) {
+      if (activePlayerRef.current === pid) {
+        setPhotoActionError(err.body?.error || err.message || 'Failed to delete photo')
+      }
+    } finally {
+      if (activePlayerRef.current === pid) setPhotoActionBusy(false)
     }
   }
 
@@ -322,8 +655,8 @@ export function ShowcaseSection({ playerApiId, playerName }) {
           title={`${playerName || 'Player'} — Showcase`}
           action={
             isOwner ? (
-              <div className="flex shrink-0 items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => { setVideoError(null); setVideoDone(false); setVideoOpen(true) }} className="gap-1.5">
+              <div className="flex w-full shrink-0 flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+                <Button variant="outline" size="sm" onClick={openVideoDialog} className="gap-1.5">
                   <Plus className="h-3.5 w-3.5" />
                   Add video
                 </Button>
@@ -338,11 +671,166 @@ export function ShowcaseSection({ playerApiId, playerName }) {
 
         {isOwner && (
           <p className="-mt-4 text-xs text-muted-foreground">
-            You manage this profile. Videos and profile edits are reviewed before they appear publicly.
+            You manage this profile. Photos, videos and profile edits are reviewed before they appear publicly.
           </p>
         )}
 
-        {/* 1. Highlight reel */}
+        {/* 1. Photos */}
+        {(visiblePhotos.length > 0 || isOwner) && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <ImageIcon className="h-3.5 w-3.5" />
+                Photos
+              </p>
+              {isOwner && (
+                <Button variant="outline" size="sm" onClick={openPhotoDialog} disabled={photoBusy} className="gap-1.5">
+                  <ImagePlus className="h-3.5 w-3.5" />
+                  Add photo
+                </Button>
+              )}
+            </div>
+
+            {visiblePhotos.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                {visiblePhotos.map((photo, index) => {
+                  const approved = photo.status === 'approved'
+                  const pending = photo.status === 'pending'
+                  const pendingUpload = photo.status === 'pending_upload'
+                  const rejected = photo.status === 'rejected'
+                  const imageUrl = approved ? photo.public_url : photo.pending_preview_url
+                  const reorderIndex = reorderablePhotos.findIndex((item) => item.id === photo.id)
+                  return (
+                    <div key={photo.id} className="min-w-0 space-y-2">
+                      <div className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-border/70 bg-secondary/50">
+                        {imageUrl ? (
+                          <img
+                            src={imageUrl}
+                            alt={`${playerName || 'Player'} showcase photo ${index + 1}`}
+                            width={640}
+                            height={480}
+                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02] motion-reduce:transform-none motion-reduce:transition-none"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div
+                            className="flex h-full flex-col items-center justify-center gap-2 px-3 text-center text-muted-foreground"
+                            role="img"
+                            aria-label="Photo preview unavailable"
+                          >
+                            <ImageIcon className="h-7 w-7 opacity-50" />
+                            <span className="text-[11px]">
+                              {pendingUpload ? 'Upload incomplete' : 'Preview unavailable'}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="absolute inset-x-2 top-2 flex flex-wrap items-center gap-1.5">
+                          {approved && photo.is_primary && (
+                            <Badge className="border-white/30 bg-foreground/80 text-background shadow-sm">
+                              <Star className="mr-1 h-3 w-3 fill-current" />
+                              Primary
+                            </Badge>
+                          )}
+                          {pending && (
+                            <Badge variant="outline" className="border-amber-200 bg-amber-50/95 text-amber-800 shadow-sm">
+                              Pending review
+                            </Badge>
+                          )}
+                          {pendingUpload && (
+                            <Badge variant="outline" className="border-amber-200 bg-amber-50/95 text-amber-800 shadow-sm">
+                              Upload incomplete
+                            </Badge>
+                          )}
+                          {rejected && (
+                            <Badge variant="outline" className="border-rose-200 bg-rose-50/95 text-rose-800 shadow-sm">
+                              Rejected
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      {isOwner && (
+                        <div className="flex min-h-7 items-center justify-between gap-1 px-0.5">
+                          {approved ? (
+                            <div className="flex items-center gap-0.5">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                disabled={photoActionBusy || photo.is_primary}
+                                onClick={() => setPrimaryPhoto(photo.id)}
+                                aria-label={photo.is_primary ? 'Primary photo' : 'Set as primary photo'}
+                              >
+                                <Star className={`h-3.5 w-3.5 ${photo.is_primary ? 'fill-current text-amber-600' : ''}`} />
+                              </Button>
+                              {!photo.is_primary && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    disabled={photoActionBusy || reorderIndex <= 0}
+                                    onClick={() => movePhoto(photo.id, -1)}
+                                    aria-label="Move photo left"
+                                  >
+                                    <ArrowUp className="h-3.5 w-3.5 -rotate-90" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    disabled={photoActionBusy || reorderIndex === reorderablePhotos.length - 1}
+                                    onClick={() => movePhoto(photo.id, 1)}
+                                    aria-label="Move photo right"
+                                  >
+                                    <ArrowDown className="h-3.5 w-3.5 -rotate-90" />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">
+                              {pendingUpload ? 'Remove and try again' : 'Visible only to you'}
+                            </span>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                            disabled={photoActionBusy}
+                            onClick={() => requestDeletePhoto(photo.id)}
+                            aria-label="Delete photo"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
+
+                      {isOwner && rejected && photo.review_note && (
+                        <p className="break-words px-0.5 text-xs leading-relaxed text-rose-700">
+                          Review note: {photo.review_note}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={openPhotoDialog}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-8 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
+              >
+                <ImagePlus className="h-4 w-4" />
+                Add the first photo
+              </button>
+            )}
+
+          </div>
+        )}
+
+        {/* 2. Highlight reel */}
         {reel.length > 0 && (
           <div className="space-y-3">
             <p className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -412,9 +900,9 @@ export function ShowcaseSection({ playerApiId, playerName }) {
           </div>
         )}
 
-        {/* 2. Self-reported profile */}
+        {/* 3. Self-reported profile */}
         {profile && (
-          <div className="space-y-3 rounded-lg border border-border/70 bg-secondary/40 p-4">
+          <div className="min-w-0 space-y-3 rounded-lg border border-border/70 bg-secondary/40 p-4">
             <div className="flex items-center gap-2">
               <UserSquare className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-semibold text-foreground">Player profile</span>
@@ -425,7 +913,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
               {profile.positions && (
                 <div>
                   <span className="text-muted-foreground">Positions: </span>
-                  <span className="font-medium text-foreground">{profile.positions}</span>
+                  <span className="break-words font-medium text-foreground">{profile.positions}</span>
                 </div>
               )}
               {profile.preferred_foot && (
@@ -440,11 +928,57 @@ export function ShowcaseSection({ playerApiId, playerName }) {
                   <span className="font-medium text-foreground">{profile.height_cm} cm</span>
                 </div>
               )}
+              {(profile.contract_status || profile.contract_until) && (
+                <div>
+                  <span className="text-muted-foreground">Contract: </span>
+                  <span className="font-medium text-foreground">
+                    {optionLabel(CONTRACT_STATUS_OPTIONS, profile.contract_status) || 'Status not specified'}
+                    {formatDateOnly(profile.contract_until) ? ` · until ${formatDateOnly(profile.contract_until)}` : ''}
+                  </span>
+                </div>
+              )}
+              {profile.availability && optionLabel(AVAILABILITY_OPTIONS, profile.availability) && (
+                <div>
+                  <span className="text-muted-foreground">Availability: </span>
+                  <span className="font-medium text-foreground">
+                    {optionLabel(AVAILABILITY_OPTIONS, profile.availability)}
+                  </span>
+                </div>
+              )}
+              {profile.nationality_secondary && (
+                <div>
+                  <span className="text-muted-foreground">Second nationality: </span>
+                  <span className="break-words font-medium text-foreground">{profile.nationality_secondary}</span>
+                </div>
+              )}
+              {profile.languages && (
+                <div>
+                  <span className="text-muted-foreground">Languages: </span>
+                  <span className="break-words font-medium text-foreground">{profile.languages}</span>
+                </div>
+              )}
+              {profile.agent_name && (
+                <div>
+                  <span className="text-muted-foreground">Agent: </span>
+                  <span className="break-words font-medium text-foreground">{profile.agent_name}</span>
+                </div>
+              )}
+              {profile.agent_contact_email && (
+                <div>
+                  <span className="text-muted-foreground">Agent email: </span>
+                  <a
+                    href={`mailto:${profile.agent_contact_email}`}
+                    className="break-all font-medium text-primary hover:underline"
+                  >
+                    {profile.agent_contact_email}
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* 3. Club-verified footage */}
+        {/* 4. Club-verified footage */}
         {verified.length > 0 && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -487,7 +1021,7 @@ export function ShowcaseSection({ playerApiId, playerName }) {
           </div>
         )}
 
-        {/* 4. Claim strip */}
+        {/* 5. Claim strip */}
         {showClaimStrip && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4">
             {myClaim ? (
@@ -616,9 +1150,129 @@ export function ShowcaseSection({ playerApiId, playerName }) {
         </DialogContent>
       </Dialog>
 
+      {/* Add-photo dialog */}
+      <Dialog
+        open={photoOpen}
+        onOpenChange={(open) => {
+          if (photoBusy) return
+          setPhotoOpen(open)
+          if (!open) {
+            setPhotoFile(null)
+            setPhotoDone(false)
+            setPhotoError(null)
+            setPhotoInputKey((key) => key + 1)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add a showcase photo</DialogTitle>
+            <DialogDescription>
+              Upload a JPEG, PNG or WebP image up to 8MB. Photos are reviewed before appearing publicly.
+            </DialogDescription>
+          </DialogHeader>
+          {photoDone ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-emerald-600" role="status" aria-live="polite">
+              <Check className="h-4 w-4" />
+              Submitted for review
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor={`showcase-photo-${playerApiId}`}>Photo</Label>
+                <Input
+                  key={photoInputKey}
+                  id={`showcase-photo-${playerApiId}`}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={choosePhoto}
+                  disabled={photoBusy}
+                  aria-invalid={Boolean(photoError)}
+                  aria-describedby={photoError ? `showcase-photo-error-${playerApiId}` : undefined}
+                />
+                {photoFile && (
+                  <p className="text-xs text-muted-foreground">
+                    {photoFile.name} · {(photoFile.size / (1024 * 1024)).toFixed(1)}MB
+                  </p>
+                )}
+              </div>
+              {photoError && (
+                <p id={`showcase-photo-error-${playerApiId}`} className="text-xs text-destructive" role="alert">
+                  {photoError}
+                </p>
+              )}
+            </div>
+          )}
+          {!photoDone && (
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setPhotoOpen(false)} disabled={photoBusy}>Cancel</Button>
+              <Button onClick={submitPhoto} disabled={photoBusy || !photoFile}>
+                {photoBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                {photoBusy ? 'Uploading…' : 'Upload photo'}
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Photo-action dialog */}
+      <Dialog
+        open={photoActionOpen}
+        onOpenChange={(open) => {
+          if (photoActionBusy) return
+          setPhotoActionOpen(open)
+          if (!open) {
+            clearCloseTimer('photoAction')
+            setPhotoActionDone(false)
+            setPhotoActionError(null)
+            setPhotoDeleteTarget(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{photoActionCopy.title}</DialogTitle>
+            <DialogDescription>
+              Showcase photo changes are applied to this player&apos;s profile.
+            </DialogDescription>
+          </DialogHeader>
+
+          {photoActionDone ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-emerald-600" role="status" aria-live="polite">
+              <Check className="h-4 w-4" />
+              {photoActionCopy.done}
+            </div>
+          ) : photoActionError ? (
+            <p className="py-2 text-sm text-destructive" role="alert">{photoActionError}</p>
+          ) : photoActionBusy ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground" role="status" aria-live="polite">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Updating photos…
+            </div>
+          ) : photoDeleteTarget != null ? (
+            <p className="py-2 text-sm text-foreground/90">
+              Delete this photo permanently? This cannot be undone.
+            </p>
+          ) : null}
+
+          {!photoActionDone && !photoActionBusy && (
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setPhotoActionOpen(false)}>
+                {photoDeleteTarget != null ? 'Cancel' : 'Close'}
+              </Button>
+              {photoDeleteTarget != null && !photoActionError && (
+                <Button variant="destructive" onClick={() => deletePhoto(photoDeleteTarget)}>
+                  Delete photo
+                </Button>
+              )}
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Edit-profile dialog */}
       <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit player profile</DialogTitle>
             <DialogDescription>
@@ -633,8 +1287,9 @@ export function ShowcaseSection({ playerApiId, playerName }) {
           ) : (
             <div className="space-y-4 py-2">
               <div className="space-y-2">
-                <Label>Bio</Label>
+                <Label htmlFor={`showcase-profile-bio-${playerApiId}`}>Bio</Label>
                 <Textarea
+                  id={`showcase-profile-bio-${playerApiId}`}
                   placeholder="A short bio"
                   value={profileForm.bio}
                   onChange={(e) => setProfileForm((f) => ({ ...f, bio: e.target.value }))}
@@ -644,8 +1299,9 @@ export function ShowcaseSection({ playerApiId, playerName }) {
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Positions</Label>
+                  <Label htmlFor={`showcase-profile-positions-${playerApiId}`}>Positions</Label>
                   <Input
+                    id={`showcase-profile-positions-${playerApiId}`}
                     placeholder="e.g. LW, ST"
                     value={profileForm.positions}
                     onChange={(e) => setProfileForm((f) => ({ ...f, positions: e.target.value }))}
@@ -653,12 +1309,12 @@ export function ShowcaseSection({ playerApiId, playerName }) {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Preferred foot</Label>
+                  <Label htmlFor={`showcase-profile-foot-${playerApiId}`}>Preferred foot</Label>
                   <Select
                     value={profileForm.preferred_foot}
                     onValueChange={(v) => setProfileForm((f) => ({ ...f, preferred_foot: v }))}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id={`showcase-profile-foot-${playerApiId}`}>
                       <SelectValue placeholder="Select" />
                     </SelectTrigger>
                     <SelectContent>
@@ -669,15 +1325,109 @@ export function ShowcaseSection({ playerApiId, playerName }) {
                   </Select>
                 </div>
               </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor={`showcase-profile-height-${playerApiId}`}>Height (cm)</Label>
+                  <Input
+                    id={`showcase-profile-height-${playerApiId}`}
+                    placeholder="e.g. 178"
+                    value={profileForm.height_cm}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, height_cm: e.target.value.replace(/[^0-9]/g, '') }))}
+                    inputMode="numeric"
+                    maxLength={3}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`showcase-profile-nationality-${playerApiId}`}>Second nationality</Label>
+                  <Input
+                    id={`showcase-profile-nationality-${playerApiId}`}
+                    placeholder="e.g. Irish"
+                    value={profileForm.nationality_secondary}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, nationality_secondary: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor={`showcase-profile-contract-${playerApiId}`}>Contract status</Label>
+                  <Select
+                    value={profileForm.contract_status || 'not_specified'}
+                    onValueChange={(v) => setProfileForm((f) => ({
+                      ...f,
+                      contract_status: v === 'not_specified' ? '' : v,
+                    }))}
+                  >
+                    <SelectTrigger id={`showcase-profile-contract-${playerApiId}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="not_specified">Not specified</SelectItem>
+                      {CONTRACT_STATUS_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`showcase-profile-contract-until-${playerApiId}`}>Contract until</Label>
+                  <Input
+                    id={`showcase-profile-contract-until-${playerApiId}`}
+                    type="date"
+                    value={profileForm.contract_until}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, contract_until: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`showcase-profile-availability-${playerApiId}`}>Availability</Label>
+                  <Select
+                    value={profileForm.availability || 'not_specified'}
+                    onValueChange={(v) => setProfileForm((f) => ({
+                      ...f,
+                      availability: v === 'not_specified' ? '' : v,
+                    }))}
+                  >
+                    <SelectTrigger id={`showcase-profile-availability-${playerApiId}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="not_specified">Not specified</SelectItem>
+                      {AVAILABILITY_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
               <div className="space-y-2">
-                <Label>Height (cm)</Label>
+                <Label htmlFor={`showcase-profile-languages-${playerApiId}`}>Languages</Label>
                 <Input
-                  placeholder="e.g. 178"
-                  value={profileForm.height_cm}
-                  onChange={(e) => setProfileForm((f) => ({ ...f, height_cm: e.target.value.replace(/[^0-9]/g, '') }))}
-                  inputMode="numeric"
-                  maxLength={3}
+                  id={`showcase-profile-languages-${playerApiId}`}
+                  placeholder="e.g. English, French"
+                  value={profileForm.languages}
+                  onChange={(e) => setProfileForm((f) => ({ ...f, languages: e.target.value }))}
                 />
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor={`showcase-profile-agent-${playerApiId}`}>Agent name</Label>
+                  <Input
+                    id={`showcase-profile-agent-${playerApiId}`}
+                    placeholder="Agent or agency"
+                    value={profileForm.agent_name}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, agent_name: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`showcase-profile-agent-email-${playerApiId}`}>Agent contact email</Label>
+                  <Input
+                    id={`showcase-profile-agent-email-${playerApiId}`}
+                    type="email"
+                    placeholder="agent@example.com"
+                    value={profileForm.agent_contact_email}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, agent_contact_email: e.target.value }))}
+                    autoComplete="email"
+                  />
+                </div>
               </div>
               {profileError && <p className="text-xs text-destructive">{profileError}</p>}
             </div>

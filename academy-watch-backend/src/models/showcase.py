@@ -1,4 +1,4 @@
-"""Talent Showcase models — player-claimed profiles + curated highlight reel.
+"""Talent Showcase models — player-claimed profiles, photos, and highlight reel.
 
 A player (or their agent/guardian/club official) claims their public profile;
 an admin approves the claim, after which the owner can curate a self-reported
@@ -10,6 +10,7 @@ edits reverts to ``pending`` and is hidden from the public until re-approved.
   per player are allowed (a player and their agent can both own it). A player's
   api-football id is used directly (no FK) to mirror ``PlayerLink``.
 - ``PlayerShowcaseProfile`` — at most one self-reported card per player.
+- ``PlayerShowcaseMedia`` — pre-moderated, self-hosted player photos.
 
 Reel storage reuses the existing ``PlayerLink`` model (``link_type='highlight'``)
 plus the ``sort_order`` column added in migration ``aw19``.
@@ -68,6 +69,13 @@ class PlayerShowcaseProfile(db.Model):
     positions = db.Column(db.String(100))
     preferred_foot = db.Column(db.String(10))  # left | right | both
     height_cm = db.Column(db.Integer)
+    contract_status = db.Column(db.String(30))  # under_contract | expiring | free_agent
+    contract_until = db.Column(db.Date)
+    availability = db.Column(db.String(30))  # open_to_moves | not_looking | trial_available
+    agent_name = db.Column(db.String(200))
+    agent_contact_email = db.Column(db.String(320))
+    nationality_secondary = db.Column(db.String(100))
+    languages = db.Column(db.String(300))
     status = db.Column(db.String(20), nullable=False, default="pending")  # pending | approved
     updated_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=True)
     reviewed_by = db.Column(db.String(200))  # admin email
@@ -75,21 +83,58 @@ class PlayerShowcaseProfile(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
-    def public_dict(self):
-        """Fields exposed on the public player page (self-reported badge)."""
-        return {
+    def public_dict(self, *, include_agent_contact=False):
+        """Fields exposed on the player page (self-reported badge).
+
+        Agent contact email is withheld unless the caller has authenticated;
+        routes opt in only after validating that authentication context.
+        """
+        payload = {
             "player_api_id": self.player_api_id,
             "bio": self.bio,
             "positions": self.positions,
             "preferred_foot": self.preferred_foot,
             "height_cm": self.height_cm,
+            "contract_status": self.contract_status,
+            "contract_until": self.contract_until.isoformat() if self.contract_until else None,
+            "availability": self.availability,
+            "agent_name": self.agent_name,
+            "nationality_secondary": self.nationality_secondary,
+            "languages": self.languages,
             "self_reported": True,
         }
+        if include_agent_contact:
+            payload["agent_contact_email"] = self.agent_contact_email
+        return payload
 
     def owner_dict(self):
         """Public fields plus moderation state — for owner + admin views."""
-        payload = self.public_dict()
+        payload = self.public_dict(include_agent_contact=True)
         payload["id"] = self.id
         payload["status"] = self.status
         payload["updated_at"] = self.updated_at.isoformat() if self.updated_at else None
         return payload
+
+
+class PlayerShowcaseMedia(db.Model):
+    """A self-hosted player photo that remains private until moderation."""
+
+    __tablename__ = "player_showcase_media"
+    __table_args__ = (db.Index("ix_showcase_media_player_status", "player_api_id", "status"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    player_api_id = db.Column(db.Integer, nullable=False)  # API-Football player id
+    kind = db.Column(db.String(20), nullable=False, default="photo", server_default="photo")
+    blob_path = db.Column(db.Text, nullable=False)
+    public_url = db.Column(db.Text)
+    content_type = db.Column(db.String(50))
+    size_bytes = db.Column(db.Integer)
+    is_primary = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
+    sort_order = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    status = db.Column(db.String(20), nullable=False, default="pending_upload", server_default="pending_upload")
+    uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=True)
+    reviewed_by = db.Column(db.String(200))
+    reviewed_at = db.Column(db.DateTime)
+    review_note = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
