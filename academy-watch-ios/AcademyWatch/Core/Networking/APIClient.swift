@@ -1,6 +1,11 @@
 import Foundation
 
-struct APIClient: Sendable {
+protocol ScoutAPIClientProtocol: Sendable {
+    func fetchScoutPlayers(_ request: ScoutPlayersRequest) async throws -> ScoutPlayersResponse
+    func fetchScoutLeaderboards(_ request: ScoutLeaderboardsRequest) async throws -> ScoutLeaderboardsResponse
+}
+
+struct APIClient: ScoutAPIClientProtocol, Sendable {
     static let productionBaseURL = URL(
         string: "https://ca-loan-army-backend.lemonmoss-23c9ec03.westus2.azurecontainerapps.io/api"
     )!
@@ -13,28 +18,38 @@ struct APIClient: Sendable {
         self.session = session
     }
 
-    func fetchScoutPlayers(
-        page: Int,
-        perPage: Int = 25,
-        sort: String = "contributions"
-    ) async throws -> ScoutPlayersResponse {
-        try await get(
+    func fetchScoutPlayers(_ request: ScoutPlayersRequest) async throws -> ScoutPlayersResponse {
+        var queryItems = [
+            URLQueryItem(name: "sort", value: request.sort),
+            URLQueryItem(name: "order", value: request.order.rawValue),
+            URLQueryItem(name: "per_page", value: String(request.perPage)),
+            URLQueryItem(name: "page", value: String(request.page)),
+        ]
+        queryItems.appendIfPresent(name: "search", value: request.search)
+        queryItems.appendIfPresent(name: "position", value: request.position)
+        queryItems.appendIfPresent(name: "status", value: request.status)
+        queryItems.appendIfPresent(name: "max_age", value: request.maximumAge.map(String.init))
+
+        return try await get(
             path: "scout/players",
-            queryItems: [
-                URLQueryItem(name: "sort", value: sort),
-                URLQueryItem(name: "per_page", value: String(perPage)),
-                URLQueryItem(name: "page", value: String(page)),
-            ]
+            queryItems: queryItems
         )
     }
 
-    func fetchScoutLeaderboards(limit: Int = 10, phase: String = "all") async throws -> ScoutLeaderboardsResponse {
-        try await get(
+    func fetchScoutLeaderboards(_ request: ScoutLeaderboardsRequest) async throws -> ScoutLeaderboardsResponse {
+        var queryItems = [
+            URLQueryItem(name: "limit", value: String(request.limit)),
+            URLQueryItem(name: "phase", value: request.phase.rawValue),
+        ]
+        // `phase` selects the board set server-side. Attack, midfield and
+        // defense still need their explicit position filter (GK is clamped).
+        queryItems.appendIfPresent(name: "position", value: request.position)
+        queryItems.appendIfPresent(name: "status", value: request.status)
+        queryItems.appendIfPresent(name: "max_age", value: request.maximumAge.map(String.init))
+
+        return try await get(
             path: "scout/leaderboards",
-            queryItems: [
-                URLQueryItem(name: "limit", value: String(limit)),
-                URLQueryItem(name: "phase", value: phase),
-            ]
+            queryItems: queryItems
         )
     }
 
@@ -83,6 +98,13 @@ struct APIClient: Sendable {
             throw APIClientError.invalidURL
         }
         return url
+    }
+}
+
+private extension Array where Element == URLQueryItem {
+    mutating func appendIfPresent(name: String, value: String?) {
+        guard let value, !value.isEmpty else { return }
+        append(URLQueryItem(name: name, value: value))
     }
 }
 

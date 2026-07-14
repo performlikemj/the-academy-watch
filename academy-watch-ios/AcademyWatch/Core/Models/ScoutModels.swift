@@ -11,7 +11,7 @@ struct ScoutPlayersResponse: Decodable, Equatable, Sendable {
 struct ScoutLeaderboardsResponse: Decodable, Equatable, Sendable {
     let leaderboards: [String: [ScoutPlayerSummary]]
     let limit: Int
-    let phase: String
+    let phase: ScoutPhase
 }
 
 struct ScoutPlayerSummary: Decodable, Equatable, Sendable {

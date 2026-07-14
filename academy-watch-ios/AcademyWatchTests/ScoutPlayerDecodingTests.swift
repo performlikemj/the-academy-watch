@@ -23,6 +23,8 @@ final class ScoutPlayerDecodingTests: XCTestCase {
         XCTAssertEqual(first.playerName, "Lamine Yamal")
         XCTAssertTrue(first.hasDetailedStats)
         XCTAssertEqual(first.recentForm?.count, 5)
+        XCTAssertEqual(first.displayValue(for: .shots), "119")
+        XCTAssertEqual(first.displayValue(for: .saves), "—")
 
         XCTAssertNil(response.players.first(where: { $0.playerId == 283_058 })?.position)
 
