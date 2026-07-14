@@ -4,17 +4,20 @@ import SwiftUI
 @MainActor
 struct ScoutDeskView: View {
     @StateObject private var viewModel: ScoutDeskViewModel
+    @State private var navigationPath: [Int]
 
-    init(initialPhase: ScoutPhase = .all) {
+    init(initialPhase: ScoutPhase = .all, initialPlayerID: Int? = nil) {
         _viewModel = StateObject(wrappedValue: ScoutDeskViewModel(initialPhase: initialPhase))
+        _navigationPath = State(initialValue: initialPlayerID.map { [$0] } ?? [])
     }
 
     init(viewModel: ScoutDeskViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
+        _navigationPath = State(initialValue: [])
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ZStack {
                 AcademyColors.background.ignoresSafeArea()
 
@@ -42,8 +45,12 @@ struct ScoutDeskView: View {
             }
             .navigationTitle("Scout Desk")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: Int.self) { playerID in
+                PlayerDetailView(playerID: playerID)
+            }
         }
-        .task {
+        .task(id: navigationPath.isEmpty) {
+            guard navigationPath.isEmpty else { return }
             await viewModel.loadInitialIfNeeded()
         }
     }
@@ -298,8 +305,12 @@ struct ScoutDeskView: View {
             }
 
             ForEach(viewModel.players, id: \.playerId) { player in
-                ScoutPlayerRow(player: player, phase: viewModel.selectedPhase)
-                    .padding(.horizontal, 16)
+                NavigationLink(value: player.playerId) {
+                    ScoutPlayerRow(player: player, phase: viewModel.selectedPhase)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .accessibilityHint("Opens player detail")
                     .onAppear {
                         Task {
                             await viewModel.loadNextPageIfNeeded(currentPlayer: player)
@@ -414,28 +425,33 @@ private struct ScoutLeaderboardCard: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(topEntries.enumerated()), id: \.element.playerId) { index, player in
-                        HStack(spacing: 9) {
-                            RankChip(rank: index + 1)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(player.playerName)
-                                    .font(.caption.weight(.semibold))
-                                    .lineLimit(1)
-                                Text(player.loanTeamName ?? player.primaryTeamName ?? "Club unavailable")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                        NavigationLink(value: player.playerId) {
+                            HStack(spacing: 9) {
+                                RankChip(rank: index + 1)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(player.playerName)
+                                        .font(.caption.weight(.semibold))
+                                        .lineLimit(1)
+                                    Text(player.loanTeamName ?? player.primaryTeamName ?? "Club unavailable")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 5)
+                                VStack(alignment: .trailing, spacing: 0) {
+                                    Text(player.leaderboardValue(for: definition.metric))
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(AcademyColors.claret)
+                                        .monospacedDigit()
+                                    Text(definition.suffix.uppercased())
+                                        .font(.system(size: 8, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                }
                             }
-                            Spacer(minLength: 5)
-                            VStack(alignment: .trailing, spacing: 0) {
-                                Text(player.leaderboardValue(for: definition.metric))
-                                    .font(.caption.weight(.bold))
-                                    .foregroundStyle(AcademyColors.claret)
-                                    .monospacedDigit()
-                                Text(definition.suffix.uppercased())
-                                    .font(.system(size: 8, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                            }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens player detail")
                         .padding(.horizontal, 12)
                         .frame(height: 43)
                         if index < topEntries.count - 1 {

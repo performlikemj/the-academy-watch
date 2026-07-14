@@ -5,7 +5,15 @@ protocol ScoutAPIClientProtocol: Sendable {
     func fetchScoutLeaderboards(_ request: ScoutLeaderboardsRequest) async throws -> ScoutLeaderboardsResponse
 }
 
-struct APIClient: ScoutAPIClientProtocol, Sendable {
+protocol PlayerDetailAPIClientProtocol: Sendable {
+    func fetchPlayerProfile(playerID: Int) async throws -> PlayerProfile
+    func fetchPlayerSeasonStats(playerID: Int) async throws -> PlayerSeasonStats
+    func fetchPlayerRecentFixtures(playerID: Int) async throws -> [PlayerRecentFixture]
+    func fetchPlayerJourney(playerID: Int) async throws -> PlayerJourneyResponse
+    func fetchPlayerAvailability(playerID: Int) async throws -> PlayerAvailability
+}
+
+struct APIClient: ScoutAPIClientProtocol, PlayerDetailAPIClientProtocol, Sendable {
     static let productionBaseURL = URL(
         string: "https://ca-loan-army-backend.lemonmoss-23c9ec03.westus2.azurecontainerapps.io/api"
     )!
@@ -51,6 +59,26 @@ struct APIClient: ScoutAPIClientProtocol, Sendable {
             path: "scout/leaderboards",
             queryItems: queryItems
         )
+    }
+
+    func fetchPlayerProfile(playerID: Int) async throws -> PlayerProfile {
+        try await get(path: "players/\(playerID)/profile", queryItems: [])
+    }
+
+    func fetchPlayerSeasonStats(playerID: Int) async throws -> PlayerSeasonStats {
+        try await get(path: "players/\(playerID)/season-stats", queryItems: [])
+    }
+
+    func fetchPlayerRecentFixtures(playerID: Int) async throws -> [PlayerRecentFixture] {
+        try await get(path: "players/\(playerID)/stats", queryItems: [])
+    }
+
+    func fetchPlayerJourney(playerID: Int) async throws -> PlayerJourneyResponse {
+        try await get(path: "players/\(playerID)/journey", queryItems: [])
+    }
+
+    func fetchPlayerAvailability(playerID: Int) async throws -> PlayerAvailability {
+        try await get(path: "players/\(playerID)/availability", queryItems: [])
     }
 
     private func get<Response: Decodable>(
