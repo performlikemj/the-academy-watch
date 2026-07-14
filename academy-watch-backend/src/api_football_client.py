@@ -4719,119 +4719,13 @@ class APIFootballClient:
         - Goalkeeper-specific stats (saves, goals conceded)
         """
         from src.models.weekly import FixturePlayerStats
+        from src.utils.fixture_stats_mapper import map_player_stat_block
 
         stats = (pstats_row or {}).get("statistics", [])
 
-        # Initialize all stats with defaults
-        stats_dict = {
-            "minutes": 0,
-            "goals": 0,
-            "assists": 0,
-            "yellows": 0,
-            "reds": 0,
-            "position": None,
-            "number": None,
-            "rating": None,
-            "captain": False,
-            "substitute": False,
-            "goals_conceded": None,
-            "saves": None,
-            "shots_total": None,
-            "shots_on": None,
-            "passes_total": None,
-            "passes_key": None,
-            "passes_accuracy": None,
-            "tackles_total": None,
-            "tackles_blocks": None,
-            "tackles_interceptions": None,
-            "duels_total": None,
-            "duels_won": None,
-            "dribbles_attempts": None,
-            "dribbles_success": None,
-            "dribbles_past": None,
-            "fouls_drawn": None,
-            "fouls_committed": None,
-            "penalty_won": None,
-            "penalty_committed": None,
-            "penalty_scored": None,
-            "penalty_missed": None,
-            "penalty_saved": None,
-            "offsides": None,
-        }
-
-        if stats:
-            # First statistics block contains the data
-            stat_block = stats[0]
-
-            # Games (basic info)
-            games = stat_block.get("games", {}) or {}
-            stats_dict["minutes"] = games.get("minutes") or 0
-            stats_dict["position"] = games.get("position")
-            stats_dict["number"] = games.get("number")
-            stats_dict["rating"] = float(games.get("rating")) if games.get("rating") else None
-            stats_dict["captain"] = games.get("captain", False)
-            stats_dict["substitute"] = games.get("substitute", False)
-
-            # Goals and assists
-            goals_block = stat_block.get("goals", {}) or {}
-            stats_dict["goals"] = goals_block.get("total") or 0
-            stats_dict["assists"] = goals_block.get("assists") or 0
-            stats_dict["goals_conceded"] = goals_block.get("conceded")
-            stats_dict["saves"] = goals_block.get("saves")
-
-            # Cards
-            cards = stat_block.get("cards", {}) or {}
-            stats_dict["yellows"] = cards.get("yellow") or 0
-            stats_dict["reds"] = cards.get("red") or 0
-
-            # Shots
-            shots = stat_block.get("shots", {}) or {}
-            stats_dict["shots_total"] = shots.get("total")
-            stats_dict["shots_on"] = shots.get("on")
-
-            # Passes
-            passes = stat_block.get("passes", {}) or {}
-            stats_dict["passes_total"] = passes.get("total")
-            stats_dict["passes_key"] = passes.get("key")
-            # Store accuracy as string (e.g. "68%")
-            pass_accuracy = passes.get("accuracy")
-            if pass_accuracy is not None:
-                stats_dict["passes_accuracy"] = (
-                    str(pass_accuracy) if isinstance(pass_accuracy, str) else f"{pass_accuracy}%"
-                )
-
-            # Tackles
-            tackles = stat_block.get("tackles", {}) or {}
-            stats_dict["tackles_total"] = tackles.get("total")
-            stats_dict["tackles_blocks"] = tackles.get("blocks")
-            stats_dict["tackles_interceptions"] = tackles.get("interceptions")
-
-            # Duels
-            duels = stat_block.get("duels", {}) or {}
-            stats_dict["duels_total"] = duels.get("total")
-            stats_dict["duels_won"] = duels.get("won")
-
-            # Dribbles
-            dribbles = stat_block.get("dribbles", {}) or {}
-            stats_dict["dribbles_attempts"] = dribbles.get("attempts")
-            stats_dict["dribbles_success"] = dribbles.get("success")
-            stats_dict["dribbles_past"] = dribbles.get("past")
-
-            # Fouls
-            fouls = stat_block.get("fouls", {}) or {}
-            stats_dict["fouls_drawn"] = fouls.get("drawn")
-            stats_dict["fouls_committed"] = fouls.get("committed")
-
-            # Penalties
-            penalty = stat_block.get("penalty", {}) or {}
-            stats_dict["penalty_won"] = penalty.get("won")
-            stats_dict["penalty_committed"] = penalty.get("commited")  # Note: API has typo "commited"
-            stats_dict["penalty_scored"] = penalty.get("scored")
-            stats_dict["penalty_missed"] = penalty.get("missed")
-            stats_dict["penalty_saved"] = penalty.get("saved")
-
-            # Offsides
-            stats_dict["offsides"] = stat_block.get("offsides")
+        # Full stat mapping shared by every FixturePlayerStats writer; an empty
+        # block yields the defaults (0 counting stats, False flags, None rest).
+        stats_dict = map_player_stat_block(stats[0] if stats else None)
 
         # Find or create the stats record
         row = db_session.query(FixturePlayerStats).filter_by(fixture_id=fixture_pk, player_api_id=player_api_id).first()
