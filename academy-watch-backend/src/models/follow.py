@@ -130,4 +130,7 @@ class PlayerShadowStats(db.Model):
     __table_args__ = (
         db.UniqueConstraint("player_api_id", "team_api_id", "season", name="uq_shadow_stats"),
         db.Index("ix_shadow_stats_player", "player_api_id"),
+        # Single-column clock index so the season-rollup /status gauge's
+        # MAX(updated_at) is an index lookup, not a full seq scan. Matches migration sea03.
+        db.Index("ix_pss_updated_at", "updated_at"),
     )

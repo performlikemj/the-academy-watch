@@ -50,12 +50,13 @@ def _script_directory():
 
 
 class TestMigrationHead:
-    def test_single_head_is_sea02(self):
-        """The whole chain resolves to exactly one head. D3's sea02 now sits on top
-        of sea01, so the tip has advanced from sea01 to sea02 — a second head would
-        make `flask db upgrade` ambiguous on deploy."""
+    def test_single_head_is_sea03(self):
+        """The whole chain resolves to exactly one head. D3's sea03 (the /status
+        gauge clock indexes) now sits on top of sea02, so the tip has advanced from
+        sea02 to sea03 — a second head would make `flask db upgrade` ambiguous on
+        deploy."""
         heads = _script_directory().get_heads()
-        assert heads == ["sea02"], f"expected the single head to be sea02, got {heads}"
+        assert heads == ["sea03"], f"expected the single head to be sea03, got {heads}"
 
     def test_sea01_chains_off_aw23(self):
         """sea01 branches from the real prod tip (aw23), keeping the line linear."""
@@ -70,6 +71,13 @@ class TestMigrationHead:
         sea02 = script.get_revision("sea02")
         assert sea02.down_revision == "sea01"
         assert script.get_revision("sea01") is not None
+
+    def test_sea03_chains_off_sea02(self):
+        """sea03 (/status gauge clock indexes) branches from sea02, keeping the line linear."""
+        script = _script_directory()
+        sea03 = script.get_revision("sea03")
+        assert sea03.down_revision == "sea02"
+        assert script.get_revision("sea02") is not None
 
 
 # ---------------------------------------------------------------------------

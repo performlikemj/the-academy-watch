@@ -353,6 +353,10 @@ class PlayerJourneyEntry(db.Model):
         # Denormalized per-player-per-season read path (D1 provenance / D2 aggregation).
         # Named to match migration sea01's create_index_safe so autogenerate keeps it.
         db.Index("ix_pje_player_season", "player_api_id", "season"),
+        # Single-column clock index so the season-rollup /status gauge's
+        # MAX(stats_synced_at) is an index lookup, not a full seq scan of this wide
+        # ~77k-row table. Named to match migration sea03's create_index_safe.
+        db.Index("ix_pje_stats_synced_at", "stats_synced_at"),
         # NB: intentionally no uq_journey_entry UniqueConstraint. x2y3z4a5b6c7 created
         # only the NON-unique ix_journey_entry_lookup on these four columns — the DB has
         # never held a unique constraint here. Dedup is enforced in application code

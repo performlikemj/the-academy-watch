@@ -58,7 +58,7 @@ _TABLE_COLUMNS = {
     "league_season_config": {"league_api_id", "season_type", "rollover_month"},
 }
 _INDEXES = {
-    "player_season_cells": {"ix_psc_player_season"},
+    "player_season_cells": {"ix_psc_player_season", "ix_psc_synced_at"},
     "player_season_totals": {"ix_pst_season_group", "ix_pst_player"},
 }
 _UNIQUE_CONSTRAINTS = {

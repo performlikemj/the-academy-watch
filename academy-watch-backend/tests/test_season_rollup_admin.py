@@ -730,16 +730,21 @@ def test_status_returns_totals_freshness_and_source_cell_counts(client, admin_he
 
     # Default gauge is cheap: newest source clock (shadow NOW) is not later than
     # the newest computed_at (502 senior NOW), so the coarse gauge reads caught up.
+    # The per-source cell breakdown scans the largest table, so it is NOT on the
+    # pollable default path — only the four index-served clocks + the totals scan.
     body = _status(client, admin_headers)
     assert body == {
         "total_totals_rows": 3,
         "behind": False,
         "last_computed_at": NOW.replace(tzinfo=None).isoformat(),
         "last_source_change_at": NOW.replace(tzinfo=None).isoformat(),
-        "by_source_cells": {"fixtures": 2, "journey": 1},
     }
-    # The exact reconciliation count still sees 501 (shadow NOW > its total middle).
-    assert _status(client, admin_headers, exact=True)["stale_players"] == 1
+    assert "by_source_cells" not in body
+    # ?exact=1 adds both reconciliation extras: the per-source cell breakdown and
+    # the exact stale count (still sees 501, shadow NOW > its total middle).
+    exact_body = _status(client, admin_headers, exact=True)
+    assert exact_body["by_source_cells"] == {"fixtures": 2, "journey": 1}
+    assert exact_body["stale_players"] == 1
 
 
 def test_empty_status_is_zeroed(client, admin_headers):
@@ -748,6 +753,7 @@ def test_empty_status_is_zeroed(client, admin_headers):
         "behind": False,
         "last_computed_at": None,
         "last_source_change_at": None,
-        "by_source_cells": {},
     }
-    assert _status(client, admin_headers, exact=True)["stale_players"] == 0
+    exact_body = _status(client, admin_headers, exact=True)
+    assert exact_body["by_source_cells"] == {}
+    assert exact_body["stale_players"] == 0

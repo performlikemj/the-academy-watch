@@ -74,6 +74,9 @@ class PlayerSeasonCell(db.Model):
         ),
         # per-player-per-season read path; named to match migration sea02.
         db.Index("ix_psc_player_season", "player_api_id", "season"),
+        # single-column clock index so the /status gauge's MAX(synced_at) is an
+        # index lookup, not a full seq scan; named to match migration sea02.
+        db.Index("ix_psc_synced_at", "synced_at"),
     )
 
     def to_dict(self):

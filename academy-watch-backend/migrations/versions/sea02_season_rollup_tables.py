@@ -11,7 +11,9 @@ the 0.5 CPU prod box.
 
 - player_season_cells  — fine grain: one row per SOURCE-contributed cell
                          (player, season, source, club, competition_tier). source is
-                         IN the unique key so feeders never collide.
+                         IN the unique key so feeders never collide. Carries a
+                         single-column ix_psc_synced_at so the /status gauge's
+                         MAX(synced_at) is an index lookup, not a full-table seq scan.
 - player_season_totals — coarse grain: the single hot-read row per
                          (player, season, level_group). Both raw fixtures/journey
                          minutes + a reconcile_flag ride along (never-cross-source-sum).
@@ -104,6 +106,10 @@ def upgrade():
             ),
         )
     create_index_safe("ix_psc_player_season", "player_season_cells", ["player_api_id", "season"])
+    # Single-column clock index so the cheap /status gauge's MAX(synced_at) is an
+    # index lookup instead of a full seq scan of the largest rollup table
+    # (season_rollup route _max_source_change). Matches PlayerSeasonCell.__table_args__.
+    create_index_safe("ix_psc_synced_at", "player_season_cells", ["synced_at"])
 
     # ---- player_season_totals (coarse grain) -----------------------------
     if not table_exists("player_season_totals"):
@@ -153,6 +159,8 @@ def downgrade():
         op.drop_index("ix_pst_player", table_name="player_season_totals")
     if index_exists("ix_pst_season_group"):
         op.drop_index("ix_pst_season_group", table_name="player_season_totals")
+    if index_exists("ix_psc_synced_at"):
+        op.drop_index("ix_psc_synced_at", table_name="player_season_cells")
     if index_exists("ix_psc_player_season"):
         op.drop_index("ix_psc_player_season", table_name="player_season_cells")
 

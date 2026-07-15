@@ -4,18 +4,26 @@ Both endpoints are pure database operations. Rebuilds are keyset-paged by
 ``player_api_id`` and delegate every derived-row write to the public
 ``season_rollup_service.refresh_player`` API.
 
-``GET /status`` defaults to a CHEAP rows-behind gauge: one ``MAX`` scan per
-timed source (``PlayerJourneyEntry.stats_synced_at``,
-``AcademyPlayerSeasonStats.updated_at``, ``PlayerShadowStats.updated_at``,
-``PlayerSeasonCell.synced_at``) compared against ``MAX(computed_at)`` — a handful
-of index-assisted aggregates, no per-grain set difference. The exact per-player
-stale count is a full multi-table aggregation, so it is reserved behind
-``?exact=1`` for occasional reconciliation and for the paged ``scope=stale``
-rebuild (which evaluates clocks only for its bounded candidate page). Fixture
-rows carry no clock, so the cheap gauge cannot see a fixture-missing-cell;
-``?exact=1`` and the ``scope=stale`` sweep are the reconciliation paths for that
-blind spot, and ``scope=all`` is the repair fallback for legacy/manual journey
-rows with a null ``stats_synced_at``.
+``GET /status`` defaults to a CHEAP rows-behind gauge whose only per-source cost is
+one index-served ``MAX`` per timed clock: ``PlayerJourneyEntry.stats_synced_at``
+(ix_pje_stats_synced_at), ``AcademyPlayerSeasonStats.updated_at``
+(ix_apss_updated_at), ``PlayerShadowStats.updated_at`` (ix_pss_updated_at) and
+``PlayerSeasonCell.synced_at`` (ix_psc_synced_at) — sea02/sea03 give every one of
+those columns a b-tree so each ``MAX`` is an ORDER BY … LIMIT 1 lookup, not a seq
+scan. Those four are compared against the totals' newest ``computed_at``, which
+rides along the single ``count(id), max(computed_at)`` pass over
+``player_season_totals`` (the smallest rollup table, already scanned for the
+``total_totals_rows`` count) — so the default is four index lookups plus one
+bounded single-table scan, no joins and no per-grain set difference. Everything
+genuinely expensive is behind ``?exact=1``: the exact per-player stale count (a
+full multi-table aggregation) and the ``by_source_cells`` per-source breakdown (a
+full group-by over the largest table, ``player_season_cells``). ``?exact=1`` also
+powers occasional reconciliation and the paged ``scope=stale`` rebuild (which
+evaluates clocks only for its bounded candidate page). Fixture rows carry no clock,
+so the cheap gauge cannot see a fixture-missing-cell; ``?exact=1`` and the
+``scope=stale`` sweep are the reconciliation paths for that blind spot, and
+``scope=all`` is the repair fallback for legacy/manual journey rows with a null
+``stats_synced_at``.
 
 Deleting a timed source row can leave its surviving cell/total pair looking
 fresh when their clocks are equal, so neither ``?exact=1`` nor ``scope=stale``
@@ -383,10 +391,13 @@ def _as_utc(value):
 def _max_source_change():
     """Newest mutation across the timed sources — the cheap freshness clock.
 
-    Each source contributes ONE ``MAX`` scan (no joins, no per-grain group-by),
-    so this stays sub-second on the prod box. Fixture rows carry no clock, so it
-    deliberately cannot see a fixture-missing-cell; ``?exact=1`` or a
-    ``scope=stale`` sweep reconciles that blind spot.
+    Each source contributes ONE ``MAX`` and each of the four clock columns carries
+    a single-column b-tree (``stats_synced_at``/``updated_at``/``synced_at`` via
+    sea01+sea03/sea02), so PostgreSQL serves every ``MAX`` as an ORDER BY … LIMIT 1
+    index lookup — no seq scan, no join, no per-grain group-by — and this stays
+    sub-second on the prod box. Fixture rows carry no clock, so it deliberately
+    cannot see a fixture-missing-cell; ``?exact=1`` or a ``scope=stale`` sweep
+    reconciles that blind spot.
     """
     clocks = [
         db.session.query(func.max(PlayerJourneyEntry.stats_synced_at)).scalar(),
@@ -538,10 +549,16 @@ def admin_rebuild_season_rollup():
 def admin_season_rollup_status():
     """Return the rows-behind gauge.
 
-    Default = the CHEAP gauge: ``behind`` is derived from the newest timed-source
-    clock vs ``MAX(computed_at)`` (a handful of index-assisted ``MAX`` scans, no
-    per-grain set difference). Pass ``?exact=1`` to also run the exact per-player
-    stale count (a full multi-table aggregation) for occasional reconciliation.
+    Default = the CHEAP gauge: ``behind`` compares the newest timed-source clock
+    (four index-served ``MAX`` lookups — sea02/sea03 index every clock column)
+    against the totals' own newest ``computed_at``, which rides along the single
+    ``count(id), max(computed_at)`` pass over the small ``player_season_totals``
+    table (already needed for ``total_totals_rows``) — so the default is four index
+    lookups plus one bounded single-table scan, no joins and no per-grain set
+    difference. Pass ``?exact=1`` for the reconciliation extras that DO scan the
+    largest table: the exact per-player stale count (``stale_players``, a full
+    multi-table aggregation) and the ``by_source_cells`` per-source cell breakdown
+    (a full ``player_season_cells`` group-by).
     """
     exact = (request.args.get("exact") or "").strip().lower() in {"1", "true", "yes", "on"}
     try:
@@ -553,19 +570,22 @@ def admin_season_rollup_status():
         behind = last_source_change_at is not None and (
             last_computed_at is None or _as_utc(last_source_change_at) > _as_utc(last_computed_at)
         )
-        source_counts = (
-            db.session.query(PlayerSeasonCell.source, func.count(PlayerSeasonCell.id))
-            .group_by(PlayerSeasonCell.source)
-            .all()
-        )
         body = {
             "total_totals_rows": int(total_totals_rows or 0),
             "behind": behind,
             "last_computed_at": last_computed_at.isoformat() if last_computed_at else None,
             "last_source_change_at": last_source_change_at.isoformat() if last_source_change_at else None,
-            "by_source_cells": {source: int(count) for source, count in source_counts},
         }
         if exact:
+            # Both scan the largest rollup table, so they stay off the pollable
+            # default path: the per-source cell breakdown (full group-by) and the
+            # exact per-player stale count (full multi-table aggregation).
+            source_counts = (
+                db.session.query(PlayerSeasonCell.source, func.count(PlayerSeasonCell.id))
+                .group_by(PlayerSeasonCell.source)
+                .all()
+            )
+            body["by_source_cells"] = {source: int(count) for source, count in source_counts}
             body["stale_players"] = _count_ids(_stale_player_ids())
         return jsonify(body)
     except Exception as exc:
