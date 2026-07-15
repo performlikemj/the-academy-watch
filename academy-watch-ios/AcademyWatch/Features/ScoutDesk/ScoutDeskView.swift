@@ -505,6 +505,7 @@ private struct FilterMenuLabel: View {
                 .foregroundStyle(AcademyColors.claret)
             Text(value)
                 .lineLimit(1)
+                .minimumScaleFactor(0.6)
             Spacer(minLength: 2)
             Image(systemName: "chevron.down")
                 .font(.caption2.weight(.bold))

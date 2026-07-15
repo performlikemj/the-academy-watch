@@ -5,8 +5,9 @@ struct CompareView: View {
     @StateObject private var viewModel: CompareViewModel
     @Environment(\.dismiss) private var dismiss
 
-    private static let labelColumnWidth: CGFloat = 112
-    private static let playerColumnWidth: CGFloat = 126
+    @ScaledMetric(relativeTo: .caption) private var labelColumnWidth: CGFloat = 112
+    @ScaledMetric(relativeTo: .caption) private var playerColumnWidth: CGFloat = 126
+    @ScaledMetric(relativeTo: .caption) private var playerHeaderHeight: CGFloat = 182
 
     init(
         playerIDs: [Int],
@@ -94,11 +95,11 @@ struct CompareView: View {
     private var playerHeaders: some View {
         HStack(alignment: .bottom, spacing: 0) {
             Color.clear
-                .frame(width: Self.labelColumnWidth, height: 182)
+                .frame(width: labelColumnWidth, height: playerHeaderHeight)
 
             ForEach(viewModel.players) { player in
                 ComparePlayerHeader(player: player)
-                    .frame(width: Self.playerColumnWidth, height: 182, alignment: .bottom)
+                    .frame(width: playerColumnWidth, height: playerHeaderHeight, alignment: .bottom)
             }
         }
         .background(Color(uiColor: .tertiarySystemGroupedBackground))
@@ -136,7 +137,7 @@ struct CompareView: View {
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 10)
-                .frame(width: Self.labelColumnWidth, alignment: .leading)
+                .frame(width: labelColumnWidth, alignment: .leading)
                 .frame(minHeight: 44)
 
             ForEach(values.indices, id: \.self) { index in
@@ -148,7 +149,7 @@ struct CompareView: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.72)
                     .multilineTextAlignment(.center)
-                    .frame(width: Self.playerColumnWidth, alignment: .center)
+                    .frame(width: playerColumnWidth, alignment: .center)
                     .frame(minHeight: 44)
                     .background(isHighlighted ? AcademyColors.claretSoft : Color.clear)
             }
@@ -165,7 +166,7 @@ struct CompareView: View {
     }
 
     private var tableWidth: CGFloat {
-        Self.labelColumnWidth + Self.playerColumnWidth * CGFloat(viewModel.players.count)
+        labelColumnWidth + playerColumnWidth * CGFloat(viewModel.players.count)
     }
 }
 
