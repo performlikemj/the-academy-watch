@@ -4,18 +4,54 @@ struct LoginCodeResponse: Decodable, Equatable, Sendable {
     let message: String
 }
 
+enum AccountRole: String, Decodable, Equatable, Sendable {
+    case scout
+    case player
+    case clubManager = "club_manager"
+
+    var displayName: String {
+        switch self {
+        case .scout:
+            return "Scout"
+        case .player:
+            return "Player"
+        case .clubManager:
+            return "Club manager"
+        }
+    }
+}
+
 struct AuthTokenResponse: Decodable, Equatable, Sendable {
     let message: String
     let role: String
+    let accountRole: AccountRole?
     let displayName: String?
     let displayNameConfirmed: Bool
     let token: String
     let expiresIn: Int
+
+    init(
+        message: String,
+        role: String,
+        accountRole: AccountRole? = nil,
+        displayName: String?,
+        displayNameConfirmed: Bool,
+        token: String,
+        expiresIn: Int
+    ) {
+        self.message = message
+        self.role = role
+        self.accountRole = accountRole
+        self.displayName = displayName
+        self.displayNameConfirmed = displayNameConfirmed
+        self.token = token
+        self.expiresIn = expiresIn
+    }
 }
 
 enum AuthState: Equatable, Sendable {
     case signedOut
-    case signedIn(email: String?)
+    case signedIn(email: String?, accountRole: AccountRole?)
 
     var isAuthenticated: Bool {
         if case .signedIn = self {
@@ -25,8 +61,13 @@ enum AuthState: Equatable, Sendable {
     }
 
     var email: String? {
-        guard case let .signedIn(email) = self else { return nil }
+        guard case let .signedIn(email, _) = self else { return nil }
         return email
+    }
+
+    var accountRole: AccountRole? {
+        guard case let .signedIn(_, accountRole) = self else { return nil }
+        return accountRole
     }
 }
 

@@ -4,6 +4,27 @@ import XCTest
 @testable import AcademyWatch
 
 final class AuthenticationAPIClientTests: XCTestCase {
+    func testAuthTokenResponseDecodesDerivedAccountRole() throws {
+        let payload = #"""
+        {
+          "message": "signed in",
+          "role": "user",
+          "account_role": "player",
+          "display_name": null,
+          "display_name_confirmed": false,
+          "token": "test-token",
+          "expires_in": 2592000
+        }
+        """#
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let response = try decoder.decode(AuthTokenResponse.self, from: Data(payload.utf8))
+
+        XCTAssertEqual(response.accountRole, .player)
+        XCTAssertEqual(response.accountRole?.displayName, "Player")
+    }
+
     func testProtectedRequestAttachesBearerAndInvalidatesSessionBeforeReturning401() async throws {
         let spy = AuthenticationSessionSpy.shared
         spy.reset()

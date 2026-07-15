@@ -15,12 +15,15 @@ struct ListsView: View {
     @State private var newListName = ""
 
     private let apiClient: any FollowListsAPIClientProtocol
+    private let playerDetailAPIClient: APIClient
 
     init(
         apiClient: any FollowListsAPIClientProtocol,
+        playerDetailAPIClient: APIClient = APIClient(),
         onSignInRequested: @escaping () -> Void
     ) {
         self.apiClient = apiClient
+        self.playerDetailAPIClient = playerDetailAPIClient
         self.onSignInRequested = onSignInRequested
     }
 
@@ -39,6 +42,7 @@ struct ListsView: View {
                 case let .player(playerID):
                     PlayerDetailView(
                         playerID: playerID,
+                        apiClient: playerDetailAPIClient,
                         onSignInRequested: onSignInRequested
                     )
                 }

@@ -60,6 +60,7 @@ struct RootTabView: View {
         TabView(selection: $selectedTab) {
             ScoutDeskView(
                 apiClient: apiClient,
+                playerDetailAPIClient: apiClient,
                 initialPhase: initialPhase,
                 initialPlayerID: initialPlayerID,
                 initialComparePlayerIDs: initialComparePlayerIDs,
@@ -70,13 +71,20 @@ struct RootTabView: View {
             }
             .tag(RootTab.scoutDesk)
 
-            WatchlistView(onSignInRequested: presentSignIn)
+            WatchlistView(
+                playerDetailAPIClient: apiClient,
+                onSignInRequested: presentSignIn
+            )
                 .tabItem {
                     Label("Watchlist", systemImage: "star.fill")
                 }
             .tag(RootTab.watchlist)
 
-            ListsView(apiClient: apiClient, onSignInRequested: presentSignIn)
+            ListsView(
+                apiClient: apiClient,
+                playerDetailAPIClient: apiClient,
+                onSignInRequested: presentSignIn
+            )
                 .tabItem {
                     Label("Lists", systemImage: "list.bullet.rectangle.fill")
                 }

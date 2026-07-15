@@ -8,9 +8,11 @@ struct ScoutDeskView: View {
     @State private var selectedPlayerIDs: [Int]
     @State private var isComparePresented: Bool
     private let onSignInRequested: () -> Void
+    private let playerDetailAPIClient: APIClient
 
     init(
         apiClient: any ScoutAPIClientProtocol = APIClient(),
+        playerDetailAPIClient: APIClient = APIClient(),
         initialPhase: ScoutPhase = .all,
         initialPlayerID: Int? = nil,
         initialComparePlayerIDs: [Int] = [],
@@ -29,6 +31,7 @@ struct ScoutDeskView: View {
         _navigationPath = State(initialValue: initialPlayerID.map { [$0] } ?? [])
         _selectedPlayerIDs = State(initialValue: Array(comparePlayerIDs))
         _isComparePresented = State(initialValue: comparePlayerIDs.count >= 2)
+        self.playerDetailAPIClient = playerDetailAPIClient
         self.onSignInRequested = onSignInRequested
     }
 
@@ -40,6 +43,7 @@ struct ScoutDeskView: View {
         _navigationPath = State(initialValue: [])
         _selectedPlayerIDs = State(initialValue: [])
         _isComparePresented = State(initialValue: false)
+        playerDetailAPIClient = APIClient()
         self.onSignInRequested = onSignInRequested
     }
 
@@ -75,6 +79,7 @@ struct ScoutDeskView: View {
             .navigationDestination(for: Int.self) { playerID in
                 PlayerDetailView(
                     playerID: playerID,
+                    apiClient: playerDetailAPIClient,
                     onSignInRequested: onSignInRequested
                 )
             }

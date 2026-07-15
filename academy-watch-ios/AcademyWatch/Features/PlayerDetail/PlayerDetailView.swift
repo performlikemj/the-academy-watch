@@ -4,24 +4,45 @@ import SwiftUI
 struct PlayerDetailView: View {
     @StateObject private var viewModel: PlayerDetailViewModel
     @StateObject private var showcaseViewModel: ShowcaseViewModel
+    @StateObject private var claimViewModel: PlayerClaimViewModel
+    @EnvironmentObject private var authManager: AuthManager
     private let onSignInRequested: () -> Void
 
     init(
         playerID: Int,
+        apiClient: APIClient = APIClient(),
         onSignInRequested: @escaping () -> Void = {}
     ) {
-        _viewModel = StateObject(wrappedValue: PlayerDetailViewModel(playerID: playerID))
-        _showcaseViewModel = StateObject(wrappedValue: ShowcaseViewModel(playerID: playerID))
+        _viewModel = StateObject(
+            wrappedValue: PlayerDetailViewModel(playerID: playerID, apiClient: apiClient)
+        )
+        _showcaseViewModel = StateObject(
+            wrappedValue: ShowcaseViewModel(playerID: playerID, apiClient: apiClient)
+        )
+        _claimViewModel = StateObject(
+            wrappedValue: PlayerClaimViewModel(playerID: playerID, apiClient: apiClient)
+        )
         self.onSignInRequested = onSignInRequested
     }
 
     init(
         viewModel: PlayerDetailViewModel,
+        showcaseAPIClient: any ShowcaseAPIClientProtocol = APIClient(),
+        claimAPIClient: any PlayerClaimAPIClientProtocol = APIClient(),
         onSignInRequested: @escaping () -> Void = {}
     ) {
         _viewModel = StateObject(wrappedValue: viewModel)
         _showcaseViewModel = StateObject(
-            wrappedValue: ShowcaseViewModel(playerID: viewModel.playerID)
+            wrappedValue: ShowcaseViewModel(
+                playerID: viewModel.playerID,
+                apiClient: showcaseAPIClient
+            )
+        )
+        _claimViewModel = StateObject(
+            wrappedValue: PlayerClaimViewModel(
+                playerID: viewModel.playerID,
+                apiClient: claimAPIClient
+            )
         )
         self.onSignInRequested = onSignInRequested
     }
@@ -67,12 +88,21 @@ struct PlayerDetailView: View {
             async let showcaseLoad: Void = showcaseViewModel.loadIfNeeded()
             _ = await (detailLoad, showcaseLoad)
         }
+        .task(id: authManager.state) {
+            await claimViewModel.load(isAuthenticated: authManager.isAuthenticated)
+        }
     }
 
     private func detailContent(profile: PlayerProfile) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
                 PlayerProfileHeader(profile: profile)
+                PlayerClaimSectionView(
+                    viewModel: claimViewModel,
+                    isAuthenticated: authManager.isAuthenticated,
+                    accountRole: authManager.accountRole,
+                    onSignInRequested: onSignInRequested
+                )
                 AddPlayerToListButton(
                     playerID: viewModel.playerID,
                     playerName: profile.name,
@@ -91,7 +121,10 @@ struct PlayerDetailView: View {
         .refreshable {
             async let detailReload: Void = viewModel.reload()
             async let showcaseReload: Void = showcaseViewModel.reload()
-            _ = await (detailReload, showcaseReload)
+            async let claimReload: Void = claimViewModel.load(
+                isAuthenticated: authManager.isAuthenticated
+            )
+            _ = await (detailReload, showcaseReload, claimReload)
         }
     }
 

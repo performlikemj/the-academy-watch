@@ -7,6 +7,15 @@ struct WatchlistView: View {
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var viewModel: WatchlistViewModel
     @EnvironmentObject private var listsViewModel: FollowListsViewModel
+    private let playerDetailAPIClient: APIClient
+
+    init(
+        playerDetailAPIClient: APIClient = APIClient(),
+        onSignInRequested: @escaping () -> Void
+    ) {
+        self.playerDetailAPIClient = playerDetailAPIClient
+        self.onSignInRequested = onSignInRequested
+    }
 
     var body: some View {
         NavigationStack {
@@ -19,6 +28,7 @@ struct WatchlistView: View {
             .navigationDestination(for: Int.self) { playerID in
                 PlayerDetailView(
                     playerID: playerID,
+                    apiClient: playerDetailAPIClient,
                     onSignInRequested: onSignInRequested
                 )
             }

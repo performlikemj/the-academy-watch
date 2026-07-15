@@ -17,6 +17,11 @@ protocol ShowcaseAPIClientProtocol: Sendable {
     func fetchPlayerShowcase(playerID: Int) async throws -> PlayerShowcaseResponse
 }
 
+protocol PlayerClaimAPIClientProtocol: Sendable {
+    func fetchMyProfileClaims() async throws -> PlayerClaimsResponse
+    func submitPlayerClaim(playerID: Int) async throws -> PlayerClaimResponse
+}
+
 protocol WatchlistAPIClientProtocol: Sendable {
     func fetchWatchlist() async throws -> WatchlistResponse
     func fetchWatchlistIDs() async throws -> WatchlistIDsResponse
@@ -38,6 +43,7 @@ protocol FollowListsAPIClientProtocol: Sendable {
 struct APIClient: ScoutAPIClientProtocol,
     PlayerDetailAPIClientProtocol,
     ShowcaseAPIClientProtocol,
+    PlayerClaimAPIClientProtocol,
     AuthAPIClientProtocol,
     WatchlistAPIClientProtocol,
     FollowListsAPIClientProtocol,
@@ -148,6 +154,18 @@ struct APIClient: ScoutAPIClientProtocol,
 
     func fetchPlayerShowcase(playerID: Int) async throws -> PlayerShowcaseResponse {
         try await get(path: "players/\(playerID)/showcase", queryItems: [])
+    }
+
+    func fetchMyProfileClaims() async throws -> PlayerClaimsResponse {
+        try await get(path: "me/claims", queryItems: [])
+    }
+
+    func submitPlayerClaim(playerID: Int) async throws -> PlayerClaimResponse {
+        try await send(
+            path: "players/\(playerID)/claim",
+            method: "POST",
+            body: PlayerClaimRequest(relationshipType: "player")
+        )
     }
 
     func requestLoginCode(email: String) async throws -> LoginCodeResponse {
@@ -447,6 +465,10 @@ private struct LoginCodeRequest: Encodable {
 private struct VerifyLoginCodeRequest: Encodable {
     let email: String
     let code: String
+}
+
+private struct PlayerClaimRequest: Encodable {
+    let relationshipType: String
 }
 
 private struct WatchlistPlayerRequest: Encodable {

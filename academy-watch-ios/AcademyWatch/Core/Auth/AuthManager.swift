@@ -14,6 +14,7 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
 
     var isAuthenticated: Bool { state.isAuthenticated }
     var email: String? { state.email }
+    var accountRole: AccountRole? { state.accountRole }
 
     convenience init() {
         self.init(authClient: APIClient(), tokenStore: KeychainTokenStore())
@@ -30,7 +31,7 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
 
         let restoredToken = try? tokenStore.loadToken()
         token = restoredToken
-        state = restoredToken == nil ? .signedOut : .signedIn(email: nil)
+        state = restoredToken == nil ? .signedOut : .signedIn(email: nil, accountRole: nil)
         signOutErrorMessage = nil
     }
 
@@ -67,7 +68,7 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
         try tokenStore.saveToken(response.token)
         token = response.token
         signOutErrorMessage = nil
-        state = .signedIn(email: normalizedEmail)
+        state = .signedIn(email: normalizedEmail, accountRole: response.accountRole)
         return response
     }
 

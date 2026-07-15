@@ -21,7 +21,7 @@ targets:
     info:
       path: AcademyWatch/Info.plist
       properties:
-        CFBundleDisplayName: The Academy Watch
+        CFBundleDisplayName: Academy Watch
         LSRequiresIPhoneOS: true
         UILaunchScreen:
           UIColorName: LaunchBackground
