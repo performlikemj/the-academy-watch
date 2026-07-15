@@ -6662,29 +6662,32 @@ def admin_delete_team_data(team_id: int):
         team.is_tracked = False
         team.newsletters_active = False
 
-        db.session.commit()
-
         # Season-rollup sole-writer contract: the FPS bulk-delete above fed
         # player_season_cells/totals — rebuild each affected player's rollup from
-        # the REMAINING sources so no phantom fixtures cell/total survives (the
-        # rows-behind gauge can't detect it once the source rows are gone).
-        # season=None covers every season the deleted rows spanned; one bounded
-        # refresh per player (a team roster, not a platform-wide sweep).
+        # the REMAINING sources BEFORE the commit, so the delete and the
+        # cells/totals re-resolution land in ONE transaction. A crash between the
+        # two (the 0.5 CPU box's documented OOM/deploy/restart failure mode) can no
+        # longer leave a phantom fixtures total whose source FPS rows are already
+        # gone — a phantom the rows-behind gauge cannot detect once those source
+        # rows are deleted. Mirrors the two ghost-delete paths (savepoint-wrapped
+        # refresh before the shared commit); a team DELETE is cheap to redo, so
+        # atomicity wins here over the deferred post-commit refresh that exists
+        # only to shield API-expensive fixture writes. season=None covers every
+        # season the deleted rows spanned; one bounded refresh per rostered player
+        # (a team roster, not a platform-wide sweep), each in a SAVEPOINT so one
+        # bad player logs-and-skips without losing the rest of the batch.
         affected_pids = {pid for pid in player_api_ids if pid is not None}
         if affected_pids:
-            try:
-                from src.services.season_rollup_service import refresh_player as _refresh_rollup
+            from src.services.season_rollup_service import refresh_player as _refresh_rollup
 
-                for _pid in affected_pids:
-                    try:
-                        with db.session.begin_nested():
-                            _refresh_rollup(_pid, season=None)
-                    except Exception:
-                        logger.exception("season-rollup refresh after team-delete failed for player=%s", _pid)
-                db.session.commit()
-            except Exception:
-                logger.exception("season-rollup post-delete rebuild failed for team %s", team_id)
-                db.session.rollback()
+            for _pid in affected_pids:
+                try:
+                    with db.session.begin_nested():
+                        _refresh_rollup(_pid, season=None)
+                except Exception:
+                    logger.exception("season-rollup refresh after team-delete failed for player=%s", _pid)
+
+        db.session.commit()
 
         summary["message"] = f"Successfully deleted all tracking data for {team.name}"
         return jsonify(summary)

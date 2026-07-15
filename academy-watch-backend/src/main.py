@@ -37,6 +37,7 @@ from src.routes.newsletter_deadline import newsletter_deadline_bp
 from src.routes.ops import ops_bp
 from src.routes.players import players_bp
 from src.routes.scout import scout_bp
+from src.routes.season_rollup import season_rollup_bp
 from src.routes.showcase import showcase_bp
 from src.routes.teams import teams_bp
 from src.routes.video import video_bp
@@ -117,6 +118,7 @@ app.register_blueprint(feeder_bp, url_prefix="/api")
 app.register_blueprint(curator_bp, url_prefix="/api")
 app.register_blueprint(video_bp, url_prefix="/api")
 app.register_blueprint(ops_bp, url_prefix="/api")
+app.register_blueprint(season_rollup_bp, url_prefix="/api")
 
 csp = {
     "default-src": ["'self'"],
