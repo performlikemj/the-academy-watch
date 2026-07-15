@@ -109,10 +109,13 @@ function LocalPlayerProfile({ numericPlayerId, onRetry }) {
     )
   }
 
-  const location = [player.city, player.country].filter(Boolean).join(', ')
+  const location = player.city
+    ? [player.city, player.country].filter(Boolean).join(', ')
+    : null
   const details = [
     player.birth_year != null ? `Born ${player.birth_year}` : null,
     player.position || null,
+    !player.city ? player.country || null : null,
   ].filter(Boolean)
 
   return (

@@ -110,6 +110,7 @@ def _seed_local_club(
     status="pending",
     normalized_name=None,
     merged_into_local_club_id=None,
+    created_by_user_id=None,
 ):
     club = LocalClub(
         name=name,
@@ -120,6 +121,7 @@ def _seed_local_club(
         status=status,
         provenance="user",
         merged_into_local_club_id=merged_into_local_club_id,
+        created_by_user_id=created_by_user_id,
     )
     db.session.add(club)
     db.session.flush()
@@ -205,16 +207,17 @@ class TestLocalClubCreation:
         with app.app_context():
             assert LocalClub.query.count() == 0
 
-    @pytest.mark.parametrize("existing_status", ["pending", "verified", "merged"])
-    def test_duplicate_non_rejected_echoes_existing(self, app, client, existing_status):
+    @pytest.mark.parametrize("existing_status", ["pending", "merged"])
+    def test_duplicate_other_users_nonpublic_club_is_generic(self, app, client, existing_status):
         with app.app_context():
+            other_user = _make_user("other@example.com")
             existing = _seed_local_club(
                 "North Star FC",
                 country="England",
                 status=existing_status,
+                created_by_user_id=other_user.id,
             )
             db.session.commit()
-            existing_id = existing.id
 
         response = client.post(
             "/api/local-clubs",
@@ -223,13 +226,51 @@ class TestLocalClubCreation:
         )
 
         assert response.status_code == 409, response.get_json()
-        body = response.get_json()
-        assert body["error"]
-        assert body["existing"]["id"] == existing_id
-        assert body["existing"]["name"] == "North Star FC"
-        assert set(body["existing"]) == {"id", "name", "country", "city", "level", "status"}
+        assert response.get_json() == {"error": "A local club with this name and country already exists"}
         with app.app_context():
             assert LocalClub.query.count() == 1
+
+    @pytest.mark.parametrize(
+        ("existing_status", "same_creator"),
+        [("verified", False), ("pending", True), ("merged", True)],
+    )
+    def test_duplicate_public_or_caller_created_club_returns_minimal_existing(
+        self,
+        app,
+        client,
+        existing_status,
+        same_creator,
+    ):
+        with app.app_context():
+            caller = _make_user("creator@example.com")
+            other_user = _make_user("other@example.com")
+            existing = _seed_local_club(
+                "North Star FC",
+                country="England",
+                city="Private City",
+                level="academy",
+                status=existing_status,
+                created_by_user_id=caller.id if same_creator else other_user.id,
+            )
+            db.session.commit()
+            expected = {
+                "id": existing.id,
+                "name": "North Star FC",
+                "country": "England",
+                "status": existing_status,
+            }
+
+        response = client.post(
+            "/api/local-clubs",
+            json={"name": " NORTH\n  star fc ", "country": "eNgLaNd"},
+            headers=_user_headers("creator@example.com"),
+        )
+
+        assert response.status_code == 409, response.get_json()
+        assert response.get_json() == {
+            "error": "A local club with this name and country already exists",
+            "existing": expected,
+        }
 
     def test_rejected_duplicate_can_be_recreated(self, app, client):
         with app.app_context():
@@ -255,15 +296,22 @@ class TestClubSearch:
 
     def test_returns_api_and_visible_local_groups(self, app, client):
         with app.app_context():
+            other_user = _make_user("other@example.com")
             team = _seed_team(team_id=4401, name="Northbridge United")
             _seed_team(team_id=4401, name="Northbridge United", season=2024)
-            pending = _seed_local_club("Northbridge Juniors", status="pending")
+            other_pending = _seed_local_club(
+                "Northbridge Secret Juniors",
+                city="Private Town",
+                status="pending",
+                created_by_user_id=other_user.id,
+            )
             verified = _seed_local_club("Northbridge Academy", status="verified")
             _seed_local_club("Northbridge Old Name", status="merged")
             _seed_local_club("Northbridge Rejected", status="rejected")
             db.session.commit()
             team_id = team.team_id
-            visible_ids = {pending.id, verified.id}
+            visible_ids = {verified.id}
+            hidden_id = other_pending.id
 
         response = client.get(
             "/api/clubs/search?q=NoRtHbRiDgE",
@@ -274,14 +322,63 @@ class TestClubSearch:
         body = response.get_json()
         assert body["api_teams"] == [{"team_api_id": team_id, "name": "Northbridge United", "country": "England"}]
         assert {club["id"] for club in body["local_clubs"]} == visible_ids
+        assert hidden_id not in {club["id"] for club in body["local_clubs"]}
+        assert "Northbridge Secret Juniors" not in response.get_data(as_text=True)
+        assert "Private Town" not in response.get_data(as_text=True)
         assert all(set(club) == {"id", "name", "country", "city", "level", "status"} for club in body["local_clubs"])
-        assert {club["status"] for club in body["local_clubs"]} == {"pending", "verified"}
+        assert {club["status"] for club in body["local_clubs"]} == {"verified"}
+
+    def test_returns_callers_own_pending_local_club(self, app, client):
+        with app.app_context():
+            searcher = _make_user("searcher@example.com")
+            own_pending = _seed_local_club(
+                "Northbridge Juniors",
+                status="pending",
+                created_by_user_id=searcher.id,
+            )
+            db.session.commit()
+            own_pending_id = own_pending.id
+
+        response = client.get(
+            "/api/clubs/search?q=NoRtHbRiDgE",
+            headers=_user_headers("searcher@example.com"),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert [club["id"] for club in response.get_json()["local_clubs"]] == [own_pending_id]
+        assert response.get_json()["local_clubs"][0]["status"] == "pending"
+
+    def test_treats_percent_and_underscore_as_literal_search_text(self, app, client):
+        with app.app_context():
+            literal_team = _seed_team(team_id=4401, name="Literal %_ United")
+            _seed_team(team_id=4402, name="Ordinary United")
+            literal_club = _seed_local_club("Literal %_ Juniors", status="verified")
+            _seed_local_club("Ordinary Juniors", status="verified")
+            db.session.commit()
+            literal_team_id = literal_team.team_id
+            literal_club_id = literal_club.id
+
+        response = client.get(
+            "/api/clubs/search",
+            query_string={"q": "%_"},
+            headers=_user_headers("searcher@example.com"),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert response.get_json()["api_teams"] == [
+            {
+                "team_api_id": literal_team_id,
+                "name": "Literal %_ United",
+                "country": "England",
+            }
+        ]
+        assert [club["id"] for club in response.get_json()["local_clubs"]] == [literal_club_id]
 
     def test_caps_each_result_group_at_ten(self, app, client):
         with app.app_context():
             for index in range(12):
                 _seed_team(team_id=7000 + index, name=f"Search Team {index}")
-                _seed_local_club(f"Search Local {index}", status="pending")
+                _seed_local_club(f"Search Local {index}", status="verified")
             db.session.commit()
 
         response = client.get(
@@ -574,6 +671,67 @@ class TestAffiliationVisibility:
         }
         assert all(item["created_at"] for item in owner_view)
         assert all("review_note" in item for item in owner_view)
+
+    def test_public_hides_unverified_local_names_owner_and_admin_keep_them(self, app, client):
+        with app.app_context():
+            owner, _ = _approved_claim()
+            pending = _seed_local_club("Pending Private Club", status="pending")
+            rejected = _seed_local_club("Rejected Private Club", status="rejected")
+            pending_merge_target = _seed_local_club("Pending Merge Target", status="pending")
+            merged_source = _seed_local_club(
+                "Old Merged Club",
+                status="merged",
+                merged_into_local_club_id=pending_merge_target.id,
+            )
+            affiliations = [
+                _seed_affiliation(
+                    local_club_id=pending.id,
+                    status="self_reported",
+                    created_by_user_id=owner.id,
+                ),
+                _seed_affiliation(
+                    local_club_id=rejected.id,
+                    status="self_reported",
+                    created_by_user_id=owner.id,
+                ),
+                _seed_affiliation(
+                    local_club_id=merged_source.id,
+                    status="self_reported",
+                    created_by_user_id=owner.id,
+                ),
+            ]
+            db.session.commit()
+            expected_private_names = {
+                affiliations[0].id: "Pending Private Club",
+                affiliations[1].id: "Rejected Private Club",
+                affiliations[2].id: "Pending Merge Target",
+            }
+
+        public_response = client.get(f"/api/players/{PLAYER_ID}/showcase")
+
+        assert public_response.status_code == 200, public_response.get_json()
+        public_affiliations = public_response.get_json()["affiliations"]
+        assert {item["id"] for item in public_affiliations} == set(expected_private_names)
+        assert all(item["club_name"] is None for item in public_affiliations)
+        assert all(name not in public_response.get_data(as_text=True) for name in expected_private_names.values())
+
+        owner_response = client.get(
+            f"/api/players/{PLAYER_ID}/showcase",
+            headers=_user_headers("owner@example.com"),
+        )
+        assert owner_response.status_code == 200, owner_response.get_json()
+        assert {
+            item["id"]: item["club_name"] for item in owner_response.get_json()["affiliations"]
+        } == expected_private_names
+
+        admin_response = client.get(
+            "/api/admin/showcase/affiliations?status=self_reported",
+            headers=_admin_headers(),
+        )
+        assert admin_response.status_code == 200, admin_response.get_json()
+        assert {
+            item["id"]: item["club_name"] for item in admin_response.get_json()["affiliations"]
+        } == expected_private_names
 
     def test_merged_local_club_name_follows_one_hop(self, app, client):
         with app.app_context():

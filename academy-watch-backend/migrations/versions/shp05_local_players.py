@@ -45,6 +45,17 @@ _SHOWCASE_SUBJECTS = (
 )
 
 
+def _guard_local_player_rows_before_downgrade() -> None:
+    if not table_exists("local_players"):
+        return
+    row_exists = op.get_bind().execute(sa.text("SELECT 1 FROM local_players LIMIT 1")).scalar() is not None
+    if row_exists:
+        raise RuntimeError(
+            "Cannot downgrade shp05 while local_players contains rows; reconcile the local-player records "
+            "and purge their associated showcase blobs before retrying."
+        )
+
+
 def _widen_subject_table(table_name: str, api_column: str, index_name: str) -> None:
     if not table_exists(table_name):
         return
@@ -155,6 +166,8 @@ def upgrade():
 
 
 def downgrade():
+    _guard_local_player_rows_before_downgrade()
+
     if index_exists("uq_profile_claim_local_player_user"):
         op.drop_index(
             "uq_profile_claim_local_player_user",

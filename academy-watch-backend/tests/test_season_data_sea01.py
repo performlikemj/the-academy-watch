@@ -1,21 +1,24 @@
 """D2 season-data (sea01) pinning tests — proposal §2 / §3 / §7 D2.
 
-Locks the four load-bearing guarantees of the PR2 (`sea01`) work:
+Locks six load-bearing migration and season-data guarantees:
 
-1. **Migration head stays single** and is `sea01` (chained off `aw23`) — a second
-   head would make `flask db upgrade` ambiguous on deploy.
-2. **`sea01` is idempotent** — every DDL is guarded, so a re-applied or
+1. **Migration head stays single** and is `shp05`, with the showcase chain
+   descending linearly from `sea01` (which remains chained off `aw23`) — a
+   second head would make `flask db upgrade` ambiguous on deploy.
+2. **Showcase downgrades protect blobs** — non-empty blob-owning tables stop a
+   downgrade, while an already-absent table remains a no-op.
+3. **`sea01` is idempotent** — every DDL is guarded, so a re-applied or
    partially-applied upgrade is a pure no-op (migrations do NOT auto-run on
    deploy; prod schema has drifted out-of-band, invariants §8).
-3. **Rich extraction** — `_create_entry_from_stat` banks the full API-Football
+4. **Rich extraction** — `_create_entry_from_stat` banks the full API-Football
    per-season statistics block into the sea01 columns with
    ``stats_source='journey-api'`` while the basic 4 fields stay byte-identical to
    the pre-sea01 behavior; a sparse/null payload yields NULL rich columns and
    never crashes (missing ≠ observed-zero).
-4. **Duplicate-merge survival** — after a club-ID correction produces a duplicate,
+5. **Duplicate-merge survival** — after a club-ID correction produces a duplicate,
    the merged survivor keeps its rich fields (journey-api / newer-synced wins the
    tie), and the primary "more appearances" rule is untouched.
-5. **Backfill endpoint** — `POST /api/admin/journeys/backfill-entry-player-ids`
+6. **Backfill endpoint** — `POST /api/admin/journeys/backfill-entry-player-ids`
    fills only NULL `player_api_id` rows, converges to zero in bounded batches,
    is idempotent on re-run, never clobbers a set value, clamps its batch bound,
    and 401s without admin auth.
@@ -49,10 +52,10 @@ def _script_directory():
 
 
 class TestMigrationHead:
-    def test_single_head_is_sea01(self):
-        """The whole chain resolves to exactly one head, and it is sea01."""
+    def test_single_head_is_shp05(self):
+        """The whole chain resolves to exactly one head, and it is shp05."""
         heads = _script_directory().get_heads()
-        assert heads == ["sea01"], f"expected the single head to be sea01, got {heads}"
+        assert heads == ["shp05"], f"expected the single head to be shp05, got {heads}"
 
     def test_sea01_chains_off_aw23(self):
         """sea01 branches from the real prod tip (aw23), keeping the line linear."""
@@ -61,9 +64,22 @@ class TestMigrationHead:
         assert sea01.down_revision == "aw23"
         assert script.get_revision("aw23") is not None
 
+    def test_showcase_chain_descends_from_sea01(self):
+        """Every showcase migration extends sea01 in one linear chain."""
+        script = _script_directory()
+        expected_parents = {
+            "shp01": "sea01",
+            "shp02": "shp01",
+            "shp03": "shp02",
+            "shp04": "shp03",
+            "shp05": "shp04",
+        }
+        for revision, expected_parent in expected_parents.items():
+            assert script.get_revision(revision).down_revision == expected_parent
+
 
 # ---------------------------------------------------------------------------
-# (2) sea01 idempotency (guarded DDL runs twice cleanly under SQLite)
+# Shared SQLite migration-test helpers
 # ---------------------------------------------------------------------------
 
 
@@ -86,12 +102,81 @@ def _alembic_ops(engine):
 
 
 def _sqlite_column_exists(table, column):
-    return column in {c["name"] for c in sa.inspect(alembic_op.get_bind()).get_columns(table)}
+    inspector = sa.inspect(alembic_op.get_bind())
+    if table not in inspector.get_table_names():
+        return False
+    return column in {c["name"] for c in inspector.get_columns(table)}
+
+
+def _sqlite_table_exists(table):
+    return table in sa.inspect(alembic_op.get_bind()).get_table_names()
 
 
 def _sqlite_index_exists(name):
     inspector = sa.inspect(alembic_op.get_bind())
     return any(name in {ix["name"] for ix in inspector.get_indexes(t)} for t in inspector.get_table_names())
+
+
+def _migration_with_sqlite_guards(monkeypatch, module_name):
+    migration = importlib.import_module(module_name)
+    monkeypatch.setattr(migration, "column_exists", _sqlite_column_exists)
+    monkeypatch.setattr(migration, "index_exists", _sqlite_index_exists)
+    monkeypatch.setattr(migration, "table_exists", _sqlite_table_exists)
+    return migration
+
+
+# ---------------------------------------------------------------------------
+# (2) Showcase downgrade blob safety
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("module_name", "table_name"),
+    [
+        ("migrations.versions.shp01_showcase_media", "player_showcase_media"),
+        ("migrations.versions.shp05_local_players", "local_players"),
+    ],
+)
+def test_showcase_downgrade_rejects_nonempty_blob_owning_table(monkeypatch, module_name, table_name):
+    engine = sa.create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(sa.text(f"CREATE TABLE {table_name} (id INTEGER PRIMARY KEY)"))
+        conn.execute(sa.text(f"INSERT INTO {table_name} (id) VALUES (1)"))
+    migration = _migration_with_sqlite_guards(monkeypatch, module_name)
+
+    try:
+        with pytest.raises(RuntimeError, match=r"(?i)reconcile.*purge.*blobs"):
+            with _alembic_ops(engine):
+                migration.downgrade()
+
+        assert table_name in sa.inspect(engine).get_table_names()
+        with engine.connect() as conn:
+            assert conn.execute(sa.text(f"SELECT COUNT(*) FROM {table_name}")).scalar_one() == 1
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "migrations.versions.shp01_showcase_media",
+        "migrations.versions.shp05_local_players",
+    ],
+)
+def test_showcase_downgrade_guard_noops_when_table_is_absent(monkeypatch, module_name):
+    engine = sa.create_engine("sqlite:///:memory:")
+    migration = _migration_with_sqlite_guards(monkeypatch, module_name)
+
+    try:
+        with _alembic_ops(engine):
+            migration.downgrade()
+    finally:
+        engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# (3) sea01 idempotency (guarded DDL runs twice cleanly under SQLite)
+# ---------------------------------------------------------------------------
 
 
 # The FULL 28-column contract sea01 adds to player_journey_entries (27 rich
@@ -290,7 +375,7 @@ class TestSea01Idempotency:
 
 
 # ---------------------------------------------------------------------------
-# (3) Rich extraction from the API-Football statistics block
+# (4) Rich extraction from the API-Football statistics block
 # ---------------------------------------------------------------------------
 
 
@@ -452,7 +537,7 @@ class TestStatCoercionHelpers:
 
 
 # ---------------------------------------------------------------------------
-# (4) Duplicate-merge keeps rich fields
+# (5) Duplicate-merge keeps rich fields
 # ---------------------------------------------------------------------------
 
 
@@ -514,7 +599,7 @@ class TestMergeSurvivorKeepsRichData:
 
 
 # ---------------------------------------------------------------------------
-# (5) Backfill endpoint
+# (6) Backfill endpoint
 # ---------------------------------------------------------------------------
 
 ADMIN_KEY = "test-admin-key"

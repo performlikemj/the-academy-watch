@@ -158,11 +158,15 @@ def _fake_get(monkeypatch, responses):
 
 
 def _forbid_fetch(monkeypatch):
+    attempts = []
+
     class ForbiddenSession:
         def __init__(self, *args, **kwargs):
+            attempts.append((args, kwargs))
             raise AssertionError(f"unexpected network session: {args!r} {kwargs!r}")
 
     monkeypatch.setattr(social_proof.requests, "Session", ForbiddenSession)
+    return attempts
 
 
 class TestClaimCodeLifecycle:
@@ -241,6 +245,35 @@ class TestProofUrlBoundary:
         error = response.get_json()["error"]
         assert "instagram.com" in error
         assert "youtube.com" in error
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://youtube.com/results?search_query=aw-abcdefgh",
+            ("https://youtube.com/results?search_query=%41%57%2D%41%42%43%44%45%46%47%48"),
+        ],
+    )
+    def test_reflected_code_url_is_400_before_fetch(self, app, client, monkeypatch, url):
+        with app.app_context():
+            _, claim = _seed_claim(code="AW-ABCDEFGH")
+            claim_id = claim.id
+        fetch_attempts = _forbid_fetch(monkeypatch)
+
+        response = client.post(
+            f"/api/me/claims/{claim_id}/verify",
+            json={"proof_url": url},
+            headers=_user_headers("owner@example.com"),
+        )
+        standard_error = client.post(
+            f"/api/me/claims/{claim_id}/verify",
+            json={"proof_url": "https://example.com/academy-player"},
+            headers=_user_headers("owner@example.com"),
+        )
+
+        assert response.status_code == 400, response.get_json()
+        assert standard_error.status_code == 400, standard_error.get_json()
+        assert response.get_json() == standard_error.get_json()
+        assert fetch_attempts == []
 
     def test_cross_host_redirect_is_refused_even_when_both_hosts_are_allowed(self, monkeypatch):
         calls = _fake_get(
@@ -393,6 +426,30 @@ class TestAdminRecheck:
         )
 
         assert response.status_code == 400, response.get_json()
+
+    def test_recheck_rejects_stored_reflected_code_url_before_fetch(self, app, client, monkeypatch):
+        proof_url = "https://youtube.com/results?search_query=aw%2Dabcdefgh"
+        with app.app_context():
+            _, claim = _seed_claim(
+                code="AW-ABCDEFGH",
+                proof_url=proof_url,
+                verification_status="code_not_found",
+            )
+            claim_id = claim.id
+        fetch_attempts = _forbid_fetch(monkeypatch)
+
+        response = client.post(
+            f"/api/admin/showcase/claims/{claim_id}/recheck",
+            headers=_admin_headers(),
+        )
+
+        assert response.status_code == 400, response.get_json()
+        assert response.get_json()["error"].startswith("proof_url must be an HTTPS public profile URL")
+        assert fetch_attempts == []
+        with app.app_context():
+            stored = db.session.get(PlayerProfileClaim, claim_id)
+            assert stored.verification_status == "code_not_found"
+            assert stored.verification_checked_at is None
 
     def test_admin_list_includes_verification_fields(self, app, client):
         with app.app_context():

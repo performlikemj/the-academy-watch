@@ -123,10 +123,11 @@ function AuthenticatedLocalPlayerCreate({ token }) {
       setCopyState('idle')
     } catch (error) {
       if (activeTokenRef.current !== requestToken) return
-      if (error.status === 409 && error.body?.existing) {
-        setDuplicate(error.body.existing)
+      if (error?.status === 409) {
+        const existing = error.body?.existing
+        setDuplicate(existing && typeof existing === 'object' ? existing : {})
       } else {
-        setRequestError(error.body?.error || error.message || 'Failed to create this profile')
+        setRequestError(error?.body?.error || error?.message || 'Failed to create this profile')
       }
     } finally {
       if (activeTokenRef.current === requestToken) setSubmitting(false)
@@ -189,6 +190,14 @@ function AuthenticatedLocalPlayerCreate({ token }) {
     )
   }
 
+  const duplicateId = duplicate?.id
+  const duplicateName = duplicate?.display_name
+  const duplicateStatus = duplicate?.status
+  const duplicateDetails = [
+    duplicateName || null,
+    duplicateStatus ? `Status: ${duplicateStatus}` : null,
+  ].filter(Boolean).join(' · ')
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-50/60 via-background to-secondary/50">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
@@ -204,11 +213,15 @@ function AuthenticatedLocalPlayerCreate({ token }) {
           <Alert className="mb-5 border-amber-300 bg-amber-50">
             <UserPlus className="h-4 w-4 text-amber-800" />
             <AlertDescription className="text-amber-950">
-              <span className="font-semibold">This player may already exist.</span>{' '}
-              <Link to={`/local-players/${duplicate.id}`} className="font-semibold text-primary hover:underline">
-                View {duplicate.display_name || 'the existing profile'}
-              </Link>
-              .
+              <span className="font-semibold">A player with this name and birth year may already exist.</span>
+              {duplicateId ? (
+                <span className="mt-1 block">
+                  {duplicateDetails ? <span>{duplicateDetails} — </span> : null}
+                  <Link to={`/local-players/${duplicateId}`} className="font-semibold text-primary hover:underline">
+                    View existing profile
+                  </Link>
+                </span>
+              ) : null}
             </AlertDescription>
           </Alert>
         ) : null}

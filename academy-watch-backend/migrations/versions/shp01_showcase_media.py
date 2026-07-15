@@ -39,6 +39,17 @@ _PROFILE_COLUMNS = (
 )
 
 
+def _guard_media_rows_before_downgrade() -> None:
+    if not table_exists("player_showcase_media"):
+        return
+    row_exists = op.get_bind().execute(sa.text("SELECT 1 FROM player_showcase_media LIMIT 1")).scalar() is not None
+    if row_exists:
+        raise RuntimeError(
+            "Cannot downgrade shp01 while player_showcase_media contains rows; "
+            "reconcile or purge the referenced showcase blobs before retrying."
+        )
+
+
 def upgrade():
     if not table_exists("player_showcase_media"):
         op.create_table(
@@ -79,6 +90,8 @@ def upgrade():
 
 
 def downgrade():
+    _guard_media_rows_before_downgrade()
+
     for column in reversed(_PROFILE_COLUMNS):
         if column_exists("player_showcase_profiles", column.name):
             op.drop_column("player_showcase_profiles", column.name)

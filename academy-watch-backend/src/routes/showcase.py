@@ -23,7 +23,7 @@ import re
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from flask import Blueprint, g, jsonify, request, send_file
 from sqlalchemy import func, or_, text
@@ -49,7 +49,7 @@ from src.models.showcase import (
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
 from src.services import showcase_media_storage, social_proof
-from src.services.photo_processing import process_photo
+from src.services.photo_processing import process_photo, validate_photo
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -103,6 +103,9 @@ MAX_LOCAL_PLAYER_COUNTRY_LENGTH = 100
 MAX_LOCAL_PLAYER_CITY_LENGTH = 120
 MIN_LOCAL_PLAYER_BIRTH_YEAR = 1950
 MAX_LOCAL_PLAYER_BIRTH_YEAR = 2020
+MAX_PENDING_LOCAL_PLAYERS_PER_USER = 10
+MAX_PENDING_LOCAL_CLUBS_PER_USER = 10
+MAX_PENDING_CLUB_CLAIMS_PER_USER = 5
 
 # The only identity gate strong enough for public display (see models/video.py).
 VERIFIED_IDENTITY = "human_confirmed"
@@ -309,6 +312,11 @@ def _normalize_local_player_name(value: str) -> str:
     return LocalPlayer.normalize_name(value)
 
 
+def _escape_like_literal(value: str) -> str:
+    """Escape SQL LIKE metacharacters so a search term stays literal."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _mint_verification_code() -> str:
     """Mint a short code without visually ambiguous 0/O/1/I characters."""
     return "AW-" + "".join(secrets.choice(VERIFICATION_ALPHABET) for _ in range(8))
@@ -324,6 +332,25 @@ def _proof_url_error():
             )
         }
     ), 400
+
+
+def _proof_url_contains_verification_code(proof_url: str, verification_code: str | None) -> bool:
+    """Reject search/result URLs that can merely reflect the claimant's code."""
+    if not isinstance(proof_url, str) or not isinstance(verification_code, str):
+        return False
+    code = verification_code.strip().casefold()
+    if not code:
+        return False
+
+    decoded = proof_url
+    # Decode a small, fixed number of layers so percent-encoding cannot hide a
+    # reflected code without allowing attacker input to drive unbounded work.
+    for _ in range(3):
+        next_decoded = unquote(decoded)
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
+    return code in decoded.casefold()
 
 
 def _run_claim_proof_check(claim: PlayerProfileClaim | ClubOfficialClaim, proof_url: str) -> None:
@@ -449,14 +476,20 @@ def _local_player_public_dict(player: LocalPlayer) -> dict:
         "birth_year": player.birth_year,
         "position": player.position,
         "country": player.country,
-        "city": player.city,
         "status": player.status,
         "api_player_id": player.api_player_id,
     }
 
 
-def _local_player_admin_dict(player: LocalPlayer) -> dict:
+def _local_player_owner_dict(player: LocalPlayer) -> dict:
+    """Identity fields visible to the claimant, including precise locality."""
     payload = _local_player_public_dict(player)
+    payload["city"] = player.city
+    return payload
+
+
+def _local_player_admin_dict(player: LocalPlayer) -> dict:
+    payload = _local_player_owner_dict(player)
     payload.update(
         {
             "normalized_name": player.normalized_name,
@@ -596,6 +629,15 @@ def _club_claim_matches_affiliation(claim: ClubOfficialClaim, affiliation: Playe
         return affiliation.team_api_id == claim.team_api_id
     if claim.local_club_id is None or affiliation.local_club_id is None:
         return False
+    claimed_club = _resolved_local_club(claim.local_club_id)
+    affiliated_club = _resolved_local_club(affiliation.local_club_id)
+    if (
+        claimed_club is None
+        or claimed_club.status != "verified"
+        or affiliated_club is None
+        or affiliated_club.status != "verified"
+    ):
+        return False
     return affiliation.local_club_id in _local_club_match_ids(claim.local_club_id)
 
 
@@ -638,22 +680,36 @@ def _affiliations_for_club_claim(
     return query.order_by(PlayerClubAffiliation.created_at.asc(), PlayerClubAffiliation.id.asc()).all()
 
 
-def _affiliation_club_name(affiliation: PlayerClubAffiliation) -> str | None:
+def _affiliation_club_name(
+    affiliation: PlayerClubAffiliation,
+    *,
+    include_unverified_local_name: bool = False,
+) -> str | None:
     """Resolve the display club, following one local-club merge hop."""
-    return _club_reference_name(
-        team_api_id=affiliation.team_api_id,
-        local_club_id=affiliation.local_club_id,
-    )
+    if affiliation.team_api_id is not None:
+        return _latest_team_name(affiliation.team_api_id)
+    club = _resolved_local_club(affiliation.local_club_id)
+    if club is None or (not include_unverified_local_name and club.status != "verified"):
+        return None
+    return club.name
 
 
-def _affiliation_dict(affiliation: PlayerClubAffiliation, *, include_review_note: bool = False) -> dict:
+def _affiliation_dict(
+    affiliation: PlayerClubAffiliation,
+    *,
+    include_review_note: bool = False,
+    include_unverified_local_name: bool = False,
+) -> dict:
     """Stable affiliation contract shared by showcase and admin responses."""
     payload = {
         "id": affiliation.id,
         "player_api_id": affiliation.player_api_id,
         "team_api_id": affiliation.team_api_id,
         "local_club_id": affiliation.local_club_id,
-        "club_name": _affiliation_club_name(affiliation),
+        "club_name": _affiliation_club_name(
+            affiliation,
+            include_unverified_local_name=include_unverified_local_name,
+        ),
         "season": affiliation.season,
         "status": affiliation.status,
         "created_at": affiliation.created_at.isoformat() if affiliation.created_at else None,
@@ -670,7 +726,14 @@ def _subject_affiliations(subject: ShowcaseSubject, *, include_private: bool) ->
     if not include_private:
         query = query.filter(PlayerClubAffiliation.status.in_(PUBLIC_AFFILIATION_STATUSES))
     rows = query.order_by(PlayerClubAffiliation.created_at.asc(), PlayerClubAffiliation.id.asc()).all()
-    return [_affiliation_dict(row, include_review_note=include_private) for row in rows]
+    return [
+        _affiliation_dict(
+            row,
+            include_review_note=include_private,
+            include_unverified_local_name=include_private,
+        )
+        for row in rows
+    ]
 
 
 def _player_affiliations(player_api_id: int, *, include_private: bool) -> list[dict]:
@@ -723,6 +786,15 @@ def _lock_club_claims(user_id: int) -> None:
         )
 
 
+def _lock_pending_quota(user_id: int, *, namespace: int) -> None:
+    """Serialize each per-account pending count in production."""
+    if db.session.get_bind().dialect.name == "postgresql":
+        db.session.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, :user_id)"),
+            {"namespace": namespace, "user_id": user_id},
+        )
+
+
 def _cleanup_failed_publication(public_url: str | None, media_id: int) -> None:
     """Compensate a published blob when moderation cannot commit approval."""
     if not public_url:
@@ -731,6 +803,14 @@ def _cleanup_failed_publication(public_url: str | None, media_id: int) -> None:
         showcase_media_storage.delete_published(public_url)
     except Exception as exc:
         logger.error("Failed to compensate public blob for media %s: %s", media_id, exc)
+
+
+def _cleanup_failed_pending_upload(blob_path: str, media_id: int) -> None:
+    """Best-effort terminal cleanup for an upload that failed completion."""
+    try:
+        showcase_media_storage.delete_pending(blob_path)
+    except Exception as exc:
+        logger.warning("Failed to delete invalid pending blob for media %s: %s", media_id, exc)
 
 
 def _subject_photos(subject: ShowcaseSubject, *, include_unapproved: bool) -> list[dict]:
@@ -897,14 +977,19 @@ def _verified_footage(player_api_id: int) -> list[dict]:
 
 @showcase_bp.route("/clubs/search", methods=["GET"])
 @require_user_auth
+@limiter.limit("30 per minute", key_func=_user_rate_limit_key)
 def search_clubs():
     """Search API-synced teams and the isolated self-reported club layer."""
     try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
         raw_q = request.args.get("q")
         q = _sanitize_text(raw_q).strip() if isinstance(raw_q, str) else ""
         q = re.sub(r"\s+", " ", q)
         if len(q) < 2:
             return jsonify({"error": "q must be at least 2 characters"}), 400
+        like_pattern = f"%{_escape_like_literal(q)}%"
 
         ranked_teams = (
             db.session.query(
@@ -918,7 +1003,7 @@ def search_clubs():
                 )
                 .label("row_number"),
             )
-            .filter(Team.name.ilike(f"%{q}%"))
+            .filter(Team.name.ilike(like_pattern, escape="\\"))
             .subquery()
         )
         teams = (
@@ -934,8 +1019,11 @@ def search_clubs():
         )
         local_clubs = (
             LocalClub.query.filter(
-                LocalClub.name.ilike(f"%{q}%"),
-                LocalClub.status.in_(("pending", "verified")),
+                LocalClub.name.ilike(like_pattern, escape="\\"),
+                or_(
+                    LocalClub.status == "verified",
+                    (LocalClub.status == "pending") & (LocalClub.created_by_user_id == user.id),
+                ),
             )
             .order_by(LocalClub.name.asc(), LocalClub.id.asc())
             .limit(10)
@@ -988,6 +1076,7 @@ def create_local_club():
             return jsonify({"error": f"level must be one of {sorted(LOCAL_CLUB_LEVELS)}"}), 400
 
         normalized_name = _normalize_club_name(name)
+        _lock_pending_quota(user.id, namespace=5_455_004)
         existing = (
             LocalClub.query.filter(
                 LocalClub.normalized_name == normalized_name,
@@ -998,14 +1087,24 @@ def create_local_club():
             .first()
         )
         if existing is not None:
+            body = {"error": "A local club with this name and country already exists"}
+            if existing.status == "verified" or existing.created_by_user_id == user.id:
+                body["existing"] = {
+                    "id": existing.id,
+                    "name": existing.name,
+                    "country": existing.country,
+                    "status": existing.status,
+                }
+            return jsonify(body), 409
+
+        pending_count = LocalClub.query.filter_by(
+            created_by_user_id=user.id,
+            status="pending",
+        ).count()
+        if pending_count >= MAX_PENDING_LOCAL_CLUBS_PER_USER:
             return (
-                jsonify(
-                    {
-                        "error": "A local club with this name and country already exists",
-                        "existing": _local_club_search_dict(existing),
-                    }
-                ),
-                409,
+                jsonify({"error": (f"pending local club limit reached ({MAX_PENDING_LOCAL_CLUBS_PER_USER})")}),
+                429,
             )
 
         club = LocalClub(
@@ -1066,6 +1165,7 @@ def create_local_player():
                 400,
             )
 
+        _lock_pending_quota(user.id, namespace=5_455_005)
         duplicate_query = LocalPlayer.query.filter(
             LocalPlayer.normalized_name == _normalize_local_player_name(display_name),
             LocalPlayer.status.notin_(("rejected", "merged")),
@@ -1076,22 +1176,23 @@ def create_local_player():
             duplicate_query = duplicate_query.filter(LocalPlayer.birth_year == birth_year)
         existing = duplicate_query.order_by(LocalPlayer.id.asc()).first()
         if existing is not None:
+            body = {"error": "A local player with this name and birth year already exists"}
+            if existing.status == "approved" or existing.created_by_user_id == user.id:
+                body["existing"] = {
+                    "id": existing.id,
+                    "display_name": existing.display_name,
+                    "status": existing.status,
+                }
+            return jsonify(body), 409
+
+        pending_count = LocalPlayer.query.filter_by(
+            created_by_user_id=user.id,
+            status="pending",
+        ).count()
+        if pending_count >= MAX_PENDING_LOCAL_PLAYERS_PER_USER:
             return (
-                jsonify(
-                    {
-                        "error": "A local player with this name and birth year already exists",
-                        "existing": {
-                            "id": existing.id,
-                            "display_name": existing.display_name,
-                            "birth_year": existing.birth_year,
-                            "position": existing.position,
-                            "country": existing.country,
-                            "city": existing.city,
-                            "status": existing.status,
-                        },
-                    }
-                ),
-                409,
+                jsonify({"error": (f"pending local player limit reached ({MAX_PENDING_LOCAL_PLAYERS_PER_USER})")}),
+                429,
             )
 
         player = LocalPlayer(
@@ -1117,7 +1218,7 @@ def create_local_player():
         )
         db.session.add(claim)
         db.session.commit()
-        return jsonify({"player": _local_player_public_dict(player), "claim": _profile_claim_dict(claim)}), 201
+        return jsonify({"player": _local_player_owner_dict(player), "claim": _profile_claim_dict(claim)}), 201
     except Exception as e:
         db.session.rollback()
         logger.error("Error in create_local_player: %s", e)
@@ -1181,7 +1282,10 @@ def get_local_player(lp_id: int):
         auth_context = _optional_authenticated_context()
         if not _local_player_visible_to_context(player, auth_context):
             return jsonify({"error": "local player not found"}), 404
-        payload = {"player": _local_player_public_dict(player)}
+        auth_user = auth_context["user"] if auth_context else None
+        is_owner = bool(auth_user and _has_visible_local_claim(player.id, auth_user.id))
+        player_payload = _local_player_owner_dict(player) if is_owner else _local_player_public_dict(player)
+        payload = {"player": player_payload}
         if merged_into is not None:
             payload["merged_into"] = merged_into
         return jsonify(payload)
@@ -1405,6 +1509,8 @@ def verify_my_claim(claim_id: int):
 
         if claim.verification_code is None:
             claim.verification_code = _mint_verification_code()
+        if _proof_url_contains_verification_code(proof_url, claim.verification_code):
+            return _proof_url_error()
         _run_claim_proof_check(claim, proof_url)
         db.session.commit()
         return jsonify({"claim": _profile_claim_dict(claim)})
@@ -1478,6 +1584,16 @@ def submit_club_official_claim():
         if duplicate_query.first() is not None:
             return jsonify({"error": "You already have an active claim for this club"}), 409
 
+        pending_count = ClubOfficialClaim.query.filter_by(
+            user_account_id=user.id,
+            status="pending",
+        ).count()
+        if pending_count >= MAX_PENDING_CLUB_CLAIMS_PER_USER:
+            return (
+                jsonify({"error": (f"pending club-official claim limit reached ({MAX_PENDING_CLUB_CLAIMS_PER_USER})")}),
+                429,
+            )
+
         claim = ClubOfficialClaim(
             user_account_id=user.id,
             team_api_id=team_api_id if has_api_team else None,
@@ -1549,6 +1665,8 @@ def verify_my_club_claim(claim_id: int):
 
         if claim.verification_code is None:
             claim.verification_code = _mint_verification_code()
+        if _proof_url_contains_verification_code(proof_url, claim.verification_code):
+            return _proof_url_error()
         _run_claim_proof_check(claim, proof_url)
         claim.updated_at = datetime.now(UTC)
         db.session.commit()
@@ -1618,7 +1736,12 @@ def my_club():
                     "claim": _club_claim_dict(official_claim, include_verification_code=False),
                     "club_name": club_name,
                     "pending_affiliations": [
-                        _affiliation_dict(affiliation, include_review_note=True) for affiliation in pending_affiliations
+                        _affiliation_dict(
+                            affiliation,
+                            include_review_note=True,
+                            include_unverified_local_name=True,
+                        )
+                        for affiliation in pending_affiliations
                     ],
                     "vouchable_player_claims": [_player_claim_for_official_dict(claim) for claim in player_claims],
                 }
@@ -1630,7 +1753,12 @@ def my_club():
         return jsonify(_safe_error_payload(e, "Failed to load club workspace")), 500
 
 
-def _official_affiliation_action(aff_id: int, *, target_status: str, note: str | None = None):
+def _official_affiliation_action(
+    aff_id: int,
+    *,
+    target_status: str,
+    parse_rejection_note: bool = False,
+):
     """Apply a club-confirm/reject transition after the shared official gate."""
     user = _current_user_account()
     if user is None:
@@ -1639,10 +1767,17 @@ def _official_affiliation_action(aff_id: int, *, target_status: str, note: str |
     if affiliation is None:
         return jsonify({"error": "affiliation not found"}), 404
     if _matching_approved_official_claim(user.id, affiliation) is None:
-        return jsonify({"error": "You are not an approved official for this club"}), 403
+        return jsonify({"error": "affiliation not found"}), 404
     if affiliation.status not in ("pending", "self_reported"):
         action = "confirm" if target_status == "club_confirmed" else "reject"
         return jsonify({"error": f"cannot {action} a {affiliation.status} affiliation"}), 409
+
+    note = None
+    if parse_rejection_note:
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return payload_error
+        note = _clean_optional_text(payload.get("note"), MAX_REVIEW_NOTE_LENGTH)
 
     now = datetime.now(UTC)
     affiliation.status = target_status
@@ -1652,7 +1787,15 @@ def _official_affiliation_action(aff_id: int, *, target_status: str, note: str |
     affiliation.reviewed_at = now
     affiliation.updated_at = now
     db.session.commit()
-    return jsonify({"affiliation": _affiliation_dict(affiliation, include_review_note=True)})
+    return jsonify(
+        {
+            "affiliation": _affiliation_dict(
+                affiliation,
+                include_review_note=True,
+                include_unverified_local_name=True,
+            )
+        }
+    )
 
 
 @showcase_bp.route("/me/club/affiliations/<int:aff_id>/confirm", methods=["POST"])
@@ -1674,11 +1817,11 @@ def confirm_club_affiliation(aff_id: int):
 def reject_club_affiliation(aff_id: int):
     """Reject a pending/self-reported affiliation for the caller's club."""
     try:
-        payload, payload_error = _json_object_or_400()
-        if payload_error:
-            return payload_error
-        note = _clean_optional_text(payload.get("note"), MAX_REVIEW_NOTE_LENGTH)
-        return _official_affiliation_action(aff_id, target_status="rejected", note=note)
+        return _official_affiliation_action(
+            aff_id,
+            target_status="rejected",
+            parse_rejection_note=True,
+        )
     except Exception as e:
         db.session.rollback()
         logger.error("Error in reject_club_affiliation: %s", e)
@@ -1701,12 +1844,8 @@ def vouch_for_player_claim(claim_id: int):
         player_claim = PlayerProfileClaim.query.filter_by(id=claim_id).with_for_update().first()
         if player_claim is None:
             return jsonify({"error": "player claim not found"}), 404
-        if player_claim.status != "pending":
-            return jsonify({"error": f"cannot vouch for a {player_claim.status} player claim"}), 409
 
         official_claims = _approved_official_claims(user.id)
-        if not official_claims:
-            return jsonify({"error": "You do not have an approved club-official claim"}), 403
         subject = _claim_subject(player_claim)
         affiliations = (
             PlayerClubAffiliation.query.filter(
@@ -1725,7 +1864,9 @@ def vouch_for_player_claim(claim_id: int):
             None,
         )
         if matching_official is None:
-            return jsonify({"error": "The player has no eligible affiliation with one of your clubs"}), 403
+            return jsonify({"error": "player claim not found"}), 404
+        if player_claim.status != "pending":
+            return jsonify({"error": f"cannot vouch for a {player_claim.status} player claim"}), 409
 
         club_name = _club_reference_name(
             team_api_id=matching_official.team_api_id,
@@ -1831,7 +1972,18 @@ def _create_subject_affiliation(subject: ShowcaseSubject):
         )
         db.session.add(affiliation)
         db.session.commit()
-        return jsonify({"affiliation": _affiliation_dict(affiliation, include_review_note=True)}), 201
+        return (
+            jsonify(
+                {
+                    "affiliation": _affiliation_dict(
+                        affiliation,
+                        include_review_note=True,
+                        include_unverified_local_name=True,
+                    )
+                }
+            ),
+            201,
+        )
     except Exception as e:
         db.session.rollback()
         logger.error("Error in create_player_affiliation: %s", e)
@@ -2114,14 +2266,25 @@ def _complete_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
 
         verification = showcase_media_storage.verify_pending(media.blob_path)
         if not verification.get("ok"):
+            _cleanup_failed_pending_upload(media.blob_path, media.id)
             return jsonify({"error": verification.get("error") or "pending upload could not be verified"}), 400
         actual_size = verification.get("size_bytes")
         if not isinstance(actual_size, int) or actual_size <= 0:
+            _cleanup_failed_pending_upload(media.blob_path, media.id)
             return jsonify({"error": "pending upload is empty or unreadable"}), 400
         if actual_size > showcase_media_storage.max_photo_bytes():
+            _cleanup_failed_pending_upload(media.blob_path, media.id)
             return jsonify({"error": "pending upload exceeds the photo size limit"}), 400
 
-        media.size_bytes = actual_size
+        try:
+            raw = showcase_media_storage.read_pending_bytes(media.blob_path)
+            validate_photo(raw)
+        except Exception as exc:
+            _cleanup_failed_pending_upload(media.blob_path, media.id)
+            logger.warning("Photo validation failed during completion for media %s: %s", media.id, exc)
+            return jsonify({"error": "Photo could not be validated"}), 422
+
+        media.size_bytes = len(raw)
         media.status = "pending"
         media.updated_at = datetime.now(UTC)
         db.session.commit()
@@ -2524,6 +2687,8 @@ def admin_recheck_club_claim(claim_id: int):
             return _proof_url_error()
         if claim.verification_code is None:
             claim.verification_code = _mint_verification_code()
+        if _proof_url_contains_verification_code(proof_url, claim.verification_code):
+            return _proof_url_error()
 
         _run_claim_proof_check(claim, proof_url)
         claim.updated_at = datetime.now(UTC)
@@ -2995,7 +3160,16 @@ def admin_list_affiliations():
             PlayerClubAffiliation.id.desc(),
         ).all()
         return jsonify(
-            {"affiliations": [_affiliation_dict(affiliation, include_review_note=True) for affiliation in affiliations]}
+            {
+                "affiliations": [
+                    _affiliation_dict(
+                        affiliation,
+                        include_review_note=True,
+                        include_unverified_local_name=True,
+                    )
+                    for affiliation in affiliations
+                ]
+            }
         )
     except Exception as e:
         logger.error("Error in admin_list_affiliations: %s", e)
@@ -3028,7 +3202,15 @@ def admin_review_affiliation(aff_id: int):
         affiliation.reviewed_at = now
         affiliation.updated_at = now
         db.session.commit()
-        return jsonify({"affiliation": _affiliation_dict(affiliation, include_review_note=True)})
+        return jsonify(
+            {
+                "affiliation": _affiliation_dict(
+                    affiliation,
+                    include_review_note=True,
+                    include_unverified_local_name=True,
+                )
+            }
+        )
     except Exception as e:
         db.session.rollback()
         logger.error("Error in admin_review_affiliation: %s", e)
@@ -3172,6 +3354,8 @@ def admin_recheck_claim(claim_id: int):
             return _proof_url_error()
         if claim.verification_code is None:
             claim.verification_code = _mint_verification_code()
+        if _proof_url_contains_verification_code(proof_url, claim.verification_code):
+            return _proof_url_error()
 
         _run_claim_proof_check(claim, proof_url)
         db.session.commit()

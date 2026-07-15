@@ -5,6 +5,8 @@ visibility, gallery curation, profile validation/privacy, moderation rejection,
 and production storage degradation.
 """
 
+import struct
+import zlib
 from io import BytesIO
 from urllib.parse import urlsplit
 
@@ -120,24 +122,35 @@ def _gps_jpeg() -> bytes:
     return raw
 
 
+def _oversized_dimension_png() -> bytes:
+    """Tiny PNG container whose declared dimensions exceed the pixel cap."""
+
+    def chunk(kind, payload):
+        checksum = zlib.crc32(kind + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", checksum)
+
+    ihdr = struct.pack(">IIBBBBB", 8000, 5001, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IEND", b"")
+
+
 def _url_path(url):
     parsed = urlsplit(url)
     return parsed.path or url
 
 
-def _create_photo(client, headers, raw):
+def _create_photo(client, headers, raw, *, content_type="image/jpeg"):
     response = client.post(
         f"/api/players/{PLAYER_ID}/showcase/photos",
-        json={"content_type": "image/jpeg", "size_bytes": len(raw)},
+        json={"content_type": content_type, "size_bytes": len(raw)},
         headers=headers,
     )
     assert response.status_code == 201, response.get_json()
     return response.get_json()
 
 
-def _upload_photo(client, upload, raw):
+def _upload_photo(client, upload, raw, *, content_type="image/jpeg"):
     assert upload["method"] == "PUT"
-    assert upload["headers"] == {"x-ms-blob-type": "BlockBlob", "Content-Type": "image/jpeg"}
+    assert upload["headers"] == {"x-ms-blob-type": "BlockBlob", "Content-Type": content_type}
     response = client.put(_url_path(upload["url"]), data=raw, headers=upload["headers"])
     assert response.status_code in (200, 201, 204), response.get_json(silent=True)
 
@@ -178,6 +191,86 @@ def _seed_media(player_api_id, user_id, *, status="approved", sort_order=0, suff
 
 
 class TestPhotoLifecycle:
+    def test_complete_rejects_oversized_dimensions_and_deletes_pending_blob(self, app, client):
+        raw = _oversized_dimension_png()
+        with app.app_context():
+            _approved_claim(PLAYER_ID, "owner@example.com")
+        headers = _user_headers("owner@example.com")
+
+        created = _create_photo(client, headers, raw, content_type="image/png")
+        _upload_photo(client, created["upload"], raw, content_type="image/png")
+        pending_path = _url_path(created["upload"]["url"])
+        media_id = created["media"]["id"]
+        assert len(raw) < 1024
+        assert client.get(pending_path).status_code == 200
+
+        completed = client.post(
+            f"/api/players/{PLAYER_ID}/showcase/photos/{media_id}/complete",
+            headers=headers,
+        )
+
+        assert completed.status_code == 422
+        assert client.get(pending_path).status_code == 404
+        with app.app_context():
+            row = db.session.get(PlayerShowcaseMedia, media_id)
+            assert row is None or row.status != "pending"
+
+    def test_failed_size_verification_deletes_pending_blob(self, app, client, monkeypatch):
+        from src.services import showcase_media_storage
+
+        raw = _gps_jpeg()
+        with app.app_context():
+            _approved_claim(PLAYER_ID, "owner@example.com")
+        headers = _user_headers("owner@example.com")
+
+        created = _create_photo(client, headers, raw)
+        _upload_photo(client, created["upload"], raw)
+        pending_path = _url_path(created["upload"]["url"])
+        media_id = created["media"]["id"]
+        monkeypatch.setattr(showcase_media_storage, "max_photo_bytes", lambda: len(raw) - 1)
+
+        completed = client.post(
+            f"/api/players/{PLAYER_ID}/showcase/photos/{media_id}/complete",
+            headers=headers,
+        )
+
+        assert completed.status_code == 400
+        assert client.get(pending_path).status_code == 404
+        with app.app_context():
+            row = db.session.get(PlayerShowcaseMedia, media_id)
+            assert row is None or row.status != "pending"
+
+    def test_invalid_completion_cleanup_failure_is_best_effort(self, app, client, monkeypatch):
+        from src.services import showcase_media_storage
+
+        raw = _oversized_dimension_png()
+        with app.app_context():
+            _approved_claim(PLAYER_ID, "owner@example.com")
+        headers = _user_headers("owner@example.com")
+
+        created = _create_photo(client, headers, raw, content_type="image/png")
+        _upload_photo(client, created["upload"], raw, content_type="image/png")
+        media_id = created["media"]["id"]
+        with app.app_context():
+            expected_blob_path = db.session.get(PlayerShowcaseMedia, media_id).blob_path
+        cleanup_attempts = []
+
+        def fail_cleanup(blob_path):
+            cleanup_attempts.append(blob_path)
+            raise OSError("simulated cleanup failure")
+
+        monkeypatch.setattr(showcase_media_storage, "delete_pending", fail_cleanup)
+        completed = client.post(
+            f"/api/players/{PLAYER_ID}/showcase/photos/{media_id}/complete",
+            headers=headers,
+        )
+
+        assert completed.status_code == 422
+        assert cleanup_attempts == [expected_blob_path]
+        with app.app_context():
+            row = db.session.get(PlayerShowcaseMedia, media_id)
+            assert row is None or row.status != "pending"
+
     def test_create_complete_approve_strips_gps_and_all_exif(self, app, client):
         raw = _gps_jpeg()
         with app.app_context():
@@ -256,23 +349,29 @@ class TestPhotoLifecycle:
         owner = client.get(f"/api/players/{PLAYER_ID}/showcase", headers=headers).get_json()
         assert [(item["id"], item["status"]) for item in owner["photos"]] == [(pending["id"], "rejected")]
 
-    def test_processing_failure_returns_422_and_stays_pending(self, app, client):
+    def test_invalid_bytes_fail_completion_and_delete_pending_blob(self, app, client):
         raw = b"not actually a jpeg"
         with app.app_context():
             _approved_claim(PLAYER_ID, "owner@example.com")
         headers = _user_headers("owner@example.com")
-        created, pending = _create_upload_complete(client, headers, raw)
+        created = _create_photo(client, headers, raw)
+        _upload_photo(client, created["upload"], raw)
+        media_id = created["media"]["id"]
+        pending_path = _url_path(created["upload"]["url"])
+        assert client.get(pending_path).status_code == 200
 
-        reviewed = client.post(
-            f"/api/admin/showcase/media/{pending['id']}/review",
-            json={"action": "approve"},
-            headers=_admin_headers(),
+        completed = client.post(
+            f"/api/players/{PLAYER_ID}/showcase/photos/{media_id}/complete",
+            headers=headers,
         )
-        assert reviewed.status_code == 422
-        assert client.get(_url_path(created["upload"]["url"])).status_code == 200
+
+        assert completed.status_code == 422
+        assert client.get(pending_path).status_code == 404
         with app.app_context():
-            row = db.session.get(PlayerShowcaseMedia, pending["id"])
-            assert row.status == "pending"
+            row = db.session.get(PlayerShowcaseMedia, media_id)
+            assert row is not None
+            assert row.status == "pending_upload"
+            assert row.status not in {"pending", "approved"}
             assert row.public_url is None
 
     def test_delete_removes_approved_row_and_public_blob(self, app, client):

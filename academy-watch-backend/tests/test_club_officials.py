@@ -377,6 +377,29 @@ class TestClubClaimSubmission:
 
         assert response.status_code == 409, response.get_json()
 
+    def test_pending_claim_quota_rejects_sixth_outstanding_claim(self, app, client):
+        with app.app_context():
+            for offset in range(5):
+                _seed_official_claim(team_api_id=10_000 + offset)
+
+        response = client.post(
+            "/api/clubs/claim",
+            json={"team_api_id": 20_000, "role_title": "Head Coach"},
+            headers=_user_headers("official@example.com"),
+        )
+
+        assert response.status_code == 429, response.get_json()
+        assert response.get_json() == {"error": "pending club-official claim limit reached (5)"}
+        with app.app_context():
+            user = _ensure_user_account("official@example.com")
+            assert (
+                ClubOfficialClaim.query.filter_by(
+                    user_account_id=user.id,
+                    status="pending",
+                ).count()
+                == 5
+            )
+
 
 class TestClubClaimVerification:
     def test_me_claims_is_owner_scoped_and_lazily_mints_code(self, app, client):
@@ -630,18 +653,69 @@ class TestClubAffiliationDecisions:
             assert stored.reviewed_by == "official@example.com"
             assert stored.reviewed_at is not None
 
-    def test_wrong_club_official_cannot_decide_affiliation(self, app, client):
+    @pytest.mark.parametrize("action", ["confirm", "reject"])
+    def test_absent_and_unauthorized_affiliation_are_uniform_404(self, app, client, action):
         with app.app_context():
             _seed_official_claim(team_api_id=OTHER_TEAM_ID, status="approved")
-            affiliation = _seed_affiliation(team_api_id=TEAM_ID, status="pending")
+            affiliation = _seed_affiliation(team_api_id=TEAM_ID, status="club_confirmed")
             affiliation_id = affiliation.id
 
-        response = client.post(
-            f"/api/me/club/affiliations/{affiliation_id}/confirm",
+        unauthorized = client.post(
+            f"/api/me/club/affiliations/{affiliation_id}/{action}",
+            headers=_user_headers("official@example.com"),
+        )
+        absent = client.post(
+            f"/api/me/club/affiliations/999999/{action}",
             headers=_user_headers("official@example.com"),
         )
 
-        assert response.status_code in (403, 404), response.get_json()
+        assert unauthorized.status_code == absent.status_code == 404
+        assert unauthorized.get_json() == absent.get_json() == {"error": "affiliation not found"}
+        with app.app_context():
+            assert db.session.get(PlayerClubAffiliation, affiliation_id).status == "club_confirmed"
+
+    @pytest.mark.parametrize(
+        ("action", "expected_status"),
+        [("confirm", "club_confirmed"), ("reject", "rejected")],
+    )
+    def test_verified_local_club_official_can_decide_affiliation(
+        self,
+        app,
+        client,
+        action,
+        expected_status,
+    ):
+        with app.app_context():
+            club = _seed_local_club(status="verified")
+            _seed_official_claim(local_club_id=club.id, status="approved")
+            affiliation = _seed_affiliation(local_club_id=club.id, status="pending")
+            affiliation_id = affiliation.id
+
+        response = client.post(
+            f"/api/me/club/affiliations/{affiliation_id}/{action}",
+            json={} if action == "reject" else None,
+            headers=_user_headers("official@example.com"),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert response.get_json()["affiliation"]["status"] == expected_status
+
+    @pytest.mark.parametrize("action", ["confirm", "reject"])
+    def test_pending_local_club_official_cannot_decide_affiliation(self, app, client, action):
+        with app.app_context():
+            club = _seed_local_club(status="pending")
+            _seed_official_claim(local_club_id=club.id, status="approved")
+            affiliation = _seed_affiliation(local_club_id=club.id, status="pending")
+            affiliation_id = affiliation.id
+
+        response = client.post(
+            f"/api/me/club/affiliations/{affiliation_id}/{action}",
+            json={} if action == "reject" else None,
+            headers=_user_headers("official@example.com"),
+        )
+
+        assert response.status_code == 404, response.get_json()
+        assert response.get_json() == {"error": "affiliation not found"}
         with app.app_context():
             assert db.session.get(PlayerClubAffiliation, affiliation_id).status == "pending"
 
@@ -714,10 +788,10 @@ class TestPlayerClaimVouching:
         assert public.get_json()["claim_status"] == "claimed"
         assert public.get_json()["profile"] is None
 
-    def test_ineligible_player_is_rejected_without_changing_claim(self, app, client):
+    def test_api_team_official_can_vouch_for_player_claim(self, app, client):
         with app.app_context():
             _seed_official_claim(team_api_id=TEAM_ID, status="approved")
-            _seed_affiliation(team_api_id=OTHER_TEAM_ID, status="pending")
+            _seed_affiliation(team_api_id=TEAM_ID, status="pending")
             _, player_claim = _seed_player_claim()
             player_claim_id = player_claim.id
 
@@ -726,10 +800,47 @@ class TestPlayerClaimVouching:
             headers=_user_headers("official@example.com"),
         )
 
-        assert 400 <= response.status_code < 500, response.get_json()
-        assert response.status_code != 409
+        assert response.status_code == 200, response.get_json()
+        assert response.get_json()["claim"]["status"] == "approved"
+
+    def test_pending_local_club_official_cannot_vouch_for_player_claim(self, app, client):
+        with app.app_context():
+            club = _seed_local_club(status="pending")
+            _seed_official_claim(local_club_id=club.id, status="approved")
+            _seed_affiliation(local_club_id=club.id, status="pending")
+            _, player_claim = _seed_player_claim()
+            player_claim_id = player_claim.id
+
+        response = client.post(
+            f"/api/me/club/player-claims/{player_claim_id}/vouch",
+            headers=_user_headers("official@example.com"),
+        )
+
+        assert response.status_code == 404, response.get_json()
+        assert response.get_json() == {"error": "player claim not found"}
         with app.app_context():
             assert db.session.get(PlayerProfileClaim, player_claim_id).status == "pending"
+
+    def test_absent_and_unauthorized_player_claim_are_uniform_404(self, app, client):
+        with app.app_context():
+            _seed_official_claim(team_api_id=TEAM_ID, status="approved")
+            _seed_affiliation(team_api_id=OTHER_TEAM_ID, status="pending")
+            _, player_claim = _seed_player_claim(status="approved")
+            player_claim_id = player_claim.id
+
+        unauthorized = client.post(
+            f"/api/me/club/player-claims/{player_claim_id}/vouch",
+            headers=_user_headers("official@example.com"),
+        )
+        absent = client.post(
+            "/api/me/club/player-claims/999999/vouch",
+            headers=_user_headers("official@example.com"),
+        )
+
+        assert unauthorized.status_code == absent.status_code == 404
+        assert unauthorized.get_json() == absent.get_json() == {"error": "player claim not found"}
+        with app.app_context():
+            assert db.session.get(PlayerProfileClaim, player_claim_id).status == "approved"
 
     def test_non_pending_player_claim_is_409(self, app, client):
         with app.app_context():

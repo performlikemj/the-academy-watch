@@ -431,16 +431,45 @@ class TestLocalPlayerCreation:
         assert response.status_code == 409, response.get_json()
         body = response.get_json()
         assert body["error"]
-        assert body["existing"]["id"] == existing_id
-        assert set(body["existing"]) == {
-            "id",
-            "display_name",
-            "birth_year",
-            "position",
-            "country",
-            "city",
-            "status",
+        if existing_status == "approved":
+            assert body["existing"] == {
+                "id": existing_id,
+                "display_name": "North Star Prospect",
+                "status": "approved",
+            }
+            assert not {"city", "birth_year", "position", "country"} & body["existing"].keys()
+        else:
+            assert "existing" not in body
+        with app.app_context():
+            assert LocalPlayer.query.count() == 1
+
+    def test_caller_owned_pending_duplicate_echoes_limited_existing(self, app, client):
+        with app.app_context():
+            creator = _make_user("creator@example.com")
+            existing = _seed_local_player(
+                "North Star Prospect",
+                birth_year=2008,
+                status="pending",
+                created_by_user_id=creator.id,
+            )
+            db.session.commit()
+            existing_id = existing.id
+
+        response = client.post(
+            "/api/local-players",
+            json={"display_name": " NORTH\n star prospect ", "birth_year": 2008},
+            headers=_user_headers("creator@example.com"),
+        )
+
+        assert response.status_code == 409, response.get_json()
+        body = response.get_json()
+        assert body["error"]
+        assert body["existing"] == {
+            "id": existing_id,
+            "display_name": "North Star Prospect",
+            "status": "pending",
         }
+        assert not {"city", "birth_year", "position", "country"} & body["existing"].keys()
         with app.app_context():
             assert LocalPlayer.query.count() == 1
 
