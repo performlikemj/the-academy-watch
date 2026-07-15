@@ -122,6 +122,8 @@ final class ScoutDeskViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isShowingCachedLeaderboards)
         XCTAssertTrue(viewModel.isUpdatingCachedData)
         XCTAssertEqual(viewModel.firstRowDataSource, "disk-cache")
+        XCTAssertNil(viewModel.initialLoadStartedAt)
+        XCTAssertNil(viewModel.initialLoadFeedback())
 
         await client.releaseRequests()
         await loadTask.value
@@ -129,6 +131,94 @@ final class ScoutDeskViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isShowingCachedPlayers)
         XCTAssertFalse(viewModel.isShowingCachedLeaderboards)
         XCTAssertFalse(viewModel.isUpdatingCachedData)
+    }
+
+    @MainActor
+    func testColdStartFeedbackAppearsAfterThreeSecondsAndClearsWhenPlayersArrive() async throws {
+        let playersResponse = try capturedPlayersResponse()
+        let client = SuspendedScoutAPIClient(
+            playersResponse: playersResponse,
+            leaderboardsResponse: ScoutLeaderboardsResponse(
+                leaderboards: [:],
+                limit: 5,
+                phase: .all
+            )
+        )
+        let viewModel = ScoutDeskViewModel(
+            apiClient: client,
+            responseCache: EmptyScoutResponseCache()
+        )
+
+        let loadTask = Task {
+            await viewModel.loadInitialIfNeeded()
+        }
+        await client.waitUntilBothRequestsStart()
+
+        let startedAt = try XCTUnwrap(viewModel.initialLoadStartedAt)
+        XCTAssertNil(viewModel.initialLoadFeedback(atUptime: startedAt + 2.999))
+        XCTAssertEqual(
+            viewModel.initialLoadFeedback(atUptime: startedAt + 3),
+            ScoutInitialLoadFeedback(elapsedSeconds: 3)
+        )
+        XCTAssertEqual(
+            viewModel.initialLoadFeedback(atUptime: startedAt + 8.9)?.title,
+            "Waking up the match server…"
+        )
+        XCTAssertEqual(
+            viewModel.initialLoadFeedback(atUptime: startedAt + 8.9)?.detail,
+            "Still working — 8s elapsed"
+        )
+
+        await client.releaseRequests()
+        await loadTask.value
+
+        XCTAssertNil(viewModel.initialLoadStartedAt)
+        XCTAssertNil(viewModel.initialLoadFeedback(atUptime: startedAt + 30))
+    }
+
+    @MainActor
+    func testEmptyCachedResponseStillShowsColdStartFeedbackDuringRefresh() async throws {
+        let networkResponse = try capturedPlayersResponse()
+        let emptyCachedResponse = ScoutPlayersResponse(
+            players: [],
+            total: 0,
+            page: 1,
+            perPage: 25,
+            totalPages: 0
+        )
+        let leaderboardsResponse = ScoutLeaderboardsResponse(
+            leaderboards: [:],
+            limit: 5,
+            phase: .all
+        )
+        let client = SuspendedScoutAPIClient(
+            playersResponse: networkResponse,
+            leaderboardsResponse: leaderboardsResponse
+        )
+        let cache = SeededScoutResponseCache(
+            playersResponse: emptyCachedResponse,
+            leaderboardsResponse: leaderboardsResponse
+        )
+        let viewModel = ScoutDeskViewModel(apiClient: client, responseCache: cache)
+
+        let loadTask = Task {
+            await viewModel.loadInitialIfNeeded()
+        }
+        await client.waitUntilBothRequestsStart()
+
+        let startedAt = try XCTUnwrap(viewModel.initialLoadStartedAt)
+        XCTAssertTrue(viewModel.players.isEmpty)
+        XCTAssertFalse(viewModel.isShowingCachedPlayers)
+        XCTAssertEqual(
+            viewModel.initialLoadFeedback(atUptime: startedAt + 3),
+            ScoutInitialLoadFeedback(elapsedSeconds: 3)
+        )
+
+        await client.releaseRequests()
+        await loadTask.value
+
+        XCTAssertEqual(viewModel.players, networkResponse.players)
+        XCTAssertNil(viewModel.initialLoadStartedAt)
     }
 
     @MainActor

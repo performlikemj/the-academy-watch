@@ -1,6 +1,15 @@
 import Combine
 import Foundation
 
+struct ScoutInitialLoadFeedback: Equatable {
+    static let thresholdSeconds = 3
+
+    let elapsedSeconds: Int
+
+    var title: String { "Waking up the match server…" }
+    var detail: String { "Still working — \(elapsedSeconds)s elapsed" }
+}
+
 @MainActor
 final class ScoutDeskViewModel: ObservableObject {
     @Published private(set) var players: [ScoutPlayerSummary] = []
@@ -15,6 +24,7 @@ final class ScoutDeskViewModel: ObservableObject {
     @Published private(set) var hasAttemptedInitialLoad = false
     @Published private(set) var isShowingCachedPlayers = false
     @Published private(set) var isShowingCachedLeaderboards = false
+    @Published private(set) var initialLoadStartedAt: TimeInterval?
 
     @Published private(set) var selectedPhase: ScoutPhase
     @Published private(set) var selectedAgePreset: ScoutAgePreset = .all
@@ -74,6 +84,19 @@ final class ScoutDeskViewModel: ObservableObject {
 
     var isUpdatingCachedLeaderboards: Bool {
         isShowingCachedLeaderboards && isLoadingLeaderboards
+    }
+
+    func initialLoadFeedback(
+        atUptime uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> ScoutInitialLoadFeedback? {
+        guard isLoadingInitial,
+              players.isEmpty,
+              let initialLoadStartedAt
+        else { return nil }
+
+        let elapsedSeconds = Int(max(0, uptime - initialLoadStartedAt))
+        guard elapsedSeconds >= ScoutInitialLoadFeedback.thresholdSeconds else { return nil }
+        return ScoutInitialLoadFeedback(elapsedSeconds: elapsedSeconds)
     }
 
     func loadInitialIfNeeded() async {
@@ -184,7 +207,9 @@ final class ScoutDeskViewModel: ObservableObject {
             if let playersResponse {
                 applyCachedPlayers(playersResponse)
             }
-            playersWork = schedulePlayersReload(preservingCurrentData: playersResponse != nil)
+            playersWork = schedulePlayersReload(
+                preservingCurrentData: playersResponse?.players.isEmpty == false
+            )
         }
 
         let leaderboardsResponse = await cachedLeaderboards
@@ -231,7 +256,9 @@ final class ScoutDeskViewModel: ObservableObject {
             applyCachedPlayers(cachedResponse)
         }
 
-        let work = schedulePlayersReload(preservingCurrentData: cachedResponse != nil)
+        let work = schedulePlayersReload(
+            preservingCurrentData: cachedResponse?.players.isEmpty == false
+        )
         await finishPlayersReload(work)
     }
 
@@ -245,6 +272,7 @@ final class ScoutDeskViewModel: ObservableObject {
         players = []
         isShowingCachedPlayers = false
         firstRowDataSource = "network"
+        initialLoadStartedAt = nil
         isLoadingInitial = true
         isLoadingNextPage = false
         errorMessage = nil
@@ -266,6 +294,7 @@ final class ScoutDeskViewModel: ObservableObject {
         totalPages = response.totalPages
         isShowingCachedPlayers = true
         firstRowDataSource = "disk-cache"
+        initialLoadStartedAt = nil
     }
 
     private func applyCachedLeaderboards(_ response: ScoutLeaderboardsResponse) {
@@ -323,6 +352,9 @@ final class ScoutDeskViewModel: ObservableObject {
             players = []
             isShowingCachedPlayers = false
             firstRowDataSource = "network"
+            initialLoadStartedAt = ProcessInfo.processInfo.systemUptime
+        } else {
+            initialLoadStartedAt = nil
         }
         isLoadingInitial = true
         isLoadingNextPage = false
@@ -353,9 +385,11 @@ final class ScoutDeskViewModel: ObservableObject {
             totalPages = response.totalPages
             isShowingCachedPlayers = false
             firstRowDataSource = "network"
+            initialLoadStartedAt = nil
             await responseCache.savePlayers(response, for: context.cacheKey)
         } catch {
             guard context.revision == listRevision else { return }
+            initialLoadStartedAt = nil
             if isCancellation(error) {
                 isLoadingInitial = false
                 return

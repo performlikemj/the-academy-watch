@@ -21,6 +21,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 ## State
 
 ### Done
+- iOS crash/cold-start diagnostic complete (2026-07-15): no AcademyWatch crash artifact exists locally, in synced phone reports, or in the connected device crash-log domain; the prior Xcode device run also completed successfully. Confirmed UX cause was the known 29.716s first-run backend wait presented as generic loading, amplified under LLDB (1.516s standalone-cached versus 5.180s debug-cached). Added delayed server-wake/elapsed feedback including the empty-cache edge; schema-mismatch cache and unavailable-Keychain regressions pass; XcodeGen/build and all 55 tests pass; fresh-install waiting screenshot captured; signed device reinstall succeeded, with best-effort launch blocked only because MJ's iPhone was locked. PR #634 delivery follows from `ledgers/CONTINUITY_ios-coldstart-diagnostic.md`.
 - iOS P4b branding + device refresh complete (2026-07-15): replaced the placeholder with a cropped full-bleed winged-boot icon; added the matching storyboard-free launch screen; fixed decision-free standard-XXL truncation; XcodeGen/build and all 51 tests pass; simulator icon/launch evidence captured; signed physical-device build/install succeeded, with launch blocked only because MJ's iPhone was locked. This closes iOS P4 implementation for PR #634.
 - iOS P4a launch performance complete (2026-07-15): verified Scout players/leaderboards were already concurrent; added schema-v1 SWR disk caches, independent cached-data refresh indicators, app-start health warm-up, and DEBUG launch timings. Simulator time-to-first-row improved from 29.716s network-cold to 1.953s from disk cache; XcodeGen/build and all 51 tests pass; cached-launch screenshot captured.
 - iOS physical-device first look confirmed working by MJ; automatic signing committed/pushed as `a28d5df` (2026-07-15).
@@ -204,6 +205,7 @@ CONTINUITY.md
   └─ ledgers/CONTINUITY_ios-device-install.md (complete: MJ confirmed launch)
   └─ ledgers/CONTINUITY_ios-p4a-launch-performance.md (complete)
   └─ ledgers/CONTINUITY_ios-p4b-branding-device-refresh.md (complete)
+  └─ ledgers/CONTINUITY_ios-coldstart-diagnostic.md (complete)
   └─ ledgers/CONTINUITY_cohort-dynamic-resolution.md (in-progress)
   └─ ledgers/CONTINUITY_video-analysis.md (design complete — Phase 0 ready)
   └─ ledgers/CONTINUITY_global-talent-platform.md (implementation complete — PR review)
@@ -221,6 +223,7 @@ CONTINUITY.md
 | CONTINUITY_ios-device-install.md | complete | /root | none; MJ confirmed launch |
 | CONTINUITY_ios-p4a-launch-performance.md | complete | /root | none; deliver on PR #634 |
 | CONTINUITY_ios-p4b-branding-device-refresh.md | complete | /root | none; PR #634 review |
+| CONTINUITY_ios-coldstart-diagnostic.md | complete | /root | none; PR #634 delivery |
 | CONTINUITY_cohort-dynamic-resolution.md | in-progress | codex | pending live Full Rebuild validation |
 | CONTINUITY_video-analysis.md | design complete | — | Phase 0 blocked on footage acquisition (0.1) + MJ decisions (pricing, footage source) |
 | CONTINUITY_global-talent-platform.md | implementation complete | claude | awaiting PR review/merge |
@@ -228,7 +231,7 @@ CONTINUITY.md
 
 ## Cross-task Blockers / Handoffs
 
-- None for iOS P4; PR #634 remains the delivery target on `feat/ios-app`.
+- iOS cold-start diagnostic is complete; deliver the scoped fix on PR #634 from `feat/ios-app`.
 
 ## Trivial Log
 

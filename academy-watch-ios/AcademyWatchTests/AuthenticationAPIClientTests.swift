@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import XCTest
 @testable import AcademyWatch
 
@@ -113,6 +114,19 @@ final class AuthenticationAPIClientTests: XCTestCase {
         XCTAssertEqual(manager.email, "b@example.com")
         XCTAssertEqual(currentToken, "token-b")
         XCTAssertEqual(tokenStore.snapshot(), "token-b")
+    }
+
+    @MainActor
+    func testUnavailableKeychainAtStartupFallsBackToSignedOut() async {
+        let manager = AuthManager(
+            authClient: ImmediateVerificationAuthClient(token: "unused"),
+            tokenStore: UnavailableTokenStore()
+        )
+        let token = await manager.accessToken()
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertNil(manager.email)
+        XCTAssertNil(token)
     }
 
     @MainActor
@@ -412,6 +426,15 @@ private final class InMemoryTokenStore: TokenStoreProtocol, @unchecked Sendable 
         defer { lock.unlock() }
         return deletionAttempts
     }
+}
+
+private struct UnavailableTokenStore: TokenStoreProtocol {
+    func loadToken() throws -> String? {
+        throw KeychainTokenStoreError.unhandledStatus(errSecInteractionNotAllowed)
+    }
+
+    func saveToken(_: String) throws {}
+    func deleteToken() throws {}
 }
 
 private enum StubTokenStoreError: LocalizedError {
