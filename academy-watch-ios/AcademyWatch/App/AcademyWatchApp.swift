@@ -25,6 +25,17 @@ struct AcademyWatchApp: App {
     private let initialTab = RootTab.fromLaunchArguments(ProcessInfo.processInfo.arguments)
     private let initiallyShowsSignIn = ProcessInfo.processInfo.arguments.contains("-showSignIn")
 
+    init() {
+        LaunchPerformance.markLaunchStarted()
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            return
+        }
+        let warmUpClient = APIClient()
+        Task.detached(priority: .utility) {
+            await warmUpClient.warmUp()
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             RootTabView(

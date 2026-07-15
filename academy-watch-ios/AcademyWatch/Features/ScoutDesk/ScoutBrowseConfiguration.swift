@@ -1,6 +1,6 @@
 import Foundation
 
-enum ScoutPhase: String, CaseIterable, Decodable, Equatable, Identifiable, Sendable {
+enum ScoutPhase: String, CaseIterable, Codable, Equatable, Hashable, Identifiable, Sendable {
     case all
     case attack
     case midfield
@@ -228,7 +228,7 @@ enum ScoutStatusFilter: String, CaseIterable, Equatable, Identifiable, Sendable 
     }
 }
 
-enum ScoutSortOrder: String, Equatable, Sendable {
+enum ScoutSortOrder: String, Codable, Equatable, Hashable, Sendable {
     case ascending = "asc"
     case descending = "desc"
 
@@ -249,7 +249,7 @@ struct ScoutSortOption: Equatable, Identifiable, Sendable {
     var id: String { key }
 }
 
-struct ScoutPlayersRequest: Equatable, Sendable {
+struct ScoutPlayersRequest: Codable, Equatable, Hashable, Sendable {
     let page: Int
     let perPage: Int
     let search: String?
@@ -260,7 +260,7 @@ struct ScoutPlayersRequest: Equatable, Sendable {
     let order: ScoutSortOrder
 }
 
-struct ScoutLeaderboardsRequest: Equatable, Sendable {
+struct ScoutLeaderboardsRequest: Codable, Equatable, Hashable, Sendable {
     let phase: ScoutPhase
     let limit: Int
     let position: String?

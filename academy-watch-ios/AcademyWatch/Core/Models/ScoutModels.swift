@@ -1,6 +1,6 @@
 import Foundation
 
-struct ScoutPlayersResponse: Decodable, Equatable, Sendable {
+struct ScoutPlayersResponse: Codable, Equatable, Sendable {
     let players: [ScoutPlayerSummary]
     let total: Int
     let page: Int
@@ -8,13 +8,13 @@ struct ScoutPlayersResponse: Decodable, Equatable, Sendable {
     let totalPages: Int
 }
 
-struct ScoutLeaderboardsResponse: Decodable, Equatable, Sendable {
+struct ScoutLeaderboardsResponse: Codable, Equatable, Sendable {
     let leaderboards: [String: [ScoutPlayerSummary]]
     let limit: Int
     let phase: ScoutPhase
 }
 
-struct ScoutPlayerSummary: Decodable, Equatable, Sendable {
+struct ScoutPlayerSummary: Codable, Equatable, Sendable {
     // `id` is the tracked-player row. `playerId` is the canonical player identity.
     let id: Int
     let playerId: Int
@@ -84,7 +84,7 @@ struct ScoutPlayerSummary: Decodable, Equatable, Sendable {
     }
 }
 
-struct ScoutRecentForm: Decodable, Equatable, Sendable {
+struct ScoutRecentForm: Codable, Equatable, Sendable {
     let date: String?
     let minutes: Int
     let goals: Int

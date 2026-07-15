@@ -13,6 +13,8 @@ final class ScoutDeskViewModel: ObservableObject {
     @Published private(set) var paginationErrorMessage: String?
     @Published private(set) var leaderboardsErrorMessage: String?
     @Published private(set) var hasAttemptedInitialLoad = false
+    @Published private(set) var isShowingCachedPlayers = false
+    @Published private(set) var isShowingCachedLeaderboards = false
 
     @Published private(set) var selectedPhase: ScoutPhase
     @Published private(set) var selectedAgePreset: ScoutAgePreset = .all
@@ -22,6 +24,7 @@ final class ScoutDeskViewModel: ObservableObject {
     @Published private(set) var searchText = ""
 
     private let apiClient: any ScoutAPIClientProtocol
+    private let responseCache: any ScoutResponseCaching
     private let pageSize: Int
     private var appliedSearch = ""
     private var listRevision = 0
@@ -33,13 +36,16 @@ final class ScoutDeskViewModel: ObservableObject {
 
     private(set) var currentPage = 0
     private(set) var totalPages = 0
+    private(set) var firstRowDataSource = "network"
 
     init(
         apiClient: any ScoutAPIClientProtocol = APIClient(),
+        responseCache: any ScoutResponseCaching = ScoutResponseCache.shared,
         pageSize: Int = 25,
         initialPhase: ScoutPhase = .all
     ) {
         self.apiClient = apiClient
+        self.responseCache = responseCache
         self.pageSize = pageSize
         selectedPhase = initialPhase
         selectedSortKey = initialPhase.defaultSortKey
@@ -58,14 +64,29 @@ final class ScoutDeskViewModel: ObservableObject {
             ?? "Sort"
     }
 
+    var isUpdatingCachedData: Bool {
+        isUpdatingCachedPlayers || isUpdatingCachedLeaderboards
+    }
+
+    var isUpdatingCachedPlayers: Bool {
+        isShowingCachedPlayers && isLoadingInitial
+    }
+
+    var isUpdatingCachedLeaderboards: Bool {
+        isShowingCachedLeaderboards && isLoadingLeaderboards
+    }
+
     func loadInitialIfNeeded() async {
         guard !hasAttemptedInitialLoad else { return }
-        let work = scheduleFullReload()
-        await finishFullReload(work)
+        hasAttemptedInitialLoad = true
+        await reloadFullUsingCache()
     }
 
     func reload() async {
-        let work = scheduleFullReload()
+        let work = scheduleFullReload(
+            preservingPlayers: !players.isEmpty,
+            preservingLeaderboards: !leaderboards.isEmpty
+        )
         await finishFullReload(work)
     }
 
@@ -74,30 +95,26 @@ final class ScoutDeskViewModel: ObservableObject {
         selectedPhase = phase
         selectedSortKey = phase.defaultSortKey
         selectedSortOrder = ScoutSortOrder.defaultOrder(for: phase.defaultSortKey)
-        let work = scheduleFullReload()
-        await finishFullReload(work)
+        await reloadFullUsingCache()
     }
 
     func selectAgePreset(_ preset: ScoutAgePreset) async {
         guard selectedAgePreset != preset else { return }
         selectedAgePreset = preset
-        let work = scheduleFullReload()
-        await finishFullReload(work)
+        await reloadFullUsingCache()
     }
 
     func selectStatus(_ status: ScoutStatusFilter) async {
         guard selectedStatus != status else { return }
         selectedStatus = status
-        let work = scheduleFullReload()
-        await finishFullReload(work)
+        await reloadFullUsingCache()
     }
 
     func selectSort(_ option: ScoutSortOption) async {
         guard selectedPhase.sortOptions.contains(option), selectedSortKey != option.key else { return }
         selectedSortKey = option.key
         selectedSortOrder = ScoutSortOrder.defaultOrder(for: option.key)
-        let work = scheduleFullReload()
-        await finishFullReload(work)
+        await reloadPlayersUsingCache()
     }
 
     func setSearchText(_ value: String) {
@@ -128,7 +145,7 @@ final class ScoutDeskViewModel: ObservableObject {
     }
 
     func retryLeaderboards() async {
-        let work = scheduleLeaderboardsReload()
+        let work = scheduleLeaderboardsReload(preservingCurrentData: !leaderboards.isEmpty)
         await work.task.value
         if work.revision == leaderboardsRevision {
             leaderboardsTask = nil
@@ -138,13 +155,130 @@ final class ScoutDeskViewModel: ObservableObject {
     private func applySearch(_ search: String) async {
         guard appliedSearch != search else { return }
         appliedSearch = search
-        let work = scheduleFullReload()
-        await finishFullReload(work)
+        await reloadPlayersUsingCache()
     }
 
-    private func scheduleFullReload() -> FullReloadWork {
-        let list = schedulePlayersReload()
-        let boards = scheduleLeaderboardsReload()
+    private func reloadFullUsingCache() async {
+        let playersRequest = makePlayersRequest(page: 1)
+        let leaderboardsRequest = makeLeaderboardsRequest()
+        let playersKey = ScoutPlayersCacheKey(phase: selectedPhase, request: playersRequest)
+        let leaderboardsKey = ScoutLeaderboardsCacheKey(
+            phase: selectedPhase,
+            request: leaderboardsRequest
+        )
+
+        prepareForCacheLookup(includingLeaderboards: true)
+        let playersLookupRevision = listRevision
+        let leaderboardsLookupRevision = leaderboardsRevision
+        async let cachedPlayers = responseCache.loadPlayers(for: playersKey)
+        async let cachedLeaderboards = responseCache.loadLeaderboards(for: leaderboardsKey)
+        var playersWork: RequestWork?
+        var leaderboardsWork: RequestWork?
+
+        let playersResponse = await cachedPlayers
+        if playersLookupRevision == listRevision,
+           playersKey == ScoutPlayersCacheKey(
+            phase: selectedPhase,
+            request: makePlayersRequest(page: 1)
+        ) {
+            if let playersResponse {
+                applyCachedPlayers(playersResponse)
+            }
+            playersWork = schedulePlayersReload(preservingCurrentData: playersResponse != nil)
+        }
+
+        let leaderboardsResponse = await cachedLeaderboards
+        if leaderboardsLookupRevision == leaderboardsRevision,
+           leaderboardsKey == ScoutLeaderboardsCacheKey(
+            phase: selectedPhase,
+            request: makeLeaderboardsRequest()
+        ) {
+            if let leaderboardsResponse {
+                applyCachedLeaderboards(leaderboardsResponse)
+            }
+            leaderboardsWork = scheduleLeaderboardsReload(
+                preservingCurrentData: leaderboardsResponse != nil
+            )
+        }
+
+        switch (playersWork, leaderboardsWork) {
+        case let (playersWork?, leaderboardsWork?):
+            await finishFullReload(FullReloadWork(list: playersWork, boards: leaderboardsWork))
+        case let (playersWork?, nil):
+            await finishPlayersReload(playersWork)
+        case let (nil, leaderboardsWork?):
+            await finishLeaderboardsReload(leaderboardsWork)
+        case (nil, nil):
+            return
+        }
+    }
+
+    private func reloadPlayersUsingCache() async {
+        let request = makePlayersRequest(page: 1)
+        let key = ScoutPlayersCacheKey(phase: selectedPhase, request: request)
+
+        prepareForCacheLookup(includingLeaderboards: false)
+        let lookupRevision = listRevision
+        let cachedResponse = await responseCache.loadPlayers(for: key)
+
+        guard lookupRevision == listRevision,
+              key == ScoutPlayersCacheKey(
+            phase: selectedPhase,
+            request: makePlayersRequest(page: 1)
+        ) else { return }
+
+        if let cachedResponse {
+            applyCachedPlayers(cachedResponse)
+        }
+
+        let work = schedulePlayersReload(preservingCurrentData: cachedResponse != nil)
+        await finishPlayersReload(work)
+    }
+
+    private func prepareForCacheLookup(includingLeaderboards: Bool) {
+        playersReloadTask?.cancel()
+        paginationTask?.cancel()
+        listRevision += 1
+        currentPage = 0
+        totalPages = 0
+        totalPlayers = 0
+        players = []
+        isShowingCachedPlayers = false
+        firstRowDataSource = "network"
+        isLoadingInitial = true
+        isLoadingNextPage = false
+        errorMessage = nil
+        paginationErrorMessage = nil
+
+        guard includingLeaderboards else { return }
+        leaderboardsTask?.cancel()
+        leaderboardsRevision += 1
+        leaderboards = [:]
+        isShowingCachedLeaderboards = false
+        leaderboardsErrorMessage = nil
+        isLoadingLeaderboards = true
+    }
+
+    private func applyCachedPlayers(_ response: ScoutPlayersResponse) {
+        players = response.players
+        totalPlayers = response.total
+        currentPage = response.page
+        totalPages = response.totalPages
+        isShowingCachedPlayers = true
+        firstRowDataSource = "disk-cache"
+    }
+
+    private func applyCachedLeaderboards(_ response: ScoutLeaderboardsResponse) {
+        leaderboards = response.leaderboards
+        isShowingCachedLeaderboards = true
+    }
+
+    private func scheduleFullReload(
+        preservingPlayers: Bool = false,
+        preservingLeaderboards: Bool = false
+    ) -> FullReloadWork {
+        let list = schedulePlayersReload(preservingCurrentData: preservingPlayers)
+        let boards = scheduleLeaderboardsReload(preservingCurrentData: preservingLeaderboards)
         return FullReloadWork(list: list, boards: boards)
     }
 
@@ -162,24 +296,44 @@ final class ScoutDeskViewModel: ObservableObject {
         }
     }
 
-    private func schedulePlayersReload() -> RequestWork {
+    private func finishPlayersReload(_ work: RequestWork) async {
+        await work.task.value
+        if work.revision == listRevision {
+            playersReloadTask = nil
+        }
+    }
+
+    private func finishLeaderboardsReload(_ work: RequestWork) async {
+        await work.task.value
+        if work.revision == leaderboardsRevision {
+            leaderboardsTask = nil
+        }
+    }
+
+    private func schedulePlayersReload(preservingCurrentData: Bool = false) -> RequestWork {
         playersReloadTask?.cancel()
         paginationTask?.cancel()
         listRevision += 1
         let revision = listRevision
 
-        currentPage = 0
-        totalPages = 0
-        totalPlayers = 0
-        players = []
+        if !preservingCurrentData {
+            currentPage = 0
+            totalPages = 0
+            totalPlayers = 0
+            players = []
+            isShowingCachedPlayers = false
+            firstRowDataSource = "network"
+        }
         isLoadingInitial = true
         isLoadingNextPage = false
         errorMessage = nil
         paginationErrorMessage = nil
 
+        let request = makePlayersRequest(page: 1)
         let context = PlayersReloadContext(
             revision: revision,
-            request: makePlayersRequest(page: 1)
+            request: request,
+            cacheKey: ScoutPlayersCacheKey(phase: selectedPhase, request: request)
         )
         let task = Task { [weak self] in
             guard let self else { return }
@@ -197,6 +351,9 @@ final class ScoutDeskViewModel: ObservableObject {
             totalPlayers = response.total
             currentPage = response.page
             totalPages = response.totalPages
+            isShowingCachedPlayers = false
+            firstRowDataSource = "network"
+            await responseCache.savePlayers(response, for: context.cacheKey)
         } catch {
             guard context.revision == listRevision else { return }
             if isCancellation(error) {
@@ -211,18 +368,23 @@ final class ScoutDeskViewModel: ObservableObject {
         hasAttemptedInitialLoad = true
     }
 
-    private func scheduleLeaderboardsReload() -> RequestWork {
+    private func scheduleLeaderboardsReload(preservingCurrentData: Bool = false) -> RequestWork {
         leaderboardsTask?.cancel()
         leaderboardsRevision += 1
         let revision = leaderboardsRevision
 
-        leaderboards = [:]
+        if !preservingCurrentData {
+            leaderboards = [:]
+            isShowingCachedLeaderboards = false
+        }
         leaderboardsErrorMessage = nil
         isLoadingLeaderboards = true
 
+        let request = makeLeaderboardsRequest()
         let context = LeaderboardsReloadContext(
             revision: revision,
-            request: makeLeaderboardsRequest()
+            request: request,
+            cacheKey: ScoutLeaderboardsCacheKey(phase: selectedPhase, request: request)
         )
         let task = Task { [weak self] in
             guard let self else { return }
@@ -237,6 +399,8 @@ final class ScoutDeskViewModel: ObservableObject {
             let response = try await apiClient.fetchScoutLeaderboards(context.request)
             guard context.revision == leaderboardsRevision else { return }
             leaderboards = response.leaderboards
+            isShowingCachedLeaderboards = false
+            await responseCache.saveLeaderboards(response, for: context.cacheKey)
         } catch {
             guard context.revision == leaderboardsRevision else { return }
             if isCancellation(error) {
@@ -345,11 +509,13 @@ private struct FullReloadWork {
 private struct PlayersReloadContext: Sendable {
     let revision: Int
     let request: ScoutPlayersRequest
+    let cacheKey: ScoutPlayersCacheKey
 }
 
 private struct LeaderboardsReloadContext: Sendable {
     let revision: Int
     let request: ScoutLeaderboardsRequest
+    let cacheKey: ScoutLeaderboardsCacheKey
 }
 
 private struct PageLoadContext: Sendable {

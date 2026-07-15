@@ -62,6 +62,35 @@ struct APIClient: ScoutAPIClientProtocol,
         self.authSession = authSession
     }
 
+    func warmUp() async {
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
+
+        do {
+            let url = try makeURL(path: "health", queryItems: [])
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.timeoutInterval = 60
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+            let (_, response) = try await session.data(for: request)
+            #if DEBUG
+            let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+            let formattedElapsed = String(format: "%.3f", elapsed)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            print("[LaunchPerformance] warm-up=/health elapsed=\(formattedElapsed)s status=\(statusCode)")
+            #endif
+        } catch {
+            #if DEBUG
+            let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+            let formattedElapsed = String(format: "%.3f", elapsed)
+            print("[LaunchPerformance] warm-up=/health elapsed=\(formattedElapsed)s failed=\(error.localizedDescription)")
+            #endif
+        }
+    }
+
     func fetchScoutPlayers(_ request: ScoutPlayersRequest) async throws -> ScoutPlayersResponse {
         var queryItems = [
             URLQueryItem(name: "sort", value: request.sort),
@@ -286,6 +315,9 @@ struct APIClient: ScoutAPIClientProtocol,
         queryItems: [URLQueryItem],
         body: Data?
     ) async throws -> Response {
+        #if DEBUG
+        let requestStartedAt = ProcessInfo.processInfo.systemUptime
+        #endif
         let url = try makeURL(path: path, queryItems: queryItems)
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -313,6 +345,9 @@ struct APIClient: ScoutAPIClientProtocol,
         }
 
         let (data, response) = try await session.data(for: request)
+        #if DEBUG
+        let responseReceivedAt = ProcessInfo.processInfo.systemUptime
+        #endif
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIClientError.invalidResponse
         }
@@ -329,7 +364,16 @@ struct APIClient: ScoutAPIClientProtocol,
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         do {
-            return try decoder.decode(Response.self, from: data)
+            let decoded = try decoder.decode(Response.self, from: data)
+            #if DEBUG
+            let decodedAt = ProcessInfo.processInfo.systemUptime
+            let networkDuration = String(format: "%.3f", responseReceivedAt - requestStartedAt)
+            let decodeDuration = String(format: "%.3f", decodedAt - responseReceivedAt)
+            print(
+                "[LaunchPerformance] endpoint=/\(path) network=\(networkDuration)s decode=\(decodeDuration)s bytes=\(data.count)"
+            )
+            #endif
+            return decoded
         } catch {
             throw APIClientError.decoding(error)
         }

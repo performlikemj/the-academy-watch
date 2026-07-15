@@ -144,7 +144,11 @@ struct ScoutDeskView: View {
 
                 Spacer()
 
-                if viewModel.isLoadingLeaderboards {
+                if viewModel.isUpdatingCachedLeaderboards {
+                    Label("Updating…", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                } else if viewModel.isLoadingLeaderboards {
                     ProgressView()
                         .controlSize(.small)
                         .tint(AcademyColors.claret)
@@ -182,7 +186,11 @@ struct ScoutDeskView: View {
                     .tracking(1.1)
                     .foregroundStyle(AcademyColors.claret)
                 Spacer()
-                Text(viewModel.isLoadingInitial ? "Loading…" : "\(viewModel.totalPlayers.formatted()) players")
+                Text(
+                    viewModel.isLoadingInitial && viewModel.players.isEmpty
+                        ? "Loading…"
+                        : "\(viewModel.totalPlayers.formatted()) players"
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -308,7 +316,11 @@ struct ScoutDeskView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if viewModel.selectedSortOrder == .ascending {
+            if viewModel.isUpdatingCachedPlayers {
+                Label("Updating…", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            } else if viewModel.selectedSortOrder == .ascending {
                 Label("Low to high", systemImage: "arrow.up")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -369,6 +381,9 @@ struct ScoutDeskView: View {
                 }
                 .padding(.horizontal, 16)
                 .onAppear {
+                    if player.playerId == viewModel.players.first?.playerId {
+                        LaunchPerformance.markFirstRowRendered(source: viewModel.firstRowDataSource)
+                    }
                     Task {
                         await viewModel.loadNextPageIfNeeded(currentPlayer: player)
                     }
