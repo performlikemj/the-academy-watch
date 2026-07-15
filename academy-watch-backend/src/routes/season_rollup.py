@@ -4,19 +4,22 @@ Both endpoints are pure database operations. Rebuilds are keyset-paged by
 ``player_api_id`` and delegate every derived-row write to the public
 ``season_rollup_service.refresh_player`` API.
 
-Rows-behind uses the mutation clocks the source schema actually exposes:
-``PlayerJourneyEntry.stats_synced_at``,
-``AcademyPlayerSeasonStats.updated_at``, and
-``PlayerShadowStats.updated_at``. ``PlayerSeasonCell.synced_at`` also catches a
-derived cell that is newer than (or missing) its matching total. Fixture rows
-have no created/updated/synced clock, so they can be identified as stale only
-when their player-season has no fixture cell; steady-state fixture freshness is
-enforced by the D3b FPS write choke point. Legacy/manual journey rows with a
-null ``stats_synced_at`` have the same schema-limited blind spot after an
-existing total; ``scope=all`` is the repair fallback for both cases.
+``GET /status`` defaults to a CHEAP rows-behind gauge: one ``MAX`` scan per
+timed source (``PlayerJourneyEntry.stats_synced_at``,
+``AcademyPlayerSeasonStats.updated_at``, ``PlayerShadowStats.updated_at``,
+``PlayerSeasonCell.synced_at``) compared against ``MAX(computed_at)`` — a handful
+of index-assisted aggregates, no per-grain set difference. The exact per-player
+stale count is a full multi-table aggregation, so it is reserved behind
+``?exact=1`` for occasional reconciliation and for the paged ``scope=stale``
+rebuild (which evaluates clocks only for its bounded candidate page). Fixture
+rows carry no clock, so the cheap gauge cannot see a fixture-missing-cell;
+``?exact=1`` and the ``scope=stale`` sweep are the reconciliation paths for that
+blind spot, and ``scope=all`` is the repair fallback for legacy/manual journey
+rows with a null ``stats_synced_at``.
 """
 
 import logging
+from datetime import UTC
 
 from flask import Blueprint, jsonify, request
 from sqlalchemy import DateTime, and_, case, func, literal, or_, select, type_coerce, union_all
@@ -339,6 +342,31 @@ def _count_ids(id_statement) -> int:
     return int(db.session.execute(select(func.count()).select_from(ids)).scalar() or 0)
 
 
+def _as_utc(value):
+    """Order naive (APSS/shadow) and aware (PJE/cell) clocks together as UTC."""
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+def _max_source_change():
+    """Newest mutation across the timed sources — the cheap freshness clock.
+
+    Each source contributes ONE ``MAX`` scan (no joins, no per-grain group-by),
+    so this stays sub-second on the prod box. Fixture rows carry no clock, so it
+    deliberately cannot see a fixture-missing-cell; ``?exact=1`` or a
+    ``scope=stale`` sweep reconciles that blind spot.
+    """
+    clocks = [
+        db.session.query(func.max(PlayerJourneyEntry.stats_synced_at)).scalar(),
+        db.session.query(func.max(AcademyPlayerSeasonStats.updated_at)).scalar(),
+        db.session.query(func.max(PlayerShadowStats.updated_at)).scalar(),
+        db.session.query(func.max(PlayerSeasonCell.synced_at)).scalar(),
+    ]
+    present = [clock for clock in clocks if clock is not None]
+    return max(present, key=_as_utc) if present else None
+
+
 def _batch_size_arg() -> int:
     batch_size = request.args.get("batch_size", _DEFAULT_BATCH_SIZE, type=int)
     if not isinstance(batch_size, int) or batch_size < 1:
@@ -346,33 +374,25 @@ def _batch_size_arg() -> int:
     return min(batch_size, _MAX_BATCH_SIZE)
 
 
-def _cursor_arg() -> tuple[int | None, int, str | None]:
+def _cursor_arg() -> tuple[int | None, str | None]:
+    """Parse the keyset cursor: the last player_api_id scanned by the sweep.
+
+    The cursor only ever moves forward (the max id of the previous page), so a
+    sweep always terminates: once no candidate id remains above it, the endpoint
+    returns ``cursor=null``. A player whose per-row rebuild raises is reported in
+    ``failed`` and retried out-of-band via ``scope=player`` — a failure never
+    rewinds the cursor, so there is no poison-row livelock.
+    """
     raw_cursor = request.args.get("cursor")
     if raw_cursor is None or raw_cursor == "":
-        return 0, 0, None
-
-    # A normal cursor is the last scanned player id. If a per-player savepoint
-    # failed during a batched sweep, the response carries ``<id>:r<count>``.
-    # The retry count is propagated while higher ids are scanned, then causes a
-    # wrap to zero at the end. This keeps a poison row from front-blocking the
-    # population without forgetting that a lower id still needs another sweep.
-    retry_count = 0
-    cursor_part = raw_cursor
-    if ":r" in raw_cursor:
-        cursor_part, retry_part = raw_cursor.rsplit(":r", 1)
-        try:
-            retry_count = int(retry_part)
-        except (TypeError, ValueError):
-            return None, 0, "cursor must be a non-negative player_api_id or server-issued retry cursor"
-        if retry_count < 1:
-            return None, 0, "cursor must be a non-negative player_api_id or server-issued retry cursor"
+        return 0, None
     try:
-        cursor = int(cursor_part)
+        cursor = int(raw_cursor)
     except (TypeError, ValueError):
-        return None, 0, "cursor must be a non-negative player_api_id or server-issued retry cursor"
+        return None, "cursor must be a non-negative integer player_api_id"
     if cursor < 0:
-        return None, 0, "cursor must be a non-negative player_api_id or server-issued retry cursor"
-    return cursor, retry_count, None
+        return None, "cursor must be a non-negative integer player_api_id"
+    return cursor, None
 
 
 def _positive_int_arg(name: str) -> int | None:
@@ -393,14 +413,13 @@ def admin_rebuild_season_rollup():
     - ``scope=stale[&batch_size&cursor]``
     - ``scope=all[&batch_size&cursor]``
 
-    ``cursor`` is normally the last scanned player_api_id and is null when the
-    selected sweep has converged. A server-issued ``<id>:r<count>`` cursor carries
-    retry state past a failed player; callers must pass it back unchanged. A zero
-    cursor restarts a sweep after lower-id stale/failing work is found. Season
-    sweeps are also bounded even though only stale and all require it, keeping
-    every request safe for the production container. ``remaining`` is a bounded
-    continuation gauge: zero means the sweep converged; a positive value is the
-    carried failure count plus one when the capped lookahead found another page.
+    ``cursor`` is the last player_api_id scanned and is null once the sweep has
+    converged. It only moves forward, so the sweep always terminates: a player
+    whose per-row rebuild raises is listed in ``failed`` (retry it out-of-band
+    with ``scope=player``) and never rewinds the cursor. ``remaining`` is a
+    bounded 0/1 hint — one means the capped lookahead saw another page — never a
+    platform-wide count. Season sweeps are bounded like stale/all so every
+    request stays safe for the production container.
     """
     scope = (request.args.get("scope") or "").strip().lower()
     if scope not in _VALID_SCOPES:
@@ -413,7 +432,7 @@ def admin_rebuild_season_rollup():
         try:
             season_rollup_service.refresh_player(player_api_id, season=None, session=db.session)
             db.session.commit()
-            return jsonify({"processed": 1, "remaining": 0, "cursor": None})
+            return jsonify({"processed": 1, "failed": [], "remaining": 0, "cursor": None})
         except Exception as exc:
             db.session.rollback()
             logger.exception("season-rollup player rebuild failed for player=%s", player_api_id)
@@ -425,7 +444,7 @@ def admin_rebuild_season_rollup():
         if season is None:
             return jsonify({"error": "season must be a positive integer start-year"}), 400
 
-    cursor, pending_retries, cursor_error = _cursor_arg()
+    cursor, cursor_error = _cursor_arg()
     if cursor_error:
         return jsonify({"error": cursor_error}), 400
     batch_size = _batch_size_arg()
@@ -452,7 +471,7 @@ def admin_rebuild_season_rollup():
         )
 
         processed = 0
-        failures = 0
+        failed: list[int] = []
         for player_api_id in player_ids:
             try:
                 with db.session.begin_nested():
@@ -463,27 +482,20 @@ def admin_rebuild_season_rollup():
                     )
                 processed += 1
             except Exception:
-                failures += 1
+                failed.append(player_api_id)
                 logger.exception("season-rollup %s rebuild failed for player=%s", scope, player_api_id)
         db.session.commit()
 
+        # Forward-only cursor: null once no candidate id remains above the last
+        # scanned page, so every sweep terminates even when a poison row keeps
+        # failing. ``remaining`` is a bounded 0/1 "another page exists" hint, not
+        # a platform-wide count; ``failed`` carries the ids to retry via
+        # ``scope=player``.
         last_scanned = scanned_ids[-1] if scanned_ids else None
-        retry_count = pending_retries + failures
-        remaining = retry_count + int(has_more)
-        if has_more and last_scanned is not None:
-            next_cursor = f"{last_scanned}:r{retry_count}" if retry_count else last_scanned
-        elif retry_count:
-            next_cursor = 0
-        elif scope == "stale" and not scanned_ids and cursor:
-            # A caller can resume with an obsolete/high cursor. One bounded wrap
-            # makes the operation restartable without a global stale scan; a
-            # normal server-issued terminal page never reaches this branch.
-            remaining = 1
-            next_cursor = 0
-        else:
-            next_cursor = None
+        next_cursor = last_scanned if has_more else None
+        remaining = int(has_more)
 
-        return jsonify({"processed": processed, "remaining": remaining, "cursor": next_cursor})
+        return jsonify({"processed": processed, "failed": failed, "remaining": remaining, "cursor": next_cursor})
     except Exception as exc:
         db.session.rollback()
         logger.exception("season-rollup %s rebuild failed", scope)
@@ -493,26 +505,38 @@ def admin_rebuild_season_rollup():
 @season_rollup_bp.route("/admin/season-rollup/status", methods=["GET"])
 @require_api_key
 def admin_season_rollup_status():
-    """Return the cheap aggregate rows-behind gauge."""
+    """Return the rows-behind gauge.
+
+    Default = the CHEAP gauge: ``behind`` is derived from the newest timed-source
+    clock vs ``MAX(computed_at)`` (a handful of index-assisted ``MAX`` scans, no
+    per-grain set difference). Pass ``?exact=1`` to also run the exact per-player
+    stale count (a full multi-table aggregation) for occasional reconciliation.
+    """
+    exact = (request.args.get("exact") or "").strip().lower() in {"1", "true", "yes", "on"}
     try:
         total_totals_rows, last_computed_at = db.session.query(
             func.count(PlayerSeasonTotal.id),
             func.max(PlayerSeasonTotal.computed_at),
         ).one()
-        stale_players = _count_ids(_stale_player_ids())
+        last_source_change_at = _max_source_change()
+        behind = last_source_change_at is not None and (
+            last_computed_at is None or _as_utc(last_source_change_at) > _as_utc(last_computed_at)
+        )
         source_counts = (
             db.session.query(PlayerSeasonCell.source, func.count(PlayerSeasonCell.id))
             .group_by(PlayerSeasonCell.source)
             .all()
         )
-        return jsonify(
-            {
-                "total_totals_rows": int(total_totals_rows or 0),
-                "stale_players": stale_players,
-                "last_computed_at": last_computed_at.isoformat() if last_computed_at else None,
-                "by_source_cells": {source: int(count) for source, count in source_counts},
-            }
-        )
+        body = {
+            "total_totals_rows": int(total_totals_rows or 0),
+            "behind": behind,
+            "last_computed_at": last_computed_at.isoformat() if last_computed_at else None,
+            "last_source_change_at": last_source_change_at.isoformat() if last_source_change_at else None,
+            "by_source_cells": {source: int(count) for source, count in source_counts},
+        }
+        if exact:
+            body["stale_players"] = _count_ids(_stale_player_ids())
+        return jsonify(body)
     except Exception as exc:
         logger.exception("season-rollup status failed")
         return jsonify(_safe_error_payload(exc, "Failed to read season rollup status")), 500

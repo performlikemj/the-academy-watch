@@ -138,8 +138,9 @@ def _cell(
     return row
 
 
-def _status(client, headers):
-    response = client.get(STATUS_URL, headers=headers)
+def _status(client, headers, *, exact: bool = False):
+    url = f"{STATUS_URL}?exact=1" if exact else STATUS_URL
+    response = client.get(url, headers=headers)
     assert response.status_code == 200
     return response.get_json()
 
@@ -160,9 +161,6 @@ def test_endpoints_require_admin_dual_auth(client):
         ("?scope=season&season=nope", "season"),
         ("?scope=all&cursor=-1", "cursor"),
         ("?scope=stale&cursor=nope", "cursor"),
-        ("?scope=all&cursor=1:r0", "cursor"),
-        ("?scope=season&season=2025&cursor=1:rx", "cursor"),
-        ("?scope=all&cursor=x:r1", "cursor"),
     ],
 )
 def test_rebuild_validates_scope_arguments(client, admin_headers, query, error_part):
@@ -178,12 +176,12 @@ def test_player_scope_rebuilds_and_is_idempotent(client, admin_headers):
 
     first = client.post(f"{REBUILD_URL}?scope=player&player_api_id={player}", headers=admin_headers)
     assert first.status_code == 200
-    assert first.get_json() == {"processed": 1, "remaining": 0, "cursor": None}
+    assert first.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player).count() == 1
 
     second = client.post(f"{REBUILD_URL}?scope=player&player_api_id={player}", headers=admin_headers)
     assert second.status_code == 200
-    assert second.get_json() == {"processed": 1, "remaining": 0, "cursor": None}
+    assert second.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player).count() == 1
 
 
@@ -202,7 +200,7 @@ def test_season_scope_is_bounded_and_leaves_other_seasons_untouched(client, admi
         headers=admin_headers,
     )
     assert response.status_code == 200
-    assert response.get_json() == {"processed": 1, "remaining": 0, "cursor": None}
+    assert response.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
     db.session.expire_all()
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2024).one().computed_at == old_computed_at
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025).count() == 1
@@ -251,15 +249,15 @@ def test_all_scope_pages_every_source_and_orphan_derived_rows(client, admin_head
 
     first = client.post(f"{REBUILD_URL}?scope=all&batch_size=2", headers=admin_headers)
     assert first.status_code == 200
-    assert first.get_json() == {"processed": 2, "remaining": 1, "cursor": 20}
+    assert first.get_json() == {"processed": 2, "failed": [], "remaining": 1, "cursor": 20}
 
     second = client.post(f"{REBUILD_URL}?scope=all&batch_size=2&cursor=20", headers=admin_headers)
     assert second.status_code == 200
-    assert second.get_json() == {"processed": 2, "remaining": 1, "cursor": 40}
+    assert second.get_json() == {"processed": 2, "failed": [], "remaining": 1, "cursor": 40}
 
     third = client.post(f"{REBUILD_URL}?scope=all&batch_size=2&cursor=40", headers=admin_headers)
     assert third.status_code == 200
-    assert third.get_json() == {"processed": 1, "remaining": 0, "cursor": None}
+    assert third.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
     assert [(player, season) for player, season, _session in calls] == [
         (10, None),
         (20, None),
@@ -300,7 +298,7 @@ def test_all_scope_caps_batch_size_at_100(client, admin_headers, monkeypatch):
 
     response = client.post(f"{REBUILD_URL}?scope=all&batch_size=999", headers=admin_headers)
     assert response.status_code == 200
-    assert response.get_json() == {"processed": 100, "remaining": 1, "cursor": 100}
+    assert response.get_json() == {"processed": 100, "failed": [], "remaining": 1, "cursor": 100}
 
 
 @pytest.mark.parametrize("batch_query", ["", "&batch_size=0", "&batch_size=-1", "&batch_size=abc"])
@@ -321,7 +319,7 @@ def test_all_scope_uses_bounded_default_for_missing_or_invalid_batch_size(
 
     response = client.post(f"{REBUILD_URL}?scope=all{batch_query}", headers=admin_headers)
     assert response.status_code == 200
-    assert response.get_json() == {"processed": 25, "remaining": 1, "cursor": 25}
+    assert response.get_json() == {"processed": 25, "failed": [], "remaining": 1, "cursor": 25}
 
 
 def test_rebuild_scopes_do_not_run_the_global_status_count(client, admin_headers, monkeypatch):
@@ -334,7 +332,7 @@ def test_rebuild_scopes_do_not_run_the_global_status_count(client, admin_headers
     monkeypatch.setattr(admin_routes, "_count_ids", _unexpected_global_count)
     response = client.post(f"{REBUILD_URL}?scope=stale&batch_size=1", headers=admin_headers)
     assert response.status_code == 200
-    assert response.get_json() == {"processed": 1, "remaining": 0, "cursor": None}
+    assert response.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
 
 
 def test_all_scope_rebuild_deletes_totals_only_orphan_and_rerun_is_noop(client, admin_headers):
@@ -343,15 +341,15 @@ def test_all_scope_rebuild_deletes_totals_only_orphan_and_rerun_is_noop(client, 
 
     first = client.post(f"{REBUILD_URL}?scope=all", headers=admin_headers)
     assert first.status_code == 200
-    assert first.get_json() == {"processed": 1, "remaining": 0, "cursor": None}
+    assert first.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
     assert PlayerSeasonTotal.query.filter_by(player_api_id=250).count() == 0
 
     second = client.post(f"{REBUILD_URL}?scope=all", headers=admin_headers)
     assert second.status_code == 200
-    assert second.get_json() == {"processed": 0, "remaining": 0, "cursor": None}
+    assert second.get_json() == {"processed": 0, "failed": [], "remaining": 0, "cursor": None}
 
 
-def test_batch_savepoints_keep_successes_and_return_restart_cursor(client, admin_headers, monkeypatch):
+def test_batch_savepoints_keep_successes_and_report_failed_id(client, admin_headers, monkeypatch):
     for player in (261, 262, 263):
         _total(player)
     db.session.commit()
@@ -366,7 +364,9 @@ def test_batch_savepoints_keep_successes_and_return_restart_cursor(client, admin
     monkeypatch.setattr(admin_routes.season_rollup_service, "refresh_player", _fail_middle_once)
     first = client.post(f"{REBUILD_URL}?scope=all&batch_size=3", headers=admin_headers)
     assert first.status_code == 200
-    assert first.get_json() == {"processed": 2, "remaining": 1, "cursor": 0}
+    # The savepoint keeps 261/263, the sweep TERMINATES (cursor null), and the
+    # failing id is surfaced for an out-of-band scope=player retry.
+    assert first.get_json() == {"processed": 2, "failed": [262], "remaining": 0, "cursor": None}
     assert calls == [261, 262, 263]
 
     monkeypatch.setattr(
@@ -374,12 +374,12 @@ def test_batch_savepoints_keep_successes_and_return_restart_cursor(client, admin
         "refresh_player",
         lambda *args, **kwargs: {"cells": 0, "totals": 0},
     )
-    retry = client.post(f"{REBUILD_URL}?scope=all&batch_size=3&cursor=0", headers=admin_headers)
+    retry = client.post(f"{REBUILD_URL}?scope=player&player_api_id=262", headers=admin_headers)
     assert retry.status_code == 200
-    assert retry.get_json() == {"processed": 3, "remaining": 0, "cursor": None}
+    assert retry.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
 
 
-def test_retry_cursor_carries_persistent_failure_past_later_pages(client, admin_headers, monkeypatch):
+def test_persistent_failure_is_reported_once_and_sweep_terminates(client, admin_headers, monkeypatch):
     for player in range(271, 276):
         _total(player)
     db.session.commit()
@@ -395,21 +395,23 @@ def test_retry_cursor_carries_persistent_failure_past_later_pages(client, admin_
 
     first = client.post(f"{REBUILD_URL}?scope=all&batch_size=2", headers=admin_headers)
     assert first.status_code == 200
-    assert first.get_json() == {"processed": 1, "remaining": 2, "cursor": "272:r1"}
+    assert first.get_json() == {"processed": 1, "failed": [271], "remaining": 1, "cursor": 272}
 
     second = client.post(
         f"{REBUILD_URL}?scope=all&batch_size=2&cursor={first.get_json()['cursor']}",
         headers=admin_headers,
     )
     assert second.status_code == 200
-    assert second.get_json() == {"processed": 2, "remaining": 2, "cursor": "274:r1"}
+    assert second.get_json() == {"processed": 2, "failed": [], "remaining": 1, "cursor": 274}
 
     third = client.post(
         f"{REBUILD_URL}?scope=all&batch_size=2&cursor={second.get_json()['cursor']}",
         headers=admin_headers,
     )
     assert third.status_code == 200
-    assert third.get_json() == {"processed": 1, "remaining": 1, "cursor": 0}
+    # Forward-only cursor: the poison row 271 does not rewind the sweep, which
+    # converges to a null cursor after one pass instead of looping forever.
+    assert third.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
     assert calls == [271, 272, 273, 274, 275]
 
 
@@ -454,26 +456,26 @@ def test_stale_scope_uses_exact_source_clocks_and_converges(client, admin_header
     _apss(306, updated_at=NOW, minutes=0)
     db.session.commit()
 
-    assert _status(client, admin_headers)["stale_players"] == 4
+    assert _status(client, admin_headers, exact=True)["stale_players"] == 4
 
     first = client.post(f"{REBUILD_URL}?scope=stale&batch_size=2", headers=admin_headers)
     assert first.status_code == 200
-    assert first.get_json() == {"processed": 2, "remaining": 1, "cursor": 302}
+    assert first.get_json() == {"processed": 2, "failed": [], "remaining": 1, "cursor": 302}
 
     second = client.post(
         f"{REBUILD_URL}?scope=stale&batch_size=2&cursor={first.get_json()['cursor']}",
         headers=admin_headers,
     )
     assert second.status_code == 200
-    assert second.get_json() == {"processed": 1, "remaining": 1, "cursor": 304}
+    assert second.get_json() == {"processed": 1, "failed": [], "remaining": 1, "cursor": 304}
 
     third = client.post(
         f"{REBUILD_URL}?scope=stale&batch_size=2&cursor={second.get_json()['cursor']}",
         headers=admin_headers,
     )
     assert third.status_code == 200
-    assert third.get_json() == {"processed": 1, "remaining": 0, "cursor": None}
-    assert _status(client, admin_headers)["stale_players"] == 0
+    assert third.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
+    assert _status(client, admin_headers, exact=True)["stale_players"] == 0
 
 
 def test_noise_stub_cannot_borrow_another_journey_level_cell(client, admin_headers):
@@ -510,7 +512,7 @@ def test_noise_stub_cannot_borrow_another_journey_level_cell(client, admin_heade
     assert built.status_code == 200
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player, level_group="senior").count() == 1
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player, level_group="youth").count() == 0
-    assert _status(client, admin_headers)["stale_players"] == 0
+    assert _status(client, admin_headers, exact=True)["stale_players"] == 0
 
 
 def test_fixture_source_without_fixture_cell_is_stale_even_if_other_total_exists(client, admin_headers):
@@ -530,22 +532,25 @@ def test_fixture_source_without_fixture_cell_is_stale_even_if_other_total_exists
     _total(player, level_group="senior", primary_source="shadow")
     db.session.commit()
 
-    assert _status(client, admin_headers)["stale_players"] == 1
+    assert _status(client, admin_headers, exact=True)["stale_players"] == 1
     rebuilt = client.post(f"{REBUILD_URL}?scope=stale", headers=admin_headers)
     assert rebuilt.status_code == 200
-    assert rebuilt.get_json() == {"processed": 1, "remaining": 0, "cursor": None}
+    assert rebuilt.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
     assert PlayerSeasonCell.query.filter_by(player_api_id=player, source="fixtures").count() == 1
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player, level_group="youth").count() == 1
-    assert _status(client, admin_headers)["stale_players"] == 0
+    assert _status(client, admin_headers, exact=True)["stale_players"] == 0
 
 
-def test_stale_cursor_wraps_to_zero_when_work_only_exists_below_it(client, admin_headers):
+def test_stale_cursor_above_all_work_terminates(client, admin_headers):
+    # A caller resuming with a cursor above every remaining id has, by the
+    # forward-only keyset contract, already scanned that work: the sweep
+    # terminates (cursor null) instead of rewinding to zero.
     _shadow(399, updated_at=NOW)
     db.session.commit()
 
     response = client.post(f"{REBUILD_URL}?scope=stale&cursor=999", headers=admin_headers)
     assert response.status_code == 200
-    assert response.get_json() == {"processed": 0, "remaining": 1, "cursor": 0}
+    assert response.get_json() == {"processed": 0, "failed": [], "remaining": 0, "cursor": None}
 
 
 def test_stale_scope_advances_bounded_scan_pages_that_contain_no_stale_players(client, admin_headers):
@@ -567,6 +572,7 @@ def test_stale_scope_advances_bounded_scan_pages_that_contain_no_stale_players(c
         assert response.status_code == 200
         assert response.get_json() == {
             "processed": 0,
+            "failed": [],
             "remaining": 1,
             "cursor": expected_cursor,
         }
@@ -577,7 +583,7 @@ def test_stale_scope_advances_bounded_scan_pages_that_contain_no_stale_players(c
         headers=admin_headers,
     )
     assert final.status_code == 200
-    assert final.get_json() == {"processed": 1, "remaining": 0, "cursor": None}
+    assert final.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
 
 
 def test_stale_zeroed_source_removes_old_cells_then_converges(client, admin_headers):
@@ -593,14 +599,45 @@ def test_stale_zeroed_source_removes_old_cells_then_converges(client, admin_head
     row.goals = 0
     row.updated_at = computed_at + timedelta(microseconds=1)
     db.session.commit()
-    assert _status(client, admin_headers)["stale_players"] == 1
+    assert _status(client, admin_headers, exact=True)["stale_players"] == 1
 
     rebuilt = client.post(f"{REBUILD_URL}?scope=stale", headers=admin_headers)
     assert rebuilt.status_code == 200
-    assert rebuilt.get_json() == {"processed": 1, "remaining": 0, "cursor": None}
+    assert rebuilt.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
     assert PlayerSeasonCell.query.filter_by(player_api_id=401, source="apss").count() == 0
     assert PlayerSeasonTotal.query.filter_by(player_api_id=401, level_group="youth").count() == 0
-    assert _status(client, admin_headers)["stale_players"] == 0
+    assert _status(client, admin_headers, exact=True)["stale_players"] == 0
+
+
+def test_default_status_gauge_skips_exact_stale_enumeration(client, admin_headers, monkeypatch):
+    # A source newer than its total is stale, but the default gauge must decide
+    # ``behind`` from cheap MAX clocks without running the exact enumeration.
+    _shadow(600, updated_at=NOW)
+    _total(600, computed_at=NOW - timedelta(days=1))
+    db.session.commit()
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("default /status must not run the exact stale enumeration")
+
+    monkeypatch.setattr(admin_routes, "_stale_player_ids", _boom)
+    body = _status(client, admin_headers)
+    assert body["behind"] is True
+    assert "stale_players" not in body
+
+
+def test_status_exact_flag_reports_stale_player_count(client, admin_headers):
+    _shadow(601, updated_at=NOW)
+    _total(601, computed_at=NOW - timedelta(days=1))  # stale: source newer
+    _shadow(602, updated_at=NOW - timedelta(days=2))
+    _total(602, computed_at=NOW - timedelta(days=1))  # fresh: total newer
+    db.session.commit()
+
+    default_body = _status(client, admin_headers)
+    assert default_body["behind"] is True
+    assert "stale_players" not in default_body
+
+    exact_body = _status(client, admin_headers, exact=True)
+    assert exact_body["stale_players"] == 1
 
 
 def test_status_returns_totals_freshness_and_source_cell_counts(client, admin_headers):
@@ -615,19 +652,26 @@ def test_status_returns_totals_freshness_and_source_cell_counts(client, admin_he
     _cell(502, source="journey", club=3, level_group="youth", synced_at=old)
     db.session.commit()
 
+    # Default gauge is cheap: newest source clock (shadow NOW) is not later than
+    # the newest computed_at (502 senior NOW), so the coarse gauge reads caught up.
     body = _status(client, admin_headers)
     assert body == {
         "total_totals_rows": 3,
-        "stale_players": 1,
+        "behind": False,
         "last_computed_at": NOW.replace(tzinfo=None).isoformat(),
+        "last_source_change_at": NOW.replace(tzinfo=None).isoformat(),
         "by_source_cells": {"fixtures": 2, "journey": 1},
     }
+    # The exact reconciliation count still sees 501 (shadow NOW > its total middle).
+    assert _status(client, admin_headers, exact=True)["stale_players"] == 1
 
 
 def test_empty_status_is_zeroed(client, admin_headers):
     assert _status(client, admin_headers) == {
         "total_totals_rows": 0,
-        "stale_players": 0,
+        "behind": False,
         "last_computed_at": None,
+        "last_source_change_at": None,
         "by_source_cells": {},
     }
+    assert _status(client, admin_headers, exact=True)["stale_players"] == 0
