@@ -1539,6 +1539,16 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                 FixturePlayerStats.minutes == 0,
             ).delete()
             if ghost_deleted:
+                # Sole-writer contract: those ghost FPS rows fed the rollup under
+                # the OLD id — rebuild that id's rollup from what remains so no
+                # phantom fixtures cell survives (player_id is still the old id here).
+                try:
+                    from src.services.season_rollup_service import refresh_player as _refresh_rollup
+
+                    with db.session.begin_nested():
+                        _refresh_rollup(player_id, season=season)
+                except Exception:
+                    logger.exception("season-rollup refresh after ghost-delete failed for player=%s", player_id)
                 db.session.commit()
                 logger.info(f"🗑️ Deleted {ghost_deleted} ghost stat records with old ID {player_id}")
 
@@ -1622,6 +1632,10 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                     )
                     db.session.add(fps)
                     synced += 1
+                    # FPS choke point: mark this (player, season) rollup dirty.
+                    from src.services.season_rollup_service import queue_player_refresh
+
+                    queue_player_refresh(player_id, season)
                     logger.debug(f"Added stats for fixture {fixture_id_api}: {minutes}' played")
         except Exception as e:
             logger.warning(f"Failed to get player stats for fixture {fixture_id_api}: {e}")
@@ -1629,6 +1643,10 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
 
     if synced > 0:
         db.session.commit()
+        # One refresh per affected player, after the batch commit.
+        from src.services.season_rollup_service import flush_player_refresh_queue
+
+        flush_player_refresh_queue()
         logger.info(f"Synced {synced} fixtures for player {player_id} at team {loan_team_api_id}")
 
     return synced
@@ -5086,6 +5104,10 @@ def admin_sync_player_fixtures(player_id: int):
                         )
                         db.session.add(fps)
                         synced += 1
+                        # FPS choke point: mark this (player, season) rollup dirty.
+                        from src.services.season_rollup_service import queue_player_refresh
+
+                        queue_player_refresh(player_id, season)
                     elif minutes > 0 or games.get("substitute") is not None:
                         synced += 1  # Dry run counts this as would-sync
                     else:
@@ -5098,6 +5120,10 @@ def admin_sync_player_fixtures(player_id: int):
 
         if not dry_run:
             db.session.commit()
+            # One refresh per affected player, after the batch commit.
+            from src.services.season_rollup_service import flush_player_refresh_queue
+
+            flush_player_refresh_queue()
 
         return jsonify(
             {
@@ -5508,6 +5534,10 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                                     **map_player_stat_block(st),
                                 )
                                 db.session.add(fps)
+                                # FPS choke point: mark (player, season) dirty.
+                                from src.services.season_rollup_service import queue_player_refresh
+
+                                queue_player_refresh(pid, season)
                             team_result["synced"] += 1
                         else:
                             team_result["skipped"] += 1
@@ -5520,6 +5550,10 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
 
             if not dry_run:
                 db.session.commit()
+                # One refresh per affected player, after this team's batch commit.
+                from src.services.season_rollup_service import flush_player_refresh_queue
+
+                flush_player_refresh_queue()
 
         except Exception as e:
             logger.warning(f"Batch sync error for team {team_api_id}: {e}")
@@ -6073,6 +6107,10 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                                 )
                                 db.session.add(fps)
                                 player_result["synced"] += 1
+                                # FPS choke point: mark (player, season) dirty.
+                                from src.services.season_rollup_service import queue_player_refresh
+
+                                queue_player_refresh(p_api_id, season)
                             elif minutes > 0 or games.get("substitute") is not None:
                                 player_result["synced"] += 1  # Dry run counts this
                             else:
@@ -6085,6 +6123,10 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
 
                 if not dry_run:
                     db.session.commit()
+                    # One refresh per affected player, after the batch commit.
+                    from src.services.season_rollup_service import flush_player_refresh_queue
+
+                    flush_player_refresh_queue()
 
             except Exception as e:
                 player_result["errors"].append(str(e)[:100])
@@ -6503,6 +6545,29 @@ def admin_delete_team_data(team_id: int):
         # Mark team as not tracked
         team.is_tracked = False
         team.newsletters_active = False
+
+        # Season-rollup sole-writer contract: the FPS bulk-delete above fed
+        # player_season_cells/totals — rebuild each affected player's rollup from
+        # the REMAINING sources BEFORE the commit, so the delete and the
+        # cells/totals re-resolution land in ONE transaction. A crash between the
+        # two (the 0.5 CPU box's documented OOM/deploy/restart failure mode) can no
+        # longer leave a phantom fixtures total whose source FPS rows are already
+        # gone — a phantom the rows-behind gauge cannot detect once those source
+        # rows are deleted. Mirrors the two ghost-delete paths (savepoint-wrapped
+        # refresh before the shared commit); a team DELETE is cheap to redo, so
+        # atomicity wins here over the deferred post-commit refresh that exists
+        # only to shield API-expensive fixture writes. season=None covers every
+        # season the deleted rows spanned; one bounded refresh per rostered player
+        # (a team roster, not a platform-wide sweep). Any per-player refresh
+        # failure propagates to the outer handler, which rolls back the WHOLE
+        # cheap-to-redo team delete and returns 500.
+        affected_pids = {pid for pid in player_api_ids if pid is not None}
+        if affected_pids:
+            from src.services.season_rollup_service import refresh_player as _refresh_rollup
+
+            for _pid in affected_pids:
+                with db.session.begin_nested():
+                    _refresh_rollup(_pid, season=None)
 
         db.session.commit()
 

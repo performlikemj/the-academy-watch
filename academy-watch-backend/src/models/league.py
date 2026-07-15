@@ -1522,6 +1522,9 @@ class AcademyPlayerSeasonStats(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("player_api_id", "league_api_id", "season", name="uq_academy_player_season_stats"),
+        # Single-column clock index so the season-rollup /status gauge's
+        # MAX(updated_at) is an index lookup, not a full seq scan. Matches migration sea03.
+        db.Index("ix_apss_updated_at", "updated_at"),
     )
 
     def to_dict(self):
