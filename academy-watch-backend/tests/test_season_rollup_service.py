@@ -266,6 +266,39 @@ def test_never_cross_source_sum_headline_is_larger_source_whole(app):
     assert total.source_breakdown["journey"]["minutes"] == 600
 
 
+def test_headline_tie_resolves_to_journey(app):
+    """Equal minutes on both sources → journey wins the headline (proposal §2
+    tie half: journey wins ties/≥ — the cup-inclusive convention).
+
+    This pins the OTHER side of the headline rule from ``test_journey_under_sync``.
+    Equal minutes is the post-B2 steady state, not a corner case: a league-only
+    player whose journey is fully synced has ``fixtures_minutes == journey_minutes``.
+    If a future edit flips the tie-break (or drops ``_SOURCE_PRIORITY`` from the
+    ``max()``), fixtures would win the tie for that most-common player state —
+    ``primary_source`` badges the wrong provenance AND the club chips lose their
+    names, because the ``clubs`` array is built from the headline source's cells
+    and the fixtures feeder writes ``club_name=None`` while journey carries the
+    real name. Both assertions below catch that regression.
+    """
+    player = 778
+    club = 501
+    fx = _fixture(11, 2025)  # "Premier League" → senior / league tier
+    _fps(fx, player, club, minutes=600, goals=2, rating=7.0)
+    j = _journey(player)
+    _entry(j, player, 2025, club, minutes=600, goals=2, apps=8, club_name="Rotherham United")
+    db.session.commit()
+    svc.refresh_player(player, season=2025)
+    db.session.commit()
+
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player, level_group="senior").one()
+    assert total.primary_source == "journey"  # journey wins the tie
+    assert total.minutes == 600
+    assert total.fixtures_minutes == 600
+    assert total.journey_minutes == 600
+    assert total.reconcile_flag is None  # equal minutes → no under-sync/cup-gap flag
+    assert total.clubs[0]["name"] == "Rotherham United"  # headline reads the journey club name
+
+
 def test_level_group_split(app):
     """youth + senior + international journey entries → three totals rows."""
     player = 888
