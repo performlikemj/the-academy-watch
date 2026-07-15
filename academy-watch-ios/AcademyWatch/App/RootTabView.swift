@@ -88,6 +88,26 @@ struct RootTabView: View {
         .sheet(isPresented: $isSignInPresented) {
             SignInView(authManager: authManager)
         }
+        .alert(
+            "Unable to Sign Out",
+            isPresented: Binding(
+                get: { authManager.signOutErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        authManager.clearSignOutError()
+                    }
+                }
+            )
+        ) {
+            Button("Try Again") {
+                authManager.signOut()
+            }
+            Button("Cancel", role: .cancel) {
+                authManager.clearSignOutError()
+            }
+        } message: {
+            Text(authManager.signOutErrorMessage ?? "Your credential is still stored on this device.")
+        }
         .task(id: authManager.state) {
             if authManager.isAuthenticated {
                 async let watchlist: Void = watchlistViewModel.loadWatchlist()

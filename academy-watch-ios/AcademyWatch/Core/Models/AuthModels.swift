@@ -33,6 +33,14 @@ enum AuthState: Equatable, Sendable {
 protocol AuthSessionProtocol: Sendable {
     func accessToken() async -> String?
     func invalidate() async
+    func invalidate(credential: String) async
+}
+
+extension AuthSessionProtocol {
+    func invalidate(credential: String) async {
+        guard await accessToken() == credential else { return }
+        await invalidate()
+    }
 }
 
 protocol AuthAPIClientProtocol: Sendable {

@@ -12,6 +12,8 @@ struct SignInView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var confirmationMessage: String?
+    @State private var authenticationTask: Task<Void, Never>?
+    @State private var authenticationGeneration: UInt = 0
 
     init(authManager: AuthManager) {
         self.authManager = authManager
@@ -37,6 +39,7 @@ struct SignInView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close", systemImage: "xmark") {
+                        cancelAuthenticationAttempt()
                         dismiss()
                     }
                     .labelStyle(.iconOnly)
@@ -47,6 +50,9 @@ struct SignInView: View {
         .tint(AcademyColors.claret)
         .onAppear {
             focusedField = step == .email ? .email : .code
+        }
+        .onDisappear {
+            cancelAuthenticationAttempt()
         }
     }
 
@@ -169,6 +175,7 @@ struct SignInView: View {
 
             HStack {
                 Button("Back") {
+                    cancelAuthenticationAttempt()
                     step = .email
                     code = ""
                     clearMessages()
@@ -204,6 +211,7 @@ struct SignInView: View {
             .frame(height: 48)
         }
         .buttonStyle(.borderedProminent)
+        .tint(AcademyColors.claretFill)
         .accessibilityIdentifier(identifier)
     }
 
@@ -215,14 +223,20 @@ struct SignInView: View {
         guard !isLoading, !normalizedEmail.isEmpty else { return }
         clearMessages()
         isLoading = true
-        Task {
-            defer { isLoading = false }
+        authenticationGeneration &+= 1
+        let attemptGeneration = authenticationGeneration
+        authenticationTask = Task { @MainActor in
+            defer { finishAuthenticationAttempt(generation: attemptGeneration) }
             do {
                 _ = try await authManager.requestCode(email: normalizedEmail)
+                guard isCurrentAuthenticationAttempt(attemptGeneration) else { return }
                 step = .code
                 confirmationMessage = isResend ? "A new code is on its way." : "Code sent. Check your inbox."
                 focusedField = .code
+            } catch is CancellationError {
+                return
             } catch {
+                guard isCurrentAuthenticationAttempt(attemptGeneration) else { return }
                 errorMessage = error.localizedDescription
             }
         }
@@ -232,15 +246,39 @@ struct SignInView: View {
         guard !isLoading, code.count == 11 else { return }
         clearMessages()
         isLoading = true
-        Task {
-            defer { isLoading = false }
+        authenticationGeneration &+= 1
+        let attemptGeneration = authenticationGeneration
+        authenticationTask = Task { @MainActor in
+            defer { finishAuthenticationAttempt(generation: attemptGeneration) }
             do {
                 _ = try await authManager.verifyCode(email: normalizedEmail, code: code)
+                guard isCurrentAuthenticationAttempt(attemptGeneration) else { return }
                 dismiss()
+            } catch is CancellationError {
+                return
             } catch {
+                guard isCurrentAuthenticationAttempt(attemptGeneration) else { return }
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    private func cancelAuthenticationAttempt() {
+        authenticationGeneration &+= 1
+        authenticationTask?.cancel()
+        authenticationTask = nil
+        isLoading = false
+        authManager.cancelVerificationAttempts()
+    }
+
+    private func isCurrentAuthenticationAttempt(_ generation: UInt) -> Bool {
+        generation == authenticationGeneration && !Task.isCancelled
+    }
+
+    private func finishAuthenticationAttempt(generation: UInt) {
+        guard generation == authenticationGeneration else { return }
+        authenticationTask = nil
+        isLoading = false
     }
 
     private func clearMessages() {

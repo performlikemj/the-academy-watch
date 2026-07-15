@@ -9,6 +9,7 @@ struct WatchlistStarButton: View {
 
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var watchlistViewModel: WatchlistViewModel
+    @EnvironmentObject private var followListsViewModel: FollowListsViewModel
 
     private var isWatched: Bool {
         watchlistViewModel.isWatched(playerID: playerID)
@@ -58,7 +59,9 @@ struct WatchlistStarButton: View {
         }
 
         Task {
-            await watchlistViewModel.toggleWatchlist(playerID: playerID)
+            if await watchlistViewModel.toggleWatchlist(playerID: playerID) {
+                await followListsViewModel.synchronizeAfterWatchlistMutation()
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ import SwiftUI
 struct AddPlayerToListButton: View {
     let playerID: Int
     let playerName: String
+    let allowsWatchlist: Bool
     let onSignInRequested: () -> Void
 
     @EnvironmentObject private var authManager: AuthManager
@@ -27,6 +28,7 @@ struct AddPlayerToListButton: View {
             PlayerListPicker(
                 playerID: playerID,
                 playerName: playerName,
+                allowsWatchlist: allowsWatchlist,
                 isPresented: $isListPickerPresented
             )
         }
@@ -37,9 +39,15 @@ struct AddPlayerToListButton: View {
 private struct PlayerListPicker: View {
     let playerID: Int
     let playerName: String
+    let allowsWatchlist: Bool
     @Binding var isPresented: Bool
 
     @EnvironmentObject private var viewModel: FollowListsViewModel
+    @EnvironmentObject private var watchlistViewModel: WatchlistViewModel
+
+    private var availableLists: [FollowList] {
+        viewModel.lists.filter { allowsWatchlist || !$0.isDefault }
+    }
 
     var body: some View {
         NavigationStack {
@@ -68,11 +76,11 @@ private struct PlayerListPicker: View {
         if viewModel.isLoading, viewModel.lists.isEmpty {
             ProgressView("Loading lists…")
                 .tint(AcademyColors.claret)
-        } else if viewModel.lists.isEmpty {
+        } else if availableLists.isEmpty {
             ContentUnavailableView {
-                Label("No lists yet", systemImage: "list.bullet.rectangle")
+                Label("No lists available", systemImage: "list.bullet.rectangle")
             } description: {
-                Text("Create your first list from the Lists tab, then add \(playerName).")
+                Text("Create a named list from the Lists tab, then add \(playerName).")
             }
             .padding(24)
         } else {
@@ -83,11 +91,25 @@ private struct PlayerListPicker: View {
                         .foregroundStyle(.secondary)
                 }
 
-                ForEach(viewModel.lists) { list in
-                    let isAdded = list.containsPlayer(playerID)
+                ForEach(availableLists) { list in
+                    let isAdded = list.isDefault
+                        ? watchlistViewModel.isWatched(playerID: playerID) || list.containsPlayer(playerID)
+                        : list.containsPlayer(playerID)
+                    let isPending = list.isDefault
+                        ? watchlistViewModel.isPending(playerID: playerID)
+                        : viewModel.pendingPlayerIDs.contains(playerID)
                     Button {
                         Task {
-                            if await viewModel.addPlayer(playerID, to: list.id) {
+                            let didAdd: Bool
+                            if list.isDefault {
+                                didAdd = await watchlistViewModel.addToWatchlist(playerID: playerID)
+                                if didAdd {
+                                    await viewModel.synchronizeAfterWatchlistMutation()
+                                }
+                            } else {
+                                didAdd = await viewModel.addPlayer(playerID, to: list.id)
+                            }
+                            if didAdd {
                                 isPresented = false
                             }
                         }
@@ -110,7 +132,7 @@ private struct PlayerListPicker: View {
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.green)
                                     .labelStyle(.titleAndIcon)
-                            } else if viewModel.pendingPlayerIDs.contains(playerID) {
+                            } else if isPending {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
@@ -120,7 +142,7 @@ private struct PlayerListPicker: View {
                         }
                         .padding(.vertical, 4)
                     }
-                    .disabled(isAdded || viewModel.pendingPlayerIDs.contains(playerID))
+                    .disabled(isAdded || isPending)
                 }
             }
             .scrollContentBackground(.hidden)

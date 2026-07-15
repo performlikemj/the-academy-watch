@@ -43,7 +43,7 @@ struct CompareView: View {
     private var content: some View {
         if viewModel.isLoading, viewModel.players.isEmpty {
             ProgressView("Comparing players…")
-                .tint(AcademyColors.claret)
+                .tint(AcademyColors.claretForeground)
         } else if let message = viewModel.errorMessage, viewModel.players.isEmpty {
             ContentUnavailableView {
                 Label("Comparison unavailable", systemImage: "wifi.exclamationmark")
@@ -54,7 +54,7 @@ struct CompareView: View {
                     Task { await viewModel.load() }
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claret)
+                .tint(AcademyColors.claretFill)
             }
         } else if viewModel.players.isEmpty {
             ContentUnavailableView(
@@ -111,7 +111,7 @@ struct CompareView: View {
         Text(title.uppercased())
             .font(.caption2.weight(.bold))
             .tracking(1.1)
-            .foregroundStyle(AcademyColors.claret)
+            .foregroundStyle(AcademyColors.claretForeground)
             .padding(.horizontal, 12)
             .frame(
                 width: tableWidth,
@@ -143,7 +143,7 @@ struct CompareView: View {
                 let isHighlighted = highlightedIndices.contains(index)
                 Text(values[index]?.displayValue ?? "—")
                     .font(.subheadline.weight(isHighlighted ? .bold : .regular))
-                    .foregroundStyle(isHighlighted ? AcademyColors.claret : Color.primary)
+                    .foregroundStyle(isHighlighted ? AcademyColors.claretForeground : Color.primary)
                     .monospacedDigit()
                     .lineLimit(2)
                     .minimumScaleFactor(0.72)

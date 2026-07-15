@@ -21,6 +21,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 ## State
 
 ### Done
+- iOS `feat/ios-app` review fix round complete (2026-07-15): all 11 verified findings fixed; XcodeGen + build + unsigned archive pass; 45 tests pass; two dark-mode screenshots visually verified.
+- iOS `feat/ios-app` adversarial review complete (2026-07-15): baseline build + 35 tests pass; verdict FIX-FIRST with 9 major and 2 minor confirmed findings; app source unchanged.
 - Agent workflow setup (AGENTS.md, Ralph scripts, ledger structure)
 - Agent protocol integration into CLAUDE.md
 - "The Academy Watch" refactor planning and analysis
@@ -194,6 +196,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 ```
 CONTINUITY.md
   └─ ledgers/CONTINUITY_plan-example.md (template - rename for actual work)
+  └─ ledgers/CONTINUITY_plan-ios-adversarial-review.md (complete, report-only)
+  └─ ledgers/CONTINUITY_plan-ios-review-fix-round.md (complete)
   └─ ledgers/CONTINUITY_cohort-dynamic-resolution.md (in-progress)
   └─ ledgers/CONTINUITY_video-analysis.md (design complete — Phase 0 ready)
   └─ ledgers/CONTINUITY_global-talent-platform.md (implementation complete — PR review)
@@ -206,6 +210,8 @@ CONTINUITY.md
 | ACADEMY_WATCH_REFACTOR_PLAN.md | complete | — | Phases 1-4 done |
 | ACADEMY_WATCH_IMPLEMENTATION_PLAN.md | in-progress | — | Phases 1-5 done, Phase 6 ready |
 | ACADEMY_WATCH_JOURNEY_REDESIGN.md | complete | — | Design doc for journey feature |
+| CONTINUITY_plan-ios-adversarial-review.md | complete | codex | 9 major and 2 minor findings reported; fixes not in scope |
+| CONTINUITY_plan-ios-review-fix-round.md | complete | codex | none |
 | CONTINUITY_cohort-dynamic-resolution.md | in-progress | codex | pending live Full Rebuild validation |
 | CONTINUITY_video-analysis.md | design complete | — | Phase 0 blocked on footage acquisition (0.1) + MJ decisions (pricing, footage source) |
 | CONTINUITY_global-talent-platform.md | implementation complete | claude | awaiting PR review/merge |

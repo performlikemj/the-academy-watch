@@ -6,6 +6,7 @@ struct WatchlistView: View {
 
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var viewModel: WatchlistViewModel
+    @EnvironmentObject private var listsViewModel: FollowListsViewModel
 
     var body: some View {
         NavigationStack {
@@ -74,6 +75,7 @@ struct WatchlistView: View {
 
             Button("Sign In", action: onSignInRequested)
                 .buttonStyle(.borderedProminent)
+                .tint(AcademyColors.claretFill)
                 .controlSize(.large)
         }
         .padding(28)
@@ -99,6 +101,7 @@ struct WatchlistView: View {
                 Task { await viewModel.loadWatchlist() }
             }
             .buttonStyle(.borderedProminent)
+            .tint(AcademyColors.claretFill)
         }
         .padding(24)
     }
@@ -130,7 +133,9 @@ struct WatchlistView: View {
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {
                         Task {
-                            await viewModel.removeFromWatchlist(playerID: entry.playerApiId)
+                            if await viewModel.removeFromWatchlist(playerID: entry.playerApiId) {
+                                await listsViewModel.synchronizeAfterWatchlistMutation()
+                            }
                         }
                     } label: {
                         Label("Remove", systemImage: "trash")

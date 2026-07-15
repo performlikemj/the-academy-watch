@@ -51,13 +51,15 @@ struct PlayerDetailView: View {
         .navigationTitle(viewModel.profile?.name ?? "Player Detail")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                WatchlistStarButton(
-                    playerID: viewModel.playerID,
-                    playerName: viewModel.profile?.name ?? "this player",
-                    onSignInRequested: onSignInRequested,
-                    showsBackground: false
-                )
+            if let profile = viewModel.profile, !profile.isShadow {
+                ToolbarItem(placement: .topBarTrailing) {
+                    WatchlistStarButton(
+                        playerID: viewModel.playerID,
+                        playerName: profile.name,
+                        onSignInRequested: onSignInRequested,
+                        showsBackground: false
+                    )
+                }
             }
         }
         .task {
@@ -74,6 +76,7 @@ struct PlayerDetailView: View {
                 AddPlayerToListButton(
                     playerID: viewModel.playerID,
                     playerName: profile.name,
+                    allowsWatchlist: !profile.isShadow,
                     onSignInRequested: onSignInRequested
                 )
                 ShowcaseSectionView(viewModel: showcaseViewModel)
@@ -512,8 +515,8 @@ private struct SeasonClubCard: View {
                 if isCurrent {
                     BadgeView(
                         text: "Current",
-                        foregroundColor: Color(red: 0.04, green: 0.45, blue: 0.20),
-                        backgroundColor: Color(red: 0.04, green: 0.45, blue: 0.20).opacity(0.12)
+                        foregroundColor: AcademyColors.positiveGreen,
+                        backgroundColor: AcademyColors.positiveGreen.opacity(0.12)
                     )
                 }
             }
@@ -722,8 +725,8 @@ private struct JourneyTimelineCard: View {
                 if isCurrent {
                     BadgeView(
                         text: "Current",
-                        foregroundColor: Color(red: 0.04, green: 0.45, blue: 0.20),
-                        backgroundColor: Color(red: 0.04, green: 0.45, blue: 0.20).opacity(0.12)
+                        foregroundColor: AcademyColors.positiveGreen,
+                        backgroundColor: AcademyColors.positiveGreen.opacity(0.12)
                     )
                 }
             }
@@ -945,7 +948,7 @@ private struct PlayerDetailPageError: View {
         } actions: {
             Button("Try Again", action: retry)
                 .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claret)
+                .tint(AcademyColors.claretFill)
         }
     }
 }
@@ -981,10 +984,10 @@ private func displayStatus(_ status: String) -> String {
 
 private func statusColor(_ status: String) -> Color {
     switch status {
-    case "academy": .blue
-    case "on_loan": Color(red: 0.66, green: 0.32, blue: 0.02)
-    case "first_team": Color(red: 0.04, green: 0.45, blue: 0.20)
-    case "sold": .purple
+    case "academy": AcademyColors.academyBlue
+    case "on_loan": AcademyColors.loanAmber
+    case "first_team": AcademyColors.positiveGreen
+    case "sold": AcademyColors.transitionPurple
     case "released", "left": .secondary
     default: AcademyColors.claret
     }

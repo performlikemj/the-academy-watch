@@ -302,11 +302,13 @@ struct APIClient: ScoutAPIClientProtocol,
             }
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+            request.cachePolicy = .reloadIgnoringLocalCacheData
         }
 
         // Scout aggregation can approach 30 seconds during an Azure cold start.
         request.timeoutInterval = 60
-        if method == "GET" {
+        if method == "GET", token == nil {
             request.cachePolicy = .reloadRevalidatingCacheData
         }
 
@@ -315,8 +317,8 @@ struct APIClient: ScoutAPIClientProtocol,
             throw APIClientError.invalidResponse
         }
         guard (200 ... 299).contains(httpResponse.statusCode) else {
-            if httpResponse.statusCode == 401, token != nil {
-                await authSession?.invalidate()
+            if httpResponse.statusCode == 401, let token {
+                await authSession?.invalidate(credential: token)
             }
             if let message = Self.errorMessage(from: data) {
                 throw APIClientError.server(statusCode: httpResponse.statusCode, message: message)

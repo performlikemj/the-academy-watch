@@ -14,6 +14,8 @@ final class WatchlistViewModel: ObservableObject {
 
     private let apiClient: any WatchlistAPIClientProtocol
     private var sessionRevision = 0
+    private var dataRevision = 0
+    private var activeMutationCount = 0
 
     init(apiClient: any WatchlistAPIClientProtocol = APIClient()) {
         self.apiClient = apiClient
@@ -32,52 +34,68 @@ final class WatchlistViewModel: ObservableObject {
     }
 
     func loadWatchedPlayerIDs() async {
-        let revision = sessionRevision
+        let session = sessionRevision
+        let data = dataRevision
         isLoadingWatchedPlayerIDs = true
         errorMessage = nil
 
         defer {
-            if revision == sessionRevision {
+            if session == sessionRevision {
                 isLoadingWatchedPlayerIDs = false
             }
         }
 
         do {
             let response = try await apiClient.fetchWatchlistIDs()
-            guard revision == sessionRevision else { return }
+            guard session == sessionRevision,
+                  data == dataRevision,
+                  activeMutationCount == 0
+            else { return }
             watchedPlayerIDs = Set(response.playerIds)
         } catch {
-            guard revision == sessionRevision else { return }
+            guard session == sessionRevision,
+                  data == dataRevision,
+                  activeMutationCount == 0
+            else { return }
             errorMessage = displayMessage(for: error)
         }
     }
 
     func loadWatchlist() async {
-        let revision = sessionRevision
+        let session = sessionRevision
+        let data = dataRevision
         isLoadingWatchlist = true
         errorMessage = nil
 
         defer {
-            if revision == sessionRevision {
+            if session == sessionRevision {
                 isLoadingWatchlist = false
             }
         }
 
         do {
             let response = try await apiClient.fetchWatchlist()
-            guard revision == sessionRevision else { return }
+            guard session == sessionRevision,
+                  data == dataRevision,
+                  activeMutationCount == 0
+            else { return }
             entries = response.entries
             watchedPlayerIDs = Set(response.entries.map(\.playerApiId))
             digestOptIn = response.digestOptIn
             scoutTier = response.scoutTier
         } catch {
-            guard revision == sessionRevision else { return }
+            guard session == sessionRevision,
+                  data == dataRevision,
+                  activeMutationCount == 0
+            else { return }
             errorMessage = displayMessage(for: error)
         }
     }
 
     func resetForSignOut() {
         sessionRevision += 1
+        dataRevision += 1
+        activeMutationCount = 0
         entries = []
         watchedPlayerIDs = []
         isLoadingWatchlist = false
@@ -88,20 +106,23 @@ final class WatchlistViewModel: ObservableObject {
         scoutTier = "free"
     }
 
-    func toggleWatchlist(playerID: Int) async {
-        guard !isPending(playerID: playerID) else { return }
+    @discardableResult
+    func toggleWatchlist(playerID: Int) async -> Bool {
+        guard !isPending(playerID: playerID) else { return false }
         if isWatched(playerID: playerID) {
-            await removeFromWatchlist(playerID: playerID)
+            return await removeFromWatchlist(playerID: playerID)
         } else {
-            await addToWatchlist(playerID: playerID)
+            return await addToWatchlist(playerID: playerID)
         }
     }
 
-    func removeFromWatchlist(playerID: Int) async {
-        guard !isPending(playerID: playerID) else { return }
+    @discardableResult
+    func removeFromWatchlist(playerID: Int) async -> Bool {
+        guard !isPending(playerID: playerID) else { return false }
 
         let revision = sessionRevision
         let snapshot = captureState(for: playerID)
+        beginMutation()
         pendingPlayerIDs.insert(playerID)
         errorMessage = nil
         watchedPlayerIDs.remove(playerID)
@@ -110,15 +131,19 @@ final class WatchlistViewModel: ObservableObject {
         defer {
             if revision == sessionRevision {
                 pendingPlayerIDs.remove(playerID)
+                endMutation()
             }
         }
 
         do {
             _ = try await apiClient.removeFromWatchlist(playerID: playerID)
+            guard revision == sessionRevision else { return false }
+            return true
         } catch {
-            guard revision == sessionRevision else { return }
+            guard revision == sessionRevision else { return false }
             restore(snapshot, for: playerID)
             errorMessage = displayMessage(for: error)
+            return false
         }
     }
 
@@ -126,12 +151,14 @@ final class WatchlistViewModel: ObservableObject {
         guard !isPending(playerID: playerID) else { return }
 
         let revision = sessionRevision
+        beginMutation()
         pendingPlayerIDs.insert(playerID)
         errorMessage = nil
 
         defer {
             if revision == sessionRevision {
                 pendingPlayerIDs.remove(playerID)
+                endMutation()
             }
         }
 
@@ -150,9 +177,13 @@ final class WatchlistViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    private func addToWatchlist(playerID: Int) async {
+    @discardableResult
+    func addToWatchlist(playerID: Int) async -> Bool {
+        guard !isPending(playerID: playerID), !isWatched(playerID: playerID) else { return false }
+
         let revision = sessionRevision
         let snapshot = captureState(for: playerID)
+        beginMutation()
         pendingPlayerIDs.insert(playerID)
         errorMessage = nil
         watchedPlayerIDs.insert(playerID)
@@ -160,19 +191,32 @@ final class WatchlistViewModel: ObservableObject {
         defer {
             if revision == sessionRevision {
                 pendingPlayerIDs.remove(playerID)
+                endMutation()
             }
         }
 
         do {
             let response = try await apiClient.addToWatchlist(playerID: playerID)
-            guard revision == sessionRevision else { return }
+            guard revision == sessionRevision else { return false }
             watchedPlayerIDs.insert(playerID)
             upsert(response.entry, preferBeginning: true)
+            return true
         } catch {
-            guard revision == sessionRevision else { return }
+            guard revision == sessionRevision else { return false }
             restore(snapshot, for: playerID)
             errorMessage = displayMessage(for: error)
+            return false
         }
+    }
+
+    private func beginMutation() {
+        dataRevision += 1
+        activeMutationCount += 1
+    }
+
+    private func endMutation() {
+        activeMutationCount = max(0, activeMutationCount - 1)
+        dataRevision += 1
     }
 
     private func captureState(for playerID: Int) -> PlayerStateSnapshot {

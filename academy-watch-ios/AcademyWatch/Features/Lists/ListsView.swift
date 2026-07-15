@@ -115,6 +115,7 @@ struct ListsView: View {
 
             Button("Sign In", action: onSignInRequested)
                 .buttonStyle(.borderedProminent)
+                .tint(AcademyColors.claretFill)
                 .controlSize(.large)
         }
         .padding(28)
@@ -132,6 +133,7 @@ struct ListsView: View {
                 isCreatingList = true
             }
             .buttonStyle(.borderedProminent)
+            .tint(AcademyColors.claretFill)
         }
         .padding(24)
     }
@@ -146,6 +148,7 @@ struct ListsView: View {
                 Task { await viewModel.loadLists() }
             }
             .buttonStyle(.borderedProminent)
+            .tint(AcademyColors.claretFill)
         }
         .padding(24)
     }
@@ -226,6 +229,7 @@ private struct FollowListDetailView: View {
     let listID: Int
 
     @EnvironmentObject private var listsViewModel: FollowListsViewModel
+    @EnvironmentObject private var watchlistViewModel: WatchlistViewModel
     @StateObject private var detailViewModel: FollowListDetailViewModel
 
     init(listID: Int, apiClient: any FollowListsAPIClientProtocol) {
@@ -345,14 +349,27 @@ private struct FollowListDetailView: View {
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 Button(role: .destructive) {
                     Task {
-                        if await listsViewModel.removeFollow(follow, from: list.id) {
+                        let didRemove: Bool
+                        if list.isDefault {
+                            didRemove = await watchlistViewModel.removeFromWatchlist(playerID: playerID)
+                            if didRemove {
+                                await listsViewModel.synchronizeAfterWatchlistMutation()
+                            }
+                        } else {
+                            didRemove = await listsViewModel.removeFollow(follow, from: list.id)
+                        }
+                        if didRemove {
                             await detailViewModel.reload()
                         }
                     }
                 } label: {
                     Label("Remove", systemImage: "trash")
                 }
-                .disabled(listsViewModel.pendingFollowIDs.contains(follow.id))
+                .disabled(
+                    list.isDefault
+                        ? watchlistViewModel.isPending(playerID: playerID)
+                        : listsViewModel.pendingFollowIDs.contains(follow.id)
+                )
             }
         } else {
             FollowLabelRow(follow: follow)

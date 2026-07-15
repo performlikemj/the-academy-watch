@@ -41,8 +41,8 @@ struct ShowcaseSectionView: View {
             if viewModel.isFixturePreview {
                 BadgeView(
                     text: "Fixture preview",
-                    foregroundColor: Color(red: 0.68, green: 0.35, blue: 0.03),
-                    backgroundColor: Color.orange.opacity(0.14)
+                    foregroundColor: AcademyColors.loanAmber,
+                    backgroundColor: AcademyColors.loanAmber.opacity(0.12)
                 )
             }
         }
@@ -119,7 +119,7 @@ struct ShowcaseSectionView: View {
     }
 
     private func verifiedAppearances(_ appearances: [ShowcaseVerifiedFootage]) -> some View {
-        let verifiedGreen = Color(red: 0.03, green: 0.45, blue: 0.24)
+        let verifiedGreen = AcademyColors.positiveGreen
 
         return VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 8) {
@@ -131,7 +131,7 @@ struct ShowcaseSectionView: View {
                 BadgeView(
                     text: "Club-verified",
                     foregroundColor: verifiedGreen,
-                    backgroundColor: verifiedGreen.opacity(0.13)
+                    backgroundColor: verifiedGreen.opacity(0.12)
                 )
             }
 

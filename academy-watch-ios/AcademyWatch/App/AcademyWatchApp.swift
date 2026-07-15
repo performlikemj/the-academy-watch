@@ -34,7 +34,7 @@ struct AcademyWatchApp: App {
                 initialTab: initialTab,
                 initiallyShowsSignIn: initiallyShowsSignIn
             )
-                .tint(AcademyColors.claret)
+                .tint(AcademyColors.claretForeground)
         }
     }
 }

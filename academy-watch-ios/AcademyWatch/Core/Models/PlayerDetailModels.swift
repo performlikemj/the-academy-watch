@@ -8,6 +8,7 @@ struct PlayerProfile: Decodable, Equatable, Sendable {
     let status: String?
     let age: Int?
     let nationality: String?
+    let shadow: Bool?
 
     let loanTeamName: String?
     let loanTeamId: Int?
@@ -55,6 +56,10 @@ struct PlayerProfile: Decodable, Equatable, Sendable {
         guard let position else { return false }
         return position.caseInsensitiveCompare("Goalkeeper") == .orderedSame
             || position.caseInsensitiveCompare("G") == .orderedSame
+    }
+
+    var isShadow: Bool {
+        shadow == true
     }
 }
 

@@ -110,9 +110,9 @@ struct ScoutDeskView: View {
                             .font(.caption.weight(.semibold))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
-                            .foregroundStyle(isSelected ? Color.white : Color.primary)
+                            .foregroundStyle(isSelected ? AcademyColors.claretOnFill : Color.primary)
                             .background(
-                                isSelected ? AcademyColors.claret : AcademyColors.surface,
+                                isSelected ? AcademyColors.claretFill : AcademyColors.surface,
                                 in: Capsule()
                             )
                             .overlay {
@@ -199,9 +199,9 @@ struct ScoutDeskView: View {
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
-                                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                                .foregroundStyle(isSelected ? AcademyColors.claretOnFill : Color.primary)
                                 .background(
-                                    isSelected ? AcademyColors.claret : Color(uiColor: .tertiarySystemFill),
+                                    isSelected ? AcademyColors.claretFill : Color(uiColor: .tertiarySystemFill),
                                     in: Capsule()
                                 )
                         }
@@ -415,6 +415,7 @@ struct ScoutDeskView: View {
                 isComparePresented = true
             }
             .buttonStyle(.borderedProminent)
+            .tint(AcademyColors.claretFill)
             .controlSize(.small)
             .disabled(selectedPlayerIDs.count < 2)
 
@@ -633,7 +634,7 @@ private struct RankChip: View {
 
     private var backgroundColor: Color {
         switch rank {
-        case 1: AcademyColors.claret
+        case 1: AcademyColors.claretFill
         case 2: Color(red: 0.94, green: 0.80, blue: 0.36).opacity(0.45)
         default: Color(uiColor: .tertiarySystemFill)
         }
@@ -764,7 +765,7 @@ private struct ScoutErrorView: View {
         } actions: {
             Button("Try Again", action: retry)
                 .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claret)
+                .tint(AcademyColors.claretFill)
         }
     }
 }

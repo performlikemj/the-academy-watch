@@ -101,10 +101,10 @@ struct PlayerIdentityHeader: View {
 
     private static func statusColor(_ status: String) -> Color {
         switch status {
-        case "academy": .blue
-        case "on_loan": Color(red: 0.66, green: 0.32, blue: 0.02)
-        case "first_team": Color(red: 0.04, green: 0.45, blue: 0.20)
-        case "sold": .purple
+        case "academy": AcademyColors.academyBlue
+        case "on_loan": AcademyColors.loanAmber
+        case "first_team": AcademyColors.positiveGreen
+        case "sold": AcademyColors.transitionPurple
         case "released", "left": .secondary
         default: AcademyColors.claret
         }

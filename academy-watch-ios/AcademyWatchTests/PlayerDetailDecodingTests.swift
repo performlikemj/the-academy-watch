@@ -27,6 +27,21 @@ final class PlayerDetailDecodingTests: XCTestCase {
         XCTAssertTrue(profile.isGoalkeeper)
     }
 
+    func testDecodesShadowProfileMarker() throws {
+        let profile = try decodeJSON(
+            PlayerProfile.self,
+            json: """
+            {
+              "player_id": 2001,
+              "name": "Shadow Prospect",
+              "shadow": true
+            }
+            """
+        )
+
+        XCTAssertTrue(profile.isShadow)
+    }
+
     func testDecodesCapturedSeasonStatsAndKeepsSourcesDistinct() throws {
         let stats = try decode(PlayerSeasonStats.self, fixture: "player_season_stats_outfielder")
 

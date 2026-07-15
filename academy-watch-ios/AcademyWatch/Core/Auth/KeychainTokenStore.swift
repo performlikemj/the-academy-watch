@@ -84,12 +84,15 @@ struct KeychainTokenStore: TokenStoreProtocol, Sendable {
 
 enum KeychainTokenStoreError: LocalizedError {
     case invalidTokenData
+    case credentialStillPresent
     case unhandledStatus(OSStatus)
 
     var errorDescription: String? {
         switch self {
         case .invalidTokenData:
             return "The sign-in token could not be stored securely."
+        case .credentialStillPresent:
+            return "The sign-in credential is still stored securely on this device."
         case let .unhandledStatus(status):
             let detail = SecCopyErrorMessageString(status, nil) as String?
             return detail ?? "The Keychain returned error \(status)."

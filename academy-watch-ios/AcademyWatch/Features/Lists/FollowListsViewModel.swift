@@ -15,6 +15,10 @@ final class FollowListsViewModel: ObservableObject {
     private var sessionRevision = 0
     private var listDataRevision = 0
     private var loadRequestRevision = 0
+    private var synchronizationRequestRevision = 0
+    private var synchronizationTaskRevision = 0
+    private var synchronizationTask: Task<Void, Never>?
+    private var listMutationWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(apiClient: any FollowListsAPIClientProtocol = APIClient()) {
         self.apiClient = apiClient
@@ -53,6 +57,26 @@ final class FollowListsViewModel: ObservableObject {
         }
     }
 
+    func synchronizeAfterWatchlistMutation() async {
+        synchronizationRequestRevision += 1
+        if let synchronizationTask {
+            await synchronizationTask.value
+            return
+        }
+
+        synchronizationTaskRevision += 1
+        let taskRevision = synchronizationTaskRevision
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performStableSynchronization()
+            if self.synchronizationTaskRevision == taskRevision {
+                self.synchronizationTask = nil
+            }
+        }
+        synchronizationTask = task
+        await task.value
+    }
+
     @discardableResult
     func createList(name: String) async -> Bool {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -65,6 +89,7 @@ final class FollowListsViewModel: ObservableObject {
         defer {
             if revision == sessionRevision {
                 isCreating = false
+                resumeListMutationWaitersIfSettled()
             }
         }
 
@@ -95,6 +120,7 @@ final class FollowListsViewModel: ObservableObject {
         defer {
             if revision == sessionRevision {
                 pendingListIDs.remove(list.id)
+                resumeListMutationWaitersIfSettled()
             }
         }
 
@@ -116,6 +142,7 @@ final class FollowListsViewModel: ObservableObject {
     func addPlayer(_ playerID: Int, to listID: Int) async -> Bool {
         guard !pendingPlayerIDs.contains(playerID),
               let listIndex = lists.firstIndex(where: { $0.id == listID }),
+              !lists[listIndex].isDefault,
               !lists[listIndex].containsPlayer(playerID)
         else { return false }
 
@@ -126,6 +153,7 @@ final class FollowListsViewModel: ObservableObject {
         defer {
             if revision == sessionRevision {
                 pendingPlayerIDs.remove(playerID)
+                resumeListMutationWaitersIfSettled()
             }
         }
 
@@ -153,11 +181,13 @@ final class FollowListsViewModel: ObservableObject {
     func removeFollow(_ follow: Follow, from listID: Int) async -> Bool {
         guard follow.kind == .player,
               !pendingFollowIDs.contains(follow.id),
-              let listIndex = lists.firstIndex(where: { $0.id == listID })
+              let listIndex = lists.firstIndex(where: { $0.id == listID }),
+              !lists[listIndex].isDefault
         else { return false }
 
         let revision = sessionRevision
         let snapshot = lists[listIndex]
+        let originalFollowIndex = snapshot.follows.firstIndex { $0.id == follow.id }
         invalidateListLoads()
         pendingFollowIDs.insert(follow.id)
         errorMessage = nil
@@ -169,6 +199,7 @@ final class FollowListsViewModel: ObservableObject {
         defer {
             if revision == sessionRevision {
                 pendingFollowIDs.remove(follow.id)
+                resumeListMutationWaitersIfSettled()
             }
         }
 
@@ -181,7 +212,18 @@ final class FollowListsViewModel: ObservableObject {
             guard revision == sessionRevision else { return false }
             invalidateListLoads()
             if let currentIndex = lists.firstIndex(where: { $0.id == listID }) {
-                lists[currentIndex] = snapshot
+                let current = lists[currentIndex]
+                if !current.follows.contains(where: { $0.id == follow.id }) {
+                    var restoredFollows = current.follows
+                    restoredFollows.insert(
+                        follow,
+                        at: min(originalFollowIndex ?? restoredFollows.endIndex, restoredFollows.endIndex)
+                    )
+                    lists[currentIndex] = current.replacing(
+                        follows: restoredFollows,
+                        followCount: current.followCount + 1
+                    )
+                }
             }
             errorMessage = displayMessage(for: error)
             return false
@@ -190,6 +232,11 @@ final class FollowListsViewModel: ObservableObject {
 
     func resetForSignOut() {
         sessionRevision += 1
+        listDataRevision += 1
+        synchronizationRequestRevision += 1
+        synchronizationTaskRevision += 1
+        synchronizationTask?.cancel()
+        synchronizationTask = nil
         lists = []
         isLoading = false
         isCreating = false
@@ -197,6 +244,7 @@ final class FollowListsViewModel: ObservableObject {
         pendingListIDs = []
         pendingPlayerIDs = []
         pendingFollowIDs = []
+        resumeListMutationWaitersIfSettled()
     }
 
     func clearError() {
@@ -210,6 +258,74 @@ final class FollowListsViewModel: ObservableObject {
 
     private func invalidateListLoads() {
         listDataRevision += 1
+    }
+
+    private var hasActiveListMutation: Bool {
+        isCreating
+            || !pendingListIDs.isEmpty
+            || !pendingPlayerIDs.isEmpty
+            || !pendingFollowIDs.isEmpty
+    }
+
+    private func performStableSynchronization() async {
+        let session = sessionRevision
+        var latestRequestRevision: Int?
+        isLoading = true
+        errorMessage = nil
+        defer {
+            if session == sessionRevision,
+               latestRequestRevision == loadRequestRevision {
+                isLoading = false
+            }
+        }
+
+        while session == sessionRevision, !Task.isCancelled {
+            if hasActiveListMutation {
+                await waitForListMutationsToSettle()
+                continue
+            }
+
+            loadRequestRevision += 1
+            let dataRevision = listDataRevision
+            let requestRevision = loadRequestRevision
+            latestRequestRevision = requestRevision
+            let synchronizationRevision = synchronizationRequestRevision
+
+            do {
+                let response = try await apiClient.fetchFollowLists()
+                guard session == sessionRevision, !Task.isCancelled else { return }
+                guard dataRevision == listDataRevision,
+                      requestRevision == loadRequestRevision,
+                      synchronizationRevision == synchronizationRequestRevision,
+                      !hasActiveListMutation
+                else { continue }
+                lists = response.lists
+                return
+            } catch {
+                guard session == sessionRevision, !Task.isCancelled else { return }
+                guard dataRevision == listDataRevision,
+                      requestRevision == loadRequestRevision,
+                      synchronizationRevision == synchronizationRequestRevision,
+                      !hasActiveListMutation
+                else { continue }
+                errorMessage = displayMessage(for: error)
+                return
+            }
+        }
+    }
+
+    private func waitForListMutationsToSettle() async {
+        guard hasActiveListMutation else { return }
+        await withCheckedContinuation { continuation in
+            listMutationWaiters.append(continuation)
+        }
+    }
+
+    private func resumeListMutationWaitersIfSettled() {
+        guard !hasActiveListMutation, !listMutationWaiters.isEmpty else { return }
+        let waiters = listMutationWaiters
+        listMutationWaiters = []
+        waiters.forEach { $0.resume() }
     }
 }
 
