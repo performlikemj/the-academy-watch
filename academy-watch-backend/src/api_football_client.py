@@ -29,6 +29,89 @@ ONLY_TEST_TEAM_IDS = {33}  # Manchester United
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+
+def _record_transfer_payload(
+    transfer_blocks: list[dict[str, Any]] | None,
+    *,
+    fallback_player_api_id: int | None = None,
+) -> None:
+    """Persist an API-Football ``/transfers`` response, best effort.
+
+    Player-scoped responses normally contain one outer player block while
+    team-scoped responses contain many.  Keep that response-shape handling in
+    one place and pass the verbatim inner transfer objects to the durable event
+    writer.
+
+    Persistence uses its own SQLAlchemy session so an API read cannot commit or
+    roll back a caller's pending work.  The helper deliberately no-ops without
+    a Flask application context; batch fetches run their HTTP work in executor
+    threads and call this helper again from the context-owning collector thread.
+    Missing migrations and all other persistence failures remain additive: they
+    are logged but never change the API payload returned to the caller.
+    """
+    if not isinstance(transfer_blocks, list) or not transfer_blocks:
+        return
+
+    batches: list[tuple[int, list[dict[str, Any]]]] = []
+    for block in transfer_blocks:
+        if not isinstance(block, dict):
+            continue
+
+        player = block.get("player") or {}
+        raw_player_api_id = player.get("id") if isinstance(player, dict) else None
+        if raw_player_api_id is None:
+            raw_player_api_id = fallback_player_api_id
+
+        try:
+            player_api_id = int(raw_player_api_id)
+        except (TypeError, ValueError):
+            continue
+        if player_api_id <= 0:
+            continue
+
+        transfers = block.get("transfers")
+        if not isinstance(transfers, list) or not transfers:
+            continue
+        batches.append((player_api_id, transfers))
+
+    if not batches:
+        return
+
+    try:
+        from flask import has_app_context
+
+        if not has_app_context():
+            logger.debug("Transfer event persistence skipped outside a Flask application context")
+            return
+
+        from sqlalchemy.orm import Session
+
+        from src.models.league import db
+        from src.services.transfer_events import record_transfer_events
+
+        session = Session(bind=db.engine)
+    except Exception as exc:
+        logger.warning("Transfer event persistence is unavailable: %s", exc)
+        return
+
+    try:
+        observed_at = datetime.now(UTC)
+        for player_api_id, transfers in batches:
+            record_transfer_events(player_api_id, transfers, session, observed_at=observed_at)
+        session.commit()
+    except Exception as exc:
+        try:
+            session.rollback()
+        except Exception as rollback_exc:
+            logger.debug("Transfer event persistence rollback also failed: %s", rollback_exc)
+        logger.warning("Transfer event persistence failed; API response is unchanged: %s", exc)
+    finally:
+        try:
+            session.close()
+        except Exception as close_exc:
+            logger.debug("Transfer event persistence session close failed: %s", close_exc)
+
+
 # ------------------------------------------------------------------
 # 🔄 Loan transfer type identification
 # ------------------------------------------------------------------
@@ -3405,7 +3488,10 @@ class APIFootballClient:
         try:
             params = {"team": normalized_team_id}
             response = self._make_request("transfers", params)
-            return response.get("response", [])
+            transfers_data = response.get("response", [])
+            if self.mode != "stub":
+                _record_transfer_payload(transfers_data)
+            return transfers_data
         except Exception as e:
             logger.error(f"Error fetching transfers for team {team_id}: {e}")
             return []
@@ -3517,6 +3603,8 @@ class APIFootballClient:
             try:
                 tr = self._make_request("transfers", {"player": player_id})
                 t_resp = tr.get("response", []) or []
+                if self.mode != "stub":
+                    _record_transfer_payload(t_resp, fallback_player_api_id=pid)
                 if t_resp:
                     p = (t_resp[0] or {}).get("player", {})
                     payload = {
@@ -4646,6 +4734,8 @@ class APIFootballClient:
                 logger.info(
                     f"✅ Cache HIT for player {player_id} transfers (age: {cache_age.seconds // 3600}h {(cache_age.seconds // 60) % 60}m)"
                 )
+                if self.mode != "stub":
+                    _record_transfer_payload(cached_data, fallback_player_api_id=player_id)
                 return cached_data
             else:
                 logger.info(f"🔄 Cache EXPIRED for player {player_id} (age: {cache_age.total_seconds() / 3600:.1f}h)")
@@ -4665,6 +4755,9 @@ class APIFootballClient:
                 return []
 
             transfers_data = response.get("response", [])
+
+            if self.mode != "stub":
+                _record_transfer_payload(transfers_data, fallback_player_api_id=player_id)
 
             # Cache the result with timestamp
             self._transfer_cache[player_id] = (transfers_data, datetime.now(UTC))
@@ -5091,6 +5184,10 @@ class APIFootballClient:
                 try:
                     player_id, transfers = future.result()
                     results[player_id] = transfers
+                    if self.mode != "stub":
+                        # Worker threads intentionally have no Flask context;
+                        # persist from the context-owning collector thread.
+                        _record_transfer_payload(transfers, fallback_player_api_id=player_id)
                     completed += 1
 
                     if completed % 10 == 0:
