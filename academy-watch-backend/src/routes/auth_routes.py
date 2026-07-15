@@ -36,6 +36,7 @@ from src.models.league import (
     _as_utc,
     db,
 )
+from src.services.account_roles import derive_account_role
 from src.services.email_service import email_service
 
 logger = logging.getLogger(__name__)
@@ -210,6 +211,7 @@ def verify_login_code():
             {
                 "message": "Logged in",
                 "role": role,
+                "account_role": derive_account_role(user),
                 "display_name": user.display_name if user else None,
                 "display_name_confirmed": bool(user.display_name_confirmed) if user else False,
                 **out,
@@ -244,6 +246,7 @@ def auth_me():
             {
                 "email": email,
                 "role": role,
+                "account_role": derive_account_role(user),
                 "user_id": user.id if user else None,
                 "display_name": user.display_name if user else None,
                 "display_name_confirmed": bool(user.display_name_confirmed) if user else False,

@@ -66,6 +66,9 @@ class Follow(db.Model):
     selector = db.Column(db.JSON, nullable=False)
     label = db.Column(db.String(160))  # display label, server-derived where possible
     note = db.Column(db.Text)  # migrated watchlist note (player kind)
+    # Funding F2 reuses academy_club follows as an explicit future-support
+    # notification and expansion-demand signal. It never affects ranking.
+    notify_when_fundable = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
 
     # Exact (kind, selector) duplicates within a list are rejected in code — a

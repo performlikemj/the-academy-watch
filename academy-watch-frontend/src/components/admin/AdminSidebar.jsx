@@ -21,6 +21,7 @@ import {
     Wrench,
     UserCog,
     Star,
+    HandHeart,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
@@ -69,6 +70,7 @@ const sidebarGroups = [
         items: [
             { icon: Video, label: 'Film Room', href: '/admin/video' },
             { icon: Star, label: 'Showcase', href: '/admin/showcase' },
+            { icon: HandHeart, label: 'Funding Registry', href: '/admin/funding' },
         ],
     },
     {

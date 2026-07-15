@@ -1391,7 +1391,9 @@ def _follow_read_payload(follow, name_map, team_map):
     if follow.kind == "player":
         name = name_map.get(selector.get("player_api_id"))
     elif follow.kind == "academy_club":
-        name = team_map.get(selector.get("team_id"))
+        name = follow.label.removeprefix("Club program: ") if selector.get("program_id") and follow.label else None
+        if not selector.get("program_id"):
+            name = team_map.get(selector.get("team_id"))
     else:
         name = None
     return {
@@ -1400,6 +1402,7 @@ def _follow_read_payload(follow, name_map, team_map):
         "selector": follow.selector,
         "label": derive_label(follow.kind, selector, name),
         "note": follow.note,
+        "notify_when_fundable": bool(follow.notify_when_fundable),
         "created_at": follow.created_at.isoformat() if follow.created_at else None,
     }
 
@@ -1435,6 +1438,7 @@ def _follow_payload(follow):
         "selector": follow.selector,
         "label": follow.label,
         "note": follow.note,
+        "notify_when_fundable": bool(follow.notify_when_fundable),
         "created_at": follow.created_at.isoformat() if follow.created_at else None,
     }
 
@@ -1658,12 +1662,36 @@ def scout_list_add_follow(list_id):
                     shadow_created = True
                 label = derive_label("player", clean_selector, shadow.player_name)
         elif kind == "academy_club":
-            team = Team.query.filter_by(id=clean_selector["team_id"]).first()
-            label = derive_label("academy_club", clean_selector, team.name if team else None)
+            if clean_selector.get("program_id"):
+                from src.models.funding import ClubProgram
+
+                program = ClubProgram.query.filter_by(
+                    id=clean_selector["program_id"],
+                    platform_status="approved",
+                    emergency_hidden=False,
+                ).first()
+                if program is None:
+                    return jsonify({"error": "program not found"}), 404
+                label = derive_label("academy_club", clean_selector, program.name)
+            else:
+                team = Team.query.filter_by(id=clean_selector["team_id"]).first()
+                label = derive_label("academy_club", clean_selector, team.name if team else None)
         else:
             label = derive_label(kind, clean_selector)
 
-        follow = Follow(list_id=follow_list.id, kind=kind, selector=clean_selector, label=label, note=note)
+        notify_when_fundable = payload.get("notify_when_fundable", False)
+        if not isinstance(notify_when_fundable, bool):
+            return jsonify({"error": "notify_when_fundable must be a boolean"}), 400
+        if notify_when_fundable and not (kind == "academy_club" and clean_selector.get("program_id")):
+            return jsonify({"error": "notify_when_fundable is only valid for club programs"}), 400
+        follow = Follow(
+            list_id=follow_list.id,
+            kind=kind,
+            selector=clean_selector,
+            label=label,
+            note=note,
+            notify_when_fundable=notify_when_fundable,
+        )
         db.session.add(follow)
         db.session.commit()
         return jsonify({"follow": _follow_payload(follow), "shadow_created": shadow_created}), 201

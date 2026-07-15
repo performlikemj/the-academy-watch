@@ -25,6 +25,7 @@ from src.routes.curator import curator_bp
 from src.routes.events import events_bp
 from src.routes.feeder import feeder_bp
 from src.routes.formation import formation_bp
+from src.routes.funding import funding_bp
 from src.routes.gol import gol_bp
 from src.routes.journalist import journalist_bp
 from src.routes.journey import journey_bp
@@ -97,6 +98,7 @@ app.register_blueprint(scout_bp, url_prefix="/api")
 # Registered BEFORE api_bp (mirroring players_bp) so /players/<id>/showcase*
 # routes take priority over any api_bp /players/<id>/* catch-alls.
 app.register_blueprint(showcase_bp, url_prefix="/api")
+app.register_blueprint(funding_bp, url_prefix="/api")
 app.register_blueprint(api_bp, url_prefix="/api")
 app.register_blueprint(auth_bp, url_prefix="/api")
 app.register_blueprint(journalist_bp, url_prefix="/api")

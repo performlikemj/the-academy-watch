@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 from flask import Flask
 from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerShadow, PlayerShadowStats
+from src.models.funding import ClubProgram, FundingLeague
 from src.models.league import League, Team, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.tracked_player import TrackedPlayer
@@ -353,6 +354,49 @@ class TestFollowValidation:
         )
         assert resp.status_code == 400
 
+    def test_program_follow_requires_public_approved_program(self, client, seeded):
+        lid = self._list(client)
+        league = FundingLeague(
+            name="Follow Visibility League (Fixture)",
+            country="Japan",
+            region="Follow Visibility Region",
+            level="recreational",
+            age_bands=["U12"],
+            gender_program="both",
+            season_calendar="calendar_year",
+            data_tier="self_reported",
+            registry_status="approved",
+            admission_state="open",
+        )
+        db.session.add(league)
+        db.session.flush()
+        program = ClubProgram(
+            funding_league_id=league.id,
+            name="Hidden Follow Program (Fixture)",
+            legal_name="Hidden Follow Program Association (Fixture)",
+            slug="hidden-follow-program-fixture",
+            country="Japan",
+            region="Follow Visibility Region",
+            platform_status="pending",
+        )
+        db.session.add(program)
+        db.session.commit()
+        payload = {
+            "kind": "academy_club",
+            "selector": {"program_id": program.id},
+            "notify_when_fundable": True,
+        }
+        assert client.post(f"/api/scout/lists/{lid}/follows", json=payload, headers=_headers()).status_code == 404
+
+        program.platform_status = "approved"
+        program.emergency_hidden = True
+        db.session.commit()
+        assert client.post(f"/api/scout/lists/{lid}/follows", json=payload, headers=_headers()).status_code == 404
+
+        program.emergency_hidden = False
+        db.session.commit()
+        assert client.post(f"/api/scout/lists/{lid}/follows", json=payload, headers=_headers()).status_code == 201
+
     def test_geo_bad_match_and_too_many_countries_400(self, client, seeded):
         lid = self._list(client)
         assert (
@@ -453,7 +497,15 @@ class TestEmbeddedFollows:
         board = next(x for x in lists if x["id"] == lid)
         assert board["follow_count"] == 5
         follows = board["follows"]
-        assert set(follows[0].keys()) == {"id", "kind", "selector", "label", "note", "created_at"}
+        assert set(follows[0].keys()) == {
+            "id",
+            "kind",
+            "selector",
+            "label",
+            "note",
+            "notify_when_fundable",
+            "created_at",
+        }
         labels = {f["kind"]: f["label"] for f in follows if f["kind"] != "geo"}
         geo_labels = {f["label"] for f in follows if f["kind"] == "geo"}
         assert labels["player"] == "Alfie Striker"  # resolved player name
