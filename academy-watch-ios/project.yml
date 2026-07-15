@@ -20,6 +20,8 @@ targets:
       - path: AcademyWatch
     settings:
       base:
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 263YH9X3BU
         PRODUCT_BUNDLE_IDENTIFIER: com.theacademywatch.app
         PRODUCT_NAME: AcademyWatch
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
