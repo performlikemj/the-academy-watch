@@ -1,10 +1,10 @@
 """D3b season-rollup service — feeders, totals resolution, choke point.
 
-The anchor test (proposal §2, gates everything): Gore-shaped player, season 2025
-senior → minutes = the journey figure taken whole, primary_source=journey,
-fixtures_minutes < journey_minutes, reconcile_flag='cup-gap', avg_rating
-fixtures-sourced. Plus the other coverage-map buckets, level_group split, the
-noise filter, refresh idempotency/transactionality, and choke-point batching.
+The anchor test (proposal §2, gates everything): a Gore-shaped player flips
+from a 2,941-minute fixtures headline to a 3,000-minute journey headline as the
+journey source catches up, while cells stay source-separated and ``avg_rating``
+stays fixtures-only. Plus the other coverage-map buckets, level_group split,
+the noise filter, refresh idempotency/transactionality, and real sync hooks.
 """
 
 import pytest
@@ -87,6 +87,7 @@ def _entry(j, player, season, club, minutes, goals=0, assists=0, apps=0, **kw):
         is_youth=kw.get("is_youth", False),
         is_international=kw.get("is_international", False),
         stats_source=kw.get("stats_source", "legacy-basic"),
+        rating=kw.get("rating"),
     )
     db.session.add(e)
     return e
@@ -95,38 +96,114 @@ def _entry(j, player, season, club, minutes, goals=0, assists=0, apps=0, **kw):
 # ---------------------------------------------------------------------------
 # anchor + coverage buckets
 # ---------------------------------------------------------------------------
-def test_gore_anchor_cup_gap(app):
-    """fixtures 2583 < journey 2936 → headline journey 2936, flag cup-gap."""
+def test_gore_shaped_anchor_flips_whole_source_on_refresh(app):
+    """Rotherham league+cup cells stay separate while the headline flips whole."""
     player = 303010
-    fx1 = _fixture(1, 2025)
-    fx2 = _fixture(2, 2025)
-    _fps(fx1, player, 100, minutes=1290, goals=5, rating=7.0)
-    _fps(fx2, player, 100, minutes=1293, goals=6, rating=8.0)  # fixtures = 2583 min
+    club = 73
+    league_fx = _fixture(1, 2025, comp="Championship")
+    cup_fx = _fixture(2, 2025, comp="FA Cup")
+    _fps(league_fx, player, club, minutes=2500, goals=5, assists=4, rating=7.0)
+    _fps(cup_fx, player, club, minutes=441, goals=1, assists=1, rating=8.0)
     j = _journey(player)
-    _entry(j, player, 2025, 100, minutes=1468, goals=6, apps=17)
-    _entry(j, player, 2025, 100, minutes=1468, goals=6, apps=17, league_name="FA Cup")  # journey = 2936
+    _entry(
+        j,
+        player,
+        2025,
+        club,
+        minutes=2500,
+        goals=7,
+        assists=6,
+        apps=30,
+        club_name="Rotherham United",
+        stats_source="journey-api",
+        rating=9.0,
+    )
+    journey_cup = _entry(
+        j,
+        player,
+        2025,
+        club,
+        minutes=436,
+        goals=2,
+        assists=1,
+        apps=4,
+        club_name="Rotherham United",
+        league_name="FA Cup",
+        stats_source="journey-api",
+        rating=10.0,
+    )
     db.session.commit()
 
     svc.refresh_player(player, season=2025)
     db.session.commit()
 
+    cells = {
+        (cell.source, cell.competition_tier): cell
+        for cell in PlayerSeasonCell.query.filter_by(player_api_id=player, season=2025).all()
+    }
+    assert set(cells) == {
+        ("fixtures", "league"),
+        ("fixtures", "domestic_cup"),
+        ("journey", "league"),
+        ("journey", "domestic_cup"),
+    }
+    assert {key: cell.minutes for key, cell in cells.items()} == {
+        ("fixtures", "league"): 2500,
+        ("fixtures", "domestic_cup"): 441,
+        ("journey", "league"): 2500,
+        ("journey", "domestic_cup"): 436,
+    }
+    assert all(cell.club_api_id == club for cell in cells.values())
+
     total = PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025, level_group="senior").one()
-    assert total.minutes == 2936
-    assert total.primary_source == "journey"
-    assert total.fixtures_minutes == 2583
+    assert (total.primary_source, total.minutes, total.reconcile_flag) == (
+        "fixtures",
+        2941,
+        "journey-under-sync",
+    )
+    assert (total.appearances, total.goals, total.assists) == (2, 6, 5)
+    assert total.fixtures_minutes == 2941
     assert total.journey_minutes == 2936
-    assert total.reconcile_flag == "cup-gap"
-    # avg_rating ALWAYS fixtures-sourced (minutes-weighted 7.0/8.0).
-    assert total.avg_rating is not None
-    assert abs(float(total.avg_rating) - (7.0 * 1290 + 8.0 * 1293) / 2583) < 0.01
-    # both sources visible in the breakdown; headline never a cross-source sum.
-    assert set(total.source_breakdown) == {"fixtures", "journey"}
+    assert total.source_breakdown["fixtures"]["minutes"] == 2941
+    assert total.source_breakdown["journey"]["minutes"] == 2936
+    expected_fixture_rating = (7.0 * 2500 + 8.0 * 441) / 2941
+    assert float(total.avg_rating) == pytest.approx(expected_fixture_rating, abs=0.01)
+
+    # Journey catches up: refreshing must replace its cup cell and flip every
+    # headline stat to the journey subtotal, never add the two sources.
+    journey_cup.minutes = 500
+    db.session.commit()
+    db.session.expunge_all()
+    svc.refresh_player(player, season=2025)
+    db.session.commit()
+
+    refreshed_cells = {
+        (cell.source, cell.competition_tier): cell
+        for cell in PlayerSeasonCell.query.filter_by(player_api_id=player, season=2025).all()
+    }
+    assert len(refreshed_cells) == 4
+    assert refreshed_cells[("fixtures", "league")].minutes == 2500
+    assert refreshed_cells[("fixtures", "domestic_cup")].minutes == 441
+    assert refreshed_cells[("journey", "league")].minutes == 2500
+    assert refreshed_cells[("journey", "domestic_cup")].minutes == 500
+
+    refreshed = PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025, level_group="senior").one()
+    assert (refreshed.primary_source, refreshed.minutes, refreshed.reconcile_flag) == (
+        "journey",
+        3000,
+        "cup-gap",
+    )
+    assert (refreshed.appearances, refreshed.goals, refreshed.assists) == (34, 9, 7)
+    assert (refreshed.fixtures_minutes, refreshed.journey_minutes) == (2941, 3000)
+    assert refreshed.source_breakdown["fixtures"]["minutes"] == 2941
+    assert refreshed.source_breakdown["journey"]["minutes"] == 3000
+    assert float(refreshed.avg_rating) == pytest.approx(expected_fixture_rating, abs=0.01)
 
 
 def test_fixtures_invisible(app):
     player = 555
     j = _journey(player)
-    _entry(j, player, 2025, 200, minutes=1500, goals=3)
+    _entry(j, player, 2025, 200, minutes=1500, goals=3, stats_source="journey-api", rating=9.75)
     db.session.commit()
     svc.refresh_player(player, season=2025)
     db.session.commit()
@@ -136,7 +213,9 @@ def test_fixtures_invisible(app):
     assert total.minutes == 1500
     assert total.fixtures_minutes == 0
     assert total.reconcile_flag == "fixtures-invisible"
-    assert total.avg_rating is None  # no fixtures
+    journey_cell = PlayerSeasonCell.query.filter_by(player_api_id=player, source="journey").one()
+    assert float(journey_cell.avg_rating) == pytest.approx(9.75)
+    assert total.avg_rating is None  # a real journey rating never feeds the total
 
 
 def test_journey_under_sync(app):
@@ -312,8 +391,115 @@ def test_choke_flush_commits(app):
 
 
 # ---------------------------------------------------------------------------
-# journey hook mechanics (savepoint-wrapped refresh, same transaction)
+# real producer hooks + journey savepoint mechanics
 # ---------------------------------------------------------------------------
+def test_journey_sync_hook_builds_cells_and_totals_end_to_end(app):
+    """The real sync_player hook persists journey data and its rollup together."""
+    from src.services.journey_sync import JourneySyncService
+
+    player = 2000
+
+    class FakeJourneyApi:
+        def _make_request(self, endpoint, params):
+            if endpoint == "players/seasons":
+                assert params == {"player": player}
+                return {"response": [2025]}
+            if endpoint == "players":
+                assert params == {"id": player, "season": 2025}
+                return {
+                    "response": [
+                        {
+                            "player": {
+                                "id": player,
+                                "name": "Hook Player",
+                                "birth": {},
+                                "nationality": "England",
+                            },
+                            "statistics": [
+                                {
+                                    "team": {"id": 77, "name": "Rotherham United"},
+                                    "league": {"id": 40, "name": "Championship", "country": "England"},
+                                    "games": {"appearences": 10, "minutes": 900, "rating": "7.40"},
+                                    "goals": {"total": 2, "assists": 3},
+                                }
+                            ],
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected API request: {endpoint} {params}")
+
+        def get_player_transfers(self, player_api_id):
+            assert player_api_id == player
+            return []
+
+    journey = JourneySyncService(api_client=FakeJourneyApi()).sync_player(player, force_full=True)
+
+    assert journey is not None
+    entry = PlayerJourneyEntry.query.filter_by(player_api_id=player, season=2025).one()
+    assert (entry.club_api_id, entry.appearances, entry.minutes, entry.goals) == (77, 10, 900, 2)
+    cell = PlayerSeasonCell.query.filter_by(player_api_id=player, season=2025, source="journey").one()
+    assert (cell.club_api_id, cell.appearances, cell.minutes, cell.goals) == (77, 10, 900, 2)
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025, level_group="senior").one()
+    assert (total.primary_source, total.minutes, total.goals, total.reconcile_flag) == (
+        "journey",
+        900,
+        2,
+        "fixtures-invisible",
+    )
+
+
+def test_fps_writer_choke_point_refreshes_player_season(app, monkeypatch):
+    """A real fixture producer queues, commits, and drains the rollup refresh."""
+    from src.routes import api as api_routes
+
+    player = 2003
+    fixture_payload = {
+        "fixture": {
+            "id": 9001,
+            "date": "2025-09-13T15:00:00+00:00",
+            "status": {"short": "FT"},
+        },
+        "league": {"name": "League One", "season": 2025},
+        "teams": {
+            "home": {"id": 77, "name": "Rotherham United"},
+            "away": {"id": 88, "name": "Opponent"},
+        },
+        "goals": {"home": 2, "away": 0},
+    }
+
+    class FakeFixtureApi:
+        def get_fixtures_for_team_cached(self, team_id, season, start, end):
+            assert (team_id, season, start) == (77, 2025, "2025-08-01")
+            assert end >= start
+            return [fixture_payload]
+
+        def get_player_stats_for_fixture(self, player_api_id, season, fixture_id):
+            assert (player_api_id, season, fixture_id) == (player, 2025, 9001)
+            return {
+                "statistics": [
+                    {
+                        "games": {"minutes": 90, "substitute": False, "position": "Midfielder", "rating": 7.6},
+                        "goals": {"total": 1, "assists": 1},
+                    }
+                ]
+            }
+
+        def get_fixture_lineups(self, fixture_id):
+            assert fixture_id == 9001
+            return {"response": []}
+
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: FakeFixtureApi())
+
+    assert api_routes._sync_player_club_fixtures(player, 77, 2025) == 1
+    fps = FixturePlayerStats.query.filter_by(player_api_id=player).one()
+    assert (fps.minutes, fps.goals, fps.assists) == (90, 1, 1)
+    cell = PlayerSeasonCell.query.filter_by(player_api_id=player, season=2025, source="fixtures").one()
+    assert (cell.minutes, cell.goals, cell.assists) == (90, 1, 1)
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025, level_group="senior").one()
+    assert (total.primary_source, total.minutes, total.goals, total.assists) == ("fixtures", 90, 1, 1)
+    assert not db.session.info.get(svc._DIRTY_KEY)
+
+
 def test_journey_hook_savepoint_atomic(app):
     """Mirror JourneySyncService.sync_player's hook: flush entries, refresh
     inside a SAVEPOINT, then ONE outer commit persists journey + rollup."""
