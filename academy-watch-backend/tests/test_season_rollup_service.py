@@ -237,6 +237,35 @@ def test_journey_under_sync(app):
     assert total.reconcile_flag == "journey-under-sync"
 
 
+def test_never_cross_source_sum_headline_is_larger_source_whole(app):
+    """The double-count guard (proposal §2, non-negotiable): with fixtures 500 +
+    journey 600 the headline is the larger-minutes source taken WHOLE — 600,
+    NEVER the 1,100 cross-source sum — and every headline stat comes whole from
+    that one source while both raw minutes stay visible in the breakdown."""
+    player = 666
+    fx = _fixture(40, 2025, comp="Premier League")
+    _fps(fx, player, 500, minutes=500, goals=1, assists=1, rating=7.0)
+    j = _journey(player)
+    _entry(j, player, 2025, 500, minutes=600, goals=2, assists=3, apps=8)
+    db.session.commit()
+    svc.refresh_player(player, season=2025)
+    db.session.commit()
+
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player, level_group="senior").one()
+    assert total.primary_source == "journey"
+    assert total.minutes == 600  # larger source whole
+    assert total.minutes != 1100  # never the cross-source sum
+    # every headline stat is the journey subtotal, not fixtures+journey.
+    assert (total.appearances, total.goals, total.assists) == (8, 2, 3)
+    assert (total.appearances, total.goals, total.assists) != (9, 3, 4)
+    assert total.fixtures_minutes == 500
+    assert total.journey_minutes == 600
+    assert total.reconcile_flag == "cup-gap"
+    # both sources are still retained separately — the breakdown never merges them.
+    assert total.source_breakdown["fixtures"]["minutes"] == 500
+    assert total.source_breakdown["journey"]["minutes"] == 600
+
+
 def test_level_group_split(app):
     """youth + senior + international journey entries → three totals rows."""
     player = 888
