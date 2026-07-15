@@ -390,6 +390,35 @@ def test_choke_flush_commits(app):
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player).count() == 1
 
 
+def test_choke_flush_requeues_failed_pair_for_retry(app, monkeypatch):
+    player = 1004
+    journey = _journey(player)
+    _entry(journey, player, 2025, 100, minutes=600, goals=1)
+    db.session.commit()
+
+    real_refresh = svc.refresh_player
+    calls = []
+
+    def _fail_once(player_api_id, season=None, session=None):
+        calls.append((player_api_id, season))
+        if len(calls) == 1:
+            raise RuntimeError("transient rollup failure")
+        return real_refresh(player_api_id, season=season, session=session)
+
+    monkeypatch.setattr(svc, "refresh_player", _fail_once)
+    svc.queue_player_refresh(player, 2025)
+
+    assert svc.flush_player_refresh_queue() == 0
+    assert db.session.info[svc._DIRTY_KEY] == {(player, 2025)}
+    assert PlayerSeasonTotal.query.filter_by(player_api_id=player).count() == 0
+
+    assert svc.flush_player_refresh_queue() == 1
+    assert not db.session.info[svc._DIRTY_KEY]
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025).one()
+    assert total.minutes == 600
+    assert calls == [(player, 2025), (player, 2025)]
+
+
 # ---------------------------------------------------------------------------
 # real producer hooks + journey savepoint mechanics
 # ---------------------------------------------------------------------------

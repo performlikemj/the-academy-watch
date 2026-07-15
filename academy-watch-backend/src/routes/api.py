@@ -6674,18 +6674,16 @@ def admin_delete_team_data(team_id: int):
         # atomicity wins here over the deferred post-commit refresh that exists
         # only to shield API-expensive fixture writes. season=None covers every
         # season the deleted rows spanned; one bounded refresh per rostered player
-        # (a team roster, not a platform-wide sweep), each in a SAVEPOINT so one
-        # bad player logs-and-skips without losing the rest of the batch.
+        # (a team roster, not a platform-wide sweep). Any per-player refresh
+        # failure propagates to the outer handler, which rolls back the WHOLE
+        # cheap-to-redo team delete and returns 500.
         affected_pids = {pid for pid in player_api_ids if pid is not None}
         if affected_pids:
             from src.services.season_rollup_service import refresh_player as _refresh_rollup
 
             for _pid in affected_pids:
-                try:
-                    with db.session.begin_nested():
-                        _refresh_rollup(_pid, season=None)
-                except Exception:
-                    logger.exception("season-rollup refresh after team-delete failed for player=%s", _pid)
+                with db.session.begin_nested():
+                    _refresh_rollup(_pid, season=None)
 
         db.session.commit()
 

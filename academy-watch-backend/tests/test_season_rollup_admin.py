@@ -7,10 +7,12 @@ from flask import Flask
 from sqlalchemy.dialects import postgresql
 from src.models.follow import PlayerShadowStats
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
-from src.models.league import AcademyPlayerSeasonStats, db
+from src.models.league import AcademyPlayerSeasonStats, Team, db
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
+from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.routes import season_rollup as admin_routes
+from src.routes.api import api_bp
 from src.routes.season_rollup import season_rollup_bp
 
 ADMIN_KEY = "test-admin-key"
@@ -32,6 +34,7 @@ def app(monkeypatch):
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
     )
     db.init_app(application)
+    application.register_blueprint(api_bp, url_prefix="/api")
     application.register_blueprint(season_rollup_bp, url_prefix="/api")
 
     context = application.app_context()
@@ -515,30 +518,103 @@ def test_noise_stub_cannot_borrow_another_journey_level_cell(client, admin_heade
     assert _status(client, admin_headers, exact=True)["stale_players"] == 0
 
 
-def test_fixture_source_without_fixture_cell_is_stale_even_if_other_total_exists(client, admin_headers):
+def test_senior_fixture_cell_does_not_mask_missing_youth_fixture_cell(client, admin_headers):
     player = 395
-    fixture = Fixture(fixture_id_api=395, season=2025, competition_name="Premier League 2 Division One")
-    db.session.add(fixture)
+    senior_fixture = Fixture(fixture_id_api=394, season=2025, competition_name="Premier League")
+    youth_fixture = Fixture(fixture_id_api=395, season=2025, competition_name="Premier League 2 Division One")
+    db.session.add_all([senior_fixture, youth_fixture])
     db.session.flush()
-    db.session.add(
-        FixturePlayerStats(
-            fixture_id=fixture.id,
-            player_api_id=player,
-            team_api_id=3950,
-            minutes=90,
-            goals=0,
-        )
+    db.session.add_all(
+        [
+            FixturePlayerStats(
+                fixture_id=senior_fixture.id,
+                player_api_id=player,
+                team_api_id=3940,
+                minutes=90,
+                goals=0,
+            ),
+            FixturePlayerStats(
+                fixture_id=youth_fixture.id,
+                player_api_id=player,
+                team_api_id=3950,
+                minutes=90,
+                goals=0,
+            ),
+        ]
     )
-    _total(player, level_group="senior", primary_source="shadow")
+    _cell(player, source="fixtures", club=3940, level_group="senior")
+    _total(player, level_group="senior", primary_source="fixtures")
     db.session.commit()
 
     assert _status(client, admin_headers, exact=True)["stale_players"] == 1
     rebuilt = client.post(f"{REBUILD_URL}?scope=stale", headers=admin_headers)
     assert rebuilt.status_code == 200
     assert rebuilt.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
-    assert PlayerSeasonCell.query.filter_by(player_api_id=player, source="fixtures").count() == 1
+    assert (
+        PlayerSeasonCell.query.filter_by(
+            player_api_id=player,
+            source="fixtures",
+            level_group="senior",
+        ).count()
+        == 1
+    )
+    assert (
+        PlayerSeasonCell.query.filter_by(
+            player_api_id=player,
+            source="fixtures",
+            level_group="youth",
+        ).count()
+        == 1
+    )
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player, level_group="youth").count() == 1
     assert _status(client, admin_headers, exact=True)["stale_players"] == 0
+
+
+def test_team_delete_rolls_back_when_rollup_refresh_fails(client, admin_headers, monkeypatch):
+    player = 396
+    team = Team(
+        team_id=3960,
+        name="Atomic FC",
+        country="England",
+        season=2025,
+        is_tracked=True,
+        newsletters_active=True,
+    )
+    db.session.add(team)
+    db.session.flush()
+    db.session.add(TrackedPlayer(player_api_id=player, player_name="Atomic Player", team_id=team.id))
+    fixture = Fixture(fixture_id_api=396, season=2025, competition_name="Premier League")
+    db.session.add(fixture)
+    db.session.flush()
+    db.session.add(
+        FixturePlayerStats(
+            fixture_id=fixture.id,
+            player_api_id=player,
+            team_api_id=team.team_id,
+            minutes=90,
+            goals=0,
+        )
+    )
+    _cell(player, source="fixtures", club=team.team_id)
+    _total(player, primary_source="fixtures")
+    db.session.commit()
+    team_id = team.id
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("simulated rollup failure")
+
+    monkeypatch.setattr(admin_routes.season_rollup_service, "refresh_player", _boom)
+    response = client.delete(f"/api/admin/teams/{team_id}/data", headers=admin_headers)
+
+    assert response.status_code == 500
+    assert response.get_json()["error"] == "Failed to delete team data"
+    db.session.expire_all()
+    assert FixturePlayerStats.query.filter_by(player_api_id=player).count() == 1
+    assert TrackedPlayer.query.filter_by(player_api_id=player, team_id=team_id).count() == 1
+    restored_team = db.session.get(Team, team_id)
+    assert (restored_team.is_tracked, restored_team.newsletters_active) == (True, True)
+    assert PlayerSeasonCell.query.filter_by(player_api_id=player, source="fixtures").count() == 1
+    assert PlayerSeasonTotal.query.filter_by(player_api_id=player).count() == 1
 
 
 def test_stale_cursor_above_all_work_terminates(client, admin_headers):

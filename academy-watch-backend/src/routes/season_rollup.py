@@ -16,6 +16,10 @@ rows carry no clock, so the cheap gauge cannot see a fixture-missing-cell;
 ``?exact=1`` and the ``scope=stale`` sweep are the reconciliation paths for that
 blind spot, and ``scope=all`` is the repair fallback for legacy/manual journey
 rows with a null ``stats_synced_at``.
+
+Deleting a timed source row can leave its surviving cell/total pair looking
+fresh when their clocks are equal, so neither ``?exact=1`` nor ``scope=stale``
+can see that deletion. Use ``scope=all`` to repair it.
 """
 
 import logging
@@ -170,7 +174,7 @@ def _stale_player_ids(player_ids: tuple[int, ...] | None = None):
 
     Timed sources compare at the exact ``(player, season, level_group)`` grain.
     Fixture rows have no mutation clock, so that branch can only identify a
-    player-season for which no fixture-derived cell exists at all.
+    ``(player, season, level_group)`` for which no fixture-derived cell exists.
     """
     journey_level = case(
         (PlayerJourneyEntry.is_international.is_(True), literal("international")),
@@ -287,25 +291,51 @@ def _stale_player_ids(player_ids: tuple[int, ...] | None = None):
         )
     )
 
-    fixture_keys_query = (
-        select(FixturePlayerStats.player_api_id.label("player_api_id"), Fixture.season.label("season"))
+    fixture_name = func.lower(func.coalesce(Fixture.competition_name, literal("")))
+    fixture_level = case(
+        (
+            or_(*(fixture_name.contains(token, autoescape=True) for token in season_rollup_service._YOUTH_COMP_TOKENS)),
+            literal(season_rollup_service.LEVEL_YOUTH),
+        ),
+        else_=literal(season_rollup_service.LEVEL_SENIOR),
+    )
+    fixture_rows_query = (
+        select(
+            FixturePlayerStats.player_api_id.label("player_api_id"),
+            Fixture.season.label("season"),
+            fixture_level.label("level_group"),
+        )
         .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
         .where(
             or_(
                 _has_fixture_stats(),
-                _had_source_cell(FixturePlayerStats.player_api_id, Fixture.season, "fixtures"),
+                _had_source_cell(
+                    FixturePlayerStats.player_api_id,
+                    Fixture.season,
+                    "fixtures",
+                    fixture_level,
+                ),
             )
         )
     )
-    fixture_cell_keys_query = select(PlayerSeasonCell.player_api_id, PlayerSeasonCell.season).where(
-        PlayerSeasonCell.source == "fixtures"
-    )
+    fixture_cell_keys_query = select(
+        PlayerSeasonCell.player_api_id,
+        PlayerSeasonCell.season,
+        PlayerSeasonCell.level_group,
+    ).where(PlayerSeasonCell.source == "fixtures")
     if player_ids is not None:
-        fixture_keys_query = fixture_keys_query.where(FixturePlayerStats.player_api_id.in_(player_ids))
+        fixture_rows_query = fixture_rows_query.where(FixturePlayerStats.player_api_id.in_(player_ids))
         fixture_cell_keys_query = fixture_cell_keys_query.where(PlayerSeasonCell.player_api_id.in_(player_ids))
-    fixture_keys = fixture_keys_query.group_by(FixturePlayerStats.player_api_id, Fixture.season).subquery()
+    fixture_rows = fixture_rows_query.subquery()
+    fixture_keys = (
+        select(fixture_rows.c.player_api_id, fixture_rows.c.season, fixture_rows.c.level_group)
+        .group_by(fixture_rows.c.player_api_id, fixture_rows.c.season, fixture_rows.c.level_group)
+        .subquery()
+    )
     fixture_cell_keys = fixture_cell_keys_query.group_by(
-        PlayerSeasonCell.player_api_id, PlayerSeasonCell.season
+        PlayerSeasonCell.player_api_id,
+        PlayerSeasonCell.season,
+        PlayerSeasonCell.level_group,
     ).subquery()
     fixture_missing_cell = (
         select(fixture_keys.c.player_api_id)
@@ -315,6 +345,7 @@ def _stale_player_ids(player_ids: tuple[int, ...] | None = None):
                 and_(
                     fixture_cell_keys.c.player_api_id == fixture_keys.c.player_api_id,
                     fixture_cell_keys.c.season == fixture_keys.c.season,
+                    fixture_cell_keys.c.level_group == fixture_keys.c.level_group,
                 ),
             )
         )

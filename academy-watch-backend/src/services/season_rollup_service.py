@@ -788,6 +788,7 @@ def flush_player_refresh_queue(session=None) -> int:
                 refresh_player(player_api_id, season=season, session=session)
             refreshed += 1
         except Exception:
+            dirty.add((player_api_id, season))
             logger.exception("season-rollup refresh failed for player=%s season=%s", player_api_id, season)
 
     session.commit()
