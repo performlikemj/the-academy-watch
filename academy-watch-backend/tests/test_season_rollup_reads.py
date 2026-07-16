@@ -94,6 +94,7 @@ def _seed_live_player(
     *,
     fixture_id=940001,
     minutes=500,
+    appearances=1,
     goals=1,
     assists=1,
 ):
@@ -116,34 +117,38 @@ def _seed_live_player(
         data_depth="full_stats",
         is_active=True,
     )
-    fixture = Fixture(
-        fixture_id_api=fixture_id,
-        season=2025,
-        date_utc=datetime(2025, 9, 1, tzinfo=UTC),
-        competition_name="Championship",
-        home_team_api_id=LOAN,
-        away_team_api_id=OPPONENT,
-        home_goals=2,
-        away_goals=0,
-    )
-    db.session.add_all([tracked, fixture])
+    db.session.add(tracked)
     db.session.flush()
-    db.session.add(
-        FixturePlayerStats(
-            fixture_id=fixture.id,
-            player_api_id=player_api_id,
-            team_api_id=LOAN,
-            position="M",
-            minutes=minutes,
-            goals=goals,
-            assists=assists,
-            yellows=1,
-            reds=0,
-            rating=7.0,
-            shots_total=9,
-            tackles_total=4,
+    base_minutes, extra_minutes = divmod(minutes, appearances)
+    for index in range(appearances):
+        fixture = Fixture(
+            fixture_id_api=fixture_id + index,
+            season=2025,
+            date_utc=datetime(2025, 9, 1, tzinfo=UTC),
+            competition_name="Championship",
+            home_team_api_id=LOAN,
+            away_team_api_id=OPPONENT,
+            home_goals=2,
+            away_goals=0,
         )
-    )
+        db.session.add(fixture)
+        db.session.flush()
+        db.session.add(
+            FixturePlayerStats(
+                fixture_id=fixture.id,
+                player_api_id=player_api_id,
+                team_api_id=LOAN,
+                position="M",
+                minutes=base_minutes + (index < extra_minutes),
+                goals=goals if index == 0 else 0,
+                assists=assists if index == 0 else 0,
+                yellows=1 if index == 0 else 0,
+                reds=0,
+                rating=7.0,
+                shots_total=9 if index == 0 else 0,
+                tackles_total=4 if index == 0 else 0,
+            )
+        )
     db.session.commit()
     return tracked
 
@@ -195,8 +200,14 @@ def _seed_rollup(
     assists=3,
     fixtures_minutes=500,
     journey_minutes=600,
+    avg_rating=7.25,
+    primary_source="journey",
+    reconcile_flag="cup-gap",
+    fixtures_appearances=5,
+    journey_appearances=None,
     with_cells=True,
 ):
+    journey_appearances = appearances if journey_appearances is None else journey_appearances
     total = PlayerSeasonTotal(
         player_api_id=player_api_id,
         season=2025,
@@ -209,11 +220,11 @@ def _seed_rollup(
         reds=1,
         saves=4,
         goals_conceded=5,
-        avg_rating=7.25,
-        primary_source="journey",
+        avg_rating=avg_rating,
+        primary_source=primary_source,
         fixtures_minutes=fixtures_minutes,
         journey_minutes=journey_minutes,
-        reconcile_flag="cup-gap",
+        reconcile_flag=reconcile_flag,
         source_breakdown={
             "fixtures": {"minutes": fixtures_minutes},
             "journey": {"minutes": journey_minutes},
@@ -243,15 +254,15 @@ def _seed_rollup(
                     club_name="Loan FC",
                     competition_tier="league",
                     level_group="senior",
-                    appearances=5,
-                    goals=1,
-                    assists=1,
-                    minutes=500,
+                    appearances=fixtures_appearances,
+                    goals=goals if primary_source == "fixtures" else 1,
+                    assists=assists if primary_source == "fixtures" else 1,
+                    minutes=fixtures_minutes,
                     yellows=1,
                     reds=0,
                     saves=4,
                     goals_conceded=5,
-                    avg_rating=7.25,
+                    avg_rating=avg_rating,
                     detail={"shots_total": 9},
                     synced_at=COMPUTED_AT,
                 ),
@@ -263,10 +274,10 @@ def _seed_rollup(
                     club_name="Loan FC",
                     competition_tier="domestic_cup",
                     level_group="senior",
-                    appearances=8,
-                    goals=2,
-                    assists=3,
-                    minutes=600,
+                    appearances=journey_appearances,
+                    goals=goals if primary_source == "journey" else goals + 1,
+                    assists=assists if primary_source == "journey" else assists + 1,
+                    minutes=journey_minutes,
                     yellows=2,
                     reds=1,
                     synced_at=COMPUTED_AT,
@@ -277,7 +288,15 @@ def _seed_rollup(
     return total
 
 
-def _assert_rollup_provenance(provenance):
+def _assert_headline_matches_total(payload, total, *, minutes_key="minutes"):
+    assert payload[minutes_key] == total.minutes
+    assert payload["appearances"] == total.appearances
+    assert payload["goals"] == total.goals
+    assert payload["assists"] == total.assists
+    assert payload["avg_rating"] == (float(total.avg_rating) if total.avg_rating is not None else None)
+
+
+def _assert_rollup_provenance(provenance, total):
     assert set(provenance) == {
         "primary_source",
         "reconcile_flag",
@@ -285,11 +304,13 @@ def _assert_rollup_provenance(provenance):
         "journey_minutes",
         "computed_at",
     }
-    assert provenance["primary_source"] == "journey"
-    assert provenance["reconcile_flag"] == "cup-gap"
-    assert provenance["fixtures_minutes"] == 500
-    assert provenance["journey_minutes"] == 600
-    assert provenance["computed_at"].startswith("2026-07-16T12:00:00")
+    assert provenance == {
+        "primary_source": total.primary_source,
+        "reconcile_flag": total.reconcile_flag,
+        "fixtures_minutes": total.fixtures_minutes,
+        "journey_minutes": total.journey_minutes,
+        "computed_at": total.computed_at.isoformat(),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +373,7 @@ def test_flag_unset_keeps_live_response_byte_identical(client, monkeypatch, url)
 
 def test_season_stats_rollup_uses_total_whole_and_cells_breakdown(client, monkeypatch):
     _seed_live_player()
-    _seed_rollup()
+    total = _seed_rollup()
     monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats")
 
     response = client.get(f"/api/players/{PLAYER}/season-stats?season=2025")
@@ -375,14 +396,53 @@ def test_season_stats_rollup_uses_total_whole_and_cells_breakdown(client, monkey
     assert data["avg_rating"] == 7.25
     assert data["source"] == "season-rollup"
     assert data["clean_sheets"] is None
-    _assert_rollup_provenance(data["provenance"])
+    _assert_headline_matches_total(data, total)
+    _assert_rollup_provenance(data["provenance"], total)
     assert data["source_breakdown"]["fixtures"][0]["stats"]["minutes"] == 500
     assert data["source_breakdown"]["journey"][0]["stats"]["minutes"] == 600
 
 
+def test_season_stats_fixtures_primary_serves_total_headline_verbatim(client, monkeypatch):
+    _seed_live_player(minutes=2941, appearances=39, goals=12, assists=7)
+    total = _seed_rollup(
+        minutes=2941,
+        appearances=39,
+        goals=12,
+        assists=7,
+        fixtures_minutes=2941,
+        journey_minutes=2936,
+        avg_rating=8.13,
+        primary_source="fixtures",
+        reconcile_flag="journey-under-sync",
+        fixtures_appearances=39,
+        journey_appearances=40,
+    )
+
+    # Reproduce the live legacy conflict exactly: API/journey has more
+    # appearances (40/2936), while fixtures has more minutes (39/2941).
+    monkeypatch.setattr(
+        _StubAPIClient,
+        "_fetch_player_team_season_totals_api",
+        lambda *args, **kwargs: {
+            "games_played": 40,
+            "minutes": 2936,
+            "goals": 11,
+            "assists": 6,
+        },
+    )
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats")
+
+    response = client.get(f"/api/players/{PLAYER}/season-stats")
+    assert response.status_code == 200
+    data = response.get_json()
+    _assert_headline_matches_total(data, total)
+    assert (data["minutes"], data["appearances"]) == (2941, 39)
+    _assert_rollup_provenance(data["provenance"], total)
+
+
 def test_player_stats_rollup_keeps_matches_and_adds_total_summary(client, monkeypatch):
     _seed_live_player()
-    _seed_rollup()
+    total = _seed_rollup()
     monkeypatch.delenv("SEASON_ROLLUP_READS", raising=False)
     live_matches = client.get(f"/api/players/{PLAYER}/stats?season=2025").get_json()
     monkeypatch.setenv("SEASON_ROLLUP_READS", "player_stats")
@@ -398,9 +458,36 @@ def test_player_stats_rollup_keeps_matches_and_adds_total_summary(client, monkey
     assert data["summary"]["minutes"] != 1100
     assert data["summary"]["avg_rating"] == 7.25
     assert (data["summary"]["yellows"], data["summary"]["reds"], data["summary"]["saves"]) == (2, 1, 4)
-    _assert_rollup_provenance(data["provenance"])
+    _assert_headline_matches_total(data["summary"], total)
+    _assert_rollup_provenance(data["provenance"], total)
     assert data["source_breakdown"]["fixtures"][0]["stats"]["minutes"] == 500
     assert data["source_breakdown"]["journey"][0]["stats"]["minutes"] == 600
+
+
+def test_player_stats_fixtures_primary_serves_total_summary_verbatim(client, monkeypatch):
+    _seed_live_player(minutes=2936, appearances=40, goals=11, assists=6)
+    total = _seed_rollup(
+        minutes=2941,
+        appearances=39,
+        goals=12,
+        assists=7,
+        fixtures_minutes=2941,
+        journey_minutes=2936,
+        avg_rating=8.13,
+        primary_source="fixtures",
+        reconcile_flag="journey-under-sync",
+        fixtures_appearances=39,
+        journey_appearances=40,
+    )
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "player_stats")
+
+    response = client.get(f"/api/players/{PLAYER}/stats?season=2025")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert len(data["matches"]) == 40
+    _assert_headline_matches_total(data["summary"], total)
+    assert (data["summary"]["minutes"], data["summary"]["appearances"]) == (2941, 39)
+    _assert_rollup_provenance(data["provenance"], total)
 
 
 def test_scout_rollup_uses_totals_for_values_and_sorting(client, monkeypatch):
@@ -412,7 +499,7 @@ def test_scout_rollup_uses_totals_for_values_and_sorting(client, monkeypatch):
         assists=0,
         minutes=900,
     )
-    _seed_rollup()
+    total = _seed_rollup()
     _seed_rollup(
         SECOND_PLAYER,
         minutes=100,
@@ -444,7 +531,41 @@ def test_scout_rollup_uses_totals_for_values_and_sorting(client, monkeypatch):
     assert first["rollup_missing"] is False
     assert first["has_detailed_stats"] is False
     assert first["shots_total"] is None
-    _assert_rollup_provenance(first["provenance"])
+    _assert_headline_matches_total(first, total, minutes_key="minutes_played")
+    _assert_rollup_provenance(first["provenance"], total)
+
+
+def test_scout_fixtures_primary_projects_total_headline_verbatim(client, monkeypatch):
+    _seed_live_player(minutes=2936, appearances=40, goals=11, assists=6)
+    total = _seed_rollup(
+        minutes=2941,
+        appearances=39,
+        goals=12,
+        assists=7,
+        fixtures_minutes=2941,
+        journey_minutes=2936,
+        avg_rating=8.13,
+        primary_source="fixtures",
+        reconcile_flag="journey-under-sync",
+        fixtures_appearances=39,
+        journey_appearances=40,
+    )
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "scout")
+
+    import src.routes.scout as scout_routes
+
+    def _must_not_run(*args, **kwargs):
+        raise AssertionError("live aggregate subquery ran under scout rollup flag")
+
+    monkeypatch.setattr(scout_routes, "_fixture_stats_subquery", _must_not_run)
+    monkeypatch.setattr(scout_routes, "_cache_stats_subquery", _must_not_run)
+
+    response = client.get("/api/scout/players?season=2025&sort=goals")
+    assert response.status_code == 200
+    row = response.get_json()["players"][0]
+    _assert_headline_matches_total(row, total, minutes_key="minutes_played")
+    assert (row["minutes_played"], row["appearances"]) == (2941, 39)
+    _assert_rollup_provenance(row["provenance"], total)
 
 
 def test_scout_flag_leaves_leaderboards_on_live_phase_query(client, monkeypatch):
