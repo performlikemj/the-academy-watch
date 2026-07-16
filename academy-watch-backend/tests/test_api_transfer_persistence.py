@@ -54,6 +54,45 @@ def test_team_and_profile_transfer_paths_use_payload_adapter(monkeypatch):
     assert calls == [(blocks, {"fallback_player_api_id": 123})]
 
 
+def test_profile_lookup_can_disable_transfer_fallback(monkeypatch):
+    endpoints = []
+    client = APIFootballClient.__new__(APIFootballClient)
+    client.mode = "direct"
+    client.current_season_start_year = 2025
+    client._player_profile_cache = {}
+    client._get_sample_player_data = lambda player_id: {
+        "player": {"id": player_id, "name": "Sample"},
+        "statistics": [],
+    }
+
+    def request(endpoint, params):
+        endpoints.append(endpoint)
+        return {"response": []}
+
+    client._make_request = request
+
+    profile = client.get_player_by_id(123, season=2025, allow_transfer_fallback=False)
+
+    assert profile["player"]["name"] == "Player 123"
+    assert profile["statistics"] == []
+    assert endpoints == ["players", "players/seasons"]
+
+    endpoints.clear()
+    blocks = [_block()]
+
+    def request_with_transfers(endpoint, params):
+        endpoints.append(endpoint)
+        return {"response": blocks if endpoint == "transfers" else []}
+
+    monkeypatch.setattr(api_module, "_record_transfer_payload", lambda *args, **kwargs: None)
+    client._make_request = request_with_transfers
+
+    normal_profile = client.get_player_by_id(123, season=2025)
+
+    assert normal_profile["player"]["name"] == "Player"
+    assert endpoints == ["players", "players/seasons", "transfers"]
+
+
 def test_player_transfer_path_records_live_and_memory_cached_payloads(monkeypatch):
     calls = []
     monkeypatch.setattr(

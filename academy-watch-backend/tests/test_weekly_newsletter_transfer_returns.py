@@ -172,6 +172,71 @@ def test_latest_resolved_parent_return_wins_and_other_destinations_are_excluded(
     assert returns[0]["return_date"] == "2024-01-10"
 
 
+def test_same_week_reloan_suppresses_earlier_return(app, monkeypatch):
+    parent = _seed_parent(49, "Chelsea")
+    player = _seed_player(parent, 1007, "Returned Then Re-loaned")
+    events = [
+        _transfer("2024-01-01", "Loan", 49, "Chelsea", 300, "Hull City"),
+        _transfer("2024-01-08", "Back from loan", 300, "Hull City", 49, "Chelsea"),
+        _transfer("2024-01-10", "Loan", 49, "Chelsea", 301, "Crystal Palace"),
+    ]
+
+    returns = _detect(
+        monkeypatch,
+        parent,
+        {player.player_api_id: events},
+        date(2024, 1, 8),
+        date(2024, 1, 14),
+    )
+
+    assert returns == []
+
+
+def test_parent_internal_move_does_not_suppress_return(app, monkeypatch):
+    parent = _seed_parent(49, "Chelsea")
+    player = _seed_player(parent, 1008, "Returned To U21")
+    events = [
+        _transfer("2024-01-01", "Loan", 49, "Chelsea", 300, "Hull City"),
+        _transfer("2024-01-08", "Back from loan", 300, "Hull City", 49, "Chelsea"),
+        _transfer("2024-01-10", "Transfer", 49, "Chelsea", 9949, "Chelsea U21"),
+    ]
+
+    returns = _detect(
+        monkeypatch,
+        parent,
+        {player.player_api_id: events},
+        date(2024, 1, 8),
+        date(2024, 1, 14),
+    )
+
+    assert len(returns) == 1
+    assert returns[0]["player_api_id"] == player.player_api_id
+    assert returns[0]["returned_from_club_name"] == "Hull City"
+    assert returns[0]["return_date"] == "2024-01-08"
+
+
+def test_parent_internal_loan_does_not_suppress_return(app, monkeypatch):
+    parent = _seed_parent(49, "Chelsea")
+    player = _seed_player(parent, 1009, "Returned Then Internal Loan")
+    events = [
+        _transfer("2024-01-01", "Loan", 49, "Chelsea", 300, "Hull City"),
+        _transfer("2024-01-08", "Back from loan", 300, "Hull City", 49, "Chelsea"),
+        _transfer("2024-01-10", "Loan", 49, "Chelsea", 9949, "Chelsea U21"),
+    ]
+
+    returns = _detect(
+        monkeypatch,
+        parent,
+        {player.player_api_id: events},
+        date(2024, 1, 8),
+        date(2024, 1, 14),
+    )
+
+    assert len(returns) == 1
+    assert returns[0]["player_api_id"] == player.player_api_id
+    assert returns[0]["returned_from_club_name"] == "Hull City"
+
+
 def test_batch_failure_omission_is_not_resolved_as_empty_history(app, monkeypatch, caplog):
     parent = _seed_parent(49, "Chelsea")
     covered = _seed_player(parent, 1005, "Covered Return")

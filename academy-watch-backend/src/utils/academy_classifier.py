@@ -667,6 +667,26 @@ def resolved_current_club_is_authoritative(
     )
 
 
+def resolved_transfer_evidence_is_authoritative(
+    transfers: list | None,
+    resolution: TransferResolution | None,
+) -> bool:
+    """Whether a successful fetch can safely replace known derived state.
+
+    A successful empty history is authoritative. A non-empty response is not
+    authoritative when normalization dropped evidence or topology left an
+    unknown event; consumers must preserve their existing transfer-derived
+    fields in that case.
+    """
+    if transfers is None or resolution is None:
+        return False
+    if not transfers:
+        return True
+    return len(resolution.normalized_events) == len(transfers) and not any(
+        event.kind == "unknown" for event in resolution.events
+    )
+
+
 def latest_parent_permanent_departure(
     resolution: TransferResolution | None,
     parent_api_id: int,
