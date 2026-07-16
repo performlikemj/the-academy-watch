@@ -29,7 +29,7 @@ from datetime import date
 
 import bleach
 from flask import Blueprint, Response, g, jsonify, request
-from sqlalchemy import Integer, and_, case, cast, exists, func, or_, tuple_
+from sqlalchemy import Integer, and_, case, cast, exists, func, literal, or_, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased, joinedload
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
@@ -38,6 +38,7 @@ from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerSh
 from src.models.journey import PlayerJourney
 from src.models.league import PlayerStatsCache, Team, UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
+from src.models.season_rollup import PlayerSeasonTotal
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services.follow_resolver import derive_label, resolve_list, validate_selector
@@ -47,6 +48,7 @@ from src.services.player_shadow_service import (
     search_players,
     user_shadow_follow_count,
 )
+from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.sanitize import sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -370,22 +372,54 @@ def _preferred_row_filter():
     return ~better_row
 
 
-def _base_scout_query():
+def _base_scout_query(requested_season=None, *, allow_rollup=True):
     """TrackedPlayer rows joined to aggregated stats, deduped per player."""
-    from src.utils.academy_window import stats_season_with_data
+    from src.utils.academy_window import resolve_stats_season, stats_season_with_data
 
-    # Season-scope the fixture aggregate to the current stats season (latest with
-    # data on rollover). One grouped join over the fixture rows, resolved once as
-    # a subquery and outer-joined per player — no per-row N+1.
-    season = stats_season_with_data(db.session)
-    fps = _fixture_stats_subquery(season)
-    cache = _cache_stats_subquery()
+    rollup_enabled = allow_rollup and rollup_reads_enabled("scout")
+    if rollup_enabled:
+        # Keep the same fixtures-keyed discovery resolver used everywhere else;
+        # an explicit season is validated only on the flag-gated read path.
+        season = resolve_stats_season(
+            db.session,
+            requested=requested_season,
+            surface="discovery",
+        )
+        goals = PlayerSeasonTotal.goals.label("goals")
+        assists = PlayerSeasonTotal.assists.label("assists")
+        minutes = PlayerSeasonTotal.minutes.label("minutes_played")
+        appearances = PlayerSeasonTotal.appearances.label("appearances")
+        avg_rating = PlayerSeasonTotal.avg_rating.label("avg_rating")
+        rollup_phase_columns = {
+            "yellows": PlayerSeasonTotal.yellows,
+            "reds": PlayerSeasonTotal.reds,
+            "saves": PlayerSeasonTotal.saves,
+            "goals_conceded": PlayerSeasonTotal.goals_conceded,
+        }
+        phase_column_exprs = {
+            key: rollup_phase_columns.get(key, literal(None, type_=Integer)).label(key) for key in PHASE_STAT_KEYS
+        }
+        rollup_fields = [
+            PlayerSeasonTotal.id.is_(None).label("rollup_missing"),
+            PlayerSeasonTotal.primary_source.label("rollup_primary_source"),
+            PlayerSeasonTotal.reconcile_flag.label("rollup_reconcile_flag"),
+            PlayerSeasonTotal.fixtures_minutes.label("rollup_fixtures_minutes"),
+            PlayerSeasonTotal.journey_minutes.label("rollup_journey_minutes"),
+            PlayerSeasonTotal.computed_at.label("rollup_computed_at"),
+        ]
+    else:
+        # Legacy path is intentionally unchanged when the flag is off.
+        season = stats_season_with_data(db.session)
+        fps = _fixture_stats_subquery(season)
+        cache = _cache_stats_subquery()
 
-    goals = func.coalesce(fps.c.goals, cache.c.goals, 0).label("goals")
-    assists = func.coalesce(fps.c.assists, cache.c.assists, 0).label("assists")
-    minutes = func.coalesce(fps.c.minutes_played, cache.c.minutes_played, 0).label("minutes_played")
-    appearances = func.coalesce(fps.c.appearances, cache.c.appearances, 0).label("appearances")
-    avg_rating = fps.c.avg_rating.label("avg_rating")
+        goals = func.coalesce(fps.c.goals, cache.c.goals, 0).label("goals")
+        assists = func.coalesce(fps.c.assists, cache.c.assists, 0).label("assists")
+        minutes = func.coalesce(fps.c.minutes_played, cache.c.minutes_played, 0).label("minutes_played")
+        appearances = func.coalesce(fps.c.appearances, cache.c.appearances, 0).label("appearances")
+        avg_rating = fps.c.avg_rating.label("avg_rating")
+        phase_column_exprs = {key: getattr(fps.c, key).label(key) for key in PHASE_STAT_KEYS}
+        rollup_fields = []
 
     # Player-level CURRENT situation overrides the academy-relative
     # TrackedPlayer.status on player-facing surfaces. A Dortmund academy product
@@ -402,7 +436,7 @@ def _base_scout_query():
     # Phase-of-play stats are fixture-coverage only: no cache fallback, no outer
     # COALESCE — the whole block stays NULL for players without fixture rows so
     # consumers can tell "no data" from a real zero.
-    phase_stats = [getattr(fps.c, key).label(key) for key in PHASE_STAT_KEYS]
+    phase_stats = [phase_column_exprs[key] for key in PHASE_STAT_KEYS]
 
     query = (
         db.session.query(
@@ -416,13 +450,9 @@ def _base_scout_query():
             journey_owner_id,
             journey_owner_name,
             *phase_stats,
+            *rollup_fields,
         )
         .outerjoin(PlayerJourney, PlayerJourney.player_api_id == TrackedPlayer.player_api_id)
-        # Stats join per player (not per current club): the aggregates are now
-        # one season figure per player, so a returned loanee whose current club
-        # points back at the parent still gets his loan-club season attributed.
-        .outerjoin(fps, fps.c.player_api_id == TrackedPlayer.player_api_id)
-        .outerjoin(cache, cache.c.player_api_id == TrackedPlayer.player_api_id)
         .filter(TrackedPlayer.is_active.is_(True))
         # owning-club rows are deprecated (senior signings, not academy
         # products) — never surface them even before a data repair runs.
@@ -432,6 +462,22 @@ def _base_scout_query():
         # page (or 1000-row CSV export) doesn't lazy-load per distinct club.
         .options(joinedload(TrackedPlayer.team), joinedload(TrackedPlayer.current_club))
     )
+    if rollup_enabled:
+        query = query.outerjoin(
+            PlayerSeasonTotal,
+            and_(
+                PlayerSeasonTotal.player_api_id == TrackedPlayer.player_api_id,
+                PlayerSeasonTotal.season == season,
+                PlayerSeasonTotal.level_group == "senior",
+            ),
+        )
+    else:
+        # Stats join per player (not per current club): the aggregates are one
+        # season figure per player regardless of the current-club pointer.
+        query = query.outerjoin(fps, fps.c.player_api_id == TrackedPlayer.player_api_id).outerjoin(
+            cache,
+            cache.c.player_api_id == TrackedPlayer.player_api_id,
+        )
     columns = {
         "goals": goals,
         "assists": assists,
@@ -443,7 +489,7 @@ def _base_scout_query():
         "effective_status": effective_status,
     }
     for key in PHASE_STAT_KEYS:
-        columns[key] = getattr(fps.c, key)
+        columns[key] = phase_column_exprs[key]
     return query, columns
 
 
@@ -489,24 +535,54 @@ def _apply_filters(query, columns):
 def _row_to_dict(row):
     tracked_player = row[0]
     payload = tracked_player.to_public_dict()
-    payload["appearances"] = int(row.appearances or 0)
-    payload["goals"] = int(row.goals or 0)
-    payload["assists"] = int(row.assists or 0)
-    payload["minutes_played"] = int(row.minutes_played or 0)
-    payload["avg_rating"] = round(float(row.avg_rating), 2) if row.avg_rating else None
-    minutes = payload["minutes_played"]
-    contributions = payload["goals"] + payload["assists"]
-    payload["goal_contributions"] = contributions
-    payload["contributions_per90"] = round(contributions * 90.0 / minutes, 2) if minutes else None
+    is_rollup_row = "rollup_missing" in row._mapping
+    if is_rollup_row:
+        payload["appearances"] = int(row.appearances) if row.appearances is not None else None
+        payload["goals"] = int(row.goals) if row.goals is not None else None
+        payload["assists"] = int(row.assists) if row.assists is not None else None
+        payload["minutes_played"] = int(row.minutes_played) if row.minutes_played is not None else None
+        payload["avg_rating"] = round(float(row.avg_rating), 2) if row.avg_rating is not None else None
+        minutes = payload["minutes_played"]
+        contributions = (
+            payload["goals"] + payload["assists"]
+            if payload["goals"] is not None and payload["assists"] is not None
+            else None
+        )
+        payload["goal_contributions"] = contributions
+        payload["contributions_per90"] = (
+            round(contributions * 90.0 / minutes, 2) if contributions is not None and minutes else None
+        )
+        payload["rollup_missing"] = bool(row.rollup_missing)
+        payload["provenance"] = (
+            None
+            if row.rollup_missing
+            else {
+                "primary_source": row.rollup_primary_source,
+                "reconcile_flag": row.rollup_reconcile_flag,
+                "fixtures_minutes": row.rollup_fixtures_minutes,
+                "journey_minutes": row.rollup_journey_minutes,
+                "computed_at": row.rollup_computed_at.isoformat() if row.rollup_computed_at else None,
+            }
+        )
+    else:
+        payload["appearances"] = int(row.appearances or 0)
+        payload["goals"] = int(row.goals or 0)
+        payload["assists"] = int(row.assists or 0)
+        payload["minutes_played"] = int(row.minutes_played or 0)
+        payload["avg_rating"] = round(float(row.avg_rating), 2) if row.avg_rating else None
+        minutes = payload["minutes_played"]
+        contributions = payload["goals"] + payload["assists"]
+        payload["goal_contributions"] = contributions
+        payload["contributions_per90"] = round(contributions * 90.0 / minutes, 2) if minutes else None
 
     # Phase-of-play stats: the fixture aggregate never yields NULL for a player
     # WITH fixture rows (per-column COALESCE inside the subquery), so a NULL
     # here means "no per-fixture coverage this season" — emit the whole block
     # as null rather than fabricating zeros for limited-coverage players.
-    has_detailed = row.tackles is not None
+    has_detailed = not is_rollup_row and row.tackles is not None
     payload["has_detailed_stats"] = has_detailed
     for key in PHASE_STAT_KEYS:
-        value = getattr(row, key) if has_detailed else None
+        value = getattr(row, key) if has_detailed or is_rollup_row else None
         # GK stats (saves/goals_conceded/penalty_saved/clean_sheets) stay NULL
         # for outfielders even with full fixture coverage — keep them null.
         payload[key] = int(value) if value is not None else None
@@ -581,6 +657,7 @@ def scout_players():
     - nationality: substring match
     - search: player name substring
     - min_minutes: minimum minutes played
+    - season: API-Football season start-year (rollup read path)
     - sort: goals | assists | minutes | appearances | rating | contributions |
             per90 | age | name | shots | passes | key_passes | dribbles |
             tackles | duels_won | fouls_won | saves | goals_conceded |
@@ -590,7 +667,7 @@ def scout_players():
     - page / per_page: pagination (per_page max 100)
     """
     try:
-        query, columns = _base_scout_query()
+        query, columns = _base_scout_query(request.args.get("season") or None)
         query, error = _apply_filters(query, columns)
         if error:
             return error
@@ -629,6 +706,8 @@ def scout_players():
                 "total_pages": (total + per_page - 1) // per_page if total else 0,
             }
         )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.error(f"Error in scout_players: {e}")
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
@@ -688,7 +767,10 @@ def scout_leaderboards():
             return jsonify({"error": f"Invalid phase. One of: {sorted(PHASE_BOARDS)}"}), 400
 
         def board(sort_key, extra_min_minutes=0, board_order="desc"):
-            query, columns = _base_scout_query()
+            # Phase/leaderboard metrics are out of D4c scope and most rich
+            # columns do not exist on PlayerSeasonTotal. Keep their legacy
+            # aggregate rather than returning arbitrary all-NULL rankings.
+            query, columns = _base_scout_query(allow_rollup=False)
             query, error = _apply_filters(query, columns)
             if error:
                 return None, error
@@ -1173,7 +1255,7 @@ def scout_export_csv():
     other filters except sort/order. Capped at 1000 rows.
     """
     try:
-        query, columns = _base_scout_query()
+        query, columns = _base_scout_query(request.args.get("season") or None)
 
         raw_ids = [p.strip() for p in request.args.get("ids", "").split(",") if p.strip()]
         if raw_ids:
@@ -1235,6 +1317,8 @@ def scout_export_csv():
             mimetype="text/csv",
             headers={"Content-Disposition": 'attachment; filename="academy-watch-scout-export.csv"'},
         )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.error(f"Error in scout_export_csv: {e}")
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
