@@ -383,7 +383,7 @@ class APIFootballClient:
         # Cache team profiles for quick reuse (API payloads)
         self._team_profile_cache: dict[int, dict] = {}
         # Cache player payloads to avoid repeated API calls for profile details
-        self._player_profile_cache: dict[tuple[int, int | None], dict] = {}
+        self._player_profile_cache: dict[tuple[int, int | None, bool], dict] = {}
 
         # --- Performance optimization caches (added Oct 2025) ---
         # Transfer cache: {player_id: (data, timestamp)} - 24hr TTL
@@ -3551,20 +3551,47 @@ class APIFootballClient:
             logger.error(f"Error fetching current loans for team {team_id}: {e}")
             return []
 
-    def get_player_by_id(self, player_id: int, season: int | None = None) -> dict[str, Any]:
-        """Get player information by ID with smart fallbacks + local caching."""
+    def get_player_by_id(
+        self,
+        player_id: int,
+        season: int | None = None,
+        *,
+        allow_transfer_fallback: bool = True,
+    ) -> dict[str, Any]:
+        """Get player information by ID with smart fallbacks + local caching.
+
+        Callers that enforce their own transfer-fetch quota can disable the
+        final transfer-endpoint fallback without changing the normal profile
+        lookup contract.
+        """
         try:
             pid = int(player_id)
         except (TypeError, ValueError):
             pid = player_id
         target_season = season or self.current_season_start_year
-        cache_key = (pid, int(target_season) if target_season is not None else None)
+        cache_key = (
+            pid,
+            int(target_season) if target_season is not None else None,
+            bool(allow_transfer_fallback),
+        )
         if cache_key in self._player_profile_cache:
             return deepcopy(self._player_profile_cache[cache_key])
 
         def _store(payload: dict) -> dict:
             self._player_profile_cache[cache_key] = payload
             return deepcopy(payload)
+
+        def _minimal_profile() -> dict:
+            return {
+                "player": {
+                    "id": player_id,
+                    "name": f"Player {player_id}",
+                    "firstname": None,
+                    "lastname": None,
+                    "photo": None,
+                },
+                "statistics": [],
+            }
 
         try:
             resp = self._make_request("players", {"id": player_id, "season": target_season})
@@ -3591,45 +3618,44 @@ class APIFootballClient:
                 except Exception:
                     continue
 
-            try:
-                tr = self._make_request("transfers", {"player": player_id})
-                t_resp = tr.get("response", []) or []
-                if self.mode != "stub":
-                    _record_transfer_payload(t_resp, fallback_player_api_id=pid)
-                if t_resp:
-                    p = (t_resp[0] or {}).get("player", {})
-                    payload = {
-                        "player": {
-                            "id": player_id,
-                            "name": p.get("name") or "Unknown",
-                            "firstname": p.get("firstname"),
-                            "lastname": p.get("lastname"),
-                            "photo": (p.get("photo") if isinstance(p, dict) else None),
-                        },
-                        "statistics": [],
-                    }
-                    logger.info(f"ℹ️ Using transfers fallback name for player {player_id}: {payload['player']['name']}")
-                    return _store(payload)
-            except Exception:
-                pass
+            if allow_transfer_fallback:
+                try:
+                    tr = self._make_request("transfers", {"player": player_id})
+                    t_resp = tr.get("response", []) or []
+                    if self.mode != "stub":
+                        _record_transfer_payload(t_resp, fallback_player_api_id=pid)
+                    if t_resp:
+                        p = (t_resp[0] or {}).get("player", {})
+                        payload = {
+                            "player": {
+                                "id": player_id,
+                                "name": p.get("name") or "Unknown",
+                                "firstname": p.get("firstname"),
+                                "lastname": p.get("lastname"),
+                                "photo": (p.get("photo") if isinstance(p, dict) else None),
+                            },
+                            "statistics": [],
+                        }
+                        logger.info(
+                            "ℹ️ Using transfers fallback name for player %s: %s",
+                            player_id,
+                            payload["player"]["name"],
+                        )
+                        return _store(payload)
+                except Exception:
+                    pass
 
+            if not allow_transfer_fallback:
+                return _store(_minimal_profile())
             return _store(self._get_sample_player_data(player_id))
         except Exception as e:
             logger.error(f"Error fetching player {player_id}: {e}")
+            if not allow_transfer_fallback:
+                return _store(_minimal_profile())
             try:
                 return _store(self._get_sample_player_data(player_id))
             except Exception:
-                payload = {
-                    "player": {
-                        "id": player_id,
-                        "name": f"Player {player_id}",
-                        "firstname": None,
-                        "lastname": None,
-                        "photo": None,
-                    },
-                    "statistics": [],
-                }
-                return _store(payload)
+                return _store(_minimal_profile())
 
     def get_player_profile(self, player_id: int) -> dict[str, Any]:
         """Fetch a player profile using the players/profiles endpoint."""

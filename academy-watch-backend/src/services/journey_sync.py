@@ -111,6 +111,70 @@ def _club_ref_matches(ref: ClubRef | None, club_api_id: int | None, club_name: s
     return bool(base_name and ref.organization_key == f"name:{base_name}")
 
 
+def _stats_backed_club_ids(ref: ClubRef | None, entries: list) -> set[int]:
+    """Bind resolver identity to unambiguous statistics-backed club IDs.
+
+    Exact/provider affiliate IDs win. Name-only evidence is accepted only when
+    it identifies one stored club ID; two unrelated IDs with the same normalized
+    name remain ambiguous.
+    """
+    if ref is None:
+        return set()
+    candidates = {
+        (entry.club_api_id, entry.club_name)
+        for entry in entries
+        if entry.club_api_id is not None and _club_ref_matches(ref, entry.club_api_id, entry.club_name)
+    }
+    if not candidates:
+        return set()
+
+    direct_ids = {ref.api_id, ref.organization_api_id} - {None}
+    exact_ids = {club_id for club_id, _ in candidates if club_id in direct_ids}
+    if exact_ids:
+        return exact_ids
+
+    full_name = _metadata_name(ref.name)
+    full_name_ids = {
+        club_id for club_id, club_name in candidates if full_name and _metadata_name(club_name) == full_name
+    }
+    if len(full_name_ids) == 1:
+        return full_name_ids
+    if len(full_name_ids) > 1:
+        return set()
+
+    direct_senior_ids = {
+        resolve_senior_id(club_id, ref.name)
+        for club_id in direct_ids
+        if resolve_senior_id(club_id, ref.name) is not None
+    }
+    affiliate_ids = {
+        club_id for club_id, club_name in candidates if resolve_senior_id(club_id, club_name) in direct_senior_ids
+    }
+    if affiliate_ids:
+        return affiliate_ids
+
+    candidate_ids = {club_id for club_id, _ in candidates}
+    return candidate_ids if len(candidate_ids) == 1 else set()
+
+
+def _stats_backed_organization_ids(ref: ClubRef | None, entries: list) -> set[int]:
+    """Return all stats IDs for one uniquely anchored club organization."""
+    if ref is None:
+        return set()
+    candidates = {
+        entry.club_api_id
+        for entry in entries
+        if entry.club_api_id is not None and _club_ref_matches(ref, entry.club_api_id, entry.club_name)
+    }
+    if not candidates:
+        return set()
+    direct_ids = {ref.api_id, ref.organization_api_id} - {None}
+    if candidates & direct_ids:
+        return candidates
+    anchor_ids = _stats_backed_club_ids(ref, entries)
+    return candidates if len(anchor_ids) == 1 else set()
+
+
 def _raw_club_logo(event, direction: str) -> str:
     """Best-effort logo lookup without sacrificing the resolver's raw IDs."""
     raw = event.event.raw
@@ -1257,17 +1321,39 @@ class JourneySyncService:
         # Only topology-resolved permanent moves correct historical clubs. A
         # reverse-direction N/A return is excluded; a same-direction N/A
         # conversion is included by the same policy as every other consumer.
+        # Provider IDs enrich identity but are not mandatory: a name-only
+        # endpoint may bind to exactly one stats-backed journey club. Zero or
+        # multiple matches remain ambiguous and are left untouched.
+        evidence_entries = [entry for entry in entries if not entry.is_international]
+
+        def _evidence_id(ref: ClubRef) -> int | None:
+            direct_id = ref.api_id or ref.organization_api_id
+            matching_ids = _stats_backed_club_ids(ref, evidence_entries)
+            if direct_id in matching_ids:
+                return direct_id
+            if len(matching_ids) == 1:
+                return next(iter(matching_ids))
+            if not matching_ids and not any(
+                _club_ref_matches(ref, entry.club_api_id, entry.club_name) for entry in evidence_entries
+            ):
+                return direct_id
+            return None
+
         permanent_moves = []
         for event in resolution.events:
-            if event.kind != "permanent" or not event.in_club.api_id or not event.out_club.api_id:
+            if event.kind != "permanent":
+                continue
+            in_id = _evidence_id(event.in_club)
+            out_id = _evidence_id(event.out_club)
+            if in_id is None or out_id is None:
                 continue
             permanent_moves.append(
                 {
                     "date": event.transfer_date.isoformat(),
-                    "in_id": event.in_club.api_id,
+                    "in_id": in_id,
                     "in_name": event.in_club.name or "",
                     "in_logo": _raw_club_logo(event, "in"),
-                    "out_id": event.out_club.api_id,
+                    "out_id": out_id,
                     "out_name": event.out_club.name or "",
                     "out_logo": _raw_club_logo(event, "out"),
                 }
@@ -1284,7 +1370,7 @@ class JourneySyncService:
         # "Newcastle ⟸ Ashington AFC" alongside the genuine "Newcastle ⟸
         # Nottingham Forest". Correcting a season to that phantom source
         # manufactures a club the player never played for.
-        evidence_club_ids = {e.club_api_id for e in entries if not e.is_international}
+        evidence_club_ids = {e.club_api_id for e in evidence_entries}
 
         moves_by_in: dict[int, list] = {}
         for move in permanent_moves:
@@ -1453,19 +1539,16 @@ class JourneySyncService:
             transfer_resolution=transfer_resolution,
             as_of=as_of,
         )
-        permanent_transfer_dest_years = {}
+        domestic_entries = [entry for entry in entries if not entry.is_international]
+        permanent_transfer_destinations: list[tuple[set[int], int]] = []
         if resolution is not None:
             for event in resolution.events:
                 if event.kind != "permanent":
                     continue
                 year = event.transfer_date.year
-                for dest_id in {
-                    event.in_club.api_id,
-                    event.in_club.organization_api_id,
-                } - {None}:
-                    prior = permanent_transfer_dest_years.get(dest_id)
-                    if prior is None or year < prior:
-                        permanent_transfer_dest_years[dest_id] = year
+                destination_ids = _stats_backed_organization_ids(event.in_club, domestic_entries)
+                if destination_ids:
+                    permanent_transfer_destinations.append((destination_ids, year))
 
         # Parse birth year for age-at-entry validation
         birth_year = None
@@ -1538,13 +1621,18 @@ class JourneySyncService:
         # same-club first-team debut). Entries that PRECEDE the transfer stay
         # untouched — an academy product sold and bought back keeps academy
         # status for their formative years.
-        if permanent_transfer_dest_years:
+        if permanent_transfer_destinations:
             for entry in entries:
                 if entry.entry_type not in ("academy", "development") or entry.is_international:
                     continue
-                if entry.club_api_id not in permanent_transfer_dest_years:
+                matching_years = [
+                    year
+                    for destination_ids, year in permanent_transfer_destinations
+                    if entry.club_api_id in destination_ids
+                ]
+                if not matching_years:
                     continue
-                transfer_year = permanent_transfer_dest_years[entry.club_api_id]
+                transfer_year = min(matching_years)
                 # Teenage gate: a recorded transfer at <= 18 is an academy
                 # move (youth-to-youth), not a senior signing.
                 if transfer_year is not None and birth_year is not None and transfer_year - birth_year <= 18:
@@ -1790,6 +1878,10 @@ class JourneySyncService:
             season_start_day=resolution.season_start_day,
         ):
             destination_id = destination.api_id or destination.organization_api_id
+            if destination_id is None:
+                destination_ids = _stats_backed_club_ids(destination, domestic)
+                if len(destination_ids) == 1:
+                    destination_id = next(iter(destination_ids))
             journey.current_club_api_id = destination_id
             journey.current_club_name = destination.name
             if destination.name:

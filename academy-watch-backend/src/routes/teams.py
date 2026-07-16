@@ -736,7 +736,7 @@ def get_academy_network(team_identifier):
                     journey.current_level,
                     team_api_id,
                     parent_name,
-                    transfers=[],  # read-only view, skip API calls
+                    transfers=None,  # read-only view: evidence was not fetched
                     latest_season=_get_latest_season(
                         journey.id, parent_api_id=team_api_id, parent_club_name=parent_name
                     ),

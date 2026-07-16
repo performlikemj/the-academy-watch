@@ -238,6 +238,32 @@ def test_current_status_matches_name_only_clubs_from_resolver():
     assert journey.current_owner_name == "Owner"
 
 
+def test_name_only_current_projection_adopts_unique_stats_backed_id():
+    service = JourneySyncService(api_client=Mock())
+    journey = SimpleNamespace(
+        player_api_id=7011,
+        current_club_api_id=999,
+        current_club_name="Everton U21",
+        current_level="First Team",
+        current_status=None,
+        current_owner_api_id=None,
+        current_owner_name=None,
+    )
+    resolution = resolve_transfer_state(
+        [_transfer("2024-07-01", "Transfer", 1338, "Oxford United", None, "Everton U21")],
+        as_of="2026-07-16",
+    )
+
+    service.apply_resolved_current_state(
+        journey,
+        [_entry(season=2025, club_api_id=45, club_name="Everton U21", level="U21")],
+        resolution,
+    )
+
+    assert (journey.current_club_api_id, journey.current_club_name) == (45, "Everton U21")
+    assert journey.current_level == "U21"
+
+
 def test_resolved_release_clears_stale_current_club_status_owner_and_level():
     service = JourneySyncService(api_client=Mock())
     journey = SimpleNamespace(

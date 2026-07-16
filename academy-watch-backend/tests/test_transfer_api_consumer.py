@@ -1,11 +1,27 @@
 """Focused regressions for transfer consumers in API routes and classifier."""
 
+from datetime import UTC, datetime
+
+import pytest
 import src.routes.api as api_routes
+import src.routes.teams as team_routes
+from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import Team, db
+from src.models.season_rollup import LeagueSeasonConfig
 from src.models.tracked_player import TrackedPlayer
-from src.routes.api import _academy_seed_transfer_fallback_eligible, _run_batch_fixture_sync
+from src.routes.api import _academy_seed_transfer_fallback_eligible, _run_batch_fixture_sync, _seed_single_team
+from src.services.transfer_events import record_transfer_events
 from src.services.transfer_resolver import resolve_transfer_state as real_resolve_transfer_state
 from src.utils.academy_classifier import classify_tracked_player
+
+
+@pytest.fixture(autouse=True)
+def _freeze_batch_clock(monkeypatch):
+    monkeypatch.setattr(
+        api_routes,
+        "_batch_now_utc",
+        lambda: datetime(2026, 7, 16, 0, 0, tzinfo=UTC),
+    )
 
 
 def _transfer(transfer_date, transfer_type, out_id, out_name, in_id, in_name):
@@ -42,23 +58,68 @@ class _BatchAPI:
         self.transfers = transfers
         self.profile = profile
         self.fixture_team_ids = []
+        self.fixture_requests = []
         self.transfer_calls = 0
+        self.profile_transfer_fallbacks = []
 
     def get_player_transfers(self, player_id):
         assert player_id == self.player_id
         self.transfer_calls += 1
         return _payload(player_id, self.transfers)
 
-    def get_player_by_id(self, player_id, season):
+    def get_player_by_id(self, player_id, season, *, allow_transfer_fallback=True):
         assert player_id == self.player_id
         assert season == 2025
+        self.profile_transfer_fallbacks.append(allow_transfer_fallback)
         if self.profile is None:
             raise AssertionError("known current club must not trigger profile discovery")
         return self.profile
 
     def get_fixtures_for_team_cached(self, team_id, season, start, end):
         self.fixture_team_ids.append(team_id)
+        self.fixture_requests.append((team_id, season, start, end))
         return []
+
+
+def _durable_batch_api(player_id, transfers, *, profile=None):
+    record_transfer_events(player_id, transfers, db.session)
+    db.session.commit()
+    return _BatchAPI(player_id, transfers, profile=profile)
+
+
+class _MultiBatchAPI:
+    def __init__(self):
+        self.transfer_calls = []
+        self.fixture_team_ids = []
+
+    def get_player_transfers(self, player_id):
+        self.transfer_calls.append(player_id)
+        return _payload(
+            player_id,
+            [_transfer("2025-07-01", "Transfer", 49, "Chelsea", 900 + player_id, "Resolved Club")],
+        )
+
+    def get_player_by_id(self, player_id, season, *, allow_transfer_fallback=True):
+        raise AssertionError("known current club must not trigger profile discovery")
+
+    def get_fixtures_for_team_cached(self, team_id, season, start, end):
+        self.fixture_team_ids.append(team_id)
+        return []
+
+
+def _known_sold_player(parent, player_id, club_id):
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=player_id,
+            player_name=f"Known Player {player_id}",
+            team_id=parent.id,
+            status="sold",
+            current_club_api_id=club_id,
+            current_club_name=f"Known Club {club_id}",
+            data_source="journey-sync",
+            is_active=True,
+        )
+    )
 
 
 def test_batch_fee_uses_parent_departure_even_after_later_resale(app, monkeypatch):
@@ -73,14 +134,14 @@ def test_batch_fee_uses_parent_departure_even_after_later_resale(app, monkeypatc
             status="sold",
             current_club_api_id=66,
             current_club_name="Aston Villa",
-            sale_fee=None,
+            sale_fee="€ 50M",
             data_source="journey-sync",
             is_active=True,
         )
     )
     db.session.commit()
 
-    fake = _BatchAPI(
+    fake = _durable_batch_api(
         player_id,
         [
             _transfer("2024-07-01", "€ 33M", 49, "Chelsea", 34, "Newcastle"),
@@ -93,12 +154,358 @@ def test_batch_fee_uses_parent_departure_even_after_later_resale(app, monkeypatc
 
     tracked = TrackedPlayer.query.filter_by(player_api_id=player_id).one()
     assert tracked.sale_fee == "€ 33M"
+    assert (tracked.current_club_api_id, tracked.current_club_name) == (66, "Aston Villa")
+    assert fake.transfer_calls == 0
+    assert fake.fixture_team_ids == [34]
+    assert fake.fixture_requests == [(34, 2025, "2025-08-01", "2026-06-30")]
+
+
+def test_batch_known_rows_do_not_refresh_transfers_by_default(app, monkeypatch):
+    parent = _parent_team()
+    _known_sold_player(parent, 910001, 101)
+    _known_sold_player(parent, 910002, 102)
+    db.session.commit()
+    fake = _MultiBatchAPI()
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    result = _run_batch_fixture_sync({"season": 2025, "delay": 0})
+
+    assert fake.transfer_calls == []
+    assert result["transfer_refreshes"] == 0
+
+
+def test_batch_explicit_transfer_refresh_obeys_run_cap(app, monkeypatch):
+    parent = _parent_team()
+    _known_sold_player(parent, 910003, 103)
+    _known_sold_player(parent, 910004, 104)
+    db.session.commit()
+    fake = _MultiBatchAPI()
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    result = _run_batch_fixture_sync(
+        {
+            "season": 2025,
+            "delay": 0,
+            "refresh_transfers": True,
+            "transfer_refresh_limit": 1,
+        }
+    )
+
+    assert len(fake.transfer_calls) == 1
+    assert result["transfer_refreshes"] == 1
+
+
+def test_batch_explicit_refresh_failure_uses_durable_evidence(app, monkeypatch):
+    parent = _parent_team()
+    player_id = 910012
+    _known_sold_player(parent, player_id, 66)
+    db.session.commit()
+    fake = _durable_batch_api(
+        player_id,
+        [_transfer("2025-07-01", "Transfer", 49, "Chelsea", 34, "Newcastle")],
+    )
+
+    def _fail_refresh(requested_player_id):
+        assert requested_player_id == player_id
+        fake.transfer_calls += 1
+        raise RuntimeError("provider unavailable")
+
+    fake.get_player_transfers = _fail_refresh
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    result = _run_batch_fixture_sync(
+        {
+            "season": 2025,
+            "delay": 0,
+            "refresh_transfers": True,
+            "transfer_refresh_limit": 1,
+        }
+    )
+
+    tracked = TrackedPlayer.query.filter_by(player_api_id=player_id).one()
     assert fake.transfer_calls == 1
-    assert fake.fixture_team_ids == [66]
+    assert result["transfer_refreshes"] == 1
+    assert (tracked.current_club_api_id, tracked.current_club_name) == (34, "Newcastle")
+    assert fake.fixture_team_ids == [34]
+
+
+def test_batch_dry_run_never_refreshes_persisted_transfer_evidence(app, monkeypatch):
+    parent = _parent_team()
+    _known_sold_player(parent, 910005, 105)
+    db.session.commit()
+    fake = _MultiBatchAPI()
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    result = _run_batch_fixture_sync(
+        {
+            "season": 2025,
+            "delay": 0,
+            "dry_run": True,
+            "refresh_transfers": True,
+            "transfer_refresh_limit": 1,
+        }
+    )
+
+    assert fake.transfer_calls == []
+    assert result["transfer_refreshes"] == 0
+
+
+def test_batch_season_before_first_event_routes_to_initial_owner(app, monkeypatch):
+    parent = _parent_team()
+    player_id = 910006
+    _known_sold_player(parent, player_id, 66)
+    db.session.commit()
+    fake = _durable_batch_api(
+        player_id,
+        [_transfer("2025-07-01", "Transfer", 49, "Chelsea", 66, "Aston Villa")],
+    )
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2023, "delay": 0})
+
+    tracked = TrackedPlayer.query.filter_by(player_api_id=player_id).one()
+    assert (tracked.current_club_api_id, tracked.current_club_name) == (66, "Aston Villa")
+    assert fake.fixture_requests == [(49, 2023, "2023-08-01", "2024-06-30")]
+
+
+def test_batch_current_loan_after_requested_season_routes_to_parent(app, monkeypatch):
+    parent = _parent_team()
+    player_id = 910007
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=player_id,
+            player_name="Future Loanee",
+            team_id=parent.id,
+            status="on_loan",
+            current_club_api_id=44,
+            current_club_name="Burnley",
+            data_source="journey-sync",
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    fake = _durable_batch_api(
+        player_id,
+        [_transfer("2026-07-10", "Loan", 49, "Chelsea", 44, "Burnley")],
+    )
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2025, "delay": 0})
+
+    assert fake.fixture_team_ids == [49]
+
+
+def test_batch_present_active_loan_ignores_stale_durable_destination(app, monkeypatch):
+    parent = _parent_team()
+    player_id = 910013
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=player_id,
+            player_name="Current Loanee",
+            team_id=parent.id,
+            status="on_loan",
+            current_club_api_id=44,
+            current_club_name="Burnley",
+            data_source="journey-sync",
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    fake = _durable_batch_api(
+        player_id,
+        [_transfer("2023-07-01", "Transfer", 49, "Chelsea", 34, "Newcastle")],
+    )
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2025, "delay": 0})
+
+    assert fake.fixture_team_ids == [44]
+
+
+def test_batch_future_season_does_not_query_an_inverted_fixture_window(app, monkeypatch):
+    parent = _parent_team()
+    player_id = 910014
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=player_id,
+            player_name="Future Season Player",
+            team_id=parent.id,
+            status="first_team",
+            current_club_api_id=parent.team_id,
+            current_club_name=parent.name,
+            data_source="journey-sync",
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    fake = _BatchAPI(player_id, [])
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    result = _run_batch_fixture_sync({"season": 2026, "delay": 0})
+
+    assert result["total_players"] == 1
+    assert fake.fixture_requests == []
+
+
+def test_batch_calendar_year_entry_controls_routing_and_fixture_window(app, monkeypatch):
+    parent = _parent_team()
+    player_id = 910010
+    journey = PlayerJourney(
+        player_api_id=player_id,
+        player_name="Calendar Loanee",
+        current_club_api_id=2530,
+        current_club_name="MLS Borrower",
+    )
+    db.session.add(journey)
+    db.session.flush()
+    db.session.add_all(
+        [
+            PlayerJourneyEntry(
+                journey_id=journey.id,
+                player_api_id=player_id,
+                season=2024,
+                club_api_id=2530,
+                club_name="MLS Borrower",
+                league_api_id=253,
+                league_name="Major League Soccer",
+                level="First Team",
+                entry_type="loan",
+                is_international=False,
+                appearances=20,
+                minutes=1800,
+            ),
+            LeagueSeasonConfig(
+                league_api_id=253,
+                season_type="calendar",
+                rollover_month=1,
+            ),
+            TrackedPlayer(
+                player_api_id=player_id,
+                player_name="Calendar Loanee",
+                team_id=parent.id,
+                status="on_loan",
+                current_club_api_id=2530,
+                current_club_name="MLS Borrower",
+                journey_id=journey.id,
+                data_source="journey-sync",
+                is_active=True,
+            ),
+        ]
+    )
+    db.session.commit()
+    fake = _durable_batch_api(
+        player_id,
+        [_transfer("2024-08-01", "Loan", 49, "Chelsea", 2530, "MLS Borrower")],
+    )
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2024, "delay": 0})
+
+    assert fake.fixture_requests == [(2530, 2024, "2024-01-01", "2024-12-31")]
+
+
+def test_batch_calendar_fallback_uses_final_stored_club_entry(app, monkeypatch):
+    parent = _parent_team()
+    player_id = 910011
+    journey = PlayerJourney(
+        player_api_id=player_id,
+        player_name="Calendar Fallback",
+        current_club_api_id=2530,
+        current_club_name="MLS Borrower",
+    )
+    db.session.add(journey)
+    db.session.flush()
+    db.session.add_all(
+        [
+            PlayerJourneyEntry(
+                journey_id=journey.id,
+                player_api_id=player_id,
+                season=2024,
+                club_api_id=49,
+                club_name="Chelsea",
+                league_api_id=39,
+                league_name="Premier League",
+                level="First Team",
+                entry_type="first_team",
+                is_international=False,
+                appearances=30,
+                minutes=2700,
+            ),
+            PlayerJourneyEntry(
+                journey_id=journey.id,
+                player_api_id=player_id,
+                season=2024,
+                club_api_id=2530,
+                club_name="MLS Borrower",
+                league_api_id=253,
+                league_name="Major League Soccer",
+                level="First Team",
+                entry_type="loan",
+                is_international=False,
+                appearances=5,
+                minutes=300,
+                transfer_date="2024-08-01",
+            ),
+            LeagueSeasonConfig(
+                league_api_id=253,
+                season_type="calendar",
+                rollover_month=1,
+            ),
+            TrackedPlayer(
+                player_api_id=player_id,
+                player_name="Calendar Fallback",
+                team_id=parent.id,
+                status="on_loan",
+                current_club_api_id=2530,
+                current_club_name="MLS Borrower",
+                journey_id=journey.id,
+                data_source="journey-sync",
+                is_active=True,
+            ),
+        ]
+    )
+    db.session.commit()
+    fake = _BatchAPI(player_id, [])
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2024, "delay": 0})
+
+    assert fake.fixture_requests == [(2530, 2024, "2024-01-01", "2024-12-31")]
+
+
+@pytest.mark.parametrize("status", ["first_team", "academy"])
+def test_batch_current_parent_status_routes_historical_loan_to_borrower(app, monkeypatch, status):
+    parent = _parent_team()
+    player_id = 910008 if status == "first_team" else 910009
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=player_id,
+            player_name=f"Historical {status}",
+            team_id=parent.id,
+            status=status,
+            current_club_api_id=49,
+            current_club_name="Chelsea",
+            data_source="journey-sync",
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    fake = _durable_batch_api(
+        player_id,
+        [
+            _transfer("2024-02-01", "Loan", 49, "Chelsea", 34, "Newcastle"),
+            _transfer("2024-12-31", "Back from Loan", 34, "Newcastle", 49, "Chelsea"),
+        ],
+    )
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2023, "delay": 0})
+
+    assert fake.fixture_team_ids == [34]
 
 
 def test_batch_current_club_ignores_later_ambiguous_na(app, monkeypatch):
-    """Parent context resolves the first N/A while unrelated N/A stays inert."""
+    """A topology-resolved parent departure survives a later unrelated N/A."""
     parent = _parent_team()
     player_id = 900002
     db.session.add(
@@ -115,7 +522,7 @@ def test_batch_current_club_ignores_later_ambiguous_na(app, monkeypatch):
     )
     db.session.commit()
 
-    fake = _BatchAPI(
+    fake = _durable_batch_api(
         player_id,
         [
             _transfer("2024-07-01", "N/A", 49, "Chelsea", 34, "Newcastle"),
@@ -129,13 +536,221 @@ def test_batch_current_club_ignores_later_ambiguous_na(app, monkeypatch):
 
     tracked = TrackedPlayer.query.filter_by(player_api_id=player_id).one()
     assert (tracked.current_club_api_id, tracked.current_club_name) == (34, "Newcastle")
-    assert fake.transfer_calls == 1
+    assert fake.transfer_calls == 0
+    assert fake.profile_transfer_fallbacks == [False]
     assert fake.fixture_team_ids == [34]
+
+
+def test_batch_newer_profile_club_survives_later_ambiguous_na(app, monkeypatch):
+    """Ambiguous topology cannot replace newer requested-season statistics."""
+    parent = _parent_team()
+    player_id = 900002
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=player_id,
+            player_name="Topology Player",
+            team_id=parent.id,
+            status="sold",
+            current_club_api_id=None,
+            current_club_name=None,
+            data_source="journey-sync",
+            is_active=True,
+        )
+    )
+    db.session.commit()
+
+    fake = _durable_batch_api(
+        player_id,
+        [
+            _transfer("2024-07-01", "N/A", 49, "Chelsea", 34, "Newcastle"),
+            _transfer("2025-07-01", "N/A", 777, "Unrelated", 888, "Current Club"),
+        ],
+        profile={
+            "statistics": [
+                {
+                    "team": {"id": 888, "name": "Current Club"},
+                    "games": {"appearences": 20, "position": "Midfielder"},
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2025, "delay": 0})
+
+    tracked = TrackedPlayer.query.filter_by(player_api_id=player_id).one()
+    assert (tracked.current_club_api_id, tracked.current_club_name) == (888, "Current Club")
+    assert fake.transfer_calls == 0
+    assert fake.profile_transfer_fallbacks == [False]
+    assert fake.fixture_team_ids == [888]
+
+
+def test_batch_historical_run_does_not_rewind_present_club(app, monkeypatch):
+    parent = _parent_team()
+    player_id = 900013
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=player_id,
+            player_name="Historical Backfill",
+            team_id=parent.id,
+            status="sold",
+            current_club_api_id=66,
+            current_club_name="Aston Villa",
+            data_source="journey-sync",
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    fake = _durable_batch_api(
+        player_id,
+        [_transfer("2023-07-01", "Transfer", 49, "Chelsea", 34, "Newcastle")],
+    )
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2023, "delay": 0})
+
+    tracked = TrackedPlayer.query.filter_by(player_api_id=player_id).one()
+    assert (tracked.current_club_api_id, tracked.current_club_name) == (66, "Aston Villa")
+    assert fake.fixture_team_ids == [34]
+
+
+def test_batch_unknown_history_preserves_stored_route_and_current(app, monkeypatch):
+    parent = _parent_team()
+    player_id = 900014
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=player_id,
+            player_name="Ambiguous History",
+            team_id=parent.id,
+            status="sold",
+            current_club_api_id=66,
+            current_club_name="Aston Villa",
+            data_source="journey-sync",
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    fake = _durable_batch_api(
+        player_id,
+        [_transfer("2023-07-01", "N/A", 777, "Unrelated", 888, "Other")],
+    )
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2023, "delay": 0})
+
+    tracked = TrackedPlayer.query.filter_by(player_api_id=player_id).one()
+    assert (tracked.current_club_api_id, tracked.current_club_name) == (66, "Aston Villa")
+    assert fake.fixture_team_ids == [66]
+
+
+@pytest.mark.parametrize("status", ["released", "left"])
+def test_batch_does_not_write_sale_fee_for_non_sold_status(app, monkeypatch, status):
+    parent = _parent_team()
+    player_id = 900015 if status == "released" else 900016
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=player_id,
+            player_name=f"Non-sale {status}",
+            team_id=parent.id,
+            status=status,
+            current_club_api_id=34,
+            current_club_name="Newcastle",
+            sale_fee=None,
+            data_source="journey-sync",
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    fake = _durable_batch_api(
+        player_id,
+        [_transfer("2024-07-01", "€ 12M", 49, "Chelsea", 34, "Newcastle")],
+    )
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2025, "delay": 0})
+
+    assert TrackedPlayer.query.filter_by(player_api_id=player_id).one().sale_fee is None
+
+
+def test_batch_clears_stale_fee_when_parent_sale_has_no_fee(app, monkeypatch):
+    parent = _parent_team()
+    player_id = 900019
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=player_id,
+            player_name="Undisclosed Sale",
+            team_id=parent.id,
+            status="sold",
+            current_club_api_id=34,
+            current_club_name="Newcastle",
+            sale_fee="€ 50M",
+            data_source="journey-sync",
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    fake = _durable_batch_api(
+        player_id,
+        [_transfer("2024-07-01", "N/A", 49, "Chelsea", 34, "Newcastle")],
+    )
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+
+    _run_batch_fixture_sync({"season": 2025, "delay": 0})
+
+    assert TrackedPlayer.query.filter_by(player_api_id=player_id).one().sale_fee is None
+
+
+def test_batch_refresh_delay_applies_after_profile_failure(app, monkeypatch):
+    parent = _parent_team()
+    for player_id in (900020, 900021):
+        db.session.add(
+            TrackedPlayer(
+                player_api_id=player_id,
+                player_name=f"Profile Failure {player_id}",
+                team_id=parent.id,
+                status="sold",
+                current_club_api_id=None,
+                data_source="journey-sync",
+                is_active=True,
+            )
+        )
+    db.session.commit()
+    fake = _MultiBatchAPI()
+    delays = []
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: fake)
+    monkeypatch.setattr("time.sleep", delays.append)
+
+    _run_batch_fixture_sync(
+        {
+            "season": 2025,
+            "delay": 0.25,
+            "refresh_transfers": True,
+            "transfer_refresh_limit": 2,
+        }
+    )
+
+    assert len(fake.transfer_calls) == 2
+    assert delays == [0.25, 0.25]
 
 
 def test_batch_reconciles_stale_stored_club_before_early_continue(app, monkeypatch):
     """Fresh resolver state must replace a contradictory prior backfill."""
     parent = _parent_team()
+    stale_destination = Team(
+        team_id=34,
+        name="Old Newcastle Row",
+        country="England",
+        season=2024,
+        is_active=False,
+    )
+    destination = Team(
+        team_id=34,
+        name="Newcastle",
+        country="England",
+        season=2025,
+        is_active=True,
+    )
+    db.session.add_all([stale_destination, destination])
     player_id = 900004
     db.session.add(
         TrackedPlayer(
@@ -145,6 +760,7 @@ def test_batch_reconciles_stale_stored_club_before_early_continue(app, monkeypat
             status="sold",
             current_club_api_id=66,
             current_club_name="Aston Villa",
+            current_club_db_id=parent.id,
             sale_fee="Undisclosed",
             data_source="journey-sync",
             is_active=True,
@@ -152,7 +768,7 @@ def test_batch_reconciles_stale_stored_club_before_early_continue(app, monkeypat
     )
     db.session.commit()
 
-    fake = _BatchAPI(
+    fake = _durable_batch_api(
         player_id,
         [_transfer("2025-07-01", "Transfer", 49, "Chelsea", 34, "Newcastle")],
     )
@@ -162,7 +778,8 @@ def test_batch_reconciles_stale_stored_club_before_early_continue(app, monkeypat
 
     tracked = TrackedPlayer.query.filter_by(player_api_id=player_id).one()
     assert (tracked.current_club_api_id, tracked.current_club_name) == (34, "Newcastle")
-    assert fake.transfer_calls == 1
+    assert tracked.current_club_db_id == destination.id
+    assert fake.transfer_calls == 0
     assert fake.fixture_team_ids == [34]
 
 
@@ -184,7 +801,7 @@ def test_batch_indeterminate_historical_loan_preserves_newer_stored_club(app, mo
     )
     db.session.commit()
 
-    fake = _BatchAPI(
+    fake = _durable_batch_api(
         player_id,
         [_transfer("2023-07-01", "Loan", 49, "Chelsea", 34, "Newcastle")],
     )
@@ -215,7 +832,7 @@ def test_batch_old_permanent_move_preserves_newer_unrelated_stored_club(app, mon
     )
     db.session.commit()
 
-    fake = _BatchAPI(
+    fake = _durable_batch_api(
         player_id,
         [_transfer("2023-07-01", "Transfer", 49, "Chelsea", 34, "Newcastle")],
     )
@@ -247,7 +864,7 @@ def test_batch_indeterminate_historical_loan_preserves_newer_profile_club(app, m
     )
     db.session.commit()
 
-    fake = _BatchAPI(
+    fake = _durable_batch_api(
         player_id,
         [_transfer("2023-07-01", "Loan", 49, "Chelsea", 34, "Newcastle")],
         profile={
@@ -285,7 +902,7 @@ def test_batch_commits_resolver_fee_before_profile_failure(app, monkeypatch):
     )
     db.session.commit()
 
-    fake = _BatchAPI(
+    fake = _durable_batch_api(
         player_id,
         [_transfer("2024-07-01", "€ 12M", 49, "Chelsea", 34, "Newcastle")],
     )
@@ -297,6 +914,309 @@ def test_batch_commits_resolver_fee_before_profile_failure(app, monkeypatch):
     db.session.expire_all()
     tracked = TrackedPlayer.query.filter_by(player_api_id=player_id).one()
     assert tracked.sale_fee == "€ 12M"
+    assert (tracked.current_club_api_id, tracked.current_club_name) == (34, "Newcastle")
+    assert fake.fixture_team_ids == [34]
+
+
+def test_academy_network_marks_unfetched_transfers_as_unknown(app, client, monkeypatch):
+    parent = _parent_team()
+    journey = PlayerJourney(
+        player_api_id=900011,
+        player_name="Unfetched Loan",
+        academy_club_ids=[parent.team_id],
+        current_club_api_id=300,
+        current_club_name="Hull City",
+        current_level="Senior",
+    )
+    db.session.add(journey)
+    db.session.commit()
+    observed_transfers = []
+
+    class _JourneyQuery:
+        def filter(self, *args):
+            return self
+
+        def all(self):
+            return [journey]
+
+    def _capture_classifier(*args, **kwargs):
+        observed_transfers.append(kwargs.get("transfers"))
+        return "on_loan", 300, "Hull City"
+
+    monkeypatch.setattr(team_routes, "classify_tracked_player", _capture_classifier)
+    monkeypatch.setattr(PlayerJourney, "query", _JourneyQuery())
+
+    response = client.get(f"/api/teams/{parent.team_id}/academy-network")
+
+    assert response.status_code == 200
+    assert observed_transfers == [None]
+    assert response.get_json()["all_players"][0]["status"] == "on_loan"
+
+
+def test_seed_existing_transfer_state_survives_fetch_failure(app, monkeypatch):
+    parent = _parent_team()
+    destination = Team(
+        team_id=777,
+        name="Buying Club",
+        country="England",
+        season=2025,
+        is_active=True,
+    )
+    db.session.add(destination)
+    db.session.flush()
+    journey = PlayerJourney(
+        player_api_id=900012,
+        player_name="Known Seed Sale",
+        academy_club_ids=[parent.team_id],
+        current_club_api_id=parent.team_id,
+        current_club_name=parent.name,
+        current_level="First Team",
+        seasons_synced=[2025],
+    )
+    db.session.add(journey)
+    db.session.flush()
+    existing = TrackedPlayer(
+        player_api_id=journey.player_api_id,
+        player_name=journey.player_name,
+        team_id=parent.id,
+        status="sold",
+        current_club_api_id=777,
+        current_club_name="Buying Club",
+        current_club_db_id=destination.id,
+        sale_fee="€ 20M",
+        data_source="journey-sync",
+        is_active=True,
+    )
+    db.session.add(existing)
+    db.session.commit()
+
+    class _JourneyQuery:
+        def filter(self, *args):
+            return self
+
+        def all(self):
+            return [journey]
+
+    class _FailedTransferAPI:
+        current_season_start_year = 2025
+
+        def get_team_players(self, team_id, season):
+            return []
+
+        def get_player_transfers(self, player_id):
+            raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(PlayerJourney, "query", _JourneyQuery())
+    monkeypatch.setattr(api_routes, "APIFootballClient", _FailedTransferAPI)
+
+    _seed_single_team(parent, sync_journeys=False, years=1, season=2025)
+
+    db.session.expire_all()
+    persisted = TrackedPlayer.query.filter_by(player_api_id=journey.player_api_id).one()
+    assert persisted.status == "sold"
+    assert (persisted.current_club_api_id, persisted.current_club_name) == (777, "Buying Club")
+    assert persisted.current_club_db_id == destination.id
+    assert persisted.sale_fee == "€ 20M"
+
+
+def test_seed_successful_sale_updates_name_club_fk_and_parent_fee(app, monkeypatch):
+    parent = _parent_team()
+    stale_destination = Team(
+        team_id=34,
+        name="Old Newcastle Row",
+        country="England",
+        season=2024,
+        is_active=False,
+    )
+    destination = Team(
+        team_id=34,
+        name="Newcastle",
+        country="England",
+        season=2025,
+        is_active=True,
+    )
+    db.session.add_all([stale_destination, destination])
+    journey = PlayerJourney(
+        player_api_id=900017,
+        player_name="Seed Sale",
+        academy_club_ids=[parent.team_id],
+        current_club_api_id=parent.team_id,
+        current_club_name=parent.name,
+        current_level="First Team",
+        seasons_synced=[2025],
+    )
+    db.session.add(journey)
+    db.session.flush()
+    existing = TrackedPlayer(
+        player_api_id=journey.player_api_id,
+        player_name=journey.player_name,
+        team_id=parent.id,
+        status="sold",
+        current_club_api_id=34,
+        current_club_name="Stale Buyer Name",
+        current_club_db_id=destination.id,
+        sale_fee="€ 50M",
+        data_source="journey-sync",
+        is_active=True,
+    )
+    db.session.add(existing)
+    db.session.commit()
+
+    class _JourneyQuery:
+        def filter(self, *args):
+            return self
+
+        def all(self):
+            return [journey]
+
+    class _SuccessfulTransferAPI:
+        current_season_start_year = 2025
+
+        def get_team_players(self, team_id, season):
+            return []
+
+        def get_player_transfers(self, player_id):
+            return _payload(
+                player_id,
+                [_transfer("2025-07-01", "€ 12M", 49, "Chelsea", 34, "Newcastle")],
+            )
+
+    monkeypatch.setattr(PlayerJourney, "query", _JourneyQuery())
+    monkeypatch.setattr(api_routes, "APIFootballClient", _SuccessfulTransferAPI)
+
+    _seed_single_team(parent, sync_journeys=False, years=1, season=2025)
+
+    db.session.expire_all()
+    persisted = TrackedPlayer.query.filter_by(player_api_id=journey.player_api_id).one()
+    assert persisted.status == "sold"
+    assert (persisted.current_club_api_id, persisted.current_club_name) == (34, "Newcastle")
+    assert persisted.current_club_db_id == destination.id
+    assert persisted.sale_fee == "€ 12M"
+
+
+def test_seed_successful_empty_history_clears_stale_sale_state(app, monkeypatch):
+    parent = _parent_team()
+    journey = PlayerJourney(
+        player_api_id=900018,
+        player_name="Seed Return",
+        academy_club_ids=[parent.team_id],
+        current_club_api_id=parent.team_id,
+        current_club_name=parent.name,
+        current_level="First Team",
+        seasons_synced=[2025],
+    )
+    db.session.add(journey)
+    db.session.flush()
+    existing = TrackedPlayer(
+        player_api_id=journey.player_api_id,
+        player_name=journey.player_name,
+        team_id=parent.id,
+        status="sold",
+        current_club_api_id=777,
+        current_club_name="Old Buyer",
+        sale_fee="€ 20M",
+        data_source="journey-sync",
+        is_active=True,
+    )
+    db.session.add(existing)
+    db.session.commit()
+
+    class _JourneyQuery:
+        def filter(self, *args):
+            return self
+
+        def all(self):
+            return [journey]
+
+    class _EmptyTransferAPI:
+        current_season_start_year = 2025
+
+        def get_team_players(self, team_id, season):
+            return []
+
+        def get_player_transfers(self, player_id):
+            return []
+
+    monkeypatch.setattr(PlayerJourney, "query", _JourneyQuery())
+    monkeypatch.setattr(api_routes, "APIFootballClient", _EmptyTransferAPI)
+
+    _seed_single_team(parent, sync_journeys=False, years=1, season=2025)
+
+    db.session.expire_all()
+    persisted = TrackedPlayer.query.filter_by(player_api_id=journey.player_api_id).one()
+    assert persisted.status == "first_team"
+    assert (persisted.current_club_api_id, persisted.current_club_name) == (49, "Chelsea")
+    assert persisted.current_club_db_id == parent.id
+    assert persisted.sale_fee is None
+
+
+def test_seed_ambiguous_nonempty_history_preserves_existing_transfer_state(app, monkeypatch):
+    parent = _parent_team()
+    destination = Team(
+        team_id=777,
+        name="Known Buyer",
+        country="England",
+        season=2025,
+        is_active=True,
+    )
+    db.session.add(destination)
+    db.session.flush()
+    journey = PlayerJourney(
+        player_api_id=900022,
+        player_name="Ambiguous Seed",
+        academy_club_ids=[parent.team_id],
+        current_club_api_id=parent.team_id,
+        current_club_name=parent.name,
+        current_level="First Team",
+        seasons_synced=[2025],
+    )
+    db.session.add(journey)
+    db.session.flush()
+    existing = TrackedPlayer(
+        player_api_id=journey.player_api_id,
+        player_name=journey.player_name,
+        team_id=parent.id,
+        status="sold",
+        current_club_api_id=777,
+        current_club_name="Known Buyer",
+        current_club_db_id=destination.id,
+        sale_fee="€ 20M",
+        data_source="journey-sync",
+        is_active=True,
+    )
+    db.session.add(existing)
+    db.session.commit()
+
+    class _JourneyQuery:
+        def filter(self, *args):
+            return self
+
+        def all(self):
+            return [journey]
+
+    class _AmbiguousTransferAPI:
+        current_season_start_year = 2025
+
+        def get_team_players(self, team_id, season):
+            return []
+
+        def get_player_transfers(self, player_id):
+            return _payload(
+                player_id,
+                [_transfer("2025-07-01", "N/A", 888, "Unrelated", 999, "Other")],
+            )
+
+    monkeypatch.setattr(PlayerJourney, "query", _JourneyQuery())
+    monkeypatch.setattr(api_routes, "APIFootballClient", _AmbiguousTransferAPI)
+
+    _seed_single_team(parent, sync_journeys=False, years=1, season=2025)
+
+    db.session.expire_all()
+    persisted = TrackedPlayer.query.filter_by(player_api_id=journey.player_api_id).one()
+    assert persisted.status == "sold"
+    assert (persisted.current_club_api_id, persisted.current_club_name) == (777, "Known Buyer")
+    assert persisted.current_club_db_id == destination.id
+    assert persisted.sale_fee == "€ 20M"
 
 
 class _SeedTransferAPI:

@@ -2303,30 +2303,45 @@ def _detect_recent_loan_returns(
         if not tp:
             continue
 
-        for event in resolution.events:
-            if event.kind != "loan_return":
-                continue
-            if not is_affiliate(
+        effective_events = [event for event in resolution.events if event.kind != "unknown"]
+        if not effective_events:
+            continue
+        qualifying_returns = [
+            event
+            for event in effective_events
+            if event.kind == "loan_return"
+            and is_affiliate(
                 event.in_club.api_id,
                 event.in_club.name,
                 parent_api_id,
                 parent_name,
-            ):
-                continue
-            t_date = event.transfer_date
-            if not (window_start <= t_date <= week_end):
-                continue
-            t_date_str = t_date.isoformat()
-            # Keep the most recent return per player
-            if pid not in seen or t_date_str > seen[pid]["return_date"]:
-                seen[pid] = {
-                    "player_api_id": pid,
-                    "player_name": tp.player_name,
-                    "returned_from_club_name": event.out_club.name,
-                    "returned_from_club_api_id": event.out_club.api_id,
-                    "return_date": t_date_str,
-                    "tp": tp,
-                }
+            )
+            and window_start <= event.transfer_date <= week_end
+        ]
+        if not qualifying_returns:
+            continue
+        event = qualifying_returns[-1]
+        current_club = resolution.current_club
+        # A later re-loan, sale, or release supersedes the headline. A later
+        # parent-internal move (for example senior side -> U21) does not.
+        if current_club is None:
+            continue
+        if not is_affiliate(
+            current_club.api_id,
+            current_club.name,
+            parent_api_id,
+            parent_name,
+        ):
+            continue
+        t_date = event.transfer_date
+        seen[pid] = {
+            "player_api_id": pid,
+            "player_name": tp.player_name,
+            "returned_from_club_name": event.out_club.name,
+            "returned_from_club_api_id": event.out_club.api_id,
+            "return_date": t_date.isoformat(),
+            "tp": tp,
+        }
 
     return list(seen.values())
 
