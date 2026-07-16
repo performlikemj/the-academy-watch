@@ -11,6 +11,9 @@ from datetime import date
 import pytest
 from flask import Flask
 from src.auth import _ensure_user_account, issue_user_token
+from src.extensions import limiter
+from src.models.follow import PlayerShadow
+from src.models.journey import PlayerJourney
 from src.models.league import League, PlayerLink, Team, db
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.tracked_player import TrackedPlayer
@@ -39,11 +42,20 @@ def app(monkeypatch):
     )
 
     db.init_app(flask_app)
+    limiter.init_app(flask_app)
     flask_app.register_blueprint(showcase_bp, url_prefix="/api")
     flask_app.register_blueprint(api_bp, url_prefix="/api")
 
     with flask_app.app_context():
         db.create_all()
+        db.session.add(
+            PlayerJourney(
+                player_api_id=5001,
+                player_name="Kobbie Mainoo",
+                birth_date="2000-01-01",
+            )
+        )
+        db.session.commit()
         yield flask_app
         db.session.remove()
         db.drop_all()
@@ -73,6 +85,25 @@ def _make_user(email):
     user = _ensure_user_account(email)
     db.session.commit()
     return user
+
+
+def _birth_date_years_ago(years: int) -> date:
+    today = date.today()
+    try:
+        return today.replace(year=today.year - years)
+    except ValueError:  # February 29 against a non-leap birth year.
+        return today.replace(year=today.year - years, month=2, day=28)
+
+
+def _journey(player_api_id: int, birth_date):
+    journey = PlayerJourney(
+        player_api_id=player_api_id,
+        player_name=f"Player {player_api_id}",
+        birth_date=birth_date.isoformat() if isinstance(birth_date, date) else birth_date,
+    )
+    db.session.add(journey)
+    db.session.flush()
+    return journey
 
 
 def _seed_team(team_id=33, name="Manchester United"):
@@ -280,6 +311,168 @@ class TestAdminClaimReview:
         # A plain user Bearer token (no admin role / X-API-Key) is rejected.
         resp = client.post(f"/api/admin/showcase/claims/{claim_id}/review", json={"action": "approve"}, headers=headers)
         assert resp.status_code in (401, 403)
+
+
+class TestAdultPlayerClaimGate:
+    def test_under_18_player_submission_is_blocked(self, app, client):
+        with app.app_context():
+            team = _seed_team()
+            _tracked(
+                team,
+                player_api_id=6101,
+                name="Minor Player",
+                birth_date=_birth_date_years_ago(17).isoformat(),
+            )
+            db.session.commit()
+
+        response = client.post(
+            "/api/players/6101/claim",
+            json={"relationship_type": "player"},
+            headers=_user_headers("minor-player@example.com"),
+        )
+
+        assert response.status_code == 422
+        assert response.get_json()["code"] == "minor_claim_blocked"
+        with app.app_context():
+            assert PlayerProfileClaim.query.filter_by(player_api_id=6101).count() == 0
+
+    def test_unknown_dob_player_submission_is_blocked(self, app, client):
+        response = client.post(
+            "/api/players/6102/claim",
+            json={"relationship_type": "player"},
+            headers=_user_headers("unknown-dob@example.com"),
+        )
+
+        assert response.status_code == 422
+        assert response.get_json()["code"] == "dob_unknown"
+        with app.app_context():
+            assert PlayerProfileClaim.query.filter_by(player_api_id=6102).count() == 0
+
+    def test_exactly_18_journey_dob_passes(self, app, client):
+        with app.app_context():
+            _journey(6103, _birth_date_years_ago(18))
+            db.session.commit()
+
+        response = client.post(
+            "/api/players/6103/claim",
+            json={"relationship_type": "player"},
+            headers=_user_headers("adult-today@example.com"),
+        )
+
+        assert response.status_code == 201
+
+    def test_shadow_profile_dob_passes(self, app, client):
+        with app.app_context():
+            db.session.add(
+                PlayerShadow(
+                    player_api_id=6104,
+                    player_name="Shadow Adult",
+                    birth_date=_birth_date_years_ago(20),
+                    is_active=True,
+                )
+            )
+            db.session.commit()
+
+        response = client.post(
+            "/api/players/6104/claim",
+            json={"relationship_type": "player"},
+            headers=_user_headers("shadow-adult@example.com"),
+        )
+
+        assert response.status_code == 201
+
+    def test_malformed_tracked_dob_falls_through_to_journey(self, app, client):
+        with app.app_context():
+            team = _seed_team()
+            _tracked(team, player_api_id=6105, name="Fallback Adult", birth_date="not-a-date")
+            _journey(6105, _birth_date_years_ago(19))
+            db.session.commit()
+
+        response = client.post(
+            "/api/players/6105/claim",
+            json={"relationship_type": "player"},
+            headers=_user_headers("fallback-adult@example.com"),
+        )
+
+        assert response.status_code == 201
+
+    @pytest.mark.parametrize("relationship_type", ["agent", "guardian", "club_official"])
+    def test_non_player_relationships_do_not_require_dob(self, client, relationship_type):
+        player_api_id = {"agent": 6110, "guardian": 6111, "club_official": 6112}[relationship_type]
+        response = client.post(
+            f"/api/players/{player_api_id}/claim",
+            json={"relationship_type": relationship_type},
+            headers=_user_headers(f"{relationship_type}@example.com"),
+        )
+        assert response.status_code == 201
+
+        claim_id = response.get_json()["claim"]["id"]
+        approval = client.post(
+            f"/api/admin/showcase/claims/{claim_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert approval.status_code == 200
+
+    def test_admin_approval_rechecks_and_blocks_newly_minor_player(self, app, client):
+        with app.app_context():
+            team = _seed_team()
+            tracked = _tracked(
+                team,
+                player_api_id=6120,
+                name="Changed DOB",
+                birth_date=_birth_date_years_ago(20).isoformat(),
+            )
+            db.session.commit()
+            tracked_id = tracked.id
+
+        submitted = client.post(
+            "/api/players/6120/claim",
+            json={"relationship_type": "player"},
+            headers=_user_headers("changed-dob@example.com"),
+        )
+        claim_id = submitted.get_json()["claim"]["id"]
+        with app.app_context():
+            db.session.get(TrackedPlayer, tracked_id).birth_date = _birth_date_years_ago(17).isoformat()
+            db.session.commit()
+
+        approval = client.post(
+            f"/api/admin/showcase/claims/{claim_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+
+        assert approval.status_code == 422
+        assert approval.get_json()["code"] == "minor_claim_blocked"
+        with app.app_context():
+            assert db.session.get(PlayerProfileClaim, claim_id).status == "pending"
+
+    def test_admin_approval_rechecks_and_blocks_missing_dob(self, app, client):
+        with app.app_context():
+            journey = _journey(6121, _birth_date_years_ago(20))
+            db.session.commit()
+            journey_id = journey.id
+
+        submitted = client.post(
+            "/api/players/6121/claim",
+            json={"relationship_type": "player"},
+            headers=_user_headers("removed-dob@example.com"),
+        )
+        claim_id = submitted.get_json()["claim"]["id"]
+        with app.app_context():
+            db.session.get(PlayerJourney, journey_id).birth_date = None
+            db.session.commit()
+
+        approval = client.post(
+            f"/api/admin/showcase/claims/{claim_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+
+        assert approval.status_code == 422
+        assert approval.get_json()["code"] == "dob_unknown"
+        with app.app_context():
+            assert db.session.get(PlayerProfileClaim, claim_id).status == "pending"
 
 
 # --------------------------------------------------------------------------- #
