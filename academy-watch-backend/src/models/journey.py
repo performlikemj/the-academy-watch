@@ -43,8 +43,8 @@ class PlayerJourney(db.Model):
     # his academy — e.g. Rijkhoff: Dortmund academy product, on loan from Ajax).
     # current_status overrides the academy-relative status for player-facing
     # surfaces; NULL means "defer to the academy-relative status". Currently set
-    # to 'on_loan' (+ owner) when the current club is a loan. Computed from
-    # STORED journey entries during sync — no extra API call.
+    # to 'on_loan' (+ owner) only for a fresh active resolver loan episode.
+    # Computed from fetched or durably stored chronological transfer evidence.
     current_status = db.Column(db.String(20))
     current_owner_api_id = db.Column(db.Integer)
     current_owner_name = db.Column(db.String(200))
@@ -332,8 +332,8 @@ class PlayerJourneyEntry(db.Model):
     season_phase = db.Column(db.String(12))  # dormant Apertura/Clausura hook
 
     # Transfer date (YYYY-MM-DD) — when the player moved to this club
-    # Populated from transfer API for loan entries; used as tiebreaker
-    # when multiple clubs share the same season and sort_priority.
+    # Populated from the resolver for loan and permanent destination entries;
+    # used as a tiebreaker when clubs share a season and sort_priority.
     transfer_date = db.Column(db.String(20))
 
     # Transfer fee (raw string from API-Football, e.g. "€50M", "Free")

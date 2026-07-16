@@ -30,6 +30,14 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
+class TransferFetchError(RuntimeError):
+    """A live player-transfer request failed or returned an error payload."""
+
+
+class TeamPlayersFetchError(RuntimeError):
+    """A live team-squad request failed or returned an error payload."""
+
+
 def _record_transfer_payload(
     transfer_blocks: list[dict[str, Any]] | None,
     *,
@@ -115,8 +123,6 @@ def _record_transfer_payload(
 # ------------------------------------------------------------------
 # 🔄 Loan transfer type identification
 # ------------------------------------------------------------------
-# Transfer types that indicate a NEW loan (player going OUT on loan)
-LOAN_START_TYPES = {"loan"}
 # Transfer types that indicate a loan RETURN (player coming BACK from loan)
 LOAN_RETURN_TYPES = {"back from loan", "return from loan", "end of loan", "loan end", "loan return"}
 
@@ -154,21 +160,6 @@ def is_new_loan_transfer(transfer_type: str) -> bool:
     # Now check if it's an actual loan
     # We use exact match to avoid false positives
     return normalized == "loan"
-
-
-def extract_transfer_fee(transfer_type: str) -> str | None:
-    """Extract fee from API-Football transfer type field.
-    Returns raw string like '€50M', 'Free', or None if it's a loan/unknown.
-    """
-    if not transfer_type:
-        return None
-    t = transfer_type.strip()
-    lower = t.lower()
-    if lower in LOAN_START_TYPES | LOAN_RETURN_TYPES:
-        return None
-    if lower in ("n/a", ""):
-        return None
-    return t
 
 
 def _academy_watch_for_team(
@@ -4643,15 +4634,25 @@ class APIFootballClient:
             }
 
     def get_team_players(self, team_id: int, season: int = None) -> list[dict[str, Any]]:
-        """Get all players for a team in a specific season with pagination support."""
+        """Get all players for a team in a specific season with pagination.
+
+        A successful empty provider response returns ``[]``. Live response
+        errors and request exceptions raise ``TeamPlayersFetchError`` so callers
+        can distinguish an unfetched squad from a fetched-and-empty one. Sample
+        rows are returned only in explicitly enabled stub mode.
+        """
         if season is None:
             season = self.current_season_start_year
 
         logger.info(f"👥 Fetching all players for team {team_id}, season {season}")
 
-        if not self.api_key:
-            # Return sample data for testing
+        if self.mode == "stub":
             return self._get_sample_team_players(team_id, season)
+        if not self.api_key:
+            raise TeamPlayersFetchError(
+                "Cannot fetch team players without API_FOOTBALL_KEY; "
+                "enable API_USE_STUB_DATA=true explicitly for sample data"
+            )
 
         try:
             page = 1
@@ -4664,7 +4665,16 @@ class APIFootballClient:
 
                 response = self._make_request("players", {"team": team_id, "season": season, "page": page})
 
-                players_data = response.get("response", [])
+                if response.get("errors"):
+                    raise TeamPlayersFetchError(
+                        f"API-Football returned player errors for team {team_id}, season {season}: {response['errors']}"
+                    )
+
+                players_data = response.get("response")
+                if not isinstance(players_data, list):
+                    raise TeamPlayersFetchError(
+                        f"API-Football returned a malformed player response for team {team_id}, season {season}"
+                    )
                 results_count = response.get("results")
                 paging = response.get("paging", {})
                 current_page = paging.get("current", page)
@@ -4714,9 +4724,12 @@ class APIFootballClient:
             )
             return all_players
 
+        except TeamPlayersFetchError:
+            logger.exception("Failed to fetch team players for team %s, season %s", team_id, season)
+            raise
         except Exception as e:
-            logger.error(f"Error fetching team players: {e}")
-            return self._get_sample_team_players(team_id)
+            logger.exception("Failed to fetch team players for team %s, season %s", team_id, season)
+            raise TeamPlayersFetchError(f"Failed to fetch team players for team {team_id}, season {season}: {e}") from e
 
     def get_player_transfers(self, player_id: int) -> list[dict[str, Any]]:
         """
@@ -4724,6 +4737,12 @@ class APIFootballClient:
 
         🚀 Performance Optimization: Results are cached for 24 hours to reduce
         redundant API calls (typically saves 60% of transfer API calls).
+
+        A successful empty provider response returns ``[]``. Live response
+        errors and request exceptions raise ``TransferFetchError`` so callers
+        can preserve known transfer state instead of treating a failed fetch as
+        an authoritative empty history. Sample data is exclusive to explicit
+        stub mode.
         """
         # Check cache first
         if player_id in self._transfer_cache:
@@ -4743,18 +4762,26 @@ class APIFootballClient:
         # Cache miss or expired - fetch from API
         logger.info(f"🔄 Cache MISS - Fetching transfers for player {player_id} from API")
 
-        if not self.api_key:
-            # Return sample transfer data for testing
+        if self.mode == "stub":
+            # Sample data is valid only when stub mode was explicitly enabled.
             return self._get_sample_transfers(player_id=player_id)
+        if not self.api_key:
+            raise TransferFetchError(
+                "Cannot fetch player transfers without API_FOOTBALL_KEY; "
+                "enable API_USE_STUB_DATA=true explicitly for sample data"
+            )
 
         try:
             response = self._make_request("transfers", {"player": player_id})
 
             if response.get("errors"):
-                logger.warning(f"⚠️ API returned errors: {response['errors']}")
-                return []
+                raise TransferFetchError(
+                    f"API-Football returned transfer errors for player {player_id}: {response['errors']}"
+                )
 
-            transfers_data = response.get("response", [])
+            transfers_data = response.get("response")
+            if not isinstance(transfers_data, list):
+                raise TransferFetchError(f"API-Football returned a malformed transfer response for player {player_id}")
 
             if self.mode != "stub":
                 _record_transfer_payload(transfers_data, fallback_player_api_id=player_id)
@@ -4765,9 +4792,12 @@ class APIFootballClient:
             logger.info(f"✅ Found {len(transfers_data)} transfer records for player {player_id} - CACHED for 24h")
             return transfers_data
 
+        except TransferFetchError:
+            logger.exception("Failed to fetch player transfers for player %s", player_id)
+            raise
         except Exception as e:
-            logger.error(f"Error fetching player transfers: {e}")
-            return self._get_sample_transfers(player_id=player_id)
+            logger.exception("Failed to fetch player transfers for player %s", player_id)
+            raise TransferFetchError(f"Failed to fetch player transfers for player {player_id}: {e}") from e
 
     # Upsert helper functions
     def _get_or_create_fixture(self, db_session, fx, season: int):
@@ -5160,7 +5190,9 @@ class APIFootballClient:
             rate_limit_delay: Delay between requests in seconds (default 0.1s = 10 req/sec)
 
         Returns:
-            Dict mapping player_id to their transfer data
+            Dict mapping successfully fetched player ids to their transfer
+            data. Successful empty histories are included as ``player_id: []``;
+            failed fetches are omitted so callers can distinguish them.
         """
         results = {}
 
@@ -5196,7 +5228,6 @@ class APIFootballClient:
                 except Exception as e:
                     player_id = futures[future]
                     logger.error(f"   Error fetching transfers for player {player_id}: {e}")
-                    results[player_id] = []
 
         logger.info(f"✅ Batch complete: {len(results)}/{len(player_ids)} successful")
         return results

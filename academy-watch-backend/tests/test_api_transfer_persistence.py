@@ -3,9 +3,10 @@
 import threading
 from datetime import timedelta
 
+import pytest
 import sqlalchemy.orm
 from src import api_football_client as api_module
-from src.api_football_client import APIFootballClient
+from src.api_football_client import APIFootballClient, TransferFetchError
 
 
 def _block(player_id=123):
@@ -79,7 +80,7 @@ def test_player_transfer_path_records_live_and_memory_cached_payloads(monkeypatc
     assert calls == [(blocks, {"fallback_player_api_id": 123})]
 
 
-def test_stub_and_sample_fallbacks_are_never_persisted(monkeypatch):
+def test_stub_is_sample_only_and_live_failures_raise(monkeypatch):
     calls = []
     monkeypatch.setattr(
         api_module,
@@ -98,16 +99,65 @@ def test_stub_and_sample_fallbacks_are_never_persisted(monkeypatch):
     assert client.get_player_transfers(123) is sample
     assert calls == []
 
-    # Direct mode also returns sample data when no API key exists, and after a
-    # failed live request. Neither fallback is provider evidence.
+    # Sample payloads must never leak into direct mode: both missing credentials
+    # and request failure remain distinguishable from a successful empty result.
     client.mode = "direct"
-    assert client.get_player_transfers(123) is sample
+    with pytest.raises(TransferFetchError, match="API_FOOTBALL_KEY"):
+        client.get_player_transfers(123)
     assert calls == []
 
     client.api_key = "test-key"
     client._make_request = lambda endpoint, params: (_ for _ in ()).throw(RuntimeError("fetch failed"))
-    assert client.get_player_transfers(123) is sample
+    with pytest.raises(TransferFetchError, match="fetch failed"):
+        client.get_player_transfers(123)
     assert calls == []
+
+
+def test_live_response_error_and_successful_empty_are_distinct(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        api_module,
+        "_record_transfer_payload",
+        lambda blocks, **kwargs: calls.append((blocks, kwargs)),
+    )
+
+    client = APIFootballClient.__new__(APIFootballClient)
+    client.mode = "direct"
+    client.api_key = "test-key"
+    client._transfer_cache = {}
+    client._transfer_cache_ttl = timedelta(hours=24)
+    client._make_request = lambda endpoint, params: {
+        "response": [],
+        "errors": {"rateLimit": "quota exceeded"},
+    }
+
+    with pytest.raises(TransferFetchError, match="quota exceeded"):
+        client.get_player_transfers(123)
+    assert 123 not in client._transfer_cache
+    assert calls == []
+
+    client._make_request = lambda endpoint, params: {"response": [], "errors": []}
+    assert client.get_player_transfers(123) == []
+    assert client._transfer_cache[123][0] == []
+    assert calls == [([], {"fallback_player_api_id": 123})]
+
+
+def test_batch_omits_failures_but_keeps_successful_empty_histories(monkeypatch):
+    monkeypatch.setattr(api_module, "_record_transfer_payload", lambda *args, **kwargs: None)
+
+    client = APIFootballClient.__new__(APIFootballClient)
+    client.mode = "direct"
+
+    def fetch(player_id):
+        if player_id == 1:
+            raise TransferFetchError("provider unavailable")
+        return []
+
+    client.get_player_transfers = fetch
+
+    result = client.batch_get_player_transfers([1, 2], max_workers=1, rate_limit_delay=0)
+
+    assert result == {2: []}
 
 
 def test_batch_player_fetch_persists_only_on_context_owning_thread(app, monkeypatch):

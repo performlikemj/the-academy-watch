@@ -171,6 +171,8 @@ class TransferResolution:
     loan_state: LoanState
     latest_permanent_move: ResolvedTransferEvent | None
     issues: tuple[ResolverIssue, ...]
+    season_start_month: int
+    season_start_day: int
 
     @property
     def loan_owner(self) -> ClubRef | None:
@@ -251,8 +253,29 @@ def _club(api_id: int | None, name: str | None) -> ClubRef:
     )
 
 
+def _context_club(value: ClubRef | Mapping[str, Any] | None, *, field_name: str) -> ClubRef | None:
+    """Coerce optional caller-known state into the resolver's club identity.
+
+    Transfer feeds sometimes begin with a topology-only ``N/A`` event.  A
+    consumer that already knows the preceding owner/current club can provide
+    that context without manufacturing a synthetic transfer event.
+    """
+    if value is None or isinstance(value, ClubRef):
+        return value
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{field_name} must be a ClubRef, mapping, or None")
+
+    api_id = _parse_id(value.get("api_id", value.get("id")))
+    name = _clean_name(value.get("name"))
+    if api_id is None and name is None:
+        raise ValueError(f"{field_name} must include a usable club id or name")
+    return _club(api_id, name)
+
+
 def _same_org(left: ClubRef | None, right: ClubRef | None) -> bool:
     if left is None or right is None:
+        return False
+    if (left.api_id is None and left.name is None) or (right.api_id is None and right.name is None):
         return False
     if left.api_id is not None and left.api_id == right.api_id:
         return True
@@ -412,6 +435,9 @@ def _normalize_transfer_events(events: Iterable[Any]) -> NormalizationResult:
             )
             continue
 
+        transfer_type = raw_type.strip()
+        normalized_type = " ".join(transfer_type.casefold().split())
+
         out_id = _parse_id(raw_out_id)
         out_name = _clean_name(raw_out_name)
         if out_id is None and out_name is None:
@@ -445,8 +471,13 @@ def _normalize_transfer_events(events: Iterable[Any]) -> NormalizationResult:
                     raw_event=raw_event,
                 )
             )
-            continue
-        if in_id is None:
+            # A typed permanent departure with no onward club is still
+            # load-bearing evidence for academy-relative ``released`` status.
+            # Retain it with an explicit unknown destination; loans, returns,
+            # and topology-only N/A events cannot be resolved without one.
+            if normalized_type in _LOAN_TYPES | _RETURN_TYPES | _NA_TYPES:
+                continue
+        if in_id is None and in_name is not None:
             issues.append(
                 ResolverIssue(
                     "missing_in_club_id",
@@ -456,8 +487,6 @@ def _normalize_transfer_events(events: Iterable[Any]) -> NormalizationResult:
                 )
             )
 
-        transfer_type = raw_type.strip()
-        normalized_type = " ".join(transfer_type.casefold().split())
         digest_input = "|".join(
             (
                 transfer_date.isoformat(),
@@ -531,8 +560,13 @@ def _coalesce_events(events: Iterable[NormalizedTransferEvent]) -> list[_Coalesc
             if (
                 day_gap >= 0
                 and event.normalized_type == representative.normalized_type
-                and _same_org(event.out_club, representative.out_club)
-                and _same_org(event.in_club, representative.in_club)
+                and (
+                    event.fingerprint == representative.fingerprint
+                    or (
+                        _same_org(event.out_club, representative.out_club)
+                        and _same_org(event.in_club, representative.in_club)
+                    )
+                )
             ):
                 matching = group
                 break
@@ -810,22 +844,42 @@ def _open_loan_fresh_boundary(start: date, *, start_month: int = 7, start_day: i
     return date(boundary_year, start_month, start_day)
 
 
-def resolve_transfer_state(events: Iterable[Any], *, as_of: date | str) -> TransferResolution:
+def resolve_transfer_state(
+    events: Iterable[Any],
+    *,
+    as_of: date | str,
+    initial_owner: ClubRef | Mapping[str, Any] | None = None,
+    season_start_month: int = 7,
+    season_start_day: int = 1,
+) -> TransferResolution:
     """Resolve transfer events chronologically as of a required date.
 
-    An unclosed loan is confirmed only within the July-to-June season in which
-    its start was observed.  At the next July 1 it becomes ``indeterminate``:
-    absence of a provider return is not evidence that a loan continues forever.
+    An unclosed loan is confirmed only within the competition season in which
+    its start was observed. At the next configured boundary it becomes
+    ``indeterminate``: absence of a provider return is not evidence that a loan
+    continues forever. July 1 remains the compatibility default.
+
+    ``initial_owner`` is optional caller-known state for histories that begin
+    mid-stream (notably a first-event ``N/A``). The player is assumed to start
+    at that owning club.
     """
     parsed_as_of = _parse_date(as_of)
     if parsed_as_of is None:
         raise ValueError("as_of must be a valid date or ISO date string")
+    try:
+        date(2000, season_start_month, season_start_day)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("season start must be a valid month/day") from exc
 
     normalization = _normalize_transfer_events(events)
     applicable = [event for event in normalization.events if event.transfer_date <= parsed_as_of]
     coalesced = _coalesce_events(applicable)
 
-    state = _ReducerState()
+    starting_owner = _context_club(initial_owner, field_name="initial_owner")
+    state = _ReducerState(
+        legal_owner=starting_owner,
+        current_club=starting_owner,
+    )
     episode_builders: list[_EpisodeBuilder] = []
     resolved_events: list[ResolvedTransferEvent] = []
     issues = list(normalization.issues)
@@ -857,7 +911,11 @@ def resolve_transfer_state(events: Iterable[Any], *, as_of: date | str) -> Trans
     active_loan = episodes[-1] if state.active_episode is not None and episodes else None
 
     if state.active_episode is not None and active_loan is not None:
-        if parsed_as_of < _open_loan_fresh_boundary(active_loan.start_date):
+        if parsed_as_of < _open_loan_fresh_boundary(
+            active_loan.start_date,
+            start_month=season_start_month,
+            start_day=season_start_day,
+        ):
             on_loan: bool | None = True
             loan_state: LoanState = "on_loan"
         else:
@@ -886,6 +944,8 @@ def resolve_transfer_state(events: Iterable[Any], *, as_of: date | str) -> Trans
         loan_state=loan_state,
         latest_permanent_move=latest_permanent,
         issues=tuple(issues),
+        season_start_month=season_start_month,
+        season_start_day=season_start_day,
     )
 
 

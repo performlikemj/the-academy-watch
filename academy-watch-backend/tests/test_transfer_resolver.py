@@ -389,6 +389,58 @@ def test_concrete_na_without_active_episode_uses_state_continuity_not_the_string
     assert "ambiguous_na" in {issue.code for issue in no_topology.issues}
 
 
+def test_first_na_uses_explicit_initial_owner_context():
+    event = transfer("2025-06-30", "N/A", 33, "Parent", 200, "Destination")
+
+    without_context = resolve_transfer_state([event], as_of="2026-07-16")
+    with_context = resolve_transfer_state(
+        [event],
+        as_of="2026-07-16",
+        initial_owner={"id": 33, "name": "Parent"},
+    )
+
+    assert without_context.events[0].kind == "unknown"
+    assert with_context.events[0].kind == "permanent"
+    assert with_context.events[0].reason == "topology_na_permanent"
+    assert with_context.current_club.api_id == 200
+    assert with_context.legal_owner.api_id == 200
+    assert with_context.on_loan is False
+
+
+def test_permanent_departure_without_destination_remains_resolvable_evidence():
+    event = transfer("2025-06-30", "Free agent", 33, "Parent", None, None)
+
+    result = resolve_transfer_state(
+        [event],
+        as_of="2026-07-16",
+        initial_owner={"id": 33, "name": "Parent"},
+    )
+
+    assert result.events[0].kind == "permanent"
+    assert result.latest_permanent_move is result.events[0]
+    assert result.current_club.api_id is None
+    assert result.current_club.name is None
+    assert result.on_loan is False
+    assert "missing_in_club" in {issue.code for issue in result.issues}
+
+
+def test_exact_duplicate_release_without_destination_is_coalesced_without_false_name_fallback():
+    event = transfer("2025-06-30", "Free agent", 33, "Parent", None, None)
+
+    result = resolve_transfer_state(
+        [deepcopy(event), deepcopy(event)],
+        as_of="2026-07-16",
+        initial_owner={"id": 33, "name": "Parent"},
+    )
+
+    assert len(result.normalized_events) == 2
+    assert len(result.events) == 1
+    assert len(result.events[0].evidence) == 2
+    assert result.events[0].kind == "permanent"
+    assert "missing_in_club" in {issue.code for issue in result.issues}
+    assert "missing_in_club_id" not in {issue.code for issue in result.issues}
+
+
 def test_owner_to_third_club_na_supersedes_an_open_loan():
     result = resolve_transfer_state(
         [
