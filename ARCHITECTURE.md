@@ -180,12 +180,14 @@ Determined by `stats_coverage` field on `AcademyPlayer` and validated via `check
 Transfer types from the API `type` field:
 - `"Loan"` → new loan (player going out)
 - `"Back from Loan"` / `"End of Loan"` etc. → loan return
-- `"Free"` / `"Free Transfer"` / `"Free agent"` → permanent, no fee
+- `"Free"` / `"Free Transfer"` → permanent labels preserved verbatim on a sale
+- `"Free agent"` → permanent departure; released only when no destination exists
 - `"€ 50M"` / `"€ 25.5M"` → permanent with fee amount
 - `"Transfer"` → permanent, fee undisclosed
-- `"N/A"` → treated as `released` (free departure)
+- `"N/A"` → classified from club topology when direction is provable;
+  otherwise retained as unknown evidence with no status mutation
 
-The `extract_transfer_fee()` function returns the raw fee string for non-loan transfers, stored on `TrackedPlayer.sale_fee`.
+The chronological transfer resolver is the single source for permanent-transfer fees. Journey entries use its latest permanent move into that entry's club; `TrackedPlayer.sale_fee` uses its latest permanent departure from the row's academy parent. Both preserve the provider's raw label (for example `€ 33M`, `Free`, or `Transfer`).
 
 ### Player ID Verification
 

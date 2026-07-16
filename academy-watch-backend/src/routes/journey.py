@@ -148,7 +148,8 @@ def admin_recompute_academy():
     if not isinstance(cursor, int) or isinstance(cursor, bool) or cursor < 0:
         return jsonify({"error": "cursor must be a non-negative integer"}), 400
 
-    service = JourneySyncService()
+    service = JourneySyncService(database_only=True)
+    from src.services.season_rollup_service import refresh_player as refresh_season_rollup
 
     journeys = (
         PlayerJourney.query.filter(
@@ -180,6 +181,9 @@ def admin_recompute_academy():
             )
 
     errors = 0
+    durable_reclassified = 0
+    rollup_seasons_refreshed = 0
+    error_examples = []
     last_processed = cursor
     for journey in journeys:
         journey_id = journey.id
@@ -200,8 +204,26 @@ def admin_recompute_academy():
             # cancelled by the server statement_timeout.
             with db.session.no_autoflush:
                 entries = PlayerJourneyEntry.query.filter_by(journey_id=journey_id).all()
-                service._apply_development_classification(entries, transfers=None, birth_date=journey.birth_date)
-                service._compute_academy_club_ids(journey, entries=entries)
+                durable_result = service.reclassify_from_durable_transfer_events(journey)
+                if durable_result is None:
+                    # tre01 has no successful-empty marker; zero rows are
+                    # unknown evidence, so transfer state remains untouched.
+                    service._apply_development_classification(entries, transfers=None, birth_date=journey.birth_date)
+                    service._compute_academy_club_ids(journey, entries=entries)
+                    affected_seasons = set()
+                else:
+                    affected_seasons = durable_result["entry_seasons"]
+
+                db.session.flush()
+                for affected_season in sorted(affected_seasons):
+                    refresh_season_rollup(
+                        journey.player_api_id,
+                        season=affected_season,
+                        session=db.session,
+                    )
+                rollup_seasons_refreshed += len(affected_seasons)
+                if durable_result is not None:
+                    durable_reclassified += 1
             journeys_processed += 1
             new_ids = sorted(journey.academy_club_ids or [])
             recomputed[journey_id] = set(new_ids)
@@ -225,6 +247,8 @@ def admin_recompute_academy():
             errors += 1
             logger.warning("recompute-academy failed for journey %s: %s", journey_id, exc)
             db.session.rollback()
+            if len(error_examples) < 20:
+                error_examples.append({"journey_id": journey_id, "error": str(exc)})
         last_processed = journey_id
 
     # ── Contradiction sweep ──
@@ -282,6 +306,9 @@ def admin_recompute_academy():
         "journeys_changed": journeys_changed,
         "rows_deactivated": len(deactivated_ids),
         "errors": errors,
+        "error_examples": error_examples,
+        "durable_reclassified": durable_reclassified,
+        "rollup_seasons_refreshed": rollup_seasons_refreshed,
         "examples": examples,
         "dry_run": dry_run,
         "applied": not dry_run,
@@ -294,12 +321,14 @@ def admin_recompute_academy():
 @journey_bp.route("/admin/journeys/backfill-current-status", methods=["POST"])
 @require_api_key
 def admin_backfill_current_status():
-    """Backfill player_journeys.current_status / current_owner_* from STORED
-    journey entries (no API calls, no journey re-sync). Computes the player's
-    actual current situation (on_loan + owner) exactly as a sync would, so the
-    player-facing 'actual status' is correct without a full re-sync.
+    """Backfill player_journeys.current_status / current_owner_* from durable
+    PlayerTransferEvent evidence (no API calls, no journey re-sync).
 
-    Writes ONLY the new current_status / current_owner_* journey columns — it
+    Journeys without stored transfer events are reported and left unchanged;
+    historical journey-entry labels cannot prove a current loan or its owner.
+    Evidence-backed rows use the same chronological resolver as a live sync.
+
+    Writes the evidence-backed journey current club/status/owner atomically. It
     never touches TrackedPlayer.status, so it cannot clobber the per-academy
     statuses. Paged via cursor; one small transaction per journey.
 
@@ -317,17 +346,27 @@ def admin_backfill_current_status():
     if not isinstance(cursor, int) or isinstance(cursor, bool) or cursor < 0:
         return jsonify({"error": "cursor must be a non-negative integer"}), 400
 
-    service = JourneySyncService()
+    service = JourneySyncService(database_only=True)
     journeys = PlayerJourney.query.filter(PlayerJourney.id > cursor).order_by(PlayerJourney.id).limit(limit).all()
 
     processed = 0
     on_loan_set = 0
+    evidence_resolved = 0
+    skipped_no_transfer_evidence = 0
     errors = 0
     last_processed = cursor
     for journey in journeys:
         try:
             entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
-            service._set_current_status(journey, entries)
+            resolution = service._resolve_durable_transfer_state(journey, entries)
+            if resolution is None:
+                skipped_no_transfer_evidence += 1
+                processed += 1
+                last_processed = journey.id
+                continue
+
+            service.apply_resolved_current_state(journey, entries, resolution)
+            evidence_resolved += 1
             if journey.current_status == "on_loan":
                 on_loan_set += 1
             processed += 1
@@ -345,6 +384,8 @@ def admin_backfill_current_status():
         {
             "dry_run": dry_run,
             "journeys_processed": processed,
+            "evidence_resolved": evidence_resolved,
+            "skipped_no_transfer_evidence": skipped_no_transfer_evidence,
             "on_loan_set": on_loan_set,
             "errors": errors,
             "next_cursor": last_processed if len(journeys) == limit else None,
