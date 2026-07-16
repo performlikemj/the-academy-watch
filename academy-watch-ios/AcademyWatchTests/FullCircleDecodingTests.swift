@@ -8,12 +8,20 @@ import XCTest
 // - contact_requests_sent.json mirrors `ContactRequest.to_dict()` in
 //   full-circle `src/models/contact.py` and the paginated GET
 //   `/api/contact/requests` envelope in `src/routes/contact.py`.
+// - contact_requests_inbox.json mirrors that same serializer and the
+//   `box=inbox` owner envelope exercised by full-circle `test_contact.py`.
 // - contact_messages.json mirrors `ContactMessage.to_dict()` and
 //   `ContactRequest.to_dict()` in `src/models/contact.py`, plus the paginated
 //   GET `/api/contact/requests/<id>/messages` envelope in `src/routes/contact.py`.
 // - contact_outcome.json mirrors `ContactOutcome.to_dict()` and
 //   `ContactRequest.to_dict()` in `src/models/contact.py`, plus the POST
 //   `/api/contact/requests/<id>/outcome` envelope in `src/routes/contact.py`.
+// - interest_signals.json is the exact aggregate asserted by
+//   `TestInterestSignals.test_aggregates_are_correct_distinct_and_identity_free`
+//   and mirrors `my_interest_signals()` in `src/routes/showcase.py`.
+// - content_report.json mirrors `ContentReport.to_dict()` in
+//   `src/models/trust.py` and the POST `/api/reports` envelope, using the
+//   contact-message payload from `test_participant_can_report_message...`.
 final class FullCircleDecodingTests: XCTestCase {
     func testDecodesScoutVerificationSerializerShape() throws {
         let response: ScoutVerificationResponse = try decodeFixture("scout_verification")
@@ -59,6 +67,20 @@ final class FullCircleDecodingTests: XCTestCase {
         XCTAssertNil(response.requests[4].latestOutcome)
     }
 
+    func testDecodesIncomingContactRequestsWithOnlySerializerIdentity() throws {
+        let response: ContactRequestsResponse = try decodeFixture("contact_requests_inbox")
+
+        XCTAssertEqual(response.box, .inbox)
+        XCTAssertEqual(response.total, 2)
+        XCTAssertEqual(response.limit, 50)
+        XCTAssertEqual(response.offset, 0)
+        XCTAssertEqual(response.requests.map(\.status), [.pending, .accepted])
+        XCTAssertEqual(response.requests.first?.participants.scout.displayName, "Alex Morgan")
+        XCTAssertEqual(response.requests.first?.participants.player.displayName, "Habeeb Amass")
+        XCTAssertNil(response.requests.first?.respondedAt)
+        XCTAssertEqual(response.requests.last?.latestOutcome?.stage, .contacted)
+    }
+
     func testDecodesContactMessagesSerializerAndRouteEnvelope() throws {
         let response: ContactMessagesResponse = try decodeFixture("contact_messages")
 
@@ -82,6 +104,52 @@ final class FullCircleDecodingTests: XCTestCase {
         XCTAssertEqual(response.outcome.notes, "Scholarship agreement completed.")
         XCTAssertEqual(response.outcome.occurredAt, "2026-07-17T12:00:00")
         XCTAssertEqual(response.contactRequest.latestOutcome, response.outcome)
+    }
+
+    func testDecodesIdentityFreeInterestSignalsIncludingZeroPlayer() throws {
+        let response: InterestSignalsResponse = try decodeFixture("interest_signals")
+
+        XCTAssertEqual(response.weekStart, "2026-07-13T00:00:00+00:00")
+        XCTAssertEqual(response.interestSignals.map(\.playerApiId), [7_001, 7_002])
+        XCTAssertEqual(response.interestSignals[0].watchlists, .init(total: 2, addedThisWeek: 1))
+        XCTAssertEqual(response.interestSignals[0].follows, .init(total: 3, addedThisWeek: 1))
+        XCTAssertEqual(response.interestSignals[1], .zero(playerID: 7_002))
+    }
+
+    func testDecodesReporterFacingContentReportSerializer() throws {
+        let response: ContentReportResponse = try decodeFixture("content_report")
+
+        XCTAssertEqual(response.report.id, 41)
+        XCTAssertEqual(response.report.subjectType, .contactMessage)
+        XCTAssertEqual(response.report.reasonCode, "participant_safety")
+        XCTAssertEqual(response.report.status, .open)
+        XCTAssertEqual(response.report.details, "Please review this message.")
+        XCTAssertNil(response.report.resolutionNotes)
+        XCTAssertNil(response.report.resolvedAt)
+    }
+
+    func testRequestReportSubjectsUseOtherAndStatusAwareBlockGuidance() throws {
+        let response: ContactRequestsResponse = try decodeFixture("contact_requests_inbox")
+        let request = try XCTUnwrap(response.requests.first)
+
+        let pending = ContentReportSubject.request(request)
+        XCTAssertEqual(pending.subjectType, .other)
+        XCTAssertEqual(pending.subjectID, request.id)
+        XCTAssertTrue(pending.explanation.contains("decline the request separately"))
+        XCTAssertTrue(pending.explanation.contains("cooldown window"))
+
+        let accepted = ContentReportSubject.request(request.replacing(status: .accepted))
+        XCTAssertTrue(accepted.explanation.contains("accepted introduction can no longer be declined"))
+        XCTAssertFalse(accepted.explanation.contains("decline the request separately"))
+
+        let declined = ContentReportSubject.request(request.replacing(status: .declined))
+        XCTAssertTrue(declined.explanation.contains("already closed as declined"))
+
+        let withdrawn = ContentReportSubject.request(request.replacing(status: .withdrawn))
+        XCTAssertTrue(withdrawn.explanation.contains("was withdrawn"))
+
+        let expired = ContentReportSubject.request(request.replacing(status: .expired))
+        XCTAssertTrue(expired.explanation.contains("expired"))
     }
 
     func testEncodesMutationBodiesWithBackendFieldNamesAndEnumValues() throws {
@@ -119,6 +187,32 @@ final class FullCircleDecodingTests: XCTestCase {
         XCTAssertEqual(outcome["stage"] as? String, "trial_completed")
         XCTAssertEqual(outcome["occurred_at"] as? String, "2026-07-17T12:00:00Z")
         XCTAssertNil(outcome["notes"])
+
+        let messageReport = try encodeObject(
+            SubmitContentReportBody(
+                subjectType: .contactMessage,
+                subjectId: "11111111-aaaa-4111-8111-111111111111",
+                reasonCode: "participant_safety",
+                details: "Please review this message."
+            )
+        )
+        XCTAssertEqual(messageReport["subject_type"] as? String, "contact_message")
+        XCTAssertEqual(
+            messageReport["subject_id"] as? String,
+            "11111111-aaaa-4111-8111-111111111111"
+        )
+        XCTAssertEqual(messageReport["reason_code"] as? String, "participant_safety")
+
+        let requestReport = try encodeObject(
+            SubmitContentReportBody(
+                subjectType: .other,
+                subjectId: "02020202-2222-4222-8222-020202020202",
+                reasonCode: "spam",
+                details: nil
+            )
+        )
+        XCTAssertEqual(requestReport["subject_type"] as? String, "other")
+        XCTAssertNil(requestReport["details"])
     }
 
     private func decodeFixture<Response: Decodable>(_ name: String) throws -> Response {

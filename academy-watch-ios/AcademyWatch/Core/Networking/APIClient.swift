@@ -36,6 +36,13 @@ protocol SentContactRequestsAPIClientProtocol: Sendable {
     func withdrawContactRequest(requestID: String) async throws -> ContactRequestResponse
 }
 
+protocol IncomingContactRequestsAPIClientProtocol: Sendable {
+    func fetchMyProfileClaims() async throws -> PlayerClaimsResponse
+    func fetchIncomingContactRequests(limit: Int, offset: Int) async throws -> ContactRequestsResponse
+    func acceptContactRequest(requestID: String) async throws -> ContactRequestResponse
+    func declineContactRequest(requestID: String) async throws -> ContactRequestResponse
+}
+
 protocol ContactThreadAPIClientProtocol: Sendable {
     func fetchContactMessages(requestID: String, limit: Int, offset: Int) async throws -> ContactMessagesResponse
     func sendContactMessage(requestID: String, body: String) async throws -> ContactMessageResponse
@@ -45,6 +52,19 @@ protocol ContactThreadAPIClientProtocol: Sendable {
         notes: String?,
         occurredAt: String?
     ) async throws -> ContactOutcomeResponse
+}
+
+protocol InterestSignalsAPIClientProtocol: Sendable {
+    func fetchMyInterestSignals() async throws -> InterestSignalsResponse
+}
+
+protocol ContentReportAPIClientProtocol: Sendable {
+    func submitContentReport(
+        subjectType: ContentReportSubjectType,
+        subjectID: String,
+        reasonCode: String,
+        details: String?
+    ) async throws -> ContentReportResponse
 }
 
 protocol WatchlistAPIClientProtocol: Sendable {
@@ -74,7 +94,10 @@ struct APIClient: ScoutAPIClientProtocol,
     ScoutVerificationAPIClientProtocol,
     ContactAPIClientProtocol,
     SentContactRequestsAPIClientProtocol,
+    IncomingContactRequestsAPIClientProtocol,
     ContactThreadAPIClientProtocol,
+    InterestSignalsAPIClientProtocol,
+    ContentReportAPIClientProtocol,
     WatchlistAPIClientProtocol,
     FollowListsAPIClientProtocol,
     CompareAPIClientProtocol,
@@ -260,6 +283,35 @@ struct APIClient: ScoutAPIClientProtocol,
         )
     }
 
+    func fetchIncomingContactRequests(limit: Int, offset: Int) async throws -> ContactRequestsResponse {
+        try await get(
+            path: "contact/requests",
+            queryItems: [
+                URLQueryItem(name: "box", value: "inbox"),
+                URLQueryItem(name: "limit", value: String(limit)),
+                URLQueryItem(name: "offset", value: String(offset)),
+            ]
+        )
+    }
+
+    func acceptContactRequest(requestID: String) async throws -> ContactRequestResponse {
+        try await perform(
+            path: "contact/requests/\(requestID)/accept",
+            method: "POST",
+            queryItems: [],
+            body: nil
+        )
+    }
+
+    func declineContactRequest(requestID: String) async throws -> ContactRequestResponse {
+        try await perform(
+            path: "contact/requests/\(requestID)/decline",
+            method: "POST",
+            queryItems: [],
+            body: nil
+        )
+    }
+
     func fetchContactMessages(
         requestID: String,
         limit: Int,
@@ -295,6 +347,28 @@ struct APIClient: ScoutAPIClientProtocol,
                 stage: stage,
                 notes: notes,
                 occurredAt: occurredAt
+            )
+        )
+    }
+
+    func fetchMyInterestSignals() async throws -> InterestSignalsResponse {
+        try await get(path: "showcase/mine/interest-signals", queryItems: [])
+    }
+
+    func submitContentReport(
+        subjectType: ContentReportSubjectType,
+        subjectID: String,
+        reasonCode: String,
+        details: String?
+    ) async throws -> ContentReportResponse {
+        try await send(
+            path: "reports",
+            method: "POST",
+            body: SubmitContentReportBody(
+                subjectType: subjectType,
+                subjectId: subjectID,
+                reasonCode: reasonCode,
+                details: details
             )
         )
     }

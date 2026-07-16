@@ -119,6 +119,75 @@ final class ContactMutationConcurrencyTests: XCTestCase {
     }
 
     @MainActor
+    func testPlayerOwnerUsesPlayerIdentityWhenSendingAndCanRecordOutcome() async throws {
+        let request = makeRequest()
+        let committedMessage = ContactMessage(
+            id: "owner-message",
+            contactRequestId: request.id,
+            senderRole: .player,
+            senderDisplayName: "Test Player",
+            body: "My representative can join the call.",
+            createdAt: "2026-07-17T10:00:00"
+        )
+        let committedOutcome = makeOutcome(stage: .trialScheduled, suffix: "owner")
+        let client = SuspendingContactMutationClient(
+            request: request,
+            committedMessage: committedMessage,
+            committedOutcome: committedOutcome
+        )
+        let viewModel = ContactThreadViewModel(
+            contactRequest: request,
+            apiClient: client,
+            availability: ContactFeatureAvailability(),
+            viewerRole: .player
+        )
+
+        XCTAssertEqual(viewModel.viewerRole, .player)
+        XCTAssertEqual(viewModel.viewerDisplayName, "Test Player")
+        XCTAssertEqual(viewModel.counterpartDisplayName, "Alex Scout")
+
+        viewModel.draft = committedMessage.body
+        let send = Task { @MainActor in
+            await viewModel.sendMessage()
+        }
+        await client.waitUntilSendStarts()
+
+        let optimisticMessage = try XCTUnwrap(viewModel.messages.first)
+        XCTAssertTrue(optimisticMessage.id.hasPrefix("local-"))
+        XCTAssertEqual(optimisticMessage.senderRole, .player)
+        XCTAssertEqual(optimisticMessage.senderDisplayName, "Test Player")
+        XCTAssertEqual(optimisticMessage.body, committedMessage.body)
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertEqual(viewModel.draft, "")
+
+        await client.releaseSend()
+        await send.value
+
+        XCTAssertEqual(viewModel.messages, [committedMessage])
+        XCTAssertFalse(viewModel.isSending)
+
+        viewModel.selectedOutcomeStage = .trialScheduled
+        viewModel.outcomeNotes = "Owner confirmed the visit."
+        let outcome = Task { @MainActor in
+            await viewModel.reportOutcome()
+        }
+        await client.waitUntilOutcomeStarts()
+
+        XCTAssertEqual(viewModel.contactRequest.latestOutcome?.stage, .trialScheduled)
+        XCTAssertEqual(viewModel.contactRequest.latestOutcome?.notes, "Owner confirmed the visit.")
+        XCTAssertTrue(viewModel.isReportingOutcome)
+
+        await client.releaseOutcome()
+        let didRecordOutcome = await outcome.value
+
+        XCTAssertTrue(didRecordOutcome)
+        XCTAssertEqual(viewModel.contactRequest.latestOutcome, committedOutcome)
+        XCTAssertEqual(viewModel.selectedOutcomeStage, .trialScheduled)
+        XCTAssertEqual(viewModel.outcomeNotes, "")
+        XCTAssertFalse(viewModel.isReportingOutcome)
+    }
+
+    @MainActor
     func testCancelledCallerStillCommitsReturnedWithdrawalAndSettlesBusyState() async {
         let pending = makeRequest(status: .pending)
         let withdrawn = pending.replacing(status: .withdrawn)

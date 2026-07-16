@@ -27,6 +27,7 @@ struct RootTabView: View {
     @StateObject private var followListsViewModel: FollowListsViewModel
     @StateObject private var contactAvailability: ContactFeatureAvailability
     @StateObject private var sentRequestsViewModel: SentContactRequestsViewModel
+    @StateObject private var incomingRequestsViewModel: IncomingContactRequestsViewModel
     @State private var selectedTab: RootTab
     @State private var isSignInPresented: Bool
     @State private var accountDestination: AccountDestination?
@@ -50,12 +51,24 @@ struct RootTabView: View {
         let fixtureState: AuthState?
         #if DEBUG
         if fixtureDestination != nil {
-            fixtureState = .signedIn(
-                email: "alex.scout@fixture.example",
-                accountRole: .scout,
-                displayName: "Alex Scout",
-                isVerifiedScout: true
-            )
+            switch fixtureDestination {
+            case .playerInbox, .declineConfirmation, .watchingYou, .messageReport:
+                fixtureState = .signedIn(
+                    email: "habeeb.player@fixture.example",
+                    accountRole: .player,
+                    displayName: "Habeeb Amass",
+                    isVerifiedScout: false
+                )
+            case .verification, .introduction, .inbox, .thread:
+                fixtureState = .signedIn(
+                    email: "alex.scout@fixture.example",
+                    accountRole: .scout,
+                    displayName: "Alex Scout",
+                    isVerifiedScout: true
+                )
+            case nil:
+                fixtureState = nil
+            }
         } else {
             fixtureState = nil
         }
@@ -88,11 +101,17 @@ struct RootTabView: View {
                 availability: contactAvailability
             )
         )
+        _incomingRequestsViewModel = StateObject(
+            wrappedValue: IncomingContactRequestsViewModel(
+                apiClient: apiClient,
+                availability: contactAvailability
+            )
+        )
         let resolvedTab: RootTab = {
             switch fixtureDestination {
-            case .verification, .inbox, .thread:
+            case .verification, .inbox, .thread, .playerInbox, .declineConfirmation, .messageReport:
                 return .account
-            case .introduction, nil:
+            case .introduction, .watchingYou, nil:
                 return initialTab
             }
         }()
@@ -101,7 +120,9 @@ struct RootTabView: View {
         _accountDestination = State(initialValue: nil)
         self.apiClient = apiClient
         self.initialPhase = initialPhase
-        self.initialPlayerID = fixtureDestination == .introduction ? 403_064 : initialPlayerID
+        self.initialPlayerID = fixtureDestination == .introduction || fixtureDestination == .watchingYou
+            ? 403_064
+            : initialPlayerID
         self.initialComparePlayerIDs = initialComparePlayerIDs
         self.fixtureDestination = fixtureDestination
     }
@@ -145,6 +166,7 @@ struct RootTabView: View {
 
             AccountView(
                 sentRequestsViewModel: sentRequestsViewModel,
+                incomingRequestsViewModel: incomingRequestsViewModel,
                 contactAvailability: contactAvailability,
                 destination: $accountDestination,
                 apiClient: apiClient,
@@ -194,12 +216,14 @@ struct RootTabView: View {
                 async let watchlist: Void = watchlistViewModel.loadWatchlist()
                 async let lists: Void = followListsViewModel.loadLists()
                 async let sentRequests: Void = sentRequestsViewModel.reload()
-                _ = await (account, watchlist, lists, sentRequests)
+                async let incomingRequests: Void = incomingRequestsViewModel.reload()
+                _ = await (account, watchlist, lists, sentRequests, incomingRequests)
             } else {
                 accountDestination = nil
                 watchlistViewModel.resetForSignOut()
                 followListsViewModel.resetForSignOut()
                 sentRequestsViewModel.resetForSignOut()
+                incomingRequestsViewModel.resetForSignOut()
             }
         }
     }

@@ -16,6 +16,8 @@ final class ContactThreadViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var isFixturePreview = false
 
+    let viewerRole: ContactSenderRole
+
     private let apiClient: any ContactThreadAPIClientProtocol
     private let availability: ContactFeatureAvailability
     private let pageSize: Int
@@ -32,15 +34,20 @@ final class ContactThreadViewModel: ObservableObject {
         contactRequest: ContactRequest,
         apiClient: any ContactThreadAPIClientProtocol,
         availability: ContactFeatureAvailability,
+        viewerRole: ContactSenderRole = .scout,
         pageSize: Int = 50
     ) {
         self.contactRequest = contactRequest
         self.apiClient = apiClient
         self.availability = availability
+        self.viewerRole = viewerRole
         self.pageSize = pageSize
 
         #if DEBUG
-        if FullCircleFixtureDestination.fromLaunchArguments(ProcessInfo.processInfo.arguments) == .thread,
+        let fixtureDestination = FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        )
+        if (fixtureDestination == .thread || fixtureDestination == .messageReport),
            let fixture = Self.decodeFixture() {
             self.contactRequest = fixture.contactRequest
             messages = fixture.messages
@@ -58,6 +65,18 @@ final class ContactThreadViewModel: ObservableObject {
     var canSend: Bool {
         let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         return !clean.isEmpty && clean.count <= 2_000 && !isSending
+    }
+
+    var viewerDisplayName: String? {
+        participant(for: viewerRole).displayName
+    }
+
+    var counterpartDisplayName: String? {
+        participant(for: counterpartRole).displayName
+    }
+
+    var counterpartRole: ContactSenderRole {
+        viewerRole == .scout ? .player : .scout
     }
 
     var canReportOutcome: Bool {
@@ -128,8 +147,8 @@ final class ContactThreadViewModel: ObservableObject {
         let optimistic = ContactMessage(
             id: temporaryID,
             contactRequestId: contactRequest.id,
-            senderRole: .scout,
-            senderDisplayName: contactRequest.participants.scout.displayName,
+            senderRole: viewerRole,
+            senderDisplayName: viewerDisplayName,
             body: body,
             createdAt: Self.nowString()
         )
@@ -283,6 +302,15 @@ final class ContactThreadViewModel: ObservableObject {
 
     private static func nowString() -> String {
         ISO8601DateFormatter().string(from: Date())
+    }
+
+    private func participant(for role: ContactSenderRole) -> ContactRequestParticipant {
+        switch role {
+        case .scout:
+            contactRequest.participants.scout
+        case .player:
+            contactRequest.participants.player
+        }
     }
 
     private func reconcileCommittedMessage(

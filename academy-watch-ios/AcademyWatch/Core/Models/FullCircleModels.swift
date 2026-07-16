@@ -15,6 +15,12 @@ enum ContactLimits {
     static let maximumOutcomeNotesLength = 2_000
 }
 
+enum ContentReportLimits {
+    static let maximumSubjectIDLength = 200
+    static let maximumReasonCodeLength = 80
+    static let maximumDetailsLength = 2_000
+}
+
 enum ScoutVerificationStatus: String, Codable, Equatable, Sendable {
     case pending
     case approved
@@ -219,4 +225,129 @@ struct ReportContactOutcomeBody: Encodable, Equatable, Sendable {
 struct ContactOutcomeResponse: Decodable, Equatable, Sendable {
     let outcome: ContactOutcome
     let contactRequest: ContactRequest
+}
+
+struct InterestSignalMetric: Decodable, Equatable, Sendable {
+    let total: Int
+    let addedThisWeek: Int
+}
+
+struct PlayerInterestSignal: Decodable, Equatable, Identifiable, Sendable {
+    let playerApiId: Int
+    let watchlists: InterestSignalMetric
+    let follows: InterestSignalMetric
+
+    var id: Int { playerApiId }
+
+    static func zero(playerID: Int) -> PlayerInterestSignal {
+        PlayerInterestSignal(
+            playerApiId: playerID,
+            watchlists: InterestSignalMetric(total: 0, addedThisWeek: 0),
+            follows: InterestSignalMetric(total: 0, addedThisWeek: 0)
+        )
+    }
+}
+
+struct InterestSignalsResponse: Decodable, Equatable, Sendable {
+    let weekStart: String
+    let interestSignals: [PlayerInterestSignal]
+}
+
+enum ContentReportSubjectType: String, Codable, Equatable, Sendable {
+    case contactMessage = "contact_message"
+    case other
+}
+
+enum ContentReportStatus: String, Decodable, Equatable, Sendable {
+    case open
+    case reviewing
+    case resolved
+    case dismissed
+}
+
+struct SubmitContentReportBody: Encodable, Equatable, Sendable {
+    let subjectType: ContentReportSubjectType
+    let subjectId: String
+    let reasonCode: String
+    let details: String?
+}
+
+struct ContentReport: Decodable, Equatable, Identifiable, Sendable {
+    let id: Int
+    let subjectType: ContentReportSubjectType
+    let subjectId: String
+    let reasonCode: String
+    let details: String?
+    let status: ContentReportStatus
+    let resolutionNotes: String?
+    let createdAt: String
+    let resolvedAt: String?
+}
+
+struct ContentReportResponse: Decodable, Equatable, Sendable {
+    let report: ContentReport
+}
+
+enum ContentReportReason: String, CaseIterable, Equatable, Sendable {
+    case participantSafety = "participant_safety"
+    case harassment
+    case spam
+    case misrepresentation
+    case inappropriateContent = "inappropriate_content"
+    case other
+
+    var displayName: String {
+        switch self {
+        case .participantSafety: "Safety concern"
+        case .harassment: "Harassment"
+        case .spam: "Spam or repeated contact"
+        case .misrepresentation: "Misrepresentation"
+        case .inappropriateContent: "Inappropriate content"
+        case .other: "Something else"
+        }
+    }
+}
+
+struct ContentReportSubject: Identifiable, Equatable, Sendable {
+    let subjectType: ContentReportSubjectType
+    let subjectID: String
+    let title: String
+    let explanation: String
+    let defaultReason: ContentReportReason
+
+    var id: String { "\(subjectType.rawValue):\(subjectID)" }
+
+    static func request(_ request: ContactRequest) -> ContentReportSubject {
+        let explanation: String
+        switch request.status {
+        case .pending:
+            explanation = "Reporting asks Academy Watch to review this introduction. It does not block the scout; decline the request separately to close it and start the cooldown window."
+        case .accepted:
+            explanation = "Reporting asks Academy Watch to review this introduction. It does not block the scout, and an accepted introduction can no longer be declined."
+        case .declined:
+            explanation = "Reporting asks Academy Watch to review this introduction. It does not block the scout. This request is already closed as declined."
+        case .withdrawn:
+            explanation = "Reporting asks Academy Watch to review this introduction. It does not block the scout. This request was withdrawn and can no longer be declined."
+        case .expired:
+            explanation = "Reporting asks Academy Watch to review this introduction. It does not block the scout. This request expired and can no longer be declined."
+        }
+
+        return ContentReportSubject(
+            subjectType: .other,
+            subjectID: request.id,
+            title: "Report Introduction",
+            explanation: explanation,
+            defaultReason: .participantSafety
+        )
+    }
+
+    static func message(_ message: ContactMessage) -> ContentReportSubject {
+        ContentReportSubject(
+            subjectType: .contactMessage,
+            subjectID: message.id,
+            title: "Report Message",
+            explanation: "Reporting sends this message to Academy Watch for review. It does not block the other participant.",
+            defaultReason: .participantSafety
+        )
+    }
 }

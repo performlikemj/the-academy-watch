@@ -21,8 +21,12 @@ final class ShowcaseViewModel: ObservableObject {
         self.apiClient = apiClient
 
         #if DEBUG
+        let fixtureDestination = FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        )
         if ProcessInfo.processInfo.arguments.contains("-showcaseFixture")
-            || FullCircleFixtureDestination.fromLaunchArguments(ProcessInfo.processInfo.arguments) == .introduction {
+            || fixtureDestination == .introduction
+            || fixtureDestination == .watchingYou {
             showcase = .debugFixture
             hasAttemptedLoad = true
             isFixturePreview = true

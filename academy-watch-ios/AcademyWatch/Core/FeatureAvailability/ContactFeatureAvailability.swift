@@ -10,9 +10,10 @@ enum ContactFeatureAvailabilityState: Equatable, Sendable {
 /// App-wide knowledge of whether the server has enabled the contact rail.
 ///
 /// The backend deliberately responds with 404 for every `/api/contact/*`
-/// endpoint while the feature flag is off. Keeping that observation in one
-/// shared object prevents individual screens from leaving behind dead entry
-/// points after any contact request discovers the disabled rail.
+/// endpoint and `/api/showcase/mine/interest-signals` while the feature flag
+/// is off. Keeping that observation in one shared object prevents individual
+/// screens from leaving behind dead entry points after either rail discovers
+/// the disabled rollout.
 @MainActor
 final class ContactFeatureAvailability: ObservableObject {
     static let shared = ContactFeatureAvailability()

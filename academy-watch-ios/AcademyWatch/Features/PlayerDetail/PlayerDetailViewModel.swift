@@ -35,7 +35,10 @@ final class PlayerDetailViewModel: ObservableObject {
         self.apiClient = apiClient
 
         #if DEBUG
-        if FullCircleFixtureDestination.fromLaunchArguments(ProcessInfo.processInfo.arguments) == .introduction {
+        let fixtureDestination = FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        )
+        if fixtureDestination == .introduction || fixtureDestination == .watchingYou {
             profile = .fullCircleFixture
             hasAttemptedLoad = true
         }

@@ -5,6 +5,7 @@ struct PlayerDetailView: View {
     @StateObject private var viewModel: PlayerDetailViewModel
     @StateObject private var showcaseViewModel: ShowcaseViewModel
     @StateObject private var claimViewModel: PlayerClaimViewModel
+    @StateObject private var interestSignalsViewModel: PlayerInterestSignalsViewModel
     @ObservedObject private var contactAvailability: ContactFeatureAvailability
     @EnvironmentObject private var authManager: AuthManager
     private let onSignInRequested: () -> Void
@@ -26,7 +27,15 @@ struct PlayerDetailView: View {
         _claimViewModel = StateObject(
             wrappedValue: PlayerClaimViewModel(playerID: playerID, apiClient: apiClient)
         )
-        _contactAvailability = ObservedObject(wrappedValue: ContactFeatureAvailability.shared)
+        let contactAvailability = ContactFeatureAvailability.shared
+        _interestSignalsViewModel = StateObject(
+            wrappedValue: PlayerInterestSignalsViewModel(
+                playerID: playerID,
+                apiClient: apiClient,
+                availability: contactAvailability
+            )
+        )
+        _contactAvailability = ObservedObject(wrappedValue: contactAvailability)
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
         contactAPIClient = apiClient
@@ -37,6 +46,7 @@ struct PlayerDetailView: View {
         showcaseAPIClient: any ShowcaseAPIClientProtocol = APIClient(),
         claimAPIClient: any PlayerClaimAPIClientProtocol = APIClient(),
         contactAPIClient: any ContactAPIClientProtocol = APIClient(),
+        interestSignalsAPIClient: any InterestSignalsAPIClientProtocol = APIClient(),
         contactAvailability: ContactFeatureAvailability? = nil,
         onSignInRequested: @escaping () -> Void = {},
         onVerificationRequested: @escaping () -> Void = {}
@@ -54,7 +64,15 @@ struct PlayerDetailView: View {
                 apiClient: claimAPIClient
             )
         )
-        _contactAvailability = ObservedObject(wrappedValue: contactAvailability ?? .shared)
+        let resolvedContactAvailability = contactAvailability ?? .shared
+        _interestSignalsViewModel = StateObject(
+            wrappedValue: PlayerInterestSignalsViewModel(
+                playerID: viewModel.playerID,
+                apiClient: interestSignalsAPIClient,
+                availability: resolvedContactAvailability
+            )
+        )
+        _contactAvailability = ObservedObject(wrappedValue: resolvedContactAvailability)
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
         self.contactAPIClient = contactAPIClient
@@ -108,50 +126,75 @@ struct PlayerDetailView: View {
     }
 
     private func detailContent(profile: PlayerProfile) -> some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 22) {
-                PlayerProfileHeader(profile: profile)
-                if prioritizesIntroductionFixture {
-                    introductionSection(profile: profile)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 22) {
+                    PlayerProfileHeader(profile: profile)
+                    if prioritizesIntroductionFixture {
+                        introductionSection(profile: profile)
+                    }
+                    PlayerClaimSectionView(
+                        viewModel: claimViewModel,
+                        isAuthenticated: authManager.isAuthenticated,
+                        accountRole: authManager.accountRole,
+                        onSignInRequested: onSignInRequested
+                    )
+                    if ownsCurrentPlayerProfile {
+                        PlayerInterestSignalsCard(viewModel: interestSignalsViewModel)
+                            .id("player-interest-signals-card")
+                    }
+                    AddPlayerToListButton(
+                        playerID: viewModel.playerID,
+                        playerName: profile.name,
+                        allowsWatchlist: !profile.isShadow,
+                        onSignInRequested: onSignInRequested
+                    )
+                    ShowcaseSectionView(viewModel: showcaseViewModel)
+                    if !prioritizesIntroductionFixture {
+                        introductionSection(profile: profile)
+                    }
+                    seasonSection(profile: profile)
+                    recentFormSection
+                    journeySection(profile: profile)
+                    availabilitySection
                 }
-                PlayerClaimSectionView(
-                    viewModel: claimViewModel,
-                    isAuthenticated: authManager.isAuthenticated,
-                    accountRole: authManager.accountRole,
-                    onSignInRequested: onSignInRequested
-                )
-                AddPlayerToListButton(
-                    playerID: viewModel.playerID,
-                    playerName: profile.name,
-                    allowsWatchlist: !profile.isShadow,
-                    onSignInRequested: onSignInRequested
-                )
-                ShowcaseSectionView(viewModel: showcaseViewModel)
-                if !prioritizesIntroductionFixture {
-                    introductionSection(profile: profile)
-                }
-                seasonSection(profile: profile)
-                recentFormSection
-                journeySection(profile: profile)
-                availabilitySection
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .refreshable {
+                async let detailReload: Void = viewModel.reload()
+                async let showcaseReload: Void = showcaseViewModel.reload()
+                async let claimReload: Void = claimViewModel.load(
+                    isAuthenticated: authManager.isAuthenticated
+                )
+                _ = await (detailReload, showcaseReload, claimReload)
+                if ownsCurrentPlayerProfile {
+                    await interestSignalsViewModel.refresh()
+                }
+            }
+            .task {
+                guard prioritizesInterestSignalsFixture else { return }
+                try? await Task.sleep(for: .milliseconds(300))
+                proxy.scrollTo("player-interest-signals-card", anchor: .center)
+            }
         }
-        .refreshable {
-            async let detailReload: Void = viewModel.reload()
-            async let showcaseReload: Void = showcaseViewModel.reload()
-            async let claimReload: Void = claimViewModel.load(
-                isAuthenticated: authManager.isAuthenticated
-            )
-            _ = await (detailReload, showcaseReload, claimReload)
-        }
+    }
+
+    private var ownsCurrentPlayerProfile: Bool {
+        claimViewModel.claim?.status == .approved
+            && claimViewModel.claim?.relationshipType == "player"
     }
 
     private var prioritizesIntroductionFixture: Bool {
         FullCircleFixtureDestination.fromLaunchArguments(
             ProcessInfo.processInfo.arguments
         ) == .introduction
+    }
+
+    private var prioritizesInterestSignalsFixture: Bool {
+        FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        ) == .watchingYou
     }
 
     @ViewBuilder

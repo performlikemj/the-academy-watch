@@ -5,6 +5,10 @@ enum FullCircleFixtureDestination: String, Sendable {
     case introduction
     case inbox
     case thread
+    case playerInbox = "playerinbox"
+    case declineConfirmation = "declineconfirmation"
+    case watchingYou = "watchingyou"
+    case messageReport = "messagereport"
 
     static func fromLaunchArguments(_ arguments: [String]) -> FullCircleFixtureDestination? {
         #if DEBUG

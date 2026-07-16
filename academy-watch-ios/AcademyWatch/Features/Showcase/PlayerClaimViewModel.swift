@@ -20,6 +20,26 @@ final class PlayerClaimViewModel: ObservableObject {
     ) {
         self.playerID = playerID
         self.apiClient = apiClient
+
+        #if DEBUG
+        if FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        ) == .watchingYou {
+            claim = PlayerProfileClaim(
+                id: 77,
+                playerApiId: playerID,
+                userAccountId: 91,
+                relationshipType: "player",
+                status: .approved,
+                message: nil,
+                reviewedBy: "fixture-admin",
+                reviewedAt: "2026-07-15T11:00:00",
+                createdAt: "2026-07-14T09:00:00",
+                playerName: "Habeeb Amass"
+            )
+            hasLoaded = true
+        }
+        #endif
     }
 
     func load(isAuthenticated: Bool) async {
@@ -27,6 +47,13 @@ final class PlayerClaimViewModel: ObservableObject {
             resetForSignOut()
             return
         }
+        #if DEBUG
+        if FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        ) == .watchingYou {
+            return
+        }
+        #endif
         guard !isLoading, !isSubmitting else { return }
 
         revision += 1

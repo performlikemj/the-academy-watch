@@ -3,6 +3,7 @@ import SwiftUI
 enum AccountDestination: String, Hashable, Identifiable {
     case verification
     case sentRequests
+    case incomingRequests
 
     var id: String { rawValue }
 }
@@ -10,6 +11,7 @@ enum AccountDestination: String, Hashable, Identifiable {
 struct AccountView: View {
     @EnvironmentObject private var authManager: AuthManager
     @ObservedObject var sentRequestsViewModel: SentContactRequestsViewModel
+    @ObservedObject var incomingRequestsViewModel: IncomingContactRequestsViewModel
     @ObservedObject var contactAvailability: ContactFeatureAvailability
 
     @Binding var destination: AccountDestination?
@@ -31,6 +33,12 @@ struct AccountView: View {
                             availability: contactAvailability,
                             apiClient: apiClient
                         )
+                    case .incomingRequests:
+                        IncomingContactRequestsView(
+                            viewModel: incomingRequestsViewModel,
+                            availability: contactAvailability,
+                            apiClient: apiClient
+                        )
                     }
                 }
         }
@@ -48,6 +56,12 @@ struct AccountView: View {
                 availability: contactAvailability,
                 apiClient: apiClient
             )
+        case .playerInbox, .declineConfirmation:
+            IncomingContactRequestsView(
+                viewModel: incomingRequestsViewModel,
+                availability: contactAvailability,
+                apiClient: apiClient
+            )
         case .thread:
             if let request = sentRequestsViewModel.requests.first(where: { $0.status == .accepted }) {
                 ContactThreadView(
@@ -58,7 +72,18 @@ struct AccountView: View {
             } else {
                 ContentUnavailableView("Fixture unavailable", systemImage: "exclamationmark.triangle")
             }
-        case .introduction, nil:
+        case .messageReport:
+            if let request = sentRequestsViewModel.requests.first(where: { $0.status == .accepted }) {
+                ContactThreadView(
+                    contactRequest: request,
+                    apiClient: apiClient,
+                    availability: contactAvailability,
+                    viewerRole: .player
+                )
+            } else {
+                ContentUnavailableView("Fixture unavailable", systemImage: "exclamationmark.triangle")
+            }
+        case .introduction, .watchingYou, nil:
             accountHome
         }
         #else
@@ -189,46 +214,96 @@ struct AccountView: View {
     @ViewBuilder
     private var contactSection: some View {
         if contactAvailability.state == .available {
-            Button {
-                destination = .sentRequests
-            } label: {
-                HStack(spacing: 13) {
-                    Image(systemName: "paperplane.fill")
-                        .font(.title2)
-                        .foregroundStyle(AcademyColors.claret)
-                        .frame(width: 34)
+            VStack(spacing: 12) {
+                if shouldShowIncomingEntryPoint {
+                    Button {
+                        destination = .incomingRequests
+                    } label: {
+                        HStack(spacing: 13) {
+                            Image(systemName: "tray.full.fill")
+                                .font(.title2)
+                                .foregroundStyle(AcademyColors.claret)
+                                .frame(width: 34)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            Text("Sent Requests")
-                                .font(.headline)
-                            if sentRequestsViewModel.hasLoaded, !sentRequestsViewModel.requests.isEmpty {
-                                BadgeView(text: sentRequestsViewModel.requests.count.formatted())
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 8) {
+                                    Text("Incoming Introductions")
+                                        .font(.headline)
+                                    if incomingRequestsViewModel.hasLoaded,
+                                       !incomingRequestsViewModel.requests.isEmpty {
+                                        BadgeView(
+                                            text: incomingRequestsViewModel.requests.count.formatted()
+                                        )
+                                    }
+                                }
+                                Text("Review scout introductions for your claimed player profile.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.leading)
+                            }
+
+                            Spacer(minLength: 6)
+                            if incomingRequestsViewModel.isLoading,
+                               !incomingRequestsViewModel.hasLoaded {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "chevron.right")
+                                    .font(.subheadline.weight(.bold))
+                                    .foregroundStyle(.tertiary)
                             }
                         }
-                        Text(contactAvailability.state == .unknown
-                            ? "Checking introduction availability…"
-                            : "Track requests, accepted threads, and outcomes.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.leading)
+                        .padding(16)
+                        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 17))
                     }
-
-                    Spacer(minLength: 6)
-                    if sentRequestsViewModel.isLoading, !sentRequestsViewModel.hasLoaded {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "chevron.right")
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(.tertiary)
-                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("account-incoming-contact-requests")
                 }
-                .padding(16)
-                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 17))
+
+                Button {
+                    destination = .sentRequests
+                } label: {
+                    HStack(spacing: 13) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.title2)
+                            .foregroundStyle(AcademyColors.claret)
+                            .frame(width: 34)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) {
+                                Text("Sent Requests")
+                                    .font(.headline)
+                                if sentRequestsViewModel.hasLoaded, !sentRequestsViewModel.requests.isEmpty {
+                                    BadgeView(text: sentRequestsViewModel.requests.count.formatted())
+                                }
+                            }
+                            Text("Track requests, accepted threads, and outcomes.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+
+                        Spacer(minLength: 6)
+                        if sentRequestsViewModel.isLoading, !sentRequestsViewModel.hasLoaded {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "chevron.right")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .padding(16)
+                    .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 17))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("account-sent-contact-requests")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("account-sent-contact-requests")
         }
+    }
+
+    private var shouldShowIncomingEntryPoint: Bool {
+        incomingRequestsViewModel.ownsApprovedPlayerClaim
+            || incomingRequestsViewModel.isLoading
+            || (incomingRequestsViewModel.hasLoaded && incomingRequestsViewModel.errorMessage != nil)
     }
 
     private var signOutSection: some View {

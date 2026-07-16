@@ -32,7 +32,7 @@ final class SentContactRequestsViewModel: ObservableObject {
 
         #if DEBUG
         let fixture = FullCircleFixtureDestination.fromLaunchArguments(ProcessInfo.processInfo.arguments)
-        if fixture == .inbox || fixture == .thread,
+        if fixture == .inbox || fixture == .thread || fixture == .messageReport,
            let response = Self.decodeFixture() {
             requests = response.requests
             total = response.total

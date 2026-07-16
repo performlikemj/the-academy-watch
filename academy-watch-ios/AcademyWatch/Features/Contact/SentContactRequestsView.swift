@@ -97,7 +97,8 @@ struct SentContactRequestsView: View {
                 ContactThreadView(
                     contactRequest: request,
                     apiClient: apiClient,
-                    availability: availability
+                    availability: availability,
+                    viewerRole: .scout
                 )
             } label: {
                 ContactRequestCard(

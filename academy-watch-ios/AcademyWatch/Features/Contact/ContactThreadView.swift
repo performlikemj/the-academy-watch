@@ -4,22 +4,28 @@ struct ContactThreadView: View {
     @StateObject private var viewModel: ContactThreadViewModel
     @ObservedObject private var availability: ContactFeatureAvailability
     @State private var isOutcomePresented = false
+    @State private var reportSubject: ContentReportSubject?
+
+    private let apiClient: APIClient
 
     @Environment(\.dismiss) private var dismiss
 
     init(
         contactRequest: ContactRequest,
         apiClient: APIClient,
-        availability: ContactFeatureAvailability
+        availability: ContactFeatureAvailability,
+        viewerRole: ContactSenderRole = .scout
     ) {
         _viewModel = StateObject(
             wrappedValue: ContactThreadViewModel(
                 contactRequest: contactRequest,
                 apiClient: apiClient,
-                availability: availability
+                availability: availability,
+                viewerRole: viewerRole
             )
         )
         _availability = ObservedObject(wrappedValue: availability)
+        self.apiClient = apiClient
     }
 
     var body: some View {
@@ -51,8 +57,12 @@ struct ContactThreadView: View {
                             }
 
                             ForEach(viewModel.messages) { message in
-                                ContactMessageBubble(message: message)
-                                    .id(message.id)
+                                ContactMessageBubble(
+                                    message: message,
+                                    viewerRole: viewModel.viewerRole,
+                                    onReport: { reportSubject = .message(message) }
+                                )
+                                .id(message.id)
                             }
                         }
 
@@ -77,7 +87,10 @@ struct ContactThreadView: View {
                 }
             }
         }
-        .navigationTitle(viewModel.contactRequest.participants.player.displayName ?? "Introduction")
+        .navigationTitle(
+            viewModel.counterpartDisplayName
+                ?? viewModel.counterpartRole.displayName
+        )
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if viewModel.isFixturePreview {
@@ -94,14 +107,19 @@ struct ContactThreadView: View {
             messageComposer
         }
         .sheet(isPresented: $isOutcomePresented) {
-            OutcomeReportSheet(viewModel: viewModel)
+            OutcomeSheet(viewModel: viewModel)
+        }
+        .sheet(item: $reportSubject) { subject in
+            ContentReportSheet(subject: subject, apiClient: apiClient)
         }
         .task {
             await viewModel.loadIfNeeded()
+            presentMessageReportFixtureIfNeeded()
         }
         .onChange(of: availability.state) { _, state in
             if state == .unavailable {
                 isOutcomePresented = false
+                reportSubject = nil
                 dismiss()
             }
         }
@@ -138,7 +156,11 @@ struct ContactThreadView: View {
                     .tracking(0.9)
                     .foregroundStyle(AcademyColors.transitionPurple)
                 Spacer()
-                Button(viewModel.contactRequest.latestOutcome == nil ? "Report" : "Update") {
+                Button(
+                    viewModel.contactRequest.latestOutcome == nil
+                        ? "Record outcome"
+                        : "Update outcome"
+                ) {
                     isOutcomePresented = true
                 }
                 .font(.subheadline.weight(.semibold))
@@ -210,37 +232,68 @@ struct ContactThreadView: View {
         .padding(.vertical, 9)
         .background(.bar)
     }
+
+    private func presentMessageReportFixtureIfNeeded() {
+        #if DEBUG
+        guard FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        ) == .messageReport,
+            reportSubject == nil,
+            let counterpartMessage = viewModel.messages.first(where: {
+                $0.senderRole != viewModel.viewerRole
+            })
+        else { return }
+
+        reportSubject = .message(counterpartMessage)
+        #endif
+    }
 }
 
 private struct ContactMessageBubble: View {
     let message: ContactMessage
+    let viewerRole: ContactSenderRole
+    let onReport: () -> Void
+
+    private var isViewer: Bool {
+        message.senderRole == viewerRole
+    }
 
     var body: some View {
         HStack {
-            if message.senderRole == .scout { Spacer(minLength: 48) }
+            if isViewer { Spacer(minLength: 48) }
 
-            VStack(alignment: message.senderRole == .scout ? .trailing : .leading, spacing: 4) {
+            VStack(alignment: isViewer ? .trailing : .leading, spacing: 5) {
                 Text(message.senderDisplayName ?? message.senderRole.displayName)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Text(message.body)
                     .font(.subheadline)
-                    .foregroundStyle(message.senderRole == .scout ? AcademyColors.claretOnFill : .primary)
+                    .foregroundStyle(isViewer ? AcademyColors.claretOnFill : .primary)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 10)
                     .background(
-                        message.senderRole == .scout ? AcademyColors.claretFill : AcademyColors.surface,
+                        isViewer ? AcademyColors.claretFill : AcademyColors.surface,
                         in: RoundedRectangle(cornerRadius: 16)
                     )
+
+                if !isViewer {
+                    Button(action: onReport) {
+                        Label("Report", systemImage: "exclamationmark.bubble")
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("report-contact-message-\(message.id)")
+                }
             }
 
-            if message.senderRole == .player { Spacer(minLength: 48) }
+            if !isViewer { Spacer(minLength: 48) }
         }
         .frame(maxWidth: .infinity)
     }
 }
 
-private struct OutcomeReportSheet: View {
+private struct OutcomeSheet: View {
     @ObservedObject var viewModel: ContactThreadViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var submissionError: String?
@@ -271,7 +324,7 @@ private struct OutcomeReportSheet: View {
                             .monospacedDigit()
                     }
                 } footer: {
-                    Text("Outcome reports are appended to this introduction’s progress history.")
+                    Text("Outcome updates are added to this introduction’s progress history.")
                 }
 
                 if let submissionError {
@@ -308,7 +361,7 @@ private struct OutcomeReportSheet: View {
                     .accessibilityIdentifier("save-contact-outcome")
                 }
             }
-            .navigationTitle("Report Outcome")
+            .navigationTitle("Record Outcome")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
