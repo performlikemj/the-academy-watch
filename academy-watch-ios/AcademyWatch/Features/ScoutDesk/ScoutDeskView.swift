@@ -8,6 +8,7 @@ struct ScoutDeskView: View {
     @State private var selectedPlayerIDs: [Int]
     @State private var isComparePresented: Bool
     private let onSignInRequested: () -> Void
+    private let onVerificationRequested: () -> Void
     private let playerDetailAPIClient: APIClient
 
     init(
@@ -16,7 +17,8 @@ struct ScoutDeskView: View {
         initialPhase: ScoutPhase = .all,
         initialPlayerID: Int? = nil,
         initialComparePlayerIDs: [Int] = [],
-        onSignInRequested: @escaping () -> Void = {}
+        onSignInRequested: @escaping () -> Void = {},
+        onVerificationRequested: @escaping () -> Void = {}
     ) {
         var seenPlayerIDs = Set<Int>()
         let comparePlayerIDs = initialComparePlayerIDs
@@ -33,11 +35,13 @@ struct ScoutDeskView: View {
         _isComparePresented = State(initialValue: comparePlayerIDs.count >= 2)
         self.playerDetailAPIClient = playerDetailAPIClient
         self.onSignInRequested = onSignInRequested
+        self.onVerificationRequested = onVerificationRequested
     }
 
     init(
         viewModel: ScoutDeskViewModel,
-        onSignInRequested: @escaping () -> Void = {}
+        onSignInRequested: @escaping () -> Void = {},
+        onVerificationRequested: @escaping () -> Void = {}
     ) {
         _viewModel = StateObject(wrappedValue: viewModel)
         _navigationPath = State(initialValue: [])
@@ -45,6 +49,7 @@ struct ScoutDeskView: View {
         _isComparePresented = State(initialValue: false)
         playerDetailAPIClient = APIClient()
         self.onSignInRequested = onSignInRequested
+        self.onVerificationRequested = onVerificationRequested
     }
 
     var body: some View {
@@ -80,7 +85,8 @@ struct ScoutDeskView: View {
                 PlayerDetailView(
                     playerID: playerID,
                     apiClient: playerDetailAPIClient,
-                    onSignInRequested: onSignInRequested
+                    onSignInRequested: onSignInRequested,
+                    onVerificationRequested: onVerificationRequested
                 )
             }
         }

@@ -33,6 +33,13 @@ final class PlayerDetailViewModel: ObservableObject {
     ) {
         self.playerID = playerID
         self.apiClient = apiClient
+
+        #if DEBUG
+        if FullCircleFixtureDestination.fromLaunchArguments(ProcessInfo.processInfo.arguments) == .introduction {
+            profile = .fullCircleFixture
+            hasAttemptedLoad = true
+        }
+        #endif
     }
 
     var recentMatches: [PlayerRecentFixture] {

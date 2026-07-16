@@ -8,6 +8,7 @@ enum ListsRoute: Hashable {
 @MainActor
 struct ListsView: View {
     let onSignInRequested: () -> Void
+    let onVerificationRequested: () -> Void
 
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var viewModel: FollowListsViewModel
@@ -20,11 +21,13 @@ struct ListsView: View {
     init(
         apiClient: any FollowListsAPIClientProtocol,
         playerDetailAPIClient: APIClient = APIClient(),
-        onSignInRequested: @escaping () -> Void
+        onSignInRequested: @escaping () -> Void,
+        onVerificationRequested: @escaping () -> Void = {}
     ) {
         self.apiClient = apiClient
         self.playerDetailAPIClient = playerDetailAPIClient
         self.onSignInRequested = onSignInRequested
+        self.onVerificationRequested = onVerificationRequested
     }
 
     var body: some View {
@@ -43,7 +46,8 @@ struct ListsView: View {
                     PlayerDetailView(
                         playerID: playerID,
                         apiClient: playerDetailAPIClient,
-                        onSignInRequested: onSignInRequested
+                        onSignInRequested: onSignInRequested,
+                        onVerificationRequested: onVerificationRequested
                     )
                 }
             }

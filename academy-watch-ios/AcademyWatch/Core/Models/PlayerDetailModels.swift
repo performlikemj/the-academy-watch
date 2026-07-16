@@ -63,6 +63,31 @@ struct PlayerProfile: Decodable, Equatable, Sendable {
     }
 }
 
+#if DEBUG
+extension PlayerProfile {
+    static let fullCircleFixture = PlayerProfile(
+        playerId: 403_064,
+        name: "Habeeb Amass",
+        photo: nil,
+        position: "Defender",
+        status: "first_team",
+        age: 19,
+        nationality: "England",
+        shadow: false,
+        loanTeamName: "Manchester United",
+        loanTeamId: 33,
+        loanTeamLogo: nil,
+        parentTeamName: "Manchester United",
+        parentTeamId: 33,
+        parentTeamLogo: nil,
+        ownerTeamName: nil,
+        ownerTeamId: nil,
+        ownerTeamLogo: nil,
+        saleFee: nil
+    )
+}
+#endif
+
 struct PlayerSeasonStats: Decodable, Equatable, Sendable {
     let playerId: Int
     let season: String

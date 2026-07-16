@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 struct WatchlistView: View {
     let onSignInRequested: () -> Void
+    let onVerificationRequested: () -> Void
 
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var viewModel: WatchlistViewModel
@@ -11,10 +12,12 @@ struct WatchlistView: View {
 
     init(
         playerDetailAPIClient: APIClient = APIClient(),
-        onSignInRequested: @escaping () -> Void
+        onSignInRequested: @escaping () -> Void,
+        onVerificationRequested: @escaping () -> Void = {}
     ) {
         self.playerDetailAPIClient = playerDetailAPIClient
         self.onSignInRequested = onSignInRequested
+        self.onVerificationRequested = onVerificationRequested
     }
 
     var body: some View {
@@ -29,7 +32,8 @@ struct WatchlistView: View {
                 PlayerDetailView(
                     playerID: playerID,
                     apiClient: playerDetailAPIClient,
-                    onSignInRequested: onSignInRequested
+                    onSignInRequested: onSignInRequested,
+                    onVerificationRequested: onVerificationRequested
                 )
             }
             .toolbar {

@@ -22,6 +22,31 @@ protocol PlayerClaimAPIClientProtocol: Sendable {
     func submitPlayerClaim(playerID: Int) async throws -> PlayerClaimResponse
 }
 
+protocol ScoutVerificationAPIClientProtocol: Sendable {
+    func fetchScoutVerification() async throws -> ScoutVerificationResponse
+    func submitScoutVerification(_ submission: ScoutVerificationSubmission) async throws -> ScoutVerificationResponse
+}
+
+protocol ContactAPIClientProtocol: Sendable {
+    func createContactRequest(playerID: Int, message: String) async throws -> ContactRequestResponse
+}
+
+protocol SentContactRequestsAPIClientProtocol: Sendable {
+    func fetchSentContactRequests(limit: Int, offset: Int) async throws -> ContactRequestsResponse
+    func withdrawContactRequest(requestID: String) async throws -> ContactRequestResponse
+}
+
+protocol ContactThreadAPIClientProtocol: Sendable {
+    func fetchContactMessages(requestID: String, limit: Int, offset: Int) async throws -> ContactMessagesResponse
+    func sendContactMessage(requestID: String, body: String) async throws -> ContactMessageResponse
+    func reportContactOutcome(
+        requestID: String,
+        stage: ContactOutcomeStage,
+        notes: String?,
+        occurredAt: String?
+    ) async throws -> ContactOutcomeResponse
+}
+
 protocol WatchlistAPIClientProtocol: Sendable {
     func fetchWatchlist() async throws -> WatchlistResponse
     func fetchWatchlistIDs() async throws -> WatchlistIDsResponse
@@ -45,6 +70,11 @@ struct APIClient: ScoutAPIClientProtocol,
     ShowcaseAPIClientProtocol,
     PlayerClaimAPIClientProtocol,
     AuthAPIClientProtocol,
+    AccountAPIClientProtocol,
+    ScoutVerificationAPIClientProtocol,
+    ContactAPIClientProtocol,
+    SentContactRequestsAPIClientProtocol,
+    ContactThreadAPIClientProtocol,
     WatchlistAPIClientProtocol,
     FollowListsAPIClientProtocol,
     CompareAPIClientProtocol,
@@ -168,6 +198,20 @@ struct APIClient: ScoutAPIClientProtocol,
         )
     }
 
+    func fetchScoutVerification() async throws -> ScoutVerificationResponse {
+        try await get(path: "scout/verification", queryItems: [])
+    }
+
+    func submitScoutVerification(
+        _ submission: ScoutVerificationSubmission
+    ) async throws -> ScoutVerificationResponse {
+        try await send(
+            path: "scout/verification",
+            method: "POST",
+            body: submission
+        )
+    }
+
     func requestLoginCode(email: String) async throws -> LoginCodeResponse {
         try await send(
             path: "auth/request-code",
@@ -181,6 +225,77 @@ struct APIClient: ScoutAPIClientProtocol,
             path: "auth/verify-code",
             method: "POST",
             body: VerifyLoginCodeRequest(email: email, code: code)
+        )
+    }
+
+    func fetchCurrentAccount() async throws -> AuthProfileResponse {
+        try await get(path: "auth/me", queryItems: [])
+    }
+
+    func createContactRequest(playerID: Int, message: String) async throws -> ContactRequestResponse {
+        try await send(
+            path: "contact/requests",
+            method: "POST",
+            body: CreateContactRequestBody(playerApiId: playerID, message: message)
+        )
+    }
+
+    func fetchSentContactRequests(limit: Int, offset: Int) async throws -> ContactRequestsResponse {
+        try await get(
+            path: "contact/requests",
+            queryItems: [
+                URLQueryItem(name: "box", value: "sent"),
+                URLQueryItem(name: "limit", value: String(limit)),
+                URLQueryItem(name: "offset", value: String(offset)),
+            ]
+        )
+    }
+
+    func withdrawContactRequest(requestID: String) async throws -> ContactRequestResponse {
+        try await perform(
+            path: "contact/requests/\(requestID)/withdraw",
+            method: "POST",
+            queryItems: [],
+            body: nil
+        )
+    }
+
+    func fetchContactMessages(
+        requestID: String,
+        limit: Int,
+        offset: Int
+    ) async throws -> ContactMessagesResponse {
+        try await get(
+            path: "contact/requests/\(requestID)/messages",
+            queryItems: [
+                URLQueryItem(name: "limit", value: String(limit)),
+                URLQueryItem(name: "offset", value: String(offset)),
+            ]
+        )
+    }
+
+    func sendContactMessage(requestID: String, body: String) async throws -> ContactMessageResponse {
+        try await send(
+            path: "contact/requests/\(requestID)/messages",
+            method: "POST",
+            body: CreateContactMessageBody(body: body)
+        )
+    }
+
+    func reportContactOutcome(
+        requestID: String,
+        stage: ContactOutcomeStage,
+        notes: String?,
+        occurredAt: String?
+    ) async throws -> ContactOutcomeResponse {
+        try await send(
+            path: "contact/requests/\(requestID)/outcome",
+            method: "POST",
+            body: ReportContactOutcomeBody(
+                stage: stage,
+                notes: notes,
+                occurredAt: occurredAt
+            )
         )
     }
 
@@ -373,7 +488,20 @@ struct APIClient: ScoutAPIClientProtocol,
             if httpResponse.statusCode == 401, let token {
                 await authSession?.invalidate(credential: token)
             }
-            if let message = Self.errorMessage(from: data) {
+            if let payload = Self.errorPayload(from: data) {
+                let message = [payload.error, payload.message]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first { !$0.isEmpty }
+                    ?? "The service returned an error (HTTP \(httpResponse.statusCode))."
+                if let code = payload.code?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !code.isEmpty {
+                    throw APIClientError.codedServer(
+                        statusCode: httpResponse.statusCode,
+                        message: message,
+                        code: code,
+                        cooldownDays: payload.cooldownDays
+                    )
+                }
                 throw APIClientError.server(statusCode: httpResponse.statusCode, message: message)
             }
             throw APIClientError.httpStatus(httpResponse.statusCode)
@@ -397,13 +525,10 @@ struct APIClient: ScoutAPIClientProtocol,
         }
     }
 
-    private static func errorMessage(from data: Data) -> String? {
-        guard let payload = try? JSONDecoder().decode(APIErrorPayload.self, from: data) else {
-            return nil
-        }
-        return [payload.error, payload.message]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
+    private static func errorPayload(from data: Data) -> APIErrorPayload? {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try? decoder.decode(APIErrorPayload.self, from: data)
     }
 
     private func makeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
@@ -437,6 +562,7 @@ enum APIClientError: LocalizedError {
     case invalidResponse
     case httpStatus(Int)
     case server(statusCode: Int, message: String)
+    case codedServer(statusCode: Int, message: String, code: String, cooldownDays: Int?)
     case encoding(Error)
     case decoding(Error)
 
@@ -450,10 +576,23 @@ enum APIClientError: LocalizedError {
             return "The service returned an error (HTTP \(statusCode))."
         case let .server(_, message):
             return message
+        case let .codedServer(_, message, _, _):
+            return message
         case .encoding:
             return "The request could not be prepared."
         case .decoding:
             return "The service response format was not recognized."
+        }
+    }
+
+    var statusCode: Int? {
+        switch self {
+        case let .httpStatus(statusCode),
+             let .server(statusCode, _),
+             let .codedServer(statusCode, _, _, _):
+            return statusCode
+        case .invalidURL, .invalidResponse, .encoding, .decoding:
+            return nil
         }
     }
 }
@@ -499,4 +638,6 @@ private struct PlayerFollowSelectorRequest: Encodable {
 private struct APIErrorPayload: Decodable {
     let error: String?
     let message: String?
+    let code: String?
+    let cooldownDays: Int?
 }

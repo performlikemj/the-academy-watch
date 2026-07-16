@@ -5,13 +5,17 @@ struct PlayerDetailView: View {
     @StateObject private var viewModel: PlayerDetailViewModel
     @StateObject private var showcaseViewModel: ShowcaseViewModel
     @StateObject private var claimViewModel: PlayerClaimViewModel
+    @ObservedObject private var contactAvailability: ContactFeatureAvailability
     @EnvironmentObject private var authManager: AuthManager
     private let onSignInRequested: () -> Void
+    private let onVerificationRequested: () -> Void
+    private let contactAPIClient: any ContactAPIClientProtocol
 
     init(
         playerID: Int,
         apiClient: APIClient = APIClient(),
-        onSignInRequested: @escaping () -> Void = {}
+        onSignInRequested: @escaping () -> Void = {},
+        onVerificationRequested: @escaping () -> Void = {}
     ) {
         _viewModel = StateObject(
             wrappedValue: PlayerDetailViewModel(playerID: playerID, apiClient: apiClient)
@@ -22,14 +26,20 @@ struct PlayerDetailView: View {
         _claimViewModel = StateObject(
             wrappedValue: PlayerClaimViewModel(playerID: playerID, apiClient: apiClient)
         )
+        _contactAvailability = ObservedObject(wrappedValue: ContactFeatureAvailability.shared)
         self.onSignInRequested = onSignInRequested
+        self.onVerificationRequested = onVerificationRequested
+        contactAPIClient = apiClient
     }
 
     init(
         viewModel: PlayerDetailViewModel,
         showcaseAPIClient: any ShowcaseAPIClientProtocol = APIClient(),
         claimAPIClient: any PlayerClaimAPIClientProtocol = APIClient(),
-        onSignInRequested: @escaping () -> Void = {}
+        contactAPIClient: any ContactAPIClientProtocol = APIClient(),
+        contactAvailability: ContactFeatureAvailability? = nil,
+        onSignInRequested: @escaping () -> Void = {},
+        onVerificationRequested: @escaping () -> Void = {}
     ) {
         _viewModel = StateObject(wrappedValue: viewModel)
         _showcaseViewModel = StateObject(
@@ -44,7 +54,10 @@ struct PlayerDetailView: View {
                 apiClient: claimAPIClient
             )
         )
+        _contactAvailability = ObservedObject(wrappedValue: contactAvailability ?? .shared)
         self.onSignInRequested = onSignInRequested
+        self.onVerificationRequested = onVerificationRequested
+        self.contactAPIClient = contactAPIClient
     }
 
     var body: some View {
@@ -88,7 +101,8 @@ struct PlayerDetailView: View {
             async let showcaseLoad: Void = showcaseViewModel.loadIfNeeded()
             _ = await (detailLoad, showcaseLoad)
         }
-        .task(id: authManager.state) {
+        .task(id: authManager.isAuthenticated) {
+            guard !prioritizesIntroductionFixture else { return }
             await claimViewModel.load(isAuthenticated: authManager.isAuthenticated)
         }
     }
@@ -97,6 +111,9 @@ struct PlayerDetailView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
                 PlayerProfileHeader(profile: profile)
+                if prioritizesIntroductionFixture {
+                    introductionSection(profile: profile)
+                }
                 PlayerClaimSectionView(
                     viewModel: claimViewModel,
                     isAuthenticated: authManager.isAuthenticated,
@@ -110,6 +127,9 @@ struct PlayerDetailView: View {
                     onSignInRequested: onSignInRequested
                 )
                 ShowcaseSectionView(viewModel: showcaseViewModel)
+                if !prioritizesIntroductionFixture {
+                    introductionSection(profile: profile)
+                }
                 seasonSection(profile: profile)
                 recentFormSection
                 journeySection(profile: profile)
@@ -125,6 +145,27 @@ struct PlayerDetailView: View {
                 isAuthenticated: authManager.isAuthenticated
             )
             _ = await (detailReload, showcaseReload, claimReload)
+        }
+    }
+
+    private var prioritizesIntroductionFixture: Bool {
+        FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        ) == .introduction
+    }
+
+    @ViewBuilder
+    private func introductionSection(profile: PlayerProfile) -> some View {
+        if authManager.isVerifiedScout,
+           showcaseViewModel.showcase?.isClaimedProfile == true,
+           contactAvailability.state == .available {
+            IntroductionRequestSectionView(
+                playerID: viewModel.playerID,
+                playerName: profile.name,
+                apiClient: contactAPIClient,
+                availability: contactAvailability,
+                onVerificationRequested: onVerificationRequested
+            )
         }
     }
 

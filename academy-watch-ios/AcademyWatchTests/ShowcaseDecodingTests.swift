@@ -7,6 +7,7 @@ final class ShowcaseDecodingTests: XCTestCase {
 
         XCTAssertEqual(showcase.playerApiId, 403_064)
         XCTAssertEqual(showcase.claimStatus, "claimed")
+        XCTAssertTrue(showcase.isClaimedProfile)
 
         let profile = try XCTUnwrap(showcase.selfReportedProfile)
         XCTAssertTrue(profile.selfReported)

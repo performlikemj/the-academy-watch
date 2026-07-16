@@ -12,6 +12,7 @@ final class AuthenticationAPIClientTests: XCTestCase {
           "account_role": "player",
           "display_name": null,
           "display_name_confirmed": false,
+          "is_verified_scout": true,
           "token": "test-token",
           "expires_in": 2592000
         }
@@ -23,6 +24,30 @@ final class AuthenticationAPIClientTests: XCTestCase {
 
         XCTAssertEqual(response.accountRole, .player)
         XCTAssertEqual(response.accountRole?.displayName, "Player")
+        XCTAssertTrue(response.isVerifiedScout)
+    }
+
+    func testAuthMeDecodesVerifiedScoutSerializerField() throws {
+        let payload = #"""
+        {
+          "email": "alex.scout@example.com",
+          "role": "user",
+          "user_id": 44,
+          "display_name": "Alex Scout",
+          "display_name_confirmed": true,
+          "is_journalist": false,
+          "is_curator": false,
+          "is_verified_scout": true
+        }
+        """#
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let profile = try decoder.decode(AuthProfileResponse.self, from: Data(payload.utf8))
+
+        XCTAssertEqual(profile.email, "alex.scout@example.com")
+        XCTAssertEqual(profile.displayName, "Alex Scout")
+        XCTAssertTrue(profile.isVerifiedScout)
     }
 
     func testProtectedRequestAttachesBearerAndInvalidatesSessionBeforeReturning401() async throws {
@@ -135,6 +160,41 @@ final class AuthenticationAPIClientTests: XCTestCase {
         XCTAssertEqual(manager.email, "b@example.com")
         XCTAssertEqual(currentToken, "token-b")
         XCTAssertEqual(tokenStore.snapshot(), "token-b")
+    }
+
+    @MainActor
+    func testRestoredSessionHydratesVerifiedScoutAccountState() async {
+        let manager = AuthManager(
+            authClient: ImmediateVerificationAuthClient(token: "unused"),
+            tokenStore: InMemoryTokenStore(initialToken: "restored-token")
+        )
+
+        await manager.refreshAccount(using: VerifiedAccountClient())
+
+        XCTAssertTrue(manager.isAuthenticated)
+        XCTAssertEqual(manager.email, "alex.scout@example.com")
+        XCTAssertEqual(manager.displayName, "Alex Scout")
+        XCTAssertTrue(manager.isVerifiedScout)
+    }
+
+    @MainActor
+    func testNewerVerificationUpdateCannotBeOverwrittenByOlderAccountHydration() async {
+        let accountClient = DelayedUnverifiedAccountClient()
+        let manager = AuthManager(
+            authClient: ImmediateVerificationAuthClient(token: "unused"),
+            tokenStore: InMemoryTokenStore(initialToken: "restored-token")
+        )
+
+        let olderHydration = Task {
+            await manager.refreshAccount(using: accountClient)
+        }
+        await accountClient.waitUntilRequestStarts()
+
+        manager.updateScoutVerification(true)
+        await accountClient.releaseResponse()
+        await olderHydration.value
+
+        XCTAssertTrue(manager.isVerifiedScout)
     }
 
     @MainActor
@@ -401,6 +461,59 @@ private struct ImmediateVerificationAuthClient: AuthAPIClientProtocol {
             token: token,
             expiresIn: 3600
         )
+    }
+}
+
+private struct VerifiedAccountClient: AccountAPIClientProtocol {
+    func fetchCurrentAccount() async throws -> AuthProfileResponse {
+        AuthProfileResponse(
+            email: "alex.scout@example.com",
+            role: "user",
+            userId: 44,
+            displayName: "Alex Scout",
+            displayNameConfirmed: true,
+            isJournalist: false,
+            isCurator: false,
+            isVerifiedScout: true
+        )
+    }
+}
+
+private actor DelayedUnverifiedAccountClient: AccountAPIClientProtocol {
+    private var responseContinuation: CheckedContinuation<AuthProfileResponse, Never>?
+    private var didStartRequest = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func fetchCurrentAccount() async throws -> AuthProfileResponse {
+        await withCheckedContinuation { continuation in
+            responseContinuation = continuation
+            didStartRequest = true
+            startWaiters.forEach { $0.resume() }
+            startWaiters = []
+        }
+    }
+
+    func waitUntilRequestStarts() async {
+        if didStartRequest { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func releaseResponse() {
+        responseContinuation?.resume(
+            returning: AuthProfileResponse(
+                email: "older@example.com",
+                role: "user",
+                userId: 45,
+                displayName: "Older Account Response",
+                displayNameConfirmed: true,
+                isJournalist: false,
+                isCurator: false,
+                isVerifiedScout: false
+            )
+        )
+        responseContinuation = nil
     }
 }
 

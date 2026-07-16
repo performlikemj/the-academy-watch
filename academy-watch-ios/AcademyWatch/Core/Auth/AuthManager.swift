@@ -11,10 +11,13 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
     private let protectedResponseCache: URLCache
     private var token: String?
     private var verificationGeneration: UInt = 0
+    private var accountGeneration: UInt = 0
 
     var isAuthenticated: Bool { state.isAuthenticated }
     var email: String? { state.email }
     var accountRole: AccountRole? { state.accountRole }
+    var displayName: String? { state.displayName }
+    var isVerifiedScout: Bool { state.isVerifiedScout }
 
     convenience init() {
         self.init(authClient: APIClient(), tokenStore: KeychainTokenStore())
@@ -23,15 +26,28 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
     init(
         authClient: any AuthAPIClientProtocol,
         tokenStore: any TokenStoreProtocol,
-        protectedResponseCache: URLCache = .shared
+        protectedResponseCache: URLCache = .shared,
+        fixtureState: AuthState? = nil
     ) {
         self.authClient = authClient
         self.tokenStore = tokenStore
         self.protectedResponseCache = protectedResponseCache
 
-        let restoredToken = try? tokenStore.loadToken()
-        token = restoredToken
-        state = restoredToken == nil ? .signedOut : .signedIn(email: nil, accountRole: nil)
+        if let fixtureState {
+            token = "fixture-auth-token"
+            state = fixtureState
+        } else {
+            let restoredToken = try? tokenStore.loadToken()
+            token = restoredToken
+            state = restoredToken == nil
+                ? .signedOut
+                : .signedIn(
+                    email: nil,
+                    accountRole: nil,
+                    displayName: nil,
+                    isVerifiedScout: false
+                )
+        }
         signOutErrorMessage = nil
     }
 
@@ -68,12 +84,55 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
         try tokenStore.saveToken(response.token)
         token = response.token
         signOutErrorMessage = nil
-        state = .signedIn(email: normalizedEmail, accountRole: response.accountRole)
+        state = .signedIn(
+            email: normalizedEmail,
+            accountRole: response.accountRole,
+            displayName: response.displayName,
+            isVerifiedScout: response.isVerifiedScout
+        )
         return response
+    }
+
+    func refreshAccount(using client: any AccountAPIClientProtocol) async {
+        guard isAuthenticated else { return }
+
+        accountGeneration &+= 1
+        let attemptGeneration = accountGeneration
+        do {
+            let response = try await client.fetchCurrentAccount()
+            try Task.checkCancellation()
+            guard attemptGeneration == accountGeneration, isAuthenticated else { return }
+            state = .signedIn(
+                email: response.email ?? state.email,
+                accountRole: state.accountRole,
+                displayName: response.displayName,
+                isVerifiedScout: response.isVerifiedScout
+            )
+        } catch is CancellationError {
+            return
+        } catch {
+            // Account hydration is additive. APIClient owns 401 invalidation;
+            // transient failures preserve the authenticated local session.
+        }
+    }
+
+    func updateScoutVerification(_ isVerified: Bool) {
+        guard isAuthenticated else { return }
+        // A verification status loaded from the trust route is newer than any
+        // `/auth/me` request that was already in flight. Invalidate those
+        // hydration attempts so their older derived value cannot win later.
+        accountGeneration &+= 1
+        state = .signedIn(
+            email: state.email,
+            accountRole: state.accountRole,
+            displayName: state.displayName,
+            isVerifiedScout: isVerified
+        )
     }
 
     func signOut() {
         cancelVerificationAttempts()
+        accountGeneration &+= 1
         signOutErrorMessage = nil
 
         do {

@@ -21,7 +21,8 @@ final class ShowcaseViewModel: ObservableObject {
         self.apiClient = apiClient
 
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-showcaseFixture") {
+        if ProcessInfo.processInfo.arguments.contains("-showcaseFixture")
+            || FullCircleFixtureDestination.fromLaunchArguments(ProcessInfo.processInfo.arguments) == .introduction {
             showcase = .debugFixture
             hasAttemptedLoad = true
             isFixturePreview = true
@@ -56,7 +57,9 @@ final class ShowcaseViewModel: ObservableObject {
                 isLoading = false
                 return
             }
-            showcase = response.hasContent ? response : nil
+            // Keep the full serializer even when there is no visible reel or
+            // profile copy: `claim_status` independently gates the contact CTA.
+            showcase = response
             hasAttemptedLoad = true
             isLoading = false
         } catch {

@@ -43,6 +43,13 @@ struct PlayerShowcaseResponse: Decodable, Equatable, Sendable {
         verifiedFootage.filter(\.verified)
     }
 
+    /// Public ownership signal emitted by the showcase route. The contact
+    /// endpoint remains authoritative about whether the approved claim is a
+    /// direct player self-claim.
+    var isClaimedProfile: Bool {
+        claimStatus?.caseInsensitiveCompare("claimed") == .orderedSame
+    }
+
     var hasContent: Bool {
         !approvedReel.isEmpty
             || selfReportedProfile != nil

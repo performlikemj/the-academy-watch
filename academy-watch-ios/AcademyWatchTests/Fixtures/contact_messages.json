@@ -1,0 +1,46 @@
+{
+  "messages": [
+    {
+      "id": "11111111-aaaa-4111-8111-111111111111",
+      "contact_request_id": "01010101-1111-4111-8111-010101010101",
+      "sender_role": "scout",
+      "sender_display_name": "Alex Morgan",
+      "body": "Thanks for accepting. Would Tuesday afternoon work for a call?",
+      "created_at": "2026-07-16T11:15:00"
+    },
+    {
+      "id": "22222222-bbbb-4222-8222-222222222222",
+      "contact_request_id": "01010101-1111-4111-8111-010101010101",
+      "sender_role": "player",
+      "sender_display_name": "Jordan Reed",
+      "body": "Tuesday at 15:00 works for me.",
+      "created_at": "2026-07-16T11:40:00"
+    }
+  ],
+  "contact_request": {
+    "id": "01010101-1111-4111-8111-010101010101",
+    "player_api_id": 403064,
+    "message": "I would value an introduction to discuss your development pathway.",
+    "status": "accepted",
+    "created_at": "2026-07-16T08:00:00",
+    "responded_at": "2026-07-16T11:00:00",
+    "expires_at": "2026-07-30T08:00:00",
+    "participants": {
+      "scout": {
+        "display_name": "Alex Morgan"
+      },
+      "player": {
+        "display_name": "Jordan Reed"
+      }
+    },
+    "latest_outcome": {
+      "stage": "contacted",
+      "notes": "Introduction accepted and first call arranged.",
+      "occurred_at": "2026-07-16T11:45:00",
+      "created_at": "2026-07-16T11:46:00"
+    }
+  },
+  "total": 2,
+  "limit": 50,
+  "offset": 0
+}
