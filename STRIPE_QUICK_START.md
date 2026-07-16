@@ -9,9 +9,8 @@
 cd loan-army-backend
 pip install -r requirements.txt
 
-# Frontend
-cd loan-army-frontend
-pnpm install
+# Frontend (from the repository root)
+./scripts/setup_frontend.sh
 ```
 
 ### 2. Get Stripe Keys
@@ -197,4 +196,3 @@ When ready for production:
 - Stripe Docs: https://stripe.com/docs
 - Stripe Support: https://support.stripe.com
 - Test Mode: https://stripe.com/docs/testing
-

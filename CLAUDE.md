@@ -47,6 +47,7 @@ React/Vite SPA ──/api proxy──▶ Flask (13 blueprints) ──▶ Supabas
 
 ```bash
 cd academy-watch-backend && python src/main.py        # backend dev (:5001)
+./scripts/setup_frontend.sh                           # OSV scan; restore only if missing/stale
 cd academy-watch-frontend && pnpm dev                 # frontend dev (:5173, proxies /api→:5001)
 ruff check academy-watch-backend && ruff format --check academy-watch-backend   # backend CI lint gates
 cd academy-watch-frontend && pnpm lint && pnpm build  # frontend CI gates (build failure blocks)
@@ -57,7 +58,7 @@ cd academy-watch-frontend && pnpm exec playwright test tests/<file>.mjs   # sing
 ## Iron rules (always active — rationale in docs/agents/)
 
 - **PR flow, never push to main.** `main` is unprotected but the team runs PR → merge → watch-deploy on every change; branch (`feat/` `fix/` `chore/` `refactor/`), and use a worktree when the tree is dirty. Broad staging (`git add -A`/`.`), `--no-verify`, and force-push-main are blocked by the global git hook.
-- **CI gates local defaults miss:** `ruff format --check` is a separate gate from `ruff check`; frontend `pnpm build` must succeed (not just lint); `pnpm install --frozen-lockfile` fails on a stale lockfile; the Deploy job's RLS check **fails the deploy if any new public table lacks Row Level Security**. See `workflow.md`.
+- **CI gates local defaults miss:** `ruff format --check` is a separate gate from `ruff check`; frontend `pnpm build` must succeed (not just lint); `./scripts/setup_frontend.sh` runs the OSV lockfile gate before restoring only missing/stale dependencies; the Deploy job's RLS check **fails the deploy if any new public table lacks Row Level Security**. See `workflow.md`.
 - **Prod DB is reached via the IPv4 pooler + `postgresql+psycopg://` only** — the direct (IPv6) host is unreachable from ACA and a bare `postgresql://` loads the absent psycopg2. See `invariants.md`.
 - **Never reference the deleted `AcademyPlayer`/`SupplementalLoan` models** — use `TrackedPlayer`. **Alembic migrations guard every DDL** (prod schema drifted out-of-band). **Never bulk-sync/recompute against the live prod container** — it's tiny and falls over. See `invariants.md`.
 - **Secrets:** never print secrets or dump env; read live values via `az containerapp secret show`. Prod `SECRET_KEY` is a `kvref:` literal — do NOT "fix"/rotate it without a token-revocation plan (`invariants.md`).

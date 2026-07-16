@@ -33,6 +33,11 @@ on:
         default: false
         type: boolean
 
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
 env:
   SUBSCRIPTION_ID: 63ceeeac-fe3f-4bcb-b6d2-b7aa7fd6bf52
   RESOURCE_GROUP: rg-loan-army-westus2
@@ -52,6 +57,14 @@ env:
   SUPA_DB_PORT: 5432
 
 jobs:
+  dependency-security:
+    name: Frontend Dependency Security
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      scan-args: |-
+        --lockfile=./academy-watch-frontend/pnpm-lock.yaml
+      fail-on-vuln: true
+
   security-checks:
     name: Security Checks
     runs-on: ubuntu-latest
@@ -231,7 +244,7 @@ jobs:
   deploy-frontend:
     name: Deploy Frontend
     runs-on: ubuntu-latest
-    needs: [deploy-backend]
+    needs: [deploy-backend, dependency-security]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
