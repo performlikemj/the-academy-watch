@@ -4,9 +4,23 @@ on:
   pull_request:
     branches: ['**']
 
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
 jobs:
+  dependency-security:
+    name: Frontend Dependency Security
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      scan-args: |-
+        --lockfile=./academy-watch-frontend/pnpm-lock.yaml
+      fail-on-vuln: true
+
   frontend-build:
     name: Frontend Build & Lint
+    needs: dependency-security
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
