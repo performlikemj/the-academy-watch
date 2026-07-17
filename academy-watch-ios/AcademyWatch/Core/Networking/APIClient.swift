@@ -15,11 +15,19 @@ protocol PlayerDetailAPIClientProtocol: Sendable {
 
 protocol ShowcaseAPIClientProtocol: Sendable {
     func fetchPlayerShowcase(playerID: Int) async throws -> PlayerShowcaseResponse
+    func updateOwnerShowcaseProfile(
+        playerID: Int,
+        profile: ShowcaseProfile?,
+        attestation: PlayerContractAttestation
+    ) async throws -> ShowcaseProfileResponse
 }
 
 protocol PlayerClaimAPIClientProtocol: Sendable {
     func fetchMyProfileClaims() async throws -> PlayerClaimsResponse
-    func submitPlayerClaim(playerID: Int) async throws -> PlayerClaimResponse
+    func submitPlayerClaim(
+        playerID: Int,
+        attestation: PlayerContractAttestation
+    ) async throws -> PlayerClaimResponse
 }
 
 protocol ScoutVerificationAPIClientProtocol: Sendable {
@@ -28,7 +36,11 @@ protocol ScoutVerificationAPIClientProtocol: Sendable {
 }
 
 protocol ContactAPIClientProtocol: Sendable {
-    func createContactRequest(playerID: Int, message: String) async throws -> ContactRequestResponse
+    func createContactRequest(
+        playerID: Int,
+        message: String,
+        permissionAttestation: Bool
+    ) async throws -> ContactRequestResponse
 }
 
 protocol SentContactRequestsAPIClientProtocol: Sendable {
@@ -209,15 +221,33 @@ struct APIClient: ScoutAPIClientProtocol,
         try await get(path: "players/\(playerID)/showcase", queryItems: [])
     }
 
+    func updateOwnerShowcaseProfile(
+        playerID: Int,
+        profile: ShowcaseProfile?,
+        attestation: PlayerContractAttestation
+    ) async throws -> ShowcaseProfileResponse {
+        try await send(
+            path: "players/\(playerID)/showcase/profile",
+            method: "PUT",
+            body: OwnerShowcaseProfileUpdate(
+                profile: profile,
+                attestation: attestation
+            )
+        )
+    }
+
     func fetchMyProfileClaims() async throws -> PlayerClaimsResponse {
         try await get(path: "me/claims", queryItems: [])
     }
 
-    func submitPlayerClaim(playerID: Int) async throws -> PlayerClaimResponse {
+    func submitPlayerClaim(
+        playerID: Int,
+        attestation: PlayerContractAttestation
+    ) async throws -> PlayerClaimResponse {
         try await send(
             path: "players/\(playerID)/claim",
             method: "POST",
-            body: PlayerClaimRequest(relationshipType: "player")
+            body: PlayerClaimSubmission(attestation: attestation)
         )
     }
 
@@ -255,11 +285,19 @@ struct APIClient: ScoutAPIClientProtocol,
         try await get(path: "auth/me", queryItems: [])
     }
 
-    func createContactRequest(playerID: Int, message: String) async throws -> ContactRequestResponse {
+    func createContactRequest(
+        playerID: Int,
+        message: String,
+        permissionAttestation: Bool
+    ) async throws -> ContactRequestResponse {
         try await send(
             path: "contact/requests",
             method: "POST",
-            body: CreateContactRequestBody(playerApiId: playerID, message: message)
+            body: CreateContactRequestBody(
+                playerApiId: playerID,
+                message: message,
+                permissionAttestation: permissionAttestation
+            )
         )
     }
 
@@ -678,10 +716,6 @@ private struct LoginCodeRequest: Encodable {
 private struct VerifyLoginCodeRequest: Encodable {
     let email: String
     let code: String
-}
-
-private struct PlayerClaimRequest: Encodable {
-    let relationshipType: String
 }
 
 private struct WatchlistPlayerRequest: Encodable {

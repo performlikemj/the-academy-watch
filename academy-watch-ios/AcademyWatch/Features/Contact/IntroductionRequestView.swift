@@ -16,9 +16,11 @@ struct IntroductionRequestSectionView: View {
         availability: ContactFeatureAvailability,
         onVerificationRequested: @escaping () -> Void
     ) {
-        let isFixture = FullCircleFixtureDestination.fromLaunchArguments(
+        let fixtureDestination = FullCircleFixtureDestination.fromLaunchArguments(
             ProcessInfo.processInfo.arguments
-        ) == .introduction
+        )
+        let isFixture = fixtureDestination == .introduction
+            || fixtureDestination == .attestationWarning
         #if DEBUG
         let initialMessage = isFixture ? IntroductionRequestViewModel.debugFixtureMessage : ""
         #else
@@ -29,7 +31,10 @@ struct IntroductionRequestSectionView: View {
                 playerID: playerID,
                 apiClient: apiClient,
                 availability: availability,
-                initialMessage: initialMessage
+                initialMessage: initialMessage,
+                initialFailure: fixtureDestination == .attestationWarning
+                    ? .attestationRequired
+                    : nil
             )
         )
         _availability = ObservedObject(wrappedValue: availability)
@@ -56,7 +61,7 @@ struct IntroductionRequestSectionView: View {
 
                 Text("Start a private introduction")
                     .font(.headline)
-                Text("Send a considered request to the player profile owner. A thread opens only after they accept.")
+                Text("Send a considered request to the player profile owner and, where required, their club. A thread opens after every required approval.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -127,27 +132,37 @@ private struct IntroductionRequestSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isMessageFocused: Bool
+    @State private var permissionAttestationConfirmed = false
 
     var body: some View {
         NavigationStack {
             ZStack {
                 AcademyColors.background.ignoresSafeArea()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        playerHeader
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            playerHeader
 
-                        if let request = viewModel.createdRequest {
-                            successCard(request)
-                        } else {
-                            composer
-                            privacyNote
-                            failureContent
+                            if let request = viewModel.createdRequest {
+                                successCard(request)
+                            } else {
+                                composer
+                                privacyNote
+                                failureContent
+                                    .id("introduction-request-failure")
+                            }
                         }
+                        .padding(20)
                     }
-                    .padding(20)
+                    .scrollDismissesKeyboard(.interactively)
+                    .onAppear {
+                        scrollToAttestationIfNeeded(using: proxy, animated: false)
+                    }
+                    .onChange(of: viewModel.failure) { _, _ in
+                        scrollToAttestationIfNeeded(using: proxy, animated: true)
+                    }
                 }
-                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("Request Introduction")
             .navigationBarTitleDisplayMode(.inline)
@@ -251,7 +266,7 @@ private struct IntroductionRequestSheet: View {
 
     private var privacyNote: some View {
         Label(
-            "Your account identity and this message are shared with the player profile owner. Messaging opens only if they accept.",
+            "Your account identity and this message are shared with the player profile owner and, where required, their club. Messaging opens only after the player accepts and any required club consent is granted.",
             systemImage: "lock.shield"
         )
         .font(.footnote)
@@ -272,6 +287,45 @@ private struct IntroductionRequestSheet: View {
                     Button("Open Scout Verification", action: onVerificationRequested)
                         .buttonStyle(.bordered)
                 }
+
+                if failure.requiresPermissionAttestation {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle(isOn: $permissionAttestationConfirmed) {
+                            Text(
+                                "I confirm my club has, or will obtain, the required permission before any approach to this player if they are contracted."
+                            )
+                            .font(.subheadline.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .toggleStyle(.switch)
+                        .accessibilityIdentifier("permission-attestation-confirmation")
+
+                        Button {
+                            Task {
+                                await viewModel.retryWithPermissionAttestation()
+                                permissionAttestationConfirmed = false
+                            }
+                        } label: {
+                            HStack(spacing: 9) {
+                                if viewModel.isSubmitting {
+                                    ProgressView().tint(AcademyColors.claretOnFill)
+                                }
+                                Text(viewModel.isSubmitting ? "Sending…" : "Confirm and Send Request")
+                                    .fontWeight(.semibold)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AcademyColors.claretFill)
+                        .disabled(!permissionAttestationConfirmed || viewModel.isSubmitting)
+                        .accessibilityIdentifier("send-attested-introduction")
+                    }
+                    .onDisappear {
+                        // A permission attestation is an explicit act for this
+                        // attempt. Never carry it into another presentation.
+                        permissionAttestationConfirmed = false
+                    }
+                }
             }
             .padding(14)
             .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 14))
@@ -285,7 +339,7 @@ private struct IntroductionRequestSheet: View {
                 .foregroundStyle(AcademyColors.positiveGreen)
             Text("Request sent")
                 .font(.title2.weight(.bold))
-            Text("It’s now pending with \(playerName). You can withdraw it or follow its status from Sent Requests.")
+            Text(successMessage(for: request))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -294,9 +348,34 @@ private struct IntroductionRequestSheet: View {
                 foregroundColor: AcademyColors.loanAmber,
                 backgroundColor: AcademyColors.loanAmber.opacity(0.12)
             )
+            ContactRoutingBadge(request: request)
         }
         .frame(maxWidth: .infinity)
         .padding(24)
         .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func successMessage(for request: ContactRequest) -> String {
+        if request.routingMode == .clubIncluded {
+            let clubName = request.participants.club?.displayName ?? "their club"
+            return "The player profile owner and \(clubName) can now review it. You can withdraw it or follow its status from Sent Requests."
+        }
+        return "The player profile owner can now review it. You can withdraw it or follow its status from Sent Requests."
+    }
+
+    private func scrollToAttestationIfNeeded(
+        using proxy: ScrollViewProxy,
+        animated: Bool
+    ) {
+        guard viewModel.failure?.requiresPermissionAttestation == true else { return }
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation {
+                    proxy.scrollTo("introduction-request-failure", anchor: .bottom)
+                }
+            } else {
+                proxy.scrollTo("introduction-request-failure", anchor: .bottom)
+            }
+        }
     }
 }

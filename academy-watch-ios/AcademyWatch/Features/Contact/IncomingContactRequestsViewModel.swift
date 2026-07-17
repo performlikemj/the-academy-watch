@@ -334,12 +334,21 @@ final class IncomingContactRequestsViewModel: ObservableObject {
               "player_api_id": 403064,
               "message": "Would you be open to a confidential conversation about next season?",
               "status": "pending",
+              "routing_mode": "club_included",
+              "club_program_id": 101,
+              "club_consent_status": "pending",
+              "club_consent_at": null,
+              "club_consent_note": null,
+              "permission_attestation": false,
+              "permission_attested_at": null,
+              "messaging_open": false,
               "created_at": "2026-07-16T14:00:00",
               "responded_at": null,
               "expires_at": "2026-07-30T14:00:00",
               "participants": {
                 "scout": {"display_name": "Alex Morgan"},
-                "player": {"display_name": "Habeeb Amass"}
+                "player": {"display_name": "Habeeb Amass"},
+                "club": {"club_program_id": 101, "display_name": "On Platform FC"}
               },
               "latest_outcome": null
             },
@@ -348,12 +357,21 @@ final class IncomingContactRequestsViewModel: ObservableObject {
               "player_api_id": 403064,
               "message": "I would value an introduction to discuss your development pathway.",
               "status": "accepted",
+              "routing_mode": "direct",
+              "club_program_id": null,
+              "club_consent_status": null,
+              "club_consent_at": null,
+              "club_consent_note": null,
+              "permission_attestation": false,
+              "permission_attested_at": null,
+              "messaging_open": true,
               "created_at": "2026-07-15T08:00:00",
               "responded_at": "2026-07-15T11:00:00",
               "expires_at": "2026-07-29T08:00:00",
               "participants": {
                 "scout": {"display_name": "Northbank Scout"},
-                "player": {"display_name": "Habeeb Amass"}
+                "player": {"display_name": "Habeeb Amass"},
+                "club": null
               },
               "latest_outcome": {
                 "stage": "contacted",

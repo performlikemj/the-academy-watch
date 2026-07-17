@@ -32,9 +32,17 @@ final class SentContactRequestsViewModel: ObservableObject {
 
         #if DEBUG
         let fixture = FullCircleFixtureDestination.fromLaunchArguments(ProcessInfo.processInfo.arguments)
-        if fixture == .inbox || fixture == .thread || fixture == .messageReport,
+        if fixture == .inbox || fixture == .clubConsent || fixture == .thread || fixture == .messageReport,
            let response = Self.decodeFixture() {
-            requests = response.requests
+            requests = fixture == .clubConsent
+                ? response.requests.sorted { lhs, rhs in
+                    let lhsIsReviewing = lhs.routingMode == .clubIncluded
+                        && lhs.clubConsentStatus == .pending
+                    let rhsIsReviewing = rhs.routingMode == .clubIncluded
+                        && rhs.clubConsentStatus == .pending
+                    return lhsIsReviewing && !rhsIsReviewing
+                }
+                : response.requests
             total = response.total
             hasLoaded = true
             isFixturePreview = true
@@ -235,12 +243,21 @@ final class SentContactRequestsViewModel: ObservableObject {
               "player_api_id": 403064,
               "message": "I’d like to discuss your development pathway and a potential first-team opportunity.",
               "status": "accepted",
+              "routing_mode": "club_included",
+              "club_program_id": 101,
+              "club_consent_status": "granted",
+              "club_consent_at": "2026-07-13T08:40:00",
+              "club_consent_note": "Approved by the sporting director.",
+              "permission_attestation": false,
+              "permission_attested_at": null,
+              "messaging_open": true,
               "created_at": "2026-07-12T10:15:00",
               "responded_at": "2026-07-13T08:30:00",
               "expires_at": "2026-07-26T10:15:00",
               "participants": {
                 "scout": {"display_name": "Alex Scout"},
-                "player": {"display_name": "Habeeb Amass"}
+                "player": {"display_name": "Habeeb Amass"},
+                "club": {"club_program_id": 101, "display_name": "On Platform FC"}
               },
               "latest_outcome": {
                 "stage": "trial_scheduled",
@@ -254,12 +271,21 @@ final class SentContactRequestsViewModel: ObservableObject {
               "player_api_id": 700002,
               "message": "Could we arrange an introductory call about our U23 programme?",
               "status": "pending",
+              "routing_mode": "club_included",
+              "club_program_id": 102,
+              "club_consent_status": "pending",
+              "club_consent_at": null,
+              "club_consent_note": null,
+              "permission_attestation": false,
+              "permission_attested_at": null,
+              "messaging_open": false,
               "created_at": "2026-07-16T14:05:00",
               "responded_at": null,
               "expires_at": "2026-07-30T14:05:00",
               "participants": {
                 "scout": {"display_name": "Alex Scout"},
-                "player": {"display_name": "Mateo Silva"}
+                "player": {"display_name": "Mateo Silva"},
+                "club": {"club_program_id": 102, "display_name": "Northbridge Academy"}
               },
               "latest_outcome": null
             },
@@ -268,12 +294,21 @@ final class SentContactRequestsViewModel: ObservableObject {
               "player_api_id": 700003,
               "message": "Our recruitment team would value a confidential conversation.",
               "status": "declined",
+              "routing_mode": "club_included",
+              "club_program_id": 103,
+              "club_consent_status": "declined",
+              "club_consent_at": "2026-07-09T17:45:00",
+              "club_consent_note": "Permission was not granted.",
+              "permission_attestation": false,
+              "permission_attested_at": null,
+              "messaging_open": false,
               "created_at": "2026-07-08T09:00:00",
               "responded_at": "2026-07-09T17:45:00",
               "expires_at": "2026-07-22T09:00:00",
               "participants": {
                 "scout": {"display_name": "Alex Scout"},
-                "player": {"display_name": "Noah Williams"}
+                "player": {"display_name": "Noah Williams"},
+                "club": {"club_program_id": 103, "display_name": "Decline FC"}
               },
               "latest_outcome": null
             },
@@ -282,12 +317,21 @@ final class SentContactRequestsViewModel: ObservableObject {
               "player_api_id": 700004,
               "message": "Introduction request for our academy transition programme.",
               "status": "expired",
+              "routing_mode": "club_notified",
+              "club_program_id": null,
+              "club_consent_status": null,
+              "club_consent_at": null,
+              "club_consent_note": null,
+              "permission_attestation": true,
+              "permission_attested_at": "2026-06-20T10:00:00",
+              "messaging_open": false,
               "created_at": "2026-06-20T10:00:00",
               "responded_at": null,
               "expires_at": "2026-07-04T10:00:00",
               "participants": {
                 "scout": {"display_name": "Alex Scout"},
-                "player": {"display_name": "Ethan Cole"}
+                "player": {"display_name": "Ethan Cole"},
+                "club": null
               },
               "latest_outcome": null
             }

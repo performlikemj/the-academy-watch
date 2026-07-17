@@ -57,31 +57,68 @@ struct PlayerShowcaseResponse: Decodable, Equatable, Sendable {
     }
 }
 
+enum ShowcaseProfileModerationStatus: String, Decodable, Equatable, Sendable {
+    case pending
+    case approved
+}
+
+enum PlayerContractAttestationReviewStatus: String, Decodable, Equatable, Sendable {
+    case pending
+    case approved
+}
+
 struct ShowcaseProfile: Decodable, Equatable, Sendable {
+    let id: Int?
     let playerApiId: Int
     let bio: String?
     let positions: String?
     let preferredFoot: String?
     let heightCm: Int?
     let selfReported: Bool
+    let status: ShowcaseProfileModerationStatus?
+    let updatedAt: String?
+    let contractStatus: PlayerContractStatus?
+    let currentClubName: String?
+    let clubProgramId: Int?
+    let statusContradiction: Bool?
+    let contractAttestationReviewStatus: PlayerContractAttestationReviewStatus?
 
     private enum CodingKeys: String, CodingKey {
+        case id
         case playerApiId
         case bio
         case positions
         case preferredFoot
         case heightCm
         case selfReported
+        case status
+        case updatedAt
+        case contractStatus
+        case currentClubName
+        case clubProgramId
+        case statusContradiction
+        case contractAttestationReviewStatus
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(Int.self, forKey: .id)
         playerApiId = try container.decode(Int.self, forKey: .playerApiId)
         bio = try container.decodeIfPresent(String.self, forKey: .bio)
         positions = try container.decodeIfPresent(String.self, forKey: .positions)
         preferredFoot = try container.decodeIfPresent(String.self, forKey: .preferredFoot)
         heightCm = try container.decodeIfPresent(Int.self, forKey: .heightCm)
         selfReported = try container.decodeIfPresent(Bool.self, forKey: .selfReported) ?? false
+        status = try container.decodeIfPresent(ShowcaseProfileModerationStatus.self, forKey: .status)
+        updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
+        contractStatus = try container.decodeIfPresent(PlayerContractStatus.self, forKey: .contractStatus)
+        currentClubName = try container.decodeIfPresent(String.self, forKey: .currentClubName)
+        clubProgramId = try container.decodeIfPresent(Int.self, forKey: .clubProgramId)
+        statusContradiction = try container.decodeIfPresent(Bool.self, forKey: .statusContradiction)
+        contractAttestationReviewStatus = try container.decodeIfPresent(
+            PlayerContractAttestationReviewStatus.self,
+            forKey: .contractAttestationReviewStatus
+        )
     }
 
     var hasVisibleContent: Bool {
@@ -89,6 +126,76 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .contains { !$0.isEmpty }
             || heightCm != nil
+    }
+
+    var contractAttestation: PlayerContractAttestation? {
+        guard let contractStatus else { return nil }
+        return PlayerContractAttestation(
+            contractStatus: contractStatus,
+            currentClubName: currentClubName,
+            clubProgramId: clubProgramId
+        )
+    }
+}
+
+struct ShowcaseProfileResponse: Decodable, Equatable, Sendable {
+    let profile: ShowcaseProfile
+}
+
+/// Exact owner-facing PUT `/players/<id>/showcase/profile` body. Every ordinary
+/// profile field is carried forward because the route replaces, rather than
+/// patches, those values. Nullable club fields are deliberately encoded as
+/// JSON null so an owner can clear an earlier attestation.
+struct OwnerShowcaseProfileUpdate: Encodable, Equatable, Sendable {
+    let bio: String?
+    let positions: String?
+    let preferredFoot: String?
+    let heightCm: Int?
+    let contractStatus: PlayerContractStatus
+    let currentClubName: String?
+    let clubProgramId: Int?
+
+    init(profile: ShowcaseProfile?, attestation: PlayerContractAttestation) {
+        bio = profile?.bio
+        positions = profile?.positions
+        preferredFoot = profile?.preferredFoot
+        heightCm = profile?.heightCm
+        contractStatus = attestation.contractStatus
+        currentClubName = attestation.currentClubName
+        clubProgramId = attestation.clubProgramId
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bio
+        case positions
+        case preferredFoot
+        case heightCm
+        case contractStatus
+        case currentClubName
+        case clubProgramId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try Self.encodeNullable(bio, forKey: .bio, into: &container)
+        try Self.encodeNullable(positions, forKey: .positions, into: &container)
+        try Self.encodeNullable(preferredFoot, forKey: .preferredFoot, into: &container)
+        try Self.encodeNullable(heightCm, forKey: .heightCm, into: &container)
+        try container.encode(contractStatus, forKey: .contractStatus)
+        try Self.encodeNullable(currentClubName, forKey: .currentClubName, into: &container)
+        try Self.encodeNullable(clubProgramId, forKey: .clubProgramId, into: &container)
+    }
+
+    private static func encodeNullable<Value: Encodable>(
+        _ value: Value?,
+        forKey key: CodingKeys,
+        into container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        if let value {
+            try container.encode(value, forKey: key)
+        } else {
+            try container.encodeNil(forKey: key)
+        }
     }
 }
 

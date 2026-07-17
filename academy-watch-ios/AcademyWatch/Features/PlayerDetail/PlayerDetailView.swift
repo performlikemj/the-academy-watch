@@ -186,9 +186,10 @@ struct PlayerDetailView: View {
     }
 
     private var prioritizesIntroductionFixture: Bool {
-        FullCircleFixtureDestination.fromLaunchArguments(
+        let destination = FullCircleFixtureDestination.fromLaunchArguments(
             ProcessInfo.processInfo.arguments
-        ) == .introduction
+        )
+        return destination == .introduction || destination == .attestationWarning
     }
 
     private var prioritizesInterestSignalsFixture: Bool {

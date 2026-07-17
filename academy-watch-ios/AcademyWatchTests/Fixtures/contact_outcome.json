@@ -10,6 +10,14 @@
     "player_api_id": 403064,
     "message": "I would value an introduction to discuss your development pathway.",
     "status": "accepted",
+    "routing_mode": "direct",
+    "club_program_id": null,
+    "club_consent_status": null,
+    "club_consent_at": null,
+    "club_consent_note": null,
+    "permission_attestation": false,
+    "permission_attested_at": null,
+    "messaging_open": true,
     "created_at": "2026-07-16T08:00:00",
     "responded_at": "2026-07-16T11:00:00",
     "expires_at": "2026-07-30T08:00:00",
@@ -19,7 +27,8 @@
       },
       "player": {
         "display_name": "Jordan Reed"
-      }
+      },
+      "club": null
     },
     "latest_outcome": {
       "stage": "signed",

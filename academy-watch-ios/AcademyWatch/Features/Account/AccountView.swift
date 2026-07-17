@@ -50,7 +50,7 @@ struct AccountView: View {
         switch fixtureDestination {
         case .verification:
             ScoutVerificationView(apiClient: apiClient)
-        case .inbox:
+        case .inbox, .clubConsent:
             SentContactRequestsView(
                 viewModel: sentRequestsViewModel,
                 availability: contactAvailability,
@@ -63,7 +63,7 @@ struct AccountView: View {
                 apiClient: apiClient
             )
         case .thread:
-            if let request = sentRequestsViewModel.requests.first(where: { $0.status == .accepted }) {
+            if let request = sentRequestsViewModel.requests.first(where: \.messagingOpen) {
                 ContactThreadView(
                     contactRequest: request,
                     apiClient: apiClient,
@@ -73,7 +73,7 @@ struct AccountView: View {
                 ContentUnavailableView("Fixture unavailable", systemImage: "exclamationmark.triangle")
             }
         case .messageReport:
-            if let request = sentRequestsViewModel.requests.first(where: { $0.status == .accepted }) {
+            if let request = sentRequestsViewModel.requests.first(where: \.messagingOpen) {
                 ContactThreadView(
                     contactRequest: request,
                     apiClient: apiClient,
@@ -83,7 +83,7 @@ struct AccountView: View {
             } else {
                 ContentUnavailableView("Fixture unavailable", systemImage: "exclamationmark.triangle")
             }
-        case .introduction, .watchingYou, nil:
+        case .introduction, .attestationWarning, .watchingYou, nil:
             accountHome
         }
         #else

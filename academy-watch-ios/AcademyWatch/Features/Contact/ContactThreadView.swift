@@ -60,6 +60,7 @@ struct ContactThreadView: View {
                                 ContactMessageBubble(
                                     message: message,
                                     viewerRole: viewModel.viewerRole,
+                                    clubDisplayName: viewModel.contactRequest.participants.club?.displayName,
                                     onReport: { reportSubject = .message(message) }
                                 )
                                 .id(message.id)
@@ -85,6 +86,14 @@ struct ContactThreadView: View {
                         }
                     }
                 }
+                .onAppear {
+                    guard viewModel.isFixturePreview,
+                          let lastID = viewModel.messages.last?.id
+                    else { return }
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(lastID, anchor: .bottom)
+                    }
+                }
             }
         }
         .navigationTitle(
@@ -104,7 +113,9 @@ struct ContactThreadView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            messageComposer
+            if viewModel.contactRequest.messagingOpen {
+                messageComposer
+            }
         }
         .sheet(isPresented: $isOutcomePresented) {
             OutcomeSheet(viewModel: viewModel)
@@ -135,6 +146,7 @@ struct ContactThreadView: View {
                 Spacer()
                 ContactStatusBadge(status: viewModel.contactRequest.status)
             }
+            ContactRoutingBadge(request: viewModel.contactRequest)
             Text(viewModel.contactRequest.message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -249,34 +261,87 @@ struct ContactThreadView: View {
     }
 }
 
+enum ContactMessageRenderingKind: Equatable, Sendable {
+    case viewer
+    case counterpart
+    case club
+}
+
+struct ContactMessageRenderingModel: Equatable, Sendable {
+    let kind: ContactMessageRenderingKind
+    let displayLabel: String
+
+    init(
+        message: ContactMessage,
+        viewerRole: ContactSenderRole,
+        clubDisplayName: String?
+    ) {
+        if message.senderRole == .club {
+            kind = .club
+            let normalizedClubName = clubDisplayName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let normalizedClubName, !normalizedClubName.isEmpty {
+                displayLabel = normalizedClubName
+            } else {
+                displayLabel = "Club"
+            }
+        } else {
+            kind = message.senderRole == viewerRole ? .viewer : .counterpart
+            displayLabel = message.senderDisplayName ?? message.senderRole.displayName
+        }
+    }
+}
+
 private struct ContactMessageBubble: View {
     let message: ContactMessage
     let viewerRole: ContactSenderRole
+    let clubDisplayName: String?
     let onReport: () -> Void
 
-    private var isViewer: Bool {
-        message.senderRole == viewerRole
+    private var rendering: ContactMessageRenderingModel {
+        ContactMessageRenderingModel(
+            message: message,
+            viewerRole: viewerRole,
+            clubDisplayName: clubDisplayName
+        )
     }
 
     var body: some View {
         HStack {
-            if isViewer { Spacer(minLength: 48) }
+            if rendering.kind == .viewer { Spacer(minLength: 48) }
 
-            VStack(alignment: isViewer ? .trailing : .leading, spacing: 5) {
-                Text(message.senderDisplayName ?? message.senderRole.displayName)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+            VStack(
+                alignment: rendering.kind == .viewer ? .trailing : .leading,
+                spacing: 5
+            ) {
+                if rendering.kind == .club {
+                    Label(rendering.displayLabel, systemImage: "building.2.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AcademyColors.transitionPurple)
+                } else {
+                    Text(rendering.displayLabel)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
                 Text(message.body)
                     .font(.subheadline)
-                    .foregroundStyle(isViewer ? AcademyColors.claretOnFill : .primary)
+                    .foregroundStyle(
+                        rendering.kind == .viewer ? AcademyColors.claretOnFill : .primary
+                    )
                     .padding(.horizontal, 13)
                     .padding(.vertical, 10)
                     .background(
-                        isViewer ? AcademyColors.claretFill : AcademyColors.surface,
+                        bubbleColor,
                         in: RoundedRectangle(cornerRadius: 16)
                     )
+                    .overlay {
+                        if rendering.kind == .club {
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(AcademyColors.transitionPurple.opacity(0.4), lineWidth: 1)
+                        }
+                    }
 
-                if !isViewer {
+                if rendering.kind != .viewer {
                     Button(action: onReport) {
                         Label("Report", systemImage: "exclamationmark.bubble")
                     }
@@ -287,9 +352,22 @@ private struct ContactMessageBubble: View {
                 }
             }
 
-            if !isViewer { Spacer(minLength: 48) }
+            if rendering.kind != .viewer {
+                Spacer(minLength: rendering.kind == .club ? 24 : 48)
+            }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var bubbleColor: Color {
+        switch rendering.kind {
+        case .viewer:
+            AcademyColors.claretFill
+        case .counterpart:
+            AcademyColors.surface
+        case .club:
+            AcademyColors.transitionPurple.opacity(0.1)
+        }
     }
 }
 
@@ -397,11 +475,12 @@ private extension ContactOutcomeStage {
     }
 }
 
-private extension ContactSenderRole {
+extension ContactSenderRole {
     var displayName: String {
         switch self {
         case .scout: "Scout"
         case .player: "Player"
+        case .club: "Club"
         }
     }
 }

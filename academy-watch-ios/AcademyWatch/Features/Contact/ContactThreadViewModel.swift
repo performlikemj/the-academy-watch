@@ -64,15 +64,18 @@ final class ContactThreadViewModel: ObservableObject {
 
     var canSend: Bool {
         let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !clean.isEmpty && clean.count <= 2_000 && !isSending
+        return contactRequest.messagingOpen
+            && !clean.isEmpty
+            && clean.count <= 2_000
+            && !isSending
     }
 
     var viewerDisplayName: String? {
-        participant(for: viewerRole).displayName
+        participant(for: viewerRole)?.displayName
     }
 
     var counterpartDisplayName: String? {
-        participant(for: counterpartRole).displayName
+        participant(for: counterpartRole)?.displayName
     }
 
     var counterpartRole: ContactSenderRole {
@@ -304,12 +307,14 @@ final class ContactThreadViewModel: ObservableObject {
         ISO8601DateFormatter().string(from: Date())
     }
 
-    private func participant(for role: ContactSenderRole) -> ContactRequestParticipant {
+    private func participant(for role: ContactSenderRole) -> ContactRequestParticipant? {
         switch role {
         case .scout:
             contactRequest.participants.scout
         case .player:
             contactRequest.participants.player
+        case .club:
+            contactRequest.participants.club
         }
     }
 
@@ -376,6 +381,14 @@ final class ContactThreadViewModel: ObservableObject {
               "created_at": "2026-07-13T09:00:00"
             },
             {
+              "id": "77777777-cccc-4777-8777-777777777777",
+              "contact_request_id": "b3bd7fe9-05b4-4bb8-b8b1-298d5aa7ba71",
+              "sender_role": "club",
+              "sender_display_name": "Morgan Lee",
+              "body": "The club has granted consent and is included in this conversation.",
+              "created_at": "2026-07-13T09:12:00"
+            },
+            {
               "id": "98e4be7d-2537-449f-a662-cb253e43dadb",
               "contact_request_id": "b3bd7fe9-05b4-4bb8-b8b1-298d5aa7ba71",
               "sender_role": "player",
@@ -397,12 +410,21 @@ final class ContactThreadViewModel: ObservableObject {
             "player_api_id": 403064,
             "message": "I’d like to discuss your development pathway and a potential first-team opportunity.",
             "status": "accepted",
+            "routing_mode": "club_included",
+            "club_program_id": 101,
+            "club_consent_status": "granted",
+            "club_consent_at": "2026-07-13T08:40:00",
+            "club_consent_note": "Authorized by the sporting director.",
+            "permission_attestation": false,
+            "permission_attested_at": null,
+            "messaging_open": true,
             "created_at": "2026-07-12T10:15:00",
             "responded_at": "2026-07-13T08:30:00",
             "expires_at": "2026-07-26T10:15:00",
             "participants": {
               "scout": {"display_name": "Alex Scout"},
-              "player": {"display_name": "Habeeb Amass"}
+              "player": {"display_name": "Habeeb Amass"},
+              "club": {"club_program_id": 101, "display_name": "On Platform FC"}
             },
             "latest_outcome": {
               "stage": "trial_scheduled",
@@ -411,7 +433,7 @@ final class ContactThreadViewModel: ObservableObject {
               "created_at": "2026-07-15T11:20:00"
             }
           },
-          "total": 3,
+          "total": 4,
           "limit": 50,
           "offset": 0
         }

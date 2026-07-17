@@ -9,6 +9,14 @@
       "created_at": "2026-07-16T11:15:00"
     },
     {
+      "id": "77777777-cccc-4777-8777-777777777777",
+      "contact_request_id": "01010101-1111-4111-8111-010101010101",
+      "sender_role": "club",
+      "sender_display_name": "Morgan Lee",
+      "body": "The club has granted consent and is included in this conversation.",
+      "created_at": "2026-07-16T11:25:00"
+    },
+    {
       "id": "22222222-bbbb-4222-8222-222222222222",
       "contact_request_id": "01010101-1111-4111-8111-010101010101",
       "sender_role": "player",
@@ -22,6 +30,14 @@
     "player_api_id": 403064,
     "message": "I would value an introduction to discuss your development pathway.",
     "status": "accepted",
+    "routing_mode": "club_included",
+    "club_program_id": 101,
+    "club_consent_status": "granted",
+    "club_consent_at": "2026-07-16T10:45:00",
+    "club_consent_note": "Authorized by the sporting director.",
+    "permission_attestation": false,
+    "permission_attested_at": null,
+    "messaging_open": true,
     "created_at": "2026-07-16T08:00:00",
     "responded_at": "2026-07-16T11:00:00",
     "expires_at": "2026-07-30T08:00:00",
@@ -31,6 +47,10 @@
       },
       "player": {
         "display_name": "Jordan Reed"
+      },
+      "club": {
+        "club_program_id": 101,
+        "display_name": "On Platform FC"
       }
     },
     "latest_outcome": {
@@ -40,7 +60,7 @@
       "created_at": "2026-07-16T11:46:00"
     }
   },
-  "total": 2,
+  "total": 3,
   "limit": 50,
   "offset": 0
 }

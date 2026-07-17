@@ -86,22 +86,65 @@ enum ContactRequestBox: String, Codable, Equatable, Sendable {
     case inbox
 }
 
+enum ContactRoutingMode: String, Codable, Equatable, Sendable {
+    case direct
+    case clubIncluded = "club_included"
+    case clubNotified = "club_notified"
+}
+
+enum ClubConsentStatus: String, Codable, Equatable, Sendable {
+    case pending
+    case granted
+    case declined
+}
+
 enum ContactRequestErrorCode: String, Equatable, Sendable {
     case scoutNotVerified = "scout_not_verified"
     case playerNotClaimable = "player_not_claimable"
     case activeRequestExists = "active_request_exists"
     case declineCooldownActive = "decline_cooldown_active"
     case requestExpired = "request_expired"
+    case attestationRequired = "attestation_required"
+    case clubConsentRequired = "club_consent_required"
+    case clubConsentDeclined = "club_consent_declined"
     case unknown
 }
 
 struct ContactRequestParticipant: Decodable, Equatable, Sendable {
     let displayName: String?
+    let clubProgramId: Int?
+
+    init(displayName: String?, clubProgramId: Int? = nil) {
+        self.displayName = displayName
+        self.clubProgramId = clubProgramId
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case displayName
+        case clubProgramId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        clubProgramId = try container.decodeIfPresent(Int.self, forKey: .clubProgramId)
+    }
 }
 
 struct ContactRequestParticipants: Decodable, Equatable, Sendable {
     let scout: ContactRequestParticipant
     let player: ContactRequestParticipant
+    let club: ContactRequestParticipant?
+
+    init(
+        scout: ContactRequestParticipant,
+        player: ContactRequestParticipant,
+        club: ContactRequestParticipant? = nil
+    ) {
+        self.scout = scout
+        self.player = player
+        self.club = club
+    }
 }
 
 struct ContactRequest: Decodable, Equatable, Identifiable, Sendable {
@@ -109,11 +152,101 @@ struct ContactRequest: Decodable, Equatable, Identifiable, Sendable {
     let playerApiId: Int
     let message: String
     let status: ContactRequestStatus
+    let routingMode: ContactRoutingMode
+    let clubProgramId: Int?
+    let clubConsentStatus: ClubConsentStatus?
+    let clubConsentAt: String?
+    let clubConsentNote: String?
+    let permissionAttestation: Bool
+    let permissionAttestedAt: String?
+    let messagingOpen: Bool
     let createdAt: String
     let respondedAt: String?
     let expiresAt: String
     let participants: ContactRequestParticipants
     let latestOutcome: ContactOutcome?
+
+    init(
+        id: String,
+        playerApiId: Int,
+        message: String,
+        status: ContactRequestStatus,
+        routingMode: ContactRoutingMode = .direct,
+        clubProgramId: Int? = nil,
+        clubConsentStatus: ClubConsentStatus? = nil,
+        clubConsentAt: String? = nil,
+        clubConsentNote: String? = nil,
+        permissionAttestation: Bool = false,
+        permissionAttestedAt: String? = nil,
+        messagingOpen: Bool? = nil,
+        createdAt: String,
+        respondedAt: String?,
+        expiresAt: String,
+        participants: ContactRequestParticipants,
+        latestOutcome: ContactOutcome?
+    ) {
+        self.id = id
+        self.playerApiId = playerApiId
+        self.message = message
+        self.status = status
+        self.routingMode = routingMode
+        self.clubProgramId = clubProgramId
+        self.clubConsentStatus = clubConsentStatus
+        self.clubConsentAt = clubConsentAt
+        self.clubConsentNote = clubConsentNote
+        self.permissionAttestation = permissionAttestation
+        self.permissionAttestedAt = permissionAttestedAt
+        self.messagingOpen = messagingOpen
+            ?? (status == .accepted && (routingMode != .clubIncluded || clubConsentStatus == .granted))
+        self.createdAt = createdAt
+        self.respondedAt = respondedAt
+        self.expiresAt = expiresAt
+        self.participants = participants
+        self.latestOutcome = latestOutcome
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case playerApiId
+        case message
+        case status
+        case routingMode
+        case clubProgramId
+        case clubConsentStatus
+        case clubConsentAt
+        case clubConsentNote
+        case permissionAttestation
+        case permissionAttestedAt
+        case messagingOpen
+        case createdAt
+        case respondedAt
+        case expiresAt
+        case participants
+        case latestOutcome
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        playerApiId = try container.decode(Int.self, forKey: .playerApiId)
+        message = try container.decode(String.self, forKey: .message)
+        status = try container.decode(ContactRequestStatus.self, forKey: .status)
+        routingMode = try container.decodeIfPresent(ContactRoutingMode.self, forKey: .routingMode) ?? .direct
+        clubProgramId = try container.decodeIfPresent(Int.self, forKey: .clubProgramId)
+        clubConsentStatus = try container.decodeIfPresent(ClubConsentStatus.self, forKey: .clubConsentStatus)
+        clubConsentAt = try container.decodeIfPresent(String.self, forKey: .clubConsentAt)
+        clubConsentNote = try container.decodeIfPresent(String.self, forKey: .clubConsentNote)
+        permissionAttestation = try container.decodeIfPresent(Bool.self, forKey: .permissionAttestation) ?? false
+        permissionAttestedAt = try container.decodeIfPresent(String.self, forKey: .permissionAttestedAt)
+        let decodedMessagingOpen = try container.decodeIfPresent(Bool.self, forKey: .messagingOpen)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        respondedAt = try container.decodeIfPresent(String.self, forKey: .respondedAt)
+        expiresAt = try container.decode(String.self, forKey: .expiresAt)
+        participants = try container.decode(ContactRequestParticipants.self, forKey: .participants)
+        latestOutcome = try container.decodeIfPresent(ContactOutcome.self, forKey: .latestOutcome)
+        messagingOpen = decodedMessagingOpen
+            ?? (status == .accepted && (routingMode != .clubIncluded || clubConsentStatus == .granted))
+    }
 
     func replacing(status: ContactRequestStatus) -> ContactRequest {
         ContactRequest(
@@ -121,6 +254,15 @@ struct ContactRequest: Decodable, Equatable, Identifiable, Sendable {
             playerApiId: playerApiId,
             message: message,
             status: status,
+            routingMode: routingMode,
+            clubProgramId: clubProgramId,
+            clubConsentStatus: clubConsentStatus,
+            clubConsentAt: clubConsentAt,
+            clubConsentNote: clubConsentNote,
+            permissionAttestation: permissionAttestation,
+            permissionAttestedAt: permissionAttestedAt,
+            messagingOpen: status == .accepted
+                && (routingMode != .clubIncluded || clubConsentStatus == .granted),
             createdAt: createdAt,
             respondedAt: respondedAt,
             expiresAt: expiresAt,
@@ -135,6 +277,14 @@ struct ContactRequest: Decodable, Equatable, Identifiable, Sendable {
             playerApiId: playerApiId,
             message: message,
             status: status,
+            routingMode: routingMode,
+            clubProgramId: clubProgramId,
+            clubConsentStatus: clubConsentStatus,
+            clubConsentAt: clubConsentAt,
+            clubConsentNote: clubConsentNote,
+            permissionAttestation: permissionAttestation,
+            permissionAttestedAt: permissionAttestedAt,
+            messagingOpen: messagingOpen,
             createdAt: createdAt,
             respondedAt: respondedAt,
             expiresAt: expiresAt,
@@ -147,6 +297,17 @@ struct ContactRequest: Decodable, Equatable, Identifiable, Sendable {
 struct CreateContactRequestBody: Encodable, Equatable, Sendable {
     let playerApiId: Int
     let message: String
+    let permissionAttestation: Bool
+
+    init(
+        playerApiId: Int,
+        message: String,
+        permissionAttestation: Bool = false
+    ) {
+        self.playerApiId = playerApiId
+        self.message = message
+        self.permissionAttestation = permissionAttestation
+    }
 }
 
 struct ContactRequestResponse: Decodable, Equatable, Sendable {
@@ -164,6 +325,7 @@ struct ContactRequestsResponse: Decodable, Equatable, Sendable {
 enum ContactSenderRole: String, Codable, Equatable, Sendable {
     case scout
     case player
+    case club
 }
 
 struct ContactMessage: Decodable, Equatable, Identifiable, Sendable {
@@ -346,7 +508,7 @@ struct ContentReportSubject: Identifiable, Equatable, Sendable {
             subjectType: .contactMessage,
             subjectID: message.id,
             title: "Report Message",
-            explanation: "Reporting sends this message to Academy Watch for review. It does not block the other participant.",
+            explanation: "Reporting sends this message to Academy Watch for review. It does not block the other participants.",
             defaultReason: .participantSafety
         )
     }

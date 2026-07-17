@@ -1,0 +1,22 @@
+{
+  "claim_status": "claimed",
+  "player_api_id": 403064,
+  "profile": {
+    "id": 33,
+    "player_api_id": 403064,
+    "bio": "An attack-minded left-back who looks to progress play early and recover with pace.",
+    "positions": "Left-back, wing-back",
+    "preferred_foot": "left",
+    "height_cm": 181,
+    "self_reported": true,
+    "status": "pending",
+    "updated_at": "2026-07-17T10:30:00+00:00",
+    "contract_status": "contracted",
+    "current_club_name": "Moderated FC",
+    "club_program_id": 901,
+    "status_contradiction": false,
+    "contract_attestation_review_status": "pending"
+  },
+  "reel": [],
+  "verified_footage": []
+}

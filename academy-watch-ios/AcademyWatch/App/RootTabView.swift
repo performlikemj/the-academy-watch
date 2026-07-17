@@ -59,7 +59,7 @@ struct RootTabView: View {
                     displayName: "Habeeb Amass",
                     isVerifiedScout: false
                 )
-            case .verification, .introduction, .inbox, .thread:
+            case .verification, .introduction, .attestationWarning, .inbox, .clubConsent, .thread:
                 fixtureState = .signedIn(
                     email: "alex.scout@fixture.example",
                     accountRole: .scout,
@@ -109,9 +109,9 @@ struct RootTabView: View {
         )
         let resolvedTab: RootTab = {
             switch fixtureDestination {
-            case .verification, .inbox, .thread, .playerInbox, .declineConfirmation, .messageReport:
+            case .verification, .inbox, .clubConsent, .thread, .playerInbox, .declineConfirmation, .messageReport:
                 return .account
-            case .introduction, .watchingYou, nil:
+            case .introduction, .attestationWarning, .watchingYou, nil:
                 return initialTab
             }
         }()
@@ -120,7 +120,9 @@ struct RootTabView: View {
         _accountDestination = State(initialValue: nil)
         self.apiClient = apiClient
         self.initialPhase = initialPhase
-        self.initialPlayerID = fixtureDestination == .introduction || fixtureDestination == .watchingYou
+        self.initialPlayerID = fixtureDestination == .introduction
+            || fixtureDestination == .attestationWarning
+            || fixtureDestination == .watchingYou
             ? 403_064
             : initialPlayerID
         self.initialComparePlayerIDs = initialComparePlayerIDs

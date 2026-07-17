@@ -7,12 +7,15 @@ import XCTest
 //   `src/routes/trust.py` GET/POST `/api/scout/verification`.
 // - contact_requests_sent.json mirrors `ContactRequest.to_dict()` in
 //   full-circle `src/models/contact.py` and the paginated GET
-//   `/api/contact/requests` envelope in `src/routes/contact.py`.
+//   `/api/contact/requests` envelope in `src/routes/contact.py`, including
+//   FC-B3 routing, club-consent, permission-attestation and messaging gates.
 // - contact_requests_inbox.json mirrors that same serializer and the
 //   `box=inbox` owner envelope exercised by full-circle `test_contact.py`.
 // - contact_messages.json mirrors `ContactMessage.to_dict()` and
 //   `ContactRequest.to_dict()` in `src/models/contact.py`, plus the paginated
-//   GET `/api/contact/requests/<id>/messages` envelope in `src/routes/contact.py`.
+//   GET `/api/contact/requests/<id>/messages` envelope in `src/routes/contact.py`;
+//   its club message and programme participant follow `test_contact.py`'s
+//   three-party thread assertion.
 // - contact_outcome.json mirrors `ContactOutcome.to_dict()` and
 //   `ContactRequest.to_dict()` in `src/models/contact.py`, plus the POST
 //   `/api/contact/requests/<id>/outcome` envelope in `src/routes/contact.py`.
@@ -59,11 +62,23 @@ final class FullCircleDecodingTests: XCTestCase {
         XCTAssertEqual(accepted.playerApiId, 403_064)
         XCTAssertEqual(accepted.participants.scout.displayName, "Alex Morgan")
         XCTAssertEqual(accepted.participants.player.displayName, "Jordan Reed")
+        XCTAssertEqual(accepted.participants.club?.displayName, "On Platform FC")
+        XCTAssertEqual(accepted.participants.club?.clubProgramId, 101)
+        XCTAssertEqual(accepted.routingMode, .clubIncluded)
+        XCTAssertEqual(accepted.clubConsentStatus, .granted)
+        XCTAssertTrue(accepted.messagingOpen)
         XCTAssertEqual(accepted.latestOutcome?.stage, .trialScheduled)
         XCTAssertEqual(accepted.latestOutcome?.notes, "Trial booked for next Thursday.")
 
         XCTAssertNil(response.requests[1].respondedAt)
+        XCTAssertEqual(response.requests[1].routingMode, .clubIncluded)
+        XCTAssertEqual(response.requests[1].clubConsentStatus, .pending)
+        XCTAssertFalse(response.requests[1].messagingOpen)
+        XCTAssertEqual(response.requests[2].clubConsentStatus, .declined)
         XCTAssertNil(response.requests[3].participants.player.displayName)
+        XCTAssertEqual(response.requests[4].routingMode, .clubNotified)
+        XCTAssertTrue(response.requests[4].permissionAttestation)
+        XCTAssertNotNil(response.requests[4].permissionAttestedAt)
         XCTAssertNil(response.requests[4].latestOutcome)
     }
 
@@ -84,17 +99,70 @@ final class FullCircleDecodingTests: XCTestCase {
     func testDecodesContactMessagesSerializerAndRouteEnvelope() throws {
         let response: ContactMessagesResponse = try decodeFixture("contact_messages")
 
-        XCTAssertEqual(response.total, 2)
+        XCTAssertEqual(response.total, 3)
         XCTAssertEqual(response.limit, 50)
         XCTAssertEqual(response.offset, 0)
-        XCTAssertEqual(response.messages.map(\.senderRole), [.scout, .player])
+        XCTAssertEqual(response.messages.map(\.senderRole), [.scout, .club, .player])
         XCTAssertEqual(response.messages.first?.senderDisplayName, "Alex Morgan")
         XCTAssertEqual(
             response.messages.last?.contactRequestId,
             "01010101-1111-4111-8111-010101010101"
         )
         XCTAssertEqual(response.contactRequest.status, .accepted)
+        XCTAssertEqual(response.contactRequest.participants.club?.displayName, "On Platform FC")
+        XCTAssertTrue(response.contactRequest.messagingOpen)
         XCTAssertEqual(response.contactRequest.latestOutcome?.stage, .contacted)
+    }
+
+    func testClubMessageRenderingUsesProgramNameForBothParticipantViews() throws {
+        let response: ContactMessagesResponse = try decodeFixture("contact_messages")
+        let clubMessage = try XCTUnwrap(response.messages.first { $0.senderRole == .club })
+        let programName = response.contactRequest.participants.club?.displayName
+
+        let scoutRendering = ContactMessageRenderingModel(
+            message: clubMessage,
+            viewerRole: .scout,
+            clubDisplayName: programName
+        )
+        let playerRendering = ContactMessageRenderingModel(
+            message: clubMessage,
+            viewerRole: .player,
+            clubDisplayName: programName
+        )
+
+        XCTAssertEqual(scoutRendering.kind, .club)
+        XCTAssertEqual(playerRendering.kind, .club)
+        XCTAssertEqual(scoutRendering.displayLabel, "On Platform FC")
+        XCTAssertEqual(playerRendering.displayLabel, "On Platform FC")
+        XCTAssertNotEqual(scoutRendering.displayLabel, clubMessage.senderDisplayName)
+    }
+
+    func testLegacyContactRequestDefaultsToDirectRouting() throws {
+        let payload = #"""
+        {
+          "id": "legacy-request",
+          "player_api_id": 700001,
+          "message": "Legacy request",
+          "status": "accepted",
+          "created_at": "2026-07-01T10:00:00",
+          "responded_at": "2026-07-01T11:00:00",
+          "expires_at": "2026-07-15T10:00:00",
+          "participants": {
+            "scout": {"display_name": "Scout"},
+            "player": {"display_name": "Player"}
+          },
+          "latest_outcome": null
+        }
+        """#
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let request = try decoder.decode(ContactRequest.self, from: Data(payload.utf8))
+
+        XCTAssertEqual(request.routingMode, .direct)
+        XCTAssertFalse(request.permissionAttestation)
+        XCTAssertTrue(request.messagingOpen)
+        XCTAssertNil(request.participants.club)
     }
 
     func testDecodesOutcomeAndRefreshedContactRequestEnvelope() throws {
@@ -169,10 +237,15 @@ final class FullCircleDecodingTests: XCTestCase {
         )
 
         let introduction = try encodeObject(
-            CreateContactRequestBody(playerApiId: 403_064, message: "Could we speak?")
+            CreateContactRequestBody(
+                playerApiId: 403_064,
+                message: "Could we speak?",
+                permissionAttestation: true
+            )
         )
         XCTAssertEqual(introduction["player_api_id"] as? Int, 403_064)
         XCTAssertEqual(introduction["message"] as? String, "Could we speak?")
+        XCTAssertEqual(introduction["permission_attestation"] as? Bool, true)
 
         let threadMessage = try encodeObject(CreateContactMessageBody(body: "Tuesday works."))
         XCTAssertEqual(threadMessage["body"] as? String, "Tuesday works.")

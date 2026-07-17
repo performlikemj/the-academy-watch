@@ -3,7 +3,9 @@ import Foundation
 enum FullCircleFixtureDestination: String, Sendable {
     case verification
     case introduction
+    case attestationWarning = "attestationwarning"
     case inbox
+    case clubConsent = "clubconsent"
     case thread
     case playerInbox = "playerinbox"
     case declineConfirmation = "declineconfirmation"

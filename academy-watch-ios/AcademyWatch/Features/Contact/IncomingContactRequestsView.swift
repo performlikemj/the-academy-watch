@@ -98,7 +98,10 @@ struct IncomingContactRequestsView: View {
             titleVisibility: .visible,
             presenting: pendingDecision
         ) { decision in
-            Button(decision.action.confirmButtonTitle, role: decision.action.buttonRole) {
+            Button(
+                decision.action.confirmButtonTitle(for: decision.request),
+                role: decision.action.buttonRole
+            ) {
                 pendingDecision = nil
                 Task {
                     await perform(decision)
@@ -188,7 +191,7 @@ struct IncomingContactRequestsView: View {
             guard let index = viewModel.requests.firstIndex(where: { $0.id == requestID })
             else { return }
             let acceptedRequest = viewModel.requests[index]
-            if acceptedRequest.status == .accepted {
+            if acceptedRequest.messagingOpen {
                 selectedThreadID = acceptedRequest.id
             }
         case .decline:
@@ -221,6 +224,8 @@ private struct IncomingContactRequestCard: View {
                 Spacer(minLength: 8)
                 ContactStatusBadge(status: request.status)
             }
+
+            ContactRoutingBadge(request: request)
 
             Text(request.message)
                 .font(.subheadline)
@@ -257,7 +262,7 @@ private struct IncomingContactRequestCard: View {
                 Text(request.status == .accepted ? "Accepting…" : "Declining…")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
-            } else if request.status == .accepted {
+            } else if request.messagingOpen {
                 NavigationLink {
                     ContactThreadView(
                         contactRequest: request,
@@ -300,7 +305,12 @@ private struct IncomingContactRequestCard: View {
         case .expired:
             "Request expired"
         case .pending, .accepted:
-            request.status.displayName
+            if request.routingMode == .clubIncluded,
+               request.clubConsentStatus == .pending {
+                "Club reviewing — messaging opens after consent"
+            } else {
+                request.status.displayName
+            }
         }
     }
 
@@ -331,9 +341,15 @@ private struct IncomingContactDecision: Identifiable {
             }
         }
 
-        var confirmButtonTitle: String {
+        func confirmButtonTitle(for request: ContactRequest) -> String {
             switch self {
-            case .accept: "Accept and Open Thread"
+            case .accept:
+                if request.routingMode == .clubIncluded,
+                   request.clubConsentStatus == .pending {
+                    "Accept Request"
+                } else {
+                    "Accept and Open Thread"
+                }
             case .decline: "Decline Request"
             }
         }
@@ -346,7 +362,14 @@ private struct IncomingContactDecision: Identifiable {
             switch self {
             case .accept:
                 let scoutName = request.participants.scout.displayName ?? "this scout"
-                return "Accepting opens a private thread with \(scoutName). Either participant can message and report an outcome."
+                if request.routingMode == .clubIncluded {
+                    let clubName = request.participants.club?.displayName ?? "your club"
+                    if request.clubConsentStatus == .pending {
+                        return "Accepting records your decision. \(clubName) is also included, and a thread with \(scoutName) opens only after the club grants consent."
+                    }
+                    return "Accepting opens a thread for you, \(scoutName), and \(clubName). All three parties can message; you and the scout can report an outcome."
+                }
+                return "Accepting opens a private thread with \(scoutName). You and the scout can message and report an outcome."
             case .decline:
                 return "Declining closes this request and prevents the scout from requesting again during the cooldown window. To stop the request and flag a concern, decline it, then use Report—reporting alone does not block the scout."
             }

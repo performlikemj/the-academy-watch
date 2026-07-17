@@ -26,8 +26,12 @@ final class IntroductionRequestViewModelTests: XCTestCase {
             playerID: 700_001,
             availability: availability,
             initialMessage: "  Could we arrange a short conversation?\n",
-            createRequest: { playerID, message in
-                try await recorder.create(playerID: playerID, message: message)
+            createRequest: { playerID, message, permissionAttestation in
+                try await recorder.create(
+                    playerID: playerID,
+                    message: message,
+                    permissionAttestation: permissionAttestation
+                )
             }
         )
 
@@ -39,6 +43,7 @@ final class IntroductionRequestViewModelTests: XCTestCase {
         let submission = await recorder.submission()
         XCTAssertEqual(submission?.playerID, 700_001)
         XCTAssertEqual(submission?.message, "Could we arrange a short conversation?")
+        XCTAssertEqual(submission?.permissionAttestation, false)
     }
 
     @MainActor
@@ -103,6 +108,56 @@ final class IntroductionRequestViewModelTests: XCTestCase {
             XCTAssertEqual(viewModel.failure, expectedFailure, "Incorrect mapping for \(code)")
             XCTAssertFalse(viewModel.shouldRouteToVerification)
         }
+    }
+
+    @MainActor
+    func testAttestationErrorMapsAndExplicitRetrySendsTrue() async {
+        let request = ContactRequest(
+            id: "attested-request",
+            playerApiId: 700_001,
+            message: "Could we arrange a short conversation?",
+            status: .pending,
+            routingMode: .clubNotified,
+            permissionAttestation: true,
+            permissionAttestedAt: "2026-07-17T08:00:00",
+            messagingOpen: false,
+            createdAt: "2026-07-17T08:00:00",
+            respondedAt: nil,
+            expiresAt: "2026-07-31T08:00:00",
+            participants: ContactRequestParticipants(
+                scout: ContactRequestParticipant(displayName: "Alex Scout"),
+                player: ContactRequestParticipant(displayName: "Test Player")
+            ),
+            latestOutcome: nil
+        )
+        let recorder = AttestationRetryRecorder(
+            response: ContactRequestResponse(contactRequest: request)
+        )
+        let viewModel = IntroductionRequestViewModel(
+            playerID: 700_001,
+            availability: ContactFeatureAvailability(),
+            initialMessage: "Could we arrange a short conversation?",
+            createRequest: { playerID, message, permissionAttestation in
+                try await recorder.create(
+                    playerID: playerID,
+                    message: message,
+                    permissionAttestation: permissionAttestation
+                )
+            }
+        )
+
+        let initialDidSubmit = await viewModel.submit()
+        XCTAssertFalse(initialDidSubmit)
+        XCTAssertEqual(viewModel.failure, .attestationRequired)
+        XCTAssertFalse(viewModel.canSubmit)
+        XCTAssertTrue(viewModel.errorMessage?.contains("Football approach rules") == true)
+
+        let retryDidSubmit = await viewModel.retryWithPermissionAttestation()
+        XCTAssertTrue(retryDidSubmit)
+        XCTAssertEqual(viewModel.createdRequest, request)
+        XCTAssertNil(viewModel.failure)
+        let attestationValues = await recorder.attestationValues()
+        XCTAssertEqual(attestationValues, [false, true])
     }
 
     @MainActor
@@ -195,7 +250,7 @@ final class IntroductionRequestViewModelTests: XCTestCase {
             playerID: 700_001,
             availability: availability,
             initialMessage: initialMessage,
-            createRequest: { _, _ in
+            createRequest: { _, _, _ in
                 throw IntroductionTestError.shouldNotReachNetwork
             }
         )
@@ -211,7 +266,7 @@ final class IntroductionRequestViewModelTests: XCTestCase {
             playerID: 700_001,
             availability: availability,
             initialMessage: "Could we arrange a short conversation?",
-            createRequest: { _, _ in throw error }
+            createRequest: { _, _, _ in throw error }
         )
     }
 
@@ -232,18 +287,60 @@ private enum IntroductionTestError: Error {
 
 private actor IntroductionSubmissionRecorder {
     let response: ContactRequestResponse
-    private var receivedSubmission: (playerID: Int, message: String)?
+    private var receivedSubmission: (
+        playerID: Int,
+        message: String,
+        permissionAttestation: Bool
+    )?
 
     init(response: ContactRequestResponse) {
         self.response = response
     }
 
-    func create(playerID: Int, message: String) throws -> ContactRequestResponse {
-        receivedSubmission = (playerID, message)
+    func create(
+        playerID: Int,
+        message: String,
+        permissionAttestation: Bool
+    ) throws -> ContactRequestResponse {
+        receivedSubmission = (playerID, message, permissionAttestation)
         return response
     }
 
-    func submission() -> (playerID: Int, message: String)? {
+    func submission() -> (
+        playerID: Int,
+        message: String,
+        permissionAttestation: Bool
+    )? {
         receivedSubmission
+    }
+}
+
+private actor AttestationRetryRecorder {
+    let response: ContactRequestResponse
+    private var submissions: [Bool] = []
+
+    init(response: ContactRequestResponse) {
+        self.response = response
+    }
+
+    func create(
+        playerID _: Int,
+        message _: String,
+        permissionAttestation: Bool
+    ) throws -> ContactRequestResponse {
+        submissions.append(permissionAttestation)
+        guard permissionAttestation else {
+            throw APIClientError.codedServer(
+                statusCode: 400,
+                message: "Football approach rules may require club permission.",
+                code: "attestation_required",
+                cooldownDays: nil
+            )
+        }
+        return response
+    }
+
+    func attestationValues() -> [Bool] {
+        submissions
     }
 }

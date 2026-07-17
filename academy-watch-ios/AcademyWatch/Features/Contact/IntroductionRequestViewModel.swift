@@ -6,6 +6,7 @@ enum IntroductionRequestFailure: Equatable, Sendable {
     case messageTooLong
     case verificationRequired
     case playerNotClaimable
+    case attestationRequired
     case activeRequestExists
     case declineCooldownActive(days: Int?)
     case requestExpired
@@ -22,6 +23,8 @@ enum IntroductionRequestFailure: Equatable, Sendable {
             return "Verify your scout profile before requesting an introduction."
         case .playerNotClaimable:
             return "This player is not currently available for introduction requests."
+        case .attestationRequired:
+            return "Football approach rules may prohibit contacting this player without their current club’s consent. Confirm that your club has, or will obtain, the required permission before any approach."
         case .activeRequestExists:
             return "You already have an active request for this player. Check Sent Requests for its latest status."
         case let .declineCooldownActive(days):
@@ -40,6 +43,10 @@ enum IntroductionRequestFailure: Equatable, Sendable {
 
     var routesToVerification: Bool {
         self == .verificationRequired
+    }
+
+    var requiresPermissionAttestation: Bool {
+        self == .attestationRequired
     }
 }
 
@@ -60,18 +67,20 @@ final class IntroductionRequestViewModel: ObservableObject {
     @Published private(set) var failure: IntroductionRequestFailure?
 
     private let availability: ContactFeatureAvailability
-    private let createRequest: @Sendable (Int, String) async throws -> ContactRequestResponse
+    private let createRequest: @Sendable (Int, String, Bool) async throws -> ContactRequestResponse
 
     convenience init(
         playerID: Int,
         apiClient: any ContactAPIClientProtocol = APIClient(),
-        initialMessage: String = ""
+        initialMessage: String = "",
+        initialFailure: IntroductionRequestFailure? = nil
     ) {
         self.init(
             playerID: playerID,
             apiClient: apiClient,
             availability: .shared,
-            initialMessage: initialMessage
+            initialMessage: initialMessage,
+            initialFailure: initialFailure
         )
     }
 
@@ -79,16 +88,19 @@ final class IntroductionRequestViewModel: ObservableObject {
         playerID: Int,
         apiClient: any ContactAPIClientProtocol = APIClient(),
         availability: ContactFeatureAvailability,
-        initialMessage: String = ""
+        initialMessage: String = "",
+        initialFailure: IntroductionRequestFailure? = nil
     ) {
         self.init(
             playerID: playerID,
             availability: availability,
             initialMessage: initialMessage,
-            createRequest: { requestedPlayerID, message in
+            initialFailure: initialFailure,
+            createRequest: { requestedPlayerID, message, permissionAttestation in
                 try await apiClient.createContactRequest(
                     playerID: requestedPlayerID,
-                    message: message
+                    message: message,
+                    permissionAttestation: permissionAttestation
                 )
             }
         )
@@ -98,11 +110,13 @@ final class IntroductionRequestViewModel: ObservableObject {
         playerID: Int,
         availability: ContactFeatureAvailability,
         initialMessage: String = "",
-        createRequest: @escaping @Sendable (Int, String) async throws -> ContactRequestResponse
+        initialFailure: IntroductionRequestFailure? = nil,
+        createRequest: @escaping @Sendable (Int, String, Bool) async throws -> ContactRequestResponse
     ) {
         self.playerID = playerID
         self.availability = availability
         message = initialMessage
+        failure = initialFailure
         self.createRequest = createRequest
     }
 
@@ -125,6 +139,7 @@ final class IntroductionRequestViewModel: ObservableObject {
         createdRequest == nil
             && !isSubmitting
             && validationFailure == nil
+            && failure?.requiresPermissionAttestation != true
             && !availability.isUnavailable
     }
 
@@ -138,6 +153,17 @@ final class IntroductionRequestViewModel: ObservableObject {
 
     @discardableResult
     func submit() async -> Bool {
+        await submit(permissionAttestation: false)
+    }
+
+    @discardableResult
+    func retryWithPermissionAttestation() async -> Bool {
+        guard failure?.requiresPermissionAttestation == true else { return false }
+        return await submit(permissionAttestation: true)
+    }
+
+    @discardableResult
+    private func submit(permissionAttestation: Bool) async -> Bool {
         guard createdRequest == nil,
               !isSubmitting,
               !availability.isUnavailable
@@ -152,7 +178,11 @@ final class IntroductionRequestViewModel: ObservableObject {
         defer { isSubmitting = false }
 
         do {
-            let response = try await createRequest(playerID, normalizedMessage)
+            let response = try await createRequest(
+                playerID,
+                normalizedMessage,
+                permissionAttestation
+            )
             // The POST has succeeded at this point. Commit its server result
             // even if the presenting task was cancelled as the response won
             // the race, so a retry cannot create a duplicate request.
@@ -190,6 +220,8 @@ final class IntroductionRequestViewModel: ObservableObject {
                     return .verificationRequired
                 case "player_not_claimable":
                     return .playerNotClaimable
+                case "attestation_required":
+                    return .attestationRequired
                 case "active_request_exists":
                     return .activeRequestExists
                 case "decline_cooldown_active":

@@ -92,7 +92,7 @@ struct SentContactRequestsView: View {
 
     @ViewBuilder
     private func requestDestination(_ request: ContactRequest) -> some View {
-        if request.status == .accepted {
+        if request.messagingOpen {
             NavigationLink {
                 ContactThreadView(
                     contactRequest: request,
@@ -141,6 +141,8 @@ private struct ContactRequestCard: View {
                 ContactStatusBadge(status: request.status)
             }
 
+            ContactRoutingBadge(request: request)
+
             Text(request.message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -153,7 +155,7 @@ private struct ContactRequestCard: View {
                     Text("Latest: \(outcome.stage.displayName)")
                         .font(.caption.weight(.semibold))
                     Spacer()
-                    if request.status == .accepted {
+                    if request.messagingOpen {
                         Image(systemName: "chevron.right")
                             .font(.caption.weight(.bold))
                             .foregroundStyle(.tertiary)
@@ -170,7 +172,7 @@ private struct ContactRequestCard: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    if request.status == .accepted {
+                    if request.messagingOpen {
                         Label("Open thread", systemImage: "bubble.left.and.bubble.right.fill")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(AcademyColors.claret)
@@ -205,6 +207,60 @@ private struct ContactRequestCard: View {
         let date = parser.date(from: raw + (raw.hasSuffix("Z") ? "" : "Z"))
         guard let date else { return String(raw.prefix(10)) }
         return date.formatted(date: .abbreviated, time: .omitted)
+    }
+}
+
+struct ContactRoutingBadge: View {
+    let request: ContactRequest
+
+    @ViewBuilder
+    var body: some View {
+        switch (request.routingMode, request.clubConsentStatus) {
+        case (.clubIncluded, .pending)
+            where request.status == .pending || request.status == .accepted:
+            badge(
+                text: "Club reviewing",
+                systemImage: "building.2.crop.circle",
+                color: AcademyColors.loanAmber
+            )
+        case (.clubIncluded, .pending):
+            EmptyView()
+        case (.clubIncluded, .declined):
+            badge(
+                text: "Consent declined",
+                systemImage: "xmark.shield.fill",
+                color: Color(uiColor: .systemRed)
+            )
+        case (.clubIncluded, .granted):
+            badge(
+                text: "Club consent granted",
+                systemImage: "checkmark.shield.fill",
+                color: AcademyColors.positiveGreen
+            )
+        case (.clubNotified, _):
+            badge(
+                text: "Club notified",
+                systemImage: "bell.badge.fill",
+                color: AcademyColors.transitionPurple
+            )
+        case (.direct, _), (.clubIncluded, nil):
+            EmptyView()
+        }
+    }
+
+    private func badge(text: String, systemImage: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(color)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(color.opacity(0.1), in: Capsule())
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("contact-routing-\(request.routingMode.rawValue)")
     }
 }
 
