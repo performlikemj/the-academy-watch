@@ -134,8 +134,10 @@ def _admin_headers(app):
 def _user_headers(app, email="user@example.com"):
     """Return headers for regular user authentication."""
     with app.app_context():
-        from src.auth import issue_user_token
+        from src.auth import _ensure_user_account, issue_user_token
 
+        _ensure_user_account(email)
+        db.session.commit()
         token = issue_user_token(email, role="user")["token"]
         return {
             "Authorization": f"Bearer {token}",

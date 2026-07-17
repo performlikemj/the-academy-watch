@@ -57,7 +57,7 @@ class ContactRequest(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     scout_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=False)
     player_api_id = db.Column(db.Integer, nullable=False)
-    claim_id = db.Column(db.Integer, db.ForeignKey("player_profile_claims.id"), nullable=False)
+    claim_id = db.Column(db.Integer, db.ForeignKey("player_profile_claims.id"), nullable=True)
     message = db.Column(db.String(2000), nullable=False)
     status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending")
     routing_mode = db.Column(db.String(20), nullable=False, default="direct", server_default="direct")
@@ -148,7 +148,7 @@ class ContactRequest(db.Model):
                     "display_name": self.scout.display_name if self.scout else None,
                 },
                 "player": {
-                    "display_name": self.player_user.display_name if self.player_user else None,
+                    "display_name": self.player_user.display_name if self.player_user else "Account deleted",
                 },
                 "club": club_participant,
             },

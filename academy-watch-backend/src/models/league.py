@@ -500,6 +500,8 @@ class UserAccount(db.Model):
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
     last_login_at = db.Column(db.DateTime)
     last_display_name_change_at = db.Column(db.DateTime)
+    # Per-deletion anonymous integrity rows are never authenticatable accounts.
+    is_tombstone = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
 
     # Journalist fields
     is_journalist = db.Column(db.Boolean, default=False, nullable=False)
