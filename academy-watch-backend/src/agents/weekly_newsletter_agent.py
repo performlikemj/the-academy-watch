@@ -37,6 +37,7 @@ from src.models.journey import PlayerJourney, PlayerJourneyEntry, derive_journey
 from src.models.league import AdminSetting, Newsletter, NewsletterCommentary, Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.graph_service import GraphService
+from src.services.player_suppression import without_active_suppression
 from src.utils.fixture_stats_mapper import map_player_stat_block
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 
@@ -1823,6 +1824,7 @@ def _sync_team_fixtures_for_week(
         TrackedPlayer.team_id == team_db_id,
         TrackedPlayer.is_active.is_(True),
         TrackedPlayer.status.notin_(["released", "sold", "left"]),
+        without_active_suppression(TrackedPlayer.player_api_id),
     ).all()
 
     if not tracked:
@@ -2017,6 +2019,7 @@ def fetch_pipeline_report_tool(
         TrackedPlayer.team_id == parent_team_db_id,
         TrackedPlayer.is_active.is_(True),
         TrackedPlayer.status.notin_(["released", "sold", "left"]),
+        without_active_suppression(TrackedPlayer.player_api_id),
     ).all()
 
     # Pre-flight: warn loudly about any player whose linked PlayerJourney
@@ -2273,6 +2276,7 @@ def _detect_recent_loan_returns(
     tracked = TrackedPlayer.query.filter(
         TrackedPlayer.team_id == team_db_id,
         TrackedPlayer.is_active.is_(True),
+        without_active_suppression(TrackedPlayer.player_api_id),
     ).all()
 
     player_ids = [tp.player_api_id for tp in tracked if tp.player_api_id]

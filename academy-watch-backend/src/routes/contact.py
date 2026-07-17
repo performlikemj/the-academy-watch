@@ -36,6 +36,7 @@ from src.services.contact import (
     send_club_courtesy_notice,
     utcnow,
 )
+from src.services.player_suppression import is_player_suppressed, without_active_suppression
 from src.services.trust import is_verified_scout
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,7 @@ def _target_claim(player_api_id: int, *, for_update: bool = False) -> PlayerProf
         player_api_id=player_api_id,
         relationship_type="player",
         status="approved",
-    )
+    ).filter(without_active_suppression(PlayerProfileClaim.player_api_id))
     query = query.order_by(PlayerProfileClaim.reviewed_at.desc(), PlayerProfileClaim.id.desc())
     if for_update:
         query = query.populate_existing().with_for_update()
@@ -262,6 +263,9 @@ def create_contact_request():
             "message",
             max_len=MAX_REQUEST_MESSAGE_LENGTH,
         )
+
+        if is_player_suppressed(player_api_id):
+            return jsonify({"error": "Player is not available for contact", "code": "player_not_claimable"}), 403
 
         claim = _target_claim(player_api_id)
         if claim is None:

@@ -23,6 +23,7 @@ from src.models.league import (
     db,
 )
 from src.models.tracked_player import TrackedPlayer
+from src.services.player_suppression import without_active_suppression
 from src.utils.academy_classifier import _get_latest_season, classify_tracked_player, is_same_club
 from src.utils.geocoding import get_team_coordinates
 from src.utils.slug import resolve_team_by_identifier
@@ -164,7 +165,10 @@ def get_teams():
             logger.info("Filtering for teams with active tracked players")
             query = (
                 query.join(TrackedPlayer, Team.id == TrackedPlayer.team_id)
-                .filter(TrackedPlayer.is_active.is_(True))
+                .filter(
+                    TrackedPlayer.is_active.is_(True),
+                    without_active_suppression(TrackedPlayer.player_api_id),
+                )
                 .distinct()
             )
 
@@ -203,7 +207,9 @@ def get_teams():
             except Exception as sync_ex:
                 logger.error(f"Lazy sync failed: {sync_ex}")
 
-        team_dicts = [team.to_dict() for team in teams]
+        # Counts are filled by the suppression-aware aggregate below; passing a
+        # value here avoids loading the unfiltered relationship in Team.to_dict.
+        team_dicts = [team.to_dict(current_player_count=0) for team in teams]
 
         # Override loan counts with tracked-player counts
         team_db_ids = [t.id for t in teams]
@@ -218,12 +224,14 @@ def get_teams():
                 .filter(
                     TrackedPlayer.team_id.in_(team_db_ids),
                     TrackedPlayer.is_active.is_(True),
+                    without_active_suppression(TrackedPlayer.player_api_id),
                 )
                 .group_by(TrackedPlayer.team_id)
                 .all()
             )
             for td in team_dicts:
                 td["tracked_player_count"] = tp_counts.get(td["id"], 0)
+                td["current_loaned_out_count"] = tp_counts.get(td["id"], 0)
 
         _inject_slugs(team_dicts, teams)
         logger.info(f"Returning {len(team_dicts)} team records")
@@ -307,20 +315,24 @@ def get_team(team_identifier):
     """Get specific team with tracked player summary."""
     try:
         team = resolve_team_by_identifier(team_identifier)
-        team_dict = team.to_dict()
+        tracked = (
+            TrackedPlayer.query.filter_by(team_id=team.id, is_active=True)
+            .filter(without_active_suppression(TrackedPlayer.player_api_id))
+            .all()
+        )
+        team_dict = team.to_dict(current_player_count=len(tracked))
         team_dict["slug"] = _get_team_slug(team)
 
         # Include tracked player count + status breakdown
-        tracked = TrackedPlayer.query.filter_by(team_id=team.id, is_active=True).all()
         team_dict["tracked_player_count"] = len(tracked)
+        team_dict["current_loaned_out_count"] = len(tracked)
         team_dict["tracked_status_breakdown"] = {}
         for tp in tracked:
             status = tp.status or "unknown"
             team_dict["tracked_status_breakdown"][status] = team_dict["tracked_status_breakdown"].get(status, 0) + 1
 
         # Keep active_loans for backward compat (e.g. old newsletter code)
-        active_players = team.unique_active_players()
-        team_dict["active_loans"] = [p.to_dict() for p in active_players]
+        team_dict["active_loans"] = [p.to_dict() for p in tracked]
 
         return jsonify(team_dict)
     except NotFound:
@@ -362,6 +374,8 @@ def get_team_loans(team_identifier):
 
         if active_only:
             tp_query = tp_query.filter(TrackedPlayer.is_active.is_(True))
+
+        tp_query = tp_query.filter(without_active_suppression(TrackedPlayer.player_api_id))
 
         if pathway_status:
             tp_query = tp_query.filter(TrackedPlayer.status == pathway_status)
@@ -529,7 +543,10 @@ def get_team_loans_by_season(team_identifier: str, season: int):
         slug = f"{season}-{str(season + 1)[-2:]}"
         active_only = request.args.get("active_only", "false").lower() in ("true", "1", "yes", "y")
 
-        q = TrackedPlayer.query.filter(TrackedPlayer.team_id == team.id)
+        q = TrackedPlayer.query.filter(
+            TrackedPlayer.team_id == team.id,
+            without_active_suppression(TrackedPlayer.player_api_id),
+        )
         if active_only:
             q = q.filter(TrackedPlayer.is_active.is_(True))
 
@@ -589,7 +606,11 @@ def get_academy_network(team_identifier):
         journeys = []
 
         if parent_team:
-            tracked = TrackedPlayer.query.filter_by(team_id=parent_team.id, is_active=True).all()
+            tracked = (
+                TrackedPlayer.query.filter_by(team_id=parent_team.id, is_active=True)
+                .filter(without_active_suppression(TrackedPlayer.player_api_id))
+                .all()
+            )
             for tp in tracked:
                 tp_lookup[tp.player_api_id] = tp
 
@@ -603,7 +624,8 @@ def get_academy_network(team_identifier):
         else:
             # Fallback: legacy JSONB query (before backfill migration runs)
             journeys = PlayerJourney.query.filter(
-                PlayerJourney.academy_club_ids.contains(cast([team_api_id], PG_JSONB))
+                PlayerJourney.academy_club_ids.contains(cast([team_api_id], PG_JSONB)),
+                without_active_suppression(PlayerJourney.player_api_id),
             ).all()
 
         if not journeys and not tp_lookup:

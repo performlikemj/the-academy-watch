@@ -19,6 +19,12 @@ from datetime import UTC, date, datetime, timedelta
 from src.models.follow import PlayerShadow, PlayerShadowStats
 from src.models.league import db
 from src.models.tracked_player import TrackedPlayer
+from src.services.player_suppression import (
+    PlayerSuppressedError,
+    active_suppressed_player_ids,
+    is_player_suppressed,
+    without_active_suppression,
+)
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -95,6 +101,9 @@ def mint_shadow(player_api_id, seed=None, requested_by=None, api_client=None):
     falls back to the ``seed`` fields carried by the search result so the mint
     always succeeds offline.
     """
+    if is_player_suppressed(player_api_id):
+        raise PlayerSuppressedError(player_api_id)
+
     existing = PlayerShadow.query.filter_by(player_api_id=player_api_id).first()
     if existing:
         if not existing.is_active:
@@ -202,6 +211,10 @@ def search_players(q, api_client=None):
             break
 
     pids = [r["player_api_id"] for r in results]
+    suppressed_ids = active_suppressed_player_ids(pids)
+    if suppressed_ids:
+        results = [r for r in results if r["player_api_id"] not in suppressed_ids]
+        pids = [r["player_api_id"] for r in results]
     tracked_ids: set[int] = set()
     shadow_ids: set[int] = set()
     if pids:
@@ -212,13 +225,18 @@ def search_players(q, api_client=None):
                 TrackedPlayer.player_api_id.in_(pids),
                 TrackedPlayer.is_active.is_(True),
                 TrackedPlayer.data_source != "owning-club",
+                without_active_suppression(TrackedPlayer.player_api_id),
             )
             .all()
         }
         shadow_ids = {
             row[0]
             for row in db.session.query(PlayerShadow.player_api_id)
-            .filter(PlayerShadow.player_api_id.in_(pids), PlayerShadow.is_active.is_(True))
+            .filter(
+                PlayerShadow.player_api_id.in_(pids),
+                PlayerShadow.is_active.is_(True),
+                without_active_suppression(PlayerShadow.player_api_id),
+            )
             .all()
         }
     for result in results:
@@ -245,7 +263,11 @@ def user_shadow_follow_count(user_id: int) -> int:
     shadow_ids = {
         row[0]
         for row in db.session.query(PlayerShadow.player_api_id)
-        .filter(PlayerShadow.player_api_id.in_(pids), PlayerShadow.is_active.is_(True))
+        .filter(
+            PlayerShadow.player_api_id.in_(pids),
+            PlayerShadow.is_active.is_(True),
+            without_active_suppression(PlayerShadow.player_api_id),
+        )
         .all()
     }
     return len(shadow_ids)
@@ -341,7 +363,10 @@ def refresh_shadows(limit=25, cursor=None, api_client=None) -> dict:
     client = _resolve_client(api_client)
     limit = max(1, min(int(limit or 25), 200))
 
-    query = PlayerShadow.query.filter(PlayerShadow.is_active.is_(True))
+    query = PlayerShadow.query.filter(
+        PlayerShadow.is_active.is_(True),
+        without_active_suppression(PlayerShadow.player_api_id),
+    )
     if cursor:
         query = query.filter(PlayerShadow.id > cursor).order_by(PlayerShadow.id.asc())
     else:

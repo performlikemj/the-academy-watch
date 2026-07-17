@@ -42,6 +42,7 @@ from src.models.pulse import PlayerPulse
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
+from src.services.player_suppression import without_active_suppression
 from src.utils.player_status import player_facing_status
 
 logger = logging.getLogger(__name__)
@@ -128,7 +129,11 @@ def _all_followed_player_ids() -> set[int]:
     from src.services.follow_resolver import resolve_list
 
     ids: set[int] = set()
-    for (pid,) in db.session.query(ScoutWatchlistEntry.player_api_id).distinct():
+    for (pid,) in (
+        db.session.query(ScoutWatchlistEntry.player_api_id)
+        .filter(without_active_suppression(ScoutWatchlistEntry.player_api_id))
+        .distinct()
+    ):
         if pid is not None:
             ids.add(int(pid))
     for follow_list in FollowList.query.filter_by(is_active=True).all():
@@ -150,6 +155,7 @@ def _player_context(player_api_id: int) -> dict | None:
     tracked = (
         TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
         .filter(TrackedPlayer.data_source != "owning-club")
+        .filter(without_active_suppression(TrackedPlayer.player_api_id))
         .order_by(TrackedPlayer.id)
         .first()
     )
@@ -167,7 +173,11 @@ def _player_context(player_api_id: int) -> dict | None:
             "status": status,
             "current_level": level,
         }
-    shadow = PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True).first()
+    shadow = (
+        PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True)
+        .filter(without_active_suppression(PlayerShadow.player_api_id))
+        .first()
+    )
     if shadow is not None:
         return {
             "kind": "shadow",

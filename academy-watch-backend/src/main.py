@@ -18,6 +18,7 @@ from werkzeug.exceptions import HTTPException
 # includes them even before a route/service imports the model directly.
 import src.models.account  # noqa: E402, F401
 import src.models.contact  # noqa: E402, F401
+import src.models.player_suppression  # noqa: E402, F401
 import src.models.season_rollup  # noqa: E402, F401
 import src.models.transfer_event  # noqa: E402, F401
 import src.models.trust  # noqa: E402, F401
@@ -40,6 +41,7 @@ from src.routes.journalist import journalist_bp
 from src.routes.journey import journey_bp
 from src.routes.newsletter_deadline import newsletter_deadline_bp
 from src.routes.ops import ops_bp
+from src.routes.player_suppression import player_suppression_bp
 from src.routes.players import players_bp
 from src.routes.scout import scout_bp
 from src.routes.season_rollup import season_rollup_bp
@@ -112,6 +114,7 @@ app.register_blueprint(showcase_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")
 app.register_blueprint(contact_bp, url_prefix="/api")
 app.register_blueprint(account_bp, url_prefix="/api")
+app.register_blueprint(player_suppression_bp, url_prefix="/api")
 app.register_blueprint(api_bp, url_prefix="/api")
 app.register_blueprint(auth_bp, url_prefix="/api")
 app.register_blueprint(journalist_bp, url_prefix="/api")

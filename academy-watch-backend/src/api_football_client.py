@@ -188,6 +188,7 @@ def _academy_watch_for_team(
         # models package is delicate, so resolve models only when needed.
         from src.models.league import AcademyAppearance, AcademyPlayerSeasonStats
         from src.models.tracked_player import TrackedPlayer
+        from src.services.player_suppression import without_active_suppression
     except Exception as exc:
         logger.warning(f"academy_watch: model import failed for team {parent_team_db_id}: {exc}")
         return empty
@@ -199,6 +200,7 @@ def _academy_watch_for_team(
                 TrackedPlayer.team_id == parent_team_db_id,
                 TrackedPlayer.status == "academy",
                 TrackedPlayer.is_active.is_(True),
+                without_active_suppression(TrackedPlayer.player_api_id),
             )
             .all()
         )
@@ -3005,6 +3007,7 @@ class APIFootballClient:
         """Generate match-week summaries for all active loanees of one parent club."""
         from src.models.league import Team
         from src.models.tracked_player import TrackedPlayer
+        from src.services.player_suppression import without_active_suppression
 
         start_str, end_str = week_start.isoformat(), week_end.isoformat()
         logger.info(
@@ -3020,6 +3023,7 @@ class APIFootballClient:
             .filter(
                 TrackedPlayer.team_id == parent_team_db_id,
                 TrackedPlayer.is_active.is_(True),
+                without_active_suppression(TrackedPlayer.player_api_id),
             )
             .all()
             if db_session

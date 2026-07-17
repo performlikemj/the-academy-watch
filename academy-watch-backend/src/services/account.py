@@ -39,6 +39,7 @@ from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.trust import ContentReport, ScoutVerification
 from src.services.club_registry import active_manager_program_ids
+from src.services.player_suppression import active_suppressed_player_ids
 
 DELETED_DISPLAY_NAME = "Account deleted"
 DELETED_EMAIL_PLACEHOLDER = "account-deleted@invalid"
@@ -80,8 +81,8 @@ def _iso(value):
     return value.isoformat() if value else None
 
 
-def _follow_dict(follow: Follow) -> dict:
-    return {
+def _follow_dict(follow: Follow, suppressed_player_ids: set[int] | None = None) -> dict:
+    payload = {
         "id": follow.id,
         "kind": follow.kind,
         "selector": follow.selector,
@@ -89,9 +90,14 @@ def _follow_dict(follow: Follow) -> dict:
         "note": follow.note,
         "created_at": _iso(follow.created_at),
     }
+    player_api_id = (follow.selector or {}).get("player_api_id") if follow.kind == "player" else None
+    if player_api_id in (suppressed_player_ids or set()):
+        payload["label"] = "Unavailable"
+        payload["unavailable"] = True
+    return payload
 
 
-def _follow_list_dict(follow_list: FollowList) -> dict:
+def _follow_list_dict(follow_list: FollowList, suppressed_player_ids: set[int] | None = None) -> dict:
     follows = follow_list.follows.order_by(Follow.created_at.asc(), Follow.id.asc()).all()
     return {
         "id": follow_list.id,
@@ -102,7 +108,7 @@ def _follow_list_dict(follow_list: FollowList) -> dict:
         "player_cap": follow_list.player_cap,
         "created_at": _iso(follow_list.created_at),
         "updated_at": _iso(follow_list.updated_at),
-        "follows": [_follow_dict(follow) for follow in follows],
+        "follows": [_follow_dict(follow, suppressed_player_ids) for follow in follows],
     }
 
 
@@ -231,6 +237,34 @@ def build_account_export(user: UserAccount) -> dict:
             .all()
         )
 
+    watchlist_entries = (
+        ScoutWatchlistEntry.query.filter_by(user_account_id=user.id)
+        .order_by(ScoutWatchlistEntry.created_at.asc(), ScoutWatchlistEntry.id.asc())
+        .all()
+    )
+    follow_lists = (
+        FollowList.query.filter_by(user_account_id=user.id)
+        .order_by(FollowList.created_at.asc(), FollowList.id.asc())
+        .all()
+    )
+    list_ids = [row.id for row in follow_lists]
+    direct_follow_ids = []
+    if list_ids:
+        direct_follow_ids = [
+            (row.selector or {}).get("player_api_id")
+            for row in Follow.query.filter(Follow.list_id.in_(list_ids), Follow.kind == "player").all()
+        ]
+    suppressed_player_ids = active_suppressed_player_ids(
+        [row.player_api_id for row in watchlist_entries] + direct_follow_ids
+    )
+
+    watchlist_payloads = []
+    for row in watchlist_entries:
+        payload = row.to_dict()
+        if row.player_api_id in suppressed_player_ids:
+            payload["unavailable"] = True
+        watchlist_payloads.append(payload)
+
     return {
         "exported_at": datetime.now(UTC).isoformat(),
         "account": account,
@@ -240,18 +274,8 @@ def build_account_export(user: UserAccount) -> dict:
             .order_by(ScoutVerification.submitted_at.asc(), ScoutVerification.id.asc())
             .all()
         ],
-        "watchlist_entries": [
-            row.to_dict()
-            for row in ScoutWatchlistEntry.query.filter_by(user_account_id=user.id)
-            .order_by(ScoutWatchlistEntry.created_at.asc(), ScoutWatchlistEntry.id.asc())
-            .all()
-        ],
-        "follow_lists": [
-            _follow_list_dict(row)
-            for row in FollowList.query.filter_by(user_account_id=user.id)
-            .order_by(FollowList.created_at.asc(), FollowList.id.asc())
-            .all()
-        ],
+        "watchlist_entries": watchlist_payloads,
+        "follow_lists": [_follow_list_dict(row, suppressed_player_ids) for row in follow_lists],
         "showcase_claims": [claim.to_dict() for claim in claims],
         "showcase_profiles": [_showcase_profile_dict(profile, own_claim_ids) for profile in profiles],
         "submitted_links": [
@@ -387,6 +411,7 @@ def _redact_string_identity_columns(schema: _SchemaView, email: str) -> tuple[in
         ("club_program_profile_revisions", "reviewed_by"),
         ("club_program_managers", "granted_by"),
         ("club_program_managers", "revoked_by"),
+        ("player_suppressions", "decided_by"),
     )
     for table, column in targets:
         if not schema.has_columns(table, column):

@@ -48,6 +48,13 @@ from src.services.player_shadow_service import (
     search_players,
     user_shadow_follow_count,
 )
+from src.services.player_suppression import (
+    PlayerSuppressedError,
+    active_suppressed_player_ids,
+    is_player_suppressed,
+    neutral_player_not_found,
+    without_active_suppression,
+)
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.sanitize import sanitize_plain_text
 
@@ -457,6 +464,7 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True):
         # owning-club rows are deprecated (senior signings, not academy
         # products) — never surface them even before a data repair runs.
         .filter(TrackedPlayer.data_source != "owning-club")
+        .filter(without_active_suppression(TrackedPlayer.player_api_id))
         .filter(_preferred_row_filter())
         # to_public_dict touches .team and .current_club — eager-load so a
         # page (or 1000-row CSV export) doesn't lazy-load per distinct club.
@@ -842,6 +850,7 @@ def scout_compare():
             tracked_player = (
                 TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True)
                 .filter(TrackedPlayer.data_source != "owning-club")
+                .filter(without_active_suppression(TrackedPlayer.player_api_id))
                 .order_by(TrackedPlayer.id)
                 .first()
             )
@@ -1048,13 +1057,16 @@ def _watched_player_dicts(player_api_ids):
     return {p["player_id"]: p for p in players}
 
 
-def _entry_payload(entry, player=None):
-    return {
+def _entry_payload(entry, player=None, *, unavailable=False):
+    payload = {
         "player_api_id": entry.player_api_id,
         "note": entry.note,
         "created_at": entry.created_at.isoformat() if entry.created_at else None,
         "player": player,
     }
+    if unavailable:
+        payload["unavailable"] = True
+    return payload
 
 
 @scout_bp.route("/scout/watchlist", methods=["GET"])
@@ -1071,10 +1083,18 @@ def scout_watchlist():
             .order_by(ScoutWatchlistEntry.created_at.desc(), ScoutWatchlistEntry.id.desc())
             .all()
         )
+        suppressed_ids = active_suppressed_player_ids(entry.player_api_id for entry in entries)
         players = _watched_player_dicts([entry.player_api_id for entry in entries])
         return jsonify(
             {
-                "entries": [_entry_payload(entry, players.get(entry.player_api_id)) for entry in entries],
+                "entries": [
+                    _entry_payload(
+                        entry,
+                        players.get(entry.player_api_id),
+                        unavailable=entry.player_api_id in suppressed_ids,
+                    )
+                    for entry in entries
+                ],
                 "digest_opt_in": bool(user.scout_digest_opt_in),
                 "scout_tier": user.scout_tier or "free",
             }
@@ -1104,6 +1124,10 @@ def scout_watchlist_add():
             return jsonify({"error": "player_api_id must be a positive integer"}), 400
 
         existing = ScoutWatchlistEntry.query.filter_by(user_account_id=user.id, player_api_id=player_api_id).first()
+        if is_player_suppressed(player_api_id):
+            if existing is not None:
+                return jsonify({"entry": _entry_payload(existing, unavailable=True)}), 200
+            return neutral_player_not_found()
         if existing:
             _mirror_watchlist_add(user, player_api_id, note=existing.note)
             players = _watched_player_dicts([player_api_id])
@@ -1115,9 +1139,12 @@ def scout_watchlist_add():
         active = (
             TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
             .filter(TrackedPlayer.data_source != "owning-club")
+            .filter(without_active_suppression(TrackedPlayer.player_api_id))
             .first()
         )
         if not active:
+            if is_player_suppressed(player_api_id):
+                return neutral_player_not_found()
             return jsonify({"error": "No active tracked player with that id"}), 404
 
         if ScoutWatchlistEntry.query.filter_by(user_account_id=user.id).count() >= WATCHLIST_LIMIT:
@@ -1194,7 +1221,15 @@ def scout_watchlist_note(player_api_id):
         entry.note = cleaned or None
         db.session.commit()
         players = _watched_player_dicts([player_api_id])
-        return jsonify({"entry": _entry_payload(entry, players.get(player_api_id))})
+        return jsonify(
+            {
+                "entry": _entry_payload(
+                    entry,
+                    players.get(player_api_id),
+                    unavailable=is_player_suppressed(player_api_id),
+                )
+            }
+        )
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error in scout_watchlist_note: {e}")
@@ -1363,11 +1398,16 @@ def _player_display_name(player_api_id):
     tracked = (
         TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
         .filter(TrackedPlayer.data_source != "owning-club")
+        .filter(without_active_suppression(TrackedPlayer.player_api_id))
         .first()
     )
     if tracked:
         return tracked.player_name
-    shadow = PlayerShadow.query.filter_by(player_api_id=player_api_id).first()
+    shadow = (
+        PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True)
+        .filter(without_active_suppression(PlayerShadow.player_api_id))
+        .first()
+    )
     return shadow.player_name if shadow else None
 
 
@@ -1449,46 +1489,62 @@ def _follow_label_maps(follows):
         elif follow.kind == "academy_club" and selector.get("team_id"):
             team_ids.add(selector["team_id"])
 
+    unavailable_player_ids = active_suppressed_player_ids(player_ids)
     name_map = {}
     if player_ids:
         for tp in TrackedPlayer.query.filter(
             TrackedPlayer.player_api_id.in_(player_ids),
             TrackedPlayer.is_active.is_(True),
             TrackedPlayer.data_source != "owning-club",
+            without_active_suppression(TrackedPlayer.player_api_id),
         ).all():
             name_map.setdefault(tp.player_api_id, tp.player_name)
-        remaining = player_ids - set(name_map)
+        remaining = player_ids - set(name_map) - unavailable_player_ids
         if remaining:
-            for shadow in PlayerShadow.query.filter(PlayerShadow.player_api_id.in_(remaining)).all():
+            for shadow in PlayerShadow.query.filter(
+                PlayerShadow.player_api_id.in_(remaining),
+                PlayerShadow.is_active.is_(True),
+                without_active_suppression(PlayerShadow.player_api_id),
+            ).all():
                 name_map.setdefault(shadow.player_api_id, shadow.player_name)
 
     team_map = {}
     if team_ids:
         for team in Team.query.filter(Team.id.in_(team_ids)).all():
             team_map.setdefault(team.id, team.name)
-    return name_map, team_map
+    return name_map, team_map, unavailable_player_ids
 
 
-def _follow_read_payload(follow, name_map, team_map):
+def _follow_read_payload(follow, name_map, team_map, unavailable_player_ids=None):
     """A follow dict whose label is derived at read time from fresh names."""
     selector = follow.selector or {}
+    unavailable = bool(follow.kind == "player" and selector.get("player_api_id") in (unavailable_player_ids or set()))
     if follow.kind == "player":
         name = name_map.get(selector.get("player_api_id"))
     elif follow.kind == "academy_club":
         name = team_map.get(selector.get("team_id"))
     else:
         name = None
-    return {
+    payload = {
         "id": follow.id,
         "kind": follow.kind,
         "selector": follow.selector,
-        "label": derive_label(follow.kind, selector, name),
+        "label": "Unavailable" if unavailable else derive_label(follow.kind, selector, name),
         "note": follow.note,
         "created_at": follow.created_at.isoformat() if follow.created_at else None,
     }
+    if unavailable:
+        payload["unavailable"] = True
+    return payload
 
 
-def _follow_list_payload(follow_list, follows=None, name_map=None, team_map=None):
+def _follow_list_payload(
+    follow_list,
+    follows=None,
+    name_map=None,
+    team_map=None,
+    unavailable_player_ids=None,
+):
     """List payload with embedded read-time-labelled follows.
 
     GET /scout/lists passes pre-batched ``follows`` + name/team maps (one query
@@ -1497,7 +1553,7 @@ def _follow_list_payload(follow_list, follows=None, name_map=None, team_map=None
     """
     if follows is None:
         follows = follow_list.follows.order_by(Follow.created_at.asc(), Follow.id.asc()).all()
-        name_map, team_map = _follow_label_maps(follows)
+        name_map, team_map, unavailable_player_ids = _follow_label_maps(follows)
     return {
         "id": follow_list.id,
         "name": follow_list.name,
@@ -1506,7 +1562,15 @@ def _follow_list_payload(follow_list, follows=None, name_map=None, team_map=None
         "is_default": follow_list.is_default,
         "player_cap": follow_list.player_cap,
         "follow_count": len(follows),
-        "follows": [_follow_read_payload(f, name_map or {}, team_map or {}) for f in follows],
+        "follows": [
+            _follow_read_payload(
+                f,
+                name_map or {},
+                team_map or {},
+                unavailable_player_ids=unavailable_player_ids,
+            )
+            for f in follows
+        ],
         "created_at": follow_list.created_at.isoformat() if follow_list.created_at else None,
         "updated_at": follow_list.updated_at.isoformat() if follow_list.updated_at else None,
     }
@@ -1567,12 +1631,16 @@ def scout_lists():
             )
             for follow in all_follows:
                 follows_by_list.setdefault(follow.list_id, []).append(follow)
-        name_map, team_map = _follow_label_maps(all_follows)
+        name_map, team_map, unavailable_player_ids = _follow_label_maps(all_follows)
         return jsonify(
             {
                 "lists": [
                     _follow_list_payload(
-                        fl, follows=follows_by_list.get(fl.id, []), name_map=name_map, team_map=team_map
+                        fl,
+                        follows=follows_by_list.get(fl.id, []),
+                        name_map=name_map,
+                        team_map=team_map,
+                        unavailable_player_ids=unavailable_player_ids,
                     )
                     for fl in lists
                 ]
@@ -1702,6 +1770,8 @@ def scout_list_add_follow(list_id):
         clean_selector, error = validate_selector(kind, payload.get("selector"))
         if error:
             return jsonify({"error": error}), 400
+        if kind == "player" and is_player_suppressed(clean_selector["player_api_id"]):
+            return neutral_player_not_found()
 
         if follow_list.follows.count() >= MAX_FOLLOWS_PER_LIST:
             return jsonify({"error": f"follow limit reached for this list ({MAX_FOLLOWS_PER_LIST})"}), 409
@@ -1725,12 +1795,17 @@ def scout_list_add_follow(list_id):
             tracked = (
                 TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
                 .filter(TrackedPlayer.data_source != "owning-club")
+                .filter(without_active_suppression(TrackedPlayer.player_api_id))
                 .first()
             )
             if tracked:
                 label = derive_label("player", clean_selector, tracked.player_name)
             else:
-                shadow = PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True).first()
+                shadow = (
+                    PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True)
+                    .filter(without_active_suppression(PlayerShadow.player_api_id))
+                    .first()
+                )
                 # Cap distinct worldwide follows per user (a new shadow, or an
                 # existing shadow this user does not already follow).
                 if not _user_already_follows_player(user.id, player_api_id):
@@ -1751,6 +1826,9 @@ def scout_list_add_follow(list_id):
         db.session.add(follow)
         db.session.commit()
         return jsonify({"follow": _follow_payload(follow), "shadow_created": shadow_created}), 201
+    except PlayerSuppressedError:
+        db.session.rollback()
+        return neutral_player_not_found()
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error in scout_list_add_follow: {e}")
@@ -1936,6 +2014,7 @@ def scout_admin_backfill_follow_lists():
                         TrackedPlayer.player_api_id.in_(pids),
                         TrackedPlayer.is_active.is_(True),
                         TrackedPlayer.data_source != "owning-club",
+                        without_active_suppression(TrackedPlayer.player_api_id),
                     ).all()
                 }
             for entry in entries:
