@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from flask import Blueprint, abort, g, jsonify, request
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 from src.auth import _ensure_user_account, _safe_error_payload, require_user_auth
 from src.extensions import limiter
@@ -13,16 +13,27 @@ from src.models.contact import ContactMessage, ContactOutcome, ContactRequest
 from src.models.league import UserAccount, db
 from src.models.showcase import PlayerProfileClaim
 from src.models.trust import ScoutVerification
+from src.services.club_registry import (
+    active_manager_program_ids,
+    is_active_program_manager,
+)
 from src.services.contact import (
+    APPROACH_RULES_WARNING,
+    ROUTING_CLUB_INCLUDED,
+    ROUTING_CLUB_NOTIFIED,
     add_audit_event,
     clean_plain_text,
     contact_rail_enabled,
     decline_cooldown_cutoff,
     decline_cooldown_days,
     expire_if_due,
+    messaging_is_open,
     parse_occurred_at,
+    request_can_expire,
     request_expires_at,
     require_contact_rail,
+    routing_mode_for_claim,
+    send_club_courtesy_notice,
     utcnow,
 )
 from src.services.trust import is_verified_scout
@@ -36,6 +47,7 @@ OUTCOME_STAGES = {"contacted", "trial_scheduled", "trial_completed", "signed", "
 MAX_REQUEST_MESSAGE_LENGTH = 2000
 MAX_THREAD_MESSAGE_LENGTH = 2000
 MAX_OUTCOME_NOTES_LENGTH = 2000
+MAX_CLUB_CONSENT_NOTE_LENGTH = 1000
 MAX_PAGE_SIZE = 200
 
 REQUEST_RATE_LIMIT = "10 per day"
@@ -140,8 +152,47 @@ def _is_claim_owner(contact_request: ContactRequest, user: UserAccount) -> bool:
     )
 
 
+def _is_club_manager(contact_request: ContactRequest, user: UserAccount) -> bool:
+    return bool(
+        contact_request.routing_mode == ROUTING_CLUB_INCLUDED
+        and contact_request.club_program_id is not None
+        and is_active_program_manager(user.id, contact_request.club_program_id)
+    )
+
+
+def _participant_role(contact_request: ContactRequest, user: UserAccount) -> str | None:
+    """Resolve a stable role, with deterministic overlap precedence."""
+    if contact_request.scout_user_id == user.id:
+        return "scout"
+    if _is_claim_owner(contact_request, user):
+        return "player"
+    if _is_club_manager(contact_request, user):
+        return "club"
+    return None
+
+
 def _is_participant(contact_request: ContactRequest, user: UserAccount) -> bool:
-    return contact_request.scout_user_id == user.id or _is_claim_owner(contact_request, user)
+    return _participant_role(contact_request, user) is not None
+
+
+def _active_request_filter():
+    return ContactRequest.status.in_(ACTIVE_REQUEST_STATUSES)
+
+
+def _messaging_gate_error(contact_request: ContactRequest, *, sending: bool):
+    if contact_request.routing_mode == ROUTING_CLUB_INCLUDED and contact_request.club_consent_status == "declined":
+        return jsonify({"error": "club consent was declined", "code": "club_consent_declined"}), 409
+    if contact_request.status != "accepted":
+        error = (
+            "messages can be sent only for accepted requests"
+            if sending
+            else "messages are available only for accepted requests"
+        )
+        return jsonify({"error": error}), 409
+    if contact_request.routing_mode == ROUTING_CLUB_INCLUDED:
+        if contact_request.club_consent_status != "granted":
+            return jsonify({"error": "club consent is required before messaging", "code": "club_consent_required"}), 409
+    return None
 
 
 def _expire_authorized_request(contact_request: ContactRequest) -> bool:
@@ -156,7 +207,7 @@ def _participant_request(request_id: str, user: UserAccount):
     if contact_request is None or not _is_participant(contact_request, user):
         return None, (jsonify({"error": "contact request not found"}), 404)
     if (
-        contact_request.status == "pending"
+        request_can_expire(contact_request)
         and contact_request.expires_at is not None
         and contact_request.expires_at <= utcnow()
     ):
@@ -167,7 +218,17 @@ def _participant_request(request_id: str, user: UserAccount):
 
 def _expire_visible_rows(query) -> None:
     due = (
-        query.filter(ContactRequest.status == "pending", ContactRequest.expires_at <= utcnow())
+        query.filter(
+            or_(
+                ContactRequest.status == "pending",
+                and_(
+                    ContactRequest.status == "accepted",
+                    ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
+                    ContactRequest.club_consent_status == "pending",
+                ),
+            ),
+            ContactRequest.expires_at <= utcnow(),
+        )
         .order_by(ContactRequest.id.asc())
         .populate_existing()
         .with_for_update()
@@ -220,7 +281,13 @@ def create_contact_request():
             db.session.rollback()
             return jsonify({"error": "Player is not available for contact", "code": "player_not_claimable"}), 403
 
-        active = matching.filter(ContactRequest.status.in_(ACTIVE_REQUEST_STATUSES)).first()
+        routing_mode = routing_mode_for_claim(claim)
+        permission_attestation = payload.get("permission_attestation") is True
+        if routing_mode == ROUTING_CLUB_NOTIFIED and not permission_attestation:
+            db.session.rollback()
+            return jsonify({"error": APPROACH_RULES_WARNING, "code": "attestation_required"}), 400
+
+        active = matching.filter(_active_request_filter()).first()
         if active is not None:
             active_payload = active.to_dict()
             db.session.rollback()
@@ -245,19 +312,25 @@ def create_contact_request():
             db.session.rollback()
             return jsonify(
                 {
-                    "error": "This player declined a recent request; please wait before contacting them again",
+                    "error": "A recent request was declined; please wait before contacting this player again",
                     "code": "decline_cooldown_active",
                     "cooldown_days": decline_cooldown_days(),
                 }
             ), 409
 
         now = utcnow()
+        club_program_id = claim.club_program_id if routing_mode != "direct" else None
         contact_request = ContactRequest(
             scout_user_id=user.id,
             player_api_id=player_api_id,
             claim_id=claim.id,
             message=message,
             status="pending",
+            routing_mode=routing_mode,
+            club_program_id=club_program_id,
+            club_consent_status="pending" if routing_mode == ROUTING_CLUB_INCLUDED else None,
+            permission_attestation=permission_attestation if routing_mode == ROUTING_CLUB_NOTIFIED else False,
+            permission_attested_at=now if routing_mode == ROUTING_CLUB_NOTIFIED else None,
             created_at=now,
             expires_at=request_expires_at(now=now),
         )
@@ -268,15 +341,31 @@ def create_contact_request():
                 contact_request,
                 "created",
                 actor_user_id=user.id,
-                metadata={"player_api_id": player_api_id, "claim_id": claim.id},
+                metadata={
+                    "player_api_id": player_api_id,
+                    "claim_id": claim.id,
+                    "routing_mode": routing_mode,
+                    "club_program_id": club_program_id,
+                },
                 created_at=now,
             )
+            if routing_mode == ROUTING_CLUB_NOTIFIED:
+                add_audit_event(
+                    contact_request,
+                    "scout_permission_attested",
+                    actor_user_id=user.id,
+                    metadata={
+                        "club_program_id": club_program_id,
+                        "warning": "approach_rules_permission",
+                    },
+                    created_at=now,
+                )
             db.session.commit()
         except IntegrityError:
             db.session.rollback()
             active = (
                 ContactRequest.query.filter_by(scout_user_id=user.id, player_api_id=player_api_id)
-                .filter(ContactRequest.status.in_(ACTIVE_REQUEST_STATUSES))
+                .filter(_active_request_filter())
                 .first()
             )
             if active is not None:
@@ -288,6 +377,20 @@ def create_contact_request():
                     }
                 ), 409
             raise
+        if routing_mode == ROUTING_CLUB_NOTIFIED:
+            notice_metadata = send_club_courtesy_notice(contact_request)
+            if notice_metadata is not None:
+                try:
+                    add_audit_event(
+                        contact_request,
+                        "club_notice_sent",
+                        actor_user_id=None,
+                        metadata=notice_metadata,
+                    )
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                    logger.exception("Failed to record club notice audit for request %s", contact_request.id)
         return jsonify({"contact_request": contact_request.to_dict()}), 201
     except ValueError as exc:
         db.session.rollback()
@@ -317,8 +420,14 @@ def list_contact_requests():
                 status="approved",
             )
             query = ContactRequest.query.filter(ContactRequest.claim_id.in_(claim_ids))
+        elif box == "club":
+            program_ids = active_manager_program_ids(user.id)
+            query = ContactRequest.query.filter(
+                ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
+                ContactRequest.club_program_id.in_(program_ids),
+            )
         else:
-            return jsonify({"error": "box must be sent or inbox"}), 400
+            return jsonify({"error": "box must be sent, inbox, or club"}), 400
 
         _expire_visible_rows(query)
         limit, offset = _pagination()
@@ -354,6 +463,9 @@ def _respond_to_request(request_id: str, action: str):
             return jsonify({"error": "Only the player claim owner can respond"}), 403
         if _expire_authorized_request(contact_request):
             return jsonify({"error": "contact request has expired", "code": "request_expired"}), 409
+        if contact_request.routing_mode == ROUTING_CLUB_INCLUDED and contact_request.club_consent_status == "declined":
+            db.session.rollback()
+            return jsonify({"error": "club consent was declined", "code": "club_consent_declined"}), 409
         if contact_request.status != "pending":
             db.session.rollback()
             return jsonify({"error": f"cannot {action} a {contact_request.status} request"}), 409
@@ -383,6 +495,70 @@ def accept_contact_request(request_id: str):
 @require_user_auth
 def decline_contact_request(request_id: str):
     return _respond_to_request(request_id, "decline")
+
+
+@contact_bp.route("/contact/requests/<string:request_id>/club-consent", methods=["POST"])
+@require_contact_rail
+@require_user_auth
+def set_club_consent(request_id: str):
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        contact_request = ContactRequest.query.filter_by(id=request_id).populate_existing().with_for_update().first()
+        if (
+            contact_request is None
+            or contact_request.routing_mode != ROUTING_CLUB_INCLUDED
+            or not _is_club_manager(contact_request, user)
+        ):
+            db.session.rollback()
+            return jsonify({"error": "contact request not found"}), 404
+        if _expire_authorized_request(contact_request):
+            return jsonify({"error": "contact request has expired", "code": "request_expired"}), 409
+        if contact_request.status not in ACTIVE_REQUEST_STATUSES:
+            db.session.rollback()
+            return jsonify({"error": f"club consent cannot change a {contact_request.status} request"}), 409
+        if contact_request.club_consent_status != "pending":
+            db.session.rollback()
+            return jsonify({"error": "club consent has already been decided"}), 409
+
+        payload = _json_object()
+        action = payload.get("action")
+        if not isinstance(action, str) or action.strip().lower() not in {"grant", "decline"}:
+            raise ValueError("action must be grant or decline")
+        action = action.strip().lower()
+        note = clean_plain_text(
+            payload.get("note"),
+            "note",
+            max_len=MAX_CLUB_CONSENT_NOTE_LENGTH,
+            required=False,
+        )
+
+        now = utcnow()
+        contact_request.club_consent_status = "granted" if action == "grant" else "declined"
+        contact_request.club_consent_at = now
+        contact_request.club_consent_by_user_id = user.id
+        contact_request.club_consent_note = note
+        if action == "decline":
+            contact_request.status = "declined"
+            contact_request.responded_at = now
+        event_type = "club_consent_granted" if action == "grant" else "club_consent_declined"
+        add_audit_event(
+            contact_request,
+            event_type,
+            actor_user_id=user.id,
+            metadata={"note": note} if note else {},
+            created_at=now,
+        )
+        db.session.commit()
+        return jsonify({"contact_request": contact_request.to_dict()})
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("Failed to set club consent for request %s", request_id)
+        return jsonify(_safe_error_payload(exc, "Failed to set club consent")), 500
 
 
 @contact_bp.route("/contact/requests/<string:request_id>/withdraw", methods=["POST"])
@@ -425,8 +601,8 @@ def list_contact_messages(request_id: str):
         contact_request, error = _participant_request(request_id, user)
         if error:
             return error
-        if contact_request.status != "accepted":
-            return jsonify({"error": "messages are available only for accepted requests"}), 409
+        if not messaging_is_open(contact_request):
+            return _messaging_gate_error(contact_request, sending=False)
 
         limit, offset = _pagination()
         query = ContactMessage.query.filter_by(contact_request_id=contact_request.id)
@@ -461,9 +637,16 @@ def create_contact_message(request_id: str):
         contact_request, error = _participant_request(request_id, user)
         if error:
             return error
-        if contact_request.status != "accepted":
-            return jsonify({"error": "messages can be sent only for accepted requests"}), 409
-        if contact_request.scout_user_id != user.id and _lock_claim_owner(contact_request, user) is None:
+        if not messaging_is_open(contact_request):
+            return _messaging_gate_error(contact_request, sending=True)
+        sender_role = _participant_role(contact_request, user)
+        if sender_role == "player" and _lock_claim_owner(contact_request, user) is None:
+            db.session.rollback()
+            return jsonify({"error": "contact request not found"}), 404
+        if sender_role == "club" and not _is_club_manager(contact_request, user):
+            db.session.rollback()
+            return jsonify({"error": "contact request not found"}), 404
+        if sender_role is None:
             db.session.rollback()
             return jsonify({"error": "contact request not found"}), 404
 
@@ -473,6 +656,7 @@ def create_contact_message(request_id: str):
         message = ContactMessage(
             contact_request_id=contact_request.id,
             sender_user_id=user.id,
+            sender_role=sender_role,
             body=body,
             created_at=now,
         )

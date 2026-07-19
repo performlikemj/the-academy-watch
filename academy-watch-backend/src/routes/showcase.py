@@ -41,7 +41,15 @@ from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
-from src.services.contact import contact_rail_enabled, require_contact_rail, utcnow
+from src.services.club_registry import get_club_program
+from src.services.contact import (
+    CONTRACT_STATUSES,
+    clean_plain_text,
+    contact_rail_enabled,
+    has_status_contradiction,
+    require_contact_rail,
+    utcnow,
+)
 from src.utils.academy_window import age_from_birth_date
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
@@ -66,6 +74,7 @@ MAX_BIO_LENGTH = 2000
 MAX_POSITIONS_LENGTH = 100
 MAX_TITLE_LENGTH = 200
 MAX_MESSAGE_LENGTH = 1000
+MAX_CURRENT_CLUB_NAME_LENGTH = 180
 MAX_URL_LENGTH = 500
 MAX_REEL_ITEMS = 20
 MIN_HEIGHT_CM = 100
@@ -109,6 +118,19 @@ def _has_approved_claim(player_api_id: int, user_id: int) -> bool:
             player_api_id=player_api_id, user_account_id=user_id, status="approved"
         ).first()
         is not None
+    )
+
+
+def _approved_player_claim(player_api_id: int, user_id: int) -> PlayerProfileClaim | None:
+    return (
+        PlayerProfileClaim.query.filter_by(
+            player_api_id=player_api_id,
+            user_account_id=user_id,
+            relationship_type="player",
+            status="approved",
+        )
+        .order_by(PlayerProfileClaim.reviewed_at.desc(), PlayerProfileClaim.id.desc())
+        .first()
     )
 
 
@@ -165,6 +187,86 @@ def _clean_optional_text(value, max_len: int):
         return None
     cleaned = sanitize_plain_text(value).strip()
     return cleaned[:max_len] if cleaned else None
+
+
+def _parse_contract_attestation(
+    payload: dict,
+    player_api_id: int,
+    *,
+    existing_claim: PlayerProfileClaim | None = None,
+) -> dict:
+    """Validate one complete or partial player contract attestation."""
+    if "contract_status" in payload:
+        raw_status = payload.get("contract_status")
+        if not isinstance(raw_status, str):
+            raise ValueError("contract_status must be a string")
+        contract_status = raw_status.strip().lower()
+    elif existing_claim is not None:
+        contract_status = existing_claim.contract_status
+    else:
+        raise ValueError("contract_status is required for player claims")
+    if contract_status not in CONTRACT_STATUSES:
+        raise ValueError(f"contract_status must be one of {sorted(CONTRACT_STATUSES)}")
+
+    if "current_club_name" in payload:
+        current_club_name = clean_plain_text(
+            payload.get("current_club_name"),
+            "current_club_name",
+            max_len=MAX_CURRENT_CLUB_NAME_LENGTH,
+            required=False,
+        )
+    else:
+        current_club_name = existing_claim.current_club_name if existing_claim is not None else None
+
+    if "club_program_id" in payload:
+        club_program_id = payload.get("club_program_id")
+        if club_program_id is not None and (
+            isinstance(club_program_id, bool) or not isinstance(club_program_id, int) or club_program_id <= 0
+        ):
+            raise ValueError("club_program_id must be a positive integer or null")
+    else:
+        club_program_id = existing_claim.club_program_id if existing_claim is not None else None
+
+    program = None
+    if club_program_id is not None:
+        program = get_club_program(club_program_id)
+        if program is None:
+            raise ValueError("club_program_id does not identify an on-platform club program")
+    if program is not None:
+        # A linked registry identity is authoritative. Never let a claimant
+        # route a request to one program while displaying a different club.
+        current_club_name = clean_plain_text(
+            program.get("name"),
+            "current_club_name",
+            max_len=MAX_CURRENT_CLUB_NAME_LENGTH,
+            required=True,
+        )
+
+    return {
+        "contract_status": contract_status,
+        "current_club_name": current_club_name,
+        "club_program_id": club_program_id,
+        "status_contradiction": has_status_contradiction(player_api_id, contract_status),
+    }
+
+
+def _claim_contract_payload(claim: PlayerProfileClaim, profile: PlayerShowcaseProfile | None = None) -> dict:
+    pending = profile.pending_contract_dict() if profile is not None else None
+    if pending and pending["claim_id"] == claim.id:
+        return {
+            "contract_status": pending["contract_status"],
+            "current_club_name": pending["current_club_name"],
+            "club_program_id": pending["club_program_id"],
+            "status_contradiction": pending["status_contradiction"],
+            "contract_attestation_review_status": "pending",
+        }
+    return {
+        "contract_status": claim.contract_status,
+        "current_club_name": claim.current_club_name,
+        "club_program_id": claim.club_program_id,
+        "status_contradiction": bool(claim.status_contradiction),
+        "contract_attestation_review_status": "approved",
+    }
 
 
 def _youtube_video_id(url: str) -> str | None:
@@ -402,16 +504,20 @@ def get_player_showcase(player_api_id: int):
     or bad-token callers get the approved-only public view — never a 401.
     """
     try:
-        is_owner = _optional_owner_user(player_api_id) is not None
+        owner_user = _optional_owner_user(player_api_id)
+        is_owner = owner_user is not None
+        owner_player_claim = _approved_player_claim(player_api_id, owner_user.id) if owner_user is not None else None
 
         profile_row = PlayerShowcaseProfile.query.filter_by(player_api_id=player_api_id).first()
         if profile_row and profile_row.status == "approved":
-            profile = profile_row.public_dict()
+            profile = profile_row.owner_dict() if is_owner else profile_row.public_dict()
         elif profile_row and is_owner and profile_row.status == "pending":
             # Owner sees their unpublished draft with its status; public does not.
             profile = profile_row.owner_dict()
         else:
             profile = None
+        if profile is not None and owner_player_claim is not None:
+            profile.update(_claim_contract_payload(owner_player_claim, profile_row))
 
         reel = _highlight_reel(player_api_id, include_pending=is_owner)
 
@@ -452,6 +558,16 @@ def submit_profile_claim(player_api_id: int):
             return jsonify({"error": f"relationship_type must be one of {sorted(RELATIONSHIP_TYPES)}"}), 400
         message = _clean_optional_text(payload.get("message"), MAX_MESSAGE_LENGTH)
 
+        if relationship_type == "player":
+            attestation = _parse_contract_attestation(payload, player_api_id)
+        else:
+            attestation = {
+                "contract_status": "unknown",
+                "current_club_name": None,
+                "club_program_id": None,
+                "status_contradiction": False,
+            }
+
         existing = PlayerProfileClaim.query.filter_by(player_api_id=player_api_id, user_account_id=user.id).first()
         if existing:
             if existing.status not in ("rejected", "revoked"):
@@ -469,6 +585,10 @@ def submit_profile_claim(player_api_id: int):
             # reset it to pending for a fresh admin review.
             existing.relationship_type = relationship_type
             existing.message = message
+            existing.contract_status = attestation["contract_status"]
+            existing.current_club_name = attestation["current_club_name"]
+            existing.club_program_id = attestation["club_program_id"]
+            existing.status_contradiction = attestation["status_contradiction"]
             existing.status = "pending"
             existing.reviewed_by = None
             existing.reviewed_at = None
@@ -481,6 +601,10 @@ def submit_profile_claim(player_api_id: int):
             user_account_id=user.id,
             relationship_type=relationship_type,
             message=message,
+            contract_status=attestation["contract_status"],
+            current_club_name=attestation["current_club_name"],
+            club_program_id=attestation["club_program_id"],
+            status_contradiction=attestation["status_contradiction"],
             status="pending",
         )
         db.session.add(claim)
@@ -496,6 +620,9 @@ def submit_profile_claim(player_api_id: int):
                 ), 409
             raise
         return jsonify({"claim": claim.to_dict()}), 201
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         db.session.rollback()
         logger.error("Error in submit_profile_claim: %s", e)
@@ -660,6 +787,20 @@ def upsert_showcase_profile(player_api_id: int):
             return error
 
         payload = request.get_json(silent=True) or {}
+        contract_update_requested = any(
+            key in payload for key in ("contract_status", "current_club_name", "club_program_id")
+        )
+        contract_claim = None
+        contract_attestation = None
+        if contract_update_requested:
+            contract_claim = _approved_player_claim(player_api_id, user.id)
+            if contract_claim is None:
+                return jsonify({"error": "Only an approved player claimant can update contract status"}), 403
+            contract_attestation = _parse_contract_attestation(
+                payload,
+                player_api_id,
+                existing_claim=contract_claim,
+            )
         bio = _clean_optional_text(payload.get("bio"), MAX_BIO_LENGTH)
         positions = _clean_optional_text(payload.get("positions"), MAX_POSITIONS_LENGTH)
 
@@ -686,8 +827,21 @@ def upsert_showcase_profile(player_api_id: int):
         profile.height_cm = height_cm
         profile.status = "pending"  # owner edit → pending; hidden until re-approved
         profile.updated_by_user_id = user.id
+        if contract_attestation is not None:
+            profile.pending_contract_claim_id = contract_claim.id
+            profile.pending_contract_status = contract_attestation["contract_status"]
+            profile.pending_current_club_name = contract_attestation["current_club_name"]
+            profile.pending_club_program_id = contract_attestation["club_program_id"]
+            profile.pending_status_contradiction = contract_attestation["status_contradiction"]
         db.session.commit()
-        return jsonify({"profile": profile.owner_dict()})
+        response_profile = profile.owner_dict()
+        owner_claim = contract_claim or _approved_player_claim(player_api_id, user.id)
+        if owner_claim is not None:
+            response_profile.update(_claim_contract_payload(owner_claim, profile))
+        return jsonify({"profile": response_profile})
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         db.session.rollback()
         logger.error("Error in upsert_showcase_profile: %s", e)
@@ -855,6 +1009,7 @@ def admin_review_claim(claim_id: int):
             policy_error = _adult_player_claim_error(claim.player_api_id)
             if policy_error is not None:
                 return policy_error
+            claim.status_contradiction = has_status_contradiction(claim.player_api_id, claim.contract_status)
 
         claim.status = target
         claim.reviewed_by = getattr(g, "user_email", None)
@@ -883,6 +1038,15 @@ def admin_list_profiles():
         for profile in profiles:
             payload = profile.owner_dict()
             payload["player_name"] = _resolve_player_name(profile.player_api_id)
+            contract_claim = (
+                db.session.get(PlayerProfileClaim, profile.pending_contract_claim_id)
+                if profile.pending_contract_claim_id is not None
+                else None
+            )
+            if contract_claim is None and profile.updated_by_user_id is not None:
+                contract_claim = _approved_player_claim(profile.player_api_id, profile.updated_by_user_id)
+            if contract_claim is not None:
+                payload.update(_claim_contract_payload(contract_claim, profile))
             out.append(payload)
         return jsonify({"profiles": out})
     except Exception as e:
@@ -902,11 +1066,38 @@ def admin_review_profile(player_api_id: int):
         action = (payload.get("action") or "").strip().lower()
         if action not in ("approve", "reject"):
             return jsonify({"error": "action must be approve or reject"}), 400
+        contract_claim = None
+        if action == "approve" and profile.pending_contract_status is not None:
+            contract_claim = db.session.get(PlayerProfileClaim, profile.pending_contract_claim_id)
+            if (
+                contract_claim is None
+                or contract_claim.player_api_id != player_api_id
+                or contract_claim.relationship_type != "player"
+                or contract_claim.status != "approved"
+            ):
+                return jsonify({"error": "contract attestation claim is no longer approved"}), 409
+            contract_claim.contract_status = profile.pending_contract_status
+            contract_claim.current_club_name = profile.pending_current_club_name
+            contract_claim.club_program_id = profile.pending_club_program_id
+            contract_claim.status_contradiction = has_status_contradiction(
+                player_api_id,
+                profile.pending_contract_status,
+            )
+            profile.pending_contract_claim_id = None
+            profile.pending_contract_status = None
+            profile.pending_current_club_name = None
+            profile.pending_club_program_id = None
+            profile.pending_status_contradiction = False
         profile.status = "approved" if action == "approve" else "pending"
         profile.reviewed_by = getattr(g, "user_email", None)
         profile.reviewed_at = datetime.now(UTC)
         db.session.commit()
-        return jsonify({"profile": profile.owner_dict()})
+        response_profile = profile.owner_dict()
+        if contract_claim is None and profile.updated_by_user_id is not None:
+            contract_claim = _approved_player_claim(player_api_id, profile.updated_by_user_id)
+        if contract_claim is not None:
+            response_profile.update(_claim_contract_payload(contract_claim, profile))
+        return jsonify({"profile": response_profile})
     except Exception as e:
         db.session.rollback()
         logger.error("Error in admin_review_profile: %s", e)

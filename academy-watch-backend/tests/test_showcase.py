@@ -10,6 +10,7 @@ from datetime import date
 
 import pytest
 from flask import Flask
+from sqlalchemy import text
 from src.auth import _ensure_user_account, issue_user_token
 from src.extensions import limiter
 from src.models.follow import PlayerShadow
@@ -138,11 +139,26 @@ def _approved_claim(player_api_id, email):
         player_api_id=player_api_id,
         user_account_id=user.id,
         relationship_type="player",
+        contract_status="free_agent",
         status="approved",
     )
     db.session.add(claim)
     db.session.commit()
     return user, claim
+
+
+def _registry_program(program_id: int, name: str):
+    db.session.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS club_programs ("
+            "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254))"
+        )
+    )
+    db.session.execute(
+        text("INSERT INTO club_programs (id, name, contact_email) VALUES (:program_id, :name, NULL)"),
+        {"program_id": program_id, "name": name},
+    )
+    db.session.commit()
 
 
 def _finalized_match(team, opponent="Rivals FC", status="finalized", match_date=None):
@@ -193,7 +209,7 @@ class TestClaims:
     def test_create_claim_returns_pending(self, client):
         resp = client.post(
             "/api/players/5001/claim",
-            json={"relationship_type": "player", "message": "This is me"},
+            json={"relationship_type": "player", "contract_status": "free_agent", "message": "This is me"},
             headers=_user_headers("kobbie@example.com"),
         )
         assert resp.status_code == 201
@@ -204,7 +220,11 @@ class TestClaims:
 
     def test_duplicate_claim_returns_409(self, client):
         headers = _user_headers("kobbie@example.com")
-        first = client.post("/api/players/5001/claim", json={"relationship_type": "player"}, headers=headers)
+        first = client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "free_agent"},
+            headers=headers,
+        )
         assert first.status_code == 201
         dupe = client.post("/api/players/5001/claim", json={"relationship_type": "agent"}, headers=headers)
         assert dupe.status_code == 409
@@ -227,7 +247,11 @@ class TestClaims:
             _tracked(team, player_api_id=5001, name="Kobbie Mainoo")
             db.session.commit()
         headers = _user_headers("kobbie@example.com")
-        client.post("/api/players/5001/claim", json={"relationship_type": "player"}, headers=headers)
+        client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "free_agent"},
+            headers=headers,
+        )
         resp = client.get("/api/me/claims", headers=headers)
         assert resp.status_code == 200
         claims = resp.get_json()["claims"]
@@ -236,10 +260,219 @@ class TestClaims:
         assert claims[0]["player_name"] == "Kobbie Mainoo"
 
 
+class TestContractStatusAttestation:
+    def test_player_claim_requires_valid_contract_status(self, client):
+        headers = _user_headers("contract-required@example.com")
+        missing = client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": "player"},
+            headers=headers,
+        )
+        assert missing.status_code == 400
+        assert "contract_status is required" in missing.get_json()["error"]
+
+        invalid = client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "between_clubs"},
+            headers=headers,
+        )
+        assert invalid.status_code == 400
+        assert "free_agent" in invalid.get_json()["error"]
+
+    def test_club_name_is_sanitized_bounded_and_program_link_is_validated(self, client):
+        headers = _user_headers("contract-fields@example.com")
+        too_long = client.post(
+            "/api/players/5001/claim",
+            json={
+                "relationship_type": "player",
+                "contract_status": "contracted",
+                "current_club_name": "x" * 181,
+            },
+            headers=headers,
+        )
+        assert too_long.status_code == 400
+        assert "at most 180" in too_long.get_json()["error"]
+
+        missing_program = client.post(
+            "/api/players/5001/claim",
+            json={
+                "relationship_type": "player",
+                "contract_status": "contracted",
+                "club_program_id": 901,
+            },
+            headers=headers,
+        )
+        assert missing_program.status_code == 400
+
+        _registry_program(901, "Registry FC")
+        valid = client.post(
+            "/api/players/5001/claim",
+            json={
+                "relationship_type": "player",
+                "contract_status": "contracted",
+                "current_club_name": "Wrong Club Name",
+                "club_program_id": 901,
+            },
+            headers=headers,
+        )
+        assert valid.status_code == 201, valid.get_json()
+        assert valid.get_json()["claim"]["current_club_name"] == "Registry FC"
+        assert valid.get_json()["claim"]["club_program_id"] == 901
+
+    def test_journey_override_contradiction_is_nonblocking_and_admin_visible(self, app, client):
+        with app.app_context():
+            journey = PlayerJourney.query.filter_by(player_api_id=5001).one()
+            journey.current_status = "on_loan"
+            team = _seed_team()
+            _tracked(team, player_api_id=5001, status="released")
+            db.session.commit()
+
+        submitted = client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "free_agent"},
+            headers=_user_headers("journey-contradiction@example.com"),
+        )
+        assert submitted.status_code == 201
+        claim = submitted.get_json()["claim"]
+        assert claim["contract_status"] == "free_agent"
+        assert claim["status_contradiction"] is True
+
+        admin_claims = client.get("/api/admin/showcase/claims", headers=_admin_headers()).get_json()["claims"]
+        admin_claim = next(row for row in admin_claims if row["id"] == claim["id"])
+        assert admin_claim["status_contradiction"] is True
+
+    def test_tracked_released_contradicts_contracted_attestation(self, app, client):
+        with app.app_context():
+            _journey(6201, _birth_date_years_ago(20))
+            team = _seed_team(team_id=6201, name="Released Parent FC")
+            _tracked(team, player_api_id=6201, name="Released Adult", status="released")
+            db.session.commit()
+
+        submitted = client.post(
+            "/api/players/6201/claim",
+            json={"relationship_type": "player", "contract_status": "contracted"},
+            headers=_user_headers("tracked-contradiction@example.com"),
+        )
+        assert submitted.status_code == 201
+        assert submitted.get_json()["claim"]["status_contradiction"] is True
+
+    def test_owner_contract_edit_waits_for_profile_moderation(self, app, client):
+        with app.app_context():
+            owner, claim = _approved_claim(5001, "contract-owner@example.com")
+            profile = PlayerShowcaseProfile(
+                player_api_id=5001,
+                bio="Approved bio",
+                status="approved",
+                updated_by_user_id=owner.id,
+            )
+            db.session.add(profile)
+            db.session.commit()
+            claim_id = claim.id
+
+        owner_headers = _user_headers("contract-owner@example.com")
+        owner_view = client.get("/api/players/5001/showcase", headers=owner_headers).get_json()["profile"]
+        assert owner_view["contract_status"] == "free_agent"
+        assert owner_view["contract_attestation_review_status"] == "approved"
+
+        staged = client.put(
+            "/api/players/5001/showcase/profile",
+            json={
+                "bio": "Updated bio",
+                "contract_status": "contracted",
+                "current_club_name": "<b>Moderated FC</b>",
+            },
+            headers=owner_headers,
+        )
+        assert staged.status_code == 200, staged.get_json()
+        assert staged.get_json()["profile"]["contract_status"] == "contracted"
+        assert staged.get_json()["profile"]["contract_attestation_review_status"] == "pending"
+        with app.app_context():
+            authoritative_claim = db.session.get(PlayerProfileClaim, claim_id)
+            assert authoritative_claim.contract_status == "free_agent"
+            assert authoritative_claim.current_club_name is None
+
+        admin_queue = client.get("/api/admin/showcase/profiles", headers=_admin_headers()).get_json()["profiles"]
+        assert admin_queue[0]["contract_status"] == "contracted"
+        assert admin_queue[0]["current_club_name"] == "Moderated FC"
+        assert admin_queue[0]["contract_attestation_review_status"] == "pending"
+
+        approved = client.post(
+            "/api/admin/showcase/profiles/5001/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert approved.status_code == 200, approved.get_json()
+        with app.app_context():
+            authoritative_claim = db.session.get(PlayerProfileClaim, claim_id)
+            assert authoritative_claim.contract_status == "contracted"
+            assert authoritative_claim.current_club_name == "Moderated FC"
+
+        public_profile = client.get("/api/players/5001/showcase").get_json()["profile"]
+        assert "contract_status" not in public_profile
+        assert "current_club_name" not in public_profile
+
+    def test_owner_contract_edit_validates_program_and_recomputes_contradiction(self, app, client):
+        with app.app_context():
+            owner, claim = _approved_claim(5001, "contract-program-owner@example.com")
+            db.session.add(
+                PlayerShowcaseProfile(
+                    player_api_id=5001,
+                    bio="Approved profile",
+                    status="approved",
+                    updated_by_user_id=owner.id,
+                )
+            )
+            journey = PlayerJourney.query.filter_by(player_api_id=5001).one()
+            journey.current_status = "released"
+            db.session.commit()
+            claim_id = claim.id
+
+        owner_headers = _user_headers("contract-program-owner@example.com")
+        invalid = client.put(
+            "/api/players/5001/showcase/profile",
+            json={"bio": "Still approved", "contract_status": "contracted", "club_program_id": 902},
+            headers=owner_headers,
+        )
+        assert invalid.status_code == 400
+
+        _registry_program(902, "Authoritative Registry FC")
+        staged = client.put(
+            "/api/players/5001/showcase/profile",
+            json={
+                "bio": "Awaiting review",
+                "contract_status": "contracted",
+                "current_club_name": "Mismatched Name FC",
+                "club_program_id": 902,
+            },
+            headers=owner_headers,
+        )
+        assert staged.status_code == 200, staged.get_json()
+        staged_profile = staged.get_json()["profile"]
+        assert staged_profile["current_club_name"] == "Authoritative Registry FC"
+        assert staged_profile["club_program_id"] == 902
+        assert staged_profile["status_contradiction"] is True
+
+        approved = client.post(
+            "/api/admin/showcase/profiles/5001/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert approved.status_code == 200, approved.get_json()
+        with app.app_context():
+            authoritative_claim = db.session.get(PlayerProfileClaim, claim_id)
+            assert authoritative_claim.club_program_id == 902
+            assert authoritative_claim.current_club_name == "Authoritative Registry FC"
+            assert authoritative_claim.status_contradiction is True
+
+
 class TestAdminClaimReview:
     def test_approve_then_public_claim_status_claimed(self, app, client):
         headers = _user_headers("kobbie@example.com")
-        create = client.post("/api/players/5001/claim", json={"relationship_type": "player"}, headers=headers)
+        create = client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "free_agent"},
+            headers=headers,
+        )
         claim_id = create.get_json()["claim"]["id"]
 
         review = client.post(
@@ -257,7 +490,9 @@ class TestAdminClaimReview:
     def test_reject_pending_claim(self, client):
         headers = _user_headers("kobbie@example.com")
         claim_id = client.post(
-            "/api/players/5001/claim", json={"relationship_type": "player"}, headers=headers
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "free_agent"},
+            headers=headers,
         ).get_json()["claim"]["id"]
         review = client.post(
             f"/api/admin/showcase/claims/{claim_id}/review", json={"action": "reject"}, headers=_admin_headers()
@@ -268,7 +503,9 @@ class TestAdminClaimReview:
     def test_revoke_requires_approved(self, client):
         headers = _user_headers("kobbie@example.com")
         claim_id = client.post(
-            "/api/players/5001/claim", json={"relationship_type": "player"}, headers=headers
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "free_agent"},
+            headers=headers,
         ).get_json()["claim"]["id"]
         # pending → revoke is invalid
         bad = client.post(
@@ -288,7 +525,9 @@ class TestAdminClaimReview:
     def test_approve_does_not_revoke_other_claims(self, app, client):
         # A player and an agent both claim; approving one leaves the other untouched.
         client.post(
-            "/api/players/5001/claim", json={"relationship_type": "player"}, headers=_user_headers("player@x.com")
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "free_agent"},
+            headers=_user_headers("player@x.com"),
         )
         client.post(
             "/api/players/5001/claim", json={"relationship_type": "agent"}, headers=_user_headers("agent@x.com")
@@ -306,7 +545,9 @@ class TestAdminClaimReview:
     def test_review_requires_admin(self, client):
         headers = _user_headers("kobbie@example.com")
         claim_id = client.post(
-            "/api/players/5001/claim", json={"relationship_type": "player"}, headers=headers
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "free_agent"},
+            headers=headers,
         ).get_json()["claim"]["id"]
         # A plain user Bearer token (no admin role / X-API-Key) is rejected.
         resp = client.post(f"/api/admin/showcase/claims/{claim_id}/review", json={"action": "approve"}, headers=headers)
@@ -327,7 +568,7 @@ class TestAdultPlayerClaimGate:
 
         response = client.post(
             "/api/players/6101/claim",
-            json={"relationship_type": "player"},
+            json={"relationship_type": "player", "contract_status": "free_agent"},
             headers=_user_headers("minor-player@example.com"),
         )
 
@@ -339,7 +580,7 @@ class TestAdultPlayerClaimGate:
     def test_unknown_dob_player_submission_is_blocked(self, app, client):
         response = client.post(
             "/api/players/6102/claim",
-            json={"relationship_type": "player"},
+            json={"relationship_type": "player", "contract_status": "free_agent"},
             headers=_user_headers("unknown-dob@example.com"),
         )
 
@@ -355,7 +596,7 @@ class TestAdultPlayerClaimGate:
 
         response = client.post(
             "/api/players/6103/claim",
-            json={"relationship_type": "player"},
+            json={"relationship_type": "player", "contract_status": "free_agent"},
             headers=_user_headers("adult-today@example.com"),
         )
 
@@ -375,7 +616,7 @@ class TestAdultPlayerClaimGate:
 
         response = client.post(
             "/api/players/6104/claim",
-            json={"relationship_type": "player"},
+            json={"relationship_type": "player", "contract_status": "free_agent"},
             headers=_user_headers("shadow-adult@example.com"),
         )
 
@@ -390,7 +631,7 @@ class TestAdultPlayerClaimGate:
 
         response = client.post(
             "/api/players/6105/claim",
-            json={"relationship_type": "player"},
+            json={"relationship_type": "player", "contract_status": "free_agent"},
             headers=_user_headers("fallback-adult@example.com"),
         )
 
@@ -428,7 +669,7 @@ class TestAdultPlayerClaimGate:
 
         submitted = client.post(
             "/api/players/6120/claim",
-            json={"relationship_type": "player"},
+            json={"relationship_type": "player", "contract_status": "free_agent"},
             headers=_user_headers("changed-dob@example.com"),
         )
         claim_id = submitted.get_json()["claim"]["id"]
@@ -455,7 +696,7 @@ class TestAdultPlayerClaimGate:
 
         submitted = client.post(
             "/api/players/6121/claim",
-            json={"relationship_type": "player"},
+            json={"relationship_type": "player", "contract_status": "free_agent"},
             headers=_user_headers("removed-dob@example.com"),
         )
         claim_id = submitted.get_json()["claim"]["id"]
@@ -492,7 +733,11 @@ class TestProfileOwnerGate:
 
     def test_pending_claim_is_not_owner(self, client):
         headers = _user_headers("kobbie@example.com")
-        client.post("/api/players/5001/claim", json={"relationship_type": "player"}, headers=headers)
+        client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "free_agent"},
+            headers=headers,
+        )
         # Claim is pending (unapproved) → still not an owner.
         resp = client.put("/api/players/5001/showcase/profile", json={"bio": "hi"}, headers=headers)
         assert resp.status_code == 403
@@ -905,7 +1150,7 @@ class TestClaimRecovery:
     def _claim(self, client, email="kobbie@example.com"):
         return client.post(
             "/api/players/5001/claim",
-            json={"relationship_type": "player", "message": "It's me"},
+            json={"relationship_type": "player", "contract_status": "free_agent", "message": "It's me"},
             headers=_user_headers(email),
         )
 

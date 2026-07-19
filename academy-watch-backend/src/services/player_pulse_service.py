@@ -42,6 +42,7 @@ from src.models.pulse import PlayerPulse
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
+from src.utils.player_status import player_facing_status
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +155,7 @@ def _player_context(player_api_id: int) -> dict | None:
     )
     journey = PlayerJourney.query.filter_by(player_api_id=player_api_id).first()
     if tracked is not None:
-        status = (journey.current_status if journey else None) or tracked.status
+        status = player_facing_status(player_api_id, journey=journey, tracked=tracked)
         level = tracked.current_level or (journey.current_level if journey else None)
         return {
             "kind": "tracked",

@@ -31,6 +31,14 @@ class ContactRequest(db.Model):
             "status IN ('pending','accepted','declined','withdrawn','expired')",
             name="ck_contact_requests_status",
         ),
+        db.CheckConstraint(
+            "routing_mode IN ('direct','club_included','club_notified')",
+            name="ck_contact_requests_routing_mode",
+        ),
+        db.CheckConstraint(
+            "club_consent_status IS NULL OR club_consent_status IN ('pending','granted','declined')",
+            name="ck_contact_requests_club_consent",
+        ),
         db.Index(
             "uq_contact_requests_active_scout_player",
             "scout_user_id",
@@ -43,6 +51,7 @@ class ContactRequest(db.Model):
         db.Index("ix_contact_requests_claim_created", "claim_id", "created_at"),
         db.Index("ix_contact_requests_player_created", "player_api_id", "created_at"),
         db.Index("ix_contact_requests_status_expires", "status", "expires_at"),
+        db.Index("ix_contact_requests_club_program_created", "club_program_id", "created_at"),
     )
 
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -51,12 +60,27 @@ class ContactRequest(db.Model):
     claim_id = db.Column(db.Integer, db.ForeignKey("player_profile_claims.id"), nullable=False)
     message = db.Column(db.String(2000), nullable=False)
     status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending")
+    routing_mode = db.Column(db.String(20), nullable=False, default="direct", server_default="direct")
+    # Logical soft link to independently ordered gf01 (no hard FK by design).
+    club_program_id = db.Column(db.Integer)
+    club_consent_status = db.Column(db.String(20))
+    club_consent_at = db.Column(db.DateTime)
+    club_consent_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"))
+    club_consent_note = db.Column(db.String(1000))
+    permission_attestation = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.false(),
+    )
+    permission_attested_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, nullable=False, default=_utcnow)
     responded_at = db.Column(db.DateTime)
     expires_at = db.Column(db.DateTime, nullable=False)
 
     scout = db.relationship("UserAccount", foreign_keys=[scout_user_id])
     claim = db.relationship("PlayerProfileClaim", foreign_keys=[claim_id])
+    club_consent_by = db.relationship("UserAccount", foreign_keys=[club_consent_by_user_id])
     messages = db.relationship(
         "ContactMessage",
         back_populates="contact_request",
@@ -93,11 +117,29 @@ class ContactRequest(db.Model):
 
     def to_dict(self):
         latest = self.latest_outcome()
+        club_participant = None
+        if self.routing_mode == "club_included" and self.club_program_id is not None:
+            from src.services.club_registry import get_club_program
+
+            program = get_club_program(self.club_program_id)
+            club_participant = {
+                "club_program_id": self.club_program_id,
+                "display_name": program.get("name") if program else None,
+            }
         return {
             "id": self.id,
             "player_api_id": self.player_api_id,
             "message": self.message,
             "status": self.status,
+            "routing_mode": self.routing_mode,
+            "club_program_id": self.club_program_id,
+            "club_consent_status": self.club_consent_status,
+            "club_consent_at": _iso(self.club_consent_at),
+            "club_consent_note": self.club_consent_note,
+            "permission_attestation": bool(self.permission_attestation),
+            "permission_attested_at": _iso(self.permission_attested_at),
+            "messaging_open": self.status == "accepted"
+            and (self.routing_mode != "club_included" or self.club_consent_status == "granted"),
             "created_at": _iso(self.created_at),
             "responded_at": _iso(self.responded_at),
             "expires_at": _iso(self.expires_at),
@@ -108,6 +150,7 @@ class ContactRequest(db.Model):
                 "player": {
                     "display_name": self.player_user.display_name if self.player_user else None,
                 },
+                "club": club_participant,
             },
             "latest_outcome": latest.to_dict() if latest else None,
         }
@@ -117,11 +160,18 @@ class ContactMessage(db.Model):
     """One sanitized plain-text message in an accepted contact request."""
 
     __tablename__ = "contact_messages"
-    __table_args__ = (db.Index("ix_contact_messages_request_created", "contact_request_id", "created_at"),)
+    __table_args__ = (
+        db.CheckConstraint(
+            "sender_role IN ('scout','player','club')",
+            name="ck_contact_messages_sender_role",
+        ),
+        db.Index("ix_contact_messages_request_created", "contact_request_id", "created_at"),
+    )
 
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid4()))
     contact_request_id = db.Column(db.String(36), db.ForeignKey("contact_requests.id"), nullable=False)
     sender_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=False)
+    sender_role = db.Column(db.String(20), nullable=False)
     body = db.Column(db.String(2000), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=_utcnow)
 
@@ -129,12 +179,10 @@ class ContactMessage(db.Model):
     sender = db.relationship("UserAccount", foreign_keys=[sender_user_id])
 
     def to_dict(self):
-        request_row = self.contact_request
-        sender_role = "scout" if request_row and self.sender_user_id == request_row.scout_user_id else "player"
         return {
             "id": self.id,
             "contact_request_id": self.contact_request_id,
-            "sender_role": sender_role,
+            "sender_role": self.sender_role,
             "sender_display_name": self.sender.display_name if self.sender else None,
             "body": self.body,
             "created_at": _iso(self.created_at),
@@ -147,7 +195,10 @@ class ContactAuditEvent(db.Model):
     __tablename__ = "contact_audit_events"
     __table_args__ = (
         db.CheckConstraint(
-            "event_type IN ('created','accepted','declined','withdrawn','expired','message_sent','outcome_reported')",
+            "event_type IN ("
+            "'created','accepted','declined','withdrawn','expired','message_sent','outcome_reported',"
+            "'club_consent_granted','club_consent_declined','club_notice_sent','scout_permission_attested'"
+            ")",
             name="ck_contact_audit_events_type",
         ),
         db.Index("ix_contact_audit_events_request_created", "contact_request_id", "created_at"),
