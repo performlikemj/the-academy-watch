@@ -50,6 +50,11 @@ from src.services.contact import (
     require_contact_rail,
     utcnow,
 )
+from src.services.player_suppression import (
+    hide_suppressed_player,
+    is_player_suppressed,
+    neutral_player_not_found,
+)
 from src.utils.academy_window import age_from_birth_date
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
@@ -495,6 +500,7 @@ def _verified_footage(player_api_id: int) -> list[dict]:
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase", methods=["GET"])
+@hide_suppressed_player("player_api_id")
 def get_player_showcase(player_api_id: int):
     """Showcase payload: approved profile + reel + verified footage + claim status.
 
@@ -543,6 +549,7 @@ def get_player_showcase(player_api_id: int):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/claim", methods=["POST"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("3 per hour", key_func=_user_rate_limit_key)
 def submit_profile_claim(player_api_id: int):
@@ -776,6 +783,7 @@ def my_interest_signals():
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/profile", methods=["PUT"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("20 per hour", key_func=_user_rate_limit_key)
 def upsert_showcase_profile(player_api_id: int):
@@ -849,6 +857,7 @@ def upsert_showcase_profile(player_api_id: int):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/reel", methods=["POST"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def add_reel_item(player_api_id: int):
@@ -892,6 +901,7 @@ def add_reel_item(player_api_id: int):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/reel/order", methods=["PATCH"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def reorder_reel(player_api_id: int):
@@ -929,6 +939,7 @@ def reorder_reel(player_api_id: int):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/reel/<int:link_id>", methods=["DELETE"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def delete_reel_item(player_api_id: int, link_id: int):
@@ -1004,6 +1015,9 @@ def admin_review_claim(claim_id: int):
         allowed_from, target = transitions[action]
         if claim.status not in allowed_from:
             return jsonify({"error": f"cannot {action} a {claim.status} claim"}), 409
+
+        if action == "approve" and is_player_suppressed(claim.player_api_id):
+            return neutral_player_not_found()
 
         if action == "approve" and claim.relationship_type == "player":
             policy_error = _adult_player_claim_error(claim.player_api_id)

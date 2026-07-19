@@ -24,6 +24,7 @@ from src.models.follow import FollowList, FollowPlayerSnapshot, PlayerShadow, Pl
 from src.models.league import UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.tracked_player import TrackedPlayer
+from src.services.player_suppression import without_active_suppression
 
 logger = logging.getLogger(__name__)
 
@@ -74,13 +75,18 @@ def _preferred_tracked_player(player_api_id: int):
     return (
         TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
         .filter(TrackedPlayer.data_source != "owning-club")
+        .filter(without_active_suppression(TrackedPlayer.player_api_id))
         .order_by(TrackedPlayer.id)
         .first()
     )
 
 
 def _active_shadow(player_api_id: int):
-    return PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True).first()
+    return (
+        PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True)
+        .filter(without_active_suppression(PlayerShadow.player_api_id))
+        .first()
+    )
 
 
 def _shadow_stats(player_api_id: int) -> dict:

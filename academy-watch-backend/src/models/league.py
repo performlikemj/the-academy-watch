@@ -104,8 +104,11 @@ class Team(db.Model):
         """Return active tracked players for this team (parent club)."""
         return [tp for tp in self.tracked_players if tp.is_active]
 
-    def to_dict(self):
-        current_players = self.unique_active_players()
+    def to_dict(self, *, current_player_count: int | None = None):
+        # Public collection routes may pass a suppression-filtered SQL count.
+        # The default preserves existing internal/admin callers.
+        if current_player_count is None:
+            current_player_count = len(self.unique_active_players())
         return {
             "id": self.id,
             "team_id": self.team_id,
@@ -126,7 +129,7 @@ class Team(db.Model):
             "league_name": self.league.name if self.league else None,
             "league_api_id": self.league.league_id if self.league else None,
             "league_country": self.league.country if self.league else None,
-            "current_loaned_out_count": len(current_players),
+            "current_loaned_out_count": current_player_count,
             "slug": getattr(self, "_slug", None),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
@@ -500,6 +503,8 @@ class UserAccount(db.Model):
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
     last_login_at = db.Column(db.DateTime)
     last_display_name_change_at = db.Column(db.DateTime)
+    # Per-deletion anonymous integrity rows are never authenticatable accounts.
+    is_tombstone = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
 
     # Journalist fields
     is_journalist = db.Column(db.Boolean, default=False, nullable=False)

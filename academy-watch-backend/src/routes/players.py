@@ -18,6 +18,7 @@ from src.models.league import (
 )
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.tracked_player import TrackedPlayer
+from src.services.player_suppression import hide_suppressed_player
 from src.utils.feature_flags import rollup_reads_enabled
 
 logger = logging.getLogger(__name__)
@@ -238,6 +239,7 @@ def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
 
 
 @players_bp.route("/players/<int:player_id>/stats", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_public_player_stats(player_id: int):
     """Get historical stats for a player (public endpoint).
 
@@ -489,6 +491,7 @@ def get_public_player_stats(player_id: int):
 
 
 @players_bp.route("/players/<int:player_id>/profile", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_public_player_profile(player_id: int):
     """Get player profile info including name, team, position, photo."""
     try:
@@ -686,6 +689,7 @@ def get_public_player_profile(player_id: int):
 
 
 @players_bp.route("/players/<int:player_id>/season-stats", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_public_player_season_stats(player_id: int):
     """Get aggregated season stats for a player at their LOAN CLUB only."""
     try:
@@ -1091,6 +1095,7 @@ def get_public_player_season_stats(player_id: int):
 
 
 @players_bp.route("/players/<int:player_id>/availability", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_player_availability(player_id: int):
     """Get injury/absence history for a player this season.
 
@@ -1153,6 +1158,7 @@ def get_player_availability(player_id: int):
 
 
 @players_bp.route("/players/<int:player_id>/commentaries", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_player_commentaries(player_id: int):
     """Get all commentaries/writeups that mention this player."""
     try:

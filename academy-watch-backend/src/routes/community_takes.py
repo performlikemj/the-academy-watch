@@ -15,6 +15,7 @@ from flask import Blueprint, jsonify, request
 from src.extensions import limiter
 from src.models.league import CommunityTake, Newsletter, QuickTakeSubmission, Team, db
 from src.routes.api import require_api_key
+from src.services.player_suppression import without_active_suppression
 from src.utils.sanitize import sanitize_comment_body, sanitize_plain_text
 
 community_takes_bp = Blueprint("community_takes", __name__)
@@ -67,7 +68,7 @@ def list_approved_takes():
     limit = min(request.args.get("limit", 20, type=int), 100)
     offset = request.args.get("offset", 0, type=int)
 
-    query = CommunityTake.query.filter_by(status="approved")
+    query = CommunityTake.query.filter_by(status="approved").filter(without_active_suppression(CommunityTake.player_id))
 
     if player_id:
         query = query.filter_by(player_id=player_id)

@@ -216,6 +216,51 @@ class TestRequireUserAuth:
         assert data["user_email"] == "testuser@example.com"
         assert data["user_id"] is not None
 
+    def test_require_user_auth_rejects_token_after_account_is_deleted(self, auth_app, auth_client):
+        """A still-valid bearer token must not outlive its account row."""
+        from src.auth import _ensure_user_account, issue_user_token, require_user_auth
+
+        @auth_app.route("/test-user-deleted")
+        @require_user_auth
+        def test_endpoint():
+            return jsonify({"ok": True})
+
+        with auth_app.app_context():
+            user = _ensure_user_account("deleted@example.com")
+            db.session.commit()
+            token = issue_user_token(user.email)["token"]
+            db.session.delete(user)
+            db.session.commit()
+
+        res = auth_client.get(
+            "/test-user-deleted",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert res.status_code == 401
+        assert res.get_json()["error"] == "account not found"
+
+        with auth_app.app_context():
+            replacement = _ensure_user_account("deleted@example.com")
+            db.session.commit()
+            replacement_token = issue_user_token(replacement.email)["token"]
+            # PostgreSQL sequences do not reuse the deleted id; SQLite may.
+            # The creation timestamp binding protects both cases.
+            assert replacement.created_at is not None
+
+        old_token_res = auth_client.get(
+            "/test-user-deleted",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        new_token_res = auth_client.get(
+            "/test-user-deleted",
+            headers={"Authorization": f"Bearer {replacement_token}"},
+        )
+
+        assert old_token_res.status_code == 401
+        assert old_token_res.get_json()["error"] == "account not found"
+        assert new_token_res.status_code == 200
+
 
 class TestIssueUserToken:
     """Tests for the issue_user_token function."""

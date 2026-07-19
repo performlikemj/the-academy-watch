@@ -14,6 +14,11 @@ from src.auth import require_api_key
 from src.models.journey import YOUTH_LEVELS, ClubLocation, PlayerJourney, PlayerJourneyEntry
 from src.models.league import Team, TeamProfile, db
 from src.models.tracked_player import TrackedPlayer
+from src.services.player_suppression import (
+    hide_suppressed_player,
+    neutral_player_not_found,
+    without_active_suppression,
+)
 from src.utils.academy_window import age_from_birth_date as _age_from_birth_date
 from src.utils.academy_window import is_within_academy_window
 from src.utils.geocoding import get_team_coordinates
@@ -29,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 @journey_bp.route("/players/<int:player_id>/journey", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_player_journey(player_id):
     """Get a player's career journey for map visualization.
 
@@ -86,7 +92,12 @@ def get_loan_journey(loaned_player_id):
     Returns the complete journey for the player, including all loan stints
     across their career (not just the current loan).
     """
-    tp = TrackedPlayer.query.get_or_404(loaned_player_id)
+    tp = TrackedPlayer.query.filter(
+        TrackedPlayer.id == loaned_player_id,
+        without_active_suppression(TrackedPlayer.player_api_id),
+    ).first()
+    if tp is None:
+        return neutral_player_not_found()
 
     # Try PlayerJourney first
     journey = PlayerJourney.query.filter_by(player_api_id=tp.player_api_id).first()
