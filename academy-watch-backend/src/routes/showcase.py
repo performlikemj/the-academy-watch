@@ -34,10 +34,13 @@ from src.auth import (
     require_user_auth,
 )
 from src.extensions import limiter
+from src.models.follow import PlayerShadow
+from src.models.journey import PlayerJourney
 from src.models.league import NewsletterPlayerYoutubeLink, PlayerLink, UserAccount, db
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
+from src.utils.academy_window import age_from_birth_date
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -267,6 +270,58 @@ def _resolve_player_name(player_api_id: int):
     return tracked.player_name if tracked and tracked.player_name else None
 
 
+def _resolve_player_age_from_dob(player_api_id: int) -> int | None:
+    """Resolve a current age from persisted DOB sources only.
+
+    ``TrackedPlayer.age`` is deliberately excluded: it is a stale snapshot and
+    the adults-only self-claim policy requires a known birth date. Malformed
+    values fall through so a valid journey or shadow profile can still prove
+    eligibility.
+    """
+    candidates = [
+        row[0]
+        for row in db.session.query(TrackedPlayer.birth_date)
+        .filter(
+            TrackedPlayer.player_api_id == player_api_id,
+            TrackedPlayer.birth_date.isnot(None),
+        )
+        .order_by(TrackedPlayer.id.asc())
+        .all()
+    ]
+    journey = PlayerJourney.query.filter_by(player_api_id=player_api_id).first()
+    if journey is not None:
+        candidates.append(journey.birth_date)
+    shadow = PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True).first()
+    if shadow is not None:
+        candidates.append(shadow.birth_date)
+
+    for birth_date in candidates:
+        age = age_from_birth_date(birth_date)
+        if age is not None:
+            return age
+    return None
+
+
+def _adult_player_claim_error(player_api_id: int):
+    """Return the D1 policy error response for an ineligible self-claim."""
+    age = _resolve_player_age_from_dob(player_api_id)
+    if age is None:
+        return jsonify(
+            {
+                "error": "A known birth date is required for a player to claim their own profile",
+                "code": "dob_unknown",
+            }
+        ), 422
+    if age < 18:
+        return jsonify(
+            {
+                "error": "Players must be at least 18 to claim their own profile",
+                "code": "minor_claim_blocked",
+            }
+        ), 422
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Flywheel X — Film Room → verified footage evidence
 # ---------------------------------------------------------------------------
@@ -389,20 +444,27 @@ def submit_profile_claim(player_api_id: int):
 
         existing = PlayerProfileClaim.query.filter_by(player_api_id=player_api_id, user_account_id=user.id).first()
         if existing:
-            if existing.status in ("rejected", "revoked"):
-                # Recovery path: a rejected/revoked claim may be resubmitted —
-                # reset it to pending for a fresh admin review.
-                existing.relationship_type = relationship_type
-                existing.message = message
-                existing.status = "pending"
-                existing.reviewed_by = None
-                existing.reviewed_at = None
-                existing.created_at = datetime.now(UTC)
-                db.session.commit()
-                return jsonify({"claim": existing.to_dict()}), 201
-            return jsonify(
-                {"error": "You have already submitted a claim for this player", "claim": existing.to_dict()}
-            ), 409
+            if existing.status not in ("rejected", "revoked"):
+                return jsonify(
+                    {"error": "You have already submitted a claim for this player", "claim": existing.to_dict()}
+                ), 409
+
+        if relationship_type == "player":
+            policy_error = _adult_player_claim_error(player_api_id)
+            if policy_error is not None:
+                return policy_error
+
+        if existing:
+            # Recovery path: a rejected/revoked claim may be resubmitted —
+            # reset it to pending for a fresh admin review.
+            existing.relationship_type = relationship_type
+            existing.message = message
+            existing.status = "pending"
+            existing.reviewed_by = None
+            existing.reviewed_at = None
+            existing.created_at = datetime.now(UTC)
+            db.session.commit()
+            return jsonify({"claim": existing.to_dict()}), 201
 
         claim = PlayerProfileClaim(
             player_api_id=player_api_id,
@@ -662,6 +724,11 @@ def admin_review_claim(claim_id: int):
         allowed_from, target = transitions[action]
         if claim.status not in allowed_from:
             return jsonify({"error": f"cannot {action} a {claim.status} claim"}), 409
+
+        if action == "approve" and claim.relationship_type == "player":
+            policy_error = _adult_player_claim_error(claim.player_api_id)
+            if policy_error is not None:
+                return policy_error
 
         claim.status = target
         claim.reviewed_by = getattr(g, "user_email", None)

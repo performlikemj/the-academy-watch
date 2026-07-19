@@ -562,6 +562,13 @@ class UserAccount(db.Model):
         """Return True if this placeholder account has been claimed by the writer."""
         return self.managed_by_user_id is not None and self.claimed_at is not None
 
+    @property
+    def is_verified_scout(self) -> bool:
+        """Derived from an approved scout verification; never persisted."""
+        from src.services.trust import is_verified_scout
+
+        return is_verified_scout(self)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -583,6 +590,7 @@ class UserAccount(db.Model):
             "email_delivery_preference": self.email_delivery_preference or "individual",
             "is_editor": self.is_editor,
             "is_curator": self.is_curator,
+            "is_verified_scout": self.is_verified_scout,
             "is_placeholder": self.is_placeholder(),
             "is_claimed": self.is_claimed(),
             "managed_by_user_id": self.managed_by_user_id,

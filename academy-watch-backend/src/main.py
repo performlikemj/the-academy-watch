@@ -18,6 +18,7 @@ from werkzeug.exceptions import HTTPException
 # includes them even before a route/service imports the model directly.
 import src.models.season_rollup  # noqa: E402, F401
 import src.models.transfer_event  # noqa: E402, F401
+import src.models.trust  # noqa: E402, F401
 from src.extensions import limiter
 from src.models.league import League, Newsletter, Team, UserSubscription, db
 from src.models.tracked_player import TrackedPlayer
@@ -40,6 +41,7 @@ from src.routes.scout import scout_bp
 from src.routes.season_rollup import season_rollup_bp
 from src.routes.showcase import showcase_bp
 from src.routes.teams import teams_bp
+from src.routes.trust import trust_bp
 from src.routes.video import video_bp
 
 dotenv.load_dotenv(dotenv.find_dotenv())
@@ -103,6 +105,7 @@ app.register_blueprint(scout_bp, url_prefix="/api")
 # Registered BEFORE api_bp (mirroring players_bp) so /players/<id>/showcase*
 # routes take priority over any api_bp /players/<id>/* catch-alls.
 app.register_blueprint(showcase_bp, url_prefix="/api")
+app.register_blueprint(trust_bp, url_prefix="/api")
 app.register_blueprint(api_bp, url_prefix="/api")
 app.register_blueprint(auth_bp, url_prefix="/api")
 app.register_blueprint(journalist_bp, url_prefix="/api")

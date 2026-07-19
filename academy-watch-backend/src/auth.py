@@ -19,6 +19,9 @@ from uuid import uuid4
 from flask import Blueprint, current_app, g, jsonify, make_response, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
+# Register trust tables before test/local ``db.create_all()`` calls that reach
+# UserAccount serializers outside the production app factory.
+import src.models.trust  # noqa: F401
 from src.models.league import UserAccount, db
 from src.utils.sanitize import sanitize_plain_text
 
