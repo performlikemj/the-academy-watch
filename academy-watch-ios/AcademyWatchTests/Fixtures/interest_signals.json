@@ -1,0 +1,27 @@
+{
+  "week_start": "2026-07-13T00:00:00+00:00",
+  "interest_signals": [
+    {
+      "player_api_id": 7001,
+      "watchlists": {
+        "total": 2,
+        "added_this_week": 1
+      },
+      "follows": {
+        "total": 3,
+        "added_this_week": 1
+      }
+    },
+    {
+      "player_api_id": 7002,
+      "watchlists": {
+        "total": 0,
+        "added_this_week": 0
+      },
+      "follows": {
+        "total": 0,
+        "added_this_week": 0
+      }
+    }
+  ]
+}
