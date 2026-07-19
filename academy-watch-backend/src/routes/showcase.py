@@ -20,11 +20,11 @@ Reuse decisions (see the build contract):
 
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
-from flask import Blueprint, g, jsonify, request
-from sqlalchemy import func
+from flask import Blueprint, abort, g, jsonify, request
+from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
 from src.auth import (
     _ensure_user_account,
@@ -34,18 +34,28 @@ from src.auth import (
     require_user_auth,
 )
 from src.extensions import limiter
-from src.models.follow import PlayerShadow
+from src.models.follow import Follow, FollowList, PlayerShadow
 from src.models.journey import PlayerJourney
 from src.models.league import NewsletterPlayerYoutubeLink, PlayerLink, UserAccount, db
+from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
+from src.services.contact import contact_rail_enabled, require_contact_rail, utcnow
 from src.utils.academy_window import age_from_birth_date
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 logger = logging.getLogger(__name__)
 
 showcase_bp = Blueprint("showcase", __name__)
+
+
+@showcase_bp.before_app_request
+def _hide_interest_signal_path_when_contact_rail_disabled():
+    """Hide OPTIONS and wrong-method probes as well as supported methods."""
+    if request.path.rstrip("/") == "/api/showcase/mine/interest-signals" and not contact_rail_enabled():
+        abort(404)
+
 
 RELATIONSHIP_TYPES = {"player", "agent", "guardian", "club_official"}
 CLAIM_STATUSES = {"pending", "approved", "rejected", "revoked"}
@@ -515,6 +525,122 @@ def my_claims():
     except Exception as e:
         logger.error("Error in my_claims: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load claims")), 500
+
+
+@showcase_bp.route("/showcase/mine/interest-signals", methods=["GET"])
+@require_contact_rail
+@require_user_auth
+def my_interest_signals():
+    """Aggregate, identity-free interest in the caller's claimed players.
+
+    Default follow lists mirror the legacy watchlist, so only active,
+    non-default direct player follows contribute to the separate follow count.
+    Existing digest snapshots contain performance stats rather than membership
+    history; ``added_this_week`` therefore counts accounts whose earliest
+    surviving membership began since Monday and is not presented as a net
+    change.
+    """
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+
+        player_ids = [
+            row[0]
+            for row in db.session.query(PlayerProfileClaim.player_api_id)
+            .filter_by(
+                user_account_id=user.id,
+                relationship_type="player",
+                status="approved",
+            )
+            .distinct()
+            .order_by(PlayerProfileClaim.player_api_id.asc())
+            .all()
+        ]
+        now = utcnow()
+        week_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=now.weekday())
+        if not player_ids:
+            return jsonify(
+                {
+                    "week_start": week_start.replace(tzinfo=UTC).isoformat(),
+                    "interest_signals": [],
+                }
+            )
+
+        watchlist_rows = (
+            db.session.query(
+                ScoutWatchlistEntry.player_api_id,
+                func.count(func.distinct(ScoutWatchlistEntry.user_account_id)),
+                func.count(
+                    func.distinct(
+                        case(
+                            (ScoutWatchlistEntry.created_at >= week_start, ScoutWatchlistEntry.user_account_id),
+                            else_=None,
+                        )
+                    )
+                ),
+            )
+            .filter(ScoutWatchlistEntry.player_api_id.in_(player_ids))
+            .group_by(ScoutWatchlistEntry.player_api_id)
+            .all()
+        )
+        watchlists = {player_id: (total, added) for player_id, total, added in watchlist_rows}
+
+        followed_player_id = Follow.selector["player_api_id"].as_integer()
+        direct_followers = (
+            db.session.query(
+                followed_player_id.label("player_api_id"),
+                FollowList.user_account_id.label("user_account_id"),
+                func.min(Follow.created_at).label("first_followed_at"),
+            )
+            .join(FollowList, FollowList.id == Follow.list_id)
+            .filter(
+                Follow.kind == "player",
+                FollowList.is_active.is_(True),
+                FollowList.is_default.is_(False),
+                followed_player_id.in_(player_ids),
+            )
+            .group_by(followed_player_id, FollowList.user_account_id)
+            .subquery()
+        )
+        follow_rows = (
+            db.session.query(
+                direct_followers.c.player_api_id,
+                func.count(direct_followers.c.user_account_id),
+                func.count(
+                    case(
+                        (direct_followers.c.first_followed_at >= week_start, direct_followers.c.user_account_id),
+                        else_=None,
+                    )
+                ),
+            )
+            .group_by(direct_followers.c.player_api_id)
+            .all()
+        )
+        follows = {player_id: (total, added) for player_id, total, added in follow_rows}
+
+        return jsonify(
+            {
+                "week_start": week_start.replace(tzinfo=UTC).isoformat(),
+                "interest_signals": [
+                    {
+                        "player_api_id": player_id,
+                        "watchlists": {
+                            "total": watchlists.get(player_id, (0, 0))[0],
+                            "added_this_week": watchlists.get(player_id, (0, 0))[1],
+                        },
+                        "follows": {
+                            "total": follows.get(player_id, (0, 0))[0],
+                            "added_this_week": follows.get(player_id, (0, 0))[1],
+                        },
+                    }
+                    for player_id in player_ids
+                ],
+            }
+        )
+    except Exception as e:
+        logger.error("Error in my_interest_signals: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to load interest signals")), 500
 
 
 # ---------------------------------------------------------------------------

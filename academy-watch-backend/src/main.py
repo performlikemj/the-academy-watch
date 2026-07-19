@@ -16,6 +16,7 @@ from werkzeug.exceptions import HTTPException
 # Side-effect imports: register standalone tables in db.metadata so `flask db
 # migrate` autogenerate sees them (no spurious drop/create) and db.create_all()
 # includes them even before a route/service imports the model directly.
+import src.models.contact  # noqa: E402, F401
 import src.models.season_rollup  # noqa: E402, F401
 import src.models.transfer_event  # noqa: E402, F401
 import src.models.trust  # noqa: E402, F401
@@ -27,6 +28,7 @@ from src.routes.api import api_bp, require_api_key
 from src.routes.auth_routes import auth_bp
 from src.routes.cohort import cohort_bp
 from src.routes.community_takes import community_takes_bp
+from src.routes.contact import contact_bp
 from src.routes.curator import curator_bp
 from src.routes.events import events_bp
 from src.routes.feeder import feeder_bp
@@ -106,6 +108,7 @@ app.register_blueprint(scout_bp, url_prefix="/api")
 # routes take priority over any api_bp /players/<id>/* catch-alls.
 app.register_blueprint(showcase_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")
+app.register_blueprint(contact_bp, url_prefix="/api")
 app.register_blueprint(api_bp, url_prefix="/api")
 app.register_blueprint(auth_bp, url_prefix="/api")
 app.register_blueprint(journalist_bp, url_prefix="/api")
