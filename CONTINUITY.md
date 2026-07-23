@@ -21,6 +21,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 ## State
 
 ### Done
+- Full Circle incident-response runbook FC-TF3 complete (2026-07-23): added the operator playbook at `docs/runbooks/incident-response.md` with FC-B1/B2/B3/TF1/TF2 scenario coverage, PII-safe evidence queries, Azure containment/immutable rollback, suppression gap and reactivation handling, controlled recovery, and known operational gaps. Validation: 95 focused backend tests, Ruff check/format, one Alembic `tf02` head, shell syntax, Markdown links, and adversarial account/suppression/operations reviews all pass.
 - iOS crash/cold-start diagnostic complete (2026-07-15): no AcademyWatch crash artifact exists locally, in synced phone reports, or in the connected device crash-log domain; the prior Xcode device run also completed successfully. Confirmed UX cause was the known 29.716s first-run backend wait presented as generic loading, amplified under LLDB (1.516s standalone-cached versus 5.180s debug-cached). Added delayed server-wake/elapsed feedback including the empty-cache edge; schema-mismatch cache and unavailable-Keychain regressions pass; XcodeGen/build and all 55 tests pass; fresh-install waiting screenshot captured; signed device reinstall succeeded, with best-effort launch blocked only because MJ's iPhone was locked. PR #634 delivery follows from `ledgers/CONTINUITY_ios-coldstart-diagnostic.md`.
 - iOS P4b branding + device refresh complete (2026-07-15): replaced the placeholder with a cropped full-bleed winged-boot icon; added the matching storyboard-free launch screen; fixed decision-free standard-XXL truncation; XcodeGen/build and all 51 tests pass; simulator icon/launch evidence captured; signed physical-device build/install succeeded, with launch blocked only because MJ's iPhone was locked. This closes iOS P4 implementation for PR #634.
 - iOS P4a launch performance complete (2026-07-15): verified Scout players/leaderboards were already concurrent; added schema-v1 SWR disk caches, independent cached-data refresh indicators, app-start health warm-up, and DEBUG launch timings. Simulator time-to-first-row improved from 29.716s network-cold to 1.953s from disk cache; XcodeGen/build and all 51 tests pass; cached-launch screenshot captured.
@@ -199,6 +200,10 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ```
 CONTINUITY.md
+  └─ ledgers/CONTINUITY_plan-incident-response-runbook.md (complete)
+       ├─ ledgers/CONTINUITY_runbook-account-incidents.md (@owner:account-audit)
+       ├─ ledgers/CONTINUITY_runbook-suppression-incidents.md (@owner:suppression-audit)
+       └─ ledgers/CONTINUITY_runbook-operations-context.md (@owner:ops-context)
   └─ ledgers/CONTINUITY_plan-example.md (template - rename for actual work)
   └─ ledgers/CONTINUITY_plan-ios-adversarial-review.md (complete, report-only)
   └─ ledgers/CONTINUITY_plan-ios-review-fix-round.md (complete)
@@ -215,6 +220,7 @@ CONTINUITY.md
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|
+| CONTINUITY_plan-incident-response-runbook.md | complete | /root | none |
 | ACADEMY_WATCH_REFACTOR_PLAN.md | complete | — | Phases 1-4 done |
 | ACADEMY_WATCH_IMPLEMENTATION_PLAN.md | in-progress | — | Phases 1-5 done, Phase 6 ready |
 | ACADEMY_WATCH_JOURNEY_REDESIGN.md | complete | — | Design doc for journey feature |
