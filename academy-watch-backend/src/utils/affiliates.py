@@ -97,12 +97,11 @@ def is_affiliate(
     Hardcoded id map first (covers NULL-name ids), then data-driven base-name
     equality (covers Jong/U-number/III that the youth-suffix stripper misses).
     """
-    if club_api_id is None or parent_api_id is None:
-        return False
-    if club_api_id == parent_api_id:
-        return True
-    if B_TEAM_TO_SENIOR.get(club_api_id) == parent_api_id:
-        return True
+    if club_api_id is not None and parent_api_id is not None:
+        if club_api_id == parent_api_id:
+            return True
+        if B_TEAM_TO_SENIOR.get(club_api_id) == parent_api_id:
+            return True
     if club_name and parent_club_name:
         base = senior_base_name(club_name).lower()
         pbase = senior_base_name(parent_club_name).lower()

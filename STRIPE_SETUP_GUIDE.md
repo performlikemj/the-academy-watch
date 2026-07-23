@@ -81,8 +81,8 @@ pip install -r requirements.txt
 
 Frontend:
 ```bash
-cd loan-army-frontend
-pnpm install
+# From the repository root: scans first and restores only when needed
+./scripts/setup_frontend.sh
 ```
 
 ### 7. Set Up Webhooks
@@ -363,4 +363,3 @@ The 10% platform fee is used for:
 - Security and compliance
 
 All fees are tracked in the `stripe_platform_revenue` table and displayed transparently in the admin dashboard.
-

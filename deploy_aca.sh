@@ -7,7 +7,7 @@ set -euo pipefail
 # - Grants AcrPull to app identities and updates Container Apps
 # - Sets/updates ingress ports and prints FQDNs
 #
-# Prereqs: az CLI (containerapp, acr), jq, pnpm or npm
+# Prereqs: az CLI (containerapp, acr), jq, pnpm, OSV-Scanner
 # Login: az login; az account set --subscription "$SUBSCRIPTION_ID"
 
 # ---------------------------
@@ -134,6 +134,8 @@ run_security_checks() {
 
 need az
 need jq || true
+need pnpm
+need osv-scanner
 
 # Run security checks before deployment (unless skipped)
 if [[ "$SKIP_SECURITY_CHECKS" != "1" ]]; then
@@ -165,12 +167,11 @@ if [[ -z "${VITE_API_BASE}" ]]; then
   VITE_API_BASE="https://${BACKEND_FQDN}/api"
 fi
 
+log "Security-checking and preparing frontend dependencies"
+"$ROOT_DIR/scripts/setup_frontend.sh"
+
 log "Building frontend with VITE_API_BASE=${VITE_API_BASE}"
-if command -v pnpm >/dev/null 2>&1; then
-  ( cd "$FRONTEND_DIR" && pnpm install --frozen-lockfile && VITE_API_BASE="$VITE_API_BASE" pnpm run build )
-else
-  ( cd "$FRONTEND_DIR" && npm ci && VITE_API_BASE="$VITE_API_BASE" npm run build )
-fi
+( cd "$FRONTEND_DIR" && VITE_API_BASE="$VITE_API_BASE" pnpm run build )
 
 log "Deploying frontend to Static Web App ($SWA_NAME)"
 SWA_TOKEN="$(az staticwebapp secrets list --name "$SWA_NAME" -g "$RG" --query 'properties.apiKey' -o tsv)"

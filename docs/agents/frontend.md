@@ -11,11 +11,16 @@ Stripe.js, framer-motion, `d3-force-3d` for journey maps. Pages in `src/pages/` 
 
 ## CI gates (mirror before pushing)
 
+- `../scripts/security/check_frontend_dependencies.sh` from this directory (or
+  `./scripts/security/check_frontend_dependencies.sh` from repo root) scans the
+  frozen lockfile with OSV-Scanner before dependencies are restored. Use
+  `./scripts/setup_frontend.sh` from repo root for setup; it skips installation
+  when the installed virtual-store lock already matches.
 - `pnpm lint` (ESLint flat config, `eslint.config.js`) **and** `pnpm build` (Vite) both run in
   CI — a build/type error reddens CI even with clean lint. Run the build too.
-- `pnpm install --frozen-lockfile` — a `package.json` change without a matching
-  `pnpm-lock.yaml` fails install. The on-edit hook runs `eslint --fix` on `.js/.jsx/.ts/.tsx`
-  saves.
+- The setup harness uses `pnpm install --frozen-lockfile` only when dependencies
+  are missing/stale. A `package.json` change without a matching `pnpm-lock.yaml`
+  fails install. The on-edit hook runs `eslint --fix` on `.js/.jsx/.ts/.tsx` saves.
 
 ## ESLint / lockfile traps
 

@@ -18,6 +18,7 @@
 **Stack:** Flask 3.1 + SQLAlchemy (backend), React 19 + Vite 6 + Tailwind (frontend), PostgreSQL
 **Test command:** `cd academy-watch-frontend && pnpm lint && pnpm test:e2e`
 **Dev server:** Backend: `cd academy-watch-backend && python src/main.py` | Frontend: `cd academy-watch-frontend && pnpm dev`
+**Frontend setup:** `./scripts/setup_frontend.sh` (OSV scan first; installs only when missing/stale)
 
 ---
 
@@ -118,6 +119,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 ## Quality Bar
 
 Before marking work complete:
+- [ ] Dependency scan passes before any frontend dependency restore or lockfile change
 - [ ] Typecheck passes
 - [ ] Tests pass
 - [ ] Ledger state updated

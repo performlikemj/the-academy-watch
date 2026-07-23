@@ -17,10 +17,12 @@ from src.models.journey import PlayerJourney
 from src.models.league import Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.journey_sync import JourneySyncService
+from src.services.transfer_resolver import resolve_transfer_state
 from src.utils.academy_classifier import (
     _get_latest_season,
     classify_tracked_player,
     flatten_transfers,
+    latest_parent_permanent_departure,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,11 +154,13 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
     updated = 0
     journeys_resynced = 0
     players_changed = []
+    classification_as_of = datetime.now(UTC).date()
 
     # Optionally set up journey sync service
     journey_svc = None
     if resync_journeys:
         journey_svc = JourneySyncService()
+    calendar_svc = journey_svc or JourneySyncService(database_only=True)
 
     # Batch pre-fetch transfers
     api_client = APIFootballClient()
@@ -296,13 +300,26 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
             )
             continue
 
+        player_transfers = transfers_map.get(tp.player_api_id, [])
+        journey_entries = journey.entries.all()
+        start_months = calendar_svc._competition_start_months(journey_entries)
+        season_start_month = calendar_svc._resolution_start_month(
+            journey_entries,
+            start_months,
+        )
+        transfer_resolution = resolve_transfer_state(
+            player_transfers,
+            as_of=classification_as_of,
+            initial_owner={"id": parent_team.team_id, "name": parent_team.name},
+            season_start_month=season_start_month,
+        )
         new_status, new_loan_id, new_loan_name = classify_tracked_player(
             current_club_api_id=journey.current_club_api_id,
             current_club_name=journey.current_club_name,
             current_level=journey.current_level,
             parent_api_id=parent_team.team_id,
             parent_club_name=parent_team.name,
-            transfers=transfers_map.get(tp.player_api_id),
+            transfers=player_transfers,
             player_api_id=tp.player_api_id,
             api_client=api_client,
             latest_season=_get_latest_season(
@@ -311,7 +328,17 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
                 parent_club_name=parent_team.name,
             ),
             squad_members_by_club=squad_members_by_club,
+            transfer_resolution=transfer_resolution,
+            as_of=classification_as_of,
+            season_start_month=season_start_month,
+            season_start_day=1,
         )
+        parent_departure = latest_parent_permanent_departure(
+            transfer_resolution,
+            parent_team.team_id,
+            parent_team.name,
+        )
+        new_sale_fee = parent_departure.fee if new_status == "sold" and parent_departure else None
 
         # Pinned players: skip all automated field changes.
         # Journey data was already resynced above, but status/loan/level
@@ -335,6 +362,9 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
             changed = True
         if tp.current_club_name != new_loan_name:
             tp.current_club_name = new_loan_name
+            changed = True
+        if tp.sale_fee != new_sale_fee:
+            tp.sale_fee = new_sale_fee
             changed = True
         if journey.current_level and tp.current_level != journey.current_level:
             tp.current_level = journey.current_level

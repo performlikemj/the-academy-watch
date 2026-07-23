@@ -29,11 +29,100 @@ ONLY_TEST_TEAM_IDS = {33}  # Manchester United
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+
+class TransferFetchError(RuntimeError):
+    """A live player-transfer request failed or returned an error payload."""
+
+
+class TeamPlayersFetchError(RuntimeError):
+    """A live team-squad request failed or returned an error payload."""
+
+
+def _record_transfer_payload(
+    transfer_blocks: list[dict[str, Any]] | None,
+    *,
+    fallback_player_api_id: int | None = None,
+) -> None:
+    """Persist an API-Football ``/transfers`` response, best effort.
+
+    Player-scoped responses normally contain one outer player block while
+    team-scoped responses contain many.  Keep that response-shape handling in
+    one place and pass the verbatim inner transfer objects to the durable event
+    writer.
+
+    Persistence uses its own SQLAlchemy session so an API read cannot commit or
+    roll back a caller's pending work.  The helper deliberately no-ops without
+    a Flask application context; batch fetches run their HTTP work in executor
+    threads and call this helper again from the context-owning collector thread.
+    Missing migrations and all other persistence failures remain additive: they
+    are logged but never change the API payload returned to the caller.
+    """
+    if not isinstance(transfer_blocks, list) or not transfer_blocks:
+        return
+
+    batches: list[tuple[int, list[dict[str, Any]]]] = []
+    for block in transfer_blocks:
+        if not isinstance(block, dict):
+            continue
+
+        player = block.get("player") or {}
+        raw_player_api_id = player.get("id") if isinstance(player, dict) else None
+        if raw_player_api_id is None:
+            raw_player_api_id = fallback_player_api_id
+
+        try:
+            player_api_id = int(raw_player_api_id)
+        except (TypeError, ValueError):
+            continue
+        if player_api_id <= 0:
+            continue
+
+        transfers = block.get("transfers")
+        if not isinstance(transfers, list) or not transfers:
+            continue
+        batches.append((player_api_id, transfers))
+
+    if not batches:
+        return
+
+    try:
+        from flask import has_app_context
+
+        if not has_app_context():
+            logger.debug("Transfer event persistence skipped outside a Flask application context")
+            return
+
+        from sqlalchemy.orm import Session
+
+        from src.models.league import db
+        from src.services.transfer_events import record_transfer_events
+
+        session = Session(bind=db.engine)
+    except Exception as exc:
+        logger.warning("Transfer event persistence is unavailable: %s", exc)
+        return
+
+    try:
+        observed_at = datetime.now(UTC)
+        for player_api_id, transfers in batches:
+            record_transfer_events(player_api_id, transfers, session, observed_at=observed_at)
+        session.commit()
+    except Exception as exc:
+        try:
+            session.rollback()
+        except Exception as rollback_exc:
+            logger.debug("Transfer event persistence rollback also failed: %s", rollback_exc)
+        logger.warning("Transfer event persistence failed; API response is unchanged: %s", exc)
+    finally:
+        try:
+            session.close()
+        except Exception as close_exc:
+            logger.debug("Transfer event persistence session close failed: %s", close_exc)
+
+
 # ------------------------------------------------------------------
 # 🔄 Loan transfer type identification
 # ------------------------------------------------------------------
-# Transfer types that indicate a NEW loan (player going OUT on loan)
-LOAN_START_TYPES = {"loan"}
 # Transfer types that indicate a loan RETURN (player coming BACK from loan)
 LOAN_RETURN_TYPES = {"back from loan", "return from loan", "end of loan", "loan end", "loan return"}
 
@@ -73,21 +162,6 @@ def is_new_loan_transfer(transfer_type: str) -> bool:
     return normalized == "loan"
 
 
-def extract_transfer_fee(transfer_type: str) -> str | None:
-    """Extract fee from API-Football transfer type field.
-    Returns raw string like '€50M', 'Free', or None if it's a loan/unknown.
-    """
-    if not transfer_type:
-        return None
-    t = transfer_type.strip()
-    lower = t.lower()
-    if lower in LOAN_START_TYPES | LOAN_RETURN_TYPES:
-        return None
-    if lower in ("n/a", ""):
-        return None
-    return t
-
-
 def _academy_watch_for_team(
     parent_team_db_id: int,
     db_session,
@@ -114,6 +188,7 @@ def _academy_watch_for_team(
         # models package is delicate, so resolve models only when needed.
         from src.models.league import AcademyAppearance, AcademyPlayerSeasonStats
         from src.models.tracked_player import TrackedPlayer
+        from src.services.player_suppression import without_active_suppression
     except Exception as exc:
         logger.warning(f"academy_watch: model import failed for team {parent_team_db_id}: {exc}")
         return empty
@@ -125,6 +200,7 @@ def _academy_watch_for_team(
                 TrackedPlayer.team_id == parent_team_db_id,
                 TrackedPlayer.status == "academy",
                 TrackedPlayer.is_active.is_(True),
+                without_active_suppression(TrackedPlayer.player_api_id),
             )
             .all()
         )
@@ -309,7 +385,7 @@ class APIFootballClient:
         # Cache team profiles for quick reuse (API payloads)
         self._team_profile_cache: dict[int, dict] = {}
         # Cache player payloads to avoid repeated API calls for profile details
-        self._player_profile_cache: dict[tuple[int, int | None], dict] = {}
+        self._player_profile_cache: dict[tuple[int, int | None, bool], dict] = {}
 
         # --- Performance optimization caches (added Oct 2025) ---
         # Transfer cache: {player_id: (data, timestamp)} - 24hr TTL
@@ -2250,6 +2326,11 @@ class APIFootballClient:
                             f"fixture_id={fixture_id}, player_id={player_id}"
                         )
                         self._upsert_player_fixture_stats(db_session, db_fixture.id, player_id, loan_team_id, pstats)
+                        # FPS choke point: mark this (player, season) rollup dirty
+                        # (deduped in-memory; flushed once after the outer commit).
+                        from src.services.season_rollup_service import queue_player_refresh
+
+                        queue_player_refresh(player_id, season, session=db_session)
                         # Refresh the player_stats_row from what we just stored/updated
                         player_stats_row = (
                             db_session.query(FixturePlayerStats)
@@ -2926,6 +3007,7 @@ class APIFootballClient:
         """Generate match-week summaries for all active loanees of one parent club."""
         from src.models.league import Team
         from src.models.tracked_player import TrackedPlayer
+        from src.services.player_suppression import without_active_suppression
 
         start_str, end_str = week_start.isoformat(), week_end.isoformat()
         logger.info(
@@ -2941,6 +3023,7 @@ class APIFootballClient:
             .filter(
                 TrackedPlayer.team_id == parent_team_db_id,
                 TrackedPlayer.is_active.is_(True),
+                without_active_suppression(TrackedPlayer.player_api_id),
             )
             .all()
             if db_session
@@ -3228,6 +3311,21 @@ class APIFootballClient:
                                             .delete()
                                         )
                                         if ghost_deleted:
+                                            # Sole-writer contract: rebuild the OLD
+                                            # id's rollup from what remains after the
+                                            # ghost FPS delete.
+                                            try:
+                                                from src.services.season_rollup_service import (
+                                                    refresh_player as _refresh_rollup,
+                                                )
+
+                                                with db_session.begin_nested():
+                                                    _refresh_rollup(info["player_api_id"], season, session=db_session)
+                                            except Exception:
+                                                logger.exception(
+                                                    "season-rollup refresh after ghost-delete failed for player=%s",
+                                                    info["player_api_id"],
+                                                )
                                             db_session.commit()
                                             logger.info(f"🗑️ Deleted {ghost_deleted} ghost stats")
                                 except Exception as db_err:
@@ -3385,7 +3483,10 @@ class APIFootballClient:
         try:
             params = {"team": normalized_team_id}
             response = self._make_request("transfers", params)
-            return response.get("response", [])
+            transfers_data = response.get("response", [])
+            if self.mode != "stub":
+                _record_transfer_payload(transfers_data)
+            return transfers_data
         except Exception as e:
             logger.error(f"Error fetching transfers for team {team_id}: {e}")
             return []
@@ -3454,20 +3555,47 @@ class APIFootballClient:
             logger.error(f"Error fetching current loans for team {team_id}: {e}")
             return []
 
-    def get_player_by_id(self, player_id: int, season: int | None = None) -> dict[str, Any]:
-        """Get player information by ID with smart fallbacks + local caching."""
+    def get_player_by_id(
+        self,
+        player_id: int,
+        season: int | None = None,
+        *,
+        allow_transfer_fallback: bool = True,
+    ) -> dict[str, Any]:
+        """Get player information by ID with smart fallbacks + local caching.
+
+        Callers that enforce their own transfer-fetch quota can disable the
+        final transfer-endpoint fallback without changing the normal profile
+        lookup contract.
+        """
         try:
             pid = int(player_id)
         except (TypeError, ValueError):
             pid = player_id
         target_season = season or self.current_season_start_year
-        cache_key = (pid, int(target_season) if target_season is not None else None)
+        cache_key = (
+            pid,
+            int(target_season) if target_season is not None else None,
+            bool(allow_transfer_fallback),
+        )
         if cache_key in self._player_profile_cache:
             return deepcopy(self._player_profile_cache[cache_key])
 
         def _store(payload: dict) -> dict:
             self._player_profile_cache[cache_key] = payload
             return deepcopy(payload)
+
+        def _minimal_profile() -> dict:
+            return {
+                "player": {
+                    "id": player_id,
+                    "name": f"Player {player_id}",
+                    "firstname": None,
+                    "lastname": None,
+                    "photo": None,
+                },
+                "statistics": [],
+            }
 
         try:
             resp = self._make_request("players", {"id": player_id, "season": target_season})
@@ -3494,43 +3622,44 @@ class APIFootballClient:
                 except Exception:
                     continue
 
-            try:
-                tr = self._make_request("transfers", {"player": player_id})
-                t_resp = tr.get("response", []) or []
-                if t_resp:
-                    p = (t_resp[0] or {}).get("player", {})
-                    payload = {
-                        "player": {
-                            "id": player_id,
-                            "name": p.get("name") or "Unknown",
-                            "firstname": p.get("firstname"),
-                            "lastname": p.get("lastname"),
-                            "photo": (p.get("photo") if isinstance(p, dict) else None),
-                        },
-                        "statistics": [],
-                    }
-                    logger.info(f"ℹ️ Using transfers fallback name for player {player_id}: {payload['player']['name']}")
-                    return _store(payload)
-            except Exception:
-                pass
+            if allow_transfer_fallback:
+                try:
+                    tr = self._make_request("transfers", {"player": player_id})
+                    t_resp = tr.get("response", []) or []
+                    if self.mode != "stub":
+                        _record_transfer_payload(t_resp, fallback_player_api_id=pid)
+                    if t_resp:
+                        p = (t_resp[0] or {}).get("player", {})
+                        payload = {
+                            "player": {
+                                "id": player_id,
+                                "name": p.get("name") or "Unknown",
+                                "firstname": p.get("firstname"),
+                                "lastname": p.get("lastname"),
+                                "photo": (p.get("photo") if isinstance(p, dict) else None),
+                            },
+                            "statistics": [],
+                        }
+                        logger.info(
+                            "ℹ️ Using transfers fallback name for player %s: %s",
+                            player_id,
+                            payload["player"]["name"],
+                        )
+                        return _store(payload)
+                except Exception:
+                    pass
 
+            if not allow_transfer_fallback:
+                return _store(_minimal_profile())
             return _store(self._get_sample_player_data(player_id))
         except Exception as e:
             logger.error(f"Error fetching player {player_id}: {e}")
+            if not allow_transfer_fallback:
+                return _store(_minimal_profile())
             try:
                 return _store(self._get_sample_player_data(player_id))
             except Exception:
-                payload = {
-                    "player": {
-                        "id": player_id,
-                        "name": f"Player {player_id}",
-                        "firstname": None,
-                        "lastname": None,
-                        "photo": None,
-                    },
-                    "statistics": [],
-                }
-                return _store(payload)
+                return _store(_minimal_profile())
 
     def get_player_profile(self, player_id: int) -> dict[str, Any]:
         """Fetch a player profile using the players/profiles endpoint."""
@@ -4535,15 +4664,25 @@ class APIFootballClient:
             }
 
     def get_team_players(self, team_id: int, season: int = None) -> list[dict[str, Any]]:
-        """Get all players for a team in a specific season with pagination support."""
+        """Get all players for a team in a specific season with pagination.
+
+        A successful empty provider response returns ``[]``. Live response
+        errors and request exceptions raise ``TeamPlayersFetchError`` so callers
+        can distinguish an unfetched squad from a fetched-and-empty one. Sample
+        rows are returned only in explicitly enabled stub mode.
+        """
         if season is None:
             season = self.current_season_start_year
 
         logger.info(f"👥 Fetching all players for team {team_id}, season {season}")
 
-        if not self.api_key:
-            # Return sample data for testing
+        if self.mode == "stub":
             return self._get_sample_team_players(team_id, season)
+        if not self.api_key:
+            raise TeamPlayersFetchError(
+                "Cannot fetch team players without API_FOOTBALL_KEY; "
+                "enable API_USE_STUB_DATA=true explicitly for sample data"
+            )
 
         try:
             page = 1
@@ -4556,7 +4695,16 @@ class APIFootballClient:
 
                 response = self._make_request("players", {"team": team_id, "season": season, "page": page})
 
-                players_data = response.get("response", [])
+                if response.get("errors"):
+                    raise TeamPlayersFetchError(
+                        f"API-Football returned player errors for team {team_id}, season {season}: {response['errors']}"
+                    )
+
+                players_data = response.get("response")
+                if not isinstance(players_data, list):
+                    raise TeamPlayersFetchError(
+                        f"API-Football returned a malformed player response for team {team_id}, season {season}"
+                    )
                 results_count = response.get("results")
                 paging = response.get("paging", {})
                 current_page = paging.get("current", page)
@@ -4606,9 +4754,12 @@ class APIFootballClient:
             )
             return all_players
 
+        except TeamPlayersFetchError:
+            logger.exception("Failed to fetch team players for team %s, season %s", team_id, season)
+            raise
         except Exception as e:
-            logger.error(f"Error fetching team players: {e}")
-            return self._get_sample_team_players(team_id)
+            logger.exception("Failed to fetch team players for team %s, season %s", team_id, season)
+            raise TeamPlayersFetchError(f"Failed to fetch team players for team {team_id}, season {season}: {e}") from e
 
     def get_player_transfers(self, player_id: int) -> list[dict[str, Any]]:
         """
@@ -4616,6 +4767,12 @@ class APIFootballClient:
 
         🚀 Performance Optimization: Results are cached for 24 hours to reduce
         redundant API calls (typically saves 60% of transfer API calls).
+
+        A successful empty provider response returns ``[]``. Live response
+        errors and request exceptions raise ``TransferFetchError`` so callers
+        can preserve known transfer state instead of treating a failed fetch as
+        an authoritative empty history. Sample data is exclusive to explicit
+        stub mode.
         """
         # Check cache first
         if player_id in self._transfer_cache:
@@ -4626,6 +4783,8 @@ class APIFootballClient:
                 logger.info(
                     f"✅ Cache HIT for player {player_id} transfers (age: {cache_age.seconds // 3600}h {(cache_age.seconds // 60) % 60}m)"
                 )
+                if self.mode != "stub":
+                    _record_transfer_payload(cached_data, fallback_player_api_id=player_id)
                 return cached_data
             else:
                 logger.info(f"🔄 Cache EXPIRED for player {player_id} (age: {cache_age.total_seconds() / 3600:.1f}h)")
@@ -4633,18 +4792,29 @@ class APIFootballClient:
         # Cache miss or expired - fetch from API
         logger.info(f"🔄 Cache MISS - Fetching transfers for player {player_id} from API")
 
-        if not self.api_key:
-            # Return sample transfer data for testing
+        if self.mode == "stub":
+            # Sample data is valid only when stub mode was explicitly enabled.
             return self._get_sample_transfers(player_id=player_id)
+        if not self.api_key:
+            raise TransferFetchError(
+                "Cannot fetch player transfers without API_FOOTBALL_KEY; "
+                "enable API_USE_STUB_DATA=true explicitly for sample data"
+            )
 
         try:
             response = self._make_request("transfers", {"player": player_id})
 
             if response.get("errors"):
-                logger.warning(f"⚠️ API returned errors: {response['errors']}")
-                return []
+                raise TransferFetchError(
+                    f"API-Football returned transfer errors for player {player_id}: {response['errors']}"
+                )
 
-            transfers_data = response.get("response", [])
+            transfers_data = response.get("response")
+            if not isinstance(transfers_data, list):
+                raise TransferFetchError(f"API-Football returned a malformed transfer response for player {player_id}")
+
+            if self.mode != "stub":
+                _record_transfer_payload(transfers_data, fallback_player_api_id=player_id)
 
             # Cache the result with timestamp
             self._transfer_cache[player_id] = (transfers_data, datetime.now(UTC))
@@ -4652,9 +4822,12 @@ class APIFootballClient:
             logger.info(f"✅ Found {len(transfers_data)} transfer records for player {player_id} - CACHED for 24h")
             return transfers_data
 
+        except TransferFetchError:
+            logger.exception("Failed to fetch player transfers for player %s", player_id)
+            raise
         except Exception as e:
-            logger.error(f"Error fetching player transfers: {e}")
-            return self._get_sample_transfers(player_id=player_id)
+            logger.exception("Failed to fetch player transfers for player %s", player_id)
+            raise TransferFetchError(f"Failed to fetch player transfers for player {player_id}: {e}") from e
 
     # Upsert helper functions
     def _get_or_create_fixture(self, db_session, fx, season: int):
@@ -5047,7 +5220,9 @@ class APIFootballClient:
             rate_limit_delay: Delay between requests in seconds (default 0.1s = 10 req/sec)
 
         Returns:
-            Dict mapping player_id to their transfer data
+            Dict mapping successfully fetched player ids to their transfer
+            data. Successful empty histories are included as ``player_id: []``;
+            failed fetches are omitted so callers can distinguish them.
         """
         results = {}
 
@@ -5071,6 +5246,10 @@ class APIFootballClient:
                 try:
                     player_id, transfers = future.result()
                     results[player_id] = transfers
+                    if self.mode != "stub":
+                        # Worker threads intentionally have no Flask context;
+                        # persist from the context-owning collector thread.
+                        _record_transfer_payload(transfers, fallback_player_api_id=player_id)
                     completed += 1
 
                     if completed % 10 == 0:
@@ -5079,7 +5258,6 @@ class APIFootballClient:
                 except Exception as e:
                     player_id = futures[future]
                     logger.error(f"   Error fetching transfers for player {player_id}: {e}")
-                    results[player_id] = []
 
         logger.info(f"✅ Batch complete: {len(results)}/{len(player_ids)} successful")
         return results

@@ -14,6 +14,7 @@ import logging
 
 from src.models.follow import Follow, PlayerShadow
 from src.models.tracked_player import TrackedPlayer
+from src.services.player_suppression import without_active_suppression
 
 logger = logging.getLogger(__name__)
 
@@ -196,11 +197,16 @@ def _resolve_player(selector: dict) -> list[tuple[int, str]]:
     tracked = (
         TrackedPlayer.query.filter_by(player_api_id=pid, is_active=True)
         .filter(TrackedPlayer.data_source != "owning-club")
+        .filter(without_active_suppression(TrackedPlayer.player_api_id))
         .first()
     )
     if tracked:
         return [(pid, "tracked")]
-    shadow = PlayerShadow.query.filter_by(player_api_id=pid, is_active=True).first()
+    shadow = (
+        PlayerShadow.query.filter_by(player_api_id=pid, is_active=True)
+        .filter(without_active_suppression(PlayerShadow.player_api_id))
+        .first()
+    )
     if shadow:
         return [(pid, "shadow")]
     return []

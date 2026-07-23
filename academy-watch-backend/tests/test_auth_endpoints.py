@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
+from src.extensions import limiter
 from src.models.league import EmailToken, UserAccount, db
 
 
@@ -26,6 +27,7 @@ def auth_bp_app():
     )
 
     db.init_app(app)
+    limiter.init_app(app)
     app.register_blueprint(auth_bp, url_prefix="/api")
 
     with app.app_context():
@@ -120,6 +122,7 @@ class TestVerifyLoginCode:
             assert "token" in data
             assert "expires_in" in data
             assert data["message"] == "Logged in"
+            assert data["is_verified_scout"] is False
 
     def test_verify_code_invalid_code_returns_400(self, auth_bp_app, auth_bp_client, mock_email_service):
         """Should return 400 for invalid code."""
@@ -163,6 +166,7 @@ class TestAuthMe:
             assert data["email"] == "me@example.com"
             assert data["display_name"] == "TestUser"
             assert data["role"] == "user"
+            assert data["is_verified_scout"] is False
 
     def test_auth_me_without_token_returns_401(self, auth_bp_client):
         """Should return 401 without auth token."""

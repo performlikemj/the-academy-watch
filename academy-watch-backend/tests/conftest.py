@@ -9,13 +9,14 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from types import SimpleNamespace
-
 import pytest
 import sqlalchemy as sa
 from flask import Flask
 
-if "bleach" not in sys.modules:
+try:
+    import bleach  # noqa: F401
+except ModuleNotFoundError:
+    from types import SimpleNamespace
 
     def _clean(value, *args, **kwargs):
         return value
@@ -26,7 +27,10 @@ if "bleach" not in sys.modules:
     sys.modules["bleach"] = SimpleNamespace(clean=_clean, linkify=_linkify)
 
 
-if "flask_limiter" not in sys.modules:
+try:
+    import flask_limiter  # noqa: F401
+except ModuleNotFoundError:
+    from types import SimpleNamespace
 
     class _Limiter:
         def __init__(self, *args, **kwargs):
@@ -42,9 +46,6 @@ if "flask_limiter" not in sys.modules:
             return None
 
     sys.modules["flask_limiter"] = SimpleNamespace(Limiter=_Limiter)
-
-
-if "flask_limiter.util" not in sys.modules:
 
     def _get_remote_address(*args, **kwargs):
         return "127.0.0.1"

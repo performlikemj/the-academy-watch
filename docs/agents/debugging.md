@@ -11,7 +11,7 @@ duplicated mapping key` on every run (fixed PR #420). Git merges YAML without de
 duplicate keys.
 
 ```bash
-git worktree add /tmp/wt origin/main && cd /tmp/wt/academy-watch-frontend && pnpm install --frozen-lockfile
+git worktree add /tmp/wt origin/main && cd /tmp/wt && ./scripts/setup_frontend.sh
 ```
 
 Fix the duplicate block **surgically** by hand. Do NOT run `pnpm install --lockfile-only`

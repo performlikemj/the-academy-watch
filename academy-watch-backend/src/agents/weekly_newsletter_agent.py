@@ -37,6 +37,7 @@ from src.models.journey import PlayerJourney, PlayerJourneyEntry, derive_journey
 from src.models.league import AdminSetting, Newsletter, NewsletterCommentary, Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.graph_service import GraphService
+from src.services.player_suppression import without_active_suppression
 from src.utils.fixture_stats_mapper import map_player_stat_block
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 
@@ -1823,6 +1824,7 @@ def _sync_team_fixtures_for_week(
         TrackedPlayer.team_id == team_db_id,
         TrackedPlayer.is_active.is_(True),
         TrackedPlayer.status.notin_(["released", "sold", "left"]),
+        without_active_suppression(TrackedPlayer.player_api_id),
     ).all()
 
     if not tracked:
@@ -1952,6 +1954,10 @@ def _sync_team_fixtures_for_week(
                         )
                         db.session.add(fps)
                         total_synced += 1
+                        # FPS choke point: mark (player, season) rollup dirty.
+                        from src.services.season_rollup_service import queue_player_refresh
+
+                        queue_player_refresh(pid, season)
 
                     missing.discard(pid)
 
@@ -1959,6 +1965,10 @@ def _sync_team_fixtures_for_week(
                 _time.sleep(delay)
 
         db.session.commit()
+        # One refresh per affected player, after the batch commit.
+        from src.services.season_rollup_service import flush_player_refresh_queue
+
+        flush_player_refresh_queue()
 
     result = {
         "synced": total_synced,
@@ -2009,6 +2019,7 @@ def fetch_pipeline_report_tool(
         TrackedPlayer.team_id == parent_team_db_id,
         TrackedPlayer.is_active.is_(True),
         TrackedPlayer.status.notin_(["released", "sold", "left"]),
+        without_active_suppression(TrackedPlayer.player_api_id),
     ).all()
 
     # Pre-flight: warn loudly about any player whose linked PlayerJourney
@@ -2255,14 +2266,17 @@ def _detect_recent_loan_returns(
     """Find players who returned from loan within the newsletter's date window.
 
     Scans ALL active TrackedPlayers (including those still marked on_loan if
-    status refresh hasn't run) for loan-return transfers landing at the parent club.
+    status refresh hasn't run) for canonically resolved loan returns landing at
+    the parent club or one of its affiliates.
     """
-    from src.api_football_client import LOAN_RETURN_TYPES
+    from src.services.transfer_resolver import resolve_transfer_state
     from src.utils.academy_classifier import flatten_transfers
+    from src.utils.affiliates import is_affiliate
 
     tracked = TrackedPlayer.query.filter(
         TrackedPlayer.team_id == team_db_id,
         TrackedPlayer.is_active.is_(True),
+        without_active_suppression(TrackedPlayer.player_api_id),
     ).all()
 
     player_ids = [tp.player_api_id for tp in tracked if tp.player_api_id]
@@ -2272,39 +2286,66 @@ def _detect_recent_loan_returns(
     raw_map = api_client.batch_get_player_transfers(player_ids)
     window_start = week_start - timedelta(days=lookback_days)
     tp_by_pid = {tp.player_api_id: tp for tp in tracked}
+    parent = db.session.get(Team, team_db_id)
+    parent_name = parent.name if parent else None
+    initial_owner = {"id": parent_api_id, "name": parent_name}
 
     seen: dict[int, dict] = {}  # player_api_id → best return info
-    for pid, raw in raw_map.items():
-        for t in flatten_transfers(raw):
-            t_type = (t.get("type") or "").strip().lower()
-            if t_type not in LOAN_RETURN_TYPES:
-                continue
-            dest = (t.get("teams") or {}).get("in") or {}
-            source = (t.get("teams") or {}).get("out") or {}
-            if dest.get("id") != parent_api_id:
-                continue
-            t_date_str = t.get("date", "")
-            if not t_date_str:
-                continue
-            try:
-                t_date = date.fromisoformat(t_date_str)
-            except (ValueError, TypeError):
-                continue
-            if not (window_start <= t_date <= week_end):
-                continue
-            tp = tp_by_pid.get(pid)
-            if not tp:
-                continue
-            # Keep the most recent return per player
-            if pid not in seen or t_date_str > seen[pid]["return_date"]:
-                seen[pid] = {
-                    "player_api_id": pid,
-                    "player_name": tp.player_name,
-                    "returned_from_club_name": source.get("name"),
-                    "returned_from_club_api_id": source.get("id"),
-                    "return_date": t_date_str,
-                    "tp": tp,
-                }
+    for pid in player_ids:
+        if pid not in raw_map:
+            logger.warning(
+                "newsletter: transfer batch omitted player %s; preserving failed lookup state",
+                pid,
+            )
+            continue
+        resolution = resolve_transfer_state(
+            flatten_transfers(raw_map[pid]),
+            as_of=week_end,
+            initial_owner=initial_owner,
+        )
+        tp = tp_by_pid.get(pid)
+        if not tp:
+            continue
+
+        effective_events = [event for event in resolution.events if event.kind != "unknown"]
+        if not effective_events:
+            continue
+        qualifying_returns = [
+            event
+            for event in effective_events
+            if event.kind == "loan_return"
+            and is_affiliate(
+                event.in_club.api_id,
+                event.in_club.name,
+                parent_api_id,
+                parent_name,
+            )
+            and window_start <= event.transfer_date <= week_end
+        ]
+        if not qualifying_returns:
+            continue
+        event = qualifying_returns[-1]
+        current_club = resolution.current_club
+        # A later re-loan, sale, or release supersedes the headline. A later
+        # parent-internal move (for example senior side -> U21) does not.
+        if current_club is None:
+            continue
+        if not is_affiliate(
+            current_club.api_id,
+            current_club.name,
+            parent_api_id,
+            parent_name,
+        ):
+            continue
+        t_date = event.transfer_date
+        seen[pid] = {
+            "player_api_id": pid,
+            "player_name": tp.player_name,
+            "returned_from_club_name": event.out_club.name,
+            "returned_from_club_api_id": event.out_club.api_id,
+            "return_date": t_date.isoformat(),
+            "tp": tp,
+        }
 
     return list(seen.values())
 

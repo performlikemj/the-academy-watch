@@ -424,11 +424,11 @@ class TestLoanOverlapsSeason:
         loan = {"start_date": "2025-08-01", "end_date": "2026-06-30"}
         assert self.service._loan_overlaps_season(loan, 2023) is False
 
-    def test_open_ended_loan_overlaps_future(self):
-        """Open-ended loan overlaps future seasons"""
+    def test_open_ended_loan_stops_at_next_season_boundary(self):
+        """Missing return evidence must not make a loan active forever."""
         loan = {"start_date": "2023-08-01", "end_date": None}
         assert self.service._loan_overlaps_season(loan, 2023) is True
-        assert self.service._loan_overlaps_season(loan, 2024) is True
+        assert self.service._loan_overlaps_season(loan, 2024) is False
 
     def test_no_start_date(self):
         """Missing start date returns False"""
@@ -436,9 +436,9 @@ class TestLoanOverlapsSeason:
         assert self.service._loan_overlaps_season(loan, 2023) is False
 
     def test_loan_ends_exactly_season_start(self):
-        """Loan ending exactly at season start boundary"""
+        """End-exclusive loan does not overlap a season starting that day."""
         loan = {"start_date": "2022-08-01", "end_date": "2023-07-01"}
-        assert self.service._loan_overlaps_season(loan, 2023) is True
+        assert self.service._loan_overlaps_season(loan, 2023) is False
 
 
 class TestApplyLoanClassification:
@@ -858,7 +858,11 @@ class TestTransferOverrideStaleness:
             patch.object(service, "_compute_academy_club_ids"),
         ):
             MockEntry.query.filter_by.return_value.all.return_value = [entry]
-            service._update_journey_aggregates(journey, transfers=transfers)
+            service._update_journey_aggregates(
+                journey,
+                transfers=transfers,
+                as_of="2026-06-30",
+            )
 
         assert journey.current_club_api_id == 80
         assert journey.current_club_name == "Lyon"
@@ -1002,19 +1006,20 @@ class TestJourneyIntegration:
 class TestUpgradeStatusFromTransfers:
     """Test the upgrade_status_from_transfers shared utility"""
 
-    def test_non_loan_status_unchanged(self):
-        """Non-loan statuses pass through unchanged"""
+    def test_successful_empty_history_resets_to_parent_base_status(self):
+        """Authoritative empty evidence cannot preserve a stale departure."""
         from src.utils.academy_classifier import upgrade_status_from_transfers
 
         assert upgrade_status_from_transfers("academy", [], 33) == "academy"
         assert upgrade_status_from_transfers("first_team", [], 33) == "first_team"
-        assert upgrade_status_from_transfers("sold", [], 33) == "sold"
+        assert upgrade_status_from_transfers("sold", [], 33) == "first_team"
 
-    def test_on_loan_no_transfers_unchanged(self):
-        """on_loan with no transfers stays on_loan"""
+    def test_fetch_failure_preserves_but_successful_empty_clears_stale_loan(self):
+        """Only unavailable transfer evidence preserves an existing loan."""
         from src.utils.academy_classifier import upgrade_status_from_transfers
 
-        assert upgrade_status_from_transfers("on_loan", [], 33) == "on_loan"
+        assert upgrade_status_from_transfers("on_loan", None, 33) == "on_loan"
+        assert upgrade_status_from_transfers("on_loan", [], 33) == "first_team"
 
     def test_on_loan_with_loan_transfer_stays_loan(self):
         """on_loan with a loan departure stays on_loan"""
@@ -1027,7 +1032,15 @@ class TestUpgradeStatusFromTransfers:
                 "teams": {"out": {"id": 33}, "in": {"id": 62}},
             }
         ]
-        assert upgrade_status_from_transfers("on_loan", transfers, 33) == "on_loan"
+        assert (
+            upgrade_status_from_transfers(
+                "on_loan",
+                transfers,
+                33,
+                as_of="2025-06-30",
+            )
+            == "on_loan"
+        )
 
     def test_permanent_transfer_becomes_sold(self):
         """Permanent transfer departure upgrades to sold"""
@@ -1073,9 +1086,8 @@ class TestUpgradeStatusFromTransfers:
         ]
         assert upgrade_status_from_transfers("on_loan", transfers, 33, 200) == "sold"
 
-    def test_na_with_destination_becomes_sold(self):
-        """'N/A' = undisclosed-fee permanent transfer, NOT a free agent. With
-        a concrete destination it is 'sold' (the Rijkhoff Dortmund->Ajax bug)."""
+    def test_parent_departure_na_with_destination_becomes_sold(self):
+        """Parent context makes an N/A departure to another club directional."""
         from src.utils.academy_classifier import upgrade_status_from_transfers
 
         transfers = [
@@ -1102,25 +1114,25 @@ class TestUpgradeStatusFromTransfers:
         assert upgrade_status_from_transfers("on_loan", transfers, 33, None) == "released"
 
     def test_latest_departure_wins(self):
-        """When multiple departures exist, the latest one determines status"""
+        """A permanent conversion to the same loan club replaces the old loan."""
         from src.utils.academy_classifier import upgrade_status_from_transfers
 
         transfers = [
             {
                 "type": "Loan",
                 "date": "2023-08-01",
-                "teams": {"out": {"id": 33}, "in": {"id": 62}},
+                "teams": {"out": {"id": 33}, "in": {"id": 200}},
             },
             {
-                "type": "Transfer",
-                "date": "2026-01-14",
+                "type": "€ 33M",
+                "date": "2024-07-01",
                 "teams": {"out": {"id": 33}, "in": {"id": 200}},
             },
         ]
         assert upgrade_status_from_transfers("on_loan", transfers, 33, 200) == "sold"
 
-    def test_no_departures_from_parent_unchanged(self):
-        """Transfers from other clubs don't affect status"""
+    def test_no_parent_departure_clears_stale_loan(self):
+        """Successful evidence with no active parent loan returns to base status."""
         from src.utils.academy_classifier import upgrade_status_from_transfers
 
         transfers = [
@@ -1130,10 +1142,10 @@ class TestUpgradeStatusFromTransfers:
                 "teams": {"out": {"id": 99}, "in": {"id": 33}},
             }
         ]
-        assert upgrade_status_from_transfers("on_loan", transfers, 33) == "on_loan"
+        assert upgrade_status_from_transfers("on_loan", transfers, 33) == "first_team"
 
-    def test_empty_type_unchanged(self):
-        """Empty departure type doesn't change status"""
+    def test_invalid_departure_type_preserves_uncertain_status(self):
+        """Wholly invalid evidence cannot manufacture replacement state."""
         from src.utils.academy_classifier import upgrade_status_from_transfers
 
         transfers = [
@@ -1209,6 +1221,7 @@ class TestTransferUpgradeIgnoresConfigFlag:
                 }
             ],
             config={"use_transfers_for_status": False, "use_squad_check": False},
+            as_of="2026-06-30",
         )
         assert status == "on_loan"
 

@@ -1,0 +1,78 @@
+{
+  "lists": [
+    {
+      "id": 17,
+      "name": "South America shortlist",
+      "cadence": "weekly",
+      "is_active": true,
+      "is_default": false,
+      "player_cap": 40,
+      "follow_count": 5,
+      "follows": [
+        {
+          "id": 31,
+          "kind": "player",
+          "selector": {
+            "player_api_id": 1001
+          },
+          "label": "Alfie Striker",
+          "note": "Review after the next international window",
+          "created_at": "2026-07-02T09:15:04.118320+00:00"
+        },
+        {
+          "id": 32,
+          "kind": "academy_club",
+          "selector": {
+            "team_id": 1
+          },
+          "label": "Club academy: Manchester United",
+          "note": null,
+          "created_at": "2026-07-02T09:16:10.842104+00:00"
+        },
+        {
+          "id": 33,
+          "kind": "geo",
+          "selector": {
+            "countries": [
+              "Brazil",
+              "Argentina"
+            ],
+            "match": "playing_in"
+          },
+          "label": "Playing in: Brazil, Argentina",
+          "note": null,
+          "created_at": "2026-07-02T09:17:36.309821+00:00"
+        },
+        {
+          "id": 34,
+          "kind": "geo",
+          "selector": {
+            "countries": [
+              "Japan"
+            ],
+            "match": "nationality"
+          },
+          "label": "Nationality: Japan",
+          "note": null,
+          "created_at": "2026-07-02T09:18:12.570443+00:00"
+        },
+        {
+          "id": 35,
+          "kind": "query",
+          "selector": {
+            "scout_args": {
+              "position": "Attacker",
+              "max_age": 19,
+              "min_minutes": 270
+            }
+          },
+          "label": "Filter: Attacker, age -19, 270+ mins",
+          "note": null,
+          "created_at": "2026-07-02T09:19:55.221048+00:00"
+        }
+      ],
+      "created_at": "2026-07-02T09:14:29.502118+00:00",
+      "updated_at": "2026-07-02T09:19:55.223016+00:00"
+    }
+  ]
+}

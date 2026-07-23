@@ -7,12 +7,25 @@ complete journey records with academy, loan, and first team data.
 
 import logging
 import re
-from datetime import UTC, datetime
+from calendar import monthrange
+from collections.abc import Mapping
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
-from src.api_football_client import LOAN_RETURN_TYPES, APIFootballClient, is_new_loan_transfer
+from src.api_football_client import APIFootballClient
 from src.models.journey import LEVEL_PRIORITY, YOUTH_LEVELS, ClubLocation, PlayerJourney, PlayerJourneyEntry
 from src.models.league import Team, TeamProfile, db
+from src.models.season_rollup import LeagueSeasonConfig
+from src.models.transfer_event import PlayerTransferEvent
+from src.services.season_rollup_service import refresh_player as refresh_season_rollup
+from src.services.transfer_resolver import (
+    ClubRef,
+    LoanEpisode,
+    TransferResolution,
+    loan_episode_overlaps_season,
+    normalize_transfer_events,
+    resolve_transfer_state,
+)
 from src.utils.academy_classifier import (
     INTERNATIONAL_PATTERNS as _INTERNATIONAL_PATTERNS,
 )
@@ -22,12 +35,161 @@ from src.utils.academy_classifier import (
 from src.utils.academy_classifier import (
     is_international_competition,
     is_national_team,
+    latest_parent_permanent_departure,
+    resolved_current_club_is_authoritative,
     strip_youth_suffix,
 )
+from src.utils.affiliates import resolve_senior_id, senior_base_name
 from src.utils.geocoding import get_team_coordinates
 from src.utils.player_names import clean_name, is_placeholder_name, resolve_player_name
 
 logger = logging.getLogger(__name__)
+
+
+def _transfer_as_of(as_of: date | str | None = None) -> date | str:
+    """Use one explicit UTC date for every resolver consumer in a sync."""
+    return as_of if as_of is not None else datetime.now(UTC).date()
+
+
+def _coerce_transfer_resolution(
+    transfers,
+    *,
+    transfer_resolution: TransferResolution | None = None,
+    as_of: date | str | None = None,
+    season_start_month: int = 7,
+    season_start_day: int = 1,
+) -> TransferResolution | None:
+    """Return a supplied resolution or resolve a fetched transfer payload once.
+
+    ``None`` means transfer evidence was not fetched.  An empty list is a real,
+    successfully-fetched empty history and therefore resolves to an explicit
+    unknown state instead of falling back to stored journey guesses.
+    """
+    if transfer_resolution is not None:
+        return transfer_resolution
+    if isinstance(transfers, TransferResolution):
+        return transfers
+    if transfers is None:
+        return None
+    return resolve_transfer_state(
+        transfers,
+        as_of=_transfer_as_of(as_of),
+        season_start_month=season_start_month,
+        season_start_day=season_start_day,
+    )
+
+
+def _season_bounds(season: int, start_month: int = 7, start_day: int = 1) -> tuple[date, date]:
+    """Return the half-open competition season for a provider season label."""
+    start = date(int(season), int(start_month), int(start_day))
+    return start, date(int(season) + 1, int(start_month), int(start_day))
+
+
+def _season_grace_end(season_end: date, months: int = 3) -> date:
+    """Return the inclusive end of a short post-season transfer grace window."""
+    month_index = season_end.year * 12 + season_end.month - 1 + months - 1
+    year, month_zero = divmod(month_index, 12)
+    month = month_zero + 1
+    return date(year, month, monthrange(year, month)[1])
+
+
+def _metadata_name(value: str | None) -> str:
+    return " ".join((value or "").strip().casefold().split())
+
+
+def _club_ref_matches(ref: ClubRef | None, club_api_id: int | None, club_name: str | None) -> bool:
+    """Match a journey club to a resolver club across senior/youth affiliates."""
+    if ref is None or (club_api_id is None and not club_name):
+        return False
+    if club_api_id is not None:
+        if ref.api_id == club_api_id:
+            return True
+        senior_id = resolve_senior_id(club_api_id, club_name)
+        if ref.organization_api_id is not None and ref.organization_api_id == senior_id:
+            return True
+    base_name = senior_base_name(club_name).strip().casefold()
+    return bool(base_name and ref.organization_key == f"name:{base_name}")
+
+
+def _stats_backed_club_ids(ref: ClubRef | None, entries: list) -> set[int]:
+    """Bind resolver identity to unambiguous statistics-backed club IDs.
+
+    Exact/provider affiliate IDs win. Name-only evidence is accepted only when
+    it identifies one stored club ID; two unrelated IDs with the same normalized
+    name remain ambiguous.
+    """
+    if ref is None:
+        return set()
+    candidates = {
+        (entry.club_api_id, entry.club_name)
+        for entry in entries
+        if entry.club_api_id is not None and _club_ref_matches(ref, entry.club_api_id, entry.club_name)
+    }
+    if not candidates:
+        return set()
+
+    direct_ids = {ref.api_id, ref.organization_api_id} - {None}
+    exact_ids = {club_id for club_id, _ in candidates if club_id in direct_ids}
+    if exact_ids:
+        return exact_ids
+
+    full_name = _metadata_name(ref.name)
+    full_name_ids = {
+        club_id for club_id, club_name in candidates if full_name and _metadata_name(club_name) == full_name
+    }
+    if len(full_name_ids) == 1:
+        return full_name_ids
+    if len(full_name_ids) > 1:
+        return set()
+
+    direct_senior_ids = {
+        resolve_senior_id(club_id, ref.name)
+        for club_id in direct_ids
+        if resolve_senior_id(club_id, ref.name) is not None
+    }
+    affiliate_ids = {
+        club_id for club_id, club_name in candidates if resolve_senior_id(club_id, club_name) in direct_senior_ids
+    }
+    if affiliate_ids:
+        return affiliate_ids
+
+    candidate_ids = {club_id for club_id, _ in candidates}
+    return candidate_ids if len(candidate_ids) == 1 else set()
+
+
+def _stats_backed_organization_ids(ref: ClubRef | None, entries: list) -> set[int]:
+    """Return all stats IDs for one uniquely anchored club organization."""
+    if ref is None:
+        return set()
+    candidates = {
+        entry.club_api_id
+        for entry in entries
+        if entry.club_api_id is not None and _club_ref_matches(ref, entry.club_api_id, entry.club_name)
+    }
+    if not candidates:
+        return set()
+    direct_ids = {ref.api_id, ref.organization_api_id} - {None}
+    if candidates & direct_ids:
+        return candidates
+    anchor_ids = _stats_backed_club_ids(ref, entries)
+    return candidates if len(anchor_ids) == 1 else set()
+
+
+def _raw_club_logo(event, direction: str) -> str:
+    """Best-effort logo lookup without sacrificing the resolver's raw IDs."""
+    raw = event.event.raw
+    if not isinstance(raw, Mapping):
+        raw = getattr(raw, "raw", None)
+    if not isinstance(raw, Mapping):
+        return ""
+    teams = raw.get("teams")
+    if not isinstance(teams, Mapping):
+        return ""
+    club = teams.get(direction)
+    if not isinstance(club, Mapping):
+        return ""
+    logo = club.get("logo")
+    return logo if isinstance(logo, str) else ""
 
 
 def _stat_int(value) -> int | None:
@@ -171,9 +333,90 @@ class JourneySyncService:
     # Delegate to shared utility
     INTERNATIONAL_PATTERNS = _INTERNATIONAL_PATTERNS
 
-    def __init__(self, api_client: APIFootballClient | None = None):
-        """Initialize with optional API client"""
-        self.api = api_client or APIFootballClient()
+    def __init__(self, api_client: APIFootballClient | None = None, *, database_only: bool = False):
+        """Initialize with an API client unless this is an explicit DB repair."""
+        if database_only and api_client is not None:
+            raise ValueError("database_only cannot be combined with api_client")
+        self.api = None if database_only else (api_client or APIFootballClient())
+
+    def _competition_start_months(self, entries: list) -> dict[int, int]:
+        """Load configured league boundaries once for a batch of entries."""
+        from flask import has_app_context
+
+        if not has_app_context():
+            return {}
+        league_ids = {
+            int(entry.league_api_id) for entry in entries if getattr(entry, "league_api_id", None) is not None
+        }
+        if not league_ids:
+            return {}
+        rows = LeagueSeasonConfig.query.filter(LeagueSeasonConfig.league_api_id.in_(league_ids)).all()
+        starts = {}
+        for row in rows:
+            if isinstance(row.rollover_month, int) and 1 <= row.rollover_month <= 12:
+                starts[row.league_api_id] = row.rollover_month
+            elif (row.season_type or "").strip().casefold() == "calendar":
+                starts[row.league_api_id] = 1
+        return starts
+
+    @staticmethod
+    def _entry_start_month(entry, start_months: Mapping[int, int] | None = None) -> int:
+        explicit = getattr(entry, "season_start_month", None)
+        if isinstance(explicit, int) and 1 <= explicit <= 12:
+            return explicit
+        league_id = getattr(entry, "league_api_id", None)
+        return (start_months or {}).get(league_id, 7)
+
+    def _resolution_start_month(self, entries: list, start_months: Mapping[int, int] | None = None) -> int:
+        """Use the freshest domestic statistics competition as resolver context."""
+        domestic = [entry for entry in entries if not getattr(entry, "is_international", False)]
+        if not domestic:
+            return 7
+        latest = max(
+            domestic,
+            key=lambda entry: (
+                getattr(entry, "season", 0) or 0,
+                getattr(entry, "sort_priority", 0) or 0,
+                getattr(entry, "transfer_date", None) or "",
+            ),
+        )
+        return self._entry_start_month(latest, start_months)
+
+    @staticmethod
+    def _capture_transfer_metadata(entries: list) -> tuple[dict, dict]:
+        exact = {}
+        by_name = {}
+        for entry in entries:
+            if not (entry.entry_type == "loan" or entry.transfer_date or entry.transfer_fee):
+                continue
+            value = (entry.entry_type == "loan", entry.transfer_date, entry.transfer_fee)
+            exact[(entry.season, entry.club_api_id, entry.league_api_id)] = value
+            name_key = (
+                entry.season,
+                _metadata_name(entry.club_name),
+                _metadata_name(getattr(entry, "league_name", None)),
+            )
+            if name_key[1] and name_key[2]:
+                by_name[name_key] = value
+        return exact, by_name
+
+    @staticmethod
+    def _restore_transfer_metadata(entry, prior_metadata: tuple[dict, dict]) -> None:
+        exact, by_name = prior_metadata
+        prior = exact.get((entry.season, entry.club_api_id, entry.league_api_id))
+        if prior is None:
+            prior = by_name.get(
+                (
+                    entry.season,
+                    _metadata_name(entry.club_name),
+                    _metadata_name(getattr(entry, "league_name", None)),
+                )
+            )
+        if prior is None:
+            return
+        was_loan, entry.transfer_date, entry.transfer_fee = prior
+        if was_loan:
+            entry.entry_type = "loan"
 
     def sync_player(self, player_api_id: int, force_full: bool = False, heartbeat_fn=None) -> PlayerJourney | None:
         """
@@ -226,7 +469,13 @@ class JourneySyncService:
 
             # Fetch transfer history for loan classification
             transfers = self._get_player_transfers(player_api_id)
-            loan_timeline = self._build_transfer_timeline(transfers)
+            sync_as_of = _transfer_as_of()
+            transfer_resolution = None
+            prior_transfer_metadata = ({}, {})
+            if transfers is None:
+                prior_transfer_metadata = self._capture_transfer_metadata(
+                    PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
+                )
 
             if heartbeat_fn:
                 heartbeat_fn()
@@ -261,9 +510,26 @@ class JourneySyncService:
                 if heartbeat_fn and (season_idx + 1) % 3 == 0:
                     heartbeat_fn()
 
+            if transfers is not None:
+                calendar_entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all() + all_entries
+                start_months = self._competition_start_months(calendar_entries)
+                resolution_start_month = self._resolution_start_month(calendar_entries, start_months)
+                initial_owner = self._derive_transfer_initial_owner(journey, all_entries, transfers)
+                transfer_resolution = resolve_transfer_state(
+                    transfers,
+                    as_of=sync_as_of,
+                    initial_owner=initial_owner,
+                    season_start_month=resolution_start_month,
+                )
+
             # Correct club IDs for players who transferred — API-Football
             # retroactively returns the current team for historical seasons
-            self._correct_club_ids_from_transfers(all_entries, transfers)
+            self._correct_club_ids_from_transfers(
+                all_entries,
+                transfers,
+                transfer_resolution=transfer_resolution,
+                as_of=sync_as_of,
+            )
 
             # Merge entries that share (club, league, season) after correction
             all_entries = self._merge_corrected_duplicates(all_entries)
@@ -271,12 +537,24 @@ class JourneySyncService:
             # Deduplicate entries with identical stat fingerprints
             all_entries = self._deduplicate_entries(all_entries)
 
-            # Classify loan entries based on transfer history
-            self._apply_loan_classification(all_entries, loan_timeline)
+            if transfer_resolution is not None:
+                # Classify loan entries based on chronological transfer state.
+                self._apply_loan_classification(all_entries, transfer_resolution)
 
-            # Fill in transfer_date from permanent transfers for entries that
-            # don't already have one (ensures current-club tiebreaker works)
-            self._apply_permanent_transfer_dates(all_entries, transfers)
+                # A later permanent move replaces stale loan metadata from an
+                # earlier episode and carries its raw fee into non-loan entries.
+                self._apply_permanent_transfer_dates(
+                    all_entries,
+                    transfers,
+                    transfer_resolution=transfer_resolution,
+                    as_of=sync_as_of,
+                )
+            else:
+                # A failed fetch is not an empty history. Preserve matching
+                # durable entry metadata instead of falsely clearing known
+                # loans/dates/fees while still accepting fresh statistics.
+                for entry in all_entries:
+                    self._restore_transfer_metadata(entry, prior_transfer_metadata)
 
             # Reclassify youth entries as 'development' or 'integration'
             # based on first-team history, transfer records, and age
@@ -284,6 +562,8 @@ class JourneySyncService:
                 all_entries,
                 transfers=transfers,
                 birth_date=(player_info or {}).get("birth", {}).get("date"),
+                transfer_resolution=transfer_resolution,
+                as_of=sync_as_of,
             )
 
             # Update player info
@@ -303,14 +583,33 @@ class JourneySyncService:
                 synced_seasons = set(e.season for e in all_entries)
                 PlayerJourneyEntry.query.filter(
                     PlayerJourneyEntry.journey_id == journey.id, PlayerJourneyEntry.season.in_(synced_seasons)
-                ).delete(synchronize_session=False)
+                ).delete(synchronize_session="fetch")
 
                 for entry in all_entries:
                     entry.journey_id = journey.id
                     db.session.add(entry)
 
-            # Update journey aggregates
-            self._update_journey_aggregates(journey, transfers=transfers)
+            db.session.flush()
+            rollup_seasons = set(seasons_to_sync)
+            if transfer_resolution is not None:
+                persisted_entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
+                reclassified = self._reclassify_all_history(
+                    journey,
+                    persisted_entries,
+                    transfers,
+                    transfer_resolution,
+                    as_of=sync_as_of,
+                )
+                rollup_seasons.update(reclassified["changed_seasons"])
+            else:
+                # Failed transfer fetch: accept fresh statistics while preserving
+                # the previously evidenced transfer classification/status.
+                self._update_journey_aggregates(
+                    journey,
+                    transfers=None,
+                    transfer_resolution=None,
+                    as_of=sync_as_of,
+                )
 
             # Auto-geocode missing club locations
             try:
@@ -322,6 +621,25 @@ class JourneySyncService:
             journey.seasons_synced = sorted(set((journey.seasons_synced or []) + seasons_to_sync))
             journey.last_synced_at = datetime.now(UTC)
             journey.sync_error = None
+
+            # Keep derived rollup failures isolated from the API-expensive
+            # journey write. The SAVEPOINT rolls back only partial rollup rows;
+            # a later repair/cold-build can reconstruct them from the journey.
+            try:
+                db.session.flush()
+                with db.session.begin_nested():
+                    for _rollup_season in sorted(rollup_seasons):
+                        refresh_season_rollup(
+                            player_api_id,
+                            season=_rollup_season,
+                            session=db.session,
+                        )
+            except Exception as rollup_err:
+                logger.warning(
+                    "season-rollup refresh failed for player %s: %s",
+                    player_api_id,
+                    rollup_err,
+                )
 
             db.session.commit()
             logger.info(f"Successfully synced journey for player {player_api_id}: {len(all_entries)} entries")
@@ -532,12 +850,14 @@ class JourneySyncService:
 
         return False
 
-    def _get_player_transfers(self, player_api_id: int) -> list:
+    def _get_player_transfers(self, player_api_id: int) -> list | None:
         """
         Get transfer records for a player.
 
         Calls the API client's cached get_player_transfers method.
-        Returns a flat list of transfer dicts on success, [] on error.
+        Returns a flat list on success (including ``[]`` for a successful empty
+        history) and ``None`` on fetch failure. The distinction prevents a
+        transient provider/cache error from clearing known transfer state.
         """
         try:
             data = self.api.get_player_transfers(player_api_id)
@@ -548,72 +868,252 @@ class JourneySyncService:
             return transfers
         except Exception as e:
             logger.warning(f"Failed to get transfers for player {player_api_id}: {e}")
+            return None
+
+    def _resolve_durable_transfer_state(
+        self,
+        journey: PlayerJourney,
+        entries: list,
+        *,
+        as_of: date | str | None = None,
+    ) -> TransferResolution | None:
+        """Resolve locally persisted transfer evidence without provider I/O.
+
+        ``None`` means no durable evidence exists and callers must leave stored
+        status fields unchanged. ORM rows expose the resolver's flattened event
+        attributes directly, so their raw types, endpoints, and dates retain the
+        same chronology/topology semantics as an in-sync provider payload.
+        """
+        rows = (
+            PlayerTransferEvent.query.filter_by(player_api_id=journey.player_api_id)
+            .order_by(PlayerTransferEvent.transfer_date, PlayerTransferEvent.id)
+            .all()
+        )
+        if not rows:
+            return None
+
+        start_months = self._competition_start_months(entries)
+        resolution_start_month = self._resolution_start_month(entries, start_months)
+        initial_owner = self._derive_transfer_initial_owner(journey, entries, rows)
+        return resolve_transfer_state(
+            rows,
+            as_of=_transfer_as_of(as_of),
+            initial_owner=initial_owner,
+            season_start_month=resolution_start_month,
+        )
+
+    @staticmethod
+    def _entry_reclassification_state(entry) -> tuple:
+        return (
+            entry.club_api_id,
+            entry.club_name,
+            entry.league_api_id,
+            entry.league_name,
+            entry.level,
+            entry.entry_type,
+            entry.is_youth,
+            entry.transfer_date,
+            entry.transfer_fee,
+        )
+
+    def _reclassify_all_history(
+        self,
+        journey: PlayerJourney,
+        entries: list,
+        transfers: list,
+        resolution: TransferResolution,
+        *,
+        as_of: date | str | None = None,
+    ) -> dict:
+        """Reclassify every stored entry and recompute all transfer consumers."""
+        before = {
+            entry.id: (entry.season, self._entry_reclassification_state(entry))
+            for entry in entries
+            if entry.id is not None
+        }
+
+        self._correct_club_ids_from_transfers(
+            entries,
+            transfers,
+            transfer_resolution=resolution,
+            as_of=as_of,
+        )
+        merged_entries = self._merge_corrected_duplicates(entries)
+        kept_ids = {entry.id for entry in merged_entries if entry.id is not None}
+        for entry in entries:
+            if entry.id is not None and entry.id not in kept_ids:
+                db.session.delete(entry)
+        entries = merged_entries
+
+        self._apply_loan_classification(entries, resolution)
+        self._apply_permanent_transfer_dates(
+            entries,
+            transfers,
+            transfer_resolution=resolution,
+            as_of=as_of,
+        )
+        self._apply_development_classification(
+            entries,
+            transfers=transfers,
+            birth_date=journey.birth_date,
+            transfer_resolution=resolution,
+            as_of=as_of,
+        )
+        db.session.flush()
+
+        self._update_journey_aggregates(
+            journey,
+            transfers=transfers,
+            transfer_resolution=resolution,
+            as_of=as_of,
+        )
+
+        changed_seasons = {
+            season
+            for entry_id, (season, state) in before.items()
+            if entry_id not in kept_ids
+            or next(
+                (self._entry_reclassification_state(entry) != state for entry in entries if entry.id == entry_id),
+                True,
+            )
+        }
+        entry_seasons = {entry.season for entry in entries if entry.season is not None}
+        return {
+            "resolution": resolution,
+            "changed_seasons": changed_seasons,
+            "entry_seasons": entry_seasons,
+        }
+
+    def reclassify_from_durable_transfer_events(
+        self,
+        journey: PlayerJourney,
+        *,
+        as_of: date | str | None = None,
+    ) -> dict | None:
+        """Run the all-history reclassifier using only locally stored evidence.
+
+        ``None`` is the conservative zero-evidence result: tre01 stores events,
+        not a successful-empty coverage marker, so absence cannot distinguish an
+        authoritative empty history from failure or not-yet-attempted.
+        """
+        entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
+        rows = (
+            PlayerTransferEvent.query.filter_by(player_api_id=journey.player_api_id)
+            .order_by(PlayerTransferEvent.transfer_date, PlayerTransferEvent.id)
+            .all()
+        )
+        if not rows:
+            return None
+
+        start_months = self._competition_start_months(entries)
+        initial_owner = self._derive_transfer_initial_owner(journey, entries, rows)
+        resolution = resolve_transfer_state(
+            rows,
+            as_of=_transfer_as_of(as_of),
+            initial_owner=initial_owner,
+            season_start_month=self._resolution_start_month(entries, start_months),
+        )
+        return self._reclassify_all_history(
+            journey,
+            entries,
+            rows,
+            resolution,
+            as_of=as_of,
+        )
+
+    def _derive_transfer_initial_owner(self, journey, entries: list, transfers: list) -> dict | None:
+        """Seed a mid-stream resolver only from corroborated academy evidence.
+
+        A lone first-event ``N/A`` is directional only when we already know
+        which endpoint is the player's owning/origin organisation. Persisted
+        origin/academy attribution and pre-event youth entries are defensible
+        evidence; senior statistics alone are not (they may belong to a
+        borrower). Ambiguous or absent evidence deliberately returns ``None``.
+        """
+        normalized = normalize_transfer_events(transfers).events
+        if not normalized:
+            return None
+        first_event = normalized[0]
+
+        evidence: list[tuple[int | None, str | None]] = []
+        origin_id = getattr(journey, "origin_club_api_id", None)
+        origin_name = getattr(journey, "origin_club_name", None)
+        if origin_id or origin_name:
+            evidence.append((origin_id, origin_name))
+
+        for academy_id in getattr(journey, "academy_club_ids", None) or []:
+            evidence.append((academy_id, None))
+
+        # Only youth evidence strictly predating the first event's year is
+        # safe: same-season destination U21 statistics may be post-signing
+        # integration rather than proof of academy ownership.
+        for entry in entries:
+            if (
+                entry.is_youth
+                and not entry.is_international
+                and entry.season is not None
+                and entry.season < first_event.transfer_date.year
+                and entry.entry_type in ("academy", "development")
+            ):
+                evidence.append((entry.club_api_id, entry.club_name))
+
+        matched: dict[str, ClubRef] = {}
+        for endpoint in (first_event.out_club, first_event.in_club):
+            if any(_club_ref_matches(endpoint, club_id, club_name) for club_id, club_name in evidence):
+                matched[endpoint.organization_key] = endpoint
+
+        if len(matched) != 1:
+            return None
+        owner = next(iter(matched.values()))
+        owner_id = owner.organization_api_id or owner.api_id
+        if owner_id is None:
+            return None
+        return {
+            "id": owner_id,
+            "name": senior_base_name(owner.name) or owner.name,
+        }
+
+    def _build_transfer_timeline(
+        self,
+        transfers: list,
+        *,
+        transfer_resolution: TransferResolution | None = None,
+        as_of: date | str | None = None,
+    ) -> list:
+        """Return the legacy dict projection of chronological loan episodes.
+
+        The public helper shape remains compatible for scripts/tests, but its
+        semantics now come exclusively from ``resolve_transfer_state``: input
+        order is irrelevant, conversions close episodes, and re-loans remain
+        distinct.
+        """
+        resolution = _coerce_transfer_resolution(
+            transfers,
+            transfer_resolution=transfer_resolution,
+            as_of=as_of,
+        )
+        if resolution is None:
             return []
+        return [
+            {
+                "club_id": episode.loan_club.api_id,
+                "club_name": episode.loan_club.name,
+                "parent_club_id": episode.owner.api_id,
+                "start_date": episode.start_date.isoformat(),
+                "end_date": episode.end_date.isoformat() if episode.end_date else None,
+            }
+            for episode in resolution.loan_episodes
+        ]
 
-    def _build_transfer_timeline(self, transfers: list) -> list:
-        """
-        Build a list of loan periods from transfer records.
-
-        Returns list of dicts:
-            [{club_id, club_name, parent_club_id, start_date, end_date}, ...]
-
-        Loan starts are identified by is_new_loan_transfer().
-        Loan ends are identified by LOAN_RETURN_TYPES.
-        """
-        loan_periods = []
-
-        for transfer in transfers:
-            transfer_type = (transfer.get("type") or "").strip().lower()
-            transfer_date = transfer.get("date")
-            teams = transfer.get("teams", {})
-            team_in = teams.get("in", {})
-            team_out = teams.get("out", {})
-
-            if is_new_loan_transfer(transfer_type):
-                # New loan: player goes OUT from parent → IN to loan club
-                loan_periods.append(
-                    {
-                        "club_id": team_in.get("id"),
-                        "club_name": team_in.get("name"),
-                        "parent_club_id": team_out.get("id"),
-                        "start_date": transfer_date,
-                        "end_date": None,  # open-ended until we find a return
-                    }
-                )
-            elif transfer_type in LOAN_RETURN_TYPES:
-                # Loan return: close the most recent open loan for this parent club
-                return_parent_id = team_in.get("id")
-                for period in reversed(loan_periods):
-                    if period["parent_club_id"] == return_parent_id and period["end_date"] is None:
-                        period["end_date"] = transfer_date
-                        break
-
-        return loan_periods
-
-    def _loan_overlaps_season(self, loan: dict, season: int) -> bool:
-        """
-        Check if a loan period overlaps a football season.
-
-        A season (e.g. 2023) runs roughly July 2023 to June 2024.
-        """
-        season_start = f"{season}-07-01"
-        season_end = f"{season + 1}-06-30"
-
-        loan_start = loan.get("start_date") or ""
-        loan_end = loan.get("end_date")
-
-        if not loan_start:
-            return False
-
-        # Loan must start before season ends
-        if loan_start > season_end:
-            return False
-
-        # If loan has an end date, it must end after season starts
-        if loan_end and loan_end < season_start:
-            return False
-
-        return True
+    def _loan_overlaps_season(
+        self,
+        loan: LoanEpisode | Mapping,
+        season: int,
+        *,
+        start_month: int = 7,
+    ) -> bool:
+        """Compatibility wrapper for the resolver's half-open season helper."""
+        return loan_episode_overlaps_season(loan, season, start_month=start_month)
 
     def _deduplicate_entries(self, entries: list) -> list:
         """
@@ -663,85 +1163,146 @@ class JourneySyncService:
 
         return result
 
-    def _apply_loan_classification(self, entries: list, loan_timeline: list):
-        """
-        Set entry_type='loan' and transfer_date for entries at loan clubs.
+    def _apply_loan_classification(self, entries: list, loan_timeline: list | TransferResolution):
+        """Classify entries from distinct resolver loan episodes.
 
-        For each non-international entry, if club_api_id matches a loan period
-        overlapping that season, classify it as a loan and record the
-        transfer start date for ordering purposes.
+        When multiple episodes reach the same borrower, the latest episode
+        overlapping the entry's season wins.  A stale legacy ``loan`` value is
+        cleared when no episode overlaps, allowing a later permanent move to
+        replace both its type and date.
         """
-        if not loan_timeline:
-            return
+        episodes = (
+            list(loan_timeline.loan_episodes)
+            if isinstance(loan_timeline, TransferResolution)
+            else list(loan_timeline or [])
+        )
+        start_months = self._competition_start_months(entries)
 
         for entry in entries:
             if entry.is_international:
                 continue
 
-            for loan in loan_timeline:
-                if entry.club_api_id == loan.get("club_id") and self._loan_overlaps_season(loan, entry.season):
-                    entry.entry_type = "loan"
-                    entry.transfer_date = loan.get("start_date")
-                    break
+            matching = []
+            for episode in episodes:
+                if isinstance(episode, LoanEpisode):
+                    club_matches = _club_ref_matches(episode.loan_club, entry.club_api_id, entry.club_name)
+                    start_date = episode.start_date
+                else:
+                    club_matches = entry.club_api_id == episode.get("club_id")
+                    raw_start = episode.get("start_date")
+                    try:
+                        start_date = date.fromisoformat(str(raw_start))
+                    except (TypeError, ValueError):
+                        continue
+                if club_matches and self._loan_overlaps_season(
+                    episode,
+                    entry.season,
+                    start_month=self._entry_start_month(entry, start_months),
+                ):
+                    matching.append((start_date, episode))
 
-    def _apply_permanent_transfer_dates(self, entries: list, transfers: list):
-        """
-        Fill in transfer_date from permanent transfers for entries that don't
-        already have one (loan entries keep their existing dates from
-        _apply_loan_classification).
-
-        This ensures the current-club tiebreaker in _update_journey_aggregates
-        correctly picks the most recent club when multiple First Team entries
-        share the same season and sort_priority.
-
-        For each entry without a transfer_date, find the most recent transfer
-        where team_in.id matches the entry's club_api_id and the transfer date
-        falls within or before that season.
-        """
-        if not transfers:
-            return
-
-        # Build list of (date, destination_club_id) from ALL transfers
-        all_moves = []
-        for transfer in transfers:
-            transfer_date = transfer.get("date")
-            teams = transfer.get("teams", {})
-            team_in = teams.get("in", {})
-            dest_id = team_in.get("id")
-            if transfer_date and dest_id:
-                all_moves.append((transfer_date, dest_id))
-
-        if not all_moves:
-            return
-
-        # Sort by date ascending so we can find the best match
-        all_moves.sort(key=lambda x: x[0])
-
-        for entry in entries:
-            if entry.transfer_date:
-                continue  # Already set by loan classification
-            if entry.is_international:
+            if not matching:
+                if entry.entry_type == "loan":
+                    entry.entry_type = "academy" if entry.is_youth else "first_team"
+                    entry.transfer_date = None
+                    entry.transfer_fee = None
                 continue
 
-            # Find the most recent transfer TO this club up to the end of
-            # the summer transfer window after the season.  API-Football
-            # sometimes records mid-season moves with a summer date (e.g.
-            # Elanga: Forest→Newcastle recorded as 2025-07-10 but played for
-            # Newcastle in the 2024 season), so we extend to Sep 30.
-            window_end = f"{entry.season + 1}-09-30"
-            best_date = None
-            for move_date, dest_id in all_moves:
-                if dest_id == entry.club_api_id and move_date <= window_end:
-                    best_date = move_date  # Keep updating — last match wins (latest)
+            _, effective_episode = max(matching, key=lambda item: item[0])
+            raw_start = (
+                effective_episode.start_date
+                if isinstance(effective_episode, LoanEpisode)
+                else effective_episode.get("start_date")
+            )
+            entry.entry_type = "loan"
+            entry.transfer_date = raw_start.isoformat() if isinstance(raw_start, date) else raw_start
+            entry.transfer_fee = None
 
-            if best_date:
-                entry.transfer_date = best_date
-                logger.debug(
-                    f"Set transfer_date={best_date} for {entry.club_name} "
-                    f"season {entry.season} (from permanent transfer)"
+    def _apply_permanent_transfer_dates(
+        self,
+        entries: list,
+        transfers: list | TransferResolution,
+        *,
+        transfer_resolution: TransferResolution | None = None,
+        as_of: date | str | None = None,
+    ):
+        """Apply resolver-classified permanent dates and raw fees.
+
+        Existing dates no longer block a later definitive move.  Entries that
+        still overlap a loan episode keep their loan start unless a permanent
+        conversion occurs later inside that same season. Because one entry
+        represents the whole season, the later definitive state wins: the entry
+        becomes non-loan from the conversion date and carries its verbatim fee.
+        A conversion on the next configured season boundary remains outside
+        the prior season.
+        """
+        resolution = _coerce_transfer_resolution(
+            transfers,
+            transfer_resolution=transfer_resolution,
+            as_of=as_of,
+        )
+        if resolution is None:
+            return
+        permanent_moves = [event for event in resolution.events if event.kind == "permanent"]
+        if not permanent_moves:
+            return
+        start_months = self._competition_start_months(entries)
+
+        for entry in entries:
+            if entry.is_international:
+                continue
+            try:
+                season_start, season_end = _season_bounds(
+                    entry.season,
+                    self._entry_start_month(entry, start_months),
                 )
+                window_end = _season_grace_end(season_end)
+            except (TypeError, ValueError):
+                continue
+            candidates = [
+                event
+                for event in permanent_moves
+                if event.transfer_date <= window_end
+                and _club_ref_matches(event.in_club, entry.club_api_id, entry.club_name)
+            ]
+            if not candidates:
+                continue
 
-    def _correct_club_ids_from_transfers(self, entries: list, transfers: list):
+            if entry.entry_type == "loan":
+                try:
+                    loan_start = date.fromisoformat(str(entry.transfer_date))
+                except (TypeError, ValueError):
+                    loan_start = season_start
+                in_season_conversions = [
+                    event
+                    for event in candidates
+                    if season_start <= event.transfer_date < season_end and event.transfer_date >= loan_start
+                ]
+                if not in_season_conversions:
+                    continue
+                best_move = max(in_season_conversions, key=lambda event: event.transfer_date)
+                entry.entry_type = "academy" if entry.is_youth else "first_team"
+            else:
+                best_move = max(candidates, key=lambda event: event.transfer_date)
+
+            entry.transfer_date = best_move.transfer_date.isoformat()
+            entry.transfer_fee = best_move.fee
+            logger.debug(
+                "Set permanent transfer metadata date=%s fee=%r for %s season %s",
+                entry.transfer_date,
+                entry.transfer_fee,
+                entry.club_name,
+                entry.season,
+            )
+
+    def _correct_club_ids_from_transfers(
+        self,
+        entries: list,
+        transfers: list | TransferResolution,
+        *,
+        transfer_resolution: TransferResolution | None = None,
+        as_of: date | str | None = None,
+    ):
         """Correct club_api_id for entries where API-Football returned the
         player's current team instead of the historical team.
 
@@ -749,38 +1310,58 @@ class JourneySyncService:
         new club's ID for historical seasons.  We use the transfer history to
         detect this and override club_api_id with the correct team.
         """
-        if not transfers:
+        resolution = _coerce_transfer_resolution(
+            transfers,
+            transfer_resolution=transfer_resolution,
+            as_of=as_of,
+        )
+        if resolution is None:
             return
 
-        # Build a list of permanent transfers: (date, team_out, team_in)
+        # Only topology-resolved permanent moves correct historical clubs. A
+        # reverse-direction N/A return is excluded; a same-direction N/A
+        # conversion is included by the same policy as every other consumer.
+        # Provider IDs enrich identity but are not mandatory: a name-only
+        # endpoint may bind to exactly one stats-backed journey club. Zero or
+        # multiple matches remain ambiguous and are left untouched.
+        evidence_entries = [entry for entry in entries if not entry.is_international]
+
+        def _evidence_id(ref: ClubRef) -> int | None:
+            direct_id = ref.api_id or ref.organization_api_id
+            matching_ids = _stats_backed_club_ids(ref, evidence_entries)
+            if direct_id in matching_ids:
+                return direct_id
+            if len(matching_ids) == 1:
+                return next(iter(matching_ids))
+            if not matching_ids and not any(
+                _club_ref_matches(ref, entry.club_api_id, entry.club_name) for entry in evidence_entries
+            ):
+                return direct_id
+            return None
+
         permanent_moves = []
-        for t in transfers:
-            transfer_date = t.get("date")
-            if not transfer_date:
+        for event in resolution.events:
+            if event.kind != "permanent":
                 continue
-            teams = t.get("teams", {})
-            team_in = teams.get("in", {})
-            team_out = teams.get("out", {})
-            if not team_in.get("id") or not team_out.get("id"):
-                continue
-            # Skip loans — they're handled by _apply_loan_classification
-            t_type = (t.get("type") or "").lower()
-            if t_type in ("loan", "n/a") or t_type in {lt.lower() for lt in LOAN_RETURN_TYPES}:
+            in_id = _evidence_id(event.in_club)
+            out_id = _evidence_id(event.out_club)
+            if in_id is None or out_id is None:
                 continue
             permanent_moves.append(
                 {
-                    "date": transfer_date,
-                    "in_id": team_in["id"],
-                    "in_name": team_in.get("name", ""),
-                    "in_logo": team_in.get("logo", ""),
-                    "out_id": team_out["id"],
-                    "out_name": team_out.get("name", ""),
-                    "out_logo": team_out.get("logo", ""),
+                    "date": event.transfer_date.isoformat(),
+                    "in_id": in_id,
+                    "in_name": event.in_club.name or "",
+                    "in_logo": _raw_club_logo(event, "in"),
+                    "out_id": out_id,
+                    "out_name": event.out_club.name or "",
+                    "out_logo": _raw_club_logo(event, "out"),
                 }
             )
 
         if not permanent_moves:
             return
+        start_months = self._competition_start_months(entries)
 
         # Clubs the player has independent evidence for (journey entries are
         # derived from the statistics feed). Used to reject bogus transfers:
@@ -789,7 +1370,7 @@ class JourneySyncService:
         # "Newcastle ⟸ Ashington AFC" alongside the genuine "Newcastle ⟸
         # Nottingham Forest". Correcting a season to that phantom source
         # manufactures a club the player never played for.
-        evidence_club_ids = {e.club_api_id for e in entries if not e.is_international}
+        evidence_club_ids = {e.club_api_id for e in evidence_entries}
 
         moves_by_in: dict[int, list] = {}
         for move in permanent_moves:
@@ -813,8 +1394,28 @@ class JourneySyncService:
             if entry.is_international:
                 continue
 
-            # Season runs Aug to Jun: entry.season=2024 → Aug 2024 to Jun 2025
-            season_end = f"{entry.season + 1}-06-30"
+            # A conversion immediately after a season must not make the real
+            # borrower statistics look retroactively misattributed (Hall /
+            # Knauff). The resolved historical loan episode is authoritative.
+            if any(
+                _club_ref_matches(episode.loan_club, entry.club_api_id, entry.club_name)
+                and self._loan_overlaps_season(
+                    episode,
+                    entry.season,
+                    start_month=self._entry_start_month(entry, start_months),
+                )
+                for episode in resolution.loan_episodes
+            ):
+                continue
+
+            try:
+                _, season_end_exclusive = _season_bounds(
+                    entry.season,
+                    self._entry_start_month(entry, start_months),
+                )
+            except (TypeError, ValueError):
+                continue
+            season_end = (season_end_exclusive - timedelta(days=1)).isoformat()
 
             # Walk the transfer chain back until the club is no longer the
             # destination of a post-season transfer. A single hop only repairs the
@@ -884,7 +1485,15 @@ class JourneySyncService:
 
         return result
 
-    def _apply_development_classification(self, entries: list, transfers=None, birth_date=None):
+    def _apply_development_classification(
+        self,
+        entries: list,
+        transfers=None,
+        birth_date=None,
+        *,
+        transfer_resolution: TransferResolution | None = None,
+        as_of: date | str | None = None,
+    ):
         """
         Reclassify youth 'academy' entries based on the player's career context.
 
@@ -908,7 +1517,9 @@ class JourneySyncService:
         # Also track total first-team appearances per club for age/experience gate
         first_team_apps_by_club = {}
         for entry in entries:
-            if entry.level == "First Team" and not entry.is_international:
+            # A first-team spell at a borrower is not a prior permanent senior
+            # career and must never disqualify the real parent academy.
+            if entry.level == "First Team" and not entry.is_international and entry.entry_type != "loan":
                 base_name = self._strip_youth_suffix(entry.club_name)
                 existing = first_team_debut_by_club.get(base_name)
                 if existing is None or entry.season < existing:
@@ -923,30 +1534,21 @@ class JourneySyncService:
         # don't need to be transferred in. The year matters for buy-backs:
         # a transfer AFTER a youth entry must not disqualify that entry
         # (academy product sold and later re-signed keeps academy status).
-        permanent_transfer_dest_years = {}
-        if transfers:
-            for transfer in transfers:
-                transfer_type = (transfer.get("type") or "").strip().lower()
-                # Skip loans — loan moves don't disqualify academy status
-                if not transfer_type or is_new_loan_transfer(transfer_type):
+        resolution = _coerce_transfer_resolution(
+            transfers,
+            transfer_resolution=transfer_resolution,
+            as_of=as_of,
+        )
+        domestic_entries = [entry for entry in entries if not entry.is_international]
+        permanent_transfer_destinations: list[tuple[set[int], int]] = []
+        if resolution is not None:
+            for event in resolution.events:
+                if event.kind != "permanent":
                     continue
-                if transfer_type in LOAN_RETURN_TYPES:
-                    continue
-                # This is a permanent transfer (bought, free agent, swap, etc.)
-                teams = transfer.get("teams", {})
-                dest = teams.get("in", {})
-                dest_id = dest.get("id")
-                if not dest_id:
-                    continue
-                year = None
-                try:
-                    year = int(str(transfer.get("date") or "")[:4])
-                except (ValueError, TypeError):
-                    pass
-                prior = permanent_transfer_dest_years.get(dest_id)
-                if prior is None or (year is not None and year < prior):
-                    permanent_transfer_dest_years[dest_id] = year
-        permanent_transfer_dest_ids = set(permanent_transfer_dest_years)
+                year = event.transfer_date.year
+                destination_ids = _stats_backed_organization_ids(event.in_club, domestic_entries)
+                if destination_ids:
+                    permanent_transfer_destinations.append((destination_ids, year))
 
         # Parse birth year for age-at-entry validation
         birth_year = None
@@ -1019,13 +1621,18 @@ class JourneySyncService:
         # same-club first-team debut). Entries that PRECEDE the transfer stay
         # untouched — an academy product sold and bought back keeps academy
         # status for their formative years.
-        if permanent_transfer_dest_years:
+        if permanent_transfer_destinations:
             for entry in entries:
                 if entry.entry_type not in ("academy", "development") or entry.is_international:
                     continue
-                if entry.club_api_id not in permanent_transfer_dest_years:
+                matching_years = [
+                    year
+                    for destination_ids, year in permanent_transfer_destinations
+                    if entry.club_api_id in destination_ids
+                ]
+                if not matching_years:
                     continue
-                transfer_year = permanent_transfer_dest_years[entry.club_api_id]
+                transfer_year = min(matching_years)
                 # Teenage gate: a recorded transfer at <= 18 is an academy
                 # move (youth-to-youth), not a senior signing.
                 if transfer_year is not None and birth_year is not None and transfer_year - birth_year <= 18:
@@ -1058,8 +1665,20 @@ class JourneySyncService:
                             f"season {first_season})"
                         )
 
-    def _update_journey_aggregates(self, journey: PlayerJourney, transfers=None):
+    def _update_journey_aggregates(
+        self,
+        journey: PlayerJourney,
+        transfers=None,
+        *,
+        transfer_resolution: TransferResolution | None = None,
+        as_of: date | str | None = None,
+    ):
         """Update aggregate stats on the journey record"""
+        resolution = _coerce_transfer_resolution(
+            transfers,
+            transfer_resolution=transfer_resolution,
+            as_of=as_of,
+        )
         entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
 
         if not entries:
@@ -1132,92 +1751,6 @@ class JourneySyncService:
             journey.current_club_name = current.club_name
             journey.current_level = current.level
 
-        # Cross-reference transfers: if the most recent transfer goes to a
-        # DIFFERENT club than what stats show, override current_club.
-        # Handles cases like "stats still show Real Madrid but player is on
-        # loan at Lyon" — where the transfer is NEWER than the stats window.
-        #
-        # Safety rules (added after the O. Hammond incident, where a stale
-        # 2024 "N/A" return-from-loan transfer was letting the override
-        # overwrite much more recent 2025 entries at a different club):
-        #
-        #   1. Skip the override when the most recent transfer is OLDER
-        #      than the latest domestic journey-entry date. Stats entries
-        #      that post-date the transfer are authoritative — the player
-        #      has moved on since the recorded transfer.
-        #   2. Skip N/A-typed transfers entirely. API-Football uses "N/A"
-        #      for loan-returns they cannot cleanly classify; they are
-        #      too ambiguous to drive aggregation.
-        #   3. Never hardcode current_level='First Team'. Derive the level
-        #      from the destination club name so a return to a youth /
-        #      reserve team is not mislabelled.
-        if transfers and domestic_entries:
-            sorted_transfers = sorted(transfers, key=lambda x: x.get("date", ""), reverse=True)
-            most_recent_transfer = sorted_transfers[0] if sorted_transfers else None
-
-            # Compute latest domestic-entry date for the staleness check.
-            # Prefer explicit transfer_date on entries; fall back to a
-            # start-of-season proxy when entries have no recorded date.
-            dated_entries = [e.transfer_date for e in domestic_entries if e.transfer_date]
-            if dated_entries:
-                latest_entry_date = max(dated_entries)
-            else:
-                latest_entry_season = max(e.season for e in domestic_entries)
-                latest_entry_date = f"{latest_entry_season}-07-01"
-
-            if most_recent_transfer:
-                transfer_type_raw = (most_recent_transfer.get("type") or "").strip()
-                transfer_type = transfer_type_raw.lower()
-                transfer_date = most_recent_transfer.get("date", "") or ""
-                dest = most_recent_transfer.get("teams", {}).get("in", {}) or {}
-
-                stale_override = bool(latest_entry_date and transfer_date and transfer_date < latest_entry_date)
-                ambiguous_type = transfer_type in ("n/a", "")
-
-                if stale_override:
-                    logger.info(
-                        "Journey %d: skipping transfer override — most recent transfer %s older than latest entry %s",
-                        journey.id,
-                        transfer_date,
-                        latest_entry_date,
-                    )
-                elif ambiguous_type:
-                    logger.info(
-                        "Journey %d: skipping ambiguous transfer override (type=%r date=%s)",
-                        journey.id,
-                        transfer_type_raw,
-                        transfer_date,
-                    )
-                elif transfer_type in LOAN_RETURN_TYPES:
-                    # Loan return: player is back at parent club.
-                    if dest.get("id") and dest.get("name") and dest["id"] != journey.current_club_api_id:
-                        derived_level = _derive_current_level_from_club_name(dest.get("name"))
-                        logger.info(
-                            "Journey %d: loan return → updating current_club to %s (level=%s, %s)",
-                            journey.id,
-                            dest["name"],
-                            derived_level,
-                            transfer_date,
-                        )
-                        journey.current_club_api_id = dest["id"]
-                        journey.current_club_name = dest["name"]
-                        journey.current_level = derived_level
-                else:
-                    # Permanent or unspecified non-loan-return transfer.
-                    if dest.get("id") and dest.get("name") and dest["id"] != journey.current_club_api_id:
-                        logger.info(
-                            "Journey %d: overriding current_club from transfer %s → %s (%s, type=%s)",
-                            journey.id,
-                            journey.current_club_name,
-                            dest["name"],
-                            transfer_date,
-                            transfer_type,
-                        )
-                        journey.current_club_api_id = dest["id"]
-                        journey.current_club_name = dest["name"]
-                        if not is_new_loan_transfer(transfer_type):
-                            journey.current_level = _derive_current_level_from_club_name(dest.get("name"))
-
         # Find first team debut
         first_team_entries = [e for e in entries if e.level == "First Team" and not e.is_international]
         if first_team_entries:
@@ -1241,56 +1774,126 @@ class JourneySyncService:
         journey.total_assists = sum(e.assists for e in entries)
 
         # Compute academy connections from youth entries
-        self._compute_academy_club_ids(journey, entries, transfers=transfers)
+        compute_kwargs = {"transfers": transfers}
+        if as_of is not None:
+            compute_kwargs["as_of"] = as_of
+        if resolution is not None:
+            compute_kwargs["transfer_resolution"] = resolution
+        self._compute_academy_club_ids(journey, entries, **compute_kwargs)
 
-        # Player-level current status (actual situation, not academy-relative)
-        self._set_current_status(journey, entries)
+        # Project club + player-level current status from the same resolver
+        # state. A failed fetch leaves all transfer-derived fields untouched.
+        if resolution is not None:
+            self.apply_resolved_current_state(journey, entries, resolution)
 
-    def _set_current_status(self, journey: PlayerJourney, entries: list) -> None:
-        """Set journey.current_status / current_owner_* from STORED entries only
-        (no API). The player's ACTUAL current situation, independent of any
-        tracked academy: when the current-club entry is a loan, mark 'on_loan'
-        and resolve the owning club (the club he is on loan FROM). Otherwise
-        leave NULL so player-facing surfaces fall back to the academy-relative
-        TrackedPlayer.status. Idempotent — safe to call from sync or backfill.
+    def _set_current_status(
+        self,
+        journey: PlayerJourney,
+        entries: list,
+        transfers=None,
+        *,
+        transfer_resolution: TransferResolution | None = None,
+        as_of: date | str | None = None,
+    ) -> bool:
+        """Set player-level loan status from the chronological current state.
+
+        A confirmed, fresh active episode is the only state that populates
+        ``current_status`` and owner. Closed or indeterminate episodes clear
+        both. Without fetched or durable transfer evidence this method is a
+        no-op: historical entry labels cannot prove a current loan or owner.
+
+        Returns ``True`` when resolver evidence was applied (including a clear)
+        and ``False`` when no evidence was available.
         """
-        from src.utils.affiliates import resolve_senior_id
-
         cur_id = journey.current_club_api_id
-        if not cur_id:
+        cur_name = journey.current_club_name
+        if not cur_id and not cur_name:
             journey.current_status = None
             journey.current_owner_api_id = None
             journey.current_owner_name = None
-            return
+            return True
 
-        on_loan_now = any(e.club_api_id == cur_id and e.entry_type == "loan" for e in entries)
-        if not on_loan_now:
-            journey.current_status = None
-            journey.current_owner_api_id = None
-            journey.current_owner_name = None
-            return
-
-        journey.current_status = "on_loan"
-        # Owner = the club he is on loan FROM: most recent senior (first_team,
-        # non-international) club that isn't the loan club, resolved to its
-        # senior org (Jong Ajax -> Ajax).
-        owner_entry = max(
-            (
-                e
-                for e in entries
-                if e.entry_type == "first_team" and not e.is_international and e.club_api_id and e.club_api_id != cur_id
-            ),
-            key=lambda e: e.season or 0,
-            default=None,
+        resolution = _coerce_transfer_resolution(
+            transfers,
+            transfer_resolution=transfer_resolution,
+            as_of=as_of,
         )
-        if owner_entry:
-            owner_id = resolve_senior_id(owner_entry.club_api_id, owner_entry.club_name)
-            owner_team = Team.query.filter_by(team_id=owner_id, is_active=True).order_by(Team.season.desc()).first()
-            journey.current_owner_api_id = owner_id
-            journey.current_owner_name = owner_team.name if owner_team else owner_entry.club_name
-        else:
+        if resolution is None:
+            logger.info(
+                "Journey %s: current status unchanged because no transfer evidence was supplied",
+                getattr(journey, "id", None),
+            )
+            return False
+
+        active_loan = resolution.active_loan if resolution.on_loan is True else None
+        if active_loan is None or not _club_ref_matches(
+            active_loan.loan_club,
+            cur_id,
+            cur_name,
+        ):
+            journey.current_status = None
             journey.current_owner_api_id = None
             journey.current_owner_name = None
+            return True
+
+        owner = resolution.current_owner
+        journey.current_status = "on_loan"
+        owner_id = (owner.organization_api_id or owner.api_id) if owner is not None else None
+        owner_team = (
+            Team.query.filter_by(team_id=owner_id, is_active=True).order_by(Team.season.desc()).first()
+            if owner_id
+            else None
+        )
+        journey.current_owner_api_id = owner_id
+        journey.current_owner_name = owner_team.name if owner_team else (owner.name if owner else None)
+        return True
+
+    def apply_resolved_current_state(
+        self,
+        journey: PlayerJourney,
+        entries: list,
+        resolution: TransferResolution,
+    ) -> bool:
+        """Atomically project a durable resolver state onto journey current fields."""
+        destination = resolution.current_club
+        domestic = [entry for entry in entries if not entry.is_international and entry.season is not None]
+        latest_season = None
+        season_start_month = resolution.season_start_month
+        if domestic:
+            latest_season = max(entry.season for entry in domestic)
+            latest_entries = [entry for entry in domestic if entry.season == latest_season]
+            current_entry = max(
+                latest_entries,
+                key=lambda entry: (entry.sort_priority, entry.transfer_date or ""),
+            )
+            start_months = self._competition_start_months(latest_entries)
+            season_start_month = self._entry_start_month(current_entry, start_months)
+
+        if destination is not None and resolved_current_club_is_authoritative(
+            resolution,
+            journey.current_club_api_id,
+            journey.current_club_name,
+            latest_season=latest_season,
+            season_start_month=season_start_month,
+            season_start_day=resolution.season_start_day,
+        ):
+            destination_id = destination.api_id or destination.organization_api_id
+            if destination_id is None:
+                destination_ids = _stats_backed_club_ids(destination, domestic)
+                if len(destination_ids) == 1:
+                    destination_id = next(iter(destination_ids))
+            journey.current_club_api_id = destination_id
+            journey.current_club_name = destination.name
+            if destination.name:
+                journey.current_level = _derive_current_level_from_club_name(destination.name)
+            else:
+                journey.current_level = None
+
+        return self._set_current_status(
+            journey,
+            entries,
+            transfer_resolution=resolution,
+        )
 
     def _strip_youth_suffix(self, club_name: str) -> str:
         """Strip youth team suffix to get parent club base name."""
@@ -1391,7 +1994,15 @@ class JourneySyncService:
                 retained_seasons[str(cid)] = season
         return sorted(retained_ids), retained_seasons
 
-    def _compute_academy_club_ids(self, journey: PlayerJourney, entries: list | None = None, transfers=None):
+    def _compute_academy_club_ids(
+        self,
+        journey: PlayerJourney,
+        entries: list | None = None,
+        transfers=None,
+        *,
+        transfer_resolution: TransferResolution | None = None,
+        as_of: date | str | None = None,
+    ):
         """
         Derive academy parent club IDs from youth journey entries.
 
@@ -1405,6 +2016,11 @@ class JourneySyncService:
         """
         if entries is None:
             entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
+        resolution = _coerce_transfer_resolution(
+            transfers,
+            transfer_resolution=transfer_resolution,
+            as_of=as_of,
+        )
 
         # Capture the journey's PERSISTED academy attribution BEFORE this run
         # overwrites it below. A transient run (API youth-coverage gap or a
@@ -1439,6 +2055,8 @@ class JourneySyncService:
                 journey,
                 set(),
                 transfers=transfers,
+                transfer_resolution=resolution,
+                as_of=as_of,
                 prior_academy_ids=prior_academy_ids,
                 prior_last_seasons=prior_last_seasons,
             )
@@ -1520,6 +2138,8 @@ class JourneySyncService:
                 journey,
                 set(),
                 transfers=transfers,
+                transfer_resolution=resolution,
+                as_of=as_of,
                 prior_academy_ids=prior_academy_ids,
                 prior_last_seasons=prior_last_seasons,
             )
@@ -1580,6 +2200,8 @@ class JourneySyncService:
                 journey,
                 set(),
                 transfers=transfers,
+                transfer_resolution=resolution,
+                as_of=as_of,
                 prior_academy_ids=prior_academy_ids,
                 prior_last_seasons=prior_last_seasons,
             )
@@ -1667,17 +2289,15 @@ class JourneySyncService:
         # ── Transfer gate: remove clubs the player was permanently transferred TO ──
         # Defense-in-depth — _apply_development_classification should have already
         # reclassified entries as 'integration', but if it missed a case this catches it.
-        if transfers and academy_ids:
+        if resolution is not None and academy_ids:
             permanent_dest_ids = set()
-            for t in transfers:
-                transfer_type = (t.get("type") or "").strip().lower()
-                if not transfer_type or is_new_loan_transfer(transfer_type):
+            for event in resolution.events:
+                if event.kind != "permanent":
                     continue
-                if transfer_type in LOAN_RETURN_TYPES:
-                    continue
-                dest_id = t.get("teams", {}).get("in", {}).get("id")
-                if dest_id:
-                    permanent_dest_ids.add(dest_id)
+                if event.in_club.api_id:
+                    permanent_dest_ids.add(event.in_club.api_id)
+                if event.in_club.organization_api_id:
+                    permanent_dest_ids.add(event.in_club.organization_api_id)
 
             removed = academy_ids & permanent_dest_ids
             if removed:
@@ -1693,25 +2313,27 @@ class JourneySyncService:
             str(club_id): season for club_id, season in last_seasons.items() if club_id in academy_ids
         }
 
-        # Auto-upsert TrackedPlayer rows for each academy connection
-        try:
-            self._upsert_tracked_players(
-                journey,
-                academy_ids,
-                transfers=transfers,
-                last_seasons=last_seasons,
-                prior_academy_ids=prior_academy_ids,
-                prior_last_seasons=prior_last_seasons,
-            )
-        except Exception as e:
-            logger.error(f"_upsert_tracked_players failed for player {journey.player_api_id}: {e}")
-            db.session.rollback()
+        # Auto-upsert TrackedPlayer rows for each academy connection. Errors
+        # intentionally propagate to the sync/repair transaction owner.
+        self._upsert_tracked_players(
+            journey,
+            academy_ids,
+            transfers=transfers,
+            transfer_resolution=resolution,
+            as_of=as_of,
+            last_seasons=last_seasons,
+            prior_academy_ids=prior_academy_ids,
+            prior_last_seasons=prior_last_seasons,
+        )
 
     def _upsert_tracked_players(
         self,
         journey: PlayerJourney,
         academy_ids: set,
         transfers=None,
+        *,
+        transfer_resolution: TransferResolution | None = None,
+        as_of: date | str | None = None,
         last_seasons=None,
         prior_academy_ids=None,
         prior_last_seasons=None,
@@ -1739,6 +2361,11 @@ class JourneySyncService:
         last_seasons = last_seasons or {}
         prior_academy_ids = prior_academy_ids or set()
         prior_last_seasons = prior_last_seasons or {}
+        resolution = _coerce_transfer_resolution(
+            transfers,
+            transfer_resolution=transfer_resolution,
+            as_of=as_of,
+        )
 
         # Status (on_loan/sold/released/left) is transfer-driven, so it can only
         # be derived when transfers were actually fetched. Callers that pass
@@ -1747,11 +2374,17 @@ class JourneySyncService:
         # player would collapse to the tentative on_loan / 'left' default and
         # clobber the real status. transfers=[] (a fetched-but-empty list, as in
         # a full journey sync) is a legitimate signal and DOES update status.
-        update_status = transfers is not None
+        update_status = transfers is not None or resolution is not None
 
         # Owning club is still computed for current-club classification
         # context, but it no longer keeps TrackedPlayer rows alive.
-        owning_api_id = self._determine_owning_club_id(journey, transfers, academy_ids)
+        owning_api_id = self._determine_owning_club_id(
+            journey,
+            transfers,
+            academy_ids,
+            transfer_resolution=resolution,
+            as_of=as_of,
+        )
 
         # Window gate: an academy origin only stays tracked while the
         # player's last youth season there is inside the window. A player
@@ -1876,10 +2509,28 @@ class JourneySyncService:
         if not keep_ids:
             return
 
+        parent_resolutions: dict[int, TransferResolution] = {}
+        resolution_as_of = resolution.as_of if resolution is not None else _transfer_as_of(as_of)
         for academy_api_id in keep_ids:
             team = Team.query.filter_by(team_id=academy_api_id, is_active=True).order_by(Team.season.desc()).first()
             if not team:
                 continue
+
+            # Academy-relative state needs that academy as its known initial
+            # owner. Cache one contextualized resolution per parent so status
+            # and the parent's own sale fee use identical chronology.
+            parent_resolution = None
+            if transfers is not None:
+                parent_resolution = parent_resolutions.get(academy_api_id)
+                if parent_resolution is None:
+                    parent_resolution = resolve_transfer_state(
+                        transfers,
+                        as_of=resolution_as_of,
+                        initial_owner={"id": academy_api_id, "name": team.name},
+                        season_start_month=(resolution.season_start_month if resolution is not None else 7),
+                        season_start_day=(resolution.season_start_day if resolution is not None else 1),
+                    )
+                    parent_resolutions[academy_api_id] = parent_resolution
 
             existing = TrackedPlayer.query.filter_by(
                 player_api_id=journey.player_api_id,
@@ -1894,7 +2545,17 @@ class JourneySyncService:
                 parent_club_name=team.name,
                 transfers=transfers,
                 latest_season=_get_latest_season(journey.id, parent_api_id=academy_api_id, parent_club_name=team.name),
+                transfer_resolution=parent_resolution,
+                as_of=resolution_as_of,
+                season_start_month=(parent_resolution.season_start_month if parent_resolution is not None else 7),
+                season_start_day=(parent_resolution.season_start_day if parent_resolution is not None else 1),
             )
+            parent_departure = latest_parent_permanent_departure(
+                parent_resolution,
+                academy_api_id,
+                team.name,
+            )
+            sale_fee = parent_departure.fee if parent_departure is not None and status == "sold" else None
 
             if not existing:
                 tp = TrackedPlayer(
@@ -1910,6 +2571,7 @@ class JourneySyncService:
                     status=status,
                     current_club_api_id=current_club_api_id,
                     current_club_name=current_club_name,
+                    sale_fee=sale_fee,
                     last_academy_season=last_seasons.get(academy_api_id),
                 )
                 db.session.add(tp)
@@ -1948,59 +2610,54 @@ class JourneySyncService:
                     existing.status = status
                     existing.current_club_api_id = current_club_api_id
                     existing.current_club_name = current_club_name
+                    existing.sale_fee = sale_fee
 
-    def _determine_owning_club_id(self, journey, transfers, academy_ids):
-        """Find the club that currently owns the player (last permanent transfer dest).
+    def _determine_owning_club_id(
+        self,
+        journey,
+        transfers,
+        academy_ids,
+        *,
+        transfer_resolution: TransferResolution | None = None,
+        as_of: date | str | None = None,
+    ):
+        """Find the current legal owner from the chronological resolution.
 
         Returns team_api_id or None if the owning club is already in academy_ids
-        or cannot be determined.
-
-        Strategy: transfer history first (most explicit), journey entries fallback.
+        or cannot be determined. Attribution-only repair callers have no
+        transfer evidence, so they retain the established journey-entry
+        fallback used solely to suppress rows at a player's buying club.
         """
-        owning_id = None
-
-        # Strategy 1: Transfer history — last permanent transfer destination
-        if transfers:
-            permanent = []
-            for t in transfers:
-                transfer_type = (t.get("type") or "").strip().lower()
-                if not transfer_type or is_new_loan_transfer(transfer_type):
-                    continue
-                if transfer_type in LOAN_RETURN_TYPES:
-                    continue
-                dest_id = t.get("teams", {}).get("in", {}).get("id")
-                date = t.get("date", "")
-                if dest_id:
-                    permanent.append((date, dest_id))
-            if permanent:
-                permanent.sort(reverse=True)  # Most recent first
-                owning_id = permanent[0][1]
-
-        # Strategy 2: Journey entries fallback — last non-youth permanent entry
-        if not owning_id and journey.id:
-            entry = (
-                PlayerJourneyEntry.query.filter_by(journey_id=journey.id)
-                .filter(PlayerJourneyEntry.is_youth.is_(False))
-                .filter(PlayerJourneyEntry.entry_type.in_(["permanent", "first_team"]))
-                .order_by(PlayerJourneyEntry.season.desc())
-                .first()
-            )
-            if entry and entry.club_api_id:
-                owning_id = entry.club_api_id
+        resolution = _coerce_transfer_resolution(
+            transfers,
+            transfer_resolution=transfer_resolution,
+            as_of=as_of,
+        )
+        if resolution is not None:
+            if resolution.legal_owner is None:
+                return None
+            owning_id = resolution.legal_owner.organization_api_id or resolution.legal_owner.api_id
+        else:
+            # This is not a status/owner projection: recompute-academy has no
+            # provider evidence but still needs to avoid creating a tracker row
+            # at an obvious later buying club. An authoritative empty or
+            # ambiguous resolution never reaches this fallback.
+            owning_id = None
+            if journey.id:
+                entry = (
+                    PlayerJourneyEntry.query.filter_by(journey_id=journey.id)
+                    .filter(PlayerJourneyEntry.is_youth.is_(False))
+                    .filter(PlayerJourneyEntry.entry_type.in_(["permanent", "first_team"]))
+                    .order_by(PlayerJourneyEntry.season.desc())
+                    .first()
+                )
+                if entry and entry.club_api_id:
+                    owning_id = entry.club_api_id
 
         # Skip if owning club is already in academy_ids (already has a tracked row)
         if owning_id and owning_id not in academy_ids:
             return owning_id
         return None
-
-    @staticmethod
-    def _get_latest_departure_type(transfers, parent_api_id):
-        """Find the type of the most recent transfer away from a parent club."""
-        departures = [t for t in transfers if (t.get("teams", {}).get("out", {}).get("id") == parent_api_id)]
-        if not departures:
-            return None
-        departures.sort(key=lambda t: t.get("date", ""), reverse=True)
-        return (departures[0].get("type") or "").strip().lower()
 
     def _auto_geocode_clubs(self, journey: PlayerJourney):
         """Create ClubLocation rows for clubs that don't have one yet.

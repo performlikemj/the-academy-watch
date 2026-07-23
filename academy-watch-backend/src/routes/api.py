@@ -82,8 +82,21 @@ from src.models.league import (
 )
 from src.models.sponsor import Sponsor
 from src.models.tracked_player import TrackedPlayer
+from src.models.transfer_event import PlayerTransferEvent
 from src.services.email_service import email_service
-from src.utils.academy_classifier import _get_latest_season, classify_tracked_player, flatten_transfers, is_same_club
+from src.services.player_suppression import hide_suppressed_player, without_active_suppression
+from src.services.transfer_resolver import resolve_transfer_state
+from src.utils.academy_classifier import (
+    _club_matches_parent,
+    _get_latest_season,
+    classify_tracked_player,
+    flatten_transfers,
+    is_national_team,
+    is_same_club,
+    latest_parent_permanent_departure,
+    resolved_current_club_is_authoritative,
+    resolved_transfer_evidence_is_authoritative,
+)
 from src.utils.background_jobs import (
     STALE_JOB_TIMEOUT,
 )
@@ -1539,6 +1552,16 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                 FixturePlayerStats.minutes == 0,
             ).delete()
             if ghost_deleted:
+                # Sole-writer contract: those ghost FPS rows fed the rollup under
+                # the OLD id — rebuild that id's rollup from what remains so no
+                # phantom fixtures cell survives (player_id is still the old id here).
+                try:
+                    from src.services.season_rollup_service import refresh_player as _refresh_rollup
+
+                    with db.session.begin_nested():
+                        _refresh_rollup(player_id, season=season)
+                except Exception:
+                    logger.exception("season-rollup refresh after ghost-delete failed for player=%s", player_id)
                 db.session.commit()
                 logger.info(f"🗑️ Deleted {ghost_deleted} ghost stat records with old ID {player_id}")
 
@@ -1622,6 +1645,10 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
                     )
                     db.session.add(fps)
                     synced += 1
+                    # FPS choke point: mark this (player, season) rollup dirty.
+                    from src.services.season_rollup_service import queue_player_refresh
+
+                    queue_player_refresh(player_id, season)
                     logger.debug(f"Added stats for fixture {fixture_id_api}: {minutes}' played")
         except Exception as e:
             logger.warning(f"Failed to get player stats for fixture {fixture_id_api}: {e}")
@@ -1629,6 +1656,10 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
 
     if synced > 0:
         db.session.commit()
+        # One refresh per affected player, after the batch commit.
+        from src.services.season_rollup_service import flush_player_refresh_queue
+
+        flush_player_refresh_queue()
         logger.info(f"Synced {synced} fixtures for player {player_id} at team {loan_team_api_id}")
 
     return synced
@@ -1642,7 +1673,11 @@ def public_player_search():
         return jsonify([])
     try:
         rows = (
-            TrackedPlayer.query.filter(TrackedPlayer.player_name.ilike(f"%{q}%"), TrackedPlayer.is_active)
+            TrackedPlayer.query.filter(
+                TrackedPlayer.player_name.ilike(f"%{q}%"),
+                TrackedPlayer.is_active,
+                without_active_suppression(TrackedPlayer.player_api_id),
+            )
             .order_by(TrackedPlayer.player_name)
             .limit(20)
             .all()
@@ -1731,6 +1766,7 @@ def create_newsletter_comment(newsletter_id: int):
 
 
 @api_bp.route("/players/<int:player_id>/comments", methods=["GET"])
+@hide_suppressed_player("player_id")
 def list_player_comments(player_id: int):
     try:
         rows = (
@@ -1744,6 +1780,7 @@ def list_player_comments(player_id: int):
 
 
 @api_bp.route("/players/<int:player_id>/comments", methods=["POST"])
+@hide_suppressed_player("player_id")
 @require_user_auth
 @limiter.limit("8 per minute", key_func=_user_rate_limit_key)
 def create_player_comment(player_id: int):
@@ -1783,6 +1820,7 @@ def create_player_comment(player_id: int):
 
 
 @api_bp.route("/players/<int:player_id>/links", methods=["GET"])
+@hide_suppressed_player("player_id")
 def list_player_links(player_id: int):
     try:
         rows = (
@@ -1823,6 +1861,7 @@ def list_player_links(player_id: int):
 
 
 @api_bp.route("/players/<int:player_id>/links", methods=["POST"])
+@hide_suppressed_player("player_id")
 @require_user_auth
 @limiter.limit("5 per minute", key_func=_user_rate_limit_key)
 def submit_player_link(player_id: int):
@@ -3482,7 +3521,9 @@ def _fetch_community_takes_for_newsletter(n: Newsletter) -> list[dict]:
     React newsletter view). Keep the two call sites in sync via this helper.
     """
     community_takes: list[dict] = []
-    takes_query = CommunityTake.query.filter_by(status="approved")
+    takes_query = CommunityTake.query.filter_by(status="approved").filter(
+        without_active_suppression(CommunityTake.player_id)
+    )
     if n.id:
         newsletter_takes = takes_query.filter_by(newsletter_id=n.id).all()
         community_takes.extend([t.to_dict() for t in newsletter_takes])
@@ -3804,6 +3845,7 @@ def _build_academy_watch(n: Newsletter) -> list[dict]:
                 TrackedPlayer.team_id == n.team_id,
                 TrackedPlayer.status == "academy",
                 TrackedPlayer.is_active.is_(True),
+                without_active_suppression(TrackedPlayer.player_api_id),
             )
             .all()
         )
@@ -3900,6 +3942,7 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
             TrackedPlayer.team_id == n.team_id,
             TrackedPlayer.is_active.is_(True),
             TrackedPlayer.status == "academy",
+            without_active_suppression(TrackedPlayer.player_api_id),
         ).all()
 
         if tracked_players:
@@ -5086,6 +5129,10 @@ def admin_sync_player_fixtures(player_id: int):
                         )
                         db.session.add(fps)
                         synced += 1
+                        # FPS choke point: mark this (player, season) rollup dirty.
+                        from src.services.season_rollup_service import queue_player_refresh
+
+                        queue_player_refresh(player_id, season)
                     elif minutes > 0 or games.get("substitute") is not None:
                         synced += 1  # Dry run counts this as would-sync
                     else:
@@ -5098,6 +5145,10 @@ def admin_sync_player_fixtures(player_id: int):
 
         if not dry_run:
             db.session.commit()
+            # One refresh per affected player, after the batch commit.
+            from src.services.season_rollup_service import flush_player_refresh_queue
+
+            flush_player_refresh_queue()
 
         return jsonify(
             {
@@ -5211,6 +5262,11 @@ def admin_sync_all_player_fixtures():
         return jsonify(_safe_error_payload(e, "Failed to start batch fixture sync")), 500
 
 
+def _batch_now_utc() -> datetime:
+    """Clock seam for deterministic season-relative batch routing tests."""
+    return datetime.now(UTC)
+
+
 def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
     """
     Core logic for batch fixture sync.
@@ -5232,8 +5288,16 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
 
     from src.utils.academy_window import current_stats_season
 
-    now_utc = datetime.now(UTC)
-    season = data.get("season", current_stats_season())
+    now_utc = _batch_now_utc()
+    present_season = current_stats_season(now_utc)
+    season = int(data.get("season", present_season))
+    # The live client persists observed transfer evidence. A dry run therefore
+    # must never invoke it, even when a caller also requests a refresh.
+    refresh_transfers = data.get("refresh_transfers") is True and not dry_run
+    try:
+        transfer_refresh_limit = min(max(int(data.get("transfer_refresh_limit", 25)), 0), 100)
+    except (TypeError, ValueError):
+        transfer_refresh_limit = 25
 
     # ── 1. Gather all players grouped by current team API ID ──
     team_players = defaultdict(list)  # {team_api_id: [(player_api_id, player_name), ...]}
@@ -5244,50 +5308,329 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
         TrackedPlayer.status.in_(["on_loan", "first_team", "academy"]),
     ).all()
 
-    tracked_api_ids = set()
-    for tp in tracked:
-        if tp.status == "on_loan" and tp.current_club_api_id:
-            team_players[tp.current_club_api_id].append((tp.player_api_id, tp.player_name))
-            tracked_api_ids.add(tp.player_api_id)
-        elif tp.status in ("first_team", "academy") and tp.team_id:
-            parent_team = Team.query.get(tp.team_id)
-            if parent_team and parent_team.team_id:
-                team_players[parent_team.team_id].append((tp.player_api_id, tp.player_name))
-                tracked_api_ids.add(tp.player_api_id)
-
     # Create API client early — needed for team discovery below
     api_client = APIFootballClient()
 
     # Sold/released players — discover their current team via API-Football
-    from src.api_football_client import extract_transfer_fee
-
     sold_released = TrackedPlayer.query.filter(
         TrackedPlayer.is_active.is_(True),
         TrackedPlayer.status.in_(["sold", "released", "left"]),
     ).all()
 
+    tracked_api_ids = set()
+    batch_player_ids = {tp.player_api_id for tp in [*tracked, *sold_released]}
+    durable_transfers_by_player = defaultdict(list)
+    if batch_player_ids:
+        durable_rows = (
+            PlayerTransferEvent.query.filter(PlayerTransferEvent.player_api_id.in_(batch_player_ids))
+            .order_by(
+                PlayerTransferEvent.player_api_id,
+                PlayerTransferEvent.transfer_date,
+                PlayerTransferEvent.id,
+            )
+            .all()
+        )
+        for row in durable_rows:
+            durable_transfers_by_player[row.player_api_id].append(row)
+
+    from src.models.journey import PlayerJourney, PlayerJourneyEntry
+    from src.models.season_rollup import LeagueSeasonConfig
+
+    season_entries_by_player = defaultdict(list)
+    if batch_player_ids:
+        calendar_rows = (
+            db.session.query(PlayerJourney.player_api_id, PlayerJourneyEntry)
+            .join(PlayerJourneyEntry, PlayerJourneyEntry.journey_id == PlayerJourney.id)
+            .filter(
+                PlayerJourney.player_api_id.in_(batch_player_ids),
+                PlayerJourneyEntry.season == season,
+                PlayerJourneyEntry.is_international.is_not(True),
+            )
+            .all()
+        )
+        for player_api_id, entry in calendar_rows:
+            season_entries_by_player[player_api_id].append(entry)
+
+    league_ids = {
+        entry.league_api_id
+        for entries in season_entries_by_player.values()
+        for entry in entries
+        if entry.league_api_id is not None
+    }
+    season_configs = {
+        row.league_api_id: row
+        for row in (
+            LeagueSeasonConfig.query.filter(LeagueSeasonConfig.league_api_id.in_(league_ids)).all()
+            if league_ids
+            else []
+        )
+    }
+
+    def _season_window(player_api_id, preferred_team_id=None):
+        entries = season_entries_by_player.get(player_api_id, [])
+        preferred = [entry for entry in entries if entry.club_api_id == preferred_team_id]
+        pool = preferred or entries
+        selected = max(
+            pool,
+            key=lambda entry: (
+                entry.sort_priority or 0,
+                entry.transfer_date or "",
+                entry.minutes or 0,
+                entry.appearances or 0,
+            ),
+            default=None,
+        )
+        config = season_configs.get(selected.league_api_id) if selected is not None else None
+        start_month = 7
+        if config is not None:
+            if isinstance(config.rollover_month, int) and 1 <= config.rollover_month <= 12:
+                start_month = config.rollover_month
+            elif (config.season_type or "").strip().casefold() == "calendar":
+                start_month = 1
+        season_end_exclusive = date(season + 1, start_month, 1)
+        routing_cutoff = min(now_utc.date(), season_end_exclusive - timedelta(days=1))
+        # Preserve the established Aug-1 fixture query for unconfigured split
+        # leagues; configured calendars use their actual rollover month.
+        fixture_start_month = start_month if config is not None else 8
+        fixture_start = date(season, fixture_start_month, 1).isoformat()
+        return start_month, routing_cutoff, fixture_start, routing_cutoff.isoformat()
+
     discovery_count = 0
     fee_count = 0
+    transfer_refresh_count = 0
+
+    def _history_starts_after_cutoff(resolution):
+        return bool(
+            resolution is not None
+            and resolution.normalized_events
+            and all(event.transfer_date > resolution.as_of for event in resolution.normalized_events)
+        )
+
+    def _resolved_team_block(resolution, *, allow_evidenced_initial_owner=False):
+        if resolution is None or resolution.loan_state == "indeterminate":
+            return None
+        effective_events = [event for event in resolution.events if event.kind != "unknown"]
+        has_routing_evidence = bool(effective_events) or (
+            allow_evidenced_initial_owner and _history_starts_after_cutoff(resolution)
+        )
+        resolved_club = resolution.current_club
+        resolved_id = resolved_club.api_id or resolved_club.organization_api_id if resolved_club else None
+        if not has_routing_evidence or not resolved_id or resolved_club is None or is_national_team(resolved_club.name):
+            return None
+        return {
+            "id": resolved_id,
+            "name": resolved_club.name or f"Team {resolved_id}",
+        }
+
+    def _routing_projection(transfer_events, initial_owner, player_api_id):
+        start_month, routing_cutoff, fixture_start, fixture_end = _season_window(player_api_id)
+        resolution = None
+        team_block = None
+        if transfer_events is not None:
+            resolution = resolve_transfer_state(
+                transfer_events,
+                as_of=routing_cutoff,
+                initial_owner=initial_owner,
+                season_start_month=start_month,
+            )
+            team_block = _resolved_team_block(
+                resolution,
+                allow_evidenced_initial_owner=True,
+            )
+            if team_block is not None:
+                preferred_window = _season_window(player_api_id, team_block["id"])
+                if preferred_window[0] != start_month:
+                    start_month, routing_cutoff, fixture_start, fixture_end = preferred_window
+                    resolution = resolve_transfer_state(
+                        transfer_events,
+                        as_of=routing_cutoff,
+                        initial_owner=initial_owner,
+                        season_start_month=start_month,
+                    )
+                    team_block = _resolved_team_block(
+                        resolution,
+                        allow_evidenced_initial_owner=True,
+                    )
+        return resolution, team_block, (fixture_start, fixture_end), routing_cutoff
+
+    def _queue_player(team_block, tp):
+        _, _, fixture_start, fixture_end = _season_window(
+            tp.player_api_id,
+            team_block["id"],
+        )
+        team_players[(team_block["id"], fixture_start, fixture_end)].append((tp.player_api_id, tp.player_name))
+
+    def _local_team_db_id(team_api_id):
+        if not team_api_id:
+            return None
+        row = Team.query.filter_by(team_id=team_api_id, is_active=True).order_by(Team.season.desc()).first()
+        return row.id if row else None
+
+    # Every active status uses the same requested-date projection for fixture
+    # routing. Current fields remain status-owned and are not mutated here.
+    for tp in tracked:
+        parent_team = db.session.get(Team, tp.team_id) if tp.team_id else None
+        parent_api_id = parent_team.team_id if parent_team else None
+        parent_club_name = parent_team.name if parent_team else None
+        transfer_events = durable_transfers_by_player.get(tp.player_api_id) or None
+        initial_owner = {"id": parent_api_id, "name": parent_club_name} if parent_api_id or parent_club_name else None
+        routing_resolution, routing_team, _, routing_as_of = _routing_projection(
+            transfer_events,
+            initial_owner,
+            tp.player_api_id,
+        )
+        fallback_team = None
+        if tp.status == "on_loan" and tp.current_club_api_id:
+            fallback_team = {
+                "id": tp.current_club_api_id,
+                "name": tp.current_club_name,
+            }
+        elif tp.status in ("first_team", "academy") and parent_api_id:
+            fallback_team = {"id": parent_api_id, "name": parent_club_name}
+
+        use_routing_projection = False
+        if routing_team is not None and routing_resolution is not None:
+            history_starts_after_cutoff = _history_starts_after_cutoff(routing_resolution)
+            has_post_window_move = any(
+                event.transfer_date > routing_as_of for event in routing_resolution.normalized_events
+            )
+            start_month = _season_window(tp.player_api_id, routing_team["id"])[0]
+            use_routing_projection = bool(
+                fallback_team is None
+                or history_starts_after_cutoff
+                or has_post_window_move
+                or resolved_current_club_is_authoritative(
+                    routing_resolution,
+                    fallback_team["id"],
+                    fallback_team["name"],
+                    latest_season=season,
+                    season_start_month=start_month,
+                )
+            )
+        if not use_routing_projection:
+            routing_team = fallback_team
+        if routing_team is not None:
+            _queue_player(routing_team, tp)
+            tracked_api_ids.add(tp.player_api_id)
+
     for tp in sold_released:
         if tp.player_api_id in tracked_api_ids:
             continue
-        # If we already have a team from a prior backfill, use it
+
+        parent_team = db.session.get(Team, tp.team_id) if tp.team_id else None
+        parent_api_id = parent_team.team_id if parent_team else None
+        parent_club_name = parent_team.name if parent_team else None
+        initial_owner = {"id": parent_api_id, "name": parent_club_name} if parent_api_id or parent_club_name else None
+        transfer_events = durable_transfers_by_player.get(tp.player_api_id) or None
+        refreshed_this_player = False
+        if refresh_transfers and transfer_refresh_count < transfer_refresh_limit:
+            transfer_refresh_count += 1
+            refreshed_this_player = True
+            try:
+                transfers_resp = api_client.get_player_transfers(tp.player_api_id)
+                transfer_events = flatten_transfers(transfers_resp)
+            except Exception as exc:
+                logger.warning(
+                    "Batch sync explicit transfer refresh failed for player %s: %s; using durable evidence",
+                    tp.player_api_id,
+                    exc,
+                )
+
+        current_resolution = None
+        routing_resolution = None
+        routing_resolved_team = None
+        routing_as_of = _season_window(tp.player_api_id)[1]
+        if transfer_events is not None:
+            current_resolution = resolve_transfer_state(
+                transfer_events,
+                as_of=now_utc.date(),
+                initial_owner=initial_owner,
+            )
+            routing_resolution, routing_resolved_team, _, routing_as_of = _routing_projection(
+                transfer_events,
+                initial_owner,
+                tp.player_api_id,
+            )
+
+        if not dry_run and current_resolution is not None and parent_api_id:
+            parent_departure = latest_parent_permanent_departure(
+                current_resolution,
+                parent_api_id,
+                parent_club_name,
+            )
+            if tp.status == "sold" and parent_departure is not None and tp.sale_fee != parent_departure.fee:
+                tp.sale_fee = parent_departure.fee
+                fee_count += 1
+                # Fee propagation is an independent repair.  Persist it before
+                # profile discovery so a later provider/profile failure cannot
+                # silently roll back resolver-derived sale evidence.
+                db.session.commit()
+
+        current_resolved_team = _resolved_team_block(current_resolution)
+        routing_uses_initial_owner = _history_starts_after_cutoff(routing_resolution)
+        has_post_window_move = bool(
+            current_resolution is not None
+            and any(
+                event.kind != "unknown" and event.transfer_date > routing_as_of for event in current_resolution.events
+            )
+        )
+
+        # Reconcile a prior backfill with concrete chronological evidence
+        # before the known-club fast path. Transfer failure remains distinct:
+        # without a resolution, the stored club is preserved conservatively.
         if tp.current_club_api_id:
-            team_players[tp.current_club_api_id].append((tp.player_api_id, tp.player_name))
+            use_current_resolved_team = bool(
+                current_resolved_team is not None
+                and current_resolution is not None
+                and resolved_current_club_is_authoritative(
+                    current_resolution,
+                    tp.current_club_api_id,
+                    tp.current_club_name,
+                    latest_season=present_season,
+                )
+            )
+            current_team = (current_resolved_team if use_current_resolved_team else None) or {
+                "id": tp.current_club_api_id,
+                "name": tp.current_club_name,
+            }
+            use_routing_resolved_team = bool(
+                routing_resolved_team is not None
+                and routing_resolution is not None
+                and (
+                    has_post_window_move
+                    or routing_uses_initial_owner
+                    or resolved_current_club_is_authoritative(
+                        routing_resolution,
+                        tp.current_club_api_id,
+                        tp.current_club_name,
+                        latest_season=season,
+                    )
+                )
+            )
+            routing_team = (routing_resolved_team if use_routing_resolved_team else None) or current_team
+            _queue_player(routing_team, tp)
             tracked_api_ids.add(tp.player_api_id)
+            if not dry_run:
+                if use_current_resolved_team:
+                    tp.current_club_api_id = current_team["id"]
+                    tp.current_club_name = current_team["name"]
+                    tp.current_club_db_id = _local_team_db_id(current_team["id"])
+                db.session.commit()
+            if refreshed_this_player and delay > 0:
+                time.sleep(delay)
             continue
         # Discover team from API-Football /players endpoint
         try:
-            from src.utils.academy_classifier import is_national_team
-
-            player_data = api_client.get_player_by_id(tp.player_api_id, season)
+            best_team_block = None
+            best_stat = None
+            player_data = api_client.get_player_by_id(
+                tp.player_api_id,
+                season,
+                allow_transfer_fallback=False,
+            )
             if player_data and player_data.get("statistics"):
                 # Find the best CLUB team (skip national teams + parent academy, prefer most appearances)
                 # For sold players, we want the club they were sold TO, not the parent
-                parent_team = Team.query.get(tp.team_id) if tp.team_id else None
-                parent_api_id = parent_team.team_id if parent_team else None
-                best_team_block = None
-                best_stat = None
                 best_apps = -1
                 for stat in player_data["statistics"]:
                     team_block = stat.get("team", {})
@@ -5306,66 +5649,81 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                         best_team_block = team_block
                         best_stat = stat
 
-                # Cross-reference against transfers before backfilling
-                try:
-                    from src.api_football_client import LOAN_RETURN_TYPES
-                    from src.utils.academy_classifier import flatten_transfers
+            # Determinate chronological state outranks a profile-statistics
+            # guess.  An expired open loan is indeterminate: its old borrower
+            # must not replace newer stored/profile club evidence.
+            profile_club_id = best_team_block.get("id") if best_team_block else None
+            profile_club_name = best_team_block.get("name") if best_team_block else None
+            use_current_resolved_team = bool(
+                current_resolved_team is not None
+                and current_resolution is not None
+                and resolved_current_club_is_authoritative(
+                    current_resolution,
+                    profile_club_id,
+                    profile_club_name,
+                    latest_season=present_season,
+                )
+            )
+            current_team = (current_resolved_team if use_current_resolved_team else None) or best_team_block
+            use_routing_resolved_team = bool(
+                routing_resolved_team is not None
+                and routing_resolution is not None
+                and (
+                    has_post_window_move
+                    or routing_uses_initial_owner
+                    or resolved_current_club_is_authoritative(
+                        routing_resolution,
+                        profile_club_id,
+                        profile_club_name,
+                        latest_season=season,
+                    )
+                )
+            )
+            routing_team = (routing_resolved_team if use_routing_resolved_team else None) or best_team_block
 
-                    raw_transfers = api_client.get_player_transfers(tp.player_api_id)
-                    flat = flatten_transfers(raw_transfers)
-                    if flat:
-                        most_recent = sorted(flat, key=lambda x: x.get("date", ""), reverse=True)[0]
-                        tr_type = (most_recent.get("type") or "").strip().lower()
-                        dest = most_recent.get("teams", {}).get("in", {})
-                        if dest.get("id") and tr_type not in LOAN_RETURN_TYPES:
-                            best_team_block = {
-                                "id": dest["id"],
-                                "name": dest.get("name", f"Team {dest['id']}"),
-                                "logo": dest.get("logo"),
-                            }
-                except Exception:
-                    pass  # fall through to stats-based result
-
-                if best_team_block:
-                    team_api_id = best_team_block.get("id")
-                    team_players[team_api_id].append((tp.player_api_id, tp.player_name))
-                    tracked_api_ids.add(tp.player_api_id)
-                    # Backfill team on TrackedPlayer
-                    if not dry_run:
-                        tp.current_club_api_id = team_api_id
-                        tp.current_club_name = best_team_block.get("name")
-                        # Also backfill position if missing
-                        if not tp.position:
-                            games = (best_stat or {}).get("games", {}) or {}
-                            tp.position = games.get("position")
-                    discovery_count += 1
-            # Fetch transfer fee for sold players
-            if tp.status == "sold" and not tp.sale_fee and not dry_run:
-                try:
-                    transfers_resp = api_client.get_player_transfers(tp.player_api_id)
-                    # Response is a list: [{player: {...}, transfers: [{date, type, teams}]}]
-                    all_transfers = []
-                    for entry in transfers_resp or []:
-                        all_transfers.extend(entry.get("transfers", []))
-                    # Find the most recent non-loan transfer
-                    for xfer in reversed(all_transfers):
-                        fee = extract_transfer_fee(xfer.get("type", ""))
-                        if fee is not None:
-                            tp.sale_fee = fee
-                            fee_count += 1
-                            break
-                except Exception:
-                    pass
+            if routing_team:
+                _queue_player(routing_team, tp)
+                tracked_api_ids.add(tp.player_api_id)
+                # Present-day resolver state may always repair current fields;
+                # requested-season profile data may do so only for the current
+                # stats season, never during a historical backfill.
+                may_persist_current_team = use_current_resolved_team or season == present_season
+                if not dry_run and current_team and may_persist_current_team:
+                    tp.current_club_api_id = current_team.get("id")
+                    tp.current_club_name = current_team.get("name")
+                    tp.current_club_db_id = _local_team_db_id(current_team.get("id"))
+                    # Also backfill position if missing
+                    if not tp.position:
+                        games = (best_stat or {}).get("games", {}) or {}
+                        tp.position = games.get("position")
+                discovery_count += 1
             if not dry_run:
                 db.session.commit()
             time.sleep(delay)  # Rate limit API calls
         except Exception as e:
             logger.warning(f"Failed to discover team for player {tp.player_api_id} ({tp.player_name}): {e}")
+            fallback_routing_team = routing_resolved_team or current_resolved_team
+            if fallback_routing_team:
+                _queue_player(fallback_routing_team, tp)
+                tracked_api_ids.add(tp.player_api_id)
+                discovery_count += 1
+                if not dry_run and current_resolved_team:
+                    tp.current_club_api_id = current_resolved_team["id"]
+                    tp.current_club_name = current_resolved_team["name"]
+                    tp.current_club_db_id = _local_team_db_id(current_resolved_team["id"])
+                    db.session.commit()
+            if refreshed_this_player and delay > 0:
+                time.sleep(delay)
 
     total_teams = len(team_players)
     total_players = sum(len(v) for v in team_players.values())
     logger.info(f"Batch sync: {total_players} players across {total_teams} teams, season={season}, dry_run={dry_run}")
-    logger.info(f"Team discovery: {discovery_count} sold/released players resolved, {fee_count} fees extracted")
+    logger.info(
+        "Team discovery: %s sold/released players resolved, %s fees repaired, %s explicit transfer refreshes",
+        discovery_count,
+        fee_count,
+        transfer_refresh_count,
+    )
 
     if job_id:
         _update_job(
@@ -5375,12 +5733,10 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
             current_player=f"Starting: {total_players} players across {total_teams} teams",
         )
 
-    season_start = f"{season}-08-01"
-    today = now_utc.strftime("%Y-%m-%d")
-
     summary = {
         "season": season,
         "dry_run": dry_run,
+        "transfer_refreshes": transfer_refresh_count,
         "total_teams": total_teams,
         "total_players": total_players,
         "total_fixtures_checked": 0,
@@ -5392,7 +5748,7 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
     players_processed = 0
 
     # ── 2. Process each team group ──
-    for team_api_id, players in team_players.items():
+    for (team_api_id, season_start, fixture_end), players in team_players.items():
         team_result = {
             "team_api_id": team_api_id,
             "players": len(players),
@@ -5403,7 +5759,17 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
         }
 
         try:
-            fixtures = api_client.get_fixtures_for_team_cached(team_api_id, season, season_start, today)
+            if season_start > fixture_end:
+                logger.info(
+                    "Batch sync: season %s has not started for team %s (%s > %s)",
+                    season,
+                    team_api_id,
+                    season_start,
+                    fixture_end,
+                )
+                fixtures = []
+            else:
+                fixtures = api_client.get_fixtures_for_team_cached(team_api_id, season, season_start, fixture_end)
 
             # Filter to finished games only
             finished = [
@@ -5508,6 +5874,10 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                                     **map_player_stat_block(st),
                                 )
                                 db.session.add(fps)
+                                # FPS choke point: mark (player, season) dirty.
+                                from src.services.season_rollup_service import queue_player_refresh
+
+                                queue_player_refresh(pid, season)
                             team_result["synced"] += 1
                         else:
                             team_result["skipped"] += 1
@@ -5520,6 +5890,10 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
 
             if not dry_run:
                 db.session.commit()
+                # One refresh per affected player, after this team's batch commit.
+                from src.services.season_rollup_service import flush_player_refresh_queue
+
+                flush_player_refresh_queue()
 
         except Exception as e:
             logger.warning(f"Batch sync error for team {team_api_id}: {e}")
@@ -6073,6 +6447,10 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                                 )
                                 db.session.add(fps)
                                 player_result["synced"] += 1
+                                # FPS choke point: mark (player, season) dirty.
+                                from src.services.season_rollup_service import queue_player_refresh
+
+                                queue_player_refresh(p_api_id, season)
                             elif minutes > 0 or games.get("substitute") is not None:
                                 player_result["synced"] += 1  # Dry run counts this
                             else:
@@ -6085,6 +6463,10 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
 
                 if not dry_run:
                     db.session.commit()
+                    # One refresh per affected player, after the batch commit.
+                    from src.services.season_rollup_service import flush_player_refresh_queue
+
+                    flush_player_refresh_queue()
 
             except Exception as e:
                 player_result["errors"].append(str(e)[:100])
@@ -6503,6 +6885,29 @@ def admin_delete_team_data(team_id: int):
         # Mark team as not tracked
         team.is_tracked = False
         team.newsletters_active = False
+
+        # Season-rollup sole-writer contract: the FPS bulk-delete above fed
+        # player_season_cells/totals — rebuild each affected player's rollup from
+        # the REMAINING sources BEFORE the commit, so the delete and the
+        # cells/totals re-resolution land in ONE transaction. A crash between the
+        # two (the 0.5 CPU box's documented OOM/deploy/restart failure mode) can no
+        # longer leave a phantom fixtures total whose source FPS rows are already
+        # gone — a phantom the rows-behind gauge cannot detect once those source
+        # rows are deleted. Mirrors the two ghost-delete paths (savepoint-wrapped
+        # refresh before the shared commit); a team DELETE is cheap to redo, so
+        # atomicity wins here over the deferred post-commit refresh that exists
+        # only to shield API-expensive fixture writes. season=None covers every
+        # season the deleted rows spanned; one bounded refresh per rostered player
+        # (a team roster, not a platform-wide sweep). Any per-player refresh
+        # failure propagates to the outer handler, which rolls back the WHOLE
+        # cheap-to-redo team delete and returns 500.
+        affected_pids = {pid for pid in player_api_ids if pid is not None}
+        if affected_pids:
+            from src.services.season_rollup_service import refresh_player as _refresh_rollup
+
+            for _pid in affected_pids:
+                with db.session.begin_nested():
+                    _refresh_rollup(_pid, season=None)
 
         db.session.commit()
 
@@ -10116,6 +10521,7 @@ def admin_review_manual_player(submission_id):
 
 
 @api_bp.route("/players/<int:player_id>/journey/map", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_player_journey_map(player_id: int):
     """
     Get a player's journey in map-optimized format (grouped by club with coordinates).
@@ -10810,7 +11216,7 @@ def admin_explain_academy():
     force_sync = data.get("force_sync", False)
 
     try:
-        from src.api_football_client import LOAN_RETURN_TYPES, APIFootballClient, is_new_loan_transfer
+        from src.api_football_client import APIFootballClient
         from src.models.journey import PlayerJourney, PlayerJourneyEntry
         from src.services.journey_sync import JourneySyncService
         from src.utils.academy_classifier import strip_youth_suffix
@@ -10841,24 +11247,43 @@ def admin_explain_academy():
         # Detect permanent transfer destinations
         raw_transfers = api.get_player_transfers(player_api_id)
         transfers = flatten_transfers(raw_transfers)
+        resolver_parent_id = team_api_id or next(
+            iter(journey.academy_club_ids or []),
+            journey.origin_club_api_id,
+        )
+        resolver_parent = (
+            Team.query.filter_by(team_id=resolver_parent_id).order_by(Team.season.desc()).first()
+            if resolver_parent_id
+            else None
+        )
+        transfer_resolution = resolve_transfer_state(
+            transfers,
+            as_of=datetime.now(UTC).date(),
+            initial_owner=(
+                {
+                    "id": resolver_parent_id,
+                    "name": resolver_parent.name if resolver_parent else None,
+                }
+                if resolver_parent_id
+                else None
+            ),
+        )
         permanent_dest_ids = set()
         permanent_dest_info = []
-        for t in transfers or []:
-            ttype = (t.get("type") or "").strip().lower()
-            if not ttype or is_new_loan_transfer(ttype) or ttype in LOAN_RETURN_TYPES:
+        for event in transfer_resolution.events:
+            if event.kind != "permanent":
                 continue
-            teams = t.get("teams", {})
-            dest = teams.get("in", {})
-            dest_id = dest.get("id")
+            dest_id = event.in_club.api_id or event.in_club.organization_api_id
             if dest_id:
                 permanent_dest_ids.add(dest_id)
                 permanent_dest_info.append(
                     {
-                        "date": t.get("date"),
-                        "type": t.get("type"),
-                        "from": teams.get("out", {}).get("name"),
-                        "to": dest.get("name"),
+                        "date": event.transfer_date.isoformat(),
+                        "type": event.raw_type,
+                        "from": event.out_club.name,
+                        "to": event.in_club.name,
                         "to_id": dest_id,
+                        "resolution": event.reason,
                     }
                 )
 
@@ -11299,6 +11724,61 @@ def admin_refresh_tracked_player_statuses():
         return jsonify(_safe_error_payload(e, "Failed to refresh statuses")), 500
 
 
+def _academy_seed_transfer_fallback_eligible(
+    api_client,
+    player_api_id: int,
+    parent_api_id: int,
+    parent_club_name: str | None,
+    *,
+    as_of: date | str | None = None,
+) -> bool:
+    """Return whether transfer evidence safely permits academy fallback.
+
+    A candidate parent is the proposition being tested, not proven owner
+    context. Failed lookups, malformed dropped events, and unresolved N/A
+    topology therefore remain ineligible instead of becoming false evidence
+    that the player was never recruited.
+    """
+    try:
+        transfers = flatten_transfers(api_client.get_player_transfers(player_api_id))
+        resolution = resolve_transfer_state(
+            transfers,
+            as_of=as_of or datetime.now(UTC).date(),
+        )
+    except Exception as exc:
+        logger.warning(
+            "seed: transfer fallback skipped %d because lookup/resolution failed: %s",
+            player_api_id,
+            exc,
+        )
+        return False
+
+    evidence_was_dropped = len(resolution.normalized_events) < len(transfers)
+    has_ambiguous_event = any(event.kind == "unknown" for event in resolution.events)
+    if evidence_was_dropped or has_ambiguous_event:
+        logger.info(
+            "seed: transfer fallback skipped %d because transfer history is ambiguous",
+            player_api_id,
+        )
+        return False
+
+    was_recruited = any(
+        event.kind in {"loan_start", "permanent"}
+        and _club_matches_parent(
+            event.in_club,
+            parent_api_id,
+            parent_club_name,
+        )
+        and not _club_matches_parent(
+            event.out_club,
+            parent_api_id,
+            parent_club_name,
+        )
+        for event in resolution.events
+    )
+    return not was_recruited
+
+
 def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None):
     """Core seed logic: discover academy players and create TrackedPlayer rows.
 
@@ -11399,28 +11879,12 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                     # aren't in API-Football as separate entries)
                     age = player_info.get("age")
                     if age and int(age) <= 22:
-                        was_bought = False
-                        try:
-                            transfers_resp = _api.get_player_transfers(pid)
-                            for tentry in transfers_resp or []:
-                                for xfer in tentry.get("transfers", []):
-                                    teams_in = xfer.get("teams", {}).get("in", {})
-                                    xfer_type = (xfer.get("type") or "").strip().lower()
-                                    if teams_in.get("id") == parent_api_id and xfer_type not in (
-                                        "loan",
-                                        "back from loan",
-                                        "return from loan",
-                                        "end of loan",
-                                        "loan end",
-                                        "loan return",
-                                    ):
-                                        was_bought = True
-                                        break
-                                if was_bought:
-                                    break
-                        except Exception:
-                            pass
-                        if not was_bought:
+                        if _academy_seed_transfer_fallback_eligible(
+                            _api,
+                            pid,
+                            parent_api_id,
+                            team.name,
+                        ):
                             candidate_ids[pid] = journey
                             logger.info(
                                 "seed: transfer-fallback accepted %d (%s) age %s for %s",
@@ -11486,37 +11950,71 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                 player_api_id=pid,
                 team_id=team_id,
             ).first()
-            if existing:
-                new_status, new_loan_id, new_loan_name = classify_tracked_player(
-                    current_club_api_id=journey.current_club_api_id if journey else None,
-                    current_club_name=journey.current_club_name if journey else None,
-                    current_level=journey.current_level if journey else None,
-                    parent_api_id=parent_api_id,
-                    parent_club_name=team.name,
-                    player_api_id=pid,
-                    api_client=_api,
-                    latest_season=_get_latest_season(
-                        journey.id, parent_api_id=parent_api_id, parent_club_name=team.name
-                    )
-                    if journey
-                    else None,
+            transfer_evidence = None
+            transfer_resolution = None
+            transfer_evidence_authoritative = False
+            try:
+                transfer_evidence = flatten_transfers(_api.get_player_transfers(pid))
+                transfer_resolution = resolve_transfer_state(
+                    transfer_evidence,
+                    as_of=datetime.now(UTC).date(),
+                    initial_owner={"id": parent_api_id, "name": team.name},
                 )
-                # Resolve the local Team FK so consumers that prefer
-                # current_club_db_id (radar comparison, journey badges,
-                # team-loans-out filters) don't have to do their own join.
-                new_db_id = None
-                if new_loan_id:
-                    target_team = Team.query.filter_by(team_id=new_loan_id).first()
-                    new_db_id = target_team.id if target_team else None
-                if (
-                    existing.status != new_status
-                    or existing.current_club_api_id != new_loan_id
-                    or existing.current_club_db_id != new_db_id
-                ):
-                    existing.status = new_status
-                    existing.current_club_api_id = new_loan_id
-                    existing.current_club_name = new_loan_name
-                    existing.current_club_db_id = new_db_id
+                transfer_evidence_authoritative = resolved_transfer_evidence_is_authoritative(
+                    transfer_evidence,
+                    transfer_resolution,
+                )
+            except Exception as transfer_err:
+                logger.warning(
+                    "seed: transfer fetch failed for player %d; preserving existing transfer state: %s",
+                    pid,
+                    transfer_err,
+                )
+            if existing:
+                if transfer_evidence_authoritative:
+                    new_status, new_loan_id, new_loan_name = classify_tracked_player(
+                        current_club_api_id=journey.current_club_api_id if journey else None,
+                        current_club_name=journey.current_club_name if journey else None,
+                        current_level=journey.current_level if journey else None,
+                        parent_api_id=parent_api_id,
+                        parent_club_name=team.name,
+                        transfers=transfer_evidence,
+                        transfer_resolution=transfer_resolution,
+                        latest_season=_get_latest_season(
+                            journey.id, parent_api_id=parent_api_id, parent_club_name=team.name
+                        )
+                        if journey
+                        else None,
+                    )
+                    # Resolve the local Team FK so consumers that prefer
+                    # current_club_db_id (radar comparison, journey badges,
+                    # team-loans-out filters) don't have to do their own join.
+                    new_db_id = None
+                    if new_loan_id:
+                        target_team = (
+                            Team.query.filter_by(team_id=new_loan_id, is_active=True)
+                            .order_by(Team.season.desc())
+                            .first()
+                        )
+                        new_db_id = target_team.id if target_team else None
+                    parent_departure = latest_parent_permanent_departure(
+                        transfer_resolution,
+                        parent_api_id,
+                        team.name,
+                    )
+                    new_sale_fee = parent_departure.fee if new_status == "sold" and parent_departure else None
+                    if (
+                        existing.status != new_status
+                        or existing.current_club_api_id != new_loan_id
+                        or existing.current_club_name != new_loan_name
+                        or existing.current_club_db_id != new_db_id
+                        or existing.sale_fee != new_sale_fee
+                    ):
+                        existing.status = new_status
+                        existing.current_club_api_id = new_loan_id
+                        existing.current_club_name = new_loan_name
+                        existing.current_club_db_id = new_db_id
+                        existing.sale_fee = new_sale_fee
                 skipped += 1
                 continue
 
@@ -11539,8 +12037,8 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                 current_level=journey.current_level if journey else None,
                 parent_api_id=parent_api_id,
                 parent_club_name=team.name,
-                player_api_id=pid,
-                api_client=_api,
+                transfers=transfer_evidence,
+                transfer_resolution=transfer_resolution,
                 latest_season=_get_latest_season(journey.id, parent_api_id=parent_api_id, parent_club_name=team.name)
                 if journey
                 else None,
@@ -11569,8 +12067,18 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
             # rows have current_club_db_id populated from day one.
             current_club_db_id_val = None
             if current_club_api_id:
-                target_team_row = Team.query.filter_by(team_id=current_club_api_id).first()
+                target_team_row = (
+                    Team.query.filter_by(team_id=current_club_api_id, is_active=True)
+                    .order_by(Team.season.desc())
+                    .first()
+                )
                 current_club_db_id_val = target_team_row.id if target_team_row else None
+            parent_departure = latest_parent_permanent_departure(
+                transfer_resolution,
+                parent_api_id,
+                team.name,
+            )
+            sale_fee = parent_departure.fee if status == "sold" and parent_departure else None
 
             tp = TrackedPlayer(
                 player_api_id=pid,
@@ -11586,6 +12094,7 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                 current_club_api_id=current_club_api_id,
                 current_club_name=current_club_name,
                 current_club_db_id=current_club_db_id_val,
+                sale_fee=sale_fee,
                 data_source="api-football",
                 data_depth="full_stats",
                 journey_id=journey.id if journey else None,
@@ -12221,6 +12730,7 @@ def get_team_players(team_identifier):
                 team_id=team_id,
                 is_active=True,
             )
+            .filter(without_active_suppression(TrackedPlayer.player_api_id))
             .order_by(TrackedPlayer.player_name)
             .all()
         )
