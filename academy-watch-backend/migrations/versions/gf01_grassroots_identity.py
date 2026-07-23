@@ -24,7 +24,7 @@ from migrations._migration_helpers import (
 )
 
 revision = "gf01"
-down_revision = "sea01"
+down_revision = "tf02"
 branch_labels = None
 depends_on = None
 

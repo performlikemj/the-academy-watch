@@ -622,7 +622,7 @@ def test_revoke_api_removes_manager_role_and_records_deverification(funding_app,
 def test_gf01_is_single_head_guarded_and_enables_rls():
     migration = Path(__file__).resolve().parents[1] / "migrations" / "versions" / "gf01_grassroots_identity.py"
     source = migration.read_text()
-    assert 'down_revision = "sea01"' in source
+    assert 'down_revision = "tf02"' in source
     assert source.count("ENABLE ROW LEVEL SECURITY") >= 1
     assert "for table_name in NEW_TABLES" in source
     assert "if not table_exists" in source
