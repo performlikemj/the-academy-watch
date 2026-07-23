@@ -507,6 +507,101 @@ class TestEntryTypingFinalForm:
         svc._apply_development_classification(entries, transfers=transfers, birth_date="1999-08-17")
         assert entries[1].entry_type == "integration"
 
+    def test_name_only_transfer_in_flags_matching_youth_entry(self):
+        svc = self._svc()
+        entries = [self._entry(club_api_id=7198, club_name="Manchester United U21", season=2024)]
+        transfers = [
+            {
+                "type": "€ 15M",
+                "date": "2022-07-05",
+                "teams": {
+                    "in": {"id": None, "name": "Manchester United"},
+                    "out": {"id": 209, "name": "Feyenoord"},
+                },
+            }
+        ]
+
+        svc._apply_development_classification(entries, transfers=transfers, birth_date=None)
+
+        assert entries[0].entry_type == "integration"
+
+    def test_name_only_transfer_in_does_not_flag_ambiguous_club_ids(self):
+        svc = self._svc()
+        entries = [
+            self._entry(club_api_id=7198, club_name="Manchester United U21", season=2024),
+            self._entry(club_api_id=9998, club_name="Manchester United U21", season=2024),
+        ]
+        transfers = [
+            {
+                "type": "€ 15M",
+                "date": "2022-07-05",
+                "teams": {
+                    "in": {"id": None, "name": "Manchester United"},
+                    "out": {"id": 209, "name": "Feyenoord"},
+                },
+            }
+        ]
+
+        svc._apply_development_classification(entries, transfers=transfers, birth_date=None)
+
+        assert [entry.entry_type for entry in entries] == ["academy", "academy"]
+
+    def test_direct_senior_transfer_flags_same_organization_youth_entry(self):
+        svc = self._svc()
+        entries = [
+            self._entry(
+                club_api_id=33,
+                club_name="Manchester United",
+                season=2022,
+                entry_type="first_team",
+                level="First Team",
+                appearances=30,
+            ),
+            self._entry(club_api_id=7198, club_name="Manchester United U21", season=2024),
+        ]
+        transfers = [
+            {
+                "type": "€ 15M",
+                "date": "2022-07-05",
+                "teams": {
+                    "in": {"id": 33, "name": "Manchester United"},
+                    "out": {"id": 209, "name": "Feyenoord"},
+                },
+            }
+        ]
+
+        svc._apply_development_classification(entries, transfers=transfers, birth_date=None)
+
+        assert entries[1].entry_type == "integration"
+
+    def test_name_only_senior_transfer_anchors_same_organization_youth_entry(self):
+        svc = self._svc()
+        entries = [
+            self._entry(
+                club_api_id=33,
+                club_name="Manchester United",
+                season=2022,
+                entry_type="first_team",
+                level="First Team",
+                appearances=30,
+            ),
+            self._entry(club_api_id=7198, club_name="Manchester United U21", season=2024),
+        ]
+        transfers = [
+            {
+                "type": "€ 15M",
+                "date": "2022-07-05",
+                "teams": {
+                    "in": {"id": None, "name": "Manchester United"},
+                    "out": {"id": 209, "name": "Feyenoord"},
+                },
+            }
+        ]
+
+        svc._apply_development_classification(entries, transfers=transfers, birth_date=None)
+
+        assert entries[1].entry_type == "integration"
+
     def test_teenage_transfer_into_academy_stays_academy(self):
         svc = self._svc()
         entries = [self._entry(club_api_id=7198, club_name="Manchester United U18", season=2020, level="U18")]

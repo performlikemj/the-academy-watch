@@ -171,6 +171,7 @@ def _make_user(email, **overrides):
 def _headers(email="scout@example.com"):
     from src.auth import issue_user_token
 
+    _make_user(email)
     token = issue_user_token(email)["token"]
     return {"Authorization": f"Bearer {token}"}
 

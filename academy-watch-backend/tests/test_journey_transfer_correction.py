@@ -92,6 +92,62 @@ def test_single_hop_correction_still_applies():
     assert entries[0].club_name == "Old Club"
 
 
+def test_name_only_move_binds_to_unique_stats_backed_clubs():
+    transfers = [_transfer("2024-07-01", None, "New Club", None, "Old Club")]
+    misattributed = _Entry(2023, 50, "New Club")
+    old_club_evidence = _Entry(2022, 40, "Old Club")
+
+    _svc()._correct_club_ids_from_transfers(
+        [misattributed, old_club_evidence],
+        transfers,
+    )
+
+    assert (misattributed.club_api_id, misattributed.club_name) == (40, "Old Club")
+
+
+def test_raw_affiliate_id_binds_to_unique_stats_backed_organization_id():
+    transfers = [_transfer("2024-07-01", 7193, "Everton U21", 40, "Old Club")]
+    misattributed = _Entry(2023, 45, "Everton U21")
+    old_club_evidence = _Entry(2022, 40, "Old Club")
+
+    _svc()._correct_club_ids_from_transfers(
+        [misattributed, old_club_evidence],
+        transfers,
+    )
+
+    assert (misattributed.club_api_id, misattributed.club_name) == (40, "Old Club")
+
+
+def test_name_only_move_does_not_bind_ambiguous_stats_ids():
+    transfers = [_transfer("2024-07-01", None, "New Club", None, "Old Club")]
+    first = _Entry(2023, 50, "New Club")
+    second = _Entry(2023, 51, "New Club")
+    old_club_evidence = _Entry(2022, 40, "Old Club")
+
+    _svc()._correct_club_ids_from_transfers(
+        [first, second, old_club_evidence],
+        transfers,
+    )
+
+    assert (first.club_api_id, first.club_name) == (50, "New Club")
+    assert (second.club_api_id, second.club_name) == (51, "New Club")
+
+
+def test_name_only_senior_endpoint_prefers_exact_name_over_youth_affiliate():
+    transfers = [_transfer("2024-07-01", None, "Manchester United", 40, "Old Club")]
+    misattributed = _Entry(2023, 33, "Manchester United")
+    youth = _Entry(2023, 7198, "Manchester United U21")
+    old_club_evidence = _Entry(2022, 40, "Old Club")
+
+    _svc()._correct_club_ids_from_transfers(
+        [misattributed, youth, old_club_evidence],
+        transfers,
+    )
+
+    assert (misattributed.club_api_id, misattributed.club_name) == (40, "Old Club")
+    assert (youth.club_api_id, youth.club_name) == (7198, "Manchester United U21")
+
+
 def test_international_entries_are_never_rewritten():
     transfers = [_transfer("2025-07-11", 34, "Newcastle", 65, "Nottingham Forest")]
     natl = _Entry(2022, 34, "Sweden", is_international=True)

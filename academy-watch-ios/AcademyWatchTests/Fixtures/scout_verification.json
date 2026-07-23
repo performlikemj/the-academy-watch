@@ -1,0 +1,18 @@
+{
+  "verification": {
+    "id": 28,
+    "full_name": "Alex Morgan",
+    "organization": "Northbank Recruitment",
+    "role_title": "First-team scout",
+    "statement": "I cover academy and first-team recruitment across the North West.",
+    "evidence_urls": [
+      "https://northbank.example/scouting/alex-morgan",
+      "https://association.example/members/alex-morgan"
+    ],
+    "status": "rejected",
+    "submitted_at": "2026-07-14T09:00:00",
+    "reviewed_at": "2026-07-15T11:30:00",
+    "review_notes": "Please provide evidence that identifies your current role at the organization.",
+    "revocation_reason": null
+  }
+}

@@ -2,8 +2,9 @@
 
 Locks the four load-bearing guarantees of the PR2 (`sea01`) work:
 
-1. **Migration head stays single** and is `sea01` (chained off `aw23`) — a second
-   head would make `flask db upgrade` ambiguous on deploy.
+1. **Migration head stays single** — `sea01` chains off `aw23`, followed by
+   `sea02`, `sea03`, and transfer-event migration `tre01`; a second head would
+   make `flask db upgrade` ambiguous on deploy.
 2. **`sea01` is idempotent** — every DDL is guarded, so a re-applied or
    partially-applied upgrade is a pure no-op (migrations do NOT auto-run on
    deploy; prod schema has drifted out-of-band, invariants §8).
@@ -49,10 +50,10 @@ def _script_directory():
 
 
 class TestMigrationHead:
-    def test_single_head_is_sea01(self):
-        """The whole chain resolves to exactly one head, and it is sea01."""
+    def test_single_head_is_tre01(self):
+        """The whole chain resolves to exactly one head at tre01."""
         heads = _script_directory().get_heads()
-        assert heads == ["sea01"], f"expected the single head to be sea01, got {heads}"
+        assert heads == ["tre01"], f"expected the single head to be tre01, got {heads}"
 
     def test_sea01_chains_off_aw23(self):
         """sea01 branches from the real prod tip (aw23), keeping the line linear."""
@@ -60,6 +61,27 @@ class TestMigrationHead:
         sea01 = script.get_revision("sea01")
         assert sea01.down_revision == "aw23"
         assert script.get_revision("aw23") is not None
+
+    def test_sea02_chains_off_sea01(self):
+        """sea02 (D3 rollup tables) branches from sea01 (D2), keeping the line linear."""
+        script = _script_directory()
+        sea02 = script.get_revision("sea02")
+        assert sea02.down_revision == "sea01"
+        assert script.get_revision("sea01") is not None
+
+    def test_sea03_chains_off_sea02(self):
+        """sea03 (/status gauge clock indexes) branches from sea02, keeping the line linear."""
+        script = _script_directory()
+        sea03 = script.get_revision("sea03")
+        assert sea03.down_revision == "sea02"
+        assert script.get_revision("sea02") is not None
+
+    def test_tre01_chains_off_sea03(self):
+        """tre01 (durable transfer events) extends the existing single head."""
+        script = _script_directory()
+        tre01 = script.get_revision("tre01")
+        assert tre01.down_revision == "sea03"
+        assert script.get_revision("sea03") is not None
 
 
 # ---------------------------------------------------------------------------

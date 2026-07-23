@@ -77,10 +77,12 @@ class TestUpgradeStatusFromTransfers:
         transfers = [{"date": "2023-06-30", "type": "Free agent", "teams": {"in": {}, "out": {"id": DORTMUND}}}]
         assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, 999) == "released"
 
-    def test_destination_equal_to_parent_is_released(self):
-        # A departure whose "in" is the parent itself is not a sale away.
+    def test_na_self_move_preserves_uncertain_status(self):
+        # A topology-only event from the parent back to itself is not a
+        # definitive departure. The resolver emits unknown evidence, so the
+        # consumer must not manufacture either a release or a return.
         transfers = [_t("2023-06-30", DORTMUND, "Borussia Dortmund", DORTMUND, "Borussia Dortmund", "N/A")]
-        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, None) == "released"
+        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, None) == "on_loan"
 
     def test_national_team_destination_is_not_sold(self):
         transfers = [_t("2023-06-30", 10, "England", DORTMUND, "Borussia Dortmund", "N/A")]
@@ -88,13 +90,13 @@ class TestUpgradeStatusFromTransfers:
 
     def test_genuine_loan_to_loan_destination_stays_on_loan(self):
         transfers = [_t("2025-07-01", 700, "Loan Club", DORTMUND, "Borussia Dortmund", "Loan")]
-        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, 700) == "on_loan"
+        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, 700, as_of="2026-06-30") == "on_loan"
 
     def test_loan_typed_but_current_club_not_a_loan_destination_is_left(self):
         # Loan-typed departure to 700, but the player's current club is 999 (not
         # a parent loan destination) -> loaned out then moved on -> left.
         transfers = [_t("2025-07-01", 700, "Loan Club", DORTMUND, "Borussia Dortmund", "Loan")]
-        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, 999) == "left"
+        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, 999, as_of="2026-06-30") == "left"
 
     def test_no_parent_departure_with_current_club_is_left(self):
         # Berry@Man United: player is at another club (Al Kholood 10509) but has
@@ -102,16 +104,46 @@ class TestUpgradeStatusFromTransfers:
         transfers = [_t("2026-01-25", 10509, "Al Kholood", 65, "Nottingham Forest", "Transfer")]
         assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, 10509) == "left"
 
-    def test_no_parent_departure_without_current_club_stays_on_loan(self):
-        # Conservative: with no known current club we cannot assert departure.
+    def test_no_parent_departure_without_current_club_clears_stale_loan(self):
+        # A successful history with no parent departure cannot earn on_loan.
         transfers = [_t("2026-01-25", 10509, "Al Kholood", 65, "Nottingham Forest", "Transfer")]
-        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, None) == "on_loan"
+        assert upgrade_status_from_transfers("on_loan", transfers, DORTMUND, None) == "first_team"
 
-    def test_non_on_loan_status_unchanged(self):
-        assert upgrade_status_from_transfers("academy", RIJKHOFF_TRANSFERS, DORTMUND, 419) == "academy"
+    def test_definitive_departure_overrides_stale_academy_status(self):
+        assert upgrade_status_from_transfers("academy", RIJKHOFF_TRANSFERS, DORTMUND, 419) == "sold"
 
-    def test_no_transfers_unchanged(self):
-        assert upgrade_status_from_transfers("on_loan", [], DORTMUND, 419) == "on_loan"
+    def test_active_parent_loan_overrides_stale_left_status(self):
+        transfers = [_t("2026-07-10", 700, "Loan Club", DORTMUND, "Borussia Dortmund", "Loan")]
+        assert (
+            upgrade_status_from_transfers(
+                "left",
+                transfers,
+                DORTMUND,
+                DORTMUND,
+                as_of="2026-12-01",
+            )
+            == "on_loan"
+        )
+
+    def test_successful_empty_history_marks_external_player_left(self):
+        assert upgrade_status_from_transfers("on_loan", [], DORTMUND, 419) == "left"
+
+    def test_unavailable_transfer_history_preserves_conservative_status(self):
+        assert upgrade_status_from_transfers("on_loan", None, DORTMUND, 419) == "on_loan"
+
+    def test_expired_historical_loan_without_current_club_is_not_current_loan(self):
+        transfers = [_t("2023-07-01", 700, "Loan Club", DORTMUND, "Borussia Dortmund", "Loan")]
+
+        assert (
+            upgrade_status_from_transfers(
+                "on_loan",
+                transfers,
+                DORTMUND,
+                None,
+                as_of="2026-12-01",
+            )
+            == "left"
+        )
 
 
 class TestClassifyTrackedPlayerEndToEnd:
@@ -225,6 +257,9 @@ class TestAffiliateResolver:
         # "Jong Ajax" normalises to "Ajax" == parent "Ajax"
         assert is_affiliate(99999, "Jong Ajax", 194, "Ajax") is True
 
+    def test_is_affiliate_via_name_when_provider_ids_are_missing(self):
+        assert is_affiliate(None, "Chelsea U21", None, "Chelsea") is True
+
     def test_is_affiliate_via_hardcoded_id_when_name_missing(self):
         # 425 (Jong Ajax) -> 194, even with no name loaded
         assert is_affiliate(425, None, 194, "Ajax") is True
@@ -248,6 +283,7 @@ class TestClassifyEvidenceBasedModel:
             transfers=transfers,
             latest_season=latest_season,
             config=self.CONFIG,
+            as_of="2026-06-30",
         )
 
     def test_berry_under_man_united_is_left(self):
@@ -302,7 +338,8 @@ class TestClassifyEvidenceBasedModel:
 
 class TestJourneyCurrentStatus:
     """PlayerJourney.current_status is the player's ACTUAL current situation
-    (on_loan + owner), computed from stored entries — independent of academy."""
+    (on_loan + owner), computed only from chronological transfer evidence;
+    stored entry labels alone cannot infer it."""
 
     def _journey(self, current_club_api_id, entries):
         from src.models.journey import PlayerJourney, PlayerJourneyEntry
@@ -331,8 +368,9 @@ class TestJourneyCurrentStatus:
 
         return JourneySyncService()
 
-    def test_on_loan_sets_status_and_owner(self, app):
-        # Rijkhoff-shaped: current club Almere (419) is a loan; owner = Ajax (194).
+    def test_entry_only_loan_does_not_set_status_or_guess_owner(self, app):
+        # Historical entry labels do not prove that the loan remains active or
+        # that an earlier first-team club is still the legal owner.
         j, entries = self._journey(
             419,
             [
@@ -340,13 +378,14 @@ class TestJourneyCurrentStatus:
                 (2024, 194, "Ajax", "first_team", False),
             ],
         )
-        self._svc()._set_current_status(j, entries)
-        assert j.current_status == "on_loan"
-        assert j.current_owner_api_id == 194
-        assert j.current_owner_name == "Ajax"
+        assert self._svc()._set_current_status(j, entries) is False
+        assert j.current_status is None
+        assert j.current_owner_api_id is None
+        assert j.current_owner_name is None
 
-    def test_owner_resolves_b_team_to_senior(self, app):
-        # Owner recorded as Jong Ajax (425) resolves to Ajax (194).
+    def test_entry_only_b_team_does_not_guess_a_senior_owner(self, app):
+        # Affiliate normalization is valid only after transfer evidence proves
+        # ownership; a Jong Ajax journey entry alone is insufficient.
         j, entries = self._journey(
             419,
             [
@@ -354,9 +393,10 @@ class TestJourneyCurrentStatus:
                 (2024, 425, "Jong Ajax", "first_team", False),
             ],
         )
-        self._svc()._set_current_status(j, entries)
-        assert j.current_status == "on_loan"
-        assert j.current_owner_api_id == 194  # Jong Ajax -> Ajax via affiliate map
+        assert self._svc()._set_current_status(j, entries) is False
+        assert j.current_status is None
+        assert j.current_owner_api_id is None
+        assert j.current_owner_name is None
 
     def test_not_on_loan_leaves_status_null(self, app):
         # Current club entry is first_team (not a loan) -> defer to academy status.

@@ -16,7 +16,10 @@ from src.models.league import (
     Player,
     db,
 )
+from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.tracked_player import TrackedPlayer
+from src.services.player_suppression import hide_suppressed_player
+from src.utils.feature_flags import rollup_reads_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -120,12 +123,123 @@ def _season_provenance(player_id: int, season: int) -> dict:
     }
 
 
+def _rollup_provenance(total: PlayerSeasonTotal) -> dict:
+    """Stable public provenance shape for a precomputed totals row."""
+    return {
+        "primary_source": total.primary_source,
+        "reconcile_flag": total.reconcile_flag,
+        "fixtures_minutes": total.fixtures_minutes,
+        "journey_minutes": total.journey_minutes,
+        "computed_at": total.computed_at.isoformat() if total.computed_at else None,
+    }
+
+
+def _rollup_summary(total: PlayerSeasonTotal, season: int) -> dict:
+    """Headline fields copied verbatim from one totals row (never re-summed)."""
+    return {
+        "season": season,
+        "level_group": total.level_group,
+        "appearances": total.appearances,
+        "minutes": total.minutes,
+        "goals": total.goals,
+        "assists": total.assists,
+        "yellows": total.yellows,
+        "reds": total.reds,
+        "avg_rating": float(total.avg_rating) if total.avg_rating is not None else None,
+        "saves": total.saves,
+        "goals_conceded": total.goals_conceded,
+    }
+
+
+def _live_match_summary(matches: list[dict], season: int) -> dict:
+    """Cheap single-player fallback summary over the already-loaded FPS rows."""
+    rated_minutes = [
+        (float(match["rating"]), int(match.get("minutes") or 0))
+        for match in matches
+        if match.get("rating") is not None and (match.get("minutes") or 0) > 0
+    ]
+    rating_minutes = sum(minutes for _, minutes in rated_minutes)
+    return {
+        "season": season,
+        "level_group": "senior",
+        "appearances": len(matches),
+        "minutes": sum(match.get("minutes") or 0 for match in matches),
+        "goals": sum(match.get("goals") or 0 for match in matches),
+        "assists": sum(match.get("assists") or 0 for match in matches),
+        "yellows": sum(match.get("yellows") or 0 for match in matches),
+        "reds": sum(match.get("reds") or 0 for match in matches),
+        "avg_rating": (
+            round(sum(rating * minutes for rating, minutes in rated_minutes) / rating_minutes, 2)
+            if rating_minutes
+            else None
+        ),
+        "saves": sum(match.get("saves") or 0 for match in matches),
+        "goals_conceded": sum(match.get("goals_conceded") or 0 for match in matches),
+    }
+
+
+def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict]]:
+    """Fine-grained cells grouped by source without cross-source arithmetic."""
+    cells = (
+        PlayerSeasonCell.query.filter_by(player_api_id=player_id, season=season, level_group="senior")
+        .order_by(
+            PlayerSeasonCell.source,
+            PlayerSeasonCell.club_api_id,
+            PlayerSeasonCell.competition_tier,
+            PlayerSeasonCell.id,
+        )
+        .all()
+    )
+    breakdown: dict[str, list[dict]] = {}
+    for cell in cells:
+        breakdown.setdefault(cell.source, []).append(
+            {
+                "club": {"id": cell.club_api_id, "name": cell.club_name},
+                "competition_tier": cell.competition_tier,
+                "stats": {
+                    "appearances": cell.appearances,
+                    "minutes": cell.minutes,
+                    "goals": cell.goals,
+                    "assists": cell.assists,
+                    "yellows": cell.yellows,
+                    "reds": cell.reds,
+                    "saves": cell.saves,
+                    "goals_conceded": cell.goals_conceded,
+                    "avg_rating": float(cell.avg_rating) if cell.avg_rating is not None else None,
+                },
+                "detail": cell.detail,
+                "synced_at": cell.synced_at.isoformat() if cell.synced_at else None,
+            }
+        )
+    return breakdown
+
+
+def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
+    """Adapt the compact totals-row club array to the existing endpoint keys."""
+    return [
+        {
+            "team_api_id": club.get("id"),
+            "team_name": club.get("name"),
+            "team_logo": None,
+            "window_type": None,
+            "is_current": None,
+            "appearances": club.get("appearances"),
+            "minutes": club.get("minutes"),
+            "goals": club.get("goals"),
+            "assists": club.get("assists"),
+            "competition_tiers": club.get("competition_tiers") or [],
+        }
+        for club in (total.clubs or [])
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Player stats endpoint
 # ---------------------------------------------------------------------------
 
 
 @players_bp.route("/players/<int:player_id>/stats", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_public_player_stats(player_id: int):
     """Get historical stats for a player (public endpoint).
 
@@ -333,7 +447,31 @@ def get_public_player_stats(player_id: int):
 
             result.append(stats_dict)
 
-        return jsonify(result)
+        if not rollup_reads_enabled("player_stats"):
+            return jsonify(result)
+
+        total = PlayerSeasonTotal.query.filter_by(
+            player_api_id=player_id,
+            season=season,
+            level_group="senior",
+        ).one_or_none()
+        if total is None:
+            summary = _live_match_summary(result, season)
+            provenance = {"source": "live-fallback"}
+            source_breakdown = {}
+        else:
+            summary = _rollup_summary(total, season)
+            provenance = _rollup_provenance(total)
+            source_breakdown = _rollup_source_breakdown(player_id, season)
+
+        return jsonify(
+            {
+                "matches": result,
+                "summary": summary,
+                "provenance": provenance,
+                "source_breakdown": source_breakdown,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error fetching player stats for player_id={player_id}: {e}")
@@ -353,6 +491,7 @@ def get_public_player_stats(player_id: int):
 
 
 @players_bp.route("/players/<int:player_id>/profile", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_public_player_profile(player_id: int):
     """Get player profile info including name, team, position, photo."""
     try:
@@ -550,6 +689,7 @@ def get_public_player_profile(player_id: int):
 
 
 @players_bp.route("/players/<int:player_id>/season-stats", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_public_player_season_stats(player_id: int):
     """Get aggregated season stats for a player at their LOAN CLUB only."""
     try:
@@ -587,10 +727,41 @@ def get_public_player_season_stats(player_id: int):
             "clubs": [],
         }
 
+        rollup_enabled = rollup_reads_enabled("season_stats")
+        total = None
+        if rollup_enabled:
+            total = PlayerSeasonTotal.query.filter_by(
+                player_api_id=player_id,
+                season=season_start_year,
+                level_group="senior",
+            ).one_or_none()
+
+        if total is not None:
+            summary = _rollup_summary(total, season_start_year)
+            clubs = _rollup_clubs(total)
+            result.update(
+                {
+                    **{key: value for key, value in summary.items() if key not in ("season", "level_group")},
+                    # Not represented by the rollup schema; NULL is honest and
+                    # avoids fabricating a clean sheet from a missing metric.
+                    "clean_sheets": None,
+                    "source": "season-rollup",
+                    "loan_clubs_only": False,
+                    "clubs": clubs,
+                    "loan_team": clubs[0]["team_name"] if clubs else None,
+                    "has_multiple_clubs": len(clubs) > 1,
+                    "provenance": _rollup_provenance(total),
+                    "source_breakdown": _rollup_source_breakdown(player_id, season_start_year),
+                }
+            )
+            return jsonify(result)
+
         # On-read provenance for the resolved season — computed once here so every
         # return path below (limited-coverage, shadow, main) carries it. Additive:
         # the existing top-level `source` field is left exactly as-is.
-        result["provenance"] = _season_provenance(player_id, season_start_year)
+        result["provenance"] = (
+            {"source": "live-fallback"} if rollup_enabled else _season_provenance(player_id, season_start_year)
+        )
 
         # Find tracked players (prefer academy-origin rows)
         all_tracked = (
@@ -924,6 +1095,7 @@ def get_public_player_season_stats(player_id: int):
 
 
 @players_bp.route("/players/<int:player_id>/availability", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_player_availability(player_id: int):
     """Get injury/absence history for a player this season.
 
@@ -986,6 +1158,7 @@ def get_player_availability(player_id: int):
 
 
 @players_bp.route("/players/<int:player_id>/commentaries", methods=["GET"])
+@hide_suppressed_player("player_id")
 def get_player_commentaries(player_id: int):
     """Get all commentaries/writeups that mention this player."""
     try:

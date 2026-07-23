@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
+from src.extensions import limiter
 from src.models.league import EmailToken, UserAccount, db
 from src.models.showcase import PlayerProfileClaim
 from src.services.account_roles import derive_account_role
@@ -28,6 +29,7 @@ def auth_bp_app():
     )
 
     db.init_app(app)
+    limiter.init_app(app)
     app.register_blueprint(auth_bp, url_prefix="/api")
 
     with app.app_context():
@@ -123,6 +125,7 @@ class TestVerifyLoginCode:
             assert "expires_in" in data
             assert data["message"] == "Logged in"
             assert data["account_role"] == "scout"
+            assert data["is_verified_scout"] is False
 
     def test_verify_code_returns_player_for_approved_self_claim(self, auth_bp_app, auth_bp_client, mock_email_service):
         """Login returns the role derived from an existing approved claim."""
@@ -194,6 +197,7 @@ class TestAuthMe:
             assert data["display_name"] == "TestUser"
             assert data["role"] == "user"
             assert data["account_role"] == "scout"
+            assert data["is_verified_scout"] is False
 
     def test_auth_me_returns_player_for_approved_self_claim(self, auth_bp_app, auth_bp_client):
         """An approved player relationship is reflected in the auth payload."""

@@ -25,6 +25,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import func
 from src.models.league import db
 from src.models.pulse import PlayerCardCache, PlayerPulse
+from src.services.player_suppression import without_active_suppression
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,11 @@ def generate_cards(window_end, threshold=None, limit=None, *, dry_run: bool = Fa
     model = _resolve_model()
 
     above = (
-        PlayerPulse.query.filter(PlayerPulse.window_end == window_end, PlayerPulse.score >= threshold)
+        PlayerPulse.query.filter(
+            PlayerPulse.window_end == window_end,
+            PlayerPulse.score >= threshold,
+            without_active_suppression(PlayerPulse.player_api_id),
+        )
         .order_by(PlayerPulse.score.desc(), PlayerPulse.player_api_id.asc())
         .all()
     )
@@ -241,7 +246,11 @@ def generate_cards(window_end, threshold=None, limit=None, *, dry_run: bool = Fa
 def latest_card_window() -> date | None:
     """Most recent window_end with any cached card — the render seam's default
     window for the digest lookup."""
-    return db.session.query(func.max(PlayerCardCache.window_end)).scalar()
+    return (
+        db.session.query(func.max(PlayerCardCache.window_end))
+        .filter(without_active_suppression(PlayerCardCache.player_api_id))
+        .scalar()
+    )
 
 
 def get_cards_for_window(window_end, player_api_ids=None) -> dict[int, dict]:
@@ -250,7 +259,9 @@ def get_cards_for_window(window_end, player_api_ids=None) -> dict[int, dict]:
     its byte-identical legacy output). This is the additive seam Builder B reads
     at render time."""
     window_end = _coerce_window_end(window_end)
-    query = PlayerCardCache.query.filter_by(window_end=window_end)
+    query = PlayerCardCache.query.filter_by(window_end=window_end).filter(
+        without_active_suppression(PlayerCardCache.player_api_id)
+    )
     if player_api_ids is not None:
         ids = [int(pid) for pid in player_api_ids]
         if not ids:

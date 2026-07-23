@@ -38,6 +38,7 @@ from src.models.league import (
 )
 from src.services.account_roles import derive_account_role
 from src.services.email_service import email_service
+from src.services.trust import is_verified_scout
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +213,7 @@ def verify_login_code():
                 "message": "Logged in",
                 "role": role,
                 "account_role": derive_account_role(user),
+                "is_verified_scout": is_verified_scout(user),
                 "display_name": user.display_name if user else None,
                 "display_name_confirmed": bool(user.display_name_confirmed) if user else False,
                 **out,
@@ -252,6 +254,7 @@ def auth_me():
                 "display_name_confirmed": bool(user.display_name_confirmed) if user else False,
                 "is_journalist": bool(user.is_journalist) if user else False,
                 "is_curator": bool(user.is_curator) if user else False,
+                "is_verified_scout": is_verified_scout(user),
             }
         )
     except Exception as e:

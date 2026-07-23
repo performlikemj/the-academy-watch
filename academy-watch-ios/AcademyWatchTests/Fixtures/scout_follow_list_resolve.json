@@ -1,0 +1,21 @@
+{
+  "players": [
+    {
+      "player_api_id": 1001,
+      "player_name": "Alfie Striker",
+      "source": "tracked",
+      "team_name": "Rio FC",
+      "status": "on_loan",
+      "photo": "https://media.api-sports.io/football/players/1001.png"
+    },
+    {
+      "player_api_id": 2001,
+      "player_name": "Shadow Prospect",
+      "source": "shadow",
+      "team_name": "Boca",
+      "status": null,
+      "photo": null
+    }
+  ],
+  "total": 2
+}
