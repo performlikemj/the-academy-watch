@@ -66,6 +66,9 @@ class Follow(db.Model):
     selector = db.Column(db.JSON, nullable=False)
     label = db.Column(db.String(160))  # display label, server-derived where possible
     note = db.Column(db.Text)  # migrated watchlist note (player kind)
+    # Funding F2 reuses academy_club follows as an explicit future-support
+    # notification and expansion-demand signal. It never affects ranking.
+    notify_when_fundable = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
 
     # Exact (kind, selector) duplicates within a list are rejected in code — a
@@ -130,4 +133,7 @@ class PlayerShadowStats(db.Model):
     __table_args__ = (
         db.UniqueConstraint("player_api_id", "team_api_id", "season", name="uq_shadow_stats"),
         db.Index("ix_shadow_stats_player", "player_api_id"),
+        # Single-column clock index so the season-rollup /status gauge's
+        # MAX(updated_at) is an index lookup, not a full seq scan. Matches migration sea03.
+        db.Index("ix_pss_updated_at", "updated_at"),
     )

@@ -82,6 +82,8 @@ class FakeResponse:
 
 
 def _user_headers(email):
+    _ensure_user_account(email)
+    db.session.commit()
     token = issue_user_token(email)["token"]
     return {"Authorization": f"Bearer {token}"}
 
@@ -173,7 +175,10 @@ class TestClaimCodeLifecycle:
     def test_creation_mints_code_and_returns_full_verification_shape(self, client):
         response = client.post(
             f"/api/players/{PLAYER_ID}/claim",
-            json={"relationship_type": "player", "message": "This is me"},
+            json={
+                "relationship_type": "agent",
+                "message": "I represent this player",
+            },
             headers=_user_headers("owner@example.com"),
         )
 

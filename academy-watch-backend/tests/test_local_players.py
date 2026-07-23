@@ -103,6 +103,8 @@ class FakeResponse:
 
 
 def _user_headers(email):
+    _ensure_user_account(email)
+    db.session.commit()
     token = issue_user_token(email)["token"]
     return {"Authorization": f"Bearer {token}"}
 

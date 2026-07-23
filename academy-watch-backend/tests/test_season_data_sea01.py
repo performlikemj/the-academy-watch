@@ -2,9 +2,9 @@
 
 Locks six load-bearing migration and season-data guarantees:
 
-1. **Migration head stays single** and is `shp05`, with the showcase chain
-   descending linearly from `sea01` (which remains chained off `aw23`) — a
-   second head would make `flask db upgrade` ambiguous on deploy.
+1. **Migration head stays single** and is `shp05`, with the linear path running
+   from `sea01` through the season, transfer, full-circle, funding, and showcase
+   migrations — a second head would make `flask db upgrade` ambiguous on deploy.
 2. **Showcase downgrades protect blobs** — non-empty blob-owning tables stop a
    downgrade, while an already-absent table remains a no-op.
 3. **`sea01` is idempotent** — every DDL is guarded, so a re-applied or
@@ -64,11 +64,32 @@ class TestMigrationHead:
         assert sea01.down_revision == "aw23"
         assert script.get_revision("aw23") is not None
 
-    def test_showcase_chain_descends_from_sea01(self):
-        """Every showcase migration extends sea01 in one linear chain."""
+    def test_sea02_chains_off_sea01(self):
+        """sea02 (D3 rollup tables) branches from sea01 (D2), keeping the line linear."""
+        script = _script_directory()
+        sea02 = script.get_revision("sea02")
+        assert sea02.down_revision == "sea01"
+        assert script.get_revision("sea01") is not None
+
+    def test_sea03_chains_off_sea02(self):
+        """sea03 (/status gauge clock indexes) branches from sea02, keeping the line linear."""
+        script = _script_directory()
+        sea03 = script.get_revision("sea03")
+        assert sea03.down_revision == "sea02"
+        assert script.get_revision("sea02") is not None
+
+    def test_tre01_chains_off_sea03(self):
+        """tre01 (durable transfer events) extends the existing single head."""
+        script = _script_directory()
+        tre01 = script.get_revision("tre01")
+        assert tre01.down_revision == "sea03"
+        assert script.get_revision("sea03") is not None
+
+    def test_showcase_chain_descends_from_gf01(self):
+        """Every showcase migration extends the production gf01 head linearly."""
         script = _script_directory()
         expected_parents = {
-            "shp01": "sea01",
+            "shp01": "gf01",
             "shp02": "shp01",
             "shp03": "shp02",
             "shp04": "shp03",

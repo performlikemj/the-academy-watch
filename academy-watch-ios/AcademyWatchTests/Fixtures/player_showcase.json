@@ -1,0 +1,50 @@
+{
+  "claim_status": "claimed",
+  "player_api_id": 403064,
+  "profile": {
+    "player_api_id": 403064,
+    "bio": "An attack-minded left-back who looks to progress play early and recover with pace.",
+    "positions": "Left-back, wing-back",
+    "preferred_foot": "left",
+    "height_cm": 181,
+    "self_reported": true
+  },
+  "reel": [
+    {
+      "id": 41,
+      "player_id": 403064,
+      "url": "https://www.youtube.com/watch?v=Ryt6tidyYaI",
+      "title": "Development match highlights",
+      "link_type": "highlight",
+      "status": "approved",
+      "upvotes": 0,
+      "sort_order": 0,
+      "source": "user",
+      "created_at": "2026-07-02T10:00:00+00:00"
+    },
+    {
+      "id": "yt-9",
+      "player_id": 403064,
+      "url": "https://youtu.be/bcoAMvp9ez8",
+      "title": "Matchday reel",
+      "link_type": "highlight",
+      "status": "approved",
+      "upvotes": 0,
+      "sort_order": null,
+      "source": "newsletter",
+      "created_at": null
+    }
+  ],
+  "verified_footage": [
+    {
+      "match_id": 4,
+      "match_date": "2025-09-10",
+      "opponent_name": "Rivals FC",
+      "team_name": "Manchester United",
+      "minutes_on_camera": 88.0,
+      "pct_of_match": 0.72,
+      "identity_source": "human_confirmed",
+      "verified": true
+    }
+  ]
+}

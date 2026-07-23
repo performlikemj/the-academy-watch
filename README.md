@@ -37,12 +37,11 @@ python src/main.py
 ### Frontend
 
 ```bash
-cd loan-army-frontend
-
-pnpm install       # Install dependencies
-pnpm dev           # Dev server (port 5173, proxies /api to :5001)
-pnpm build         # Production build
-pnpm lint          # ESLint
+./scripts/setup_frontend.sh       # Security scan; restore only if missing/stale
+cd academy-watch-frontend
+pnpm dev                         # Dev server (port 5173, proxies /api to :5001)
+pnpm build                       # Production build
+pnpm lint                        # ESLint
 ```
 
 ## Testing

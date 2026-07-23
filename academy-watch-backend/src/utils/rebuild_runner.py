@@ -12,6 +12,112 @@ from datetime import UTC, datetime
 logger = logging.getLogger(__name__)
 
 
+def _classification_season_start(league_api_id, season_configs) -> tuple[int, int]:
+    """Return the configured statistics-season boundary for a league."""
+    season_config = season_configs.get(league_api_id)
+    if season_config is None:
+        return (7, 1)
+
+    season_type = (getattr(season_config, "season_type", None) or "").strip().lower()
+    rollover_month = getattr(season_config, "rollover_month", None)
+    try:
+        rollover_month = int(rollover_month)
+    except (TypeError, ValueError):
+        rollover_month = None
+    if rollover_month is not None and 1 <= rollover_month <= 12:
+        return (rollover_month, 1)
+    if season_type == "calendar":
+        return (1, 1)
+    return (7, 1)
+
+
+def _classification_season_context(journey, season_configs) -> tuple[int | None, int, int]:
+    """Use one domestic entry for both latest-season and calendar evidence."""
+    if journey is None:
+        return (None, 7, 1)
+    from src.models.journey import PlayerJourneyEntry
+
+    latest_entry = journey.entries.filter(PlayerJourneyEntry.is_international.is_not(True)).first()
+    if latest_entry is None:
+        latest_entry = journey.entries.first()
+    if latest_entry is None:
+        return (None, 7, 1)
+    start_month, start_day = _classification_season_start(
+        getattr(latest_entry, "league_api_id", None),
+        season_configs,
+    )
+    return (latest_entry.season, start_month, start_day)
+
+
+def _rebuild_transfer_evidence(
+    api_client,
+    player_api_id: int,
+    transfer_cache: dict[int, list | None],
+    *,
+    parent_api_id: int,
+    parent_club_name: str | None,
+    as_of,
+    season_start_month: int,
+    season_start_day: int,
+):
+    """Fetch once, then resolve the cached history for one academy parent.
+
+    ``None`` in the cache means the provider request failed; an empty list is a
+    successful, authoritative empty history.  Keeping those states distinct
+    prevents Stage 4 and Stage 6 from retrying independently or treating an
+    outage as evidence that a previous fee should be cleared.
+    """
+    from src.services.transfer_resolver import resolve_transfer_state
+    from src.utils.academy_classifier import flatten_transfers
+
+    if player_api_id not in transfer_cache:
+        try:
+            transfer_cache[player_api_id] = flatten_transfers(api_client.get_player_transfers(player_api_id))
+        except Exception as exc:
+            logger.warning(
+                "Transfer fetch failed during rebuild for player %s: %s",
+                player_api_id,
+                exc,
+            )
+            transfer_cache[player_api_id] = None
+
+    transfers = transfer_cache[player_api_id]
+    if transfers is None:
+        return None, None
+
+    resolution = resolve_transfer_state(
+        transfers,
+        as_of=as_of,
+        initial_owner={"id": parent_api_id, "name": parent_club_name},
+        season_start_month=season_start_month,
+        season_start_day=season_start_day,
+    )
+    return transfers, resolution
+
+
+def _rebuild_sale_fee(
+    current_fee: str | None,
+    *,
+    status: str,
+    resolution,
+    parent_api_id: int,
+    parent_club_name: str | None,
+) -> str | None:
+    """Return the academy-parent sale fee, preserving it on fetch failure."""
+    from src.utils.academy_classifier import latest_parent_permanent_departure
+
+    if resolution is None:
+        return current_fee
+    if status != "sold":
+        return None
+    departure = latest_parent_permanent_departure(
+        resolution,
+        parent_api_id,
+        parent_club_name,
+    )
+    return departure.fee if departure is not None else None
+
+
 def run_rebuild_process(job_id, rebuild_type, kwargs):
     """Entry point for the rebuild subprocess.
 
@@ -92,12 +198,13 @@ def _run_full_rebuild(job_id, config):
     from src.models.cohort import AcademyCohort, CohortMember
     from src.models.journey import ClubLocation, PlayerJourney, PlayerJourneyEntry
     from src.models.league import AcademyAppearance, AcademyLeague, Team, db
+    from src.models.season_rollup import LeagueSeasonConfig
     from src.models.tracked_player import TrackedPlayer
     from src.models.weekly import WeeklyLoanAppearance
     from src.services.big6_seeding_service import BIG_6, SEASONS, run_big6_seed
     from src.services.journey_sync import JourneySyncService, seed_club_locations
     from src.services.youth_competition_resolver import build_academy_league_seed_rows
-    from src.utils.academy_classifier import _get_latest_season, classify_tracked_player
+    from src.utils.academy_classifier import classify_tracked_player
     from src.utils.academy_window import is_within_academy_window, last_academy_season_for
     from src.utils.background_jobs import is_job_cancelled, update_job
 
@@ -110,6 +217,7 @@ def _run_full_rebuild(job_id, config):
     seasons = config.get("seasons") or SEASONS
     skip_clean = config.get("skip_clean", False)
     skip_cohorts = config.get("skip_cohorts", False)
+    season_configs = {row.league_api_id: row for row in LeagueSeasonConfig.query.all()}
 
     stage = "starting"
     try:
@@ -268,6 +376,8 @@ def _run_full_rebuild(job_id, config):
         api_client = APIFootballClient()
         journey_svc = JourneySyncService(api_client)
         current_season = max(seasons)
+        rebuild_as_of = datetime.now(UTC).date()
+        transfer_cache: dict[int, list | None] = {}
         total_created = 0
         total_skipped = 0
 
@@ -282,7 +392,6 @@ def _run_full_rebuild(job_id, config):
                 continue
 
             parent_api_id = team.team_id
-
             # Source 1: academy_club_ids
             known_journeys = PlayerJourney.query.filter(
                 PlayerJourney.academy_club_ids.contains(cast([parent_api_id], PG_JSONB))
@@ -371,6 +480,28 @@ def _run_full_rebuild(job_id, config):
                     birth_date = (journey.birth_date if journey else None) or (pi.get("birth") or {}).get("date")
                     position = pi.get("position") or ""
                     age = pi.get("age")
+                    latest_season, season_start_month, season_start_day = _classification_season_context(
+                        journey,
+                        season_configs,
+                    )
+                    transfers, transfer_resolution = _rebuild_transfer_evidence(
+                        api_client,
+                        pid,
+                        transfer_cache,
+                        parent_api_id=parent_api_id,
+                        parent_club_name=team.name,
+                        as_of=rebuild_as_of,
+                        season_start_month=season_start_month,
+                        season_start_day=season_start_day,
+                    )
+                    if transfer_resolution is None:
+                        skipped += 1
+                        logger.warning(
+                            "Skipping rebuild creation for player %s at %s because transfer evidence was not fetched",
+                            pid,
+                            team.name,
+                        )
+                        continue
 
                     status, current_club_api_id, current_club_name = classify_tracked_player(
                         current_club_api_id=journey.current_club_api_id if journey else None,
@@ -378,13 +509,20 @@ def _run_full_rebuild(job_id, config):
                         current_level=journey.current_level if journey else None,
                         parent_api_id=parent_api_id,
                         parent_club_name=team.name,
+                        transfers=transfers,
                         player_api_id=pid,
-                        api_client=api_client,
-                        latest_season=_get_latest_season(
-                            journey.id, parent_api_id=parent_api_id, parent_club_name=team.name
-                        )
-                        if journey
-                        else None,
+                        latest_season=latest_season,
+                        transfer_resolution=transfer_resolution,
+                        as_of=rebuild_as_of,
+                        season_start_month=season_start_month,
+                        season_start_day=season_start_day,
+                    )
+                    sale_fee = _rebuild_sale_fee(
+                        None,
+                        status=status,
+                        resolution=transfer_resolution,
+                        parent_api_id=parent_api_id,
+                        parent_club_name=team.name,
                     )
 
                     current_level = journey.current_level if journey and journey.current_level else None
@@ -407,6 +545,7 @@ def _run_full_rebuild(job_id, config):
                         current_level=current_level,
                         current_club_api_id=current_club_api_id,
                         current_club_name=current_club_name,
+                        sale_fee=sale_fee,
                         data_source="api-football",
                         data_depth="full_stats",
                         journey_id=journey.id if journey else None,
@@ -470,25 +609,61 @@ def _run_full_rebuild(job_id, config):
             if not tp.team:
                 continue
             journey = tp.journey
+            latest_season, season_start_month, season_start_day = _classification_season_context(
+                journey,
+                season_configs,
+            )
+            transfers, transfer_resolution = _rebuild_transfer_evidence(
+                api_client,
+                tp.player_api_id,
+                transfer_cache,
+                parent_api_id=tp.team.team_id,
+                parent_club_name=tp.team.name,
+                as_of=rebuild_as_of,
+                season_start_month=season_start_month,
+                season_start_day=season_start_day,
+            )
+            if transfer_resolution is None:
+                # A failed fetch is not evidence that any stored transfer state
+                # changed. Preserve status, current club, and fee together.
+                status_counts[tp.status] = status_counts.get(tp.status, 0) + 1
+                logger.warning(
+                    "Skipping rebuild transfer refresh for player %s because transfer evidence was not fetched",
+                    tp.player_api_id,
+                )
+                continue
             status, loan_api_id, loan_name = classify_tracked_player(
                 current_club_api_id=journey.current_club_api_id if journey else None,
                 current_club_name=journey.current_club_name if journey else None,
                 current_level=journey.current_level if journey else None,
                 parent_api_id=tp.team.team_id,
                 parent_club_name=tp.team.name,
+                transfers=transfers,
                 player_api_id=tp.player_api_id,
-                api_client=api_client,
-                latest_season=_get_latest_season(
-                    journey.id, parent_api_id=tp.team.team_id, parent_club_name=tp.team.name
-                )
-                if journey
-                else None,
+                latest_season=latest_season,
                 squad_members_by_club=squad_members_by_club,
+                transfer_resolution=transfer_resolution,
+                as_of=rebuild_as_of,
+                season_start_month=season_start_month,
+                season_start_day=season_start_day,
             )
-            if tp.status != status or tp.current_club_api_id != loan_api_id:
+            sale_fee = _rebuild_sale_fee(
+                tp.sale_fee,
+                status=status,
+                resolution=transfer_resolution,
+                parent_api_id=tp.team.team_id,
+                parent_club_name=tp.team.name,
+            )
+            if (
+                tp.status != status
+                or tp.current_club_api_id != loan_api_id
+                or tp.current_club_name != loan_name
+                or tp.sale_fee != sale_fee
+            ):
                 tp.status = status
                 tp.current_club_api_id = loan_api_id
                 tp.current_club_name = loan_name
+                tp.sale_fee = sale_fee
                 updated += 1
             status_counts[status] = status_counts.get(status, 0) + 1
         if updated:

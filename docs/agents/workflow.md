@@ -20,9 +20,11 @@ watch-deploy sequence on **every** change — never a direct push to main.
    verify before push. (`ruff check academy-watch-backend` is the other gate.)
 2. **`cd academy-watch-frontend && pnpm build`** — CI runs `pnpm lint` **and** `pnpm build`;
    a build/type failure reddens CI even when lint is clean. Run the build, not just lint.
-3. **`pnpm install --frozen-lockfile`** — CI installs frozen; a `package.json` change without
-   a matching `pnpm-lock.yaml` update fails install. Never regen the whole lockfile to fix a
-   Dependabot break (debugging.md) — patch surgically.
+3. **`./scripts/setup_frontend.sh`** — scans `pnpm-lock.yaml` with OSV first,
+   skips installation when the installed virtual-store lock already matches,
+   and otherwise restores with `pnpm install --frozen-lockfile`. A
+   `package.json` change without a matching lockfile fails install. Never regen
+   the whole lockfile to fix a Dependabot break (debugging.md) — patch surgically.
 4. **Adding a migration that `CREATE TABLE`s?** Enable RLS in the same migration
    (`ALTER TABLE <t> ENABLE ROW LEVEL SECURITY;`) — the Deploy `security-checks` job fails the
    deploy otherwise (invariants.md §2). And guard all DDL with `_migration_helpers` (§8).

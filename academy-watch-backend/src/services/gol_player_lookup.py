@@ -12,7 +12,7 @@ The player cache is invalidated so GOL's DataFrames are refreshed on next access
 import logging
 import re
 import threading
-from datetime import date
+from datetime import UTC, date, datetime
 from difflib import SequenceMatcher
 from typing import Any
 
@@ -22,7 +22,13 @@ from src.models.journey import PlayerJourney
 from src.models.league import Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.journey_sync import JourneySyncService
-from src.utils.academy_classifier import classify_tracked_player
+from src.services.transfer_resolver import resolve_transfer_state
+from src.utils.academy_classifier import (
+    classify_tracked_player,
+    flatten_transfers,
+    latest_parent_permanent_departure,
+    resolved_transfer_evidence_is_authoritative,
+)
 from src.utils.player_names import resolve_player_name
 
 logger = logging.getLogger(__name__)
@@ -200,12 +206,16 @@ class GolPlayerLookup:
 
             DataFrameCache.invalidate()
 
+            display_current_club = tracked.current_club_name
+            if not display_current_club and tracked.status in {"academy", "first_team"}:
+                display_current_club = (journey.current_club_name if journey else None) or parent_team.name
+
             return {
                 "found": True,
                 "player_name": tracked.player_name,
                 "team": tracked.team.name if tracked.team else parent_team.name,
                 "message": f"Added {tracked.player_name} to the database.\n"
-                f"Current club: {journey.current_club_name if journey else 'unknown'}.",
+                f"Current club: {display_current_club or 'unknown'}.",
                 "rate_limited": False,
             }
 
@@ -382,15 +392,53 @@ class GolPlayerLookup:
         current_club_name = journey.current_club_name if journey else None
         current_level = journey.current_level if journey else None
 
+        existing = TrackedPlayer.query.filter_by(
+            player_api_id=player_id,
+            team_id=team.id,
+        ).first()
+        transfer_evidence = None
+        transfer_resolution = None
+        transfer_evidence_authoritative = False
+        try:
+            transfer_evidence = flatten_transfers(self.api_client.get_player_transfers(player_id))
+            transfer_resolution = resolve_transfer_state(
+                transfer_evidence,
+                as_of=datetime.now(UTC).date(),
+                initial_owner={"id": team.team_id, "name": team.name},
+            )
+            transfer_evidence_authoritative = resolved_transfer_evidence_is_authoritative(
+                transfer_evidence,
+                transfer_resolution,
+            )
+        except Exception as exc:
+            logger.warning(
+                "GOL transfer fetch failed for player %s; preserving existing transfer state: %s",
+                player_id,
+                exc,
+            )
+
         status, current_club_api_id, current_club_name = classify_tracked_player(
             current_club_api_id=current_club_id,
             current_club_name=current_club_name,
             current_level=current_level,
             parent_api_id=team.team_id,
             parent_club_name=team.name,
-            player_api_id=player_id,
-            api_client=self.api_client,
+            transfers=transfer_evidence,
+            transfer_resolution=transfer_resolution,
         )
+        parent_departure = latest_parent_permanent_departure(
+            transfer_resolution,
+            team.team_id,
+            team.name,
+        )
+        sale_fee = parent_departure.fee if status == "sold" and parent_departure else None
+
+        current_club_db_id = None
+        if current_club_api_id:
+            current_team = (
+                Team.query.filter_by(team_id=current_club_api_id, is_active=True).order_by(Team.season.desc()).first()
+            )
+            current_club_db_id = current_team.id if current_team else None
 
         age = player.get("age")
         try:
@@ -406,11 +454,6 @@ class GolPlayerLookup:
                 position = games.get("position")
                 if position:
                     break
-
-        existing = TrackedPlayer.query.filter_by(
-            player_api_id=player_id,
-            team_id=team.id,
-        ).first()
 
         # Tracking-window gate for NEW rows: only academy players current or
         # within the past ACADEMY_WINDOW_YEARS seasons may be added. Existing
@@ -433,10 +476,13 @@ class GolPlayerLookup:
             existing.age = age if age is not None else existing.age
             if last_academy_season is not None:
                 existing.last_academy_season = last_academy_season
-            existing.status = status
             existing.current_level = current_level or existing.current_level
-            existing.current_club_api_id = current_club_api_id
-            existing.current_club_name = current_club_name
+            if transfer_evidence_authoritative:
+                existing.status = status
+                existing.current_club_api_id = current_club_api_id
+                existing.current_club_name = current_club_name
+                existing.current_club_db_id = current_club_db_id
+                existing.sale_fee = sale_fee
             existing.journey_id = journey.id if journey else existing.journey_id
             existing.data_source = "api-football"
             existing.data_depth = "full_stats"
@@ -457,6 +503,8 @@ class GolPlayerLookup:
             current_level=current_level,
             current_club_api_id=current_club_api_id,
             current_club_name=current_club_name,
+            current_club_db_id=current_club_db_id,
+            sale_fee=sale_fee,
             data_source="api-football",
             data_depth="full_stats",
             journey_id=journey.id if journey else None,

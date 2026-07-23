@@ -43,8 +43,8 @@ class PlayerJourney(db.Model):
     # his academy — e.g. Rijkhoff: Dortmund academy product, on loan from Ajax).
     # current_status overrides the academy-relative status for player-facing
     # surfaces; NULL means "defer to the academy-relative status". Currently set
-    # to 'on_loan' (+ owner) when the current club is a loan. Computed from
-    # STORED journey entries during sync — no extra API call.
+    # to 'on_loan' (+ owner) only for a fresh active resolver loan episode.
+    # Computed from fetched or durably stored chronological transfer evidence.
     current_status = db.Column(db.String(20))
     current_owner_api_id = db.Column(db.Integer)
     current_owner_name = db.Column(db.String(200))
@@ -332,8 +332,8 @@ class PlayerJourneyEntry(db.Model):
     season_phase = db.Column(db.String(12))  # dormant Apertura/Clausura hook
 
     # Transfer date (YYYY-MM-DD) — when the player moved to this club
-    # Populated from transfer API for loan entries; used as tiebreaker
-    # when multiple clubs share the same season and sort_priority.
+    # Populated from the resolver for loan and permanent destination entries;
+    # used as a tiebreaker when clubs share a season and sort_priority.
     transfer_date = db.Column(db.String(20))
 
     # Transfer fee (raw string from API-Football, e.g. "€50M", "Free")
@@ -353,6 +353,10 @@ class PlayerJourneyEntry(db.Model):
         # Denormalized per-player-per-season read path (D1 provenance / D2 aggregation).
         # Named to match migration sea01's create_index_safe so autogenerate keeps it.
         db.Index("ix_pje_player_season", "player_api_id", "season"),
+        # Single-column clock index so the season-rollup /status gauge's
+        # MAX(stats_synced_at) is an index lookup, not a full seq scan of this wide
+        # ~77k-row table. Named to match migration sea03's create_index_safe.
+        db.Index("ix_pje_stats_synced_at", "stats_synced_at"),
         # NB: intentionally no uq_journey_entry UniqueConstraint. x2y3z4a5b6c7 created
         # only the NON-unique ix_journey_entry_lookup on these four columns — the DB has
         # never held a unique constraint here. Dedup is enforced in application code

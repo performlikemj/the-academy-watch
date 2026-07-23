@@ -871,6 +871,11 @@ async def fetch_weekly_report(ctx, args) -> dict[str, Any]:
     # normalize parent team payload shape
     report["parent_team"] = {"db_id": team.id, "id": team.team_id, "name": team.name}
     db.session.commit()
+    # Post-commit: refresh the season rollup for every loanee whose FPS the
+    # week-summary wrote (one refresh per player, after the batch commit).
+    from src.services.season_rollup_service import flush_player_refresh_queue
+
+    flush_player_refresh_queue()
     return report
 
 

@@ -84,6 +84,7 @@ import { AdminSandbox } from '@/pages/admin/AdminSandbox'
 import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { AdminShowcase } from '@/pages/admin/AdminShowcase'
 import { AdminLocalClubs } from '@/pages/admin/AdminLocalClubs'
+import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
 import { CohortBrowser } from '@/pages/CohortBrowser'
@@ -108,6 +109,8 @@ import { CuratorDashboard } from '@/pages/curator/CuratorDashboard'
 import { WriteupPage } from '@/pages/WriteupPage'
 import { PlayerPage } from '@/pages/PlayerPage'
 import { TeamDetailPage } from '@/pages/TeamDetailPage'
+import { ProgramClaimPage } from '@/pages/ProgramClaimPage'
+import { ProgramPage } from '@/pages/ProgramPage'
 import { JournalistProfile } from '@/pages/JournalistProfile'
 import { JournalistNewsletterView } from '@/components/JournalistNewsletterView'
 import {
@@ -4077,6 +4080,15 @@ function AppRoutes() {
       <Route path="/" element={<HomePage />} />
       <Route path="/teams" element={<TeamsPage />} />
       <Route path="/teams/:teamSlug" element={<TeamDetailPage />} />
+      <Route
+        path="/programs/claim"
+        element={(
+          <RequireAuth>
+            <ProgramClaimPage />
+          </RequireAuth>
+        )}
+      />
+      <Route path="/programs/:slug" element={<ProgramPage />} />
       <Route path="/dream-team" element={<PublicFormationBuilder />} />
       <Route path="/newsletters" element={<NewslettersPage />} />
       <Route path="/newsletters/:newsletterId" element={<NewslettersPage />} />
@@ -4130,6 +4142,7 @@ function AppRoutes() {
         <Route path="video/:matchId" element={<AdminVideoMatch />} />
         <Route path="showcase" element={<AdminShowcase />} />
         <Route path="local-clubs" element={<AdminLocalClubs />} />
+        <Route path="funding" element={<AdminFunding />} />
         <Route path="settings" element={<AdminSettings />} />
         <Route path="tools" element={<AdminTools />} />
         <Route path="sandbox" element={<AdminSandbox />} />

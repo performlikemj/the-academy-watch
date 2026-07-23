@@ -104,8 +104,11 @@ class Team(db.Model):
         """Return active tracked players for this team (parent club)."""
         return [tp for tp in self.tracked_players if tp.is_active]
 
-    def to_dict(self):
-        current_players = self.unique_active_players()
+    def to_dict(self, *, current_player_count: int | None = None):
+        # Public collection routes may pass a suppression-filtered SQL count.
+        # The default preserves existing internal/admin callers.
+        if current_player_count is None:
+            current_player_count = len(self.unique_active_players())
         return {
             "id": self.id,
             "team_id": self.team_id,
@@ -126,7 +129,7 @@ class Team(db.Model):
             "league_name": self.league.name if self.league else None,
             "league_api_id": self.league.league_id if self.league else None,
             "league_country": self.league.country if self.league else None,
-            "current_loaned_out_count": len(current_players),
+            "current_loaned_out_count": current_player_count,
             "slug": getattr(self, "_slug", None),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
@@ -500,6 +503,8 @@ class UserAccount(db.Model):
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
     last_login_at = db.Column(db.DateTime)
     last_display_name_change_at = db.Column(db.DateTime)
+    # Per-deletion anonymous integrity rows are never authenticatable accounts.
+    is_tombstone = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
 
     # Journalist fields
     is_journalist = db.Column(db.Boolean, default=False, nullable=False)
@@ -562,6 +567,13 @@ class UserAccount(db.Model):
         """Return True if this placeholder account has been claimed by the writer."""
         return self.managed_by_user_id is not None and self.claimed_at is not None
 
+    @property
+    def is_verified_scout(self) -> bool:
+        """Derived from an approved scout verification; never persisted."""
+        from src.services.trust import is_verified_scout
+
+        return is_verified_scout(self)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -583,6 +595,7 @@ class UserAccount(db.Model):
             "email_delivery_preference": self.email_delivery_preference or "individual",
             "is_editor": self.is_editor,
             "is_curator": self.is_curator,
+            "is_verified_scout": self.is_verified_scout,
             "is_placeholder": self.is_placeholder(),
             "is_claimed": self.is_claimed(),
             "managed_by_user_id": self.managed_by_user_id,
@@ -1522,6 +1535,9 @@ class AcademyPlayerSeasonStats(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("player_api_id", "league_api_id", "season", name="uq_academy_player_season_stats"),
+        # Single-column clock index so the season-rollup /status gauge's
+        # MAX(updated_at) is an index lookup, not a full seq scan. Matches migration sea03.
+        db.Index("ix_apss_updated_at", "updated_at"),
     )
 
     def to_dict(self):

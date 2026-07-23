@@ -14,6 +14,7 @@ import logging
 
 from src.models.follow import Follow, PlayerShadow
 from src.models.tracked_player import TrackedPlayer
+from src.services.player_suppression import without_active_suppression
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +70,16 @@ def _validate_player(selector: dict):
 
 
 def _validate_academy_club(selector: dict):
-    extra = set(selector) - {"team_id"}
+    extra = set(selector) - {"team_id", "program_id"}
     if extra:
         return None, f"unexpected keys for academy_club selector: {sorted(extra)}"
+    if ("team_id" in selector) == ("program_id" in selector):
+        return None, "academy_club selector must contain exactly one of team_id or program_id"
+    if "program_id" in selector:
+        program_id = selector.get("program_id")
+        if not _positive_int(program_id):
+            return None, "program_id must be a positive integer"
+        return {"program_id": int(program_id)}, None
     team_id = selector.get("team_id")
     if not _positive_int(team_id):
         return None, "team_id must be a positive integer (internal teams.id)"
@@ -155,6 +163,8 @@ def derive_label(kind: str, selector: dict, name: str | None = None) -> str:
     if kind == "player":
         return (name or f"Player {selector.get('player_api_id')}")[:160]
     if kind == "academy_club":
+        if selector.get("program_id"):
+            return (f"Club program: {name}" if name else f"Club program #{selector.get('program_id')}")[:160]
         return (f"Club academy: {name}" if name else f"Club academy #{selector.get('team_id')}")[:160]
     if kind == "geo":
         countries = ", ".join(selector.get("countries", []))
@@ -187,11 +197,16 @@ def _resolve_player(selector: dict) -> list[tuple[int, str]]:
     tracked = (
         TrackedPlayer.query.filter_by(player_api_id=pid, is_active=True)
         .filter(TrackedPlayer.data_source != "owning-club")
+        .filter(without_active_suppression(TrackedPlayer.player_api_id))
         .first()
     )
     if tracked:
         return [(pid, "tracked")]
-    shadow = PlayerShadow.query.filter_by(player_api_id=pid, is_active=True).first()
+    shadow = (
+        PlayerShadow.query.filter_by(player_api_id=pid, is_active=True)
+        .filter(without_active_suppression(PlayerShadow.player_api_id))
+        .first()
+    )
     if shadow:
         return [(pid, "shadow")]
     return []
@@ -200,6 +215,10 @@ def _resolve_player(selector: dict) -> list[tuple[int, str]]:
 def _resolve_academy_club(selector: dict, limit: int | None) -> list[tuple[int, str]]:
     from src.routes.scout import _base_scout_query
 
+    # A saved future-funding program is an expansion-demand/notification
+    # signal only. It must never resolve players or affect digest/ranking.
+    if selector.get("program_id"):
+        return []
     team_id = selector.get("team_id")
     if not team_id:
         return []

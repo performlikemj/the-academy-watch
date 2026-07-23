@@ -13,27 +13,42 @@ from flask_talisman import Talisman
 from sqlalchemy.engine.url import URL, make_url
 from werkzeug.exceptions import HTTPException
 
+# Side-effect imports: register standalone tables in db.metadata so `flask db
+# migrate` autogenerate sees them (no spurious drop/create) and db.create_all()
+# includes them even before a route/service imports the model directly.
+import src.models.account  # noqa: E402, F401
+import src.models.contact  # noqa: E402, F401
+import src.models.player_suppression  # noqa: E402, F401
+import src.models.season_rollup  # noqa: E402, F401
+import src.models.transfer_event  # noqa: E402, F401
+import src.models.trust  # noqa: E402, F401
 from src.extensions import limiter
 from src.models.league import League, Newsletter, Team, UserSubscription, db
 from src.models.tracked_player import TrackedPlayer
 from src.routes.academy import academy_bp
+from src.routes.account import account_bp
 from src.routes.api import api_bp, require_api_key
 from src.routes.auth_routes import auth_bp
 from src.routes.cohort import cohort_bp
 from src.routes.community_takes import community_takes_bp
+from src.routes.contact import contact_bp
 from src.routes.curator import curator_bp
 from src.routes.events import events_bp
 from src.routes.feeder import feeder_bp
 from src.routes.formation import formation_bp
+from src.routes.funding import funding_bp
 from src.routes.gol import gol_bp
 from src.routes.journalist import journalist_bp
 from src.routes.journey import journey_bp
 from src.routes.newsletter_deadline import newsletter_deadline_bp
 from src.routes.ops import ops_bp
+from src.routes.player_suppression import player_suppression_bp
 from src.routes.players import players_bp
 from src.routes.scout import scout_bp
+from src.routes.season_rollup import season_rollup_bp
 from src.routes.showcase import showcase_bp
 from src.routes.teams import teams_bp
+from src.routes.trust import trust_bp
 from src.routes.video import video_bp
 
 dotenv.load_dotenv(dotenv.find_dotenv())
@@ -97,6 +112,11 @@ app.register_blueprint(scout_bp, url_prefix="/api")
 # Registered BEFORE api_bp (mirroring players_bp) so /players/<id>/showcase*
 # routes take priority over any api_bp /players/<id>/* catch-alls.
 app.register_blueprint(showcase_bp, url_prefix="/api")
+app.register_blueprint(funding_bp, url_prefix="/api")
+app.register_blueprint(trust_bp, url_prefix="/api")
+app.register_blueprint(contact_bp, url_prefix="/api")
+app.register_blueprint(account_bp, url_prefix="/api")
+app.register_blueprint(player_suppression_bp, url_prefix="/api")
 app.register_blueprint(api_bp, url_prefix="/api")
 app.register_blueprint(auth_bp, url_prefix="/api")
 app.register_blueprint(journalist_bp, url_prefix="/api")
@@ -112,6 +132,7 @@ app.register_blueprint(feeder_bp, url_prefix="/api")
 app.register_blueprint(curator_bp, url_prefix="/api")
 app.register_blueprint(video_bp, url_prefix="/api")
 app.register_blueprint(ops_bp, url_prefix="/api")
+app.register_blueprint(season_rollup_bp, url_prefix="/api")
 
 csp = {
     "default-src": ["'self'"],

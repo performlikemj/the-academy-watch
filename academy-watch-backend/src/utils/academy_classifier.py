@@ -13,9 +13,15 @@ import json
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
+from src.services.transfer_resolver import (
+    ClubRef,
+    ResolvedTransferEvent,
+    TransferResolution,
+    resolve_transfer_state,
+)
 from src.utils.academy_window import DEVELOPMENT_AGE_CUTOFF as _DEVELOPMENT_AGE_CUTOFF
 
 # ── regex to strip youth suffixes from club names ──────────────────────
@@ -498,77 +504,413 @@ def derive_player_status_with_reasoning(
     return "on_loan", current_club_api_id, current_club_name, reasoning
 
 
+def _club_matches_parent(
+    club: ClubRef,
+    parent_api_id: int,
+    parent_club_name: str | None,
+) -> bool:
+    """Match a resolved club to an academy parent or one of its affiliates."""
+    from src.utils.affiliates import is_affiliate, resolve_senior_id, senior_base_name
+
+    parent_org_id = resolve_senior_id(parent_api_id, parent_club_name)
+    parent_base = senior_base_name(parent_club_name).strip().casefold()
+
+    return bool(
+        club.api_id == parent_api_id
+        or club.organization_api_id == parent_api_id
+        or (parent_org_id is not None and club.organization_api_id == parent_org_id)
+        or is_affiliate(club.api_id, club.name, parent_api_id, parent_club_name)
+        or (parent_base and club.organization_key == f"name:{parent_base}")
+    )
+
+
+def _club_matches_current(
+    club: ClubRef,
+    club_api_id: int | None,
+    club_name: str | None,
+) -> bool:
+    """Match current statistics to a resolver club across affiliate IDs/names."""
+    if club_api_id is not None and club_api_id in {club.api_id, club.organization_api_id}:
+        return True
+
+    from src.utils.affiliates import resolve_senior_id, senior_base_name
+
+    current_org_id = resolve_senior_id(club_api_id, club_name)
+    if current_org_id is not None and current_org_id == club.organization_api_id:
+        return True
+    current_base = senior_base_name(club_name).strip().casefold()
+    return bool(current_base and club.organization_key == f"name:{current_base}")
+
+
+def _has_defensible_club_identity(club: ClubRef) -> bool:
+    """Return whether a destination has a usable provider ID or real name."""
+    if club.api_id is not None or club.organization_api_id is not None:
+        return True
+    name = (club.name or "").strip().casefold()
+    return bool(name and name not in {"n/a", "na", "unknown", "unknown club", "-"})
+
+
+def _status_at_parent(status: str, current_level: str | None) -> str:
+    """Restore an academy-relative base status after a return or buyback."""
+    if current_level is not None:
+        return _base_status(current_level)
+    return status if status in {"academy", "first_team"} else "first_team"
+
+
+def _current_matches_parent(
+    current_club_api_id: int | None,
+    current_club_name: str | None,
+    parent_api_id: int,
+    parent_club_name: str | None,
+) -> bool:
+    """Match raw journey/current-stat fields to the academy organisation."""
+    from src.utils.affiliates import is_affiliate
+
+    return is_affiliate(
+        current_club_api_id,
+        current_club_name,
+        parent_api_id,
+        parent_club_name,
+    )
+
+
+def _has_defensible_current_club(
+    current_club_api_id: int | None,
+    current_club_name: str | None,
+) -> bool:
+    """Return whether raw current-club fields identify a real club."""
+    if current_club_api_id is not None:
+        return True
+    name = (current_club_name or "").strip().casefold()
+    return bool(name and name not in {"n/a", "na", "unknown", "unknown club", "-"})
+
+
+def _resolution_is_fresh_for_stats(
+    resolution: TransferResolution,
+    latest_season: int | None,
+    *,
+    season_start_month: int = 7,
+    season_start_day: int = 1,
+) -> bool:
+    """Whether resolved movement is at least as recent as statistics evidence."""
+    if latest_season is None:
+        return True
+    try:
+        stats_floor = date(
+            int(latest_season),
+            int(season_start_month),
+            int(season_start_day),
+        )
+    except (TypeError, ValueError):
+        return True
+    latest_event = max(
+        (event.transfer_date for event in resolution.events if event.kind != "unknown"),
+        default=None,
+    )
+    return latest_event is not None and latest_event >= stats_floor
+
+
+def resolved_current_club_is_authoritative(
+    resolution: TransferResolution,
+    current_club_api_id: int | None,
+    current_club_name: str | None,
+    *,
+    latest_season: int | None = None,
+    season_start_month: int = 7,
+    season_start_day: int = 1,
+) -> bool:
+    """Apply one precedence policy to resolver-versus-statistics club state.
+
+    Indeterminate loans never overwrite newer club evidence. A determinate
+    movement may fill missing/matching state, replace its own stale permanent
+    source (the Hall case), or override statistics no newer than the movement.
+    Newer statistics at an unrelated external club win over an older stream.
+    """
+    if resolution.loan_state == "indeterminate":
+        return False
+
+    latest_event = max(
+        (event for event in resolution.events if event.kind != "unknown"),
+        key=lambda event: event.transfer_date,
+        default=None,
+    )
+    if latest_event is None:
+        return False
+
+    current_is_unspecified = not _has_defensible_current_club(
+        current_club_api_id,
+        current_club_name,
+    )
+    if current_is_unspecified:
+        return True
+
+    destination = resolution.current_club
+    if destination is not None and _club_matches_current(
+        destination,
+        current_club_api_id,
+        current_club_name,
+    ):
+        return True
+
+    if latest_event.kind == "permanent" and _club_matches_current(
+        latest_event.out_club,
+        current_club_api_id,
+        current_club_name,
+    ):
+        return True
+
+    return _resolution_is_fresh_for_stats(
+        resolution,
+        latest_season,
+        season_start_month=season_start_month,
+        season_start_day=season_start_day,
+    )
+
+
+def resolved_transfer_evidence_is_authoritative(
+    transfers: list | None,
+    resolution: TransferResolution | None,
+) -> bool:
+    """Whether a successful fetch can safely replace known derived state.
+
+    A successful empty history is authoritative. A non-empty response is not
+    authoritative when normalization dropped evidence or topology left an
+    unknown event; consumers must preserve their existing transfer-derived
+    fields in that case.
+    """
+    if transfers is None or resolution is None:
+        return False
+    if not transfers:
+        return True
+    return len(resolution.normalized_events) == len(transfers) and not any(
+        event.kind == "unknown" for event in resolution.events
+    )
+
+
+def latest_parent_permanent_departure(
+    resolution: TransferResolution | None,
+    parent_api_id: int,
+    parent_club_name: str | None,
+) -> ResolvedTransferEvent | None:
+    """Return the latest permanent exit from this academy parent.
+
+    ``TransferResolution.latest_permanent_move`` is player-global and may be a
+    later resale by another club. ``TrackedPlayer.sale_fee`` belongs to its
+    academy-parent row, so fee consumers must select the parent-relative move.
+    """
+    if resolution is None:
+        return None
+    return next(
+        (
+            event
+            for event in reversed(resolution.events)
+            if event.kind == "permanent"
+            and _club_matches_parent(event.out_club, parent_api_id, parent_club_name)
+            and not _club_matches_parent(event.in_club, parent_api_id, parent_club_name)
+        ),
+        None,
+    )
+
+
+def _resolution_confirms_parent_loan(
+    resolution: TransferResolution | None,
+    parent_api_id: int,
+    parent_club_name: str | None,
+    current_club_api_id: int | None,
+    current_club_name: str | None,
+) -> bool:
+    """Return whether the resolver proves a parent-origin loan active now."""
+    if resolution is None or resolution.on_loan is not True or resolution.active_loan is None:
+        return False
+
+    episode = resolution.active_loan
+    current_is_unspecified = current_club_api_id is None and not current_club_name
+    return (
+        _club_matches_parent(episode.owner, parent_api_id, parent_club_name)
+        and not _club_matches_parent(episode.loan_club, parent_api_id, parent_club_name)
+        and (
+            current_is_unspecified
+            or _club_matches_current(
+                episode.loan_club,
+                current_club_api_id,
+                current_club_name,
+            )
+        )
+    )
+
+
 def upgrade_status_from_transfers(
     status: str,
-    transfers: list,
+    transfers: list | None,
     parent_api_id: int,
     current_club_api_id: int | None = None,
     parent_club_name: str | None = None,
+    *,
+    current_club_name: str | None = None,
+    current_level: str | None = None,
+    transfer_resolution: TransferResolution | None = None,
+    as_of: date | str | None = None,
+    latest_season: int | None = None,
+    season_start_month: int = 7,
+    season_start_day: int = 1,
 ) -> str:
-    """Decide the real status of a player who is at a club other than the
-    parent academy, from transfer evidence. Resolves the tentative 'on_loan'
-    from derive_player_status into one of on_loan / sold / released / left.
+    """Reconcile academy-relative status against resolved transfer evidence.
+
+    The incoming status may be stale journey evidence (including academy,
+    first_team, left, or sold), so definitive transfer state is not gated on
+    the caller first deriving ``on_loan``.
 
     The key inversion: 'on_loan' must be EARNED by a parent loan record; it is
     no longer the fallback. Rules (relative to parent P), in order:
 
-      • current club is a P loan destination (a P→current loan transfer) → on_loan
-      • no departure from P at all, but player is elsewhere            → left
+      • an active resolved P→external loan episode covers now         → on_loan
+      • a later return or permanent buyback ends at P           → academy/first_team
+      • no departure from P at all, but player is elsewhere           → left
       • latest P departure is a loan but current ∉ P loan dests
         (loaned then moved on)                                         → left
       • latest P departure is permanent with a real, non-parent,
         non-national destination                                       → sold
       • latest P departure is permanent with no resolvable destination → released
 
-    Loan destinations and departures are matched against P OR P's own
+    Loan episodes and departures are matched against P OR P's own
     reserve/youth/B side (e.g. Valencia and Valencia II both count as a Valencia
-    loan), and ignore null destination ids and loan-RETURN types.
+    loan). The injected resolution, when supplied, must have been built with
+    this same parent as its initial owner.
     """
-    if status != "on_loan" or not transfers:
+    # ``None`` means transfer evidence was unavailable (for example a provider
+    # failure), while ``[]`` is a successful fetch proving an empty history.
+    # Only the former may preserve the caller's conservative status unchanged.
+    if transfers is None and transfer_resolution is None:
         return status
 
-    from src.api_football_client import is_new_loan_transfer
-    from src.utils.affiliates import is_affiliate
-
-    def _out_is_parent(t: dict) -> bool:
-        o = t.get("teams", {}).get("out", {}) or {}
-        oid = o.get("id")
-        return oid == parent_api_id or is_affiliate(oid, o.get("name"), parent_api_id, parent_club_name)
-
-    # Loan destinations the PARENT (or its B-team) loaned the player to.
-    # Exclude null in.id; is_new_loan_transfer already excludes loan-returns.
-    loan_destinations = {
-        (t.get("teams", {}).get("in", {}) or {}).get("id")
-        for t in transfers
-        if is_new_loan_transfer((t.get("type") or "").strip().lower()) and _out_is_parent(t)
-    }
-    loan_destinations.discard(None)
+    resolution = transfer_resolution or resolve_transfer_state(
+        transfers or [],
+        as_of=as_of or datetime.now(UTC).date(),
+        initial_owner={"id": parent_api_id, "name": parent_club_name},
+        season_start_month=season_start_month,
+        season_start_day=season_start_day,
+    )
 
     # Genuine current loan FROM the parent — transfer-driven, not entry-type
     # driven (a brand-new loan has no synced fixtures yet so its journey entry
-    # is not typed 'loan', but the loan transfer is already present).
-    if current_club_api_id and current_club_api_id in loan_destinations:
-        return "on_loan"
+    # is not typed 'loan', but the loan transfer is already present). Historical
+    # or indeterminate episodes deliberately do not confirm a current loan.
+    active_parent_loan = _resolution_confirms_parent_loan(
+        resolution,
+        parent_api_id,
+        parent_club_name,
+        None,
+        None,
+    )
+    if active_parent_loan and resolution.active_loan is not None:
+        current_is_unspecified = not _has_defensible_current_club(
+            current_club_api_id,
+            current_club_name,
+        )
+        current_is_parent = _current_matches_parent(
+            current_club_api_id,
+            current_club_name,
+            parent_api_id,
+            parent_club_name,
+        )
+        current_is_borrower = _club_matches_current(
+            resolution.active_loan.loan_club,
+            current_club_api_id,
+            current_club_name,
+        )
+        transfer_is_fresh = latest_season is not None and _resolution_is_fresh_for_stats(
+            resolution,
+            latest_season,
+            season_start_month=season_start_month,
+            season_start_day=season_start_day,
+        )
+        if current_is_unspecified or current_is_parent or current_is_borrower or transfer_is_fresh:
+            return "on_loan"
 
-    # The 'left' outcomes require a KNOWN current club (the player is
-    # demonstrably elsewhere). When current_club_api_id is unknown we cannot
-    # assert they left, so we keep the tentative on_loan (callers that classify
-    # without a current club rely on this conservative behaviour).
-    departures = [t for t in transfers if _out_is_parent(t)]
+    effective_events = [event for event in resolution.events if event.kind != "unknown"]
+    if not effective_events and (resolution.normalized_events or resolution.issues):
+        # A non-empty history whose every event is ambiguous or invalid is not
+        # equivalent to a successful empty history. The resolver deliberately
+        # emitted unknown/issues instead of manufacturing state, so preserve
+        # the caller's conservative status until definitive evidence arrives.
+        return status
+
+    departures = [
+        event
+        for event in effective_events
+        if event.kind in {"loan_start", "permanent"}
+        and _club_matches_parent(event.out_club, parent_api_id, parent_club_name)
+        and not _club_matches_parent(event.in_club, parent_api_id, parent_club_name)
+    ]
+
+    # A resolved return or buyback into the parent is newer and more precise
+    # than a stale external journey club. Re-establish the parent's academy /
+    # first-team status before interpreting historical departures.
+    if (
+        departures
+        and effective_events
+        and resolution.current_club is not None
+        and _club_matches_parent(resolution.current_club, parent_api_id, parent_club_name)
+    ):
+        current_is_external = _has_defensible_current_club(
+            current_club_api_id, current_club_name
+        ) and not _current_matches_parent(
+            current_club_api_id,
+            current_club_name,
+            parent_api_id,
+            parent_club_name,
+        )
+        if not current_is_external or _resolution_is_fresh_for_stats(
+            resolution,
+            latest_season,
+            season_start_month=season_start_month,
+            season_start_day=season_start_day,
+        ):
+            return _status_at_parent(status, current_level)
+        # Newer external statistics after an older return/buyback are evidence
+        # of another departure missing from the transfer feed.
+        return "left"
+
     if not departures:
         # The player is at a different club but there is NO recorded departure
         # from the parent (typical of academy-to-academy youth moves). They
         # left the academy without a recorded senior transfer.
-        return "left" if current_club_api_id else status
+        current_is_external = (
+            _has_defensible_current_club(current_club_api_id, current_club_name)
+            and not _current_matches_parent(
+                current_club_api_id,
+                current_club_name,
+                parent_api_id,
+                parent_club_name,
+            )
+            and not is_national_team(current_club_name)
+        )
+        if current_is_external:
+            return "left"
+        # Successful definitive/empty evidence found no departure from the
+        # parent. Do not let a stale tentative ``on_loan`` survive it.
+        return _status_at_parent(status, current_level)
 
-    departures.sort(key=lambda t: t.get("date", ""), reverse=True)
-    dep_type = (departures[0].get("type") or "").strip().lower()
-
-    if not dep_type or is_new_loan_transfer(dep_type):
-        # Latest parent departure is a loan. We already returned on_loan above
-        # if the current club is one of the parent's loan destinations, so a
-        # known current club here means loaned-out-then-moved-on → left.
-        return "left" if current_club_api_id else status
+    latest_departure = departures[-1]
+    if latest_departure.kind == "loan_start":
+        # A fresh parent loan returned above. An unclosed loan becomes
+        # indeterminate at the next season boundary; a current external club
+        # then means the player moved on, while a current parent club is newer
+        # evidence that they returned despite the omitted provider event.
+        if _current_matches_parent(
+            current_club_api_id,
+            current_club_name,
+            parent_api_id,
+            parent_club_name,
+        ):
+            return _status_at_parent(status, current_level)
+        if _has_defensible_current_club(current_club_api_id, current_club_name):
+            return "left"
+        # The resolver deliberately expires an unclosed loan at the next
+        # season boundary. With no newer raw club evidence, the historical
+        # departure still proves the player left the parent, but not that the
+        # loan remains active now.
+        return "left"
 
     # Permanent (non-loan) departure. The transfer TYPE alone cannot tell a
     # free-agency exit from a permanent move to a new club: API-Football
@@ -579,9 +921,12 @@ def upgrade_status_from_transfers(
     # is the other path to 'released'). Read only the departure's teams.in,
     # NOT the journey's current club: an empty teams.in is the free-agency
     # signal, and folding in a stale last-club would manufacture a false 'sold'.
-    dest = departures[0].get("teams", {}).get("in", {}) or {}
-    dest_id = dest.get("id")
-    if dest_id and dest_id != parent_api_id and not is_national_team(dest.get("name")):
+    dest = latest_departure.in_club
+    if (
+        _has_defensible_club_identity(dest)
+        and not _club_matches_parent(dest, parent_api_id, parent_club_name)
+        and not is_national_team(dest.name)
+    ):
         return "sold"
     return "released"
 
@@ -706,14 +1051,19 @@ def classify_tracked_player(
     with_reasoning: bool = False,
     latest_season: int | None = None,
     squad_members_by_club: dict[int, set[int]] | None = None,
+    transfer_resolution: TransferResolution | None = None,
+    as_of: date | str | None = None,
+    season_start_month: int = 7,
+    season_start_day: int = 1,
 ) -> tuple[str, int | None, str | None] | tuple[str, int | None, str | None, list[dict]]:
     """Single source of truth for player status classification.
 
     Applies these rules in order:
     1. Base status derivation (academy / first_team / on_loan)
-    2. Transfer-based upgrade (on_loan → sold / released)
+    2. Transfer-based reconciliation (on_loan / sold / released / left /
+       returned-to-parent)
        — always runs when transfer data is available (core correctness;
-         a permanent departure must never read as a loan)
+         stale journey status must not override definitive transfer state)
     2.5. Squad cross-reference (on_loan players only)
        — if player absent from loan club squad, check parent squad;
          returned to parent → academy/first_team, absent from both → released
@@ -737,6 +1087,13 @@ def classify_tracked_player(
         with_reasoning: Return step-by-step reasoning list.
         latest_season: The player's latest season year — used for the
             inactivity check.
+        season_start_month: First month of the competition season used to
+            compare transfer chronology with latest-season statistics.
+        season_start_day: First day of that competition season.
+        transfer_resolution: Optional parent-contextualized resolver result to
+            reuse. When omitted, this function resolves *transfers* with the
+            academy parent as the initial owner.
+        as_of: Effective date for transfer resolution. Defaults to today.
 
     Returns:
         ``(status, current_club_api_id, current_club_name)`` or
@@ -765,77 +1122,125 @@ def classify_tracked_player(
         )
         reasoning: list[dict] = []
 
-    # ── Step 2: transfer-based upgrade ────────────────────────────────
-    # The loan→sold/released upgrade is core correctness, not a tunable: a
-    # permanent departure (sale or free transfer) must never read as a loan.
+    # ── Step 2: transfer-based reconciliation ─────────────────────────
+    # Transfer reconciliation is core correctness, not a tunable: a permanent
+    # departure must override stale same-parent journey data just as a resolved
+    # return/buyback must override a stale external club.
     # This step therefore always runs when transfer data is available and is
     # NOT gated by config['use_transfers_for_status']. That flag used to
     # suppress this entire step; with the active config storing it False,
     # sold-detection silently died platform-wide — every permanently
     # transferred player (e.g. Garnacho sold to Chelsea) was stuck at
-    # on_loan. The upgrade itself is conservative (only promotes when the
-    # latest parent departure is non-loan), so genuine loans stay on_loan.
-    if status == "on_loan":
-        effective_transfers = transfers
-        if effective_transfers is None and player_api_id and api_client:
-            try:
-                raw = api_client.get_player_transfers(player_api_id)
-                effective_transfers = flatten_transfers(raw)
-            except Exception as exc:
-                logger.warning("Transfer fetch failed for player %s: %s", player_api_id, exc)
-                effective_transfers = []
+    # on_loan. The reconciliation itself requires definitive resolver
+    # evidence, so unknown/failing evidence stays conservative.
+    effective_transfers = transfers
+    effective_resolution = transfer_resolution
+    if effective_transfers is None and effective_resolution is None and player_api_id and api_client:
+        try:
+            raw = api_client.get_player_transfers(player_api_id)
+            effective_transfers = flatten_transfers(raw)
+        except Exception as exc:
+            logger.warning("Transfer fetch failed for player %s: %s", player_api_id, exc)
+            # Keep fetch failure distinct from a successful empty history.
+            # Unknown evidence must not downgrade the conservative status.
+            effective_transfers = None
 
-        if effective_transfers:
-            upgraded = upgrade_status_from_transfers(
-                status,
+    if effective_transfers is not None or effective_resolution is not None:
+        if effective_resolution is None:
+            effective_resolution = resolve_transfer_state(
                 effective_transfers,
-                parent_api_id,
-                current_club_api_id=current_club_api_id,
-                parent_club_name=parent_club_name,
+                as_of=as_of or datetime.now(UTC).date(),
+                initial_owner={"id": parent_api_id, "name": parent_club_name},
+                season_start_month=season_start_month,
+                season_start_day=season_start_day,
             )
-            if upgraded != status:
-                if with_reasoning:
-                    reasoning.append(
-                        {
-                            "rule": "transfer_upgrade",
-                            "result": "match",
-                            "check": f'upgrade_status_from_transfers("{status}")',
-                            "detail": f"Upgraded from {status} to {upgraded}",
-                        }
-                    )
-                status = upgraded
-                # Keep current_club info — loan_id/loan_name are reused as
-                # current_club_api_id/current_club_name in the return value.
-                # For sold/released/left players, this is their destination/current club.
-        elif effective_transfers is not None:
-            # We have transfer data (an empty list) and the player is at a
-            # different club, but there is NO transfer record at all → they
-            # left the academy without a recorded senior transfer. Only treat
-            # an explicit empty list this way; None means transfers were not
-            # fetched, so keep the conservative on_loan default for callers
-            # that classify without transfer data.
-            status = "left"
-            if with_reasoning:
-                reasoning.append(
-                    {
-                        "rule": "no_transfers_left",
-                        "result": "match",
-                        "check": "at a different club with no transfer records",
-                        "detail": "Left the academy (no recorded departure) → left",
-                    }
-                )
+        previous_status = status
+        status = upgrade_status_from_transfers(
+            status,
+            effective_transfers or [],
+            parent_api_id,
+            current_club_api_id=current_club_api_id,
+            parent_club_name=parent_club_name,
+            current_club_name=current_club_name,
+            current_level=current_level,
+            transfer_resolution=effective_resolution,
+            as_of=as_of,
+            latest_season=latest_season,
+            season_start_month=season_start_month,
+            season_start_day=season_start_day,
+        )
+        if status != previous_status and with_reasoning:
+            reasoning.append(
+                {
+                    "rule": "transfer_reconciliation",
+                    "result": "match",
+                    "check": f'upgrade_status_from_transfers("{previous_status}")',
+                    "detail": f"Reconciled from {previous_status} to {status}",
+                }
+            )
 
+        effective_events = [event for event in effective_resolution.events if event.kind != "unknown"]
+        if status == "on_loan" and _resolution_confirms_parent_loan(
+            effective_resolution,
+            parent_api_id,
+            parent_club_name,
+            None,
+            None,
+        ):
+            episode = effective_resolution.active_loan
+            if episode is not None and not _club_matches_current(
+                episode.loan_club,
+                loan_id,
+                loan_name,
+            ):
+                loan_id = episode.loan_club.api_id or episode.loan_club.organization_api_id
+                loan_name = episode.loan_club.name
+        elif status in {"sold", "left"} and effective_events:
+            resolved_current = effective_resolution.current_club
+            if (
+                resolved_current is not None
+                and _has_defensible_club_identity(resolved_current)
+                and not _club_matches_parent(resolved_current, parent_api_id, parent_club_name)
+                and not is_national_team(resolved_current.name)
+            ):
+                raw_matches_resolved = _club_matches_current(
+                    resolved_current,
+                    current_club_api_id,
+                    current_club_name,
+                )
+                if resolved_current_club_is_authoritative(
+                    effective_resolution,
+                    current_club_api_id,
+                    current_club_name,
+                    latest_season=latest_season,
+                    season_start_month=season_start_month,
+                    season_start_day=season_start_day,
+                ):
+                    loan_id = resolved_current.api_id or resolved_current.organization_api_id
+                    loan_name = resolved_current.name or (current_club_name if raw_matches_resolved else None)
+        elif status == "released" or (
+            status in {"academy", "first_team"}
+            and effective_events
+            and effective_resolution.current_club is not None
+            and _club_matches_parent(
+                effective_resolution.current_club,
+                parent_api_id,
+                parent_club_name,
+            )
+        ):
+            loan_id = None
+            loan_name = None
     # ── Step 2.5: squad cross-reference ────────────────────────────────
     # Skip squad check if transfers confirm a loan — transfer data is more
     # authoritative than squad lists (which aren't updated mid-season for loans).
     has_confirmed_loan = False
-    _check_transfers = transfers or []
-    if status == "on_loan" and loan_id:
-        from src.api_football_client import is_new_loan_transfer as _is_loan
-
-        has_confirmed_loan = any(
-            _is_loan((t.get("type") or "").strip().lower()) and t.get("teams", {}).get("in", {}).get("id") == loan_id
-            for t in _check_transfers
+    if status == "on_loan":
+        has_confirmed_loan = _resolution_confirms_parent_loan(
+            effective_resolution,
+            parent_api_id,
+            parent_club_name,
+            loan_id,
+            loan_name,
         )
 
     if (
@@ -845,10 +1250,12 @@ def classify_tracked_player(
         and squad_members_by_club is not None
         and player_api_id
     ):
+        loan_squad_fetched = loan_id in squad_members_by_club
+        parent_squad_fetched = parent_api_id in squad_members_by_club
         loan_squad = squad_members_by_club.get(loan_id)
         parent_squad = squad_members_by_club.get(parent_api_id)
-        in_loan_squad = loan_squad is not None and player_api_id in loan_squad
-        in_parent_squad = parent_squad is not None and player_api_id in parent_squad
+        in_loan_squad = loan_squad_fetched and player_api_id in loan_squad
+        in_parent_squad = parent_squad_fetched and player_api_id in parent_squad
         if not in_loan_squad:
             if in_parent_squad:
                 old_status = status
@@ -867,7 +1274,7 @@ def classify_tracked_player(
                     )
                 loan_id = None
                 loan_name = None
-            else:
+            elif loan_squad_fetched and parent_squad_fetched:
                 if with_reasoning:
                     reasoning.append(
                         {
@@ -882,6 +1289,20 @@ def classify_tracked_player(
                 status = "released"
                 loan_id = None
                 loan_name = None
+            elif with_reasoning:
+                missing_clubs = []
+                if not loan_squad_fetched:
+                    missing_clubs.append(str(loan_id))
+                if not parent_squad_fetched:
+                    missing_clubs.append(str(parent_api_id))
+                reasoning.append(
+                    {
+                        "rule": "squad_cross_reference",
+                        "result": "unknown",
+                        "check": f"squad not fetched for club(s) {', '.join(missing_clubs)}",
+                        "detail": "Incomplete squad coverage — preserving current status",
+                    }
+                )
 
     # ── Step 3: inactivity-based release ──────────────────────────────
     inactivity_years = config.get("inactivity_release_years")

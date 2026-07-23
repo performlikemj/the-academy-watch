@@ -1528,6 +1528,85 @@ export class APIService {
         return this.request(`/admin/showcase/player-search?${query}`, {}, { admin: true })
     }
 
+    // ── Grassroots program registry + admission (F2; no checkout) ───────
+    static async getFundingLeagues(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/funding/leagues${query ? '?' + query : ''}`)
+    }
+
+    static async submitClubProgramClaim(payload) {
+        return this.request('/funding/claims', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async getMyProgramClaims() {
+        return this.request('/funding/claims/me')
+    }
+
+    static async getProgram(slug) {
+        if (!slug) throw new Error('program slug is required')
+        return this.request(`/programs/${encodeURIComponent(slug)}`)
+    }
+
+    static async saveProgram(slug, notifyWhenFundable = true) {
+        if (!slug) throw new Error('program slug is required')
+        return this.request(`/programs/${encodeURIComponent(slug)}/save`, {
+            method: 'POST',
+            body: JSON.stringify({ notify_when_fundable: Boolean(notifyWhenFundable) }),
+        })
+    }
+
+    static async adminFundingLeagues(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/funding/leagues${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminCreateFundingLeague(payload) {
+        return this.request('/admin/funding/leagues', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }, { admin: true })
+    }
+
+    static async adminUpdateFundingLeague(id, payload) {
+        return this.request(`/admin/funding/leagues/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        }, { admin: true })
+    }
+
+    static async adminDeleteFundingLeague(id, reason) {
+        return this.request(`/admin/funding/leagues/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            body: JSON.stringify({ reason }),
+        }, { admin: true })
+    }
+
+    static async adminFundingClaims(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/funding/claims${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewFundingClaim(id, action, reason) {
+        return this.request(`/admin/funding/claims/${encodeURIComponent(id)}/${action}`, {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+        }, { admin: true })
+    }
+
+    static async adminSyncFundingConnect(programId, reason) {
+        return this.request(`/admin/funding/programs/${encodeURIComponent(programId)}/connect/sync`, {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+        }, { admin: true })
+    }
+
+    static async adminFundingDemand() {
+        return this.request('/admin/funding/demand', {}, { admin: true })
+    }
+
     // Writer Portal API methods
     static async getWriterTeams() {
         return this.request('/writer/teams')

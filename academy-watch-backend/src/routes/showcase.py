@@ -22,11 +22,11 @@ import logging
 import re
 import secrets
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qs, unquote, urlparse
 
-from flask import Blueprint, g, jsonify, request, send_file
-from sqlalchemy import func, or_, text
+from flask import Blueprint, abort, g, jsonify, request, send_file
+from sqlalchemy import case, func, or_, text
 from sqlalchemy.exc import IntegrityError
 from src.auth import (
     _ensure_user_account,
@@ -36,7 +36,10 @@ from src.auth import (
     require_user_auth,
 )
 from src.extensions import limiter
+from src.models.follow import Follow, FollowList, PlayerShadow
+from src.models.journey import PlayerJourney
 from src.models.league import NewsletterPlayerYoutubeLink, PlayerLink, Team, UserAccount, db
+from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import (
     ClubOfficialClaim,
     LocalClub,
@@ -49,12 +52,37 @@ from src.models.showcase import (
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
 from src.services import showcase_media_storage, social_proof
+from src.services.club_registry import get_club_program
+from src.services.contact import (
+    CONTRACT_STATUSES as CLAIM_CONTRACT_STATUSES,
+)
+from src.services.contact import (
+    clean_plain_text,
+    contact_rail_enabled,
+    has_status_contradiction,
+    require_contact_rail,
+    utcnow,
+)
 from src.services.photo_processing import process_photo, validate_photo
+from src.services.player_suppression import (
+    hide_suppressed_player,
+    is_player_suppressed,
+    neutral_player_not_found,
+)
+from src.utils.academy_window import age_from_birth_date
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 logger = logging.getLogger(__name__)
 
 showcase_bp = Blueprint("showcase", __name__)
+
+
+@showcase_bp.before_app_request
+def _hide_interest_signal_path_when_contact_rail_disabled():
+    """Hide OPTIONS and wrong-method probes as well as supported methods."""
+    if request.path.rstrip("/") == "/api/showcase/mine/interest-signals" and not contact_rail_enabled():
+        abort(404)
+
 
 RELATIONSHIP_TYPES = {"player", "agent", "guardian", "club_official"}
 CLAIM_STATUSES = {"pending", "approved", "rejected", "revoked"}
@@ -62,7 +90,7 @@ CLUB_OFFICIAL_CLAIM_STATUSES = {"pending", "approved", "rejected", "revoked"}
 PROFILE_STATUSES = {"pending", "approved"}
 MEDIA_STATUSES = {"pending_upload", "pending", "approved", "rejected"}
 PREFERRED_FEET = {"left", "right", "both"}
-CONTRACT_STATUSES = {"under_contract", "expiring", "free_agent"}
+PROFILE_CONTRACT_STATUSES = {"under_contract", "expiring", "free_agent"}
 AVAILABILITY_STATUSES = {"open_to_moves", "not_looking", "trial_available"}
 PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
@@ -71,6 +99,7 @@ MAX_BIO_LENGTH = 2000
 MAX_POSITIONS_LENGTH = 100
 MAX_TITLE_LENGTH = 200
 MAX_MESSAGE_LENGTH = 1000
+MAX_CURRENT_CLUB_NAME_LENGTH = 180
 MAX_URL_LENGTH = 500
 MAX_REEL_ITEMS = 20
 MAX_PHOTOS = 8
@@ -192,6 +221,19 @@ def _has_approved_subject_claim(subject: ShowcaseSubject, user_id: int) -> bool:
             PlayerProfileClaim.status == "approved",
         ).first()
         is not None
+    )
+
+
+def _approved_player_claim(player_api_id: int, user_id: int) -> PlayerProfileClaim | None:
+    return (
+        PlayerProfileClaim.query.filter_by(
+            player_api_id=player_api_id,
+            user_account_id=user_id,
+            relationship_type="player",
+            status="approved",
+        )
+        .order_by(PlayerProfileClaim.reviewed_at.desc(), PlayerProfileClaim.id.desc())
+        .first()
     )
 
 
@@ -374,6 +416,86 @@ def _json_object_or_400():
     if not isinstance(payload, dict):
         return None, (jsonify({"error": "JSON body must be an object"}), 400)
     return payload, None
+
+
+def _parse_contract_attestation(
+    payload: dict,
+    player_api_id: int,
+    *,
+    existing_claim: PlayerProfileClaim | None = None,
+) -> dict:
+    """Validate one complete or partial player contract attestation."""
+    if "contract_status" in payload:
+        raw_status = payload.get("contract_status")
+        if not isinstance(raw_status, str):
+            raise ValueError("contract_status must be a string")
+        contract_status = raw_status.strip().lower()
+    elif existing_claim is not None:
+        contract_status = existing_claim.contract_status
+    else:
+        raise ValueError("contract_status is required for player claims")
+    if contract_status not in CLAIM_CONTRACT_STATUSES:
+        raise ValueError(f"contract_status must be one of {sorted(CLAIM_CONTRACT_STATUSES)}")
+
+    if "current_club_name" in payload:
+        current_club_name = clean_plain_text(
+            payload.get("current_club_name"),
+            "current_club_name",
+            max_len=MAX_CURRENT_CLUB_NAME_LENGTH,
+            required=False,
+        )
+    else:
+        current_club_name = existing_claim.current_club_name if existing_claim is not None else None
+
+    if "club_program_id" in payload:
+        club_program_id = payload.get("club_program_id")
+        if club_program_id is not None and (
+            isinstance(club_program_id, bool) or not isinstance(club_program_id, int) or club_program_id <= 0
+        ):
+            raise ValueError("club_program_id must be a positive integer or null")
+    else:
+        club_program_id = existing_claim.club_program_id if existing_claim is not None else None
+
+    program = None
+    if club_program_id is not None:
+        program = get_club_program(club_program_id)
+        if program is None:
+            raise ValueError("club_program_id does not identify an on-platform club program")
+    if program is not None:
+        # A linked registry identity is authoritative. Never let a claimant
+        # route a request to one program while displaying a different club.
+        current_club_name = clean_plain_text(
+            program.get("name"),
+            "current_club_name",
+            max_len=MAX_CURRENT_CLUB_NAME_LENGTH,
+            required=True,
+        )
+
+    return {
+        "contract_status": contract_status,
+        "current_club_name": current_club_name,
+        "club_program_id": club_program_id,
+        "status_contradiction": has_status_contradiction(player_api_id, contract_status),
+    }
+
+
+def _claim_contract_payload(claim: PlayerProfileClaim, profile: PlayerShowcaseProfile | None = None) -> dict:
+    pending = profile.pending_contract_dict() if profile is not None else None
+    if pending and pending["claim_id"] == claim.id:
+        return {
+            "contract_status": pending["contract_status"],
+            "current_club_name": pending["current_club_name"],
+            "club_program_id": pending["club_program_id"],
+            "status_contradiction": pending["status_contradiction"],
+            "contract_attestation_review_status": "pending",
+        }
+    return {
+        "contract_status": claim.contract_status,
+        "current_club_name": claim.current_club_name,
+        "club_program_id": claim.club_program_id,
+        "status_contradiction": bool(claim.status_contradiction),
+        "contract_attestation_review_status": "approved",
+    }
 
 
 def _youtube_video_id(url: str) -> str | None:
@@ -915,6 +1037,58 @@ def _claim_subject(claim: PlayerProfileClaim) -> ShowcaseSubject:
     )
 
 
+def _resolve_player_age_from_dob(player_api_id: int) -> int | None:
+    """Resolve a current age from persisted DOB sources only.
+
+    ``TrackedPlayer.age`` is deliberately excluded: it is a stale snapshot and
+    the adults-only self-claim policy requires a known birth date. Malformed
+    values fall through so a valid journey or shadow profile can still prove
+    eligibility.
+    """
+    candidates = [
+        row[0]
+        for row in db.session.query(TrackedPlayer.birth_date)
+        .filter(
+            TrackedPlayer.player_api_id == player_api_id,
+            TrackedPlayer.birth_date.isnot(None),
+        )
+        .order_by(TrackedPlayer.id.asc())
+        .all()
+    ]
+    journey = PlayerJourney.query.filter_by(player_api_id=player_api_id).first()
+    if journey is not None:
+        candidates.append(journey.birth_date)
+    shadow = PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True).first()
+    if shadow is not None:
+        candidates.append(shadow.birth_date)
+
+    for birth_date in candidates:
+        age = age_from_birth_date(birth_date)
+        if age is not None:
+            return age
+    return None
+
+
+def _adult_player_claim_error(player_api_id: int):
+    """Return the D1 policy error response for an ineligible self-claim."""
+    age = _resolve_player_age_from_dob(player_api_id)
+    if age is None:
+        return jsonify(
+            {
+                "error": "A known birth date is required for a player to claim their own profile",
+                "code": "dob_unknown",
+            }
+        ), 422
+    if age < 18:
+        return jsonify(
+            {
+                "error": "Players must be at least 18 to claim their own profile",
+                "code": "minor_claim_blocked",
+            }
+        ), 422
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Flywheel X — Film Room → verified footage evidence
 # ---------------------------------------------------------------------------
@@ -1237,6 +1411,11 @@ def _subject_showcase_payload(subject: ShowcaseSubject, *, auth_context=None) ->
     authenticated = auth_context is not None
     auth_user = auth_context["user"] if auth_context else None
     is_owner = bool(auth_user and _has_approved_subject_claim(subject, auth_user.id))
+    owner_player_claim = (
+        _approved_player_claim(subject.player_api_id, auth_user.id)
+        if auth_user is not None and not subject.is_local
+        else None
+    )
     profile_row = PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, subject)).first()
     if profile_row and profile_row.status == "approved":
         profile = profile_row.public_dict(include_agent_contact=authenticated)
@@ -1244,6 +1423,8 @@ def _subject_showcase_payload(subject: ShowcaseSubject, *, auth_context=None) ->
         profile = profile_row.owner_dict()
     else:
         profile = None
+    if profile is not None and owner_player_claim is not None:
+        profile.update(_claim_contract_payload(owner_player_claim, profile_row))
 
     claimed = (
         PlayerProfileClaim.query.filter(
@@ -1311,6 +1492,7 @@ def get_local_player_showcase(lp_id: int):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase", methods=["GET"])
+@hide_suppressed_player("player_api_id")
 def get_player_showcase(player_api_id: int):
     """Showcase payload: approved profile + reel + verified footage + claim status.
 
@@ -1383,6 +1565,7 @@ def dev_get_showcase_media(blob_path: str):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/claim", methods=["POST"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("3 per hour", key_func=_user_rate_limit_key)
 def submit_profile_claim(player_api_id: int):
@@ -1398,34 +1581,58 @@ def submit_profile_claim(player_api_id: int):
             return jsonify({"error": f"relationship_type must be one of {sorted(RELATIONSHIP_TYPES)}"}), 400
         message = _clean_optional_text(payload.get("message"), MAX_MESSAGE_LENGTH)
 
+        if relationship_type == "player":
+            attestation = _parse_contract_attestation(payload, player_api_id)
+        else:
+            attestation = {
+                "contract_status": "unknown",
+                "current_club_name": None,
+                "club_program_id": None,
+                "status_contradiction": False,
+            }
+
         existing = PlayerProfileClaim.query.filter_by(player_api_id=player_api_id, user_account_id=user.id).first()
-        if existing:
-            if existing.status in ("rejected", "revoked"):
-                # Recovery path: a rejected/revoked claim may be resubmitted —
-                # reset it to pending for a fresh admin review.
-                existing.relationship_type = relationship_type
-                existing.message = message
-                existing.status = "pending"
-                existing.reviewed_by = None
-                existing.reviewed_at = None
-                existing.created_at = datetime.now(UTC)
-                existing.verification_code = _mint_verification_code()
-                existing.verification_proof_url = None
-                existing.verification_status = "unverified"
-                existing.verification_checked_at = None
-                existing.verification_note = None
-                existing.verification_method = None
-                db.session.commit()
-                return jsonify({"claim": existing.to_dict()}), 201
+        if existing and existing.status not in ("rejected", "revoked"):
             return jsonify(
                 {"error": "You have already submitted a claim for this player", "claim": existing.to_dict()}
             ), 409
+
+        if relationship_type == "player":
+            policy_error = _adult_player_claim_error(player_api_id)
+            if policy_error is not None:
+                return policy_error
+
+        if existing:
+            # Recovery path: a rejected/revoked claim may be resubmitted —
+            # reset it to pending for a fresh admin review.
+            existing.relationship_type = relationship_type
+            existing.message = message
+            existing.contract_status = attestation["contract_status"]
+            existing.current_club_name = attestation["current_club_name"]
+            existing.club_program_id = attestation["club_program_id"]
+            existing.status_contradiction = attestation["status_contradiction"]
+            existing.status = "pending"
+            existing.reviewed_by = None
+            existing.reviewed_at = None
+            existing.created_at = datetime.now(UTC)
+            existing.verification_code = _mint_verification_code()
+            existing.verification_proof_url = None
+            existing.verification_status = "unverified"
+            existing.verification_checked_at = None
+            existing.verification_note = None
+            existing.verification_method = None
+            db.session.commit()
+            return jsonify({"claim": existing.to_dict()}), 201
 
         claim = PlayerProfileClaim(
             player_api_id=player_api_id,
             user_account_id=user.id,
             relationship_type=relationship_type,
             message=message,
+            contract_status=attestation["contract_status"],
+            current_club_name=attestation["current_club_name"],
+            club_program_id=attestation["club_program_id"],
+            status_contradiction=attestation["status_contradiction"],
             status="pending",
             verification_code=_mint_verification_code(),
             verification_status="unverified",
@@ -1443,6 +1650,9 @@ def submit_profile_claim(player_api_id: int):
                 ), 409
             raise
         return jsonify({"claim": claim.to_dict()}), 201
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         db.session.rollback()
         logger.error("Error in submit_profile_claim: %s", e)
@@ -1518,6 +1728,122 @@ def verify_my_claim(claim_id: int):
         db.session.rollback()
         logger.error("Error in verify_my_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to verify claim proof")), 500
+
+
+@showcase_bp.route("/showcase/mine/interest-signals", methods=["GET"])
+@require_contact_rail
+@require_user_auth
+def my_interest_signals():
+    """Aggregate, identity-free interest in the caller's claimed players.
+
+    Default follow lists mirror the legacy watchlist, so only active,
+    non-default direct player follows contribute to the separate follow count.
+    Existing digest snapshots contain performance stats rather than membership
+    history; ``added_this_week`` therefore counts accounts whose earliest
+    surviving membership began since Monday and is not presented as a net
+    change.
+    """
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        player_ids = [
+            row[0]
+            for row in db.session.query(PlayerProfileClaim.player_api_id)
+            .filter_by(
+                user_account_id=user.id,
+                relationship_type="player",
+                status="approved",
+            )
+            .filter(PlayerProfileClaim.player_api_id.isnot(None))
+            .distinct()
+            .order_by(PlayerProfileClaim.player_api_id.asc())
+            .all()
+        ]
+        now = utcnow()
+        week_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=now.weekday())
+        if not player_ids:
+            return jsonify(
+                {
+                    "week_start": week_start.replace(tzinfo=UTC).isoformat(),
+                    "interest_signals": [],
+                }
+            )
+
+        watchlist_rows = (
+            db.session.query(
+                ScoutWatchlistEntry.player_api_id,
+                func.count(func.distinct(ScoutWatchlistEntry.user_account_id)),
+                func.count(
+                    func.distinct(
+                        case(
+                            (ScoutWatchlistEntry.created_at >= week_start, ScoutWatchlistEntry.user_account_id),
+                            else_=None,
+                        )
+                    )
+                ),
+            )
+            .filter(ScoutWatchlistEntry.player_api_id.in_(player_ids))
+            .group_by(ScoutWatchlistEntry.player_api_id)
+            .all()
+        )
+        watchlists = {player_id: (total, added) for player_id, total, added in watchlist_rows}
+
+        followed_player_id = Follow.selector["player_api_id"].as_integer()
+        direct_followers = (
+            db.session.query(
+                followed_player_id.label("player_api_id"),
+                FollowList.user_account_id.label("user_account_id"),
+                func.min(Follow.created_at).label("first_followed_at"),
+            )
+            .join(FollowList, FollowList.id == Follow.list_id)
+            .filter(
+                Follow.kind == "player",
+                FollowList.is_active.is_(True),
+                FollowList.is_default.is_(False),
+                followed_player_id.in_(player_ids),
+            )
+            .group_by(followed_player_id, FollowList.user_account_id)
+            .subquery()
+        )
+        follow_rows = (
+            db.session.query(
+                direct_followers.c.player_api_id,
+                func.count(direct_followers.c.user_account_id),
+                func.count(
+                    case(
+                        (direct_followers.c.first_followed_at >= week_start, direct_followers.c.user_account_id),
+                        else_=None,
+                    )
+                ),
+            )
+            .group_by(direct_followers.c.player_api_id)
+            .all()
+        )
+        follows = {player_id: (total, added) for player_id, total, added in follow_rows}
+
+        return jsonify(
+            {
+                "week_start": week_start.replace(tzinfo=UTC).isoformat(),
+                "interest_signals": [
+                    {
+                        "player_api_id": player_id,
+                        "watchlists": {
+                            "total": watchlists.get(player_id, (0, 0))[0],
+                            "added_this_week": watchlists.get(player_id, (0, 0))[1],
+                        },
+                        "follows": {
+                            "total": follows.get(player_id, (0, 0))[0],
+                            "added_this_week": follows.get(player_id, (0, 0))[1],
+                        },
+                    }
+                    for player_id in player_ids
+                ],
+            }
+        )
+    except Exception as e:
+        logger.error("Error in my_interest_signals: %s", e)
+        return jsonify(_safe_error_payload(e, "Failed to load interest signals")), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1893,6 +2219,7 @@ def vouch_for_player_claim(claim_id: int):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/affiliations", methods=["POST"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("10 per hour", key_func=_user_rate_limit_key)
 def create_player_affiliation(player_api_id: int):
@@ -1994,6 +2321,7 @@ def _create_subject_affiliation(subject: ShowcaseSubject):
     "/players/<int:player_api_id>/showcase/affiliations/<int:aff_id>",
     methods=["DELETE"],
 )
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 def delete_player_affiliation(player_api_id: int, aff_id: int):
     """Delete an affiliation belonging to a player whose profile the caller owns."""
@@ -2030,6 +2358,7 @@ def _delete_subject_affiliation(subject: ShowcaseSubject, aff_id: int):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/profile", methods=["PUT"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("20 per hour", key_func=_user_rate_limit_key)
 def upsert_showcase_profile(player_api_id: int):
@@ -2054,6 +2383,56 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
         payload, payload_error = _json_object_or_400()
         if payload_error:
             return payload_error
+
+        raw_contract_status = payload.get("contract_status")
+        if raw_contract_status is not None and not isinstance(raw_contract_status, str):
+            return jsonify({"error": "contract_status must be a string or null"}), 400
+        contract_status = raw_contract_status.strip().lower() or None if isinstance(raw_contract_status, str) else None
+        valid_contract_statuses = PROFILE_CONTRACT_STATUSES | CLAIM_CONTRACT_STATUSES
+        if contract_status and contract_status not in valid_contract_statuses:
+            return jsonify({"error": f"contract_status must be one of {sorted(valid_contract_statuses)}"}), 400
+
+        attestation_detail_requested = any(key in payload for key in ("current_club_name", "club_program_id"))
+        profile_contract_context = any(
+            key in payload
+            for key in (
+                "contract_until",
+                "availability",
+                "agent_name",
+                "agent_contact_email",
+                "nationality_secondary",
+                "languages",
+            )
+        )
+        if subject.is_local and (
+            attestation_detail_requested
+            or (contract_status is not None and contract_status not in PROFILE_CONTRACT_STATUSES)
+        ):
+            return jsonify({"error": "contract attestation fields are only supported for API players"}), 400
+
+        contract_update_requested = not subject.is_local and (
+            attestation_detail_requested or contract_status in CLAIM_CONTRACT_STATUSES
+        )
+        if "contract_status" not in payload:
+            profile_contract_update_requested = not contract_update_requested
+        else:
+            profile_contract_update_requested = (
+                contract_status is None
+                or contract_status in {"under_contract", "expiring"}
+                or (contract_status == "free_agent" and (subject.is_local or profile_contract_context))
+            )
+
+        contract_claim = None
+        contract_attestation = None
+        if contract_update_requested:
+            contract_claim = _approved_player_claim(subject.player_api_id, user.id)
+            if contract_claim is None:
+                return jsonify({"error": "Only an approved player claimant can update contract status"}), 403
+            contract_attestation = _parse_contract_attestation(
+                payload,
+                subject.player_api_id,
+                existing_claim=contract_claim,
+            )
         bio = _clean_optional_text(payload.get("bio"), MAX_BIO_LENGTH)
         positions = _clean_optional_text(payload.get("positions"), MAX_POSITIONS_LENGTH)
 
@@ -2069,12 +2448,6 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
                 return jsonify({"error": "height_cm must be an integer"}), 400
             if height_cm < MIN_HEIGHT_CM or height_cm > MAX_HEIGHT_CM:
                 return jsonify({"error": f"height_cm must be between {MIN_HEIGHT_CM} and {MAX_HEIGHT_CM}"}), 400
-
-        contract_status = payload.get("contract_status")
-        if contract_status is not None:
-            contract_status = str(contract_status).strip().lower() or None
-            if contract_status and contract_status not in CONTRACT_STATUSES:
-                return jsonify({"error": f"contract_status must be one of {sorted(CONTRACT_STATUSES)}"}), 400
 
         availability = payload.get("availability")
         if availability is not None:
@@ -2115,7 +2488,8 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
         profile.positions = positions
         profile.preferred_foot = preferred_foot
         profile.height_cm = height_cm
-        profile.contract_status = contract_status
+        if profile_contract_update_requested:
+            profile.contract_status = contract_status
         profile.contract_until = contract_until
         profile.availability = availability
         profile.agent_name = agent_name
@@ -2124,8 +2498,23 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
         profile.languages = languages
         profile.status = "pending"  # owner edit → pending; hidden until re-approved
         profile.updated_by_user_id = user.id
+        if contract_attestation is not None:
+            profile.pending_contract_claim_id = contract_claim.id
+            profile.pending_contract_status = contract_attestation["contract_status"]
+            profile.pending_current_club_name = contract_attestation["current_club_name"]
+            profile.pending_club_program_id = contract_attestation["club_program_id"]
+            profile.pending_status_contradiction = contract_attestation["status_contradiction"]
         db.session.commit()
-        return jsonify({"profile": profile.owner_dict()})
+        response_profile = profile.owner_dict()
+        owner_claim = (
+            contract_claim or _approved_player_claim(subject.player_api_id, user.id) if not subject.is_local else None
+        )
+        if owner_claim is not None:
+            response_profile.update(_claim_contract_payload(owner_claim, profile))
+        return jsonify({"profile": response_profile})
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         db.session.rollback()
         logger.error("Error in upsert_showcase_profile: %s", e)
@@ -2133,6 +2522,7 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/photos", methods=["POST"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("20 per hour", key_func=_user_rate_limit_key)
 def create_showcase_photo(player_api_id: int):
@@ -2226,6 +2616,7 @@ def _create_subject_showcase_photo(subject: ShowcaseSubject):
     "/players/<int:player_api_id>/showcase/photos/<int:media_id>/complete",
     methods=["POST"],
 )
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def complete_showcase_photo(player_api_id: int, media_id: int):
@@ -2299,6 +2690,7 @@ def _complete_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/photos/order", methods=["PATCH"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def reorder_showcase_photos(player_api_id: int):
@@ -2356,6 +2748,7 @@ def _reorder_subject_showcase_photos(subject: ShowcaseSubject):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/photos/<int:media_id>", methods=["PATCH"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def set_primary_showcase_photo(player_api_id: int, media_id: int):
@@ -2408,6 +2801,7 @@ def _set_primary_subject_showcase_photo(subject: ShowcaseSubject, media_id: int)
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/photos/<int:media_id>", methods=["DELETE"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def delete_showcase_photo(player_api_id: int, media_id: int):
@@ -2457,6 +2851,7 @@ def _delete_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/reel", methods=["POST"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def add_reel_item(player_api_id: int):
@@ -2514,6 +2909,7 @@ def _add_subject_reel_item(subject: ShowcaseSubject):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/reel/order", methods=["PATCH"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def reorder_reel(player_api_id: int):
@@ -2566,6 +2962,7 @@ def _reorder_subject_reel(subject: ShowcaseSubject):
 
 
 @showcase_bp.route("/players/<int:player_api_id>/showcase/reel/<int:link_id>", methods=["DELETE"])
+@hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("30 per hour", key_func=_user_rate_limit_key)
 def delete_reel_item(player_api_id: int, link_id: int):
@@ -3390,6 +3787,15 @@ def admin_review_claim(claim_id: int):
         if claim.status not in allowed_from:
             return jsonify({"error": f"cannot {action} a {claim.status} claim"}), 409
 
+        if action == "approve" and claim.player_api_id is not None and is_player_suppressed(claim.player_api_id):
+            return neutral_player_not_found()
+
+        if action == "approve" and claim.player_api_id is not None and claim.relationship_type == "player":
+            policy_error = _adult_player_claim_error(claim.player_api_id)
+            if policy_error is not None:
+                return policy_error
+            claim.status_contradiction = has_status_contradiction(claim.player_api_id, claim.contract_status)
+
         claim.status = target
         claim.reviewed_by = getattr(g, "user_email", None)
         claim.reviewed_at = datetime.now(UTC)
@@ -3421,6 +3827,15 @@ def admin_list_profiles():
                 payload["player_name"] = local_player.display_name if local_player else None
             else:
                 payload["player_name"] = _resolve_player_name(profile.player_api_id)
+                contract_claim = (
+                    db.session.get(PlayerProfileClaim, profile.pending_contract_claim_id)
+                    if profile.pending_contract_claim_id is not None
+                    else None
+                )
+                if contract_claim is None and profile.updated_by_user_id is not None:
+                    contract_claim = _approved_player_claim(profile.player_api_id, profile.updated_by_user_id)
+                if contract_claim is not None:
+                    payload.update(_claim_contract_payload(contract_claim, profile))
             out.append(payload)
         return jsonify({"profiles": out})
     except Exception as e:
@@ -3451,11 +3866,38 @@ def _admin_review_subject_profile(subject: ShowcaseSubject):
         action = (payload.get("action") or "").strip().lower()
         if action not in ("approve", "reject"):
             return jsonify({"error": "action must be approve or reject"}), 400
+        contract_claim = None
+        if action == "approve" and not subject.is_local and profile.pending_contract_status is not None:
+            contract_claim = db.session.get(PlayerProfileClaim, profile.pending_contract_claim_id)
+            if (
+                contract_claim is None
+                or contract_claim.player_api_id != subject.player_api_id
+                or contract_claim.relationship_type != "player"
+                or contract_claim.status != "approved"
+            ):
+                return jsonify({"error": "contract attestation claim is no longer approved"}), 409
+            contract_claim.contract_status = profile.pending_contract_status
+            contract_claim.current_club_name = profile.pending_current_club_name
+            contract_claim.club_program_id = profile.pending_club_program_id
+            contract_claim.status_contradiction = has_status_contradiction(
+                subject.player_api_id,
+                profile.pending_contract_status,
+            )
+            profile.pending_contract_claim_id = None
+            profile.pending_contract_status = None
+            profile.pending_current_club_name = None
+            profile.pending_club_program_id = None
+            profile.pending_status_contradiction = False
         profile.status = "approved" if action == "approve" else "pending"
         profile.reviewed_by = getattr(g, "user_email", None)
         profile.reviewed_at = datetime.now(UTC)
         db.session.commit()
-        return jsonify({"profile": profile.owner_dict()})
+        response_profile = profile.owner_dict()
+        if contract_claim is None and not subject.is_local and profile.updated_by_user_id is not None:
+            contract_claim = _approved_player_claim(subject.player_api_id, profile.updated_by_user_id)
+        if contract_claim is not None:
+            response_profile.update(_claim_contract_payload(contract_claim, profile))
+        return jsonify({"profile": response_profile})
     except Exception as e:
         db.session.rollback()
         logger.error("Error in admin_review_profile: %s", e)

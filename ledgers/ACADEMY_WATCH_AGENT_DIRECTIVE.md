@@ -144,7 +144,8 @@ loan-army-frontend/package.json              # Remove @stripe/stripe-js if prese
 2. In `App.jsx`, remove routes to deleted pages
 3. In `api.js`, remove all methods containing "stripe" (search for "stripe")
 4. Remove StripeContext provider from App.jsx
-5. Run `pnpm install` to update lockfile
+5. Update the lockfile without restoring packages, then run
+   `./scripts/security/check_frontend_dependencies.sh`
 6. Run `pnpm lint` to find any broken imports
 
 **Acceptance:** Frontend builds without Stripe, no import errors

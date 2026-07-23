@@ -16,9 +16,12 @@ from datetime import UTC, datetime
 from functools import wraps
 from uuid import uuid4
 
-from flask import Blueprint, current_app, g, jsonify, make_response, request
+from flask import Blueprint, current_app, g, has_app_context, jsonify, make_response, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
+# Register trust tables before test/local ``db.create_all()`` calls that reach
+# UserAccount serializers outside the production app factory.
+import src.models.trust  # noqa: F401
 from src.models.league import UserAccount, db
 from src.utils.sanitize import sanitize_plain_text
 
@@ -106,6 +109,15 @@ def issue_user_token(email: str, ttl_seconds: int = 60 * 60 * 24 * 30, role: str
     s = _user_serializer()
     # Embed ts in payload for debugging; URLSafeTimedSerializer enforces max_age on loads
     payload = {"email": email, "role": role, "iat": int(time.time())}
+    if has_app_context():
+        # Bind newly issued tokens to one concrete account generation. A user
+        # may later re-register the same email after deletion; matching only on
+        # email would otherwise revive every still-valid pre-deletion token.
+        user = UserAccount.query.filter_by(email=email).first()
+        if user is not None and not getattr(user, "is_tombstone", False):
+            payload["user_id"] = user.id
+            if user.created_at is not None:
+                payload["account_created_at"] = user.created_at.isoformat()
     token = s.dumps(payload)
     logger.info("Issued auth token payload for %s with role=%s", email, role)
     return {"token": token, "expires_in": ttl_seconds}
@@ -356,13 +368,44 @@ def require_user_auth(f):
         try:
             # Accept tokens up to 30 days old by default
             data = s.loads(token, max_age=60 * 60 * 24 * 30)
-            email = data.get("email")
+            email = (data.get("email") or "").strip()
+            if not email:
+                return jsonify({"error": "invalid token payload"}), 401
             g.user_email = email
-            if email:
+            token_user_id = data.get("user_id")
+            if token_user_id is not None:
+                if isinstance(token_user_id, bool):
+                    return jsonify({"error": "invalid token payload"}), 401
+                try:
+                    token_user_id = int(token_user_id)
+                except (TypeError, ValueError):
+                    return jsonify({"error": "invalid token payload"}), 401
+                user = db.session.get(UserAccount, token_user_id)
+                if user is not None and (user.email or "").strip().lower() != email.lower():
+                    user = None
+                account_created_at = data.get("account_created_at")
+                if (
+                    user is not None
+                    and account_created_at is not None
+                    and (user.created_at is None or user.created_at.isoformat() != account_created_at)
+                ):
+                    user = None
+            else:
+                # Backward compatibility for tokens issued before account
+                # binding shipped. A recreated account normally has a later
+                # creation second and therefore cannot revive the old token.
                 user = UserAccount.query.filter_by(email=email).first()
-                if user:
-                    g.user = user
-                    g.user_id = user.id
+                token_iat = data.get("iat")
+                if user is not None and user.created_at is not None and isinstance(token_iat, int):
+                    created_at = user.created_at
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=UTC)
+                    if int(created_at.timestamp()) > token_iat:
+                        user = None
+            if user is None or getattr(user, "is_tombstone", False):
+                return jsonify({"error": "account not found"}), 401
+            g.user = user
+            g.user_id = user.id
         except SignatureExpired:
             return jsonify({"error": "auth token expired"}), 401
         except BadSignature:
