@@ -48,6 +48,15 @@ def app(monkeypatch):
     flask_app.register_blueprint(api_bp, url_prefix="/api")
 
     with flask_app.app_context():
+        # Keep FC-B3's narrow registry bridge deterministic even when another
+        # collected test module registers the full F2 schema in shared metadata.
+        with db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE club_programs ("
+                    "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254))"
+                )
+            )
         db.create_all()
         db.session.add(
             PlayerJourney(
@@ -60,6 +69,8 @@ def app(monkeypatch):
         yield flask_app
         db.session.remove()
         db.drop_all()
+        with db.engine.begin() as connection:
+            connection.execute(text("DROP TABLE IF EXISTS club_programs"))
 
 
 @pytest.fixture
@@ -150,12 +161,6 @@ def _approved_claim(player_api_id, email):
 
 
 def _registry_program(program_id: int, name: str):
-    db.session.execute(
-        text(
-            "CREATE TABLE IF NOT EXISTS club_programs ("
-            "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254))"
-        )
-    )
     db.session.execute(
         text("INSERT INTO club_programs (id, name, contact_email) VALUES (:program_id, :name, NULL)"),
         {"program_id": program_id, "name": name},
