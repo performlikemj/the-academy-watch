@@ -9,7 +9,7 @@ so every DDL op is safe to re-run in both directions. Row Level Security is
 enabled in this migration alongside the new public table.
 
 Revision ID: shp01
-Revises: sea01
+Revises: gf01
 """
 
 import sqlalchemy as sa
@@ -23,7 +23,7 @@ from migrations._migration_helpers import (
 )
 
 revision = "shp01"
-down_revision = "sea01"
+down_revision = "gf01"
 branch_labels = None
 depends_on = None
 
