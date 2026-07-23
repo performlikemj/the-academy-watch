@@ -7,6 +7,8 @@ import pytest
 from flask import Flask
 from src.extensions import limiter
 from src.models.league import EmailToken, UserAccount, db
+from src.models.showcase import PlayerProfileClaim
+from src.services.account_roles import derive_account_role
 
 
 @pytest.fixture
@@ -122,7 +124,35 @@ class TestVerifyLoginCode:
             assert "token" in data
             assert "expires_in" in data
             assert data["message"] == "Logged in"
+            assert data["account_role"] == "scout"
             assert data["is_verified_scout"] is False
+
+    def test_verify_code_returns_player_for_approved_self_claim(self, auth_bp_app, auth_bp_client, mock_email_service):
+        """Login returns the role derived from an existing approved claim."""
+        with auth_bp_app.app_context():
+            user = UserAccount(
+                email="claimed-player@example.com",
+                display_name="ClaimedPlayer",
+                display_name_lower="claimedplayer",
+            )
+            db.session.add(user)
+            db.session.flush()
+            db.session.add(
+                PlayerProfileClaim(
+                    player_api_id=5001,
+                    user_account_id=user.id,
+                    relationship_type="player",
+                    status="approved",
+                )
+            )
+            db.session.commit()
+
+            auth_bp_client.post("/api/auth/request-code", json={"email": user.email})
+            token = EmailToken.query.filter_by(email=user.email, purpose="login").first()
+            res = auth_bp_client.post("/api/auth/verify-code", json={"email": user.email, "code": token.token})
+
+            assert res.status_code == 200
+            assert res.get_json()["account_role"] == "player"
 
     def test_verify_code_invalid_code_returns_400(self, auth_bp_app, auth_bp_client, mock_email_service):
         """Should return 400 for invalid code."""
@@ -166,12 +196,78 @@ class TestAuthMe:
             assert data["email"] == "me@example.com"
             assert data["display_name"] == "TestUser"
             assert data["role"] == "user"
+            assert data["account_role"] == "scout"
             assert data["is_verified_scout"] is False
+
+    def test_auth_me_returns_player_for_approved_self_claim(self, auth_bp_app, auth_bp_client):
+        """An approved player relationship is reflected in the auth payload."""
+        from src.auth import issue_user_token
+
+        with auth_bp_app.app_context():
+            user = UserAccount(
+                email="player@example.com",
+                display_name="PlayerUser",
+                display_name_lower="playeruser",
+            )
+            db.session.add(user)
+            db.session.flush()
+            db.session.add(
+                PlayerProfileClaim(
+                    player_api_id=5001,
+                    user_account_id=user.id,
+                    relationship_type="player",
+                    status="approved",
+                )
+            )
+            db.session.commit()
+
+            token = issue_user_token(user.email)["token"]
+            res = auth_bp_client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+            assert res.status_code == 200
+            assert res.get_json()["account_role"] == "player"
 
     def test_auth_me_without_token_returns_401(self, auth_bp_client):
         """Should return 401 without auth token."""
         res = auth_bp_client.get("/api/auth/me")
         assert res.status_code == 401
+
+
+class TestAccountRoleDerivation:
+    """Role labels come only from authoritative, approved self-claims."""
+
+    def test_user_without_claim_defaults_to_scout(self, auth_bp_app):
+        with auth_bp_app.app_context():
+            user = UserAccount(email="scout@example.com", display_name="Scout", display_name_lower="scout")
+            db.session.add(user)
+            db.session.commit()
+
+            assert derive_account_role(user) == "scout"
+
+    @pytest.mark.parametrize(
+        ("relationship_type", "status"),
+        (("player", "pending"), ("agent", "approved")),
+    )
+    def test_non_player_or_pending_claim_stays_scout(self, auth_bp_app, relationship_type, status):
+        with auth_bp_app.app_context():
+            user = UserAccount(
+                email=f"{relationship_type}-{status}@example.com",
+                display_name=f"{relationship_type}-{status}",
+                display_name_lower=f"{relationship_type}-{status}",
+            )
+            db.session.add(user)
+            db.session.flush()
+            db.session.add(
+                PlayerProfileClaim(
+                    player_api_id=5002,
+                    user_account_id=user.id,
+                    relationship_type=relationship_type,
+                    status=status,
+                )
+            )
+            db.session.commit()
+
+            assert derive_account_role(user) == "scout"
 
 
 class TestDisplayName:
