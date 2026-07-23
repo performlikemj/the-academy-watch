@@ -950,9 +950,19 @@ class TestPublicPayload:
         resp = client.get("/api/players/5001/showcase")
         assert resp.status_code == 200
         data = resp.get_json()
-        assert set(data.keys()) == {"player_api_id", "profile", "reel", "verified_footage", "claim_status"}
+        assert set(data.keys()) == {
+            "player_api_id",
+            "profile",
+            "photos",
+            "reel",
+            "affiliations",
+            "verified_footage",
+            "claim_status",
+        }
         assert data["profile"] is None
+        assert data["photos"] == []
         assert data["reel"] == []
+        assert data["affiliations"] == []
         assert data["verified_footage"] == []
         assert data["claim_status"] == "unclaimed"
 

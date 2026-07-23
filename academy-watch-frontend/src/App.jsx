@@ -83,6 +83,7 @@ import { AdminTools } from '@/pages/admin/AdminTools'
 import { AdminSandbox } from '@/pages/admin/AdminSandbox'
 import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { AdminShowcase } from '@/pages/admin/AdminShowcase'
+import { AdminLocalClubs } from '@/pages/admin/AdminLocalClubs'
 import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
@@ -90,6 +91,9 @@ import { CohortBrowser } from '@/pages/CohortBrowser'
 import { ScoutPage } from '@/pages/ScoutPage'
 import { WatchlistPage } from '@/pages/WatchlistPage'
 import { ListsPage } from '@/pages/ListsPage'
+import { MyClub } from '@/pages/MyClub'
+import { LocalPlayerPage } from '@/pages/LocalPlayerPage'
+import { LocalPlayerCreate } from '@/pages/LocalPlayerCreate'
 import { PricingPage } from '@/pages/PricingPage'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
@@ -4091,6 +4095,8 @@ function AppRoutes() {
       <Route path="/newsletters/historical" element={<HistoricalNewslettersPage />} />
       <Route path="/writeups/:commentaryId" element={<WriteupPage />} />
       <Route path="/players/:playerId" element={<PlayerPage />} />
+      <Route path="/local-players/new" element={<LocalPlayerCreate />} />
+      <Route path="/local-players/:localPlayerId" element={<LocalPlayerPage />} />
       <Route path="/journalists" element={<JournalistList apiService={APIService} />} />
       <Route
         path="/settings"
@@ -4110,6 +4116,7 @@ function AppRoutes() {
       <Route path="/scout" element={<ScoutPage />} />
       <Route path="/scout/watchlist" element={<WatchlistPage />} />
       <Route path="/scout/lists" element={<ListsPage />} />
+      <Route path="/my-club" element={<MyClub />} />
       <Route path="/pricing" element={<PricingPage />} />
       <Route path="/academy" element={<CohortBrowser />} />
       <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
@@ -4134,6 +4141,7 @@ function AppRoutes() {
         <Route path="video" element={<AdminVideo />} />
         <Route path="video/:matchId" element={<AdminVideoMatch />} />
         <Route path="showcase" element={<AdminShowcase />} />
+        <Route path="local-clubs" element={<AdminLocalClubs />} />
         <Route path="funding" element={<AdminFunding />} />
         <Route path="settings" element={<AdminSettings />} />
         <Route path="tools" element={<AdminTools />} />

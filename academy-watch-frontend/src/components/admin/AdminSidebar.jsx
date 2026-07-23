@@ -21,6 +21,7 @@ import {
     Wrench,
     UserCog,
     Star,
+    Landmark,
     HandHeart,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -70,6 +71,7 @@ const sidebarGroups = [
         items: [
             { icon: Video, label: 'Film Room', href: '/admin/video' },
             { icon: Star, label: 'Showcase', href: '/admin/showcase' },
+            { icon: Landmark, label: 'Local Clubs', href: '/admin/local-clubs' },
             { icon: HandHeart, label: 'Funding Registry', href: '/admin/funding' },
         ],
     },

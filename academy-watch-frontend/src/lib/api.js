@@ -1195,13 +1195,98 @@ export class APIService {
     // Public + owner-authed player showcase (highlight reel, self-reported
     // profile, club-verified footage, profile claims). Public reads pass no
     // third arg; owner writes rely on the stored user Bearer.
-    static async getPlayerShowcase(playerId) {
-        if (!playerId) throw new Error('playerId is required')
-        return this.request(`/players/${encodeURIComponent(playerId)}/showcase`)
+    static _showcaseSubjectBase(playerId, opts = { local: false }) {
+        return `/${opts.local ? 'local-players' : 'players'}/${encodeURIComponent(playerId)}`
     }
 
-    static async submitProfileClaim(playerId, { relationship_type, message }) {
+    static async getPlayerShowcase(playerId, opts = { local: false }) {
         if (!playerId) throw new Error('playerId is required')
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase`)
+    }
+
+    static async searchClubs(q) {
+        const query = new URLSearchParams({ q: q || '' }).toString()
+        return this.request(`/clubs/search?${query}`)
+    }
+
+    static async createLocalClub(payload) {
+        return this.request('/local-clubs', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async createLocalPlayer(payload) {
+        return this.request('/local-players', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async getLocalPlayer(id) {
+        if (!id) throw new Error('id is required')
+        return this.request(`/local-players/${encodeURIComponent(id)}`)
+    }
+
+    static async addPlayerAffiliation(playerId, payload, opts = { local: false }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/affiliations`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async deletePlayerAffiliation(playerId, affId, opts = { local: false }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/affiliations/${encodeURIComponent(affId)}`, {
+            method: 'DELETE',
+        })
+    }
+
+    static async submitClubClaim(payload) {
+        return this.request('/clubs/claim', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async getMyClubClaims() {
+        return this.request('/me/club-claims')
+    }
+
+    static async verifyClubClaimProof(claimId, { proof_url }) {
+        return this.request(`/me/club-claims/${encodeURIComponent(claimId)}/verify`, {
+            method: 'POST',
+            body: JSON.stringify({ proof_url }),
+        })
+    }
+
+    static async getMyClub() {
+        return this.request('/me/club')
+    }
+
+    static async confirmClubAffiliation(affId) {
+        return this.request(`/me/club/affiliations/${encodeURIComponent(affId)}/confirm`, {
+            method: 'POST',
+        })
+    }
+
+    static async rejectClubAffiliation(affId, { note }) {
+        return this.request(`/me/club/affiliations/${encodeURIComponent(affId)}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ note }),
+        })
+    }
+
+    static async vouchPlayerClaim(claimId) {
+        return this.request(`/me/club/player-claims/${encodeURIComponent(claimId)}/vouch`, {
+            method: 'POST',
+        })
+    }
+
+    static async submitProfileClaim(playerId, { relationship_type, message }, opts = { local: false }) {
+        if (!playerId) throw new Error('playerId is required')
+        if (opts.local) throw new Error('Local player claims are created automatically with the profile')
         return this.request(`/players/${encodeURIComponent(playerId)}/claim`, {
             method: 'POST',
             body: JSON.stringify({ relationship_type, message }),
@@ -1212,33 +1297,91 @@ export class APIService {
         return this.request('/me/claims')
     }
 
-    static async updateShowcaseProfile(playerId, payload) {
+    static async verifyClaimProof(claimId, { proof_url }) {
+        return this.request(`/me/claims/${encodeURIComponent(claimId)}/verify`, {
+            method: 'POST',
+            body: JSON.stringify({ proof_url }),
+        })
+    }
+
+    static async updateShowcaseProfile(playerId, payload, opts = { local: false }) {
         if (!playerId) throw new Error('playerId is required')
-        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/profile`, {
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/profile`, {
             method: 'PUT',
             body: JSON.stringify(payload),
         })
     }
 
-    static async addShowcaseReelItem(playerId, { url, title }) {
+    static async createShowcasePhoto(playerId, { content_type, size_bytes }, opts = { local: false }) {
         if (!playerId) throw new Error('playerId is required')
-        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/reel`, {
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/photos`, {
             method: 'POST',
-            body: JSON.stringify({ url, title }),
+            body: JSON.stringify({ content_type, size_bytes }),
         })
     }
 
-    static async reorderShowcaseReel(playerId, { ordered_ids }) {
+    static async uploadPhotoToUrl(upload, file) {
+        const response = await fetch(upload.url, {
+            method: 'PUT',
+            headers: upload.headers,
+            body: file,
+        })
+        if (!response.ok) {
+            const err = new Error(`Photo upload failed (HTTP ${response.status})`)
+            err.status = response.status
+            throw err
+        }
+    }
+
+    static async completeShowcasePhoto(playerId, mediaId, opts = { local: false }) {
         if (!playerId) throw new Error('playerId is required')
-        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/reel/order`, {
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/photos/${encodeURIComponent(mediaId)}/complete`, {
+            method: 'POST',
+        })
+    }
+
+    static async reorderShowcasePhotos(playerId, { ordered_ids }, opts = { local: false }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/photos/order`, {
             method: 'PATCH',
             body: JSON.stringify({ ordered_ids }),
         })
     }
 
-    static async deleteShowcaseReelItem(playerId, linkId) {
+    static async setShowcasePhotoPrimary(playerId, mediaId, opts = { local: false }) {
         if (!playerId) throw new Error('playerId is required')
-        return this.request(`/players/${encodeURIComponent(playerId)}/showcase/reel/${encodeURIComponent(linkId)}`, {
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/photos/${encodeURIComponent(mediaId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_primary: true }),
+        })
+    }
+
+    static async deleteShowcasePhoto(playerId, mediaId, opts = { local: false }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/photos/${encodeURIComponent(mediaId)}`, {
+            method: 'DELETE',
+        })
+    }
+
+    static async addShowcaseReelItem(playerId, { url, title }, opts = { local: false }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/reel`, {
+            method: 'POST',
+            body: JSON.stringify({ url, title }),
+        })
+    }
+
+    static async reorderShowcaseReel(playerId, { ordered_ids }, opts = { local: false }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/reel/order`, {
+            method: 'PATCH',
+            body: JSON.stringify({ ordered_ids }),
+        })
+    }
+
+    static async deleteShowcaseReelItem(playerId, linkId, opts = { local: false }) {
+        if (!playerId) throw new Error('playerId is required')
+        return this.request(`${this._showcaseSubjectBase(playerId, opts)}/showcase/reel/${encodeURIComponent(linkId)}`, {
             method: 'DELETE',
         })
     }
@@ -1256,6 +1399,12 @@ export class APIService {
         }, { admin: true })
     }
 
+    static async adminRecheckClaim(claimId) {
+        return this.request(`/admin/showcase/claims/${encodeURIComponent(claimId)}/recheck`, {
+            method: 'POST',
+        }, { admin: true })
+    }
+
     static async adminListShowcaseProfiles(params = {}) {
         const query = new URLSearchParams(params).toString()
         return this.request(`/admin/showcase/profiles${query ? '?' + query : ''}`, {}, { admin: true })
@@ -1265,6 +1414,100 @@ export class APIService {
         return this.request(`/admin/showcase/profiles/${encodeURIComponent(playerApiId)}/review`, {
             method: 'POST',
             body: JSON.stringify({ action }),
+        }, { admin: true })
+    }
+
+    static async adminListShowcaseMedia(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/showcase/media${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewShowcaseMedia(mediaId, { action, note }) {
+        return this.request(`/admin/showcase/media/${encodeURIComponent(mediaId)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
+        }, { admin: true })
+    }
+
+    static async adminListClubClaims(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/club-claims${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewClubClaim(id, { action, note }) {
+        return this.request(`/admin/club-claims/${encodeURIComponent(id)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
+        }, { admin: true })
+    }
+
+    static async adminRecheckClubClaim(id) {
+        return this.request(`/admin/club-claims/${encodeURIComponent(id)}/recheck`, {
+            method: 'POST',
+        }, { admin: true })
+    }
+
+    static async adminListLocalClubs(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/local-clubs${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewLocalClub(id, { action, note }) {
+        return this.request(`/admin/local-clubs/${encodeURIComponent(id)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
+        }, { admin: true })
+    }
+
+    static async adminMergeLocalClub(id, { into_local_club_id }) {
+        return this.request(`/admin/local-clubs/${encodeURIComponent(id)}/merge`, {
+            method: 'POST',
+            body: JSON.stringify({ into_local_club_id }),
+        }, { admin: true })
+    }
+
+    static async adminLinkLocalClubApi(id, { team_api_id }) {
+        return this.request(`/admin/local-clubs/${encodeURIComponent(id)}/link-api`, {
+            method: 'POST',
+            body: JSON.stringify({ team_api_id }),
+        }, { admin: true })
+    }
+
+    static async adminListLocalPlayers(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/local-players${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewLocalPlayer(id, { action, note }) {
+        return this.request(`/admin/local-players/${encodeURIComponent(id)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
+        }, { admin: true })
+    }
+
+    static async adminMergeLocalPlayer(id, { into_local_player_id }) {
+        return this.request(`/admin/local-players/${encodeURIComponent(id)}/merge`, {
+            method: 'POST',
+            body: JSON.stringify({ into_local_player_id }),
+        }, { admin: true })
+    }
+
+    static async adminLinkLocalPlayerApi(id, { player_api_id }) {
+        return this.request(`/admin/local-players/${encodeURIComponent(id)}/link-api`, {
+            method: 'POST',
+            body: JSON.stringify({ player_api_id }),
+        }, { admin: true })
+    }
+
+    static async adminListAffiliations(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/showcase/affiliations${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewAffiliation(id, { action, note }) {
+        return this.request(`/admin/showcase/affiliations/${encodeURIComponent(id)}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
         }, { admin: true })
     }
 
