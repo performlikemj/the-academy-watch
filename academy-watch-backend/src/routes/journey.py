@@ -9,7 +9,7 @@ Legacy fallback: TrackedPlayer records (for players not yet synced).
 import logging
 from collections import defaultdict
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from src.auth import require_api_key
 from src.models.journey import YOUTH_LEVELS, ClubLocation, PlayerJourney, PlayerJourneyEntry
 from src.models.league import Team, TeamProfile, db
@@ -119,6 +119,38 @@ def get_loan_journey(loaned_player_id):
 # =============================================================================
 # Admin Repair Endpoints
 # =============================================================================
+
+
+@journey_bp.route("/admin/transfers/manual", methods=["POST"])
+@require_api_key
+def admin_record_manual_transfer():
+    """Preview or commit one operator-known transfer through durable evidence."""
+    from src.services.manual_transfer import (
+        ManualTransferPlayerNotFound,
+        ManualTransferValidationError,
+        apply_manual_transfer,
+    )
+
+    try:
+        response, dry_run = apply_manual_transfer(
+            request.get_json(silent=True),
+            actor_email=getattr(g, "user_email", None),
+        )
+        if dry_run:
+            db.session.rollback()
+        else:
+            db.session.commit()
+        return jsonify(response), 200
+    except ManualTransferPlayerNotFound:
+        db.session.rollback()
+        return neutral_player_not_found()
+    except ManualTransferValidationError as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 422
+    except Exception:
+        db.session.rollback()
+        logger.exception("Manual transfer entry failed")
+        return jsonify({"error": "Failed to record manual transfer"}), 500
 
 
 @journey_bp.route("/admin/journeys/recompute-academy", methods=["POST"])

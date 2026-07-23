@@ -1,4 +1,4 @@
-"""Durable raw transfer-event evidence (tre01)."""
+"""Durable transfer evidence and its append-only admin audit trail."""
 
 from datetime import UTC, datetime
 
@@ -39,3 +39,26 @@ class PlayerTransferEvent(db.Model):
         ),
         db.Index("ix_player_transfer_events_player_api_id", "player_api_id"),
     )
+
+
+class TransferAdminEvent(db.Model):
+    """One append-only audit event for a manual transfer operation."""
+
+    __tablename__ = "transfer_admin_events"
+    __table_args__ = (
+        db.Index("ix_transfer_admin_events_transfer_event", "transfer_event_id"),
+        db.Index("ix_transfer_admin_events_player_created", "player_api_id", "created_at"),
+    )
+
+    id = db.Column(_BIG_PK, primary_key=True, autoincrement=True)
+    transfer_event_id = db.Column(
+        _BIG_PK,
+        db.ForeignKey("player_transfer_events.id"),
+        nullable=False,
+    )
+    player_api_id = db.Column(db.Integer, nullable=False)
+    actor_email = db.Column(db.String(254), nullable=False)
+    action = db.Column(db.String(80), nullable=False)
+    source_note = db.Column(db.Text, nullable=False)
+    event_metadata = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
