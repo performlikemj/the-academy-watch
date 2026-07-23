@@ -62,11 +62,24 @@ def account_app():
 
     with app.app_context():
         limiter.reset()
+        # Keep FC-TF1's narrow funding-audit bridge deterministic even when
+        # another collected test module registers the full F2 schema.
+        with db.engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "CREATE TABLE funding_admin_events ("
+                    "id INTEGER PRIMARY KEY, actor_email VARCHAR(254) NOT NULL, "
+                    "action VARCHAR(80) NOT NULL, target_type VARCHAR(40) NOT NULL, "
+                    "target_id INTEGER NOT NULL, reason TEXT NOT NULL, event_metadata JSON NOT NULL)"
+                )
+            )
         db.create_all()
         yield app
         limiter.reset()
         db.session.remove()
         db.drop_all()
+        with db.engine.begin() as connection:
+            connection.execute(sa.text("DROP TABLE IF EXISTS funding_admin_events"))
 
 
 @pytest.fixture
@@ -801,14 +814,6 @@ def test_delete_preserves_coowner_profile_and_reel_order(client):
 
 def test_delete_preserves_and_anonymizes_funding_admin_audit(client):
     user = _add_account(96301, "funding-actor@example.com", "Funding Actor")
-    db.session.execute(
-        sa.text(
-            "CREATE TABLE funding_admin_events ("
-            "id INTEGER PRIMARY KEY, actor_email VARCHAR(254) NOT NULL, "
-            "action VARCHAR(80) NOT NULL, target_type VARCHAR(40) NOT NULL, "
-            "target_id INTEGER NOT NULL, reason TEXT NOT NULL, event_metadata JSON NOT NULL)"
-        )
-    )
     db.session.execute(
         sa.text(
             "INSERT INTO funding_admin_events "

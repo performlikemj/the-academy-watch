@@ -50,25 +50,30 @@ def contact_app(monkeypatch):
 
     with app.app_context():
         limiter.reset()
+        # Keep FC-B3's narrow registry bridges deterministic even when another
+        # collected test module registers the full F2 schemas in shared metadata.
+        with db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE club_programs ("
+                    "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254))"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE TABLE club_program_managers ("
+                    "id INTEGER PRIMARY KEY, program_id INTEGER NOT NULL, "
+                    "user_account_id INTEGER NOT NULL, status VARCHAR(20) NOT NULL)"
+                )
+            )
         db.create_all()
-        db.session.execute(
-            text(
-                "CREATE TABLE club_programs ("
-                "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254))"
-            )
-        )
-        db.session.execute(
-            text(
-                "CREATE TABLE club_program_managers ("
-                "id INTEGER PRIMARY KEY, program_id INTEGER NOT NULL, "
-                "user_account_id INTEGER NOT NULL, status VARCHAR(20) NOT NULL)"
-            )
-        )
-        db.session.commit()
         yield app
         limiter.reset()
         db.session.remove()
         db.drop_all()
+        with db.engine.begin() as connection:
+            connection.execute(text("DROP TABLE IF EXISTS club_program_managers"))
+            connection.execute(text("DROP TABLE IF EXISTS club_programs"))
 
 
 @pytest.fixture
