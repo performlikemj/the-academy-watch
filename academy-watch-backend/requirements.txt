@@ -48,7 +48,7 @@ matplotlib==3.11.1
 mcp==1.28.1
 mdurl==0.1.2
 numpy==2.4.6
-pandas==3.0.3
+pandas==3.0.5
 openai==2.47.0
 openai-agents==0.18.3
 ordered-set==4.1.0
