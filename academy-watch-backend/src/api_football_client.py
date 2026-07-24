@@ -3,13 +3,14 @@ import logging
 import os
 import time
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
 from functools import lru_cache
 from itertools import chain
+from threading import Lock
 from typing import Any
 
 # external_stats is lazy-loaded where needed to reduce cold start time
@@ -32,6 +33,65 @@ logger.setLevel(logging.DEBUG)
 
 class TransferFetchError(RuntimeError):
     """A live player-transfer request failed or returned an error payload."""
+
+
+class APICallBudgetExceeded(RuntimeError):
+    """Raised before a live API-Football request would exceed its shared cap."""
+
+
+class APICallBudget:
+    """Thread-safe, process-local budget for attempted live API-Football calls."""
+
+    def __init__(
+        self,
+        limit: int,
+        *,
+        initial_spent: int = 0,
+        on_claim: Callable[[int], None] | None = None,
+    ):
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise TypeError("API call budget limit must be an integer")
+        if limit < 0:
+            raise ValueError("API call budget limit must be non-negative")
+        if isinstance(initial_spent, bool) or not isinstance(initial_spent, int):
+            raise TypeError("initial API calls spent must be an integer")
+        if initial_spent < 0:
+            raise ValueError("initial API calls spent must be non-negative")
+        if on_claim is not None and not callable(on_claim):
+            raise TypeError("API call budget on_claim must be callable")
+        self.limit = limit
+        self._spent = initial_spent
+        self._on_claim = on_claim
+        self._lock = Lock()
+
+    @property
+    def spent(self) -> int:
+        with self._lock:
+            return self._spent
+
+    @property
+    def remaining(self) -> int:
+        with self._lock:
+            return max(0, self.limit - self._spent)
+
+    @property
+    def exhausted(self) -> bool:
+        with self._lock:
+            return self._spent >= self.limit
+
+    def claim(self, endpoint: str | None = None) -> int:
+        """Claim one live attempt, raising before the request when exhausted."""
+        with self._lock:
+            if self._spent >= self.limit:
+                endpoint_suffix = f" for endpoint {endpoint!r}" if endpoint else ""
+                raise APICallBudgetExceeded(
+                    f"API-Football call budget exhausted ({self._spent}/{self.limit}){endpoint_suffix}"
+                )
+            next_spent = self._spent + 1
+            if self._on_claim is not None:
+                self._on_claim(next_spent)
+            self._spent = next_spent
+            return next_spent
 
 
 class TeamPlayersFetchError(RuntimeError):
@@ -297,7 +357,14 @@ def _academy_watch_for_team(
 class APIFootballClient:
     """Client for API-Football integration."""
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        *,
+        call_budget: APICallBudget | None = None,
+        skip_handshake: bool = False,
+    ):
+        self.call_budget = call_budget
         self.api_key = api_key or os.getenv("API_FOOTBALL_KEY")
         # ------------------------------------------------------------------
         # 🔧 Stub‑data toggle – must be explicitly enabled
@@ -402,7 +469,7 @@ class APIFootballClient:
         logger.info("🚀 Performance caches initialized (24hr TTL)")
 
         # Test API connection unless explicitly skipped
-        if not os.getenv("SKIP_API_HANDSHAKE") and self.mode != "stub":
+        if not skip_handshake and not os.getenv("SKIP_API_HANDSHAKE") and self.mode != "stub":
             try:
                 self.handshake()
                 logger.info("✅ API handshake successful")
@@ -588,7 +655,13 @@ class APIFootballClient:
         except ImportError:
             pass
 
-    def _make_request(self, endpoint: str, params: dict[str, Any] = None) -> dict[str, Any]:
+    def _make_request(
+        self,
+        endpoint: str,
+        params: dict[str, Any] = None,
+        *,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
         """Make authenticated request to API-Football with DB cache + quota tracking."""
 
         # NOTE: The transfers endpoint does **not** accept a `season` query parameter (see API‑Football v3 docs).
@@ -607,7 +680,7 @@ class APIFootballClient:
         # L2: DB-backed persistent cache (skipped for uncacheable endpoints)
         # ------------------------------------------------------------------
         use_db_cache = endpoint not in self._NO_CACHE_ENDPOINTS
-        if use_db_cache:
+        if use_db_cache and not force_refresh:
             try:
                 from src.models.api_cache import APICache
 
@@ -632,6 +705,14 @@ class APIFootballClient:
         try:
             url = f"{self.base_url}/{endpoint}"
 
+            call_budget = getattr(self, "call_budget", None)
+            if call_budget is not None:
+                try:
+                    call_budget.claim(endpoint)
+                except APICallBudgetExceeded:
+                    raise
+                except Exception as exc:
+                    raise RuntimeError(f"Failed to reserve API-Football call budget for endpoint {endpoint!r}") from exc
             response = requests.get(url, headers=self.headers, params=params or {}, timeout=15)
 
             # FAIL-LOUD on auth problems
@@ -3469,7 +3550,14 @@ class APIFootballClient:
             logger.warning(f"Error fetching injuries for player {player_id} season {season}: {e}")
             return []
 
-    def get_team_transfers(self, team_id: int) -> list[dict[str, Any]]:
+    def get_team_transfers(
+        self,
+        team_id: int,
+        *,
+        force_refresh: bool = False,
+        raise_on_error: bool = False,
+        persist_events: bool = True,
+    ) -> list[dict[str, Any]]:
         """Get transfers for a specific team (transfers endpoint has no season param)."""
         try:
             normalized_team_id = int(team_id)
@@ -3482,13 +3570,24 @@ class APIFootballClient:
 
         try:
             params = {"team": normalized_team_id}
-            response = self._make_request("transfers", params)
+            if force_refresh:
+                response = self._make_request("transfers", params, force_refresh=True)
+            else:
+                response = self._make_request("transfers", params)
+            if raise_on_error and response.get("errors"):
+                raise RuntimeError(
+                    f"API-Football returned transfer errors for team {normalized_team_id}: {response['errors']}"
+                )
             transfers_data = response.get("response", [])
-            if self.mode != "stub":
+            if persist_events and self.mode != "stub":
                 _record_transfer_payload(transfers_data)
             return transfers_data
+        except APICallBudgetExceeded:
+            raise
         except Exception as e:
             logger.error(f"Error fetching transfers for team {team_id}: {e}")
+            if raise_on_error:
+                raise
             return []
 
     def is_loan_transfer(self, transfer_block: dict, window_key: str) -> bool:
@@ -3551,6 +3650,8 @@ class APIFootballClient:
                     current_loans.append(transfer)
 
             return current_loans
+        except APICallBudgetExceeded:
+            raise
         except Exception as e:
             logger.error(f"Error fetching current loans for team {team_id}: {e}")
             return []
@@ -4203,6 +4304,8 @@ class APIFootballClient:
             # Season parameter is now required to prevent drift with window_key
             logger.debug(f"🔍 Fetching transfers for team {team_id} (cache miss)")
             return self.get_team_transfers(team_id)
+        except APICallBudgetExceeded:
+            raise
         except Exception as e:
             logger.warning(f"Error fetching transfers for team {team_id}: {e}")
             return []
@@ -4650,6 +4753,8 @@ class APIFootballClient:
                 "season": season,
             }
 
+        except APICallBudgetExceeded:
+            raise
         except Exception as e:
             logger.error(f"Error analyzing transfers for player {player_id}: {e}")
             return {
@@ -4754,6 +4859,8 @@ class APIFootballClient:
             )
             return all_players
 
+        except APICallBudgetExceeded:
+            raise
         except TeamPlayersFetchError:
             logger.exception("Failed to fetch team players for team %s, season %s", team_id, season)
             raise
@@ -4761,7 +4868,12 @@ class APIFootballClient:
             logger.exception("Failed to fetch team players for team %s, season %s", team_id, season)
             raise TeamPlayersFetchError(f"Failed to fetch team players for team {team_id}, season {season}: {e}") from e
 
-    def get_player_transfers(self, player_id: int) -> list[dict[str, Any]]:
+    def get_player_transfers(
+        self,
+        player_id: int,
+        *,
+        force_refresh: bool = False,
+    ) -> list[dict[str, Any]]:
         """
         Get transfer data for a specific player with 24-hour caching.
 
@@ -4775,7 +4887,7 @@ class APIFootballClient:
         stub mode.
         """
         # Check cache first
-        if player_id in self._transfer_cache:
+        if not force_refresh and player_id in self._transfer_cache:
             cached_data, cached_time = self._transfer_cache[player_id]
             cache_age = datetime.now(UTC) - cached_time
 
@@ -4802,7 +4914,11 @@ class APIFootballClient:
             )
 
         try:
-            response = self._make_request("transfers", {"player": player_id})
+            params = {"player": player_id}
+            if force_refresh:
+                response = self._make_request("transfers", params, force_refresh=True)
+            else:
+                response = self._make_request("transfers", params)
 
             if response.get("errors"):
                 raise TransferFetchError(
@@ -4822,6 +4938,8 @@ class APIFootballClient:
             logger.info(f"✅ Found {len(transfers_data)} transfer records for player {player_id} - CACHED for 24h")
             return transfers_data
 
+        except APICallBudgetExceeded:
+            raise
         except TransferFetchError:
             logger.exception("Failed to fetch player transfers for player %s", player_id)
             raise
@@ -5255,6 +5373,10 @@ class APIFootballClient:
                     if completed % 10 == 0:
                         logger.info(f"   Progress: {completed}/{len(player_ids)} players processed")
 
+                except APICallBudgetExceeded:
+                    for pending in futures:
+                        pending.cancel()
+                    raise
                 except Exception as e:
                     player_id = futures[future]
                     logger.error(f"   Error fetching transfers for player {player_id}: {e}")

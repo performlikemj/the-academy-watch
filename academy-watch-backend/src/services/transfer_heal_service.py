@@ -12,7 +12,7 @@ import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import text
-from src.api_football_client import APIFootballClient
+from src.api_football_client import APICallBudgetExceeded, APIFootballClient
 from src.models.journey import PlayerJourney
 from src.models.league import Team, db
 from src.models.tracked_player import TrackedPlayer
@@ -47,7 +47,14 @@ logger = logging.getLogger(__name__)
 MAX_ORPHAN_REQUEUE = 50
 
 
-def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_fixtures=True, orphan_budget=None):
+def refresh_and_heal(
+    team_id=None,
+    resync_journeys=True,
+    dry_run=False,
+    cascade_fixtures=True,
+    orphan_budget=None,
+    api_client=None,
+):
     """Re-derive statuses for tracked players, detecting loan club changes.
 
     Args:
@@ -61,6 +68,8 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
             The nightly per-team job loops pass a shrinking budget so the
             ceiling stays job-global (see MAX_ORPHAN_REQUEUE) rather than
             multiplying by the team count.
+        api_client: Optional shared APIFootballClient. Scheduled runners use
+            this seam to enforce one exact live-call budget across teams.
 
     Returns:
         dict with keys: total, updated, journeys_resynced, players_changed,
@@ -159,11 +168,11 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
     # Optionally set up journey sync service
     journey_svc = None
     if resync_journeys:
-        journey_svc = JourneySyncService()
+        journey_svc = JourneySyncService(api_client=api_client) if api_client is not None else JourneySyncService()
     calendar_svc = journey_svc or JourneySyncService(database_only=True)
 
     # Batch pre-fetch transfers
-    api_client = APIFootballClient()
+    api_client = api_client or APIFootballClient()
     player_api_ids = [tp.player_api_id for tp in players if tp.player_api_id]
     raw_transfers_map = api_client.batch_get_player_transfers(player_api_ids)
     transfers_map = {pid: flatten_transfers(raw) for pid, raw in raw_transfers_map.items()}
@@ -193,6 +202,8 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
             squad_members_by_club[club_id] = {
                 int(e["player"]["id"]) for e in squad if e and e.get("player", {}).get("id")
             }
+        except APICallBudgetExceeded:
+            raise
         except Exception as exc:
             failed_squad_clubs.add(club_id)
             logger.warning(
@@ -421,6 +432,7 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
                     loan_team_api_id=pc["new_current_club_api_id"],
                     season=season,
                     player_name=pc.get("player_name"),
+                    api_client=api_client,
                 )
                 fixture_syncs_triggered += 1
                 logger.info(
@@ -431,6 +443,8 @@ def refresh_and_heal(team_id=None, resync_journeys=True, dry_run=False, cascade_
                     pc["new_loan_club"],
                     pc["new_current_club_api_id"],
                 )
+            except APICallBudgetExceeded:
+                raise
             except Exception as exc:
                 logger.error(
                     "transfer-heal: fixture sync failed for player %d at club %d: %s",
