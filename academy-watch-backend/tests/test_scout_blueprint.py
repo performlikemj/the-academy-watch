@@ -494,6 +494,15 @@ class _FakeApiClient:
         ]
 
 
+class _QuotaExhaustedLazyApiClient:
+    @property
+    def current_season_start_year(self):
+        raise RuntimeError("API-Football daily quota reached (100/100). No more live API calls will be made today.")
+
+    def get_player_injuries(self, player_id, season=None):
+        raise AssertionError("The injuries endpoint must not be called after client initialization fails")
+
+
 class TestCompareAvailability:
     def test_compare_with_availability(self, scout_client, seeded_players, monkeypatch):
         import src.routes.scout as scout_module
@@ -527,6 +536,7 @@ class TestPlayerAvailabilityEndpoint:
         resp = availability_client.get("/api/players/1001/availability")
         assert resp.status_code == 200
         data = resp.get_json()
+        assert set(data) == {"player_id", "season", "absences", "summary"}
         assert data["season"] == 2025
         assert data["summary"]["total_absences"] == 2
         assert data["summary"]["by_reason"] == {"Knee Injury": 2}
@@ -542,6 +552,55 @@ class TestPlayerAvailabilityEndpoint:
         assert data["absences"] == []
         assert data["summary"]["total_absences"] == 0
         assert data["summary"]["last_absence"] is None
+
+    def test_availability_degrades_when_lazy_client_hits_quota(self, availability_client, monkeypatch):
+        from src.routes import players as players_module
+        from src.utils.academy_window import current_stats_season
+
+        monkeypatch.setattr(players_module, "_get_api_client", lambda: _QuotaExhaustedLazyApiClient())
+
+        resp = availability_client.get("/api/players/1001/availability")
+
+        assert resp.status_code == 200
+        assert resp.get_json() == {
+            "player_id": 1001,
+            "season": current_stats_season(),
+            "absences": [],
+            "summary": {
+                "total_absences": None,
+                "by_reason": {},
+                "last_absence": None,
+            },
+            "degraded": True,
+            "reason": "upstream_unavailable",
+        }
+
+    def test_injury_client_propagates_quota_runtime_error(self, monkeypatch):
+        from src.api_football_client import APIFootballClient
+
+        api_client = object.__new__(APIFootballClient)
+        api_client.current_season_start_year = 2025
+        calls = []
+
+        def quota_exhausted(*args, **kwargs):
+            calls.append((args, kwargs))
+            raise RuntimeError("API-Football daily quota reached (100/100). No more live API calls will be made today.")
+
+        monkeypatch.setattr(api_client, "_make_request", quota_exhausted)
+
+        with pytest.raises(RuntimeError, match="daily quota reached"):
+            api_client.get_player_injuries(1001, 2025)
+        assert calls == [(("injuries", {"player": 1001, "season": 2025}), {})]
+
+    def test_injury_client_rejects_malformed_upstream_payload(self, monkeypatch):
+        from src.api_football_client import APIFootballClient
+
+        api_client = object.__new__(APIFootballClient)
+        api_client.current_season_start_year = 2025
+        monkeypatch.setattr(api_client, "_make_request", lambda *_args, **_kwargs: {"response": None})
+
+        with pytest.raises(RuntimeError, match="invalid payload"):
+            api_client.get_player_injuries(1001, 2025)
 
 
 @pytest.fixture

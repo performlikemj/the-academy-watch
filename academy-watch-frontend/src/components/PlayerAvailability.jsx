@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { APIService } from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { HeartPulse, CircleCheck } from 'lucide-react'
+import { HeartPulse, CircleCheck, CircleHelp } from 'lucide-react'
 
 function formatDate(iso) {
   if (!iso) return null
@@ -34,6 +34,27 @@ export function PlayerAvailability({ playerId }) {
   }, [playerId])
 
   if (failed || !data) return null
+
+  if (data.degraded === true) {
+    return (
+      <Card className="overflow-hidden border-border/80">
+        <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-secondary/60 px-4 py-2.5">
+          <span className="inline-flex items-center gap-2">
+            <HeartPulse className="h-4 w-4 text-primary" />
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground/70">
+              Availability — {data.season}/{(data.season + 1) % 100}
+            </h3>
+          </span>
+        </div>
+        <CardContent className="p-0">
+          <p className="flex items-center gap-2 px-4 py-3.5 text-sm text-muted-foreground">
+            <CircleHelp className="h-4 w-4 text-muted-foreground/80" />
+            Availability unavailable right now
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
 
   const absences = data.absences || []
   const total = data.summary?.total_absences || 0

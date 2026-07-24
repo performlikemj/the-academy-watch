@@ -3460,14 +3460,23 @@ class APIFootballClient:
         fixture the player missed (type 'Missing Fixture') or was doubtful
         for ('Questionable'), with a reason (e.g. 'Knee Injury', 'Suspended').
         Responses go through _make_request, so they hit the DB-backed cache.
+        Upstream failures are raised as RuntimeError so callers can distinguish
+        them from a successful response containing no absences.
         """
         season = season or self.current_season_start_year
-        try:
-            response = self._make_request("injuries", {"player": int(player_id), "season": int(season)})
-            return response.get("response", []) or []
-        except Exception as e:
-            logger.warning(f"Error fetching injuries for player {player_id} season {season}: {e}")
-            return []
+        response = self._make_request("injuries", {"player": int(player_id), "season": int(season)})
+        if not isinstance(response, dict) or response.get("errors"):
+            raise RuntimeError(f"API-Football injuries request failed for player {player_id}")
+        records = response.get("response")
+        if not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
+            raise RuntimeError(f"API-Football injuries request returned an invalid payload for player {player_id}")
+        for record in records:
+            if any(
+                value is not None and not isinstance(value, dict)
+                for value in (record.get("player"), record.get("fixture"), record.get("team"), record.get("league"))
+            ):
+                raise RuntimeError(f"API-Football injuries request returned an invalid payload for player {player_id}")
+        return records
 
     def get_team_transfers(self, team_id: int) -> list[dict[str, Any]]:
         """Get transfers for a specific team (transfers endpoint has no season param)."""

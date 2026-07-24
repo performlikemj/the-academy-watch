@@ -340,6 +340,15 @@ struct PlayerDetailView: View {
                     Task { await viewModel.reload() }
                 }
             }
+        } else if viewModel.isAvailabilityDegraded {
+            VStack(alignment: .leading, spacing: 10) {
+                DetailSectionHeader(title: "AVAILABILITY", iconName: "cross.case")
+                PlayerDetailEmptyCard(
+                    iconName: "wifi.exclamationmark",
+                    title: "Availability unavailable right now",
+                    message: "We can’t confirm this player’s availability."
+                )
+            }
         } else if let availability = viewModel.visibleAvailability {
             VStack(alignment: .leading, spacing: 10) {
                 DetailSectionHeader(title: "AVAILABILITY", iconName: "cross.case.fill")
@@ -932,7 +941,7 @@ private struct AvailabilityCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(spacing: 1) {
-                Text(availability.summary.totalAbsences.formatted())
+                Text(availability.summary.totalAbsences?.formatted() ?? "—")
                     .font(.system(.title, design: .rounded, weight: .bold))
                     .foregroundStyle(AcademyColors.claret)
                     .monospacedDigit()

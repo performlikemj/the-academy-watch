@@ -237,12 +237,18 @@ struct PlayerRecentFixture: Decodable, Equatable, Sendable {
 struct PlayerAvailability: Decodable, Equatable, Sendable {
     let playerId: Int
     let season: Int
+    let degraded: Bool?
+    let reason: String?
     let absences: [PlayerAbsence]
     let summary: PlayerAvailabilitySummary
+
+    var isDegraded: Bool {
+        degraded == true
+    }
 }
 
 struct PlayerAvailabilitySummary: Decodable, Equatable, Sendable {
-    let totalAbsences: Int
+    let totalAbsences: Int?
     let byReason: [String: Int]
     let lastAbsence: PlayerAbsence?
 }
