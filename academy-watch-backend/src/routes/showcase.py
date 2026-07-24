@@ -26,7 +26,7 @@ from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qs, unquote, urlparse
 
 from flask import Blueprint, abort, g, jsonify, request, send_file
-from sqlalchemy import case, func, or_, text
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from src.auth import (
     _ensure_user_account,
@@ -50,6 +50,7 @@ from src.models.showcase import (
     PlayerShowcaseProfile,
 )
 from src.models.tracked_player import TrackedPlayer
+from src.models.user_block import UserBlock
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
 from src.services import showcase_media_storage, social_proof
 from src.services.club_registry import get_club_program
@@ -1770,6 +1771,7 @@ def my_interest_signals():
                 }
             )
 
+        blocked_user_ids = select(UserBlock.blocked_user_id).where(UserBlock.blocker_user_id == user.id)
         watchlist_rows = (
             db.session.query(
                 ScoutWatchlistEntry.player_api_id,
@@ -1783,7 +1785,10 @@ def my_interest_signals():
                     )
                 ),
             )
-            .filter(ScoutWatchlistEntry.player_api_id.in_(player_ids))
+            .filter(
+                ScoutWatchlistEntry.player_api_id.in_(player_ids),
+                ScoutWatchlistEntry.user_account_id.not_in(blocked_user_ids),
+            )
             .group_by(ScoutWatchlistEntry.player_api_id)
             .all()
         )
@@ -1802,6 +1807,7 @@ def my_interest_signals():
                 FollowList.is_active.is_(True),
                 FollowList.is_default.is_(False),
                 followed_player_id.in_(player_ids),
+                FollowList.user_account_id.not_in(blocked_user_ids),
             )
             .group_by(followed_player_id, FollowList.user_account_id)
             .subquery()

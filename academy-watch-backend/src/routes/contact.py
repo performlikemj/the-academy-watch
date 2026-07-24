@@ -15,6 +15,7 @@ from src.models.showcase import PlayerProfileClaim
 from src.models.trust import ScoutVerification
 from src.services.club_registry import (
     active_manager_program_ids,
+    active_program_manager_user_ids,
     is_active_program_manager,
 )
 from src.services.contact import (
@@ -38,6 +39,7 @@ from src.services.contact import (
 )
 from src.services.player_suppression import is_player_suppressed, without_active_suppression
 from src.services.trust import is_verified_scout
+from src.services.user_blocks import user_block_exists, user_is_blocked_by_any
 
 logger = logging.getLogger(__name__)
 contact_bp = Blueprint("contact", __name__)
@@ -95,6 +97,21 @@ def _positive_player_id(value) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError("player_api_id must be a positive integer")
     return value
+
+
+def _player_not_claimable():
+    """Return the shared neutral response for unavailable contact targets."""
+    return jsonify({"error": "Player is not available for contact", "code": "player_not_claimable"}), 403
+
+
+def _contact_request_payload(contact_request: ContactRequest) -> dict:
+    """Serialize blockable participants only for authenticated contact APIs."""
+    return contact_request.to_dict(include_user_ids=True)
+
+
+def _contact_message_payload(message: ContactMessage) -> dict:
+    """Expose a thread sender's block target without changing account exports."""
+    return message.to_dict(include_user_ids=True)
 
 
 def _pagination() -> tuple[int, int]:
@@ -265,11 +282,16 @@ def create_contact_request():
         )
 
         if is_player_suppressed(player_api_id):
-            return jsonify({"error": "Player is not available for contact", "code": "player_not_claimable"}), 403
+            return _player_not_claimable()
 
         claim = _target_claim(player_api_id)
         if claim is None:
-            return jsonify({"error": "Player is not available for contact", "code": "player_not_claimable"}), 403
+            return _player_not_claimable()
+        if user_block_exists(
+            blocker_user_id=claim.user_account_id,
+            blocked_user_id=user.id,
+        ):
+            return _player_not_claimable()
 
         # An unread expired request must not keep the partial unique guard live.
         matching = ContactRequest.query.filter_by(scout_user_id=user.id, player_api_id=player_api_id)
@@ -283,7 +305,13 @@ def create_contact_request():
         claim = _target_claim(player_api_id, for_update=True)
         if claim is None:
             db.session.rollback()
-            return jsonify({"error": "Player is not available for contact", "code": "player_not_claimable"}), 403
+            return _player_not_claimable()
+        if user_block_exists(
+            blocker_user_id=claim.user_account_id,
+            blocked_user_id=user.id,
+        ):
+            db.session.rollback()
+            return _player_not_claimable()
 
         routing_mode = routing_mode_for_claim(claim)
         permission_attestation = payload.get("permission_attestation") is True
@@ -293,7 +321,7 @@ def create_contact_request():
 
         active = matching.filter(_active_request_filter()).first()
         if active is not None:
-            active_payload = active.to_dict()
+            active_payload = _contact_request_payload(active)
             db.session.rollback()
             return jsonify(
                 {
@@ -377,7 +405,7 @@ def create_contact_request():
                     {
                         "error": "An active contact request already exists for this player",
                         "code": "active_request_exists",
-                        "contact_request": active.to_dict(),
+                        "contact_request": _contact_request_payload(active),
                     }
                 ), 409
             raise
@@ -395,7 +423,7 @@ def create_contact_request():
                 except Exception:
                     db.session.rollback()
                     logger.exception("Failed to record club notice audit for request %s", contact_request.id)
-        return jsonify({"contact_request": contact_request.to_dict()}), 201
+        return jsonify({"contact_request": _contact_request_payload(contact_request)}), 201
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400
@@ -441,7 +469,7 @@ def list_contact_requests():
         )
         return jsonify(
             {
-                "requests": [row.to_dict() for row in rows],
+                "requests": [_contact_request_payload(row) for row in rows],
                 "box": box,
                 "total": total,
                 "limit": limit,
@@ -480,7 +508,7 @@ def _respond_to_request(request_id: str, action: str):
         event_type = "accepted" if action == "accept" else "declined"
         add_audit_event(contact_request, event_type, actor_user_id=user.id, created_at=now)
         db.session.commit()
-        return jsonify({"contact_request": contact_request.to_dict()})
+        return jsonify({"contact_request": _contact_request_payload(contact_request)})
     except Exception as exc:
         db.session.rollback()
         logger.exception("Failed to %s contact request %s", action, request_id)
@@ -555,7 +583,7 @@ def set_club_consent(request_id: str):
             created_at=now,
         )
         db.session.commit()
-        return jsonify({"contact_request": contact_request.to_dict()})
+        return jsonify({"contact_request": _contact_request_payload(contact_request)})
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400
@@ -587,7 +615,7 @@ def withdraw_contact_request(request_id: str):
         contact_request.status = "withdrawn"
         add_audit_event(contact_request, "withdrawn", actor_user_id=user.id, created_at=now)
         db.session.commit()
-        return jsonify({"contact_request": contact_request.to_dict()})
+        return jsonify({"contact_request": _contact_request_payload(contact_request)})
     except Exception as exc:
         db.session.rollback()
         logger.exception("Failed to withdraw contact request %s", request_id)
@@ -616,8 +644,8 @@ def list_contact_messages(request_id: str):
         )
         return jsonify(
             {
-                "messages": [row.to_dict() for row in rows],
-                "contact_request": contact_request.to_dict(),
+                "messages": [_contact_message_payload(row) for row in rows],
+                "contact_request": _contact_request_payload(contact_request),
                 "total": total,
                 "limit": limit,
                 "offset": offset,
@@ -654,6 +682,22 @@ def create_contact_message(request_id: str):
             db.session.rollback()
             return jsonify({"error": "contact request not found"}), 404
 
+        player_user_id = contact_request.claim.user_account_id if contact_request.claim is not None else None
+        counterpart_user_ids = [contact_request.scout_user_id, player_user_id]
+        if contact_request.routing_mode == ROUTING_CLUB_INCLUDED:
+            counterpart_user_ids.extend(active_program_manager_user_ids(contact_request.club_program_id))
+        if user_is_blocked_by_any(
+            user_id=user.id,
+            counterpart_user_ids=counterpart_user_ids,
+        ):
+            db.session.rollback()
+            return jsonify(
+                {
+                    "error": "Messaging is unavailable for this contact request",
+                    "code": "messaging_unavailable",
+                }
+            ), 403
+
         payload = _json_object()
         body = clean_plain_text(payload.get("body"), "body", max_len=MAX_THREAD_MESSAGE_LENGTH)
         now = utcnow()
@@ -674,7 +718,7 @@ def create_contact_message(request_id: str):
             created_at=now,
         )
         db.session.commit()
-        return jsonify({"message": message.to_dict()}), 201
+        return jsonify({"message": _contact_message_payload(message)}), 201
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400
@@ -729,7 +773,12 @@ def report_contact_outcome(request_id: str):
             created_at=now,
         )
         db.session.commit()
-        return jsonify({"outcome": outcome.to_dict(), "contact_request": contact_request.to_dict()}), 201
+        return jsonify(
+            {
+                "outcome": outcome.to_dict(),
+                "contact_request": _contact_request_payload(contact_request),
+            }
+        ), 201
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400

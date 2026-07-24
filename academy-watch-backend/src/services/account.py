@@ -38,6 +38,7 @@ from src.models.product_event import ProductEvent
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.trust import ContentReport, ScoutVerification
+from src.models.user_block import UserBlock
 from src.services.club_registry import active_manager_program_ids
 from src.services.player_suppression import active_suppressed_player_ids
 
@@ -623,6 +624,7 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             "follows": 0,
             "follow_player_snapshots": 0,
             "scout_verifications": 0,
+            "user_blocks": 0,
             "email_subscriptions": 0,
             "email_tokens": 0,
             "showcase_claims": len(claim_ids),
@@ -724,6 +726,12 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     counts["deleted"]["scout_verifications"] = ScoutVerification.query.filter_by(user_account_id=user_id).delete(
         synchronize_session=False
     )
+    counts["deleted"]["user_blocks"] = UserBlock.query.filter(
+        or_(
+            UserBlock.blocker_user_id == user_id,
+            UserBlock.blocked_user_id == user_id,
+        )
+    ).delete(synchronize_session=False)
 
     if email:
         subscriptions = UserSubscription.query.filter(func.lower(UserSubscription.email) == email)
