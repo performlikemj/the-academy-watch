@@ -391,6 +391,13 @@ export class APIService {
         }, { admin: true })
     }
 
+    static async adminRecordManualTransfer(payload) {
+        return this.request('/admin/transfers/manual', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }, { admin: true })
+    }
+
     static async getTeam(teamId) {
         return this.request(`/teams/${teamId}`)
     }

@@ -996,19 +996,34 @@ class JourneySyncService:
         not a successful-empty coverage marker, so absence cannot distinguish an
         authoritative empty history from failure or not-yet-attempted.
         """
-        entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
         rows = (
             PlayerTransferEvent.query.filter_by(player_api_id=journey.player_api_id)
             .order_by(PlayerTransferEvent.transfer_date, PlayerTransferEvent.id)
             .all()
         )
-        if not rows:
-            return None
+        return self.reclassify_from_transfer_events(journey, rows, as_of=as_of)
 
+    def reclassify_from_transfer_events(
+        self,
+        journey: PlayerJourney,
+        transfers: list,
+        *,
+        as_of: date | str | None = None,
+    ) -> dict | None:
+        """Run the all-history reclassifier for supplied non-empty evidence.
+
+        The durable wrapper above uses persisted ORM rows. Manual-transfer dry
+        runs add one transient API-shaped dictionary to those same rows so the
+        preview exercises this exact resolver/classifier path without inserting
+        a row or consuming a PostgreSQL sequence.
+        """
+        if not transfers:
+            return None
+        entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
         start_months = self._competition_start_months(entries)
-        initial_owner = self._derive_transfer_initial_owner(journey, entries, rows)
+        initial_owner = self._derive_transfer_initial_owner(journey, entries, transfers)
         resolution = resolve_transfer_state(
-            rows,
+            transfers,
             as_of=_transfer_as_of(as_of),
             initial_owner=initial_owner,
             season_start_month=self._resolution_start_month(entries, start_months),
@@ -1016,7 +1031,7 @@ class JourneySyncService:
         return self._reclassify_all_history(
             journey,
             entries,
-            rows,
+            transfers,
             resolution,
             as_of=as_of,
         )

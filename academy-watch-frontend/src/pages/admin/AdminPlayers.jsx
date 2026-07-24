@@ -8,10 +8,9 @@ import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { UserPlus, Search, AlertCircle, CheckCircle2, Trash2, RefreshCw, Pencil, X, Save, Loader2, CheckCircle, XCircle, Clock, User, Shield, Download } from 'lucide-react'
+import { UserPlus, AlertCircle, CheckCircle2, Trash2, RefreshCw, Pencil, X, Save, Loader2, Shield, ArrowRightLeft } from 'lucide-react'
+import { ManualTransferDialog } from '@/components/admin/ManualTransferDialog'
 import TeamSelect from '@/components/ui/TeamSelect'
 import { STATUS_BADGE_CLASSES } from '../../lib/theme-constants'
 
@@ -56,6 +55,9 @@ function AllPlayersTab({ teams, setMessage }) {
     const [saving, setSaving] = useState(false)
     const [deletingId, setDeletingId] = useState(null)
     const [refreshingStatuses, setRefreshingStatuses] = useState(false)
+    const [transferDialogOpen, setTransferDialogOpen] = useState(false)
+    const [transferPlayer, setTransferPlayer] = useState(null)
+    const [refreshAfterTransfer, setRefreshAfterTransfer] = useState(false)
 
     const [filters, setFilters] = useState({
         search: '',
@@ -132,8 +134,47 @@ function AllPlayersTab({ teams, setMessage }) {
         }
     }
 
+    const openTransferDialog = (player = null) => {
+        setTransferPlayer(player)
+        setTransferDialogOpen(true)
+    }
+
+    const handleTransferDialogOpenChange = (nextOpen) => {
+        setTransferDialogOpen(nextOpen)
+        if (!nextOpen) {
+            setTransferPlayer(null)
+            if (refreshAfterTransfer) {
+                setRefreshAfterTransfer(false)
+                loadPlayers(page)
+            }
+        }
+    }
+
+    const handleTransferCommitted = (result) => {
+        setMessage({
+            type: 'success',
+            text: result?.idempotent
+                ? 'Transfer was already recorded; the existing event was reused'
+                : 'Transfer recorded',
+        })
+        setRefreshAfterTransfer(true)
+    }
+
     return (
         <div className="space-y-4">
+            <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <p className="font-semibold">Transfer Desk</p>
+                    <p className="text-sm text-muted-foreground">
+                        Record one known signing or transfer without running a crawl.
+                    </p>
+                </div>
+                <Button onClick={() => openTransferDialog()}>
+                    <ArrowRightLeft className="h-4 w-4" />
+                    Record transfer
+                </Button>
+            </div>
+
             {/* Filters */}
             <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[180px]">
@@ -351,6 +392,15 @@ function AllPlayersTab({ teams, setMessage }) {
                                     <div className="flex items-center gap-2">
                                         <StatusBadge status={p.status} saleFee={p.sale_fee} />
                                         <Badge variant="outline" className="text-xs">{p.data_source}</Badge>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            aria-label={`Record transfer for ${p.player_name}`}
+                                            title={`Record transfer for ${p.player_name}`}
+                                            onClick={() => openTransferDialog(p)}
+                                        >
+                                            <ArrowRightLeft className="h-4 w-4" />
+                                        </Button>
                                         <Button variant="ghost" size="sm" onClick={() => startEdit(p)}>
                                             <Pencil className="h-4 w-4" />
                                         </Button>
@@ -381,6 +431,16 @@ function AllPlayersTab({ teams, setMessage }) {
                     </div>
                 </div>
             )}
+
+            {transferDialogOpen ? (
+                <ManualTransferDialog
+                    open
+                    onOpenChange={handleTransferDialogOpenChange}
+                    teams={teams}
+                    initialPlayer={transferPlayer}
+                    onCommitted={handleTransferCommitted}
+                />
+            ) : null}
         </div>
     )
 }

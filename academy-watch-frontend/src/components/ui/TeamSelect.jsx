@@ -11,7 +11,9 @@ export default function TeamSelect({
   onChange,
   placeholder = 'Select team…',
   groupByLeague = true,
-  className = ''
+  className = '',
+  triggerId,
+  ariaLabel,
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -44,9 +46,11 @@ export default function TeamSelect({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
+            id={triggerId}
             variant="outline"
             role="combobox"
             aria-expanded={open}
+            aria-label={ariaLabel}
             className="w-full justify-between"
           >
             <span className="truncate text-left">
@@ -80,5 +84,4 @@ export default function TeamSelect({
     </div>
   )
 }
-
 
