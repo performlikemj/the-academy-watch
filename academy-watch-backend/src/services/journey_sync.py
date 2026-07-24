@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
-from src.api_football_client import APIFootballClient
+from src.api_football_client import APICallBudgetExceeded, APIFootballClient
 from src.models.journey import LEVEL_PRIORITY, YOUTH_LEVELS, ClubLocation, PlayerJourney, PlayerJourneyEntry
 from src.models.league import Team, TeamProfile, db
 from src.models.season_rollup import LeagueSeasonConfig
@@ -44,6 +44,8 @@ from src.utils.geocoding import get_team_coordinates
 from src.utils.player_names import clean_name, is_placeholder_name, resolve_player_name
 
 logger = logging.getLogger(__name__)
+
+_TRANSFERS_NOT_SUPPLIED = object()
 
 
 def _transfer_as_of(as_of: date | str | None = None) -> date | str:
@@ -338,6 +340,7 @@ class JourneySyncService:
         if database_only and api_client is not None:
             raise ValueError("database_only cannot be combined with api_client")
         self.api = None if database_only else (api_client or APIFootballClient())
+        self.last_sync_used_transfer_evidence = False
 
     def _competition_start_months(self, entries: list) -> dict[int, int]:
         """Load configured league boundaries once for a batch of entries."""
@@ -418,7 +421,15 @@ class JourneySyncService:
         if was_loan:
             entry.entry_type = "loan"
 
-    def sync_player(self, player_api_id: int, force_full: bool = False, heartbeat_fn=None) -> PlayerJourney | None:
+    def sync_player(
+        self,
+        player_api_id: int,
+        force_full: bool = False,
+        heartbeat_fn=None,
+        *,
+        prefetched_transfers: list | None | object = _TRANSFERS_NOT_SUPPLIED,
+        force_transfer_refresh: bool = False,
+    ) -> PlayerJourney | None:
         """
         Sync complete journey for a player.
 
@@ -426,11 +437,16 @@ class JourneySyncService:
             player_api_id: API-Football player ID
             force_full: If True, re-sync all seasons even if already synced
             heartbeat_fn: Optional callable invoked between API stages to signal liveness
+            prefetched_transfers: Optional flat transfer list. Explicit ``None``
+                means transfer evidence was unavailable; omission fetches it.
+            force_transfer_refresh: Bypass both transfer caches when
+                fetching player-scoped transfer evidence.
 
         Returns:
             PlayerJourney record or None if sync failed
         """
         logger.info(f"Starting journey sync for player {player_api_id}")
+        self.last_sync_used_transfer_evidence = False
 
         try:
             # Get or create journey record (handle race conditions)
@@ -467,8 +483,15 @@ class JourneySyncService:
                 current_year = datetime.now().year
                 seasons_to_sync = [s for s in seasons if s not in already_synced or s >= current_year - 1]
 
-            # Fetch transfer history for loan classification
-            transfers = self._get_player_transfers(player_api_id)
+            # Fetch transfer history for loan classification unless the caller
+            # already has flat transfer evidence from a team-scoped scan.
+            if prefetched_transfers is _TRANSFERS_NOT_SUPPLIED:
+                transfers = self._get_player_transfers(
+                    player_api_id,
+                    force_refresh=force_transfer_refresh,
+                )
+            else:
+                transfers = prefetched_transfers
             sync_as_of = _transfer_as_of()
             transfer_resolution = None
             prior_transfer_metadata = ({}, {})
@@ -503,6 +526,8 @@ class JourneySyncService:
                         if entry:
                             all_entries.append(entry)
 
+                except APICallBudgetExceeded:
+                    raise
                 except Exception as e:
                     logger.warning(f"Failed to fetch season {season} for player {player_api_id}: {e}")
                     continue
@@ -642,11 +667,17 @@ class JourneySyncService:
                 )
 
             db.session.commit()
+            self.last_sync_used_transfer_evidence = transfers is not None
             logger.info(f"Successfully synced journey for player {player_api_id}: {len(all_entries)} entries")
 
             return journey
 
+        except APICallBudgetExceeded:
+            self.last_sync_used_transfer_evidence = False
+            db.session.rollback()
+            raise
         except Exception as e:
+            self.last_sync_used_transfer_evidence = False
             logger.error(f"Failed to sync journey for player {player_api_id}: {e}")
             db.session.rollback()
 
@@ -668,6 +699,8 @@ class JourneySyncService:
             response = self.api._make_request("players/seasons", {"player": player_api_id})
             seasons = response.get("response", [])
             return [int(s) for s in seasons if isinstance(s, (int, str)) and str(s).isdigit()]
+        except APICallBudgetExceeded:
+            raise
         except Exception as e:
             logger.error(f"Failed to get seasons for player {player_api_id}: {e}")
             return []
@@ -678,6 +711,8 @@ class JourneySyncService:
             response = self.api._make_request("players", {"id": player_api_id, "season": season})
             data = response.get("response", [])
             return data[0] if data else None
+        except APICallBudgetExceeded:
+            raise
         except Exception as e:
             logger.error(f"Failed to get player {player_api_id} season {season}: {e}")
             return None
@@ -850,7 +885,7 @@ class JourneySyncService:
 
         return False
 
-    def _get_player_transfers(self, player_api_id: int) -> list | None:
+    def _get_player_transfers(self, player_api_id: int, *, force_refresh: bool = False) -> list | None:
         """
         Get transfer records for a player.
 
@@ -860,12 +895,17 @@ class JourneySyncService:
         transient provider/cache error from clearing known transfer state.
         """
         try:
-            data = self.api.get_player_transfers(player_api_id)
+            if force_refresh:
+                data = self.api.get_player_transfers(player_api_id, force_refresh=True)
+            else:
+                data = self.api.get_player_transfers(player_api_id)
             # API returns list of player blocks, each with a 'transfers' list
             transfers = []
             for block in data:
                 transfers.extend(block.get("transfers", []))
             return transfers
+        except APICallBudgetExceeded:
+            raise
         except Exception as e:
             logger.warning(f"Failed to get transfers for player {player_api_id}: {e}")
             return None
