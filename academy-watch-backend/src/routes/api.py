@@ -1507,7 +1507,14 @@ def _extract_lineup_info(api_client, fixture_id_api: int, player_api_id: int, te
     return None, None, None
 
 
-def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: int, player_name: str = None) -> int:
+def _sync_player_club_fixtures(
+    player_id: int,
+    loan_team_api_id: int,
+    season: int,
+    player_name: str = None,
+    *,
+    api_client=None,
+) -> int:
     """
     Sync all fixtures for a player at their loan club from API-Football.
     Returns number of fixtures synced.
@@ -1519,7 +1526,7 @@ def _sync_player_club_fixtures(player_id: int, loan_team_api_id: int, season: in
     from src.api_football_client import APIFootballClient
     from src.models.weekly import Fixture, FixturePlayerStats
 
-    api_client = APIFootballClient()
+    api_client = api_client or APIFootballClient()
 
     # Fetch all fixtures for the loan team this season
     season_start = f"{season}-08-01"
