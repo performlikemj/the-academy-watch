@@ -269,7 +269,7 @@ fixtures = (
     .filter(
         FixturePlayerStats.player_api_id == player_id,
         Fixture.season == season,
-        Fixture.date_utc <= up_to_date.isoformat()
+        Fixture.date_utc <= up_to_date.isoformat(),
     )
     .order_by(Fixture.date_utc.desc())
     .limit(100)  # Safety limit
@@ -340,10 +340,12 @@ To verify season context is working:
 Example verification:
 ```python
 report = client.summarize_parent_loans_week(...)
-for loanee in report['loanees']:
-    ctx = loanee.get('season_context')
+for loanee in report["loanees"]:
+    ctx = loanee.get("season_context")
     print(f"{loanee['player_name']}:")
-    print(f"  Season: {ctx['season_stats']['goals']}G {ctx['season_stats']['assists']}A in {ctx['season_stats']['games_played']} games")
+    print(
+        f"  Season: {ctx['season_stats']['goals']}G {ctx['season_stats']['assists']}A in {ctx['season_stats']['games_played']} games"
+    )
     print(f"  Trends: {ctx['trends']['goals_per_90']} G/90, {ctx['trends']['shot_accuracy']}% accuracy")
     print(f"  Recent: {ctx['trends']['goals_last_5']} goals in last 5")
 ```
