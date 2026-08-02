@@ -42,18 +42,20 @@ vault kv put secret/loan-army api-key="your_key_here"
 
 ### 1. IP Whitelisting (Add this to your API)
 ```python
-ALLOWED_ADMIN_IPS = os.getenv('ADMIN_IP_WHITELIST', '').split(',')
+ALLOWED_ADMIN_IPS = os.getenv("ADMIN_IP_WHITELIST", "").split(",")
+
 
 def require_api_key_and_ip(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         # Check IP whitelist first
-        client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+        client_ip = request.environ.get("HTTP_X_FORWARDED_FOR", request.remote_addr)
         if ALLOWED_ADMIN_IPS and client_ip not in ALLOWED_ADMIN_IPS:
-            return jsonify({'error': 'Access denied from this IP'}), 403
-        
+            return jsonify({"error": "Access denied from this IP"}), 403
+
         # Then check API key
         return require_api_key(f)(*args, **kwargs)
+
     return decorated_function
 ```
 
@@ -62,12 +64,10 @@ def require_api_key_and_ip(f):
 import jwt
 from datetime import datetime, timedelta
 
+
 def generate_time_limited_key(hours=24):
-    payload = {
-        'admin': True,
-        'exp': datetime.utcnow() + timedelta(hours=hours)
-    }
-    return jwt.encode(payload, os.getenv('JWT_SECRET'), algorithm='HS256')
+    payload = {"admin": True, "exp": datetime.utcnow() + timedelta(hours=hours)}
+    return jwt.encode(payload, os.getenv("JWT_SECRET"), algorithm="HS256")
 ```
 
 ### 3. Request Rate Limiting

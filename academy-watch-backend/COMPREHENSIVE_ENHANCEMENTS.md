@@ -30,7 +30,7 @@ Expanded the `match_notes` generation to include ALL performance metrics in a st
 **Before:**
 ```python
 match_notes = []
-if player_line.get('assists', 0) > 0:
+if player_line.get("assists", 0) > 0:
     match_notes.append(f"1 assist vs {opponent}")
 ```
 
@@ -40,11 +40,11 @@ match_notes = []
 performance_details = []
 
 # Core stats (goals/assists)
-if player_line.get('goals', 0) > 0:
-    goal_count = player_line['goals']
+if player_line.get("goals", 0) > 0:
+    goal_count = player_line["goals"]
     performance_details.append(f"{goal_count}G")
-if player_line.get('assists', 0) > 0:
-    assist_count = player_line['assists']
+if player_line.get("assists", 0) > 0:
+    assist_count = player_line["assists"]
     performance_details.append(f"{assist_count}A")
 
 # Rating
@@ -424,10 +424,10 @@ To verify the enhancements are working:
 Example verification query:
 ```python
 report = client.summarize_parent_loans_week(...)
-for loanee in report['loanees']:
-    for match in loanee['matches']:
-        print(match['opponent'])
-        print(match['match_notes'])
+for loanee in report["loanees"]:
+    for match in loanee["matches"]:
+        print(match["opponent"])
+        print(match["match_notes"])
         # Should see comprehensive notes like:
         # "vs Arsenal: 1G, Rating: 8.2, 3/5 shots on target, 5 key passes..."
 ```
