@@ -2779,9 +2779,15 @@ def delete_subscription(subscription_id):
 def get_overview_stats():
     """Get overview statistics."""
     try:
-        # current_season e.g. "2025-26"; also have start-year
-        current_season_slug = api_client.current_season
-        season_start_year = api_client.current_season_start_year
+        try:
+            current_season_slug = api_client.current_season
+            season_start_year = api_client.current_season_start_year
+        except RuntimeError as upstream_error:
+            from src.utils.academy_window import current_stats_season
+
+            season_start_year = current_stats_season()
+            current_season_slug = f"{season_start_year}-{season_start_year + 1}"
+            logger.warning("Overview season using local fallback: %s", upstream_error)
         if not current_season_slug and season_start_year:
             current_season_slug = f"{season_start_year}-{str(season_start_year + 1)[-2:]}"
 
