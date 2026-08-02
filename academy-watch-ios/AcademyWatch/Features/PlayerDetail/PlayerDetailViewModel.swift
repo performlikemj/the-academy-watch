@@ -55,8 +55,16 @@ final class PlayerDetailViewModel: ObservableObject {
         journey?.timelineEntries ?? []
     }
 
+    var isAvailabilityDegraded: Bool {
+        availability?.isDegraded == true
+    }
+
     var visibleAvailability: PlayerAvailability? {
-        guard let availability, availability.summary.totalAbsences > 0 else { return nil }
+        guard let availability,
+              !availability.isDegraded,
+              let totalAbsences = availability.summary.totalAbsences,
+              totalAbsences > 0
+        else { return nil }
         return availability
     }
 

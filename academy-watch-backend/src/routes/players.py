@@ -1094,6 +1094,22 @@ def get_public_player_season_stats(player_id: int):
 # ---------------------------------------------------------------------------
 
 
+def _degraded_availability_payload(player_id: int, season: int) -> dict:
+    """Return an explicit unknown-data envelope without inventing absences."""
+    return {
+        "player_id": player_id,
+        "season": season,
+        "absences": [],
+        "summary": {
+            "total_absences": None,
+            "by_reason": {},
+            "last_absence": None,
+        },
+        "degraded": True,
+        "reason": "upstream_unavailable",
+    }
+
+
 @players_bp.route("/players/<int:player_id>/availability", methods=["GET"])
 @hide_suppressed_player("player_id")
 def get_player_availability(player_id: int):
@@ -1101,14 +1117,30 @@ def get_player_availability(player_id: int):
 
     Sourced from API-Football's `injuries` endpoint (DB-cached). Each record
     is a fixture the player missed or was doubtful for, with the reason.
+    Quota and upstream failures return a schema-compatible degraded response
+    with availability explicitly unknown.
 
     Query params:
     - season: season start year (default: current season)
     """
     try:
-        api_client = _get_api_client()
-        season = request.args.get("season", type=int) or api_client.current_season_start_year
-        raw = api_client.get_player_injuries(player_id, season)
+        season = request.args.get("season", type=int)
+        try:
+            api_client = _get_api_client()
+            season = season or api_client.current_season_start_year
+            raw = api_client.get_player_injuries(player_id, season)
+        except RuntimeError as upstream_error:
+            if season is None:
+                from src.utils.academy_window import current_stats_season
+
+                season = current_stats_season()
+            logger.warning(
+                "Availability upstream unavailable for player_id=%s season=%s: %s",
+                player_id,
+                season,
+                upstream_error,
+            )
+            return jsonify(_degraded_availability_payload(player_id, season)), 200
 
         absences = []
         for record in raw:

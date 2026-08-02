@@ -23,6 +23,30 @@ final class PlayerDetailViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testDegradedAvailabilityIsUnknownWithoutSectionError() async throws {
+        let degradedAvailability = PlayerAvailability(
+            playerId: 403_064,
+            season: 2025,
+            degraded: true,
+            reason: "upstream_unavailable",
+            absences: [],
+            summary: PlayerAvailabilitySummary(
+                totalAbsences: nil,
+                byReason: [:],
+                lastAbsence: nil
+            )
+        )
+        let client = try capturedClient(availability: degradedAvailability)
+        let viewModel = PlayerDetailViewModel(playerID: 403_064, apiClient: client)
+
+        await viewModel.loadIfNeeded()
+
+        XCTAssertTrue(viewModel.isAvailabilityDegraded)
+        XCTAssertNil(viewModel.visibleAvailability)
+        XCTAssertNil(viewModel.errorMessage(for: .availability))
+    }
+
+    @MainActor
     func testSectionFailureDoesNotDiscardLoadedProfile() async throws {
         var client = try capturedClient()
         client.failedSection = .journey
@@ -123,8 +147,20 @@ final class PlayerDetailViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.loadingSections.isEmpty)
     }
 
-    private func capturedClient() throws -> StubPlayerDetailClient {
-        try StubPlayerDetailClient(
+    private func capturedClient(
+        availability: PlayerAvailability? = nil
+    ) throws -> StubPlayerDetailClient {
+        let resolvedAvailability: PlayerAvailability
+        if let availability {
+            resolvedAvailability = availability
+        } else {
+            resolvedAvailability = try decode(
+                PlayerAvailability.self,
+                fixture: "player_availability_outfielder"
+            )
+        }
+
+        return try StubPlayerDetailClient(
             profile: decode(PlayerProfile.self, fixture: "player_profile_outfielder"),
             seasonStats: decode(PlayerSeasonStats.self, fixture: "player_season_stats_outfielder"),
             recentFixtures: decode(
@@ -132,7 +168,7 @@ final class PlayerDetailViewModelTests: XCTestCase {
                 fixture: "player_recent_fixtures_outfielder"
             ),
             journey: decode(PlayerJourneyResponse.self, fixture: "player_journey_outfielder"),
-            availability: decode(PlayerAvailability.self, fixture: "player_availability_outfielder")
+            availability: resolvedAvailability
         )
     }
 

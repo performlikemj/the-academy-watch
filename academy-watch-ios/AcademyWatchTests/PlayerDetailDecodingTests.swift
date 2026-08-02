@@ -146,12 +146,39 @@ final class PlayerDetailDecodingTests: XCTestCase {
         XCTAssertEqual(availability.summary.byReason["Hamstring Injury"], 17)
         XCTAssertEqual(availability.summary.lastAbsence?.reason, "Hamstring Injury")
         XCTAssertEqual(availability.absences.count, 23)
+        XCTAssertFalse(availability.isDegraded)
 
         let empty = try decode(PlayerAvailability.self, fixture: "player_availability_gk")
         XCTAssertEqual(empty.playerId, 145_060)
         XCTAssertEqual(empty.summary.totalAbsences, 0)
         XCTAssertTrue(empty.absences.isEmpty)
         XCTAssertNil(empty.summary.lastAbsence)
+        XCTAssertFalse(empty.isDegraded)
+    }
+
+    func testDecodesDegradedAvailabilityAsUnknown() throws {
+        let availability = try decodeJSON(
+            PlayerAvailability.self,
+            json: """
+            {
+              "player_id": 403064,
+              "season": 2025,
+              "absences": [],
+              "summary": {
+                "total_absences": null,
+                "by_reason": {},
+                "last_absence": null
+              },
+              "degraded": true,
+              "reason": "upstream_unavailable"
+            }
+            """
+        )
+
+        XCTAssertTrue(availability.isDegraded)
+        XCTAssertEqual(availability.reason, "upstream_unavailable")
+        XCTAssertNil(availability.summary.totalAbsences)
+        XCTAssertTrue(availability.absences.isEmpty)
     }
 
     func testDecodesLegacyJourneyWithOmittedOptionalCollections() throws {
