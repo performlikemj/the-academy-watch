@@ -549,6 +549,18 @@ def health_check():
     )
 
 
+@api_bp.route("/meta/legal", methods=["GET"])
+def legal_metadata():
+    """Return public legal and support constants configured by operators."""
+    return jsonify(
+        {
+            "terms_url": (os.getenv("TERMS_URL") or "").strip(),
+            "privacy_url": (os.getenv("PRIVACY_URL") or "").strip(),
+            "support_email": (os.getenv("SUPPORT_EMAIL") or "").strip(),
+        }
+    )
+
+
 @api_bp.route("/sync-status", methods=["GET"])
 def public_sync_status():
     """Public endpoint: returns whether a major background sync is running."""

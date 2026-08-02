@@ -8,6 +8,7 @@ This module contains shared authentication code used across blueprints:
 - Client IP resolution
 """
 
+import hmac
 import logging
 import os
 import re
@@ -44,6 +45,27 @@ def _admin_email_list() -> list[str]:
         return []
     # Preserve order while removing duplicates
     return list(dict.fromkeys(emails))
+
+
+# ---------------------------------------------------------------------------
+# App Review login
+# ---------------------------------------------------------------------------
+
+
+def _review_login_matches(email: str, code: str) -> bool:
+    """Return whether the exact, fully configured App Review credential matches.
+
+    Both environment variables are required so a partial deployment remains
+    disabled. Email matching is case-insensitive; the static code is exact and
+    compared without logging or persisting it.
+    """
+    configured_email = (os.getenv("REVIEW_LOGIN_EMAIL") or "").strip()
+    configured_code = os.getenv("REVIEW_LOGIN_CODE")
+    if not configured_email or not configured_code:
+        return False
+    if (email or "").strip().lower() != configured_email.lower():
+        return False
+    return hmac.compare_digest((code or "").encode(), configured_code.encode())
 
 
 # ---------------------------------------------------------------------------

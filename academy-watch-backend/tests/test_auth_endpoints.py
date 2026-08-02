@@ -1,5 +1,6 @@
 """Tests for auth blueprint endpoints in src/routes/auth_routes.py."""
 
+import logging
 import os
 from unittest.mock import MagicMock, patch
 
@@ -12,9 +13,13 @@ from src.services.account_roles import derive_account_role
 
 
 @pytest.fixture
-def auth_bp_app():
+def auth_bp_app(monkeypatch):
     """Create a minimal Flask app with auth blueprint registered."""
     from src.routes.auth_routes import auth_bp
+
+    monkeypatch.delenv("REVIEW_LOGIN_EMAIL", raising=False)
+    monkeypatch.delenv("REVIEW_LOGIN_CODE", raising=False)
+    monkeypatch.delenv("ADMIN_EMAILS", raising=False)
 
     root_dir = os.path.dirname(os.path.dirname(__file__))
     template_dir = os.path.join(root_dir, "src", "templates")
@@ -40,8 +45,46 @@ def auth_bp_app():
 
 
 @pytest.fixture
+def rate_limited_auth_bp_app(monkeypatch):
+    """Create an auth app with the production endpoint limits enabled."""
+    from src.routes.auth_routes import auth_bp
+
+    monkeypatch.delenv("REVIEW_LOGIN_EMAIL", raising=False)
+    monkeypatch.delenv("REVIEW_LOGIN_CODE", raising=False)
+    monkeypatch.delenv("ADMIN_EMAILS", raising=False)
+
+    root_dir = os.path.dirname(os.path.dirname(__file__))
+    template_dir = os.path.join(root_dir, "src", "templates")
+    app = Flask(__name__, template_folder=template_dir)
+    app.config.update(
+        TESTING=True,
+        SECRET_KEY="rate-limit-test-secret-key",
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        RATELIMIT_ENABLED=True,
+    )
+
+    db.init_app(app)
+    limiter.init_app(app)
+    app.register_blueprint(auth_bp, url_prefix="/api")
+
+    with app.app_context():
+        limiter.reset()
+        db.create_all()
+        yield app
+        limiter.reset()
+        db.session.remove()
+        db.drop_all()
+
+
+@pytest.fixture
 def auth_bp_client(auth_bp_app):
     return auth_bp_app.test_client()
+
+
+@pytest.fixture
+def rate_limited_auth_bp_client(rate_limited_auth_bp_app):
+    return rate_limited_auth_bp_app.test_client()
 
 
 @pytest.fixture
@@ -91,6 +134,153 @@ class TestRequestLoginCode:
 
 class TestVerifyLoginCode:
     """Tests for POST /auth/verify-code endpoint."""
+
+    def test_review_login_creates_and_reuses_an_ordinary_audited_account(
+        self,
+        auth_bp_app,
+        auth_bp_client,
+        monkeypatch,
+        caplog,
+    ):
+        monkeypatch.setenv("REVIEW_LOGIN_EMAIL", "App.Review@Example.COM")
+        monkeypatch.setenv("REVIEW_LOGIN_CODE", "Review-Code_2026")
+        # Even a deployment mistake must not let the reusable credential mint
+        # an elevated bearer.
+        monkeypatch.setenv("ADMIN_EMAILS", "app.review@example.com")
+
+        with auth_bp_app.app_context(), caplog.at_level(logging.WARNING, logger="src.routes.auth_routes"):
+            first = auth_bp_client.post(
+                "/api/auth/verify-code",
+                json={"email": "  APP.REVIEW@example.com ", "code": "Review-Code_2026"},
+            )
+            second = auth_bp_client.post(
+                "/api/auth/verify-code",
+                json={"email": "app.review@example.com", "code": "Review-Code_2026"},
+            )
+
+            assert first.status_code == 200, first.get_json()
+            assert second.status_code == 200, second.get_json()
+            assert first.get_json()["role"] == "user"
+            assert first.get_json()["account_role"] == "scout"
+            assert first.get_json()["is_verified_scout"] is False
+            assert UserAccount.query.filter_by(email="app.review@example.com").count() == 1
+            assert EmailToken.query.count() == 0
+
+        audit_records = [record for record in caplog.records if "audit_event=review_login_used" in record.message]
+        assert len(audit_records) == 2
+        assert all("app.review@example.com" in record.message for record in audit_records)
+        assert "Review-Code_2026" not in caplog.text
+
+    @pytest.mark.parametrize(
+        ("configured_email", "configured_code"),
+        (
+            (None, None),
+            ("app.review@example.com", None),
+            (None, "Review-Code_2026"),
+        ),
+    )
+    def test_review_login_is_off_unless_both_env_vars_are_set(
+        self,
+        auth_bp_app,
+        auth_bp_client,
+        monkeypatch,
+        configured_email,
+        configured_code,
+    ):
+        if configured_email is not None:
+            monkeypatch.setenv("REVIEW_LOGIN_EMAIL", configured_email)
+        if configured_code is not None:
+            monkeypatch.setenv("REVIEW_LOGIN_CODE", configured_code)
+
+        with auth_bp_app.app_context():
+            response = auth_bp_client.post(
+                "/api/auth/verify-code",
+                json={"email": "app.review@example.com", "code": "Review-Code_2026"},
+            )
+
+            assert response.status_code == 400
+            assert response.get_json() == {"error": "invalid or expired code"}
+            assert UserAccount.query.count() == 0
+
+    def test_review_code_never_works_for_another_email(
+        self,
+        auth_bp_app,
+        auth_bp_client,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("REVIEW_LOGIN_EMAIL", "app.review@example.com")
+        monkeypatch.setenv("REVIEW_LOGIN_CODE", "Review-Code_2026")
+
+        with auth_bp_app.app_context():
+            response = auth_bp_client.post(
+                "/api/auth/verify-code",
+                json={"email": "other@example.com", "code": "Review-Code_2026"},
+            )
+
+            assert response.status_code == 400
+            assert response.get_json() == {"error": "invalid or expired code"}
+            assert UserAccount.query.count() == 0
+
+    def test_review_code_does_not_casefold_a_distinct_unicode_email(
+        self,
+        auth_bp_app,
+        auth_bp_client,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("REVIEW_LOGIN_EMAIL", "strasse@example.com")
+        monkeypatch.setenv("REVIEW_LOGIN_CODE", "Review-Code_2026")
+
+        with auth_bp_app.app_context():
+            response = auth_bp_client.post(
+                "/api/auth/verify-code",
+                json={"email": "straße@example.com", "code": "Review-Code_2026"},
+            )
+
+            assert response.status_code == 400
+            assert response.get_json() == {"error": "invalid or expired code"}
+            assert UserAccount.query.count() == 0
+
+    def test_review_login_rejects_the_wrong_or_differently_cased_code(
+        self,
+        auth_bp_app,
+        auth_bp_client,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("REVIEW_LOGIN_EMAIL", "app.review@example.com")
+        monkeypatch.setenv("REVIEW_LOGIN_CODE", "Review-Code_2026")
+
+        with auth_bp_app.app_context():
+            for wrong_code in ("wrong-code", "review-code_2026", " Review-Code_2026 "):
+                response = auth_bp_client.post(
+                    "/api/auth/verify-code",
+                    json={"email": "app.review@example.com", "code": wrong_code},
+                )
+                assert response.status_code == 400
+                assert response.get_json() == {"error": "invalid or expired code"}
+            assert UserAccount.query.count() == 0
+
+    def test_review_login_keeps_the_verify_rate_limit(
+        self,
+        rate_limited_auth_bp_app,
+        rate_limited_auth_bp_client,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("REVIEW_LOGIN_EMAIL", "app.review@example.com")
+        monkeypatch.setenv("REVIEW_LOGIN_CODE", "Review-Code_2026")
+
+        with rate_limited_auth_bp_app.app_context():
+            for attempt in range(10):
+                response = rate_limited_auth_bp_client.post(
+                    "/api/auth/verify-code",
+                    json={"email": "app.review@example.com", "code": "Review-Code_2026"},
+                )
+                assert response.status_code == 200, (attempt, response.get_json())
+
+            limited = rate_limited_auth_bp_client.post(
+                "/api/auth/verify-code",
+                json={"email": "app.review@example.com", "code": "Review-Code_2026"},
+            )
+            assert limited.status_code == 429
 
     def test_verify_code_creates_user_account(self, auth_bp_app, auth_bp_client, mock_email_service):
         """Should create a user account on successful verification."""

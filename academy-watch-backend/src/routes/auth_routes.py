@@ -22,6 +22,7 @@ from src.auth import (
     _ensure_user_account,
     _is_production,
     _normalize_display_name,
+    _review_login_matches,
     _safe_error_payload,
     _user_serializer,
     get_client_ip,
@@ -177,7 +178,8 @@ def verify_login_code():
     try:
         data = request.get_json() or {}
         email = (data.get("email") or "").strip().lower()
-        code = (data.get("code") or "").strip()
+        submitted_code = data.get("code") or ""
+        code = submitted_code.strip()
         if not email or not code:
             logger.warning(
                 "Verify-login missing fields email_present=%s code_present=%s from %s",
@@ -188,24 +190,38 @@ def verify_login_code():
             return jsonify({"error": "email and code are required"}), 400
         client_ip = get_client_ip()
         logger.info("Verifying login code for %s from %s", email, client_ip)
-        row = EmailToken.query.filter_by(email=email, token=code, purpose="login").first()
-        if not row or not row.is_valid():
-            logger.warning("Invalid/expired login code for %s from %s", email, client_ip)
-            return jsonify({"error": "invalid or expired code"}), 400
-        # Mark used and issue an auth token
-        row.used_at = datetime.now(UTC)
+        # Static review credentials require a byte-exact submitted code. Keep
+        # the existing whitespace-tolerant normalization for one-time codes.
+        is_review_login = _review_login_matches(email, submitted_code)
+        if not is_review_login:
+            row = EmailToken.query.filter_by(email=email, token=code, purpose="login").first()
+            if not row or not row.is_valid():
+                logger.warning("Invalid/expired login code for %s from %s", email, client_ip)
+                return jsonify({"error": "invalid or expired code"}), 400
+            # Mark one-time email codes used. The env-gated review code is
+            # intentionally reusable until operators revoke either env var.
+            row.used_at = datetime.now(UTC)
         is_new_user = not UserAccount.query.filter_by(email=email).first()
         user = _ensure_user_account(email)
         if user:
             user.last_login_at = datetime.now(UTC)
         db.session.commit()
+        if is_review_login:
+            logger.warning(
+                "audit_event=review_login_used email=%s user_id=%s ip=%s",
+                email,
+                user.id if user else None,
+                client_ip,
+            )
         if is_new_user:
             from src.services.admin_notify_service import notify_new_user
 
             notify_new_user(email, user.display_name if user else None)
         # Determine role by env allowlist
         allowed = [x.strip().lower() for x in (os.getenv("ADMIN_EMAILS") or "").split(",") if x.strip()]
-        role = "admin" if email in allowed else "user"
+        # A reusable App Review credential must never mint an elevated bearer,
+        # even if deployment allowlists accidentally overlap.
+        role = "user" if is_review_login else ("admin" if email in allowed else "user")
         logger.info("Login verified for %s from %s role=%s", email, client_ip, role)
         out = issue_user_token(email, role=role)
         return jsonify(

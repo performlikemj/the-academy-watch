@@ -22,6 +22,7 @@ import src.models.player_suppression  # noqa: E402, F401
 import src.models.season_rollup  # noqa: E402, F401
 import src.models.transfer_event  # noqa: E402, F401
 import src.models.trust  # noqa: E402, F401
+import src.models.user_block  # noqa: E402, F401
 from src.extensions import limiter
 from src.models.league import League, Newsletter, Team, UserSubscription, db
 from src.models.tracked_player import TrackedPlayer
@@ -29,6 +30,7 @@ from src.routes.academy import academy_bp
 from src.routes.account import account_bp
 from src.routes.api import api_bp, require_api_key
 from src.routes.auth_routes import auth_bp
+from src.routes.blocks import blocks_bp
 from src.routes.cohort import cohort_bp
 from src.routes.community_takes import community_takes_bp
 from src.routes.contact import contact_bp
@@ -115,6 +117,7 @@ app.register_blueprint(showcase_bp, url_prefix="/api")
 app.register_blueprint(funding_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")
 app.register_blueprint(contact_bp, url_prefix="/api")
+app.register_blueprint(blocks_bp, url_prefix="/api")
 app.register_blueprint(account_bp, url_prefix="/api")
 app.register_blueprint(player_suppression_bp, url_prefix="/api")
 app.register_blueprint(api_bp, url_prefix="/api")

@@ -17,6 +17,7 @@ from src.models.league import UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim
 from src.models.trust import ContentReport, ScoutVerification
+from src.models.user_block import UserBlock
 from src.services.contact import utcnow
 
 ADMIN_KEY = "contact-admin-test-key"
@@ -30,6 +31,7 @@ def contact_app(monkeypatch):
     monkeypatch.setenv("ADMIN_API_KEY", ADMIN_KEY)
     monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
 
+    from src.routes.blocks import blocks_bp
     from src.routes.contact import contact_bp
     from src.routes.showcase import showcase_bp
     from src.routes.trust import trust_bp
@@ -47,6 +49,7 @@ def contact_app(monkeypatch):
     app.register_blueprint(showcase_bp, url_prefix="/api")
     app.register_blueprint(contact_bp, url_prefix="/api")
     app.register_blueprint(trust_bp, url_prefix="/api")
+    app.register_blueprint(blocks_bp, url_prefix="/api")
 
     with app.app_context():
         limiter.reset()
@@ -195,7 +198,9 @@ class TestContactLifecycle:
         assert request_payload["message"] == "Hello from recruitment"
         assert request_payload["status"] == "pending"
         assert request_payload["participants"]["scout"]["display_name"] == scout.display_name
+        assert request_payload["participants"]["scout"]["user_id"] == scout.id
         assert request_payload["participants"]["player"]["display_name"] == player.display_name
+        assert request_payload["participants"]["player"]["user_id"] == player.id
         stored_request = ContactRequest.query.one()
         assert stored_request.claim_id == claim.id
         assert stored_request.expires_at - stored_request.created_at == timedelta(days=14)
@@ -219,6 +224,7 @@ class TestContactLifecycle:
         UUID(scout_message_payload["id"])
         assert "<" not in scout_message_payload["body"]
         assert scout_message_payload["sender_role"] == "scout"
+        assert scout_message_payload["sender_user_id"] == scout.id
 
         player_message = client.post(
             f"/api/contact/requests/{request_id}/messages",
@@ -232,6 +238,7 @@ class TestContactLifecycle:
         assert thread.status_code == 200
         assert thread.get_json()["total"] == 2
         assert [row["sender_role"] for row in thread.get_json()["messages"]] == ["scout", "player"]
+        assert [row["sender_user_id"] for row in thread.get_json()["messages"]] == [scout.id, player.id]
         second_page = client.get(
             f"/api/contact/requests/{request_id}/messages?limit=1&offset=1",
             headers=player_headers,
@@ -426,6 +433,127 @@ class TestContactLifecycle:
         assert ContactRequest.query.count() == 1
 
 
+class TestUserBlocks:
+    def test_block_lifecycle_is_authenticated_scoped_and_idempotent(self, client):
+        blocker, blocker_headers = _headers("blocker@example.com")
+        blocked, blocked_headers = _headers("blocked@example.com")
+        other, _ = _headers("other-user@example.com")
+
+        assert client.get("/api/blocks").status_code == 401
+        assert client.post("/api/blocks", json={"blocked_user_id": blocked.id}).status_code == 401
+        assert client.delete(f"/api/blocks/{blocked.id}").status_code == 401
+        assert client.post("/api/blocks", json={}, headers=blocker_headers).status_code == 400
+        assert (
+            client.post(
+                "/api/blocks",
+                json={"blocked_user_id": blocker.id},
+                headers=blocker_headers,
+            ).status_code
+            == 400
+        )
+        assert (
+            client.post(
+                "/api/blocks",
+                json={"blocked_user_id": other.id + 999_999},
+                headers=blocker_headers,
+            ).status_code
+            == 404
+        )
+
+        created = client.post(
+            "/api/blocks",
+            json={"blocked_user_id": blocked.id},
+            headers=blocker_headers,
+        )
+        assert created.status_code == 201, created.get_json()
+        assert created.get_json()["block"] == {
+            "blocked_user_id": blocked.id,
+            "display_name": blocked.display_name,
+            "created_at": created.get_json()["block"]["created_at"],
+        }
+        assert created.get_json()["block"]["created_at"] is not None
+
+        repeated = client.post(
+            "/api/blocks",
+            json={"blocked_user_id": blocked.id},
+            headers=blocker_headers,
+        )
+        assert repeated.status_code == 200
+        assert UserBlock.query.count() == 1
+
+        own_list = client.get("/api/blocks", headers=blocker_headers)
+        assert own_list.status_code == 200
+        assert own_list.get_json()["blocks"] == [created.get_json()["block"]]
+        assert client.get("/api/blocks", headers=blocked_headers).get_json()["blocks"] == []
+
+        wrong_owner = client.delete(f"/api/blocks/{blocked.id}", headers=blocked_headers)
+        assert wrong_owner.status_code == 200
+        assert wrong_owner.get_json() == {"removed": False}
+        removed = client.delete(f"/api/blocks/{blocked.id}", headers=blocker_headers)
+        assert removed.status_code == 200
+        assert removed.get_json() == {"removed": True}
+        repeated_remove = client.delete(f"/api/blocks/{blocked.id}", headers=blocker_headers)
+        assert repeated_remove.status_code == 200
+        assert repeated_remove.get_json() == {"removed": False}
+        assert UserBlock.query.count() == 0
+
+    def test_database_constraints_reject_duplicate_and_self_blocks(self, client):
+        blocker, _ = _headers("constraint-blocker@example.com")
+        blocked, _ = _headers("constraint-blocked@example.com")
+        db.session.add(UserBlock(blocker_user_id=blocker.id, blocked_user_id=blocked.id))
+        db.session.commit()
+
+        db.session.add(UserBlock(blocker_user_id=blocker.id, blocked_user_id=blocked.id))
+        with pytest.raises(IntegrityError):
+            db.session.flush()
+        db.session.rollback()
+
+        db.session.add(UserBlock(blocker_user_id=blocker.id, blocked_user_id=blocker.id))
+        with pytest.raises(IntegrityError):
+            db.session.flush()
+        db.session.rollback()
+        assert UserBlock.query.count() == 1
+
+    def test_each_block_endpoint_retains_a_per_user_rate_limit(self, client):
+        blocker, blocker_headers = _headers("block-rate@example.com")
+        target, _ = _headers("block-rate-target@example.com")
+
+        for index in range(30):
+            response = client.post(
+                "/api/blocks",
+                json={"blocked_user_id": target.id},
+                headers=blocker_headers,
+            )
+            assert response.status_code == (201 if index == 0 else 200)
+        assert (
+            client.post(
+                "/api/blocks",
+                json={"blocked_user_id": target.id},
+                headers=blocker_headers,
+            ).status_code
+            == 429
+        )
+
+        for _ in range(60):
+            assert client.get("/api/blocks", headers=blocker_headers).status_code == 200
+        assert client.get("/api/blocks", headers=blocker_headers).status_code == 429
+
+        for _ in range(30):
+            assert client.delete(f"/api/blocks/{target.id}", headers=blocker_headers).status_code == 200
+        assert client.delete(f"/api/blocks/{target.id}", headers=blocker_headers).status_code == 429
+
+        independent, independent_headers = _headers("independent-block-rate@example.com")
+        assert independent.id != blocker.id
+        assert (
+            client.post(
+                "/api/blocks",
+                json={"blocked_user_id": target.id},
+                headers=independent_headers,
+            ).status_code
+            == 201
+        )
+
+
 class TestContactAuthorizationAndFlag:
     def test_unverified_scout_and_unclaimed_player_have_clear_codes(self, client):
         _, unverified_headers = _headers("unverified@example.com")
@@ -443,6 +571,94 @@ class TestContactAuthorizationAndFlag:
         agent_claim = _create(client, verified_headers, 5502)
         assert agent_claim.status_code == 403
         assert agent_claim.get_json()["code"] == "player_not_claimable"
+
+    def test_blocked_scout_gets_exact_unclaimed_player_response_without_history_oracle(self, client):
+        scout, scout_headers = _verified_scout("blocked-contact-scout@example.com")
+        player, player_headers, _ = _claim("blocking-player@example.com", 5551)
+
+        unclaimed = _create(client, scout_headers, 999_998)
+        assert unclaimed.status_code == 403
+        block = client.post(
+            "/api/blocks",
+            json={"blocked_user_id": scout.id},
+            headers=player_headers,
+        )
+        assert block.status_code == 201, block.get_json()
+
+        blocked = _create(client, scout_headers, 5551)
+        assert blocked.status_code == unclaimed.status_code
+        assert (
+            blocked.get_json()
+            == unclaimed.get_json()
+            == {
+                "error": "Player is not available for contact",
+                "code": "player_not_claimable",
+            }
+        )
+        assert UserBlock.query.filter_by(blocker_user_id=player.id, blocked_user_id=scout.id).count() == 1
+        assert ContactRequest.query.count() == 0
+
+    @pytest.mark.parametrize("blocked_sender_role", ["scout", "player"])
+    def test_blocked_counterpart_cannot_post_but_can_read_existing_thread(
+        self,
+        client,
+        blocked_sender_role,
+    ):
+        scout, scout_headers, player, player_headers, _, request_payload = _seed_contact(
+            client,
+            suffix=f"blocked-message-{blocked_sender_role}",
+            player_api_id=5571 if blocked_sender_role == "scout" else 5572,
+        )
+        request_id = request_payload["id"]
+        assert client.post(f"/api/contact/requests/{request_id}/accept", headers=player_headers).status_code == 200
+
+        if blocked_sender_role == "scout":
+            blocked_user, blocked_headers = scout, scout_headers
+            blocker_headers = player_headers
+        else:
+            blocked_user, blocked_headers = player, player_headers
+            blocker_headers = scout_headers
+
+        prior = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "Historical message remains visible"},
+            headers=blocked_headers,
+        )
+        assert prior.status_code == 201, prior.get_json()
+        message_count = ContactMessage.query.count()
+        audit_count = ContactAuditEvent.query.filter_by(event_type="message_sent").count()
+
+        block = client.post(
+            "/api/blocks",
+            json={"blocked_user_id": blocked_user.id},
+            headers=blocker_headers,
+        )
+        assert block.status_code == 201, block.get_json()
+        refused = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "Must not be stored"},
+            headers=blocked_headers,
+        )
+        assert refused.status_code == 403
+        assert refused.get_json() == {
+            "error": "Messaging is unavailable for this contact request",
+            "code": "messaging_unavailable",
+        }
+        assert ContactMessage.query.count() == message_count
+        assert ContactAuditEvent.query.filter_by(event_type="message_sent").count() == audit_count
+
+        history = client.get(f"/api/contact/requests/{request_id}/messages", headers=blocked_headers)
+        assert history.status_code == 200
+        assert [row["body"] for row in history.get_json()["messages"]] == ["Historical message remains visible"]
+
+        unblocked = client.delete(f"/api/blocks/{blocked_user.id}", headers=blocker_headers)
+        assert unblocked.get_json() == {"removed": True}
+        resumed = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "Messaging resumes after unblock"},
+            headers=blocked_headers,
+        )
+        assert resumed.status_code == 201, resumed.get_json()
 
     def test_thread_and_outcome_hide_request_from_non_participant(self, client):
         _, scout_headers, _, player_headers, _, request_payload = _seed_contact(
@@ -626,6 +842,7 @@ class TestContractStatusRouting:
         )
         assert club_message.status_code == 201, club_message.get_json()
         assert club_message.get_json()["message"]["sender_role"] == "club"
+        assert club_message.get_json()["message"]["sender_user_id"] == club_manager.id
 
         thread = client.get(f"/api/contact/requests/{request_id}/messages", headers=player_headers)
         assert thread.status_code == 200
@@ -638,6 +855,70 @@ class TestContractStatusRouting:
             "message_sent",
         ]
         assert [event.actor_user_id for event in events] == [scout.id, player.id, club_manager.id, club_manager.id]
+
+    def test_active_club_manager_is_a_block_enforced_thread_counterpart(self, client):
+        _club_program(109, "Block Enforcement FC")
+        club_manager, club_headers = _club_manager(109, "block-enforcement-manager@example.com")
+        scout, scout_headers = _verified_scout("block-enforcement-scout@example.com")
+        _, player_headers, _ = _claim(
+            "block-enforcement-player@example.com",
+            5813,
+            contract_status="contracted",
+            club_program_id=109,
+        )
+        created = _create(client, scout_headers, 5813)
+        request_id = created.get_json()["contact_request"]["id"]
+        assert client.post(f"/api/contact/requests/{request_id}/accept", headers=player_headers).status_code == 200
+        assert (
+            client.post(
+                f"/api/contact/requests/{request_id}/club-consent",
+                json={"action": "grant"},
+                headers=club_headers,
+            ).status_code
+            == 200
+        )
+
+        historical = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "This three-party history remains readable."},
+            headers=club_headers,
+        )
+        assert historical.status_code == 201
+        assert historical.get_json()["message"]["sender_user_id"] == club_manager.id
+
+        manager_blocks_scout = client.post(
+            "/api/blocks",
+            json={"blocked_user_id": created.get_json()["contact_request"]["participants"]["scout"]["user_id"]},
+            headers=club_headers,
+        )
+        assert manager_blocks_scout.status_code == 201
+        scout_refused = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "The manager blocked this sender."},
+            headers=scout_headers,
+        )
+        assert scout_refused.status_code == 403
+        assert scout_refused.get_json()["code"] == "messaging_unavailable"
+
+        assert client.delete(f"/api/blocks/{scout.id}", headers=club_headers).status_code == 200
+        player_blocks_manager = client.post(
+            "/api/blocks",
+            json={"blocked_user_id": historical.get_json()["message"]["sender_user_id"]},
+            headers=player_headers,
+        )
+        assert player_blocks_manager.status_code == 201
+        manager_refused = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "The player blocked this manager."},
+            headers=club_headers,
+        )
+        assert manager_refused.status_code == 403
+        assert manager_refused.get_json()["code"] == "messaging_unavailable"
+
+        history = client.get(f"/api/contact/requests/{request_id}/messages", headers=club_headers)
+        assert history.status_code == 200
+        assert [row["body"] for row in history.get_json()["messages"]] == ["This three-party history remains readable."]
+        assert ContactMessage.query.count() == 1
 
     def test_club_grant_alone_does_not_open_messaging(self, client):
         _club_program(102, "Consent First FC")
@@ -1053,6 +1334,9 @@ class TestInterestSignals:
             [
                 ScoutWatchlistEntry(user_account_id=watcher_a.id, player_api_id=7001, created_at=old),
                 ScoutWatchlistEntry(user_account_id=watcher_b.id, player_api_id=7001, created_at=now),
+                UserBlock(blocker_user_id=owner.id, blocked_user_id=watcher_b.id),
+                # Reverse-direction blocks do not hide the blocker's own signal.
+                UserBlock(blocker_user_id=watcher_a.id, blocked_user_id=owner.id),
             ]
         )
 
@@ -1084,8 +1368,8 @@ class TestInterestSignals:
         assert payload["interest_signals"] == [
             {
                 "player_api_id": 7001,
-                "watchlists": {"total": 2, "added_this_week": 1},
-                "follows": {"total": 3, "added_this_week": 1},
+                "watchlists": {"total": 1, "added_this_week": 0},
+                "follows": {"total": 2, "added_this_week": 1},
             },
             {
                 "player_api_id": 7002,
@@ -1180,3 +1464,21 @@ def test_fc03_is_guarded_order_neutral_and_extends_contact_contract():
     assert "fk_contact_requests_club_consent_by_user" in source
     assert "fc03_legacy_unknown_contract" in source
     assert "club_consent_status IS DISTINCT FROM 'granted'" in source
+
+
+def test_ug01_is_guarded_chains_td01_enables_rls_and_pins_block_constraints():
+    migration = Path(__file__).resolve().parents[1] / "migrations" / "versions" / "ug01_user_blocks.py"
+    source = migration.read_text()
+
+    assert 'revision = "ug01"' in source
+    assert 'down_revision = "td01"' in source
+    assert "DEPLOY ORDERING" in source
+    assert '"user_blocks"' in source
+    assert '"blocker_user_id"' in source
+    assert '"blocked_user_id"' in source
+    assert "uq_user_blocks_pair" in source
+    assert "ck_user_blocks_no_self" in source
+    assert "table_exists" in source
+    assert "create_index_safe" in source
+    assert "index_exists" in source
+    assert "ENABLE ROW LEVEL SECURITY" in source
