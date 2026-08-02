@@ -129,7 +129,7 @@ jobs:
 
       - name: Run ruff lint
         run: |
-          pip install ruff
+          pip install ruff==0.16.0
           ruff check academy-watch-backend
           ruff format --check academy-watch-backend
 
