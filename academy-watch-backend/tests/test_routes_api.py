@@ -1,6 +1,30 @@
 import importlib
 import sys
 
+import pytest
+
+
+def test_api_client_constructor_handshake_failure_is_non_fatal(monkeypatch):
+    from src.api_football_client import APIFootballClient
+
+    monkeypatch.delenv("SKIP_API_HANDSHAKE", raising=False)
+    monkeypatch.setenv("API_USE_STUB_DATA", "false")
+
+    quota_error = "API-Football daily request quota exhausted"
+
+    def raise_quota_error(_self):
+        raise RuntimeError(quota_error)
+
+    monkeypatch.setattr(APIFootballClient, "_check_quota_limit", raise_quota_error)
+
+    api_client = APIFootballClient(api_key="dummy-key")
+
+    assert api_client.handshake_failed is True
+    with pytest.raises(RuntimeError, match=quota_error):
+        api_client.get_player_profile(123)
+    with pytest.raises(RuntimeError, match=quota_error):
+        api_client.handshake()
+
 
 def test_overview_uses_local_season_when_client_handshake_fails(client, monkeypatch):
     from src.models.league import Team, db

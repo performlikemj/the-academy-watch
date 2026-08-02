@@ -402,17 +402,19 @@ class APIFootballClient:
         logger.info("🚀 Performance caches initialized (24hr TTL)")
 
         # Test API connection unless explicitly skipped
+        self.handshake_failed = False
         if not os.getenv("SKIP_API_HANDSHAKE") and self.mode != "stub":
             try:
                 self.handshake()
                 logger.info("✅ API handshake successful")
             except Exception as e:
+                self.handshake_failed = True
                 logger.error(f"❌ API handshake failed: {e}")
                 if self.use_stub:
                     logger.warning("🔄 Falling back to stub mode because API_USE_STUB_DATA=true")
                     self.mode = "stub"
-                else:
-                    raise
+                # The first real API call will surface the same clear error; raising here kills app boot
+                # and can block a new container revision from activating.
 
     def _set_default_season_from_date(self):
         """Set default season based on current date."""
