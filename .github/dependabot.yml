@@ -16,3 +16,8 @@ updates:
       # the base image is bumped to 3.12. (Re-bumped repeatedly by Dependabot.)
       - dependency-name: "numpy"
         versions: [">=2.5.0"]
+      # openai-agents (0.19.x) requires mcp<2; mcp 2.x breaks pip resolution in
+      # the ACR build (no PR-level CI installs backend deps, so it lands silently).
+      # Drop this when openai-agents supports mcp>=2.
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
