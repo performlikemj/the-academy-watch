@@ -15,7 +15,7 @@ gol_bp = Blueprint("gol", __name__)
 logger = logging.getLogger(__name__)
 
 # Admin users get a different model for the GOL assistant
-_ADMIN_GOL_MODEL = "z-ai/glm-5.1"
+_ADMIN_GOL_MODEL = "deepseek/deepseek-v4-flash-0731"
 
 
 @gol_bp.route("/gol/chat", methods=["POST"])
