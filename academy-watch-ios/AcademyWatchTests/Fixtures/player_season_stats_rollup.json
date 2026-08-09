@@ -1,0 +1,32 @@
+{
+  "player_id": 386828,
+  "season": "2024/2025",
+  "appearances": 52,
+  "minutes": 4281,
+  "goals": 18,
+  "assists": 19,
+  "avg_rating": null,
+  "saves": null,
+  "goals_conceded": 0,
+  "clean_sheets": null,
+  "source": "season-rollup",
+  "clubs": [
+    {
+      "team_name": "Barcelona",
+      "team_logo": null,
+      "window_type": null,
+      "is_current": null,
+      "appearances": 52,
+      "minutes": 4281,
+      "goals": 18,
+      "assists": 19
+    }
+  ],
+  "provenance": {
+    "primary_source": "journey",
+    "reconcile_flag": "fixtures-invisible",
+    "fixtures_minutes": 0,
+    "journey_minutes": 4281,
+    "computed_at": "2026-08-09T03:48:15.906957+00:00"
+  }
+}

@@ -134,7 +134,11 @@ struct WatchlistView: View {
                 Group {
                     if let player = entry.player {
                         NavigationLink(value: player.playerId) {
-                            WatchlistPlayerCard(entry: entry, player: player)
+                            WatchlistPlayerCard(
+                                entry: entry,
+                                player: player,
+                                season: viewModel.resolvedSeason
+                            )
                         }
                         .buttonStyle(.plain)
                     } else {
@@ -169,10 +173,18 @@ struct WatchlistView: View {
 private struct WatchlistPlayerCard: View {
     let entry: WatchlistEntry
     let player: ScoutPlayerSummary
+    let season: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ScoutPlayerRow(player: player, phase: .all)
+
+            if let season {
+                Label(SeasonLabelFormatter.label(for: season), systemImage: "calendar")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+            }
 
             if let note = entry.note, !note.isEmpty {
                 Label(note, systemImage: "note.text")

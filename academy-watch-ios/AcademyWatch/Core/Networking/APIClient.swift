@@ -5,12 +5,33 @@ protocol ScoutAPIClientProtocol: Sendable {
     func fetchScoutLeaderboards(_ request: ScoutLeaderboardsRequest) async throws -> ScoutLeaderboardsResponse
 }
 
+protocol SeasonDirectoryAPIClientProtocol: Sendable {
+    func fetchSeasons() async throws -> SeasonDirectory
+}
+
 protocol PlayerDetailAPIClientProtocol: Sendable {
     func fetchPlayerProfile(playerID: Int) async throws -> PlayerProfile
     func fetchPlayerSeasonStats(playerID: Int) async throws -> PlayerSeasonStats
     func fetchPlayerRecentFixtures(playerID: Int) async throws -> [PlayerRecentFixture]
     func fetchPlayerJourney(playerID: Int) async throws -> PlayerJourneyResponse
     func fetchPlayerAvailability(playerID: Int) async throws -> PlayerAvailability
+    func fetchPlayerSeasonStats(playerID: Int, season: Int?) async throws -> PlayerSeasonStats
+    func fetchPlayerRecentFixtures(playerID: Int, season: Int?) async throws -> [PlayerRecentFixture]
+    func fetchPlayerAvailability(playerID: Int, season: Int?) async throws -> PlayerAvailability
+}
+
+extension PlayerDetailAPIClientProtocol {
+    func fetchPlayerSeasonStats(playerID: Int, season _: Int?) async throws -> PlayerSeasonStats {
+        try await fetchPlayerSeasonStats(playerID: playerID)
+    }
+
+    func fetchPlayerRecentFixtures(playerID: Int, season _: Int?) async throws -> [PlayerRecentFixture] {
+        try await fetchPlayerRecentFixtures(playerID: playerID)
+    }
+
+    func fetchPlayerAvailability(playerID: Int, season _: Int?) async throws -> PlayerAvailability {
+        try await fetchPlayerAvailability(playerID: playerID)
+    }
 }
 
 protocol ShowcaseAPIClientProtocol: Sendable {
@@ -98,6 +119,7 @@ protocol FollowListsAPIClientProtocol: Sendable {
 }
 
 struct APIClient: ScoutAPIClientProtocol,
+    SeasonDirectoryAPIClientProtocol,
     PlayerDetailAPIClientProtocol,
     ShowcaseAPIClientProtocol,
     PlayerClaimAPIClientProtocol,
@@ -173,6 +195,7 @@ struct APIClient: ScoutAPIClientProtocol,
         queryItems.appendIfPresent(name: "position", value: request.position)
         queryItems.appendIfPresent(name: "status", value: request.status)
         queryItems.appendIfPresent(name: "max_age", value: request.maximumAge.map(String.init))
+        queryItems.appendIfPresent(name: "season", value: request.season.map(String.init))
 
         return try await get(
             path: "scout/players",
@@ -190,6 +213,7 @@ struct APIClient: ScoutAPIClientProtocol,
         queryItems.appendIfPresent(name: "position", value: request.position)
         queryItems.appendIfPresent(name: "status", value: request.status)
         queryItems.appendIfPresent(name: "max_age", value: request.maximumAge.map(String.init))
+        queryItems.appendIfPresent(name: "season", value: request.season.map(String.init))
 
         return try await get(
             path: "scout/leaderboards",
@@ -201,12 +225,37 @@ struct APIClient: ScoutAPIClientProtocol,
         try await get(path: "players/\(playerID)/profile", queryItems: [])
     }
 
+    func fetchSeasons() async throws -> SeasonDirectory {
+        if let cached = await SeasonDirectoryMemoryCache.shared.value() {
+            return cached
+        }
+
+        let directory: SeasonDirectory = try await get(path: "seasons", queryItems: [])
+        await SeasonDirectoryMemoryCache.shared.store(directory)
+        return directory
+    }
+
     func fetchPlayerSeasonStats(playerID: Int) async throws -> PlayerSeasonStats {
-        try await get(path: "players/\(playerID)/season-stats", queryItems: [])
+        try await fetchPlayerSeasonStats(playerID: playerID, season: nil)
+    }
+
+    func fetchPlayerSeasonStats(playerID: Int, season: Int?) async throws -> PlayerSeasonStats {
+        try await get(
+            path: "players/\(playerID)/season-stats",
+            queryItems: season.map { [URLQueryItem(name: "season", value: String($0))] } ?? []
+        )
     }
 
     func fetchPlayerRecentFixtures(playerID: Int) async throws -> [PlayerRecentFixture] {
-        try await get(path: "players/\(playerID)/stats", queryItems: [])
+        try await fetchPlayerRecentFixtures(playerID: playerID, season: nil)
+    }
+
+    func fetchPlayerRecentFixtures(playerID: Int, season: Int?) async throws -> [PlayerRecentFixture] {
+        let response: PlayerRecentFixturesResponse = try await get(
+            path: "players/\(playerID)/stats",
+            queryItems: season.map { [URLQueryItem(name: "season", value: String($0))] } ?? []
+        )
+        return response.matches
     }
 
     func fetchPlayerJourney(playerID: Int) async throws -> PlayerJourneyResponse {
@@ -214,7 +263,14 @@ struct APIClient: ScoutAPIClientProtocol,
     }
 
     func fetchPlayerAvailability(playerID: Int) async throws -> PlayerAvailability {
-        try await get(path: "players/\(playerID)/availability", queryItems: [])
+        try await fetchPlayerAvailability(playerID: playerID, season: nil)
+    }
+
+    func fetchPlayerAvailability(playerID: Int, season: Int?) async throws -> PlayerAvailability {
+        try await get(
+            path: "players/\(playerID)/availability",
+            queryItems: season.map { [URLQueryItem(name: "season", value: String($0))] } ?? []
+        )
     }
 
     func fetchPlayerShowcase(playerID: Int) async throws -> PlayerShowcaseResponse {
@@ -511,12 +567,26 @@ struct APIClient: ScoutAPIClientProtocol,
         playerIDs: [Int],
         includeAvailability: Bool
     ) async throws -> CompareResponse {
-        try await get(
+        try await fetchComparison(
+            playerIDs: playerIDs,
+            includeAvailability: includeAvailability,
+            season: nil
+        )
+    }
+
+    func fetchComparison(
+        playerIDs: [Int],
+        includeAvailability: Bool,
+        season: Int?
+    ) async throws -> CompareResponse {
+        var queryItems = [
+            URLQueryItem(name: "ids", value: playerIDs.map(String.init).joined(separator: ",")),
+            URLQueryItem(name: "include_availability", value: includeAvailability ? "true" : "false"),
+        ]
+        queryItems.appendIfPresent(name: "season", value: season.map(String.init))
+        return try await get(
             path: "scout/compare",
-            queryItems: [
-                URLQueryItem(name: "ids", value: playerIDs.map(String.init).joined(separator: ",")),
-                URLQueryItem(name: "include_availability", value: includeAvailability ? "true" : "false"),
-            ]
+            queryItems: queryItems
         )
     }
 
@@ -659,6 +729,20 @@ struct APIClient: ScoutAPIClientProtocol,
             throw APIClientError.invalidURL
         }
         return url
+    }
+}
+
+private actor SeasonDirectoryMemoryCache {
+    static let shared = SeasonDirectoryMemoryCache()
+
+    private var directory: SeasonDirectory?
+
+    func value() -> SeasonDirectory? {
+        directory
+    }
+
+    func store(_ directory: SeasonDirectory) {
+        self.directory = directory
     }
 }
 

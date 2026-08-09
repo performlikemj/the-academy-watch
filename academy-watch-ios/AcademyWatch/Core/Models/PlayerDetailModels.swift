@@ -105,6 +105,43 @@ struct PlayerSeasonStats: Decodable, Equatable, Sendable {
     let clubs: [PlayerSeasonClub]
     let provenance: PlayerSeasonProvenance?
 
+    private enum CodingKeys: String, CodingKey {
+        case playerId
+        case season
+        case appearances
+        case minutes
+        case goals
+        case assists
+        case avgRating
+        case saves
+        case goalsConceded
+        case cleanSheets
+        case source
+        case statsCoverage
+        case localAppearances
+        case clubs
+        case provenance
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        playerId = try container.decode(Int.self, forKey: .playerId)
+        season = try container.decode(String.self, forKey: .season)
+        appearances = try container.decode(Int.self, forKey: .appearances)
+        minutes = try container.decode(Int.self, forKey: .minutes)
+        goals = try container.decode(Int.self, forKey: .goals)
+        assists = try container.decode(Int.self, forKey: .assists)
+        avgRating = try container.decodeIfPresent(Double.self, forKey: .avgRating)
+        saves = try container.decodeIfPresent(Int.self, forKey: .saves) ?? 0
+        goalsConceded = try container.decodeIfPresent(Int.self, forKey: .goalsConceded) ?? 0
+        cleanSheets = try container.decodeIfPresent(Int.self, forKey: .cleanSheets) ?? 0
+        source = try container.decode(String.self, forKey: .source)
+        statsCoverage = try container.decodeIfPresent(String.self, forKey: .statsCoverage)
+        localAppearances = try container.decodeIfPresent(Int.self, forKey: .localAppearances)
+        clubs = try container.decodeIfPresent([PlayerSeasonClub].self, forKey: .clubs) ?? []
+        provenance = try container.decodeIfPresent(PlayerSeasonProvenance.self, forKey: .provenance)
+    }
+
     var hasHeadlineData: Bool {
         appearances > 0
             || minutes > 0
@@ -188,34 +225,7 @@ struct PlayerSeasonClub: Decodable, Equatable, Sendable {
     }
 }
 
-struct PlayerSeasonProvenance: Decodable, Equatable, Sendable {
-    let source: String
-    let fixturesMinutes: Int
-    let journeyMinutes: Int
-    let deltaPct: Double
-    let reconcileFlag: String?
-
-    var sourceLabel: String? {
-        switch source {
-        case "fixtures": "match-level data"
-        case "journey": "season totals"
-        default: nil
-        }
-    }
-
-    var detailText: String? {
-        switch reconcileFlag {
-        case "cup-gap":
-            return "\(fixturesMinutes.formatted()) match mins · \(journeyMinutes.formatted()) incl. cups"
-        case "fixtures-invisible":
-            return "\(journeyMinutes.formatted()) season mins · no match log coverage"
-        case "journey-under-sync":
-            return "Season totals re-sync pending"
-        default:
-            return nil
-        }
-    }
-}
+typealias PlayerSeasonProvenance = SeasonProvenance
 
 struct PlayerRecentFixture: Decodable, Equatable, Sendable {
     let id: Int
@@ -232,6 +242,34 @@ struct PlayerRecentFixture: Decodable, Equatable, Sendable {
     let rating: Double?
     let saves: Int?
     let goalsConceded: Int?
+}
+
+struct PlayerRecentFixturesResponse: Decodable, Equatable, Sendable {
+    let matches: [PlayerRecentFixture]
+    let season: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case matches
+        case season
+        case summary
+    }
+
+    private struct Summary: Decodable {
+        let season: Int?
+    }
+
+    init(from decoder: Decoder) throws {
+        if let bareMatches = try? decoder.singleValueContainer().decode([PlayerRecentFixture].self) {
+            matches = bareMatches
+            season = nil
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        matches = try container.decode([PlayerRecentFixture].self, forKey: .matches)
+        season = try container.decodeIfPresent(Int.self, forKey: .season)
+            ?? container.decodeIfPresent(Summary.self, forKey: .summary)?.season
+    }
 }
 
 struct PlayerAvailability: Decodable, Equatable, Sendable {

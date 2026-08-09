@@ -1,0 +1,31 @@
+{
+  "matches": [
+    {
+      "id": 178,
+      "fixture_id": 51,
+      "player_api_id": 403064,
+      "fixture_date": "2024-09-13T14:00:00",
+      "opponent": "Bristol City",
+      "competition": "Championship",
+      "loan_team_name": "Sheffield Wednesday",
+      "is_home": true,
+      "minutes": 68,
+      "goals": 0,
+      "assists": 0,
+      "rating": 5.9,
+      "saves": null,
+      "goals_conceded": 0
+    }
+  ],
+  "summary": {
+    "season": 2024,
+    "appearances": 1,
+    "minutes": 68
+  },
+  "provenance": {
+    "primary_source": "fixtures",
+    "fixtures_minutes": 68,
+    "journey_minutes": 68
+  },
+  "source_breakdown": { "fixtures": 1 }
+}

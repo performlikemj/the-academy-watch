@@ -3,6 +3,27 @@ import XCTest
 @testable import AcademyWatch
 
 final class ScoutResponseCacheTests: XCTestCase {
+    func testSeasonParticipatesInScoutCacheKeys() {
+        let current = ScoutPlayersRequest(
+            page: 1,
+            perPage: 25,
+            search: nil,
+            position: nil,
+            status: nil,
+            maximumAge: nil,
+            sort: "minutes",
+            order: .descending,
+            season: 2025
+        )
+        var historical = current
+        historical.season = 2024
+
+        XCTAssertNotEqual(
+            ScoutPlayersCacheKey(phase: .all, request: current),
+            ScoutPlayersCacheKey(phase: .all, request: historical)
+        )
+    }
+
     func testPlayersRoundTripOnDiskAndFiltersProduceDistinctKeys() async throws {
         let cacheRoot = makeTemporaryCacheRoot()
         defer { try? FileManager.default.removeItem(at: cacheRoot) }

@@ -11,6 +11,7 @@ final class WatchlistViewModel: ObservableObject {
     @Published private(set) var pendingPlayerIDs: Set<Int> = []
     @Published private(set) var digestOptIn = true
     @Published private(set) var scoutTier = "free"
+    @Published private(set) var resolvedSeason: Int?
 
     private let apiClient: any WatchlistAPIClientProtocol
     private var sessionRevision = 0
@@ -83,6 +84,7 @@ final class WatchlistViewModel: ObservableObject {
             watchedPlayerIDs = Set(response.entries.map(\.playerApiId))
             digestOptIn = response.digestOptIn
             scoutTier = response.scoutTier
+            resolvedSeason = response.season
         } catch {
             guard session == sessionRevision,
                   data == dataRevision,
@@ -104,6 +106,7 @@ final class WatchlistViewModel: ObservableObject {
         pendingPlayerIDs = []
         digestOptIn = true
         scoutTier = "free"
+        resolvedSeason = nil
     }
 
     @discardableResult

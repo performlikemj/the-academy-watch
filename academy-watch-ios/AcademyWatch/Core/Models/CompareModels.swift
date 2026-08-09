@@ -3,6 +3,7 @@ import Foundation
 struct CompareResponse: Decodable, Equatable, Sendable {
     let players: [ComparePlayer]
     let missingIds: [Int]
+    var season: Int? = nil
 }
 
 struct ComparePlayer: Decodable, Equatable, Identifiable, Sendable {
@@ -11,6 +12,7 @@ struct ComparePlayer: Decodable, Equatable, Identifiable, Sendable {
     let per90: ComparePer90
     let career: CompareCareer?
     let availability: CompareAvailability?
+    var provenance: SeasonProvenance? = nil
 
     var id: Int { profile.playerId }
 }
@@ -69,6 +71,7 @@ struct CompareTotals: Decodable, Equatable, Sendable {
     let penaltySaved: Int?
     let cleanSheets: Int?
     let statsCoverage: String?
+    var rollupMissing: Bool? = nil
 }
 
 struct ComparePer90: Decodable, Equatable, Sendable {

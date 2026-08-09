@@ -258,6 +258,7 @@ struct ScoutPlayersRequest: Codable, Equatable, Hashable, Sendable {
     let maximumAge: Int?
     let sort: String
     let order: ScoutSortOrder
+    var season: Int? = nil
 }
 
 struct ScoutLeaderboardsRequest: Codable, Equatable, Hashable, Sendable {
@@ -266,6 +267,7 @@ struct ScoutLeaderboardsRequest: Codable, Equatable, Hashable, Sendable {
     let position: String?
     let status: String?
     let maximumAge: Int?
+    var season: Int? = nil
 }
 
 enum ScoutCompactStat: Sendable {

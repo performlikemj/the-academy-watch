@@ -4,6 +4,7 @@ struct WatchlistResponse: Decodable, Equatable, Sendable {
     let entries: [WatchlistEntry]
     let digestOptIn: Bool
     let scoutTier: String
+    var season: Int? = nil
 }
 
 struct WatchlistEntry: Decodable, Equatable, Identifiable, Sendable {
