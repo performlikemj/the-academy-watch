@@ -49,13 +49,26 @@ IDLE_POLL_SECONDS = 30
 IDLE_EXIT_AFTER_POLLS = 10  # loop mode: exit after ~5 idle minutes (KEDA rescales)
 
 
-def _download_footage(blob_path: str, dest: Path) -> None:
+def _download_footage(blob_path: str, dest: Path, expected_etag: str) -> None:
     from src.services.video_storage import mint_read_sas
 
+    if not expected_etag:
+        raise RuntimeError("verified footage ETag is missing")
     url = mint_read_sas(blob_path)
     log.info("downloading footage to %s", dest)
+    command = [
+        "curl",
+        "-fsSL",
+        "--retry",
+        "3",
+        "-H",
+        f"If-Match: {expected_etag}",
+        "-o",
+        str(dest),
+        url,
+    ]
     subprocess.run(
-        ["curl", "-fsSL", "--retry", "3", "-o", str(dest), url],
+        command,
         check=True,
         timeout=3600,
     )
@@ -99,24 +112,26 @@ def process_job(app, job_id: str) -> bool:
     from src.models.video import VideoAnalysisJob, VideoMatch
     from src.services.video_identity import complete_job_with_artifacts
     from src.services.video_queue import heartbeat
-    from src.services.video_storage import verify_uploaded_blob
+    from src.services.video_storage import verify_expected_blob
 
     job = db.session.get(VideoAnalysisJob, job_id)
     match = db.session.get(VideoMatch, job.video_match_id)
     t0 = time.monotonic()
     try:
-        # content-swap TOCTOU check: blob must still match the upload-complete ETag
+        # Pin the download to the ETag returned by this verification. For legacy
+        # matches without a stored ETag, this is the just-observed current ETag.
         heartbeat(job_id, stage="decode", progress=0)
-        check = verify_uploaded_blob(match.blob_path)
+        check = verify_expected_blob(match.blob_path, match.blob_etag)
         if not check["ok"]:
             raise RuntimeError(f"footage blob failed verification: {check.get('error')}")
-        if match.blob_etag and check.get("etag") != match.blob_etag:
-            raise RuntimeError("footage blob changed since upload-complete (ETag mismatch)")
+        verified_etag = check.get("etag")
+        if not verified_etag:
+            raise RuntimeError("footage blob verification returned no ETag")
 
         with tempfile.TemporaryDirectory(prefix="vision-job-") as tmp:
             tmp_path = Path(tmp)
             video_path = tmp_path / "match.mp4"
-            _download_footage(match.blob_path, video_path)
+            _download_footage(match.blob_path, video_path, verified_etag)
 
             heartbeat(job_id, stage="detect", progress=5)
             out_dir = tmp_path / "artifacts"

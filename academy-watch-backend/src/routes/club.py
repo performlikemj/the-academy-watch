@@ -37,6 +37,7 @@ QUOTA_LOCK_NAMESPACE = 4_343_202
 MAX_CAPTURE_META_BYTES = 8 * 1024
 MAX_CAPTURE_META_DEPTH = 4
 MAX_CAPTURE_META_KEYS = 50
+MAX_TIMELINE_SECONDS = 6 * 60 * 60
 CLUB_EDITABLE_MATCH_STATUSES = {"created", "uploaded"}
 TEXT_LIMITS = {
     "opponent_name": 200,
@@ -79,12 +80,16 @@ def _positive_int(value, field: str) -> int:
 def _timeline_value(value, field: str) -> float | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be a number or null")
     try:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field} must be a number or null") from exc
     if not math.isfinite(parsed) or parsed < 0:
         raise ValueError(f"{field} must be a finite non-negative number")
+    if parsed > MAX_TIMELINE_SECONDS:
+        raise ValueError(f"{field} must be at most {MAX_TIMELINE_SECONDS} seconds")
     return parsed
 
 
@@ -252,6 +257,8 @@ def add_club_roster_member(program_id: int):
         player_api_id = None
         local_player_id = None
         if has_api:
+            # This roster link grants private video/report scope only. It does
+            # not confer a public affiliation or public footage attribution.
             player_api_id = _positive_int(data.get("player_api_id"), "player_api_id")
             if is_player_suppressed(player_api_id) or _tracked_player(player_api_id) is None:
                 return jsonify({"error": "Player not found"}), 404
@@ -378,6 +385,7 @@ def club_match_upload_complete(program_id: int, match_id: int):
         return _bad_request(f"cannot complete upload in status '{match.status}'")
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
+    is_reattestation = match.status == "uploaded"
     check = video_storage.verify_uploaded_blob(match.blob_path)
     if not check["ok"]:
         return jsonify({"error": check["error"]}), 422
@@ -394,6 +402,9 @@ def club_match_upload_complete(program_id: int, match_id: int):
     match.status = "uploaded"
     match.uploaded_at = now
     match.expires_at = now + timedelta(days=RAW_RETENTION_DAYS)
+    if is_reattestation:
+        match.processing_requested_at = None
+        match.processing_requested_by_user_id = None
     db.session.commit()
     return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
 
@@ -525,6 +536,9 @@ def request_club_match_processing(program_id: int, match_id: int):
         return _bad_request(f"cannot request processing in status '{match.status}' (upload first)")
     if match.kickoff_s is None:
         return _bad_request("kickoff_s must be marked before requesting processing")
+    integrity = video_storage.verify_expected_blob(match.blob_path, match.blob_etag)
+    if not integrity["ok"]:
+        return jsonify({"error": integrity["error"]}), 422
     if match.processing_requested_at is None:
         match.processing_requested_at = datetime.now(UTC)
         match.processing_requested_by_user_id = g.user_id

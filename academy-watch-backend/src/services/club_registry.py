@@ -100,7 +100,7 @@ def _is_manager_of_approved_program(user_id: int | None, program_id: int | None)
     if (
         user_id is None
         or program_id is None
-        or not {"id", "platform_status"}.issubset(program_columns)
+        or not {"id", "platform_status", "emergency_hidden"}.issubset(program_columns)
         or not {"program_id", "user_account_id", "source_claim_id", "status"}.issubset(manager_columns)
         or not {"id", "program_id", "user_account_id", "status"}.issubset(claim_columns)
     ):
@@ -115,6 +115,7 @@ def _is_manager_of_approved_program(user_id: int | None, program_id: int | None)
                 "AND claims.user_account_id = managers.user_account_id "
                 "WHERE managers.user_account_id = :user_id AND managers.program_id = :program_id "
                 "AND managers.status = 'active' AND programs.platform_status = 'approved' "
+                "AND programs.emergency_hidden = false "
                 "AND claims.status = 'approved' LIMIT 1"
             ),
             {"user_id": user_id, "program_id": program_id},

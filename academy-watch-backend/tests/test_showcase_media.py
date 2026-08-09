@@ -15,7 +15,7 @@ from flask import Flask
 from PIL import ExifTags, Image, TiffImagePlugin
 from src.auth import _ensure_user_account, issue_user_token
 from src.models.league import db
-from src.models.showcase import PlayerProfileClaim, PlayerShowcaseMedia
+from src.models.showcase import LocalPlayer, PlayerProfileClaim, PlayerShowcaseMedia
 
 ADMIN_KEY = "test-admin-key"
 PLAYER_ID = 5001
@@ -193,6 +193,91 @@ def _seed_media(player_api_id, user_id, *, status="approved", sort_order=0, suff
 
 
 class TestPhotoLifecycle:
+    def test_approve_refuses_suppressed_api_and_linked_local_subjects(self, app, client, monkeypatch):
+        from src.routes import showcase as showcase_routes
+
+        with app.app_context():
+            local_player = LocalPlayer(
+                display_name="Suppressed Linked Local",
+                birth_year=2000,
+                api_player_id=6001,
+                status="approved",
+            )
+            db.session.add(local_player)
+            db.session.flush()
+            api_media = PlayerShowcaseMedia(
+                player_api_id=PLAYER_ID,
+                kind="photo",
+                blob_path="players/5001/suppressed-api.jpg",
+                status="pending",
+            )
+            local_media = PlayerShowcaseMedia(
+                local_player_id=local_player.id,
+                kind="photo",
+                blob_path="local-players/suppressed-linked.jpg",
+                status="pending",
+            )
+            db.session.add_all([api_media, local_media])
+            db.session.commit()
+            media_ids = (api_media.id, local_media.id)
+
+        monkeypatch.setattr(showcase_routes, "is_player_suppressed", lambda player_id: player_id in {5001, 6001})
+        for media_id in media_ids:
+            response = client.post(
+                f"/api/admin/showcase/media/{media_id}/review",
+                json={"action": "approve"},
+                headers=_admin_headers(),
+            )
+            assert response.status_code == 404
+            assert response.get_json() == {"error": "photo not found"}
+
+        with app.app_context():
+            for media_id in media_ids:
+                media = db.session.get(PlayerShowcaseMedia, media_id)
+                assert media.status == "pending"
+                assert media.public_url is None
+
+    def test_approve_refuses_suppressed_local_only_subject(self, app, client, monkeypatch):
+        from src.routes import showcase as showcase_routes
+
+        with app.app_context():
+            local_player = LocalPlayer(
+                display_name="Suppressed Local Only",
+                birth_year=2000,
+                api_player_id=None,
+                status="approved",
+            )
+            db.session.add(local_player)
+            db.session.flush()
+            media = PlayerShowcaseMedia(
+                local_player_id=local_player.id,
+                kind="photo",
+                blob_path="local-players/suppressed-local-only.jpg",
+                status="pending",
+            )
+            db.session.add(media)
+            db.session.commit()
+            local_player_id = local_player.id
+            media_id = media.id
+
+        monkeypatch.setattr(
+            showcase_routes,
+            "is_local_player_suppressed",
+            lambda subject_id: subject_id == local_player_id,
+        )
+        response = client.post(
+            f"/api/admin/showcase/media/{media_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert response.status_code == 404
+        assert response.get_json() == {"error": "photo not found"}
+
+        with app.app_context():
+            media = db.session.get(PlayerShowcaseMedia, media_id)
+            assert media.status == "pending"
+            assert media.public_url is None
+
     def test_complete_rejects_oversized_dimensions_and_deletes_pending_blob(self, app, client):
         raw = _oversized_dimension_png()
         with app.app_context():

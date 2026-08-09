@@ -270,6 +270,21 @@ def test_require_club_manager_denies_active_manager_when_program_or_claim_not_ap
     assert revoked_claim.get_json() == {"error": "Club manager access denied"}
 
 
+def test_require_club_manager_honors_emergency_hidden_kill_switch(club_app, client):
+    program_id = club_app.c2["program_a"]
+    program = db.session.get(ClubProgram, program_id)
+    program.emergency_hidden = True
+    db.session.commit()
+
+    hidden = client.get(f"/api/club/{program_id}/roster", headers=_headers("a"))
+    assert hidden.status_code == 403
+    assert hidden.get_json() == {"error": "Club manager access denied"}
+
+    program.emergency_hidden = False
+    db.session.commit()
+    assert client.get(f"/api/club/{program_id}/roster", headers=_headers("a")).status_code == 200
+
+
 def test_every_club_console_route_is_manager_gated_before_resource_access(club_app, client):
     b = club_app.c2["program_b"]
     member = _add_api_member(client, b, 7002, "b")
@@ -537,6 +552,34 @@ def test_capture_meta_bounds_are_enforced_on_create_and_update(club_app, client,
     assert "capture_meta" in updated.get_json()["error"]
 
 
+@pytest.mark.parametrize("timeline_value", [True, 6 * 60 * 60 + 1], ids=("boolean", "over-six-hours"))
+def test_timeline_rejects_boolean_and_pathological_values_on_complete_and_update(club_app, client, timeline_value):
+    program_id = club_app.c2["program_a"]
+    match = _match(program_id, status="created", kickoff_s=None)
+    with (
+        patch("src.routes.club.video_storage.is_configured", return_value=True),
+        patch(
+            "src.routes.club.video_storage.verify_uploaded_blob",
+            return_value={"ok": True, "etag": "etag-c2", "size_bytes": 2048},
+        ),
+    ):
+        completed = client.post(
+            f"/api/club/{program_id}/matches/{match.id}/upload-complete",
+            json={"kickoff_s": timeline_value},
+            headers=_headers("a"),
+        )
+    assert completed.status_code == 400
+    assert "kickoff_s" in completed.get_json()["error"]
+
+    updated = client.patch(
+        f"/api/club/{program_id}/matches/{match.id}",
+        json={"duration_s": timeline_value},
+        headers=_headers("a"),
+    )
+    assert updated.status_code == 400
+    assert "duration_s" in updated.get_json()["error"]
+
+
 def test_club_match_roster_rejects_foreign_and_departed_members(club_app, client):
     a = club_app.c2["program_a"]
     b = club_app.c2["program_b"]
@@ -569,7 +612,13 @@ def test_club_match_roster_rejects_foreign_and_departed_members(club_app, client
 def test_processing_request_never_enqueues_and_admin_pipeline_remains_concierge(club_app, client):
     a = club_app.c2["program_a"]
     match = _match(a)
-    with patch("src.routes.video.video_queue.enqueue", return_value="fixture") as enqueue:
+    with (
+        patch(
+            "src.services.video_storage.verify_uploaded_blob",
+            return_value={"ok": True, "etag": "etag-c2", "size_bytes": 2048},
+        ) as verify,
+        patch("src.routes.video.video_queue.enqueue", return_value="fixture") as enqueue,
+    ):
         requested = client.post(
             f"/api/club/{a}/matches/{match.id}/process",
             headers=_headers("a"),
@@ -584,6 +633,7 @@ def test_processing_request_never_enqueues_and_admin_pipeline_remains_concierge(
         assert processed.status_code == 202
         assert VideoAnalysisJob.query.filter_by(video_match_id=match.id).count() == 1
         enqueue.assert_called_once()
+        assert verify.call_count == 2
 
         assert (
             client.patch(
@@ -605,6 +655,126 @@ def test_processing_request_never_enqueues_and_admin_pipeline_remains_concierge(
     for path in ("tracklets", "tags", "finalize", "requeue"):
         response = client.post(f"/api/club/{a}/matches/{match.id}/{path}", headers=_headers("a"))
         assert response.status_code == 404
+
+
+def test_changed_blob_etag_blocks_club_request_and_admin_enqueue(club_app, client):
+    program_id = club_app.c2["program_a"]
+    match = _match(program_id)
+    changed = {"ok": True, "etag": "swapped-etag", "size_bytes": 2048}
+    with patch("src.services.video_storage.verify_uploaded_blob", return_value=changed):
+        club_response = client.post(
+            f"/api/club/{program_id}/matches/{match.id}/process",
+            headers=_headers("a"),
+        )
+    assert club_response.status_code == 422
+    assert "ETag mismatch" in club_response.get_json()["error"]
+    assert db.session.get(VideoMatch, match.id).processing_requested_at is None
+
+    match.processing_requested_at = datetime.now(UTC)
+    match.processing_requested_by_user_id = club_app.c2["users"]["a"]
+    db.session.commit()
+    with (
+        patch("src.services.video_storage.verify_uploaded_blob", return_value=changed),
+        patch("src.routes.video.video_queue.enqueue") as enqueue,
+    ):
+        admin_response = client.post(f"/api/admin/video/matches/{match.id}/process", headers=_admin_headers())
+    assert admin_response.status_code == 422
+    assert "ETag mismatch" in admin_response.get_json()["error"]
+    assert VideoAnalysisJob.query.filter_by(video_match_id=match.id).count() == 0
+    enqueue.assert_not_called()
+
+    match.status = "failed"
+    db.session.add(VideoAnalysisJob(video_match_id=match.id, status="failed", pipeline_version="c2-test"))
+    db.session.commit()
+    with (
+        patch("src.services.video_storage.verify_uploaded_blob", return_value=changed),
+        patch("src.routes.video.video_queue.enqueue") as requeue_enqueue,
+    ):
+        requeue_response = client.post(
+            f"/api/admin/video/matches/{match.id}/requeue",
+            headers=_admin_headers(),
+        )
+    assert requeue_response.status_code == 422
+    assert "ETag mismatch" in requeue_response.get_json()["error"]
+    assert VideoAnalysisJob.query.filter_by(video_match_id=match.id).count() == 1
+    requeue_enqueue.assert_not_called()
+
+
+def test_null_etag_allows_club_admin_process_and_failed_job_requeue(club_app, client):
+    program_id = club_app.c2["program_a"]
+    match = _match(program_id)
+    match.blob_etag = None
+    db.session.commit()
+    current = {"ok": True, "etag": "legacy-current-etag", "size_bytes": 2048}
+
+    with (
+        patch("src.services.video_storage.verify_uploaded_blob", return_value=current) as verify,
+        patch("src.routes.video.video_queue.enqueue", return_value="fixture") as enqueue,
+    ):
+        club_response = client.post(
+            f"/api/club/{program_id}/matches/{match.id}/process",
+            headers=_headers("a"),
+        )
+        assert club_response.status_code == 202
+
+        admin_response = client.post(
+            f"/api/admin/video/matches/{match.id}/process",
+            headers=_admin_headers(),
+        )
+        assert admin_response.status_code == 202
+
+        job = VideoAnalysisJob.query.filter_by(video_match_id=match.id).one()
+        job.status = "failed"
+        match.status = "failed"
+        db.session.commit()
+
+        requeue_response = client.post(
+            f"/api/admin/video/matches/{match.id}/requeue",
+            headers=_admin_headers(),
+        )
+        assert requeue_response.status_code == 202
+
+    assert verify.call_count == 3
+    assert enqueue.call_count == 2
+    assert VideoAnalysisJob.query.filter_by(video_match_id=match.id).count() == 2
+
+
+def test_upload_complete_reattestation_clears_processing_request_for_club_and_admin(club_app, client):
+    program_id = club_app.c2["program_a"]
+    manager_id = club_app.c2["users"]["a"]
+    match = _match(program_id)
+    match.processing_requested_at = datetime.now(UTC)
+    match.processing_requested_by_user_id = manager_id
+    db.session.commit()
+    verified = {"ok": True, "etag": "reattested-etag", "size_bytes": 2048}
+
+    with (
+        patch("src.services.video_storage.is_configured", return_value=True),
+        patch("src.services.video_storage.verify_uploaded_blob", return_value=verified),
+    ):
+        club_response = client.post(
+            f"/api/club/{program_id}/matches/{match.id}/upload-complete",
+            json={},
+            headers=_headers("a"),
+        )
+        assert club_response.status_code == 200
+        refreshed = db.session.get(VideoMatch, match.id)
+        assert refreshed.processing_requested_at is None
+        assert refreshed.processing_requested_by_user_id is None
+
+        refreshed.processing_requested_at = datetime.now(UTC)
+        refreshed.processing_requested_by_user_id = manager_id
+        db.session.commit()
+        admin_response = client.post(
+            f"/api/admin/video/matches/{match.id}/upload-complete",
+            json={},
+            headers=_admin_headers(),
+        )
+        assert admin_response.status_code == 200
+
+    refreshed = db.session.get(VideoMatch, match.id)
+    assert refreshed.processing_requested_at is None
+    assert refreshed.processing_requested_by_user_id is None
 
 
 def test_finalize_snapshot_excludes_departed_and_never_rostered_players(club_app, client):

@@ -17,7 +17,7 @@ from src.extensions import limiter
 from src.models.follow import PlayerShadow
 from src.models.journey import PlayerJourney
 from src.models.league import League, PlayerLink, Team, db
-from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
+from src.models.showcase import LocalPlayer, PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
 
@@ -1031,6 +1031,47 @@ class TestPublicPayload:
         assert data["verified_footage"] == []
         assert data["claim_status"] == "unclaimed"
 
+    def test_null_birth_year_is_private_to_claimant_while_adult_is_public(self, app, client):
+        with app.app_context():
+            claimant = _make_user("local-guardian@example.com")
+            unknown_age = LocalPlayer(
+                display_name="Unknown Age Prospect",
+                birth_year=None,
+                api_player_id=6999,
+                status="approved",
+                created_by_user_id=claimant.id,
+            )
+            adult = LocalPlayer(
+                display_name="Adult Local Player",
+                birth_year=1990,
+                status="approved",
+                created_by_user_id=claimant.id,
+            )
+            db.session.add_all([unknown_age, adult])
+            db.session.flush()
+            db.session.add(
+                PlayerProfileClaim(
+                    local_player_id=unknown_age.id,
+                    user_account_id=claimant.id,
+                    relationship_type="guardian",
+                    status="approved",
+                )
+            )
+            db.session.commit()
+            unknown_id = unknown_age.id
+            adult_id = adult.id
+            assert unknown_age.is_minor is True
+            assert adult.is_minor is False
+
+        assert client.get(f"/api/local-players/{unknown_id}").status_code == 404
+        assert client.get("/api/players/6999/showcase").status_code == 404
+        claimant_view = client.get(
+            f"/api/local-players/{unknown_id}",
+            headers=_user_headers("local-guardian@example.com"),
+        )
+        assert claimant_view.status_code == 200
+        assert client.get(f"/api/local-players/{adult_id}").status_code == 200
+
 
 # --------------------------------------------------------------------------- #
 # Flywheel X — verified footage + roster linking
@@ -1038,7 +1079,7 @@ class TestPublicPayload:
 
 
 class TestVerifiedFootage:
-    def test_only_human_confirmed_linked_finalized(self, app, client):
+    def test_public_showcase_excludes_club_console_but_keeps_legacy_verified_footage(self, app, client):
         with app.app_context():
             team = _seed_team()
             tp = _tracked(team, player_api_id=5001, name="Kobbie Mainoo")
@@ -1062,6 +1103,12 @@ class TestVerifiedFootage:
             m4 = _finalized_match(team, opponent="Unlinked FC", match_date=date(2025, 9, 7))
             r4 = _roster(m4, tp_id=None, number=99)
             _report(m4, r4, tp_id=None, identity="human_confirmed", minutes=90.0)
+
+            # Excluded: self-serve club-console reports never auto-publish.
+            m5 = _finalized_match(team, opponent="Club Console FC", match_date=date(2025, 9, 12))
+            m5.club_program_id = 999
+            r5 = _roster(m5, tp_id=tp.id, number=38)
+            _report(m5, r5, tp_id=tp.id, identity="human_confirmed", minutes=89.0)
             db.session.commit()
 
         data = client.get("/api/players/5001/showcase").get_json()
