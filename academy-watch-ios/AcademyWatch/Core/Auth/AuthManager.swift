@@ -5,6 +5,7 @@ import Foundation
 final class AuthManager: ObservableObject, AuthSessionProtocol {
     @Published private(set) var state: AuthState
     @Published private(set) var signOutErrorMessage: String?
+    @Published private(set) var accountDeletionConfirmationMessage: String?
 
     private let authClient: any AuthAPIClientProtocol
     private let tokenStore: any TokenStoreProtocol
@@ -49,6 +50,7 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
                 )
         }
         signOutErrorMessage = nil
+        accountDeletionConfirmationMessage = nil
     }
 
     @discardableResult
@@ -84,6 +86,7 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
         try tokenStore.saveToken(response.token)
         token = response.token
         signOutErrorMessage = nil
+        accountDeletionConfirmationMessage = nil
         state = .signedIn(
             email: normalizedEmail,
             accountRole: response.accountRole,
@@ -147,6 +150,24 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
         protectedResponseCache.removeAllCachedResponses()
     }
 
+    func deleteAccount(using client: any AccountDeletionAPIClientProtocol) async throws {
+        guard isAuthenticated else { return }
+
+        let response = try await client.deleteAccount()
+        guard response.deleted else {
+            throw AccountDeletionError.notConfirmed
+        }
+
+        cancelVerificationAttempts()
+        accountGeneration &+= 1
+        try deletePersistedCredential()
+        token = nil
+        state = .signedOut
+        signOutErrorMessage = nil
+        accountDeletionConfirmationMessage = "Your account and associated personal data were deleted."
+        protectedResponseCache.removeAllCachedResponses()
+    }
+
     func cancelVerificationAttempts() {
         verificationGeneration &+= 1
     }
@@ -192,5 +213,13 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
+    }
+}
+
+enum AccountDeletionError: LocalizedError {
+    case notConfirmed
+
+    var errorDescription: String? {
+        "The service did not confirm account deletion. Please try again."
     }
 }

@@ -146,6 +146,16 @@ protocol AccountAPIClientProtocol: Sendable {
     func fetchCurrentAccount() async throws -> AuthProfileResponse
 }
 
+protocol AccountDeletionAPIClientProtocol: Sendable {
+    func deleteAccount() async throws -> AccountDeletionResponse
+}
+
+struct AccountDeletionResponse: Decodable, Equatable, Sendable {
+    let deleted: Bool
+    let deletionEventId: Int?
+    let completedAt: String?
+}
+
 enum AuthInputError: LocalizedError {
     case emailRequired
     case codeRequired

@@ -292,7 +292,7 @@ private struct IntroductionRequestSheet: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Toggle(isOn: $permissionAttestationConfirmed) {
                             Text(
-                                "I confirm my club has, or will obtain, the required permission before any approach to this player if they are contracted."
+                                "I confirm I already have permission from the player’s current club to make this approach."
                             )
                             .font(.subheadline.weight(.semibold))
                             .fixedSize(horizontal: false, vertical: true)

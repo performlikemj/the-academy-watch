@@ -2,6 +2,27 @@ import XCTest
 @testable import AcademyWatch
 
 final class PlayerDetailDecodingTests: XCTestCase {
+    func testAgeIsComputedFromBirthDateAtRenderDate() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let beforeBirthday = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 8))
+        )
+        let birthday = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 9))
+        )
+
+        XCTAssertEqual(
+            PlayerAgeCalculator.age(from: "2007-08-09", on: beforeBirthday, calendar: calendar),
+            18
+        )
+        XCTAssertEqual(
+            PlayerAgeCalculator.age(from: "2007-08-09", on: birthday, calendar: calendar),
+            19
+        )
+        XCTAssertNil(PlayerAgeCalculator.age(from: nil, on: birthday, calendar: calendar))
+    }
+
     func testDecodesCapturedOutfielderProfileAndCurrentClubSemantics() throws {
         let profile = try decode(PlayerProfile.self, fixture: "player_profile_outfielder")
 

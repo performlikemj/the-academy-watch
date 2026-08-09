@@ -44,7 +44,8 @@ final class PlayerDetailViewModel: ObservableObject {
         )
         if fixtureDestination == .introduction
             || fixtureDestination == .attestationWarning
-            || fixtureDestination == .watchingYou {
+            || fixtureDestination == .watchingYou
+            || fixtureDestination == .claimGate {
             profile = .fullCircleFixture
             hasAttemptedLoad = true
         }

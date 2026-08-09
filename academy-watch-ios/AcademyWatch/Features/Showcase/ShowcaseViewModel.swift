@@ -27,7 +27,8 @@ final class ShowcaseViewModel: ObservableObject {
         if ProcessInfo.processInfo.arguments.contains("-showcaseFixture")
             || fixtureDestination == .introduction
             || fixtureDestination == .attestationWarning
-            || fixtureDestination == .watchingYou {
+            || fixtureDestination == .watchingYou
+            || fixtureDestination == .claimGate {
             showcase = .debugFixture
             hasAttemptedLoad = true
             isFixturePreview = true

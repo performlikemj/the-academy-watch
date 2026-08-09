@@ -134,7 +134,10 @@ struct PlayerDetailView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
-                    PlayerProfileHeader(profile: profile)
+                    PlayerProfileHeader(
+                        profile: profile,
+                        birthDate: viewModel.journey?.birthDate
+                    )
                     if prioritizesIntroductionFixture {
                         introductionSection(profile: profile)
                     }
@@ -373,6 +376,7 @@ struct PlayerDetailView: View {
 
 private struct PlayerProfileHeader: View {
     let profile: PlayerProfile
+    let birthDate: String?
 
     var body: some View {
         VStack(spacing: 15) {
@@ -500,7 +504,9 @@ private struct PlayerProfileHeader: View {
 
     private var metadataLine: String {
         var parts: [String] = []
-        if let age = profile.age { parts.append(age.formatted()) }
+        if let age = PlayerAgeCalculator.age(from: birthDate) ?? profile.age {
+            parts.append(age.formatted())
+        }
         if let nationality = profile.nationality, !nationality.isEmpty { parts.append(nationality) }
         return parts.joined(separator: " · ")
     }

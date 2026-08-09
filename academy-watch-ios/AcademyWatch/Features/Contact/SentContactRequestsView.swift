@@ -7,6 +7,7 @@ struct SentContactRequestsView: View {
     let apiClient: APIClient
 
     @Environment(\.dismiss) private var dismiss
+    @State private var reportSubject: ContentReportSubject?
 
     var body: some View {
         ZStack {
@@ -50,10 +51,13 @@ struct SentContactRequestsView: View {
             }
         }
         .task {
-            await viewModel.loadIfNeeded()
+            await viewModel.reload()
         }
         .onChange(of: availability.state) { _, state in
             if state == .unavailable { dismiss() }
+        }
+        .sheet(item: $reportSubject) { subject in
+            ContentReportSheet(subject: subject, apiClient: apiClient)
         }
     }
 
@@ -92,31 +96,56 @@ struct SentContactRequestsView: View {
 
     @ViewBuilder
     private func requestDestination(_ request: ContactRequest) -> some View {
-        if request.messagingOpen {
-            NavigationLink {
-                ContactThreadView(
-                    contactRequest: request,
-                    apiClient: apiClient,
-                    availability: availability,
-                    viewerRole: .scout
-                )
-            } label: {
+        VStack(spacing: 8) {
+            if request.messagingOpen {
+                NavigationLink {
+                    ContactThreadView(
+                        contactRequest: request,
+                        apiClient: apiClient,
+                        availability: availability,
+                        viewerRole: .scout
+                    )
+                } label: {
+                    ContactRequestCard(
+                        request: request,
+                        isWithdrawing: false,
+                        onWithdraw: nil
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the accepted introduction thread")
+            } else {
                 ContactRequestCard(
                     request: request,
-                    isWithdrawing: false,
-                    onWithdraw: nil
+                    isWithdrawing: viewModel.withdrawingRequestIDs.contains(request.id),
+                    onWithdraw: request.status == .pending
+                        ? { Task { await viewModel.withdraw(request) } }
+                        : nil
                 )
             }
+
+            HStack(spacing: 14) {
+                Button {
+                    reportSubject = .request(request)
+                } label: {
+                    Label("Report", systemImage: "exclamationmark.bubble")
+                }
+                .accessibilityIdentifier("report-sent-contact-request")
+
+                if let accountID = request.participants.player.userId {
+                    BlockUserButton(
+                        accountID: accountID,
+                        displayName: request.participants.player.displayName,
+                        apiClient: apiClient
+                    )
+                }
+
+                Spacer()
+            }
+            .font(.caption.weight(.semibold))
             .buttonStyle(.plain)
-            .accessibilityHint("Opens the accepted introduction thread")
-        } else {
-            ContactRequestCard(
-                request: request,
-                isWithdrawing: viewModel.withdrawingRequestIDs.contains(request.id),
-                onWithdraw: request.status == .pending
-                    ? { Task { await viewModel.withdraw(request) } }
-                    : nil
-            )
+            .foregroundStyle(AcademyColors.claret)
+            .padding(.horizontal, 14)
         }
     }
 }

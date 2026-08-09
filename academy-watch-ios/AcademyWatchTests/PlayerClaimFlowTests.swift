@@ -2,6 +2,24 @@ import XCTest
 @testable import AcademyWatch
 
 final class PlayerClaimFlowTests: XCTestCase {
+    func testAdultClaimRejectionsUseClearNonTechnicalMessages() {
+        let unknownDOB = APIClientError.codedServer(
+            statusCode: 422,
+            message: "A known birth date is required",
+            code: "dob_unknown",
+            cooldownDays: nil
+        )
+        let minor = APIClientError.codedServer(
+            statusCode: 422,
+            message: "Players must be at least 18",
+            code: "minor_claim_blocked",
+            cooldownDays: nil
+        )
+
+        XCTAssertTrue(PlayerClaimViewModel.claimErrorMessage(for: unknownDOB).contains("date of birth isn’t known"))
+        XCTAssertTrue(PlayerClaimViewModel.claimErrorMessage(for: minor).contains("adults aged 18 or older"))
+    }
+
     // Fixture provenance: `player_claims.json` mirrors
     // `PlayerProfileClaim.to_dict()` in full-circle `src/models/showcase.py`
     // plus the `player_name` added by GET `/api/me/claims` in

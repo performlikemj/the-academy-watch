@@ -305,6 +305,7 @@ struct PlayerAbsence: Decodable, Equatable, Sendable {
 struct PlayerJourneyResponse: Decodable, Equatable, Sendable {
     let playerId: Int
     let source: String
+    let birthDate: String?
     let entries: [PlayerJourneyEntry]?
     let stints: [PlayerJourneyStint]
     let totalStints: Int
@@ -312,6 +313,7 @@ struct PlayerJourneyResponse: Decodable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case playerId
         case source
+        case birthDate
         case entries
         case stints
         case totalStints
@@ -321,6 +323,7 @@ struct PlayerJourneyResponse: Decodable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         playerId = try container.decode(Int.self, forKey: .playerId)
         source = try container.decode(String.self, forKey: .source)
+        birthDate = try container.decodeIfPresent(String.self, forKey: .birthDate)
         entries = try container.decodeIfPresent([PlayerJourneyEntry].self, forKey: .entries)
         stints = try container.decodeIfPresent([PlayerJourneyStint].self, forKey: .stints) ?? []
         totalStints = try container.decodeIfPresent(Int.self, forKey: .totalStints) ?? stints.count
@@ -413,6 +416,25 @@ struct PlayerJourneyResponse: Decodable, Equatable, Sendable {
     private static func combinedOptionalTotal(_ lhs: Int?, _ rhs: Int?) -> Int? {
         guard lhs != nil || rhs != nil else { return nil }
         return (lhs ?? 0) + (rhs ?? 0)
+    }
+}
+
+enum PlayerAgeCalculator {
+    static func age(
+        from birthDateString: String?,
+        on date: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Int? {
+        guard let birthDateString else { return nil }
+        let components = birthDateString.prefix(10).split(separator: "-")
+        guard components.count == 3,
+              let year = Int(components[0]),
+              let month = Int(components[1]),
+              let day = Int(components[2]),
+              let birthDate = calendar.date(from: DateComponents(year: year, month: month, day: day)),
+              birthDate <= date
+        else { return nil }
+        return calendar.dateComponents([.year], from: birthDate, to: date).year
     }
 }
 

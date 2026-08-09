@@ -227,6 +227,9 @@ final class SentContactRequestsViewModel: ObservableObject {
     }
 
     private static func displayMessage(for error: Error) -> String {
+        if let neutralMessage = ContactPrivacyMessage.message(for: error) {
+            return neutralMessage
+        }
         if let apiError = error as? APIClientError, apiError.statusCode == 429 {
             return "You’ve reached the current request limit. Please try again later."
         }
@@ -255,8 +258,8 @@ final class SentContactRequestsViewModel: ObservableObject {
               "responded_at": "2026-07-13T08:30:00",
               "expires_at": "2026-07-26T10:15:00",
               "participants": {
-                "scout": {"display_name": "Alex Scout"},
-                "player": {"display_name": "Habeeb Amass"},
+                "scout": {"display_name": "Alex Scout", "user_id": 70},
+                "player": {"display_name": "Habeeb Amass", "user_id": 91},
                 "club": {"club_program_id": 101, "display_name": "On Platform FC"}
               },
               "latest_outcome": {
@@ -283,8 +286,8 @@ final class SentContactRequestsViewModel: ObservableObject {
               "responded_at": null,
               "expires_at": "2026-07-30T14:05:00",
               "participants": {
-                "scout": {"display_name": "Alex Scout"},
-                "player": {"display_name": "Mateo Silva"},
+                "scout": {"display_name": "Alex Scout", "user_id": 70},
+                "player": {"display_name": "Mateo Silva", "user_id": 92},
                 "club": {"club_program_id": 102, "display_name": "Northbridge Academy"}
               },
               "latest_outcome": null
@@ -306,8 +309,8 @@ final class SentContactRequestsViewModel: ObservableObject {
               "responded_at": "2026-07-09T17:45:00",
               "expires_at": "2026-07-22T09:00:00",
               "participants": {
-                "scout": {"display_name": "Alex Scout"},
-                "player": {"display_name": "Noah Williams"},
+                "scout": {"display_name": "Alex Scout", "user_id": 70},
+                "player": {"display_name": "Noah Williams", "user_id": 93},
                 "club": {"club_program_id": 103, "display_name": "Decline FC"}
               },
               "latest_outcome": null
@@ -329,8 +332,8 @@ final class SentContactRequestsViewModel: ObservableObject {
               "responded_at": null,
               "expires_at": "2026-07-04T10:00:00",
               "participants": {
-                "scout": {"display_name": "Alex Scout"},
-                "player": {"display_name": "Ethan Cole"},
+                "scout": {"display_name": "Alex Scout", "user_id": 70},
+                "player": {"display_name": "Ethan Cole", "user_id": 94},
                 "club": null
               },
               "latest_outcome": null

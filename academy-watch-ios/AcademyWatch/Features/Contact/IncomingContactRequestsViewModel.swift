@@ -308,6 +308,9 @@ final class IncomingContactRequestsViewModel: ObservableObject {
     }
 
     private static func displayMessage(for error: Error) -> String {
+        if let neutralMessage = ContactPrivacyMessage.message(for: error) {
+            return neutralMessage
+        }
         if let apiError = error as? APIClientError {
             switch apiError {
             case let .codedServer(_, _, code, _) where code == ContactRequestErrorCode.requestExpired.rawValue:
@@ -346,8 +349,8 @@ final class IncomingContactRequestsViewModel: ObservableObject {
               "responded_at": null,
               "expires_at": "2026-07-30T14:00:00",
               "participants": {
-                "scout": {"display_name": "Alex Morgan"},
-                "player": {"display_name": "Habeeb Amass"},
+                "scout": {"display_name": "Alex Morgan", "user_id": 70},
+                "player": {"display_name": "Habeeb Amass", "user_id": 91},
                 "club": {"club_program_id": 101, "display_name": "On Platform FC"}
               },
               "latest_outcome": null
@@ -369,8 +372,8 @@ final class IncomingContactRequestsViewModel: ObservableObject {
               "responded_at": "2026-07-15T11:00:00",
               "expires_at": "2026-07-29T08:00:00",
               "participants": {
-                "scout": {"display_name": "Northbank Scout"},
-                "player": {"display_name": "Habeeb Amass"},
+                "scout": {"display_name": "Northbank Scout", "user_id": 71},
+                "player": {"display_name": "Habeeb Amass", "user_id": 91},
                 "club": null
               },
               "latest_outcome": {

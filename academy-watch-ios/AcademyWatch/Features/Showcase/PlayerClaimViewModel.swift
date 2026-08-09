@@ -51,6 +51,10 @@ final class PlayerClaimViewModel: ObservableObject {
                 playerName: "Habeeb Amass"
             )
             hasLoaded = true
+        } else if FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        ) == .claimGate {
+            hasLoaded = true
         }
         #endif
     }
@@ -86,9 +90,10 @@ final class PlayerClaimViewModel: ObservableObject {
             return
         }
         #if DEBUG
-        if FullCircleFixtureDestination.fromLaunchArguments(
+        let fixtureDestination = FullCircleFixtureDestination.fromLaunchArguments(
             ProcessInfo.processInfo.arguments
-        ) == .watchingYou {
+        )
+        if fixtureDestination == .watchingYou || fixtureDestination == .claimGate {
             return
         }
         #endif
@@ -126,7 +131,7 @@ final class PlayerClaimViewModel: ObservableObject {
                 return
             }
             hasLoaded = true
-            errorMessage = error.localizedDescription
+            errorMessage = Self.claimErrorMessage(for: error)
         }
     }
 
@@ -165,7 +170,7 @@ final class PlayerClaimViewModel: ObservableObject {
             if error is CancellationError || (error as? URLError)?.code == .cancelled {
                 return false
             }
-            errorMessage = error.localizedDescription
+            errorMessage = Self.claimErrorMessage(for: error)
             return false
         }
     }
@@ -229,6 +234,21 @@ final class PlayerClaimViewModel: ObservableObject {
 
     func clearOwnerProfileError() {
         ownerProfileErrorMessage = nil
+    }
+
+    nonisolated static func claimErrorMessage(for error: Error) -> String {
+        if let apiError = error as? APIClientError,
+           case let .codedServer(_, _, code, _) = apiError {
+            switch code {
+            case "dob_unknown":
+                return "This claim can’t be submitted because the player’s date of birth isn’t known. Player claims require a verified date of birth and are available only to adults aged 18 or older."
+            case "minor_claim_blocked":
+                return "This profile can’t be claimed by the player because player claims are available only to adults aged 18 or older."
+            default:
+                break
+            }
+        }
+        return error.localizedDescription
     }
 
     private func loadOwnerProfile(revision requestRevision: Int) async {

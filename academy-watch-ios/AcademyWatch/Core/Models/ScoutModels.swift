@@ -46,12 +46,12 @@ struct ScoutPlayerSummary: Codable, Equatable, Sendable {
     let createdAt: String?
     let updatedAt: String?
 
-    let appearances: Int
-    let goals: Int
-    let assists: Int
-    let minutesPlayed: Int
+    let appearances: Int?
+    let goals: Int?
+    let assists: Int?
+    let minutesPlayed: Int?
     let avgRating: Double?
-    let goalContributions: Int
+    let goalContributions: Int?
     let contributionsPer90: Double?
 
     let hasDetailedStats: Bool

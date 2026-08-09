@@ -113,21 +113,25 @@ enum ContactRequestErrorCode: String, Equatable, Sendable {
 struct ContactRequestParticipant: Decodable, Equatable, Sendable {
     let displayName: String?
     let clubProgramId: Int?
+    let userId: Int?
 
-    init(displayName: String?, clubProgramId: Int? = nil) {
+    init(displayName: String?, clubProgramId: Int? = nil, userId: Int? = nil) {
         self.displayName = displayName
         self.clubProgramId = clubProgramId
+        self.userId = userId
     }
 
     private enum CodingKeys: String, CodingKey {
         case displayName
         case clubProgramId
+        case userId
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         clubProgramId = try container.decodeIfPresent(Int.self, forKey: .clubProgramId)
+        userId = try container.decodeIfPresent(Int.self, forKey: .userId)
     }
 }
 

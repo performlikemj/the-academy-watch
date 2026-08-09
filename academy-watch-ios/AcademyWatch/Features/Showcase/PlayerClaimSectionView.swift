@@ -30,6 +30,16 @@ struct PlayerClaimSectionView: View {
         .sheet(item: $attestationSheet) { mode in
             PlayerContractAttestationSheet(viewModel: viewModel, mode: mode)
         }
+        .task {
+            #if DEBUG
+            if isAuthenticated,
+               FullCircleFixtureDestination.fromLaunchArguments(
+                   ProcessInfo.processInfo.arguments
+               ) == .claimGate {
+                attestationSheet = .claim
+            }
+            #endif
+        }
     }
 
     private var sectionHeader: some View {
@@ -375,7 +385,7 @@ private enum PlayerAttestationSheetMode: Identifiable {
 
     var title: String {
         switch self {
-        case .claim: "Your contract status"
+        case .claim: "Claim This Profile"
         case .edit: "Edit contract status"
         }
     }
@@ -383,7 +393,7 @@ private enum PlayerAttestationSheetMode: Identifiable {
     var introduction: String {
         switch self {
         case .claim:
-            return "Choose the status that is true today. An Academy Watch admin reviews this with your profile claim."
+            return "Player claims are for adults aged 18 or older. The player must have a known date of birth before a claim can be submitted. Choose the contract status that is true today; an Academy Watch admin reviews it with your claim."
         case .edit:
             return "Changes use the existing moderated profile-edit path and do not affect routing until approved."
         }
@@ -417,10 +427,18 @@ private struct PlayerContractAttestationSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text(mode.introduction)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if case .claim = mode {
+                        Label(mode.introduction, systemImage: "18.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AcademyColors.claret)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("player-claim-adults-only-copy")
+                    } else {
+                        Text(mode.introduction)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 Section("Contract status") {
