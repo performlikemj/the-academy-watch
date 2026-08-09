@@ -46,6 +46,7 @@ from src.routes.player_suppression import player_suppression_bp
 from src.routes.players import players_bp
 from src.routes.scout import scout_bp
 from src.routes.season_rollup import season_rollup_bp
+from src.routes.seasons import seasons_bp
 from src.routes.showcase import showcase_bp
 from src.routes.teams import teams_bp
 from src.routes.trust import trust_bp
@@ -109,6 +110,7 @@ for name in ("mcp", "agents.mcp", "mcp.shared.session", "mcp.client"):
 app.register_blueprint(journey_bp, url_prefix="/api")
 app.register_blueprint(players_bp, url_prefix="/api")
 app.register_blueprint(scout_bp, url_prefix="/api")
+app.register_blueprint(seasons_bp, url_prefix="/api")
 # Registered BEFORE api_bp (mirroring players_bp) so /players/<id>/showcase*
 # routes take priority over any api_bp /players/<id>/* catch-alls.
 app.register_blueprint(showcase_bp, url_prefix="/api")

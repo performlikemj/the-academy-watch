@@ -2,7 +2,7 @@
 
 import os
 
-_ROLLUP_READ_SURFACES = frozenset({"season_stats", "player_stats", "scout"})
+_ROLLUP_READ_SURFACES = frozenset({"season_stats", "player_stats", "scout", "teams"})
 
 
 def rollup_reads_enabled(surface: str) -> bool:

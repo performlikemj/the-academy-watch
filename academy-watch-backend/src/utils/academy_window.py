@@ -83,23 +83,35 @@ def stats_season_with_data(db_session, today: date | datetime | None = None) -> 
     return latest if latest is not None else calendar_season
 
 
-def season_bounds(db_session, today: date | datetime | None = None) -> tuple[int, int]:
+def season_bounds(
+    db_session,
+    today: date | datetime | None = None,
+    include_rollup_history: bool = False,
+) -> tuple[int, int]:
     """Valid range for an explicit ``?season`` request: ``(low, high)`` inclusive.
 
-    - ``low`` = ``MIN(fixtures.season)`` — the platform only holds per-match
-      fixture data from 2025-26 onward, so an older season has no fixtures to
-      scope a stats read to. Falls back to ``current_stats_season`` when no
-      fixtures exist yet, so the range never inverts.
+    - ``low`` = ``MIN(fixtures.season)`` by default, preserving the valid range
+      for fixture-backed reads. With ``include_rollup_history=True``, the
+      minimum also considers ``player_season_totals.season`` so rollup-backed
+      reads can reach historical seasons. Falls back to
+      ``current_stats_season`` when neither source has rows.
     - ``high`` = ``current_stats_season() + 1`` — a caller may look one season
       ahead (request the upcoming season before its fixtures land).
 
     Season values are API-Football season-start years (2025 == 2025-26).
     """
     from sqlalchemy import func
+    from src.models.season_rollup import PlayerSeasonTotal
     from src.models.weekly import Fixture
 
     high = current_stats_season(today) + 1
-    min_season = db_session.query(func.min(Fixture.season)).scalar()
+    fixture_min = db_session.query(func.min(Fixture.season)).scalar()
+    candidates = [fixture_min] if fixture_min is not None else []
+    if include_rollup_history:
+        rollup_min = db_session.query(func.min(PlayerSeasonTotal.season)).scalar()
+        if rollup_min is not None:
+            candidates.append(rollup_min)
+    min_season = min(candidates) if candidates else None
     low = int(min_season) if min_season is not None else current_stats_season(today)
     return (low, high)
 
@@ -109,13 +121,15 @@ def resolve_stats_season(
     requested=None,
     surface: str = "discovery",
     today: date | datetime | None = None,
+    allow_history: bool = False,
 ) -> int:
     """The ONE season resolver every stats read routes through.
 
     - ``requested`` given: validated against :func:`season_bounds`. A non-integer
       value, or one outside the inclusive bounds, raises ``ValueError`` (routes
-      turn it into HTTP 400). The validated integer is returned verbatim — an
-      explicit request is honoured on every surface.
+      turn it into HTTP 400). ``allow_history=True`` includes rollup history in
+      the lower bound. The validated integer is returned verbatim — an explicit
+      request is honoured on every surface.
     - ``requested`` omitted, ``surface="discovery"`` (default): the DISPLAY
       default — :func:`stats_season_with_data`, which never points at a
       not-yet-started season (fixtures-keyed fallback). Identical to the pre-param
@@ -132,7 +146,7 @@ def resolve_stats_season(
             season = int(requested)
         except (TypeError, ValueError):
             raise ValueError(f"season must be an integer start-year, got {requested!r}") from None
-        low, high = season_bounds(db_session, today)
+        low, high = season_bounds(db_session, today, include_rollup_history=allow_history)
         if season < low or season > high:
             raise ValueError(f"season {season} is out of range [{low}, {high}]")
         return season
