@@ -125,6 +125,8 @@ struct APIClient: ScoutAPIClientProtocol,
     PlayerClaimAPIClientProtocol,
     AuthAPIClientProtocol,
     AccountAPIClientProtocol,
+    AccountDeletionAPIClientProtocol,
+    BlocksAPIClientProtocol,
     ScoutVerificationAPIClientProtocol,
     ContactAPIClientProtocol,
     SentContactRequestsAPIClientProtocol,
@@ -339,6 +341,35 @@ struct APIClient: ScoutAPIClientProtocol,
 
     func fetchCurrentAccount() async throws -> AuthProfileResponse {
         try await get(path: "auth/me", queryItems: [])
+    }
+
+    func deleteAccount() async throws -> AccountDeletionResponse {
+        try await send(
+            path: "account/delete",
+            method: "POST",
+            body: AccountDeletionRequest(confirm: "DELETE")
+        )
+    }
+
+    func fetchBlockedUsers() async throws -> BlockedUsersResponse {
+        try await get(path: "blocks", queryItems: [])
+    }
+
+    func blockUser(accountID: Int) async throws {
+        let _: EmptyResponse = try await send(
+            path: "blocks",
+            method: "POST",
+            body: BlockUserRequest(accountId: accountID)
+        )
+    }
+
+    func unblockUser(accountID: Int) async throws {
+        let _: EmptyResponse = try await perform(
+            path: "blocks/\(accountID)",
+            method: "DELETE",
+            queryItems: [],
+            body: nil
+        )
     }
 
     func createContactRequest(
@@ -692,6 +723,9 @@ struct APIClient: ScoutAPIClientProtocol,
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         do {
+            if data.isEmpty, let empty = EmptyResponse() as? Response {
+                return empty
+            }
             let decoded = try decoder.decode(Response.self, from: data)
             #if DEBUG
             let decodedAt = ProcessInfo.processInfo.systemUptime
@@ -801,6 +835,16 @@ private struct VerifyLoginCodeRequest: Encodable {
     let email: String
     let code: String
 }
+
+private struct AccountDeletionRequest: Encodable {
+    let confirm: String
+}
+
+private struct BlockUserRequest: Encodable {
+    let accountId: Int
+}
+
+private struct EmptyResponse: Decodable {}
 
 private struct WatchlistPlayerRequest: Encodable {
     let playerApiId: Int

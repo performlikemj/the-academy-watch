@@ -22,6 +22,7 @@ targets:
       path: AcademyWatch/Info.plist
       properties:
         CFBundleDisplayName: Academy Watch
+        ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
         UILaunchScreen:
           UIColorName: LaunchBackground

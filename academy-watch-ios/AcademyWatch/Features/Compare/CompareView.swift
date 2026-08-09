@@ -71,25 +71,42 @@ struct CompareView: View {
     }
 
     private var comparisonTable: some View {
-        ScrollView(.vertical) {
-            ScrollView(.horizontal, showsIndicators: viewModel.players.count > 2) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    playerHeaders
-
-                    ForEach(visibleRows) { row in
-                        if let section = row.section {
-                            sectionHeader(section == "Season" ? viewModel.resolvedSeasonLabel : section)
-                        }
-                        statRow(row)
+        VStack(spacing: 0) {
+            Toggle(
+                "Include availability",
+                isOn: Binding(
+                    get: { viewModel.includeAvailability },
+                    set: { include in
+                        Task { await viewModel.setIncludeAvailability(include) }
                     }
+                )
+            )
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(AcademyColors.surface)
+            .accessibilityIdentifier("compare-include-availability")
+
+            ScrollView(.vertical) {
+                ScrollView(.horizontal, showsIndicators: viewModel.players.count > 2) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        playerHeaders
+
+                        ForEach(visibleRows) { row in
+                            if let section = row.section {
+                                sectionHeader(section == "Season" ? viewModel.resolvedSeasonLabel : section)
+                            }
+                            statRow(row)
+                        }
+                    }
+                    .background(AcademyColors.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
+                    }
+                    .padding(16)
                 }
-                .background(AcademyColors.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
-                }
-                .padding(16)
             }
         }
     }
@@ -170,7 +187,10 @@ struct CompareView: View {
 
     private var visibleRows: [CompareRow] {
         let includesGoalkeeper = viewModel.players.contains { $0.profile.isGoalkeeper }
-        return Self.rows.filter { !$0.goalkeeperOnly || includesGoalkeeper }
+        return Self.rows.filter {
+            (!$0.goalkeeperOnly || includesGoalkeeper)
+                && (viewModel.includeAvailability || !$0.id.hasPrefix("availability-"))
+        }
     }
 
     private var tableWidth: CGFloat {

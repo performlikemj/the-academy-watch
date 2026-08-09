@@ -151,6 +151,18 @@ struct ContactThreadView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let accountID = viewModel.counterpartAccountID {
+                Divider()
+                BlockUserButton(
+                    accountID: accountID,
+                    displayName: viewModel.counterpartDisplayName,
+                    apiClient: apiClient
+                )
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(uiColor: .systemRed))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(14)
         .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))

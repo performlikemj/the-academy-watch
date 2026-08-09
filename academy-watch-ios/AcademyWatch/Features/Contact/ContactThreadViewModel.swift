@@ -78,6 +78,10 @@ final class ContactThreadViewModel: ObservableObject {
         participant(for: counterpartRole)?.displayName
     }
 
+    var counterpartAccountID: Int? {
+        participant(for: counterpartRole)?.userId
+    }
+
     var counterpartRole: ContactSenderRole {
         viewerRole == .scout ? .player : .scout
     }
@@ -361,6 +365,9 @@ final class ContactThreadViewModel: ObservableObject {
     }
 
     private static func displayMessage(for error: Error) -> String {
+        if let neutralMessage = ContactPrivacyMessage.message(for: error) {
+            return neutralMessage
+        }
         if let apiError = error as? APIClientError, apiError.statusCode == 429 {
             return "You’ve reached the current messaging limit. Please try again later."
         }
@@ -422,8 +429,8 @@ final class ContactThreadViewModel: ObservableObject {
             "responded_at": "2026-07-13T08:30:00",
             "expires_at": "2026-07-26T10:15:00",
             "participants": {
-              "scout": {"display_name": "Alex Scout"},
-              "player": {"display_name": "Habeeb Amass"},
+              "scout": {"display_name": "Alex Scout", "user_id": 70},
+              "player": {"display_name": "Habeeb Amass", "user_id": 91},
               "club": {"club_program_id": 101, "display_name": "On Platform FC"}
             },
             "latest_outcome": {

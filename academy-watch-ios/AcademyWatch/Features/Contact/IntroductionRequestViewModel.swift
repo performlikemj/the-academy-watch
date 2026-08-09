@@ -24,7 +24,7 @@ enum IntroductionRequestFailure: Equatable, Sendable {
         case .playerNotClaimable:
             return "This player is not currently available for introduction requests."
         case .attestationRequired:
-            return "Football approach rules may prohibit contacting this player without their current club’s consent. Confirm that your club has, or will obtain, the required permission before any approach."
+            return "Football approach rules may prohibit contacting this player without their current club’s consent. Confirm that you already have permission from the player’s current club before any approach."
         case .activeRequestExists:
             return "You already have an active request for this player. Check Sent Requests for its latest status."
         case let .declineCooldownActive(days):
@@ -213,6 +213,9 @@ final class IntroductionRequestViewModel: ObservableObject {
     }
 
     private static func mapFailure(_ error: Error) -> IntroductionRequestFailure {
+        if let neutralMessage = ContactPrivacyMessage.message(for: error) {
+            return .generic(message: neutralMessage)
+        }
         if let apiError = error as? APIClientError {
             if case let .codedServer(_, _, code, cooldownDays) = apiError {
                 switch code {

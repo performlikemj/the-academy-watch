@@ -20,6 +20,19 @@ final class WatchlistViewModel: ObservableObject {
 
     init(apiClient: any WatchlistAPIClientProtocol = APIClient()) {
         self.apiClient = apiClient
+
+        #if DEBUG
+        if FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        ) == .watchlistNullStats,
+           let response = Self.decodeNullStatsFixture() {
+            entries = response.entries
+            watchedPlayerIDs = Set(response.entries.map(\.playerApiId))
+            digestOptIn = response.digestOptIn
+            scoutTier = response.scoutTier
+            resolvedSeason = 2025
+        }
+        #endif
     }
 
     var isLoading: Bool {
@@ -63,6 +76,11 @@ final class WatchlistViewModel: ObservableObject {
     }
 
     func loadWatchlist() async {
+        #if DEBUG
+        if FullCircleFixtureDestination.fromLaunchArguments(
+            ProcessInfo.processInfo.arguments
+        ) == .watchlistNullStats { return }
+        #endif
         let session = sessionRevision
         let data = dataRevision
         isLoadingWatchlist = true
@@ -93,6 +111,52 @@ final class WatchlistViewModel: ObservableObject {
             errorMessage = displayMessage(for: error)
         }
     }
+
+    #if DEBUG
+    private static func decodeNullStatsFixture() -> WatchlistResponse? {
+        let payload = #"""
+        {
+          "entries": [{
+            "player_api_id": 403064,
+            "note": "Review once fresh match coverage lands.",
+            "created_at": "2026-08-09T09:00:00Z",
+            "player": {
+              "id": 22419,
+              "player_id": 403064,
+              "player_name": "Habeeb Amass",
+              "player_photo": null,
+              "position": "Defender",
+              "age": 19,
+              "nationality": "England",
+              "primary_team_id": 1,
+              "primary_team_name": "Manchester United",
+              "loan_team_name": "Norwich",
+              "is_active": true,
+              "status": "on_loan",
+              "pathway_status": "loan",
+              "current_level": "First Team",
+              "data_source": "journey-sync",
+              "data_depth": "profile_only",
+              "appearances": null,
+              "goals": null,
+              "assists": null,
+              "minutes_played": null,
+              "avg_rating": null,
+              "goal_contributions": null,
+              "contributions_per90": null,
+              "has_detailed_stats": false
+            }
+          }],
+          "digest_opt_in": true,
+          "scout_tier": "free",
+          "season": 2025
+        }
+        """#
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try? decoder.decode(WatchlistResponse.self, from: Data(payload.utf8))
+    }
+    #endif
 
     func resetForSignOut() {
         sessionRevision += 1

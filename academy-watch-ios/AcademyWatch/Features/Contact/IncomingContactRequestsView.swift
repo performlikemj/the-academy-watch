@@ -148,7 +148,8 @@ struct IncomingContactRequestsView: View {
                         },
                         onReport: {
                             reportSubject = .request(request)
-                        }
+                        },
+                        blocksAPIClient: apiClient
                     )
                     .onAppear {
                         if request.id == viewModel.requests.last?.id, viewModel.canLoadMore {
@@ -208,6 +209,7 @@ private struct IncomingContactRequestCard: View {
     let onAccept: () -> Void
     let onDecline: () -> Void
     let onReport: () -> Void
+    let blocksAPIClient: any BlocksAPIClientProtocol
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -246,53 +248,65 @@ private struct IncomingContactRequestCard: View {
 
     @ViewBuilder
     private var actionRow: some View {
-        HStack(spacing: 10) {
-            if request.status == .pending, !isResponding {
-                Button("Decline", role: .destructive, action: onDecline)
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("decline-contact-request")
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                if request.status == .pending, !isResponding {
+                    Button("Decline", role: .destructive, action: onDecline)
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("decline-contact-request")
 
-                Button("Accept", action: onAccept)
+                    Button("Accept", action: onAccept)
+                        .buttonStyle(.borderedProminent)
+                        .tint(AcademyColors.claretFill)
+                        .accessibilityIdentifier("accept-contact-request")
+                } else if isResponding {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(request.status == .accepted ? "Accepting…" : "Declining…")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                } else if request.messagingOpen {
+                    NavigationLink {
+                        ContactThreadView(
+                            contactRequest: request,
+                            apiClient: apiClient,
+                            availability: availability,
+                            viewerRole: .player
+                        )
+                    } label: {
+                        Label("Open thread", systemImage: "bubble.left.and.bubble.right.fill")
+                    }
                     .buttonStyle(.borderedProminent)
                     .tint(AcademyColors.claretFill)
-                    .accessibilityIdentifier("accept-contact-request")
-            } else if isResponding {
-                ProgressView()
-                    .controlSize(.small)
-                Text(request.status == .accepted ? "Accepting…" : "Declining…")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            } else if request.messagingOpen {
-                NavigationLink {
-                    ContactThreadView(
-                        contactRequest: request,
-                        apiClient: apiClient,
-                        availability: availability,
-                        viewerRole: .player
-                    )
-                } label: {
-                    Label("Open thread", systemImage: "bubble.left.and.bubble.right.fill")
+                    .accessibilityIdentifier("open-player-contact-thread")
+                } else {
+                    Text(statusExplanation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
-                .accessibilityIdentifier("open-player-contact-thread")
-            } else {
-                Text(statusExplanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 0)
             }
 
-            Spacer(minLength: 0)
+            HStack(spacing: 14) {
+                Button(action: onReport) {
+                    Label("Report", systemImage: "exclamationmark.bubble")
+                }
+                .accessibilityIdentifier("report-contact-request")
 
-            Button(action: onReport) {
-                Label("Report", systemImage: "exclamationmark.bubble")
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                if let accountID = request.participants.scout.userId {
+                    BlockUserButton(
+                        accountID: accountID,
+                        displayName: request.participants.scout.displayName,
+                        apiClient: blocksAPIClient
+                    )
+                }
+
+                Spacer()
             }
-            .buttonStyle(.bordered)
-            .tint(AcademyColors.claret)
-            .layoutPriority(1)
-            .accessibilityIdentifier("report-contact-request")
+            .font(.caption.weight(.semibold))
+            .buttonStyle(.plain)
+            .foregroundStyle(AcademyColors.claret)
         }
     }
 

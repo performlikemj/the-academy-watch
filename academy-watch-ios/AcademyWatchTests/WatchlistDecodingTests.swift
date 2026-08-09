@@ -30,6 +30,21 @@ final class WatchlistDecodingTests: XCTestCase {
         XCTAssertEqual(response.playerIds, [386_828, 999_999])
     }
 
+    func testDecodesWatchlistRowWithNullHeadlineStatsAndRendersDashes() throws {
+        let response: WatchlistResponse = try decodeFixture(named: "watchlist_null_stats")
+        let player = try XCTUnwrap(response.entries.first?.player)
+
+        XCTAssertNil(player.appearances)
+        XCTAssertNil(player.goals)
+        XCTAssertNil(player.assists)
+        XCTAssertNil(player.minutesPlayed)
+        XCTAssertNil(player.goalContributions)
+        XCTAssertEqual(player.displayValue(for: .appearances), "—")
+        XCTAssertEqual(player.displayValue(for: .goals), "—")
+        XCTAssertEqual(player.displayValue(for: .assists), "—")
+        XCTAssertEqual(player.displayValue(for: .minutes), "—")
+    }
+
     private func decodeFixture<Response: Decodable>(named name: String) throws -> Response {
         let fixtureURL = try XCTUnwrap(
             Bundle(for: Self.self).url(forResource: name, withExtension: "json")

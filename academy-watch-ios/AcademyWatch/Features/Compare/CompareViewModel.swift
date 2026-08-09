@@ -36,6 +36,7 @@ final class CompareViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var resolvedSeason: Int?
+    @Published private(set) var includeAvailability = true
 
     private let apiClient: any CompareAPIClientProtocol
 
@@ -58,7 +59,7 @@ final class CompareViewModel: ObservableObject {
         do {
             let response = try await apiClient.fetchComparison(
                 playerIDs: playerIDs,
-                includeAvailability: true,
+                includeAvailability: includeAvailability,
                 season: selectedSeason
             )
             players = response.players
@@ -68,6 +69,12 @@ final class CompareViewModel: ObservableObject {
             errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? "We couldn't compare these players. Check your connection and try again."
         }
+    }
+
+    func setIncludeAvailability(_ include: Bool) async {
+        guard includeAvailability != include else { return }
+        includeAvailability = include
+        await load()
     }
 
     var resolvedSeasonLabel: String {

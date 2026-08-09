@@ -371,13 +371,13 @@ extension ScoutPlayerSummary {
     func displayValue(for stat: ScoutCompactStat) -> String {
         switch stat {
         case .appearances:
-            return String(appearances)
+            return appearances.map(String.init) ?? Self.emDash
         case .goals:
-            return String(goals)
+            return goals.map(String.init) ?? Self.emDash
         case .assists:
-            return String(assists)
+            return assists.map(String.init) ?? Self.emDash
         case .minutes:
-            return compactNumber(minutesPlayed)
+            return minutesPlayed.map(compactNumber) ?? Self.emDash
         case .rating:
             return avgRating.map { String(format: "%.1f", $0) } ?? Self.emDash
         case .shots:
@@ -414,9 +414,9 @@ extension ScoutPlayerSummary {
 
     func leaderboardValue(for metric: ScoutLeaderboardMetric) -> String {
         switch metric {
-        case .goals: return String(goals)
-        case .assists: return String(assists)
-        case .minutes: return minutesPlayed.formatted()
+        case .goals: return goals.map(String.init) ?? Self.emDash
+        case .assists: return assists.map(String.init) ?? Self.emDash
+        case .minutes: return minutesPlayed?.formatted() ?? Self.emDash
         case .contributionsPer90: return formattedDecimal(contributionsPer90)
         case .shots: return detailedInteger(shotsTotal)
         case .keyPasses: return detailedInteger(keyPasses)

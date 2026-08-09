@@ -52,14 +52,15 @@ struct RootTabView: View {
         #if DEBUG
         if fixtureDestination != nil {
             switch fixtureDestination {
-            case .playerInbox, .declineConfirmation, .watchingYou, .messageReport:
+            case .playerInbox, .declineConfirmation, .watchingYou, .messageReport, .claimGate:
                 fixtureState = .signedIn(
                     email: "habeeb.player@fixture.example",
                     accountRole: .player,
                     displayName: "Habeeb Amass",
                     isVerifiedScout: false
                 )
-            case .verification, .introduction, .attestationWarning, .inbox, .clubConsent, .thread:
+            case .verification, .introduction, .attestationWarning, .inbox, .clubConsent, .thread,
+                 .deleteAccount, .blockedUsers, .watchlistNullStats:
                 fixtureState = .signedIn(
                     email: "alex.scout@fixture.example",
                     accountRole: .scout,
@@ -109,9 +110,12 @@ struct RootTabView: View {
         )
         let resolvedTab: RootTab = {
             switch fixtureDestination {
-            case .verification, .inbox, .clubConsent, .thread, .playerInbox, .declineConfirmation, .messageReport:
+            case .verification, .inbox, .clubConsent, .thread, .playerInbox, .declineConfirmation,
+                 .messageReport, .deleteAccount, .blockedUsers:
                 return .account
-            case .introduction, .attestationWarning, .watchingYou, nil:
+            case .watchlistNullStats:
+                return .watchlist
+            case .introduction, .attestationWarning, .watchingYou, .claimGate, nil:
                 return initialTab
             }
         }()
@@ -123,6 +127,7 @@ struct RootTabView: View {
         self.initialPlayerID = fixtureDestination == .introduction
             || fixtureDestination == .attestationWarning
             || fixtureDestination == .watchingYou
+            || fixtureDestination == .claimGate
             ? 403_064
             : initialPlayerID
         self.initialComparePlayerIDs = initialComparePlayerIDs
