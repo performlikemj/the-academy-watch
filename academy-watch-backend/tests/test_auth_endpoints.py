@@ -1,14 +1,19 @@
 """Tests for auth blueprint endpoints in src/routes/auth_routes.py."""
 
+import json
 import logging
 import os
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
+from src.auth import REVIEW_TOKEN_TTL_SECONDS, _ensure_user_account, issue_user_token
 from src.extensions import limiter
-from src.models.league import EmailToken, UserAccount, db
+from src.models.league import EmailToken, Team, UserAccount, db
 from src.models.showcase import PlayerProfileClaim
+from src.models.tracked_player import TrackedPlayer
+from src.models.trust import ScoutVerification
 from src.services.account_roles import derive_account_role
 
 
@@ -19,6 +24,7 @@ def auth_bp_app(monkeypatch):
 
     monkeypatch.delenv("REVIEW_LOGIN_EMAIL", raising=False)
     monkeypatch.delenv("REVIEW_LOGIN_CODE", raising=False)
+    monkeypatch.delenv("REVIEW_LOGIN_ACCOUNTS", raising=False)
     monkeypatch.delenv("ADMIN_EMAILS", raising=False)
 
     root_dir = os.path.dirname(os.path.dirname(__file__))
@@ -51,6 +57,7 @@ def rate_limited_auth_bp_app(monkeypatch):
 
     monkeypatch.delenv("REVIEW_LOGIN_EMAIL", raising=False)
     monkeypatch.delenv("REVIEW_LOGIN_CODE", raising=False)
+    monkeypatch.delenv("REVIEW_LOGIN_ACCOUNTS", raising=False)
     monkeypatch.delenv("ADMIN_EMAILS", raising=False)
 
     root_dir = os.path.dirname(os.path.dirname(__file__))
@@ -281,6 +288,121 @@ class TestVerifyLoginCode:
                 json={"email": "app.review@example.com", "code": "Review-Code_2026"},
             )
             assert limited.status_code == 429
+
+    def test_review_token_is_24_hours_and_env_membership_revokes_it_immediately(
+        self,
+        auth_bp_app,
+        auth_bp_client,
+        monkeypatch,
+    ):
+        config = {
+            "scout": {"email": "review-scout@example.com", "code": "Scout-Code_2026"},
+            "player": {"email": "review-player@example.com", "code": "Player-Code_2026"},
+        }
+        monkeypatch.setenv("REVIEW_LOGIN_ACCOUNTS", json.dumps(config))
+
+        with auth_bp_app.app_context():
+            login = auth_bp_client.post(
+                "/api/auth/verify-code",
+                json={"email": config["scout"]["email"], "code": config["scout"]["code"]},
+            )
+            assert login.status_code == 200, login.get_json()
+            assert login.get_json()["expires_in"] == REVIEW_TOKEN_TTL_SECONDS
+            review_token = login.get_json()["token"]
+
+            normal = _ensure_user_account("normal-user@example.com")
+            db.session.commit()
+            normal_token = issue_user_token(normal.email)["token"]
+
+        assert (
+            auth_bp_client.get(
+                "/api/auth/me",
+                headers={"Authorization": f"Bearer {review_token}"},
+            ).status_code
+            == 200
+        )
+        with patch("itsdangerous.timed.time.time", return_value=time.time() + REVIEW_TOKEN_TTL_SECONDS + 1):
+            expired = auth_bp_client.get(
+                "/api/auth/me",
+                headers={"Authorization": f"Bearer {review_token}"},
+            )
+        assert expired.status_code == 401
+        assert expired.get_json() == {"error": "auth token expired"}
+
+        config.pop("scout")
+        monkeypatch.setenv("REVIEW_LOGIN_ACCOUNTS", json.dumps(config))
+        revoked = auth_bp_client.get(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {review_token}"},
+        )
+        assert revoked.status_code == 401
+        assert revoked.get_json() == {"error": "invalid auth token"}
+        assert (
+            auth_bp_client.get(
+                "/api/auth/me",
+                headers={"Authorization": f"Bearer {normal_token}"},
+            ).status_code
+            == 200
+        )
+
+    def test_seed_is_admin_gated_synthetic_and_idempotent(
+        self,
+        auth_bp_app,
+        auth_bp_client,
+        monkeypatch,
+    ):
+        from src.routes.auth_routes import DEMO_PLAYER_API_ID, DEMO_PLAYER_BIRTH_DATE, DEMO_PLAYER_NAME
+
+        config = {
+            "scout": {"email": "review-scout@example.com", "code": "Scout-Code_2026"},
+            "player": {"email": "review-player@example.com", "code": "Player-Code_2026"},
+        }
+        monkeypatch.setenv("REVIEW_LOGIN_ACCOUNTS", json.dumps(config))
+        monkeypatch.setenv("ADMIN_API_KEY", "review-seed-admin-key")
+        monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
+
+        assert auth_bp_client.post("/api/admin/review-accounts/seed").status_code == 401
+
+        with auth_bp_app.app_context():
+            admin = _ensure_user_account("review-seed-admin@example.com")
+            db.session.commit()
+            admin_token = issue_user_token(admin.email, role="admin")["token"]
+        headers = {
+            "Authorization": f"Bearer {admin_token}",
+            "X-API-Key": "review-seed-admin-key",
+        }
+
+        first = auth_bp_client.post("/api/admin/review-accounts/seed", headers=headers)
+        second = auth_bp_client.post("/api/admin/review-accounts/seed", headers=headers)
+        assert first.status_code == 200, first.get_json()
+        assert second.status_code == 200, second.get_json()
+        assert set(first.get_json()["created"]) == {
+            "scout_account",
+            "scout_verification",
+            "player_account",
+            "demo_team",
+            "demo_player",
+            "player_claim",
+        }
+        assert second.get_json()["created"] == []
+        assert set(second.get_json()["found"]) == set(first.get_json()["created"])
+
+        with auth_bp_app.app_context():
+            scout = UserAccount.query.filter_by(email=config["scout"]["email"]).one()
+            player = UserAccount.query.filter_by(email=config["player"]["email"]).one()
+            assert ScoutVerification.query.filter_by(user_account_id=scout.id, status="approved").count() == 1
+            claim = PlayerProfileClaim.query.filter_by(
+                user_account_id=player.id,
+                player_api_id=DEMO_PLAYER_API_ID,
+                relationship_type="player",
+                status="approved",
+            ).one()
+            assert claim.reviewed_by == "review-seed-admin@example.com"
+            demo = TrackedPlayer.query.filter_by(player_api_id=DEMO_PLAYER_API_ID).one()
+            assert demo.player_name == DEMO_PLAYER_NAME
+            assert demo.data_source == "demo"
+            assert demo.birth_date == DEMO_PLAYER_BIRTH_DATE
+            assert Team.query.filter_by(id=demo.team_id, country="Demo").one() is not None
 
     def test_verify_code_creates_user_account(self, auth_bp_app, auth_bp_client, mock_email_service):
         """Should create a user account on successful verification."""

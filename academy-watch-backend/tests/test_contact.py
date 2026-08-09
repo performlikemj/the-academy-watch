@@ -8,7 +8,7 @@ from uuid import UUID
 import pytest
 from flask import Flask
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from src.auth import _ensure_user_account, issue_user_token
 from src.extensions import limiter
 from src.models.contact import ContactAuditEvent, ContactMessage, ContactOutcome, ContactRequest
@@ -457,7 +457,7 @@ class TestUserBlocks:
                 json={"blocked_user_id": other.id + 999_999},
                 headers=blocker_headers,
             ).status_code
-            == 404
+            == 204
         )
 
         created = client.post(
@@ -465,37 +465,71 @@ class TestUserBlocks:
             json={"blocked_user_id": blocked.id},
             headers=blocker_headers,
         )
-        assert created.status_code == 201, created.get_json()
-        assert created.get_json()["block"] == {
-            "blocked_user_id": blocked.id,
-            "display_name": blocked.display_name,
-            "created_at": created.get_json()["block"]["created_at"],
-        }
-        assert created.get_json()["block"]["created_at"] is not None
+        assert created.status_code == 204
+        assert created.data == b""
 
         repeated = client.post(
             "/api/blocks",
             json={"blocked_user_id": blocked.id},
             headers=blocker_headers,
         )
-        assert repeated.status_code == 200
+        assert repeated.status_code == 204
+        assert repeated.data == b""
         assert UserBlock.query.count() == 1
 
         own_list = client.get("/api/blocks", headers=blocker_headers)
         assert own_list.status_code == 200
-        assert own_list.get_json()["blocks"] == [created.get_json()["block"]]
+        assert own_list.get_json()["blocks"] == [
+            {
+                "blocked_user_id": blocked.id,
+                "display_name": blocked.display_name,
+                "created_at": own_list.get_json()["blocks"][0]["created_at"],
+            }
+        ]
+        assert own_list.get_json()["blocks"][0]["created_at"] is not None
         assert client.get("/api/blocks", headers=blocked_headers).get_json()["blocks"] == []
 
         wrong_owner = client.delete(f"/api/blocks/{blocked.id}", headers=blocked_headers)
-        assert wrong_owner.status_code == 200
-        assert wrong_owner.get_json() == {"removed": False}
+        assert wrong_owner.status_code == 204
+        assert wrong_owner.data == b""
         removed = client.delete(f"/api/blocks/{blocked.id}", headers=blocker_headers)
-        assert removed.status_code == 200
-        assert removed.get_json() == {"removed": True}
+        assert removed.status_code == 204
+        assert removed.data == b""
         repeated_remove = client.delete(f"/api/blocks/{blocked.id}", headers=blocker_headers)
-        assert repeated_remove.status_code == 200
-        assert repeated_remove.get_json() == {"removed": False}
+        assert repeated_remove.status_code == 204
+        assert repeated_remove.data == b""
         assert UserBlock.query.count() == 0
+
+    def test_mutation_routes_return_clean_503_when_ug01_is_missing(self, client, monkeypatch):
+        class _UndefinedTable(Exception):
+            sqlstate = "42P01"
+
+        class _MissingUserBlockQuery:
+            def filter_by(self, **_kwargs):
+                return self
+
+            def first(self):
+                raise ProgrammingError("SELECT FROM user_blocks", {}, _UndefinedTable("undefined table"))
+
+            def delete(self, **_kwargs):
+                raise ProgrammingError("DELETE FROM user_blocks", {}, _UndefinedTable("undefined table"))
+
+        blocker, blocker_headers = _headers("missing-table-blocker@example.com")
+        target, _ = _headers("missing-table-target@example.com")
+        assert blocker.id != target.id
+        monkeypatch.setattr(UserBlock, "query", _MissingUserBlockQuery())
+
+        created = client.post(
+            "/api/blocks",
+            json={"blocked_user_id": target.id},
+            headers=blocker_headers,
+        )
+        deleted = client.delete(f"/api/blocks/{target.id}", headers=blocker_headers)
+        expected = {"error": "Blocking is temporarily unavailable", "code": "blocks_unavailable"}
+        assert created.status_code == 503
+        assert created.get_json() == expected
+        assert deleted.status_code == 503
+        assert deleted.get_json() == expected
 
     def test_database_constraints_reject_duplicate_and_self_blocks(self, client):
         blocker, _ = _headers("constraint-blocker@example.com")
@@ -518,13 +552,13 @@ class TestUserBlocks:
         blocker, blocker_headers = _headers("block-rate@example.com")
         target, _ = _headers("block-rate-target@example.com")
 
-        for index in range(30):
+        for _ in range(30):
             response = client.post(
                 "/api/blocks",
                 json={"blocked_user_id": target.id},
                 headers=blocker_headers,
             )
-            assert response.status_code == (201 if index == 0 else 200)
+            assert response.status_code == 204
         assert (
             client.post(
                 "/api/blocks",
@@ -539,7 +573,7 @@ class TestUserBlocks:
         assert client.get("/api/blocks", headers=blocker_headers).status_code == 429
 
         for _ in range(30):
-            assert client.delete(f"/api/blocks/{target.id}", headers=blocker_headers).status_code == 200
+            assert client.delete(f"/api/blocks/{target.id}", headers=blocker_headers).status_code == 204
         assert client.delete(f"/api/blocks/{target.id}", headers=blocker_headers).status_code == 429
 
         independent, independent_headers = _headers("independent-block-rate@example.com")
@@ -550,7 +584,7 @@ class TestUserBlocks:
                 json={"blocked_user_id": target.id},
                 headers=independent_headers,
             ).status_code
-            == 201
+            == 204
         )
 
 
@@ -572,18 +606,23 @@ class TestContactAuthorizationAndFlag:
         assert agent_claim.status_code == 403
         assert agent_claim.get_json()["code"] == "player_not_claimable"
 
-    def test_blocked_scout_gets_exact_unclaimed_player_response_without_history_oracle(self, client):
+    @pytest.mark.parametrize("block_direction", ["player_blocks_scout", "scout_blocks_player"])
+    def test_bidirectional_block_prevents_request_with_neutral_response(self, client, block_direction):
         scout, scout_headers = _verified_scout("blocked-contact-scout@example.com")
         player, player_headers, _ = _claim("blocking-player@example.com", 5551)
 
         unclaimed = _create(client, scout_headers, 999_998)
         assert unclaimed.status_code == 403
+        if block_direction == "player_blocks_scout":
+            blocker_headers, blocked_user_id = player_headers, scout.id
+        else:
+            blocker_headers, blocked_user_id = scout_headers, player.id
         block = client.post(
             "/api/blocks",
-            json={"blocked_user_id": scout.id},
-            headers=player_headers,
+            json={"blocked_user_id": blocked_user_id},
+            headers=blocker_headers,
         )
-        assert block.status_code == 201, block.get_json()
+        assert block.status_code == 204
 
         blocked = _create(client, scout_headers, 5551)
         assert blocked.status_code == unclaimed.status_code
@@ -595,34 +634,41 @@ class TestContactAuthorizationAndFlag:
                 "code": "player_not_claimable",
             }
         )
-        assert UserBlock.query.filter_by(blocker_user_id=player.id, blocked_user_id=scout.id).count() == 1
+        assert UserBlock.query.count() == 1
         assert ContactRequest.query.count() == 0
 
-    @pytest.mark.parametrize("blocked_sender_role", ["scout", "player"])
-    def test_blocked_counterpart_cannot_post_but_can_read_existing_thread(
+    @pytest.mark.parametrize("sender_role", ["scout", "player"])
+    @pytest.mark.parametrize("block_direction", ["counterpart_blocks_sender", "sender_blocks_counterpart"])
+    def test_bidirectional_block_prevents_message_but_keeps_existing_thread_readable(
         self,
         client,
-        blocked_sender_role,
+        sender_role,
+        block_direction,
     ):
         scout, scout_headers, player, player_headers, _, request_payload = _seed_contact(
             client,
-            suffix=f"blocked-message-{blocked_sender_role}",
-            player_api_id=5571 if blocked_sender_role == "scout" else 5572,
+            suffix=f"blocked-message-{sender_role}-{block_direction}",
+            player_api_id=5571 if sender_role == "scout" else 5572,
         )
         request_id = request_payload["id"]
         assert client.post(f"/api/contact/requests/{request_id}/accept", headers=player_headers).status_code == 200
 
-        if blocked_sender_role == "scout":
-            blocked_user, blocked_headers = scout, scout_headers
-            blocker_headers = player_headers
+        if sender_role == "scout":
+            sender, sender_headers = scout, scout_headers
+            counterpart, counterpart_headers = player, player_headers
         else:
-            blocked_user, blocked_headers = player, player_headers
-            blocker_headers = scout_headers
+            sender, sender_headers = player, player_headers
+            counterpart, counterpart_headers = scout, scout_headers
+
+        if block_direction == "counterpart_blocks_sender":
+            blocker_headers, blocked_user = counterpart_headers, sender
+        else:
+            blocker_headers, blocked_user = sender_headers, counterpart
 
         prior = client.post(
             f"/api/contact/requests/{request_id}/messages",
             json={"body": "Historical message remains visible"},
-            headers=blocked_headers,
+            headers=sender_headers,
         )
         assert prior.status_code == 201, prior.get_json()
         message_count = ContactMessage.query.count()
@@ -633,11 +679,11 @@ class TestContactAuthorizationAndFlag:
             json={"blocked_user_id": blocked_user.id},
             headers=blocker_headers,
         )
-        assert block.status_code == 201, block.get_json()
+        assert block.status_code == 204
         refused = client.post(
             f"/api/contact/requests/{request_id}/messages",
             json={"body": "Must not be stored"},
-            headers=blocked_headers,
+            headers=sender_headers,
         )
         assert refused.status_code == 403
         assert refused.get_json() == {
@@ -647,18 +693,46 @@ class TestContactAuthorizationAndFlag:
         assert ContactMessage.query.count() == message_count
         assert ContactAuditEvent.query.filter_by(event_type="message_sent").count() == audit_count
 
-        history = client.get(f"/api/contact/requests/{request_id}/messages", headers=blocked_headers)
+        history = client.get(f"/api/contact/requests/{request_id}/messages", headers=sender_headers)
         assert history.status_code == 200
         assert [row["body"] for row in history.get_json()["messages"]] == ["Historical message remains visible"]
 
         unblocked = client.delete(f"/api/blocks/{blocked_user.id}", headers=blocker_headers)
-        assert unblocked.get_json() == {"removed": True}
+        assert unblocked.status_code == 204
         resumed = client.post(
             f"/api/contact/requests/{request_id}/messages",
             json={"body": "Messaging resumes after unblock"},
-            headers=blocked_headers,
+            headers=sender_headers,
         )
         assert resumed.status_code == 201, resumed.get_json()
+
+    @pytest.mark.parametrize("block_direction", ["player_blocks_scout", "scout_blocks_player"])
+    def test_bidirectional_block_hides_accepted_request_from_player_inbox(self, client, block_direction):
+        scout, scout_headers, player, player_headers, _, request_payload = _seed_contact(
+            client,
+            suffix=f"blocked-inbox-{block_direction}",
+            player_api_id=5580,
+        )
+        request_id = request_payload["id"]
+        assert client.post(f"/api/contact/requests/{request_id}/accept", headers=player_headers).status_code == 200
+
+        if block_direction == "player_blocks_scout":
+            blocker_headers, blocked_user_id = player_headers, scout.id
+        else:
+            blocker_headers, blocked_user_id = scout_headers, player.id
+        assert (
+            client.post(
+                "/api/blocks",
+                json={"blocked_user_id": blocked_user_id},
+                headers=blocker_headers,
+            ).status_code
+            == 204
+        )
+
+        inbox = client.get("/api/contact/requests?box=inbox", headers=player_headers)
+        assert inbox.status_code == 200
+        assert inbox.get_json()["requests"] == []
+        assert inbox.get_json()["total"] == 0
 
     def test_thread_and_outcome_hide_request_from_non_participant(self, client):
         _, scout_headers, _, player_headers, _, request_payload = _seed_contact(
@@ -891,7 +965,7 @@ class TestContractStatusRouting:
             json={"blocked_user_id": created.get_json()["contact_request"]["participants"]["scout"]["user_id"]},
             headers=club_headers,
         )
-        assert manager_blocks_scout.status_code == 201
+        assert manager_blocks_scout.status_code == 204
         scout_refused = client.post(
             f"/api/contact/requests/{request_id}/messages",
             json={"body": "The manager blocked this sender."},
@@ -900,13 +974,13 @@ class TestContractStatusRouting:
         assert scout_refused.status_code == 403
         assert scout_refused.get_json()["code"] == "messaging_unavailable"
 
-        assert client.delete(f"/api/blocks/{scout.id}", headers=club_headers).status_code == 200
+        assert client.delete(f"/api/blocks/{scout.id}", headers=club_headers).status_code == 204
         player_blocks_manager = client.post(
             "/api/blocks",
             json={"blocked_user_id": historical.get_json()["message"]["sender_user_id"]},
             headers=player_headers,
         )
-        assert player_blocks_manager.status_code == 201
+        assert player_blocks_manager.status_code == 204
         manager_refused = client.post(
             f"/api/contact/requests/{request_id}/messages",
             json={"body": "The player blocked this manager."},

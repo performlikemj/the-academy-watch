@@ -39,7 +39,11 @@ from src.services.contact import (
 )
 from src.services.player_suppression import is_player_suppressed, without_active_suppression
 from src.services.trust import is_verified_scout
-from src.services.user_blocks import user_block_exists, user_is_blocked_by_any
+from src.services.user_blocks import (
+    block_related_user_ids,
+    user_has_block_relationship_with_any,
+    users_have_block_relationship,
+)
 
 logger = logging.getLogger(__name__)
 contact_bp = Blueprint("contact", __name__)
@@ -287,9 +291,9 @@ def create_contact_request():
         claim = _target_claim(player_api_id)
         if claim is None:
             return _player_not_claimable()
-        if user_block_exists(
-            blocker_user_id=claim.user_account_id,
-            blocked_user_id=user.id,
+        if users_have_block_relationship(
+            first_user_id=claim.user_account_id,
+            second_user_id=user.id,
         ):
             return _player_not_claimable()
 
@@ -306,9 +310,9 @@ def create_contact_request():
         if claim is None:
             db.session.rollback()
             return _player_not_claimable()
-        if user_block_exists(
-            blocker_user_id=claim.user_account_id,
-            blocked_user_id=user.id,
+        if users_have_block_relationship(
+            first_user_id=claim.user_account_id,
+            second_user_id=user.id,
         ):
             db.session.rollback()
             return _player_not_claimable()
@@ -443,8 +447,21 @@ def list_contact_requests():
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
         box = (request.args.get("box") or "sent").strip().lower()
+        related_user_ids = block_related_user_ids(user_id=user.id)
+        related_claim_ids = None
+        if related_user_ids:
+            related_claim_ids = db.session.query(PlayerProfileClaim.id).filter(
+                PlayerProfileClaim.user_account_id.in_(related_user_ids)
+            )
         if box == "sent":
             query = ContactRequest.query.filter(ContactRequest.scout_user_id == user.id)
+            if related_claim_ids is not None:
+                query = query.filter(
+                    or_(
+                        ContactRequest.claim_id.is_(None),
+                        ContactRequest.claim_id.notin_(related_claim_ids),
+                    )
+                )
         elif box == "inbox":
             claim_ids = db.session.query(PlayerProfileClaim.id).filter_by(
                 user_account_id=user.id,
@@ -452,12 +469,23 @@ def list_contact_requests():
                 status="approved",
             )
             query = ContactRequest.query.filter(ContactRequest.claim_id.in_(claim_ids))
+            if related_user_ids:
+                query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
         elif box == "club":
             program_ids = active_manager_program_ids(user.id)
             query = ContactRequest.query.filter(
                 ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
                 ContactRequest.club_program_id.in_(program_ids),
             )
+            if related_user_ids:
+                query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
+            if related_claim_ids is not None:
+                query = query.filter(
+                    or_(
+                        ContactRequest.claim_id.is_(None),
+                        ContactRequest.claim_id.notin_(related_claim_ids),
+                    )
+                )
         else:
             return jsonify({"error": "box must be sent, inbox, or club"}), 400
 
@@ -686,7 +714,7 @@ def create_contact_message(request_id: str):
         counterpart_user_ids = [contact_request.scout_user_id, player_user_id]
         if contact_request.routing_mode == ROUTING_CLUB_INCLUDED:
             counterpart_user_ids.extend(active_program_manager_user_ids(contact_request.club_program_id))
-        if user_is_blocked_by_any(
+        if user_has_block_relationship_with_any(
             user_id=user.id,
             counterpart_user_ids=counterpart_user_ids,
         ):

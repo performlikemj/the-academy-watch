@@ -13,9 +13,10 @@ table enables Row Level Security in this same migration with no permissive
 direct-client policies. Downgrade checks every object before removing it so a
 partially applied schema remains recoverable.
 
-DEPLOY ORDERING (migrations do NOT auto-run): pre-apply ``ug01`` before
-deploying block routes or enforcement queries. Those code paths require the
-table to exist; re-running the guarded upgrade is a clean no-op.
+DEPLOY ORDERING (migrations do NOT auto-run): DDL must be pre-applied via the
+PostgreSQL pooler BEFORE the application image ships (repo standard). Re-running
+the guarded ``ug01`` upgrade is a clean no-op. Non-block routes tolerate the
+short pre-DDL window, while dedicated block routes report temporary unavailability.
 """
 
 import sqlalchemy as sa

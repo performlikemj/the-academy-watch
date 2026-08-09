@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from flask import Flask
+from sqlalchemy.exc import ProgrammingError
 from src.auth import issue_user_token
 from src.extensions import limiter
 from src.models.account import AccountDeletionEvent
@@ -1058,6 +1059,34 @@ def test_delete_erases_owned_data_and_tombstones_shared_integrity(client):
     )
     assert repeated.status_code == 401
     assert AccountDeletionEvent.query.count() == 1
+
+
+def test_delete_succeeds_when_user_blocks_table_is_not_yet_applied(client, monkeypatch):
+    class _UndefinedTable(Exception):
+        sqlstate = "42P01"
+
+    class _MissingUserBlockQuery:
+        def filter(self, *_args, **_kwargs):
+            return self
+
+        def delete(self, **_kwargs):
+            raise ProgrammingError("DELETE FROM user_blocks", {}, _UndefinedTable("undefined table"))
+
+    user = _add_account(98109, "pre-ug01-delete@example.com", "Pre UG01 Delete")
+    db.session.commit()
+    headers = _headers(user.email)
+    monkeypatch.setattr(UserBlock, "query", _MissingUserBlockQuery())
+
+    response = client.post(
+        "/api/account/delete",
+        json={"confirm": "DELETE"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.get_json()
+    event = AccountDeletionEvent.query.one()
+    assert event.counts["deleted"]["user_blocks"] == 0
+    assert UserAccount.query.filter_by(id=user.id).one_or_none() is None
 
 
 def test_tf01_is_guarded_chains_fc03_and_documents_gf01_ordering():

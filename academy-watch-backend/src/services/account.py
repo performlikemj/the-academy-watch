@@ -38,9 +38,9 @@ from src.models.product_event import ProductEvent
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.trust import ContentReport, ScoutVerification
-from src.models.user_block import UserBlock
 from src.services.club_registry import active_manager_program_ids
 from src.services.player_suppression import active_suppressed_player_ids
+from src.services.user_blocks import delete_user_block_rows_for_account
 
 DELETED_DISPLAY_NAME = "Account deleted"
 DELETED_EMAIL_PLACEHOLDER = "account-deleted@invalid"
@@ -726,12 +726,7 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     counts["deleted"]["scout_verifications"] = ScoutVerification.query.filter_by(user_account_id=user_id).delete(
         synchronize_session=False
     )
-    counts["deleted"]["user_blocks"] = UserBlock.query.filter(
-        or_(
-            UserBlock.blocker_user_id == user_id,
-            UserBlock.blocked_user_id == user_id,
-        )
-    ).delete(synchronize_session=False)
+    counts["deleted"]["user_blocks"] = delete_user_block_rows_for_account(user_id=user_id)
 
     if email:
         subscriptions = UserSubscription.query.filter(func.lower(UserSubscription.email) == email)

@@ -3,11 +3,15 @@
 import logging
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from src.auth import _safe_error_payload, require_user_auth
 from src.extensions import limiter
 from src.models.league import UserAccount, db
 from src.models.user_block import UserBlock
+from src.services.user_blocks import (
+    is_user_blocks_undefined_table_error,
+    log_user_blocks_table_unavailable_once,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,26 +43,30 @@ def _blocked_user_id(payload) -> int:
     return value
 
 
+def _blocks_unavailable():
+    return jsonify({"error": "Blocking is temporarily unavailable", "code": "blocks_unavailable"}), 503
+
+
 @blocks_bp.route("/blocks", methods=["POST"])
 @require_user_auth
 @limiter.limit(BLOCK_MUTATION_RATE_LIMIT, key_func=_user_rate_limit_key)
 def create_user_block():
-    """Block one existing user; repeated requests are idempotent."""
+    """Idempotently block a target without disclosing account existence."""
     try:
         blocked_user_id = _blocked_user_id(request.get_json(silent=True))
         if blocked_user_id == g.user.id:
             return jsonify({"error": "you cannot block yourself"}), 400
-
-        blocked_user = db.session.get(UserAccount, blocked_user_id)
-        if blocked_user is None or blocked_user.is_tombstone:
-            return jsonify({"error": "user not found"}), 404
 
         existing = UserBlock.query.filter_by(
             blocker_user_id=g.user.id,
             blocked_user_id=blocked_user_id,
         ).first()
         if existing is not None:
-            return jsonify({"block": _block_payload(existing, blocked_user)}), 200
+            return "", 204
+
+        blocked_user = db.session.get(UserAccount, blocked_user_id)
+        if blocked_user is None or blocked_user.is_tombstone:
+            return "", 204
 
         block = UserBlock(
             blocker_user_id=g.user.id,
@@ -69,17 +77,20 @@ def create_user_block():
             db.session.commit()
         except IntegrityError:
             db.session.rollback()
-            existing = UserBlock.query.filter_by(
-                blocker_user_id=g.user.id,
-                blocked_user_id=blocked_user_id,
-            ).first()
-            if existing is None:
-                raise
-            return jsonify({"block": _block_payload(existing, blocked_user)}), 200
-        return jsonify({"block": _block_payload(block, blocked_user)}), 201
+            # A concurrent duplicate or target deletion is indistinguishable
+            # from the already-satisfied neutral contract.
+            return "", 204
+        return "", 204
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400
+    except ProgrammingError as exc:
+        db.session.rollback()
+        if is_user_blocks_undefined_table_error(exc):
+            log_user_blocks_table_unavailable_once()
+            return _blocks_unavailable()
+        logger.exception("Failed to create user block")
+        return jsonify(_safe_error_payload(exc, "Failed to block user")), 500
     except Exception as exc:
         db.session.rollback()
         logger.exception("Failed to create user block")
@@ -105,6 +116,9 @@ def list_user_blocks():
         return jsonify({"blocks": [_block_payload(block, target) for block, target in rows]})
     except Exception as exc:
         db.session.rollback()
+        if is_user_blocks_undefined_table_error(exc):
+            log_user_blocks_table_unavailable_once()
+            return _blocks_unavailable()
         logger.exception("Failed to list user blocks")
         return jsonify(_safe_error_payload(exc, "Failed to list blocked users")), 500
 
@@ -115,14 +129,17 @@ def list_user_blocks():
 def delete_user_block(blocked_user_id: int):
     """Remove one caller-owned block; repeated requests are idempotent."""
     try:
-        removed = UserBlock.query.filter_by(
+        UserBlock.query.filter_by(
             blocker_user_id=g.user.id,
             blocked_user_id=blocked_user_id,
         ).delete(synchronize_session=False)
         db.session.commit()
-        return jsonify({"removed": bool(removed)})
+        return "", 204
     except Exception as exc:
         db.session.rollback()
+        if is_user_blocks_undefined_table_error(exc):
+            log_user_blocks_table_unavailable_once()
+            return _blocks_unavailable()
         logger.exception("Failed to delete user block")
         return jsonify(_safe_error_payload(exc, "Failed to unblock user")), 500
 
