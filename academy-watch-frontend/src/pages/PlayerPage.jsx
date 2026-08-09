@@ -558,6 +558,7 @@ export function PlayerPage() {
         goalsConceded: seasonStats?.goals_conceded ?? stats.reduce((acc, s) => acc + (s.goals_conceded || 0), 0),
         cleanSheets: seasonStats?.clean_sheets ?? 0,
     }
+    const hasSeasonTotals = (seasonStats?.appearances ?? 0) > 0 || (seasonStats?.minutes ?? 0) > 0
 
     if (loading) {
         return (
@@ -707,6 +708,104 @@ export function PlayerPage() {
                         {stats.length === 0 && academyStats?.appearances > 0 ? (
                             /* Academy player with no loan stats — academy section below is the primary view */
                             null
+                        ) : stats.length === 0 && hasSeasonTotals && seasonStats?.stats_coverage !== 'limited' ? (
+                            <div className="space-y-6">
+                                <p className="text-sm text-muted-foreground">
+                                    Season totals — per-match breakdown not available for this season.
+                                </p>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-foreground tabular-nums">{seasonStats.appearances ?? 0}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Appearances</div>
+                                        </CardContent>
+                                    </Card>
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-emerald-600 tabular-nums">{seasonStats.goals ?? 0}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Goals</div>
+                                        </CardContent>
+                                    </Card>
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-amber-600 tabular-nums">{seasonStats.assists ?? 0}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Assists</div>
+                                        </CardContent>
+                                    </Card>
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-foreground tabular-nums">{(seasonStats.minutes ?? 0).toLocaleString()}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Minutes</div>
+                                        </CardContent>
+                                    </Card>
+                                    {seasonStats.avg_rating != null && (
+                                        <Card>
+                                            <CardContent className="pt-4 text-center">
+                                                <div className="text-3xl font-bold text-violet-600 tabular-nums">{seasonStats.avg_rating}</div>
+                                                <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Avg Rating</div>
+                                            </CardContent>
+                                        </Card>
+                                    )}
+                                </div>
+
+                                {seasonStats.clubs?.length > 0 && (
+                                    <Card>
+                                        <CardHeader className="pb-2">
+                                            <CardTitle className="text-base flex items-center gap-2">
+                                                <Calendar className="h-4 w-4" />
+                                                Stats by Club
+                                            </CardTitle>
+                                            <CardDescription>Season breakdown by club</CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                {seasonStats.clubs.map((club, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        className={`p-4 rounded-lg border ${club.is_current ? 'bg-primary/5 border-primary/20' : 'bg-secondary border-border'}`}
+                                                    >
+                                                        <div className="flex items-center gap-2 mb-3">
+                                                            {club.team_logo && (
+                                                                <img src={club.team_logo} alt="" width={24} height={24} className="w-6 h-6 rounded-full" />
+                                                            )}
+                                                            <span className="font-semibold">{club.team_name}</span>
+                                                            {club.window_type && (
+                                                                <Badge
+                                                                    variant="outline"
+                                                                    className={`text-xs ${club.is_current
+                                                                        ? 'bg-primary/10 text-primary border-primary/20'
+                                                                        : 'bg-secondary text-muted-foreground border-border'}`}
+                                                                >
+                                                                    {club.window_type}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        <div className="grid grid-cols-4 gap-3 text-center">
+                                                            <div>
+                                                                <div className="text-lg font-bold text-foreground">{club.appearances ?? 0}</div>
+                                                                <div className="text-xs text-muted-foreground">Apps</div>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-lg font-bold text-foreground">{(club.minutes ?? 0).toLocaleString()}</div>
+                                                                <div className="text-xs text-muted-foreground">Mins</div>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-lg font-bold text-emerald-600">{club.goals ?? 0}</div>
+                                                                <div className="text-xs text-muted-foreground">Goals</div>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-lg font-bold text-amber-600">{club.assists ?? 0}</div>
+                                                                <div className="text-xs text-muted-foreground">Assists</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                )}
+                            </div>
                         ) : stats.length === 0 && seasonStats?.stats_coverage !== 'limited' ? (
                             <Card>
                                 <CardContent className="py-12 text-center">
