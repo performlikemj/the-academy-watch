@@ -265,13 +265,23 @@ private struct IntroductionRequestSheet: View {
     }
 
     private var privacyNote: some View {
-        Label(
-            "Your account identity and this message are shared with the player profile owner and, where required, their club. Messaging opens only after the player accepts and any required club consent is granted.",
-            systemImage: "lock.shield"
-        )
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 8) {
+            Label(
+                "Your account identity and this message are shared with the player profile owner and, where required, their club. Messaging opens only after the player accepts and any required club consent is granted.",
+                systemImage: "lock.shield"
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            LegalSafariLink(destination: .communityRules) {
+                Label("Community Rules", systemImage: "arrow.up.right.square")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(AcademyColors.claret)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("introduction-community-rules")
+        }
     }
 
     @ViewBuilder

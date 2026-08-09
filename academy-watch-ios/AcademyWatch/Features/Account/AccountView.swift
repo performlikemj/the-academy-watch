@@ -118,6 +118,7 @@ struct AccountView: View {
                     } else {
                         signedOutContent
                     }
+                    legalSection
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 22)
@@ -523,6 +524,48 @@ struct AccountView: View {
         .padding(24)
         .frame(maxWidth: .infinity)
         .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private var legalSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Legal")
+                .font(.title3.weight(.bold))
+                .padding(.horizontal, 4)
+
+            VStack(spacing: 0) {
+                ForEach(LegalDestination.allCases) { destination in
+                    LegalSafariLink(destination: destination) {
+                        HStack(spacing: 13) {
+                            Image(systemName: destination.systemImage)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(AcademyColors.claret)
+                                .frame(width: 28)
+
+                            Text(destination.title)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+
+                            Spacer(minLength: 6)
+
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 50)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("account-legal-\(destination.rawValue)")
+
+                    if destination != LegalDestination.allCases.last {
+                        Divider().padding(.leading, 57)
+                    }
+                }
+            }
+            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 17))
+        }
+        .accessibilityIdentifier("account-legal-section")
     }
 }
 
