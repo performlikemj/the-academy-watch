@@ -69,6 +69,7 @@ from src.services.player_suppression import (
     is_player_suppressed,
     neutral_player_not_found,
 )
+from src.services.user_blocks import blocked_user_ids
 from src.utils.academy_window import age_from_birth_date
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
@@ -1770,6 +1771,7 @@ def my_interest_signals():
                 }
             )
 
+        hidden_user_ids = blocked_user_ids(blocker_user_id=user.id)
         watchlist_rows = (
             db.session.query(
                 ScoutWatchlistEntry.player_api_id,
@@ -1783,7 +1785,10 @@ def my_interest_signals():
                     )
                 ),
             )
-            .filter(ScoutWatchlistEntry.player_api_id.in_(player_ids))
+            .filter(
+                ScoutWatchlistEntry.player_api_id.in_(player_ids),
+                ScoutWatchlistEntry.user_account_id.not_in(hidden_user_ids),
+            )
             .group_by(ScoutWatchlistEntry.player_api_id)
             .all()
         )
@@ -1802,6 +1807,7 @@ def my_interest_signals():
                 FollowList.is_active.is_(True),
                 FollowList.is_default.is_(False),
                 followed_player_id.in_(player_ids),
+                FollowList.user_account_id.not_in(hidden_user_ids),
             )
             .group_by(followed_player_id, FollowList.user_account_id)
             .subquery()

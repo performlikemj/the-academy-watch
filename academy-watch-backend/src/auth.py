@@ -8,6 +8,8 @@ This module contains shared authentication code used across blueprints:
 - Client IP resolution
 """
 
+import hmac
+import json
 import logging
 import os
 import re
@@ -47,6 +49,76 @@ def _admin_email_list() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# App Review login
+# ---------------------------------------------------------------------------
+
+USER_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
+REVIEW_TOKEN_TTL_SECONDS = 60 * 60 * 24
+
+
+def _review_login_accounts() -> dict[str, dict[str, str]]:
+    """Load enabled review accounts without persisting or logging their codes.
+
+    ``REVIEW_LOGIN_ACCOUNTS`` is a JSON object keyed by demo state, currently
+    ``scout`` and ``player``. The legacy single-account pair remains supported
+    during rollout.
+    """
+    accounts: dict[str, dict[str, str]] = {}
+    raw = (os.getenv("REVIEW_LOGIN_ACCOUNTS") or "").strip()
+    if raw:
+        try:
+            configured = json.loads(raw)
+        except (TypeError, ValueError):
+            logger.error("REVIEW_LOGIN_ACCOUNTS is invalid JSON; configured review accounts are disabled")
+            configured = {}
+        if not isinstance(configured, dict):
+            logger.error("REVIEW_LOGIN_ACCOUNTS must be a JSON object; configured review accounts are disabled")
+            configured = {}
+        for state in ("scout", "player"):
+            entry = configured.get(state)
+            if not isinstance(entry, dict):
+                continue
+            email = entry.get("email")
+            code = entry.get("code")
+            if not isinstance(email, str) or not email.strip() or not isinstance(code, str) or not code:
+                logger.error("REVIEW_LOGIN_ACCOUNTS.%s requires non-empty email and code strings", state)
+                continue
+            normalized_email = email.strip().lower()
+            if normalized_email in accounts:
+                logger.error("REVIEW_LOGIN_ACCOUNTS contains a duplicate email; duplicate entry ignored")
+                continue
+            accounts[normalized_email] = {"email": normalized_email, "code": code, "state": state}
+
+    legacy_email = (os.getenv("REVIEW_LOGIN_EMAIL") or "").strip().lower()
+    legacy_code = os.getenv("REVIEW_LOGIN_CODE")
+    if legacy_email and legacy_code and legacy_email not in accounts:
+        accounts[legacy_email] = {"email": legacy_email, "code": legacy_code, "state": "legacy"}
+    return accounts
+
+
+def _review_account_config(state: str) -> dict[str, str] | None:
+    """Return the configured review account for one seeded demo state."""
+    return next((entry for entry in _review_login_accounts().values() if entry["state"] == state), None)
+
+
+def _review_account_is_configured(email: str) -> bool:
+    return (email or "").strip().lower() in _review_login_accounts()
+
+
+def _review_login_matches(email: str, code: str) -> bool:
+    """Return whether the exact, fully configured App Review credential matches.
+
+    Both environment variables are required so a partial deployment remains
+    disabled. Email matching is case-insensitive; the static code is exact and
+    compared without logging or persisting it.
+    """
+    account = _review_login_accounts().get((email or "").strip().lower())
+    if account is None:
+        return False
+    return hmac.compare_digest((code or "").encode(), account["code"].encode())
+
+
+# ---------------------------------------------------------------------------
 # IP whitelist configuration
 # ---------------------------------------------------------------------------
 
@@ -83,6 +155,27 @@ def get_client_ip() -> str:
 # ---------------------------------------------------------------------------
 
 
+class _ReviewAwareUserSerializer(URLSafeTimedSerializer):
+    """Apply review-account revocation and TTL checks at every token load."""
+
+    def loads(self, s, max_age=None, return_timestamp=False, salt=None):
+        effective_max_age = max_age
+        loaded = super().loads(s, max_age=effective_max_age, return_timestamp=return_timestamp, salt=salt)
+        payload = loaded[0] if return_timestamp else loaded
+        if isinstance(payload, dict) and payload.get("review_account") is True:
+            if effective_max_age is None or effective_max_age > REVIEW_TOKEN_TTL_SECONDS:
+                loaded = super().loads(
+                    s,
+                    max_age=REVIEW_TOKEN_TTL_SECONDS,
+                    return_timestamp=return_timestamp,
+                    salt=salt,
+                )
+                payload = loaded[0] if return_timestamp else loaded
+            if not _review_account_is_configured(payload.get("email") or ""):
+                raise BadSignature("review account is no longer configured")
+        return loaded
+
+
 def _user_serializer() -> URLSafeTimedSerializer:
     """Get a URL-safe timed serializer for user tokens."""
     secret = current_app.config.get("SECRET_KEY") or os.getenv("SECRET_KEY")
@@ -92,10 +185,10 @@ def _user_serializer() -> URLSafeTimedSerializer:
     if is_prod and (not secret or secret == "change-me"):
         raise RuntimeError("SECRET_KEY must be properly configured in production")
 
-    return URLSafeTimedSerializer(secret_key=secret or "change-me", salt="user-auth")
+    return _ReviewAwareUserSerializer(secret_key=secret or "change-me", salt="user-auth")
 
 
-def issue_user_token(email: str, ttl_seconds: int = 60 * 60 * 24 * 30, role: str = "user") -> dict:
+def issue_user_token(email: str, ttl_seconds: int = USER_TOKEN_TTL_SECONDS, role: str = "user") -> dict:
     """Issue a signed JWT-like token for user authentication.
 
     Args:
@@ -109,6 +202,9 @@ def issue_user_token(email: str, ttl_seconds: int = 60 * 60 * 24 * 30, role: str
     s = _user_serializer()
     # Embed ts in payload for debugging; URLSafeTimedSerializer enforces max_age on loads
     payload = {"email": email, "role": role, "iat": int(time.time())}
+    if _review_account_is_configured(email):
+        payload["review_account"] = True
+        ttl_seconds = REVIEW_TOKEN_TTL_SECONDS
     if has_app_context():
         # Bind newly issued tokens to one concrete account generation. A user
         # may later re-register the same email after deletion; matching only on

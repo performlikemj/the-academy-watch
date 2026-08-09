@@ -98,6 +98,20 @@ def active_manager_program_ids(user_id: int | None) -> list[int]:
     return [int(row[0]) for row in rows]
 
 
+def active_program_manager_user_ids(program_id: int | None) -> list[int]:
+    """Return the active user accounts participating for one club program."""
+    if program_id is None or not registry_available():
+        return []
+    rows = db.session.execute(
+        sa.text(
+            f"SELECT DISTINCT user_account_id FROM {MANAGERS_TABLE} "
+            "WHERE program_id = :program_id AND status = 'active' ORDER BY user_account_id"
+        ),
+        {"program_id": program_id},
+    ).all()
+    return [int(row[0]) for row in rows]
+
+
 def find_club_notice_target(*, program_id: int | None, club_name: str | None) -> dict | None:
     """Resolve a courtesy-notice target without discovering external emails.
 
@@ -143,6 +157,7 @@ def find_club_notice_target(*, program_id: int | None, club_name: str | None) ->
 
 __all__ = [
     "active_manager_program_ids",
+    "active_program_manager_user_ids",
     "club_program_exists",
     "find_club_notice_target",
     "get_club_program",

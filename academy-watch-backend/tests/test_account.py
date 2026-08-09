@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from flask import Flask
+from sqlalchemy.exc import ProgrammingError
 from src.auth import issue_user_token
 from src.extensions import limiter
 from src.models.account import AccountDeletionEvent
@@ -31,6 +32,7 @@ from src.models.league import (
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.trust import ContentReport, ScoutVerification
+from src.models.user_block import UserBlock
 
 SUBJECT_ID = 91001
 PLAYER_COUNTERPART_ID = 92002
@@ -258,6 +260,18 @@ def _seed_full_account_graph():
         statement="Unrelated verification statement",
         evidence_urls=["https://example.com/unrelated-evidence"],
         status="approved",
+    )
+    subject_created_block = UserBlock(
+        blocker_user_id=subject.id,
+        blocked_user_id=player_counterpart.id,
+    )
+    subject_received_block = UserBlock(
+        blocker_user_id=scout_counterpart.id,
+        blocked_user_id=subject.id,
+    )
+    unrelated_block = UserBlock(
+        blocker_user_id=unrelated_scout.id,
+        blocked_user_id=unrelated_player.id,
     )
 
     subject_claim = PlayerProfileClaim(
@@ -517,6 +531,9 @@ def _seed_full_account_graph():
             subject_snapshot,
             subject_verification,
             unrelated_verification,
+            subject_created_block,
+            subject_received_block,
+            unrelated_block,
             subject_profile,
             unrelated_profile,
             owner_link,
@@ -551,6 +568,7 @@ def _seed_full_account_graph():
         "unrelated_report_id": unrelated_report.id,
         "subject_community_take_id": subject_community_take.id,
         "subject_quick_take_id": subject_quick_take.id,
+        "unrelated_block_id": unrelated_block.id,
         "subject_message_ids": [messages[0].id, messages[3].id],
         "counterpart_message_ids": [messages[1].id, messages[2].id],
         "subject_outcome_ids": [outcomes[0].id, outcomes[1].id],
@@ -941,6 +959,7 @@ def test_delete_erases_owned_data_and_tombstones_shared_integrity(client):
     assert deleted["follows"] == 1
     assert deleted["follow_player_snapshots"] == 1
     assert deleted["scout_verifications"] == 1
+    assert deleted["user_blocks"] == 2
     assert deleted["email_subscriptions"] == 1
     assert deleted["email_tokens"] == 1
     assert deleted["showcase_claims"] == 1
@@ -962,6 +981,16 @@ def test_delete_erases_owned_data_and_tombstones_shared_integrity(client):
     assert FollowList.query.filter_by(user_account_id=seeded["subject_id"]).count() == 0
     assert FollowPlayerSnapshot.query.filter_by(user_account_id=seeded["subject_id"]).count() == 0
     assert ScoutVerification.query.filter_by(user_account_id=seeded["subject_id"]).count() == 0
+    assert (
+        UserBlock.query.filter(
+            sa.or_(
+                UserBlock.blocker_user_id == seeded["subject_id"],
+                UserBlock.blocked_user_id == seeded["subject_id"],
+            )
+        ).count()
+        == 0
+    )
+    assert UserBlock.query.filter_by(id=seeded["unrelated_block_id"]).one_or_none() is not None
     assert UserSubscription.query.filter_by(email=seeded["subject_email"]).count() == 0
     assert EmailToken.query.filter_by(email=seeded["subject_email"]).count() == 0
     assert PlayerProfileClaim.query.filter_by(id=seeded["subject_claim_id"]).one_or_none() is None
@@ -1030,6 +1059,34 @@ def test_delete_erases_owned_data_and_tombstones_shared_integrity(client):
     )
     assert repeated.status_code == 401
     assert AccountDeletionEvent.query.count() == 1
+
+
+def test_delete_succeeds_when_user_blocks_table_is_not_yet_applied(client, monkeypatch):
+    class _UndefinedTable(Exception):
+        sqlstate = "42P01"
+
+    class _MissingUserBlockQuery:
+        def filter(self, *_args, **_kwargs):
+            return self
+
+        def delete(self, **_kwargs):
+            raise ProgrammingError("DELETE FROM user_blocks", {}, _UndefinedTable("undefined table"))
+
+    user = _add_account(98109, "pre-ug01-delete@example.com", "Pre UG01 Delete")
+    db.session.commit()
+    headers = _headers(user.email)
+    monkeypatch.setattr(UserBlock, "query", _MissingUserBlockQuery())
+
+    response = client.post(
+        "/api/account/delete",
+        json={"confirm": "DELETE"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.get_json()
+    event = AccountDeletionEvent.query.one()
+    assert event.counts["deleted"]["user_blocks"] == 0
+    assert UserAccount.query.filter_by(id=user.id).one_or_none() is None
 
 
 def test_tf01_is_guarded_chains_fc03_and_documents_gf01_ordering():

@@ -22,6 +22,8 @@ from src.auth import (
     _ensure_user_account,
     _is_production,
     _normalize_display_name,
+    _review_account_config,
+    _review_login_matches,
     _safe_error_payload,
     _user_serializer,
     get_client_ip,
@@ -32,10 +34,14 @@ from src.auth import (
 from src.extensions import limiter
 from src.models.league import (
     EmailToken,
+    Team,
     UserAccount,
     _as_utc,
     db,
 )
+from src.models.showcase import PlayerProfileClaim
+from src.models.tracked_player import TrackedPlayer
+from src.models.trust import ScoutVerification
 from src.services.account_roles import derive_account_role
 from src.services.email_service import email_service
 from src.services.trust import is_verified_scout
@@ -43,6 +49,12 @@ from src.services.trust import is_verified_scout
 logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__)
+
+DEMO_PLAYER_API_ID = 2_147_160_001
+DEMO_TEAM_API_ID = 2_147_160_000
+DEMO_TEAM_SEASON = 2026
+DEMO_PLAYER_NAME = "Demo Player (App Review)"
+DEMO_PLAYER_BIRTH_DATE = "2000-01-01"
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +189,8 @@ def verify_login_code():
     try:
         data = request.get_json() or {}
         email = (data.get("email") or "").strip().lower()
-        code = (data.get("code") or "").strip()
+        submitted_code = data.get("code") or ""
+        code = submitted_code.strip()
         if not email or not code:
             logger.warning(
                 "Verify-login missing fields email_present=%s code_present=%s from %s",
@@ -188,24 +201,38 @@ def verify_login_code():
             return jsonify({"error": "email and code are required"}), 400
         client_ip = get_client_ip()
         logger.info("Verifying login code for %s from %s", email, client_ip)
-        row = EmailToken.query.filter_by(email=email, token=code, purpose="login").first()
-        if not row or not row.is_valid():
-            logger.warning("Invalid/expired login code for %s from %s", email, client_ip)
-            return jsonify({"error": "invalid or expired code"}), 400
-        # Mark used and issue an auth token
-        row.used_at = datetime.now(UTC)
+        # Static review credentials require a byte-exact submitted code. Keep
+        # the existing whitespace-tolerant normalization for one-time codes.
+        is_review_login = _review_login_matches(email, submitted_code)
+        if not is_review_login:
+            row = EmailToken.query.filter_by(email=email, token=code, purpose="login").first()
+            if not row or not row.is_valid():
+                logger.warning("Invalid/expired login code for %s from %s", email, client_ip)
+                return jsonify({"error": "invalid or expired code"}), 400
+            # Mark one-time email codes used. The env-gated review code is
+            # intentionally reusable until operators revoke either env var.
+            row.used_at = datetime.now(UTC)
         is_new_user = not UserAccount.query.filter_by(email=email).first()
         user = _ensure_user_account(email)
         if user:
             user.last_login_at = datetime.now(UTC)
         db.session.commit()
+        if is_review_login:
+            logger.warning(
+                "audit_event=review_login_used email=%s user_id=%s ip=%s",
+                email,
+                user.id if user else None,
+                client_ip,
+            )
         if is_new_user:
             from src.services.admin_notify_service import notify_new_user
 
             notify_new_user(email, user.display_name if user else None)
         # Determine role by env allowlist
         allowed = [x.strip().lower() for x in (os.getenv("ADMIN_EMAILS") or "").split(",") if x.strip()]
-        role = "admin" if email in allowed else "user"
+        # A reusable App Review credential must never mint an elevated bearer,
+        # even if deployment allowlists accidentally overlap.
+        role = "user" if is_review_login else ("admin" if email in allowed else "user")
         logger.info("Login verified for %s from %s role=%s", email, client_ip, role)
         out = issue_user_token(email, role=role)
         return jsonify(
@@ -226,6 +253,156 @@ def verify_login_code():
         except Exception:
             pass
         return jsonify(_safe_error_payload(e, "Unable to verify login code right now. Please try again later.")), 500
+
+
+@auth_bp.route("/admin/review-accounts/seed", methods=["POST"])
+@require_api_key
+def seed_review_accounts():
+    """Idempotently provision synthetic scout and player App Review states."""
+    try:
+        scout_config = _review_account_config("scout")
+        player_config = _review_account_config("player")
+        if scout_config is None or player_config is None:
+            return jsonify({"error": "Both scout and player review accounts must be configured"}), 503
+
+        actor = getattr(g, "user_email", None) or "admin"
+        now = datetime.now(UTC)
+        result = {"created": [], "found": []}
+
+        def _record(resource: str, created: bool) -> None:
+            result["created" if created else "found"].append(resource)
+
+        scout = UserAccount.query.filter_by(email=scout_config["email"]).first()
+        scout_created = scout is None
+        scout = _ensure_user_account(scout_config["email"])
+        _record("scout_account", scout_created)
+
+        verification = (
+            ScoutVerification.query.filter_by(user_account_id=scout.id, status="approved")
+            .order_by(ScoutVerification.id.asc())
+            .first()
+        )
+        if verification is None:
+            verification = (
+                ScoutVerification.query.filter_by(user_account_id=scout.id, status="pending")
+                .order_by(ScoutVerification.id.asc())
+                .first()
+            )
+        if verification is None:
+            verification = (
+                ScoutVerification.query.filter_by(user_account_id=scout.id)
+                .order_by(ScoutVerification.id.desc())
+                .first()
+            )
+        verification_created = verification is None
+        if verification is None:
+            verification = ScoutVerification(
+                user_account_id=scout.id,
+                full_name="App Review Scout",
+                organization="The Academy Watch Demo",
+                role_title="Scout",
+                statement="Synthetic App Review account for demonstrating verified scout access.",
+                evidence_urls=[],
+            )
+            db.session.add(verification)
+        verification.status = "approved"
+        verification.reviewed_at = now
+        verification.reviewed_by = actor
+        verification.review_notes = "Synthetic App Review seed; no real-person verification evidence."
+        verification.revocation_reason = None
+        _record("scout_verification", verification_created)
+
+        player_account = UserAccount.query.filter_by(email=player_config["email"]).first()
+        player_account_created = player_account is None
+        player_account = _ensure_user_account(player_config["email"])
+        _record("player_account", player_account_created)
+
+        team = Team.query.filter_by(team_id=DEMO_TEAM_API_ID, season=DEMO_TEAM_SEASON).first()
+        team_created = team is None
+        if team is None:
+            team = Team(
+                team_id=DEMO_TEAM_API_ID,
+                name="App Review Demo Academy",
+                country="Demo",
+                season=DEMO_TEAM_SEASON,
+                is_active=True,
+                is_tracked=False,
+                newsletters_active=False,
+            )
+            db.session.add(team)
+            db.session.flush()
+        elif team.name != "App Review Demo Academy" or team.country != "Demo":
+            db.session.rollback()
+            return jsonify({"error": "Reserved App Review demo team identifier is already in use"}), 409
+        _record("demo_team", team_created)
+
+        tracked_rows = TrackedPlayer.query.filter_by(player_api_id=DEMO_PLAYER_API_ID).all()
+        if any(row.data_source != "demo" for row in tracked_rows):
+            db.session.rollback()
+            return jsonify({"error": "Reserved App Review demo player identifier is already in use"}), 409
+        tracked = next((row for row in tracked_rows if row.team_id == team.id), None)
+        tracked_created = tracked is None
+        if tracked is None:
+            tracked = TrackedPlayer(player_api_id=DEMO_PLAYER_API_ID, team_id=team.id)
+            db.session.add(tracked)
+        tracked.player_name = DEMO_PLAYER_NAME
+        tracked.birth_date = DEMO_PLAYER_BIRTH_DATE
+        tracked.age = None
+        tracked.position = "Midfielder"
+        tracked.nationality = "Demo"
+        tracked.status = "first_team"
+        tracked.data_source = "demo"
+        tracked.data_depth = "profile_only"
+        tracked.is_active = True
+        tracked.notes = "Synthetic App Review fixture; never replace with real-person data."
+        _record("demo_player", tracked_created)
+
+        claim = PlayerProfileClaim.query.filter_by(
+            player_api_id=DEMO_PLAYER_API_ID,
+            user_account_id=player_account.id,
+        ).first()
+        claim_created = claim is None
+        if claim is None:
+            claim = PlayerProfileClaim(
+                player_api_id=DEMO_PLAYER_API_ID,
+                user_account_id=player_account.id,
+                relationship_type="player",
+            )
+            db.session.add(claim)
+        claim.relationship_type = "player"
+        claim.status = "approved"
+        claim.contract_status = "free_agent"
+        claim.current_club_name = None
+        claim.club_program_id = None
+        claim.status_contradiction = False
+        claim.verification_status = "unverified"
+        claim.verification_method = None
+        claim.verification_note = "Synthetic App Review seed; not a real-person identity claim."
+        claim.reviewed_at = now
+        claim.reviewed_by = actor
+        _record("player_claim", claim_created)
+
+        db.session.commit()
+        return jsonify(
+            {
+                **result,
+                "scout": {"email": scout.email, "verification_status": verification.status},
+                "player": {
+                    "email": player_account.email,
+                    "claim_status": claim.status,
+                    "player_api_id": DEMO_PLAYER_API_ID,
+                },
+                "demo_player": {
+                    "name": tracked.player_name,
+                    "data_source": tracked.data_source,
+                    "birth_date": tracked.birth_date,
+                },
+            }
+        )
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("Failed to seed App Review accounts")
+        return jsonify(_safe_error_payload(exc, "Failed to seed App Review accounts")), 500
 
 
 @auth_bp.route("/auth/me", methods=["GET"])

@@ -115,7 +115,7 @@ class ContactRequest(db.Model):
             .first()
         )
 
-    def to_dict(self):
+    def to_dict(self, *, include_user_ids: bool = False):
         latest = self.latest_outcome()
         club_participant = None
         if self.routing_mode == "club_included" and self.club_program_id is not None:
@@ -126,6 +126,15 @@ class ContactRequest(db.Model):
                 "club_program_id": self.club_program_id,
                 "display_name": program.get("name") if program else None,
             }
+        scout_participant = {
+            "display_name": self.scout.display_name if self.scout else None,
+        }
+        player_participant = {
+            "display_name": self.player_user.display_name if self.player_user else "Account deleted",
+        }
+        if include_user_ids:
+            scout_participant["user_id"] = self.scout_user_id
+            player_participant["user_id"] = self.claim.user_account_id if self.claim is not None else None
         return {
             "id": self.id,
             "player_api_id": self.player_api_id,
@@ -144,12 +153,8 @@ class ContactRequest(db.Model):
             "responded_at": _iso(self.responded_at),
             "expires_at": _iso(self.expires_at),
             "participants": {
-                "scout": {
-                    "display_name": self.scout.display_name if self.scout else None,
-                },
-                "player": {
-                    "display_name": self.player_user.display_name if self.player_user else "Account deleted",
-                },
+                "scout": scout_participant,
+                "player": player_participant,
                 "club": club_participant,
             },
             "latest_outcome": latest.to_dict() if latest else None,
@@ -178,8 +183,8 @@ class ContactMessage(db.Model):
     contact_request = db.relationship("ContactRequest", back_populates="messages")
     sender = db.relationship("UserAccount", foreign_keys=[sender_user_id])
 
-    def to_dict(self):
-        return {
+    def to_dict(self, *, include_user_ids: bool = False):
+        payload = {
             "id": self.id,
             "contact_request_id": self.contact_request_id,
             "sender_role": self.sender_role,
@@ -187,6 +192,9 @@ class ContactMessage(db.Model):
             "body": self.body,
             "created_at": _iso(self.created_at),
         }
+        if include_user_ids:
+            payload["sender_user_id"] = self.sender_user_id
+        return payload
 
 
 class ContactAuditEvent(db.Model):
