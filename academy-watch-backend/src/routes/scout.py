@@ -391,6 +391,7 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season
             db.session,
             requested=requested_season,
             surface="discovery",
+            allow_history=True,
         )
         goals = PlayerSeasonTotal.goals.label("goals")
         assists = PlayerSeasonTotal.assists.label("assists")
@@ -792,8 +793,13 @@ def scout_leaderboards():
         if phase not in PHASE_BOARDS:
             return jsonify({"error": f"Invalid phase. One of: {sorted(PHASE_BOARDS)}"}), 400
         requested_season = request.args.get("season") or None
-        season = resolve_stats_season(db.session, requested=requested_season, surface="discovery")
         use_rollup = rollup_reads_enabled("scout")
+        season = resolve_stats_season(
+            db.session,
+            requested=requested_season,
+            surface="discovery",
+            allow_history=use_rollup,
+        )
 
         def board(sort_key, extra_min_minutes=0, board_order="desc"):
             board_uses_rollup = use_rollup and sort_key in ROLLUP_LEADERBOARD_SORT_KEYS
@@ -894,7 +900,11 @@ def _compare_fixture_totals(player_id: int, season: int):
 
 
 def _compare_rollup_totals(total: PlayerSeasonTotal | None) -> tuple[dict, dict | None]:
-    """Project one source-selected rollup row into the compare contract."""
+    """Project one source-selected rollup row into the compare contract.
+
+    Fixture-primary rows are enriched separately from the matching fixture
+    aggregate; every other source leaves rich fixture-only fields unknown.
+    """
     rich_fields = {
         key: None
         for key in (
@@ -988,10 +998,13 @@ def scout_compare():
         # contradicted the list on the same Scout Desk page.
         requested_season = request.args.get("season") or None
         use_rollup = rollup_reads_enabled("scout")
+        # Compare and list share the discovery default because they render on
+        # the same Scout Desk page. Explicit seasons remain verbatim.
         resolved_season = resolve_stats_season(
             db.session,
             requested=requested_season,
-            surface="compare" if use_rollup else "discovery",
+            surface="discovery",
+            allow_history=use_rollup,
         )
         # Preserve the unflagged aggregate exactly; the resolved value is still
         # echoed so callers can label the compatibility path deterministically.
@@ -1023,14 +1036,37 @@ def scout_compare():
 
             provenance = None
             if use_rollup:
-                totals, provenance = _compare_rollup_totals(rollup_totals.get(player_id))
-                row = None
+                total = rollup_totals.get(player_id)
+                totals, provenance = _compare_rollup_totals(total)
+                row = (
+                    _compare_fixture_totals(player_id, resolved_season)
+                    if total is not None and total.primary_source == "fixtures"
+                    else None
+                )
             else:
                 totals = None
                 # Same GK gating as _fixture_stats_subquery: conceded:0 on
                 # outfield rows must not fabricate clean sheets here.
                 row = _compare_fixture_totals(player_id, stats_season)
-            if row and row.appearances:
+            if use_rollup and row and row.appearances:
+                totals.update(
+                    {
+                        "shots_total": int(row.shots_total),
+                        "shots_on": int(row.shots_on),
+                        "passes_total": int(row.passes_total),
+                        "key_passes": int(row.key_passes),
+                        "dribbles_attempts": int(row.dribbles_attempts),
+                        "dribbles_success": int(row.dribbles_success),
+                        "tackles": int(row.tackles),
+                        "interceptions": int(row.interceptions),
+                        "duels_total": int(row.duels_total),
+                        "duels_won": int(row.duels_won),
+                        "fouls_drawn": int(row.fouls_drawn),
+                        "penalty_saved": int(row.penalty_saved) if row.penalty_saved is not None else None,
+                        "clean_sheets": int(row.clean_sheets) if row.clean_sheets is not None else None,
+                    }
+                )
+            elif row and row.appearances:
                 minutes = int(row.minutes or 0)
                 totals = {
                     "appearances": int(row.appearances),

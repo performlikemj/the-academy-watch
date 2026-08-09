@@ -374,6 +374,7 @@ def get_team_loans(team_identifier):
                     db.session,
                     requested=requested_season,
                     surface="discovery",
+                    allow_history=use_rollup,
                 )
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
@@ -572,8 +573,14 @@ def get_team_loans_by_season(team_identifier: str, season: int):
         team = resolve_team_by_identifier(team_identifier)
         from src.utils.academy_window import resolve_stats_season
 
+        use_rollup = rollup_reads_enabled("teams")
         try:
-            resolved_season = resolve_stats_season(db.session, requested=season, surface="discovery")
+            resolved_season = resolve_stats_season(
+                db.session,
+                requested=season,
+                surface="discovery",
+                allow_history=use_rollup,
+            )
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
         active_only = request.args.get("active_only", "false").lower() in ("true", "1", "yes", "y")
@@ -586,7 +593,6 @@ def get_team_loans_by_season(team_identifier: str, season: int):
             q = q.filter(TrackedPlayer.is_active.is_(True))
 
         players = q.order_by(TrackedPlayer.updated_at.desc()).all()
-        use_rollup = rollup_reads_enabled("teams")
         if use_rollup:
             stats_by_player, _ = rollup_stats_by_player(
                 [player.player_api_id for player in players],

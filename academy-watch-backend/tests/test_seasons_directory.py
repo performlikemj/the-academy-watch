@@ -6,6 +6,7 @@ import pytest
 from flask import Flask
 from src.models.league import db
 from src.models.season_rollup import PlayerSeasonTotal
+from src.models.weekly import Fixture
 from src.routes.seasons import seasons_bp
 
 
@@ -48,7 +49,11 @@ def test_seasons_shape_order_coverage_and_current_inclusion(seasons_app, monkeyp
     import src.routes.seasons as seasons_routes
 
     monkeypatch.setattr(seasons_routes, "current_stats_season", lambda: 2026)
-    monkeypatch.setattr(seasons_routes, "season_bounds", lambda _session: (2007, 2027))
+    monkeypatch.setattr(
+        seasons_routes,
+        "season_bounds",
+        lambda _session, *, include_rollup_history: (2007, 2027),
+    )
     db.session.add_all(
         [
             _total(2007, 1),
@@ -79,8 +84,39 @@ def test_seasons_includes_current_when_no_rollups_exist(seasons_app, monkeypatch
     import src.routes.seasons as seasons_routes
 
     monkeypatch.setattr(seasons_routes, "current_stats_season", lambda: 2026)
-    monkeypatch.setattr(seasons_routes, "season_bounds", lambda _session: (2025, 2027))
+    monkeypatch.setattr(
+        seasons_routes,
+        "season_bounds",
+        lambda _session, *, include_rollup_history: (2025, 2027),
+    )
     data = seasons_app.test_client().get("/api/seasons").get_json()
 
     assert data["bounds"] == {"min": 2025, "max": 2027}
     assert data["seasons"] == [{"season": 2026, "label": "2026/27", "has_rollup": False, "is_current": True}]
+
+
+def test_seasons_bounds_and_list_include_pre_fixture_rollup_history(seasons_app, monkeypatch):
+    import src.routes.seasons as seasons_routes
+    import src.utils.academy_window as academy_window
+
+    monkeypatch.setattr(seasons_routes, "current_stats_season", lambda: 2026)
+    monkeypatch.setattr(academy_window, "current_stats_season", lambda today=None: 2026)
+    db.session.add(
+        Fixture(
+            fixture_id_api=1,
+            season=2025,
+            date_utc=datetime(2025, 9, 1, tzinfo=UTC),
+            home_team_api_id=1,
+            away_team_api_id=2,
+        )
+    )
+    db.session.add(_total(2007, 1))
+    db.session.commit()
+
+    response = seasons_app.test_client().get("/api/seasons")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["bounds"] == {"min": 2007, "max": 2027}
+    assert {row["season"] for row in data["seasons"]} == {2007, 2026}
+    assert next(row for row in data["seasons"] if row["season"] == 2007)["has_rollup"] is True

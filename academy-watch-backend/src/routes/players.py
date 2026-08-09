@@ -263,8 +263,14 @@ def get_public_player_stats(player_id: int):
         from src.utils.academy_window import current_stats_season, resolve_stats_season
 
         requested_season = request.args.get("season") or None
+        rollup_enabled = rollup_reads_enabled("player_stats")
         try:
-            season = resolve_stats_season(db.session, requested=requested_season, surface="discovery")
+            season = resolve_stats_season(
+                db.session,
+                requested=requested_season,
+                surface="discovery",
+                allow_history=rollup_enabled,
+            )
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
         season_prefix = f"{season}-{str(season + 1)[-2:]}"
@@ -447,7 +453,7 @@ def get_public_player_stats(player_id: int):
 
             result.append(stats_dict)
 
-        if not rollup_reads_enabled("player_stats"):
+        if not rollup_enabled:
             return jsonify(result)
 
         total = PlayerSeasonTotal.query.filter_by(
@@ -703,8 +709,14 @@ def get_public_player_season_stats(player_id: int):
         from src.utils.academy_window import resolve_stats_season
 
         requested_season = request.args.get("season") or None
+        rollup_enabled = rollup_reads_enabled("season_stats")
         try:
-            season_start_year = resolve_stats_season(db.session, requested=requested_season, surface="discovery")
+            season_start_year = resolve_stats_season(
+                db.session,
+                requested=requested_season,
+                surface="discovery",
+                allow_history=rollup_enabled,
+            )
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
         season_prefix = f"{season_start_year}-{str(season_start_year + 1)[-2:]}"
@@ -727,7 +739,6 @@ def get_public_player_season_stats(player_id: int):
             "clubs": [],
         }
 
-        rollup_enabled = rollup_reads_enabled("season_stats")
         total = None
         if rollup_enabled:
             total = PlayerSeasonTotal.query.filter_by(

@@ -194,6 +194,7 @@ def _add_live_match(
 def _seed_rollup(
     player_api_id=PLAYER,
     *,
+    season=2025,
     minutes=600,
     appearances=8,
     goals=2,
@@ -210,7 +211,7 @@ def _seed_rollup(
     journey_appearances = appearances if journey_appearances is None else journey_appearances
     total = PlayerSeasonTotal(
         player_api_id=player_api_id,
-        season=2025,
+        season=season,
         level_group="senior",
         appearances=appearances,
         goals=goals,
@@ -248,7 +249,7 @@ def _seed_rollup(
             [
                 PlayerSeasonCell(
                     player_api_id=player_api_id,
-                    season=2025,
+                    season=season,
                     source="fixtures",
                     club_api_id=LOAN,
                     club_name="Loan FC",
@@ -268,7 +269,7 @@ def _seed_rollup(
                 ),
                 PlayerSeasonCell(
                     player_api_id=player_api_id,
-                    season=2025,
+                    season=season,
                     source="journey",
                     club_api_id=LOAN,
                     club_name="Loan FC",
@@ -606,15 +607,194 @@ def test_scout_compare_rollup_honors_season_and_carries_provenance(client, monke
     total = _seed_rollup()
     monkeypatch.setenv("SEASON_ROLLUP_READS", "scout")
 
+    import src.routes.scout as scout_routes
+
+    def _must_not_mix_fixture_detail(*args, **kwargs):
+        raise AssertionError("journey-primary compare must not query fixture detail")
+
+    monkeypatch.setattr(scout_routes, "_compare_fixture_totals", _must_not_mix_fixture_detail)
+
     response = client.get(f"/api/scout/compare?ids={PLAYER}&season=2025")
 
     assert response.status_code == 200
     data = response.get_json()
     assert data["season"] == 2025
     compared = data["players"][0]
-    assert compared["totals"]["goals"] == total.goals
-    assert compared["totals"]["minutes_played"] == total.minutes
+    assert {
+        key: compared["totals"][key]
+        for key in (
+            "appearances",
+            "goals",
+            "assists",
+            "minutes_played",
+            "avg_rating",
+            "yellows",
+            "reds",
+            "saves",
+            "goals_conceded",
+        )
+    } == {
+        "appearances": total.appearances,
+        "goals": total.goals,
+        "assists": total.assists,
+        "minutes_played": total.minutes,
+        "avg_rating": float(total.avg_rating),
+        "yellows": total.yellows,
+        "reds": total.reds,
+        "saves": total.saves,
+        "goals_conceded": total.goals_conceded,
+    }
+    for key in (
+        "shots_total",
+        "shots_on",
+        "passes_total",
+        "key_passes",
+        "dribbles_attempts",
+        "dribbles_success",
+        "tackles",
+        "interceptions",
+        "duels_total",
+        "duels_won",
+        "fouls_drawn",
+        "penalty_saved",
+        "clean_sheets",
+    ):
+        assert compared["totals"][key] is None
     _assert_rollup_provenance(compared["provenance"], total)
+
+
+def test_scout_compare_fixtures_primary_enriches_only_rich_fields(client, monkeypatch):
+    _seed_live_player(goals=9, assists=8, minutes=90)
+    fixture_stats = FixturePlayerStats.query.filter_by(player_api_id=PLAYER).one()
+    fixture_stats.position = "G"
+    fixture_stats.shots_on = 5
+    fixture_stats.passes_total = 42
+    fixture_stats.passes_key = 7
+    fixture_stats.dribbles_attempts = 8
+    fixture_stats.dribbles_success = 6
+    fixture_stats.tackles_interceptions = 3
+    fixture_stats.duels_total = 11
+    fixture_stats.duels_won = 7
+    fixture_stats.fouls_drawn = 4
+    fixture_stats.saves = 12
+    fixture_stats.goals_conceded = 0
+    fixture_stats.penalty_saved = 2
+    db.session.commit()
+    total = _seed_rollup(primary_source="fixtures", minutes=600, appearances=8, goals=2, assists=3)
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "scout")
+
+    response = client.get(f"/api/scout/compare?ids={PLAYER}&season=2025")
+
+    assert response.status_code == 200
+    compared = response.get_json()["players"][0]
+    totals = compared["totals"]
+    assert {
+        key: totals[key]
+        for key in (
+            "appearances",
+            "goals",
+            "assists",
+            "minutes_played",
+            "avg_rating",
+            "yellows",
+            "reds",
+            "saves",
+            "goals_conceded",
+        )
+    } == {
+        "appearances": total.appearances,
+        "goals": total.goals,
+        "assists": total.assists,
+        "minutes_played": total.minutes,
+        "avg_rating": float(total.avg_rating),
+        "yellows": total.yellows,
+        "reds": total.reds,
+        "saves": total.saves,
+        "goals_conceded": total.goals_conceded,
+    }
+    assert {
+        key: totals[key]
+        for key in (
+            "shots_total",
+            "shots_on",
+            "passes_total",
+            "key_passes",
+            "dribbles_attempts",
+            "dribbles_success",
+            "tackles",
+            "interceptions",
+            "duels_total",
+            "duels_won",
+            "fouls_drawn",
+            "penalty_saved",
+            "clean_sheets",
+        )
+    } == {
+        "shots_total": 9,
+        "shots_on": 5,
+        "passes_total": 42,
+        "key_passes": 7,
+        "dribbles_attempts": 8,
+        "dribbles_success": 6,
+        "tackles": 4,
+        "interceptions": 3,
+        "duels_total": 11,
+        "duels_won": 7,
+        "fouls_drawn": 4,
+        "penalty_saved": 2,
+        "clean_sheets": 1,
+    }
+    assert compared["per90"]["key_passes"] == 1.05
+    _assert_rollup_provenance(compared["provenance"], total)
+
+
+def test_scout_compare_no_param_uses_same_discovery_season_as_list(client, monkeypatch):
+    _seed_live_player(goals=9, minutes=900)
+    total = _seed_rollup()
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "scout")
+
+    listed = client.get("/api/scout/players?sort=name")
+    compared = client.get(f"/api/scout/compare?ids={PLAYER}")
+
+    assert listed.status_code == compared.status_code == 200
+    assert listed.get_json()["players"][0]["goals"] == total.goals
+    assert compared.get_json()["season"] == 2025
+    assert compared.get_json()["players"][0]["totals"]["goals"] == total.goals
+
+
+def test_scout_rollup_history_is_flag_gated(client, monkeypatch):
+    _seed_live_player()
+    total = _seed_rollup(season=2007)
+
+    unflagged = client.get(f"/api/scout/compare?ids={PLAYER}&season=2007")
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "scout")
+    flagged = client.get(f"/api/scout/compare?ids={PLAYER}&season=2007")
+    listed = client.get("/api/scout/players?season=2007&sort=name")
+
+    assert unflagged.status_code == 400
+    assert flagged.status_code == listed.status_code == 200
+    totals = flagged.get_json()["players"][0]["totals"]
+    assert totals["goals"] == total.goals
+    assert totals["minutes_played"] == total.minutes
+    row = listed.get_json()["players"][0]
+    assert row["goals"] == total.goals
+    assert row["minutes_played"] == total.minutes
+
+
+def test_player_rollup_branches_accept_historical_totals(client, monkeypatch):
+    _seed_live_player()
+    total = _seed_rollup(season=2007)
+
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats")
+    season_stats = client.get(f"/api/players/{PLAYER}/season-stats?season=2007")
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "player_stats")
+    player_stats = client.get(f"/api/players/{PLAYER}/stats?season=2007")
+
+    assert season_stats.status_code == player_stats.status_code == 200
+    assert season_stats.get_json()["goals"] == total.goals
+    assert season_stats.get_json()["minutes"] == total.minutes
+    assert player_stats.get_json()["summary"]["goals"] == total.goals
+    assert player_stats.get_json()["summary"]["minutes"] == total.minutes
 
 
 def test_scout_rollup_gk_boards_keep_position_clamp(client, monkeypatch):

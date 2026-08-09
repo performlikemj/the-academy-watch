@@ -14,7 +14,7 @@ def get_seasons():
     """List valid season start-years that have rollup coverage."""
     try:
         current = current_stats_season()
-        low, high = season_bounds(db.session)
+        low, high = season_bounds(db.session, include_rollup_history=True)
         covered = {
             int(row.season)
             for row in db.session.query(PlayerSeasonTotal.season)

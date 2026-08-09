@@ -271,6 +271,35 @@ class TestTeamRosterStatAttribution:
         assert _by_id(squad["players"], 1001)["minutes_played"] == 700
         assert _by_id(squad["players"], 1001)["provenance"]["primary_source"] == "journey"
 
+    def test_rollup_team_routes_accept_historical_totals(self, teams_client, roster_seeded, monkeypatch):
+        db.session.add(
+            PlayerSeasonTotal(
+                player_api_id=1001,
+                season=2007,
+                level_group="senior",
+                appearances=4,
+                goals=3,
+                assists=2,
+                minutes=360,
+                primary_source="journey",
+                fixtures_minutes=0,
+                journey_minutes=360,
+                clubs=[{"id": 901, "name": "Loan FC", "appearances": 4, "minutes": 360}],
+                computed_at=datetime(2026, 8, 1, tzinfo=UTC),
+            )
+        )
+        db.session.commit()
+        monkeypatch.setenv("SEASON_ROLLUP_READS", "teams")
+
+        loans = teams_client.get(f"/api/teams/{roster_seeded}/loans?season=2007")
+        slug = teams_client.get(f"/api/teams/{roster_seeded}/loans/season/2007")
+        squad = teams_client.get(f"/api/teams/{roster_seeded}/players?season=2007")
+
+        assert loans.status_code == slug.status_code == squad.status_code == 200
+        for rows in (loans.get_json()["loans"], slug.get_json()["loans"], squad.get_json()["players"]):
+            historical = _by_id(rows, 1001)
+            assert (historical["goals"], historical["minutes_played"]) == (3, 360)
+
     @pytest.mark.parametrize(
         "path",
         [

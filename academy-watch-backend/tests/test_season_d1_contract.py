@@ -351,6 +351,41 @@ class TestResolverSurfaces:
         self._seed_fixture(2025, 2)
         assert season_bounds(db.session, today=date(2025, 9, 1)) == (2024, 2026)
 
+    def test_season_bounds_optionally_includes_rollup_history(self, app):
+        from src.models.league import db
+        from src.models.season_rollup import PlayerSeasonTotal
+        from src.utils.academy_window import resolve_stats_season, season_bounds
+
+        self._seed_fixture(2025, 1)
+        db.session.add(
+            PlayerSeasonTotal(
+                player_api_id=1,
+                season=2007,
+                level_group="senior",
+                appearances=1,
+                minutes=90,
+                primary_source="journey",
+                computed_at=datetime(2025, 9, 1, tzinfo=UTC),
+            )
+        )
+        db.session.commit()
+
+        assert season_bounds(db.session, today=date(2025, 9, 1)) == (2025, 2026)
+        assert season_bounds(
+            db.session,
+            today=date(2025, 9, 1),
+            include_rollup_history=True,
+        ) == (2007, 2026)
+        assert (
+            resolve_stats_season(
+                db.session,
+                requested=2007,
+                today=date(2025, 9, 1),
+                allow_history=True,
+            )
+            == 2007
+        )
+
     def test_season_bounds_falls_back_when_no_fixtures(self, app):
         from src.models.league import db
         from src.utils.academy_window import season_bounds

@@ -12741,6 +12741,7 @@ def get_team_players(team_identifier):
                     db.session,
                     requested=requested_season,
                     surface="discovery",
+                    allow_history=use_rollup,
                 )
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
