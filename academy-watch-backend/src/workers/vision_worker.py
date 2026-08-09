@@ -49,15 +49,24 @@ IDLE_POLL_SECONDS = 30
 IDLE_EXIT_AFTER_POLLS = 10  # loop mode: exit after ~5 idle minutes (KEDA rescales)
 
 
-def _download_footage(blob_path: str, dest: Path, expected_etag: str | None) -> None:
+def _download_footage(blob_path: str, dest: Path, expected_etag: str) -> None:
     from src.services.video_storage import mint_read_sas
 
+    if not expected_etag:
+        raise RuntimeError("verified footage ETag is missing")
     url = mint_read_sas(blob_path)
     log.info("downloading footage to %s", dest)
-    command = ["curl", "-fsSL", "--retry", "3"]
-    if expected_etag is not None:
-        command.extend(["-H", f"If-Match: {expected_etag}"])
-    command.extend(["-o", str(dest), url])
+    command = [
+        "curl",
+        "-fsSL",
+        "--retry",
+        "3",
+        "-H",
+        f"If-Match: {expected_etag}",
+        "-o",
+        str(dest),
+        url,
+    ]
     subprocess.run(
         command,
         check=True,
@@ -109,16 +118,20 @@ def process_job(app, job_id: str) -> bool:
     match = db.session.get(VideoMatch, job.video_match_id)
     t0 = time.monotonic()
     try:
-        # Content-swap TOCTOU check: enforce the upload-complete ETag when one was recorded.
+        # Pin the download to the ETag returned by this verification. For legacy
+        # matches without a stored ETag, this is the just-observed current ETag.
         heartbeat(job_id, stage="decode", progress=0)
         check = verify_expected_blob(match.blob_path, match.blob_etag)
         if not check["ok"]:
             raise RuntimeError(f"footage blob failed verification: {check.get('error')}")
+        verified_etag = check.get("etag")
+        if not verified_etag:
+            raise RuntimeError("footage blob verification returned no ETag")
 
         with tempfile.TemporaryDirectory(prefix="vision-job-") as tmp:
             tmp_path = Path(tmp)
             video_path = tmp_path / "match.mp4"
-            _download_footage(match.blob_path, video_path, match.blob_etag)
+            _download_footage(match.blob_path, video_path, verified_etag)
 
             heartbeat(job_id, stage="detect", progress=5)
             out_dir = tmp_path / "artifacts"
