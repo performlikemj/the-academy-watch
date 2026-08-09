@@ -131,6 +131,7 @@ MAX_LOCAL_PLAYER_NAME_LENGTH = 200
 MAX_LOCAL_PLAYER_POSITION_LENGTH = 50
 MAX_LOCAL_PLAYER_COUNTRY_LENGTH = 100
 MAX_LOCAL_PLAYER_CITY_LENGTH = 120
+MAX_LOCAL_PLAYER_CLUB_NAME_LENGTH = 200
 MIN_LOCAL_PLAYER_BIRTH_YEAR = 1950
 MAX_LOCAL_PLAYER_BIRTH_YEAR = 2020
 MAX_PENDING_LOCAL_PLAYERS_PER_USER = 10
@@ -599,6 +600,7 @@ def _local_player_public_dict(player: LocalPlayer) -> dict:
         "birth_year": player.birth_year,
         "position": player.position,
         "country": player.country,
+        "club_name": player.club_name,
         "status": player.status,
         "api_player_id": player.api_player_id,
     }
@@ -633,6 +635,7 @@ def _local_player_mini_dict(player: LocalPlayer) -> dict:
     return {
         "id": player.id,
         "display_name": player.display_name,
+        "club_name": player.club_name,
         "status": player.status,
     }
 
@@ -1331,6 +1334,7 @@ def create_local_player():
         position = _clean_optional_text(payload.get("position"), MAX_LOCAL_PLAYER_POSITION_LENGTH)
         country = _clean_optional_text(payload.get("country"), MAX_LOCAL_PLAYER_COUNTRY_LENGTH)
         city = _clean_optional_text(payload.get("city"), MAX_LOCAL_PLAYER_CITY_LENGTH)
+        club_name = _clean_optional_text(payload.get("club_name"), MAX_LOCAL_PLAYER_CLUB_NAME_LENGTH)
 
         raw_relationship = payload.get("relationship_type", "player")
         relationship_type = raw_relationship.strip().lower() if isinstance(raw_relationship, str) else ""
@@ -1356,6 +1360,7 @@ def create_local_player():
                 body["existing"] = {
                     "id": existing.id,
                     "display_name": existing.display_name,
+                    "club_name": existing.club_name,
                     "status": existing.status,
                 }
             return jsonify(body), 409
@@ -1376,6 +1381,7 @@ def create_local_player():
             position=position,
             country=country,
             city=city,
+            club_name=club_name,
             status="pending",
             provenance="user",
             created_by_user_id=user.id,
