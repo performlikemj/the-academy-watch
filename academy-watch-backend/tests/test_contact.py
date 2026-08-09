@@ -20,6 +20,7 @@ from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim
 from src.models.trust import ContentReport, ScoutVerification
 from src.models.user_block import UserBlock
+from src.services.club_registry import program_is_operational
 from src.services.contact import (
     CLUB_CONSENT_TOKEN_MAX_AGE_SECONDS,
     has_status_contradiction,
@@ -70,7 +71,8 @@ def contact_app(monkeypatch):
                 text(
                     "CREATE TABLE club_programs ("
                     "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254), "
-                    "team_api_id INTEGER)"
+                    "team_api_id INTEGER, platform_status VARCHAR(20) NOT NULL, "
+                    "emergency_hidden BOOLEAN NOT NULL)"
                 )
             )
             connection.execute(
@@ -171,17 +173,28 @@ def _create(
     )
 
 
-def _club_program(program_id: int, name: str, *, contact_email=None, team_api_id=None):
+def _club_program(
+    program_id: int,
+    name: str,
+    *,
+    contact_email=None,
+    team_api_id=None,
+    platform_status="approved",
+    emergency_hidden=False,
+):
     db.session.execute(
         text(
-            "INSERT INTO club_programs (id, name, contact_email, team_api_id) "
-            "VALUES (:program_id, :name, :contact_email, :team_api_id)"
+            "INSERT INTO club_programs "
+            "(id, name, contact_email, team_api_id, platform_status, emergency_hidden) "
+            "VALUES (:program_id, :name, :contact_email, :team_api_id, :platform_status, :emergency_hidden)"
         ),
         {
             "program_id": program_id,
             "name": name,
             "contact_email": contact_email,
             "team_api_id": team_api_id,
+            "platform_status": platform_status,
+            "emergency_hidden": emergency_hidden,
         },
     )
     db.session.commit()
@@ -978,6 +991,7 @@ class TestContractStatusRouting:
             lambda _player_api_id: (platform_belief, platform_belief),
         )
         monkeypatch.setattr("src.services.contact.program_has_active_manager", lambda _program_id: active_manager)
+        monkeypatch.setattr("src.services.contact.program_is_operational", lambda _program_id: True)
         claim = SimpleNamespace(player_api_id=999001, contract_status=claim_status, club_program_id=777)
 
         mode = routing_mode_for_claim(claim)
@@ -1036,6 +1050,8 @@ class TestContractStatusRouting:
 
     def test_club_included_requires_both_gates_and_supports_three_party_thread(self, client):
         _club_program(101, "On Platform FC")
+        assert program_is_operational(101) is True
+        assert program_is_operational(999999) is False
         club_manager, club_headers = _club_manager(101, "included-manager@example.com")
         scout, scout_headers = _verified_scout("included-scout@example.com")
         player, player_headers, _ = _claim(
@@ -1098,6 +1114,94 @@ class TestContractStatusRouting:
             "message_sent",
         ]
         assert [event.actor_user_id for event in events] == [scout.id, player.id, club_manager.id, club_manager.id]
+
+    @pytest.mark.parametrize(
+        ("platform_status", "emergency_hidden"),
+        [("approved", True), ("suspended", False)],
+    )
+    def test_non_operational_club_is_omitted_from_new_claim_routing(
+        self,
+        client,
+        platform_status,
+        emergency_hidden,
+    ):
+        _club_program(
+            110,
+            "Unavailable Program FC",
+            platform_status=platform_status,
+            emergency_hidden=emergency_hidden,
+        )
+        _club_manager(110, "unavailable-routing-manager@example.com")
+        _, scout_headers = _verified_scout("unavailable-routing-scout@example.com")
+        _claim(
+            "unavailable-routing-player@example.com",
+            5814,
+            contract_status="contracted",
+            club_program_id=110,
+        )
+
+        created = _create(client, scout_headers, 5814, permission_attestation=True)
+
+        assert created.status_code == 201, created.get_json()
+        request_payload = created.get_json()["contact_request"]
+        assert request_payload["routing_mode"] == "club_notified"
+        assert request_payload["club_consent_status"] is None
+        assert program_is_operational(110) is False
+
+    @pytest.mark.parametrize(
+        ("platform_status", "emergency_hidden"),
+        [("approved", True), ("suspended", False)],
+    )
+    def test_non_operational_club_manager_cannot_post_on_existing_thread(
+        self,
+        client,
+        platform_status,
+        emergency_hidden,
+    ):
+        _club_program(111, "Frozen Thread FC")
+        _, club_headers = _club_manager(111, "frozen-thread-manager@example.com")
+        _, scout_headers = _verified_scout("frozen-thread-scout@example.com")
+        _, player_headers, _ = _claim(
+            "frozen-thread-player@example.com",
+            5815,
+            contract_status="contracted",
+            club_program_id=111,
+        )
+        created = _create(client, scout_headers, 5815)
+        request_id = created.get_json()["contact_request"]["id"]
+        assert client.post(f"/api/contact/requests/{request_id}/accept", headers=player_headers).status_code == 200
+        assert (
+            client.post(
+                f"/api/contact/requests/{request_id}/club-consent",
+                json={"action": "grant"},
+                headers=club_headers,
+            ).status_code
+            == 200
+        )
+
+        db.session.execute(
+            text(
+                "UPDATE club_programs SET platform_status = :platform_status, "
+                "emergency_hidden = :emergency_hidden WHERE id = 111"
+            ),
+            {"platform_status": platform_status, "emergency_hidden": emergency_hidden},
+        )
+        db.session.commit()
+
+        refused = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "This hidden club must not be able to post."},
+            headers=club_headers,
+        )
+        assert refused.status_code == 404
+        assert refused.get_json() == {"error": "contact request not found"}
+        assert ContactMessage.query.count() == 0
+
+    @pytest.mark.parametrize("columns", [set(), {"id", "platform_status"}, {"id", "emergency_hidden"}])
+    def test_program_is_operational_fails_closed_without_required_schema(self, monkeypatch, columns):
+        monkeypatch.setattr("src.services.club_registry._table_columns", lambda _table_name: columns)
+
+        assert program_is_operational(101) is False
 
     def test_active_club_manager_is_a_block_enforced_thread_counterpart(self, client):
         _club_program(109, "Block Enforcement FC")

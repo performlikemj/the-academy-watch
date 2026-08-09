@@ -59,6 +59,25 @@ def club_program_exists(program_id: int | None) -> bool:
     return get_club_program(program_id) is not None
 
 
+def program_is_operational(program_id: int | None) -> bool:
+    """Return whether a program may participate in operational contact flows."""
+    if program_id is None:
+        return False
+    columns = _table_columns(PROGRAMS_TABLE)
+    if not {"id", "platform_status", "emergency_hidden"}.issubset(columns):
+        return False
+    return (
+        db.session.execute(
+            sa.text(
+                f"SELECT 1 FROM {PROGRAMS_TABLE} WHERE id = :program_id "
+                "AND platform_status = 'approved' AND emergency_hidden = false LIMIT 1"
+            ),
+            {"program_id": program_id},
+        ).scalar()
+        is not None
+    )
+
+
 def program_has_active_manager(program_id: int | None) -> bool:
     if program_id is None or not registry_available():
         return False
@@ -324,6 +343,7 @@ __all__ = [
     "get_club_program",
     "is_active_program_manager",
     "program_has_active_manager",
+    "program_is_operational",
     "require_club_manager",
     "registry_available",
 ]

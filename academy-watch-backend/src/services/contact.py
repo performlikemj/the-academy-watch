@@ -18,6 +18,7 @@ from src.services.club_registry import (
     find_club_notice_target,
     get_club_program,
     program_has_active_manager,
+    program_is_operational,
 )
 from src.utils.player_status import player_facing_status
 from src.utils.sanitize import sanitize_plain_text
@@ -179,7 +180,7 @@ def routing_mode_for_claim(claim, *, platform_belief: str | None = None) -> str:
     if platform_belief == "unknown" and effective_contract_status(claim_status) == "free_agent":
         return ROUTING_DIRECT
     program_id = getattr(claim, "club_program_id", None)
-    if program_id is not None and program_has_active_manager(program_id):
+    if program_id is not None and program_has_active_manager(program_id) and program_is_operational(program_id):
         return ROUTING_CLUB_INCLUDED
     return ROUTING_CLUB_NOTIFIED
 

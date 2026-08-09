@@ -18,6 +18,7 @@ from src.services.club_registry import (
     active_manager_program_ids,
     active_program_manager_user_ids,
     is_active_program_manager,
+    program_is_operational,
 )
 from src.services.contact import (
     APPROACH_RULES_WARNING,
@@ -295,6 +296,7 @@ def _is_club_manager(contact_request: ContactRequest, user: UserAccount) -> bool
         contact_request.routing_mode == ROUTING_CLUB_INCLUDED
         and contact_request.club_program_id is not None
         and is_active_program_manager(user.id, contact_request.club_program_id)
+        and program_is_operational(contact_request.club_program_id)
     )
 
 
