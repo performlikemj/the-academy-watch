@@ -1545,6 +1545,40 @@ export class APIService {
         return this.request(`/admin/showcase/player-search?${query}`, {}, { admin: true })
     }
 
+    // ── Trust Desk ─────────────────────────────────────────────────────
+    static async adminListScoutVerifications(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/scout-verifications${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminReviewScoutVerification(id, { action, review_notes }) {
+        return this.request(`/admin/scout-verifications/${encodeURIComponent(id)}/${encodeURIComponent(action)}`, {
+            method: 'POST',
+            body: JSON.stringify({ review_notes }),
+        }, { admin: true })
+    }
+
+    static async adminListContentReports(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/reports${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminResolveContentReport(id, { status, resolution_notes }) {
+        return this.request(`/admin/reports/${encodeURIComponent(id)}/resolve`, {
+            method: 'POST',
+            body: JSON.stringify({ status, resolution_notes }),
+        }, { admin: true })
+    }
+
+    static async adminListContactRequests(params = {}) {
+        const query = new URLSearchParams(params).toString()
+        return this.request(`/admin/contact/requests${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async adminGetContactRequest(id) {
+        return this.request(`/admin/contact/requests/${encodeURIComponent(id)}`, {}, { admin: true })
+    }
+
     // ── Grassroots program registry + admission (F2; no checkout) ───────
     static async getFundingLeagues(params = {}) {
         const query = new URLSearchParams(params).toString()

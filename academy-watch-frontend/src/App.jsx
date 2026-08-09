@@ -83,6 +83,7 @@ import { AdminTools } from '@/pages/admin/AdminTools'
 import { AdminSandbox } from '@/pages/admin/AdminSandbox'
 import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { AdminShowcase } from '@/pages/admin/AdminShowcase'
+import { AdminTrust } from '@/pages/admin/AdminTrust'
 import { AdminLocalClubs } from '@/pages/admin/AdminLocalClubs'
 import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
@@ -4141,6 +4142,7 @@ function AppRoutes() {
         <Route path="video" element={<AdminVideo />} />
         <Route path="video/:matchId" element={<AdminVideoMatch />} />
         <Route path="showcase" element={<AdminShowcase />} />
+        <Route path="trust" element={<AdminTrust />} />
         <Route path="local-clubs" element={<AdminLocalClubs />} />
         <Route path="funding" element={<AdminFunding />} />
         <Route path="settings" element={<AdminSettings />} />

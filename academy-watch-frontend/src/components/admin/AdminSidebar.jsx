@@ -23,11 +23,13 @@ import {
     Star,
     Landmark,
     HandHeart,
+    ShieldCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { useAuthUI } from '@/context/AuthContext'
 import { fetchInboxCounts } from '@/pages/admin/AdminInbox'
+import { APIService } from '@/lib/api'
 
 const GROUPS_KEY = 'academy_watch_admin_sidebar_groups'
 
@@ -63,6 +65,7 @@ const sidebarGroups = [
         icon: UserCog,
         items: [
             { icon: UserCog, label: 'Users & Writers', href: '/admin/users' },
+            { icon: ShieldCheck, label: 'Trust Desk', href: '/admin/trust', badge: 'trust' },
         ],
     },
     {
@@ -107,6 +110,7 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
     const { logout } = useAuthUI()
     const [groupOpen, setGroupOpen] = useState(() => loadGroupState())
     const [inboxCount, setInboxCount] = useState(0)
+    const [trustCount, setTrustCount] = useState(0)
 
     useEffect(() => {
         saveGroupState(groupOpen)
@@ -118,6 +122,24 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
             fetchInboxCounts()
                 .then((counts) => { if (!cancelled) setInboxCount(counts?.total || 0) })
                 .catch(() => { /* badge is best-effort */ })
+        }
+        refresh()
+        const interval = setInterval(refresh, 120000)
+        return () => { cancelled = true; clearInterval(interval) }
+    }, [location.pathname])
+
+    useEffect(() => {
+        let cancelled = false
+        const refresh = async () => {
+            try {
+                const [verifications, reports] = await Promise.all([
+                    APIService.adminListScoutVerifications({ status: 'pending', limit: 1 }),
+                    APIService.adminListContentReports({ status: 'open', limit: 1 }),
+                ])
+                if (!cancelled) {
+                    setTrustCount((verifications?.total || 0) + (reports?.total || 0))
+                }
+            } catch { /* badge is best-effort */ }
         }
         refresh()
         const interval = setInterval(refresh, 120000)
@@ -160,6 +182,14 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
                         className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold tabular-nums text-primary-foreground"
                     >
                         {inboxCount > 99 ? '99+' : inboxCount}
+                    </span>
+                )}
+                {!collapsed && item.badge === 'trust' && trustCount > 0 && (
+                    <span
+                        data-testid="sidebar-trust-badge"
+                        className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold tabular-nums text-primary-foreground"
+                    >
+                        {trustCount > 99 ? '99+' : trustCount}
                     </span>
                 )}
             </Button>
