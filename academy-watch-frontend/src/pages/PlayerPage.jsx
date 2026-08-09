@@ -43,7 +43,8 @@ import { PlayerLinksSection } from '@/components/PlayerLinksSection'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
 import { PlayerAvailability } from '@/components/PlayerAvailability'
 import { SeasonSelect } from '@/components/ui/SeasonSelect'
-import { formatSeasonLabel } from '@/lib/seasons'
+import { seasonStore } from '@/lib/seasonStore'
+import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, CHART_TOOLTIP_BG, CHART_TOOLTIP_BORDER } from '../lib/theme-constants'
 
@@ -259,7 +260,13 @@ export function PlayerPage() {
     const navigate = useNavigate()
     const [searchParams, setSearchParams] = useSearchParams()
     const seasonParam = searchParams.get('season')
-    const selectedSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
+    const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
+    const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
+    const [currentSeason, setCurrentSeason] = useState()
+    const selectedSeason = seasonParam === null ? storedSeason : urlSeason
+    const seasonOverride = selectedSeason != null && (
+        currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null
+    ) ? selectedSeason : undefined
     const [profile, setProfile] = useState(null)
     const [stats, setStats] = useState([])
     const [statsMeta, setStatsMeta] = useState(null)
@@ -536,7 +543,14 @@ export function PlayerPage() {
         ? 'incl. cups — journey'
         : provenanceSource
 
-    const handleSeasonChange = (season) => {
+    const handleSeasonChange = (season, isCurrent) => {
+        if (isCurrent) {
+            seasonStore.clear()
+            setStoredSeason(undefined)
+        } else {
+            seasonStore.set(season)
+            setStoredSeason(season)
+        }
         setSearchParams((previous) => {
             const next = new URLSearchParams(previous)
             next.set('season', String(season))
@@ -703,7 +717,11 @@ export function PlayerPage() {
                                     </UiTooltip>
                                 ) : null}
                             </div>
-                            <SeasonSelect value={selectedSeason} onValueChange={handleSeasonChange} />
+                            <SeasonSelect
+                                value={selectedSeason}
+                                onValueChange={handleSeasonChange}
+                                onCurrentSeasonChange={setCurrentSeason}
+                            />
                         </div>
                         {stats.length === 0 && academyStats?.appearances > 0 ? (
                             /* Academy player with no loan stats — academy section below is the primary view */
@@ -1429,7 +1447,7 @@ export function PlayerPage() {
                                 {teamPlayers.map((player) => (
                                     <Link
                                         key={player.player_id}
-                                        to={`/players/${player.player_id}`}
+                                        to={withSeasonParam(`/players/${player.player_id}`, seasonOverride)}
                                         onClick={() => setDrawerOpen(false)}
                                         className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary active:bg-muted transition-colors group"
                                     >

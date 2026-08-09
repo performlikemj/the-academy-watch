@@ -20,6 +20,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { SeasonSelect } from '@/components/ui/SeasonSelect'
+import { seasonStore } from '@/lib/seasonStore'
+import { withSeasonParam } from '@/lib/seasons'
 
 const STATUS_ICONS = {
     first_team: Star,
@@ -59,6 +61,17 @@ function StatusIndicator({ status, teamName, saleFee }) {
     )
 }
 
+function rosterStatLine(player) {
+    if (player.rollup_missing) return 'no data this season'
+
+    return [
+        player.appearances != null ? `${player.appearances} apps` : null,
+        player.minutes_played != null ? `${player.minutes_played.toLocaleString()} mins` : null,
+        player.goals != null ? `${player.goals} G` : null,
+        player.assists != null ? `${player.assists} A` : null,
+    ].filter(Boolean).join(' · ')
+}
+
 export function TeamDetailPage() {
     const { teamSlug: teamId } = useParams()
     const navigate = useNavigate()
@@ -78,6 +91,12 @@ export function TeamDetailPage() {
     const [academyView, setAcademyView] = useState(initialView)
     const seasonParam = searchParams.get('season')
     const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
+    const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
+    const [currentSeason, setCurrentSeason] = useState()
+    const selectedSeason = seasonParam === null ? storedSeason : urlSeason
+    const seasonOverride = selectedSeason != null && (
+        currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null
+    ) ? selectedSeason : undefined
 
     // Squad tab state
     const [players, setPlayers] = useState([])
@@ -100,7 +119,14 @@ export function TeamDetailPage() {
     const [isSubscribed, setIsSubscribed] = useState(false)
     const [subscriptionLoading, setSubscriptionLoading] = useState(false)
 
-    const handleSeasonChange = useCallback((season) => {
+    const handleSeasonChange = useCallback((season, isCurrent) => {
+        if (isCurrent) {
+            seasonStore.clear()
+            setStoredSeason(undefined)
+        } else {
+            seasonStore.set(season)
+            setStoredSeason(season)
+        }
         setSearchParams((previous) => {
             const next = new URLSearchParams(previous)
             next.set('season', String(season))
@@ -181,7 +207,7 @@ export function TeamDetailPage() {
     const loadSquad = useCallback(async () => {
         setPlayersLoading(true)
         try {
-            const data = await APIService.getTeamPlayers(teamId, urlSeason)
+            const data = await APIService.getTeamPlayers(teamId, selectedSeason)
             const tracked = data?.players ?? (Array.isArray(data) ? data : [])
             setPlayers(tracked)
         } catch (err) {
@@ -190,7 +216,7 @@ export function TeamDetailPage() {
         } finally {
             setPlayersLoading(false)
         }
-    }, [teamId, urlSeason])
+    }, [teamId, selectedSeason])
 
     // Load newsletters data
     const loadNewsletters = useCallback(async () => {
@@ -403,7 +429,14 @@ export function TeamDetailPage() {
                     {/* Squad Tab */}
                     <TabsContent value="squad" className="mt-4">
                         <div className="mb-4 flex items-center justify-end">
-                            <SeasonSelect value={urlSeason} onValueChange={handleSeasonChange} />
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-muted-foreground">Season</span>
+                                <SeasonSelect
+                                    value={selectedSeason}
+                                    onValueChange={handleSeasonChange}
+                                    onCurrentSeasonChange={setCurrentSeason}
+                                />
+                            </div>
                         </div>
                         {playersLoading ? (
                             <div className="flex items-center justify-center py-16">
@@ -469,13 +502,12 @@ export function TeamDetailPage() {
                                         const status = player.current_status || player.status
                                         const loanTeam = player.loan_team_name || player.current_team_name
                                         const loanTeamLogo = player.loan_team_logo || player.current_team_logo
-                                        const position = player.position
-                                        const isGK = position === 'G' || position === 'Goalkeeper'
+                                        const stats = rosterStatLine(player)
 
                                         return (
                                             <Link
                                                 key={`${playerId}-${idx}`}
-                                                to={`/players/${playerId}`}
+                                                to={withSeasonParam(`/players/${playerId}`, seasonOverride)}
                                                 className="flex items-center gap-3 p-3 rounded-lg hover:bg-card hover:shadow-sm transition-all group border border-transparent hover:border-border"
                                             >
                                                 <Avatar className="h-10 w-10 shrink-0">
@@ -510,28 +542,11 @@ export function TeamDetailPage() {
                                                         </div>
                                                     )}
                                                 </div>
-                                                <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
-                                                    {(() => {
-                                                        const apps = status === 'first_team' ? (player.parent_club_appearances ?? player.appearances) : player.appearances
-                                                        return apps > 0 ? <span>{apps} apps</span> : null
-                                                    })()}
-                                                    {isGK ? (
-                                                        <>
-                                                            {player.clean_sheets != null && player.clean_sheets > 0 && (
-                                                                <span className="text-emerald-600">{player.clean_sheets} CS</span>
-                                                            )}
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            {player.goals != null && player.goals > 0 && (
-                                                                <span className="text-emerald-600">{player.goals}G</span>
-                                                            )}
-                                                            {player.assists != null && player.assists > 0 && (
-                                                                <span className="text-amber-600">{player.assists}A</span>
-                                                            )}
-                                                        </>
-                                                    )}
-                                                </div>
+                                                {stats ? (
+                                                    <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                                                        {stats}
+                                                    </span>
+                                                ) : null}
                                                 <ChevronRight className="h-4 w-4 text-muted-foreground/50 group-hover:text-primary shrink-0" />
                                             </Link>
                                         )
@@ -584,8 +599,10 @@ export function TeamDetailPage() {
                                             teamApiId={team?.team_id || teamId}
                                             teamLogo={team?.logo}
                                             teamName={team?.name}
-                                            season={urlSeason}
+                                            season={selectedSeason}
+                                            seasonOverride={seasonOverride}
                                             onSeasonChange={handleSeasonChange}
+                                            onCurrentSeasonChange={setCurrentSeason}
                                         />
                                     </motion.div>
                                 )}

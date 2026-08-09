@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { formatSeasonLabel } from '@/lib/seasons'
 import { cn } from '@/lib/utils'
 
 let seasonDirectoryPromise
@@ -21,7 +22,13 @@ function getSeasonDirectory() {
   return seasonDirectoryPromise
 }
 
-export function SeasonSelect({ value, onValueChange, className, ariaLabel = 'Select season' }) {
+export function SeasonSelect({
+  value,
+  onValueChange,
+  onCurrentSeasonChange,
+  className,
+  ariaLabel = 'Select season',
+}) {
   const [directory, setDirectory] = useState(null)
   const [error, setError] = useState(false)
 
@@ -29,24 +36,34 @@ export function SeasonSelect({ value, onValueChange, className, ariaLabel = 'Sel
     let cancelled = false
     getSeasonDirectory()
       .then((data) => {
-        if (!cancelled) setDirectory(data)
+        if (!cancelled) {
+          setDirectory(data)
+          const currentSeason = Number(data?.current_season)
+          if (Number.isInteger(currentSeason)) onCurrentSeasonChange?.(currentSeason)
+        }
       })
       .catch(() => {
         if (!cancelled) setError(true)
       })
     return () => { cancelled = true }
-  }, [])
+  }, [onCurrentSeasonChange])
 
   const resolvedValue = value ?? directory?.current_season
+  const selectedItem = directory?.seasons?.find((item) => Number(item.season) === Number(resolvedValue))
 
   return (
     <Select
-      value={resolvedValue == null ? undefined : String(resolvedValue)}
-      onValueChange={(next) => onValueChange?.(Number(next))}
+      value={resolvedValue == null ? '' : String(resolvedValue)}
+      onValueChange={(next) => {
+        const season = Number(next)
+        onValueChange?.(season, season === Number(directory?.current_season))
+      }}
       disabled={!directory || error}
     >
-      <SelectTrigger className={cn('w-full sm:w-36', className)} aria-label={ariaLabel}>
-        <SelectValue placeholder={error ? 'Unavailable' : 'Season'} />
+      <SelectTrigger className={cn('w-full min-w-28 sm:w-auto', className)} aria-label={ariaLabel}>
+        <SelectValue placeholder={error ? 'Unavailable' : 'Season'}>
+          {resolvedValue == null ? null : (selectedItem?.label || formatSeasonLabel(resolvedValue))}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {(directory?.seasons || []).map((item) => (
