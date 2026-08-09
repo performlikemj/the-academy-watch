@@ -7,10 +7,11 @@ import logging
 from flask import Blueprint, abort, g, jsonify, request
 from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
-from src.auth import _ensure_user_account, _safe_error_payload, require_user_auth
+from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
 from src.extensions import limiter
-from src.models.contact import ContactMessage, ContactOutcome, ContactRequest
-from src.models.league import UserAccount, db
+from src.models.contact import ContactAuditEvent, ContactMessage, ContactOutcome, ContactRequest
+from src.models.journey import PlayerJourney
+from src.models.league import Player, UserAccount, db
 from src.models.showcase import PlayerProfileClaim
 from src.models.trust import ScoutVerification
 from src.services.club_registry import (
@@ -22,6 +23,7 @@ from src.services.contact import (
     APPROACH_RULES_WARNING,
     ROUTING_CLUB_INCLUDED,
     ROUTING_CLUB_NOTIFIED,
+    ROUTING_DIRECT,
     add_audit_event,
     clean_plain_text,
     contact_rail_enabled,
@@ -60,6 +62,10 @@ MAX_THREAD_MESSAGE_LENGTH = 2000
 MAX_OUTCOME_NOTES_LENGTH = 2000
 MAX_CLUB_CONSENT_NOTE_LENGTH = 1000
 MAX_PAGE_SIZE = 200
+MAX_ADMIN_PAGE_SIZE = 100
+
+CONTACT_REQUEST_STATUSES = {"pending", "accepted", "declined", "withdrawn", "expired"}
+CONTACT_ROUTING_MODES = {ROUTING_DIRECT, ROUTING_CLUB_INCLUDED, ROUTING_CLUB_NOTIFIED}
 
 REQUEST_RATE_LIMIT = "10 per day"
 MESSAGE_RATE_LIMIT = "60 per hour"
@@ -132,6 +138,108 @@ def _pagination() -> tuple[int, int]:
     limit = min(MAX_PAGE_SIZE, max(1, limit if limit is not None else 50))
     offset = max(0, offset if offset is not None else 0)
     return limit, offset
+
+
+def _admin_pagination() -> tuple[int, int]:
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 25, type=int)
+    page = max(1, page if page is not None else 1)
+    per_page = min(MAX_ADMIN_PAGE_SIZE, max(1, per_page if per_page is not None else 25))
+    return page, per_page
+
+
+def _contact_admin_query():
+    """Build the oversight query with constant-query activity aggregates."""
+    message_stats = (
+        db.session.query(
+            ContactMessage.contact_request_id.label("request_id"),
+            func.count(ContactMessage.id).label("message_count"),
+            func.max(ContactMessage.created_at).label("last_message_at"),
+        )
+        .group_by(ContactMessage.contact_request_id)
+        .subquery()
+    )
+    audit_stats = (
+        db.session.query(
+            ContactAuditEvent.contact_request_id.label("request_id"),
+            func.max(ContactAuditEvent.created_at).label("last_audit_at"),
+        )
+        .group_by(ContactAuditEvent.contact_request_id)
+        .subquery()
+    )
+    return (
+        db.session.query(
+            ContactRequest,
+            func.coalesce(message_stats.c.message_count, 0).label("message_count"),
+            message_stats.c.last_message_at,
+            audit_stats.c.last_audit_at,
+            Player.name.label("stored_player_name"),
+            PlayerJourney.player_name.label("journey_player_name"),
+        )
+        .outerjoin(message_stats, message_stats.c.request_id == ContactRequest.id)
+        .outerjoin(audit_stats, audit_stats.c.request_id == ContactRequest.id)
+        .outerjoin(Player, Player.player_id == ContactRequest.player_api_id)
+        .outerjoin(PlayerJourney, PlayerJourney.player_api_id == ContactRequest.player_api_id)
+    )
+
+
+def _created_metadata_by_request(request_ids: list[str]) -> dict[str, dict]:
+    if not request_ids:
+        return {}
+    rows = (
+        ContactAuditEvent.query.filter(
+            ContactAuditEvent.contact_request_id.in_(request_ids),
+            ContactAuditEvent.event_type == "created",
+        )
+        .order_by(ContactAuditEvent.id.asc())
+        .all()
+    )
+    metadata_by_request: dict[str, dict] = {}
+    for event in rows:
+        metadata_by_request.setdefault(event.contact_request_id, event.event_metadata)
+    return metadata_by_request
+
+
+def _verification_by_scout(scout_user_ids: list[int]) -> dict[int, ScoutVerification]:
+    if not scout_user_ids:
+        return {}
+    rows = (
+        ScoutVerification.query.filter(ScoutVerification.user_account_id.in_(scout_user_ids))
+        .order_by(
+            ScoutVerification.user_account_id.asc(),
+            ScoutVerification.submitted_at.desc(),
+            ScoutVerification.id.desc(),
+        )
+        .all()
+    )
+    verification_by_scout: dict[int, ScoutVerification] = {}
+    for verification in rows:
+        verification_by_scout.setdefault(verification.user_account_id, verification)
+    return verification_by_scout
+
+
+def _admin_contact_request_payload(row, verification, created_metadata: dict | None) -> dict:
+    contact_request = row.ContactRequest
+    activity_candidates = [
+        value for value in (contact_request.created_at, row.last_message_at, row.last_audit_at) if value is not None
+    ]
+    return {
+        "id": contact_request.id,
+        "created_at": contact_request.created_at.isoformat() if contact_request.created_at else None,
+        "last_activity": max(activity_candidates).isoformat() if activity_candidates else None,
+        "status": contact_request.status,
+        "routing_mode": contact_request.routing_mode,
+        "club_consent_status": contact_request.club_consent_status,
+        "scout": {
+            "account_id": contact_request.scout_user_id,
+            "name": verification.full_name if verification else None,
+            "organization": verification.organization if verification else None,
+        },
+        "player_api_id": contact_request.player_api_id,
+        "player_name": row.stored_player_name or row.journey_player_name or f"Player {contact_request.player_api_id}",
+        "message_count": int(row.message_count or 0),
+        "status_contradiction": contact_request.status_contradiction_at_creation(created_metadata=created_metadata),
+    }
 
 
 def _target_claim(player_api_id: int, *, for_update: bool = False) -> PlayerProfileClaim | None:
@@ -443,6 +551,7 @@ def create_contact_request():
                     }
                 ), 409
             raise
+        notice_metadata = None
         if routing_mode == ROUTING_CLUB_NOTIFIED:
             try:
                 notice_metadata = send_club_courtesy_notice(contact_request)
@@ -462,28 +571,30 @@ def create_contact_request():
                 except Exception:
                     db.session.rollback()
                     logger.exception("Failed to record club notice audit for request %s", contact_request.id)
-            try:
-                from src.services.admin_notify_service import notify_club_contact_request
-
-                notify_club_contact_request(
-                    contact_request.id,
-                    contact_request.player_api_id,
-                    club_program_id=(
-                        notice_metadata["club_program_id"]
-                        if notice_metadata is not None
-                        else contact_request.club_program_id
-                    ),
-                    club_notice_sent=notice_metadata is not None,
-                    status_contradiction=status_contradiction,
-                )
-            except Exception:
-                logger.exception("Failed to queue admin notice for contact request %s", contact_request.id)
         elif routing_mode == ROUTING_CLUB_INCLUDED:
             try:
                 send_club_consent_notice(contact_request)
             except Exception:
                 db.session.rollback()
                 logger.exception("Club consent dispatch failed for request %s", contact_request.id)
+        if routing_mode in {ROUTING_DIRECT, ROUTING_CLUB_NOTIFIED}:
+            try:
+                from src.services.admin_notify_service import notify_contact_request
+
+                notify_contact_request(
+                    contact_request.id,
+                    contact_request.player_api_id,
+                    routing_mode=routing_mode,
+                    status_contradiction=status_contradiction,
+                    club_program_id=(
+                        notice_metadata["club_program_id"]
+                        if notice_metadata is not None
+                        else contact_request.club_program_id
+                    ),
+                    club_notice_sent=notice_metadata is not None if routing_mode == ROUTING_CLUB_NOTIFIED else None,
+                )
+            except Exception:
+                logger.exception("Failed to queue admin notice for contact request %s", contact_request.id)
         return jsonify({"contact_request": _contact_request_payload(contact_request)}), 201
     except ValueError as exc:
         db.session.rollback()
@@ -492,6 +603,107 @@ def create_contact_request():
         db.session.rollback()
         logger.exception("Failed to create contact request")
         return jsonify(_safe_error_payload(exc, "Failed to create contact request")), 500
+
+
+@contact_bp.route("/admin/contact/requests", methods=["GET"])
+@require_api_key
+def admin_list_contact_requests():
+    """List contact requests for Trust Desk oversight, even while the rail is dark."""
+    try:
+        query = _contact_admin_query()
+
+        status = request.args.get("status")
+        if status is not None:
+            status = status.strip().lower()
+            if status not in CONTACT_REQUEST_STATUSES:
+                return jsonify({"error": f"status must be one of {sorted(CONTACT_REQUEST_STATUSES)}"}), 400
+            query = query.filter(ContactRequest.status == status)
+
+        routing_mode = request.args.get("routing_mode")
+        if routing_mode is not None:
+            routing_mode = routing_mode.strip().lower()
+            if routing_mode not in CONTACT_ROUTING_MODES:
+                return jsonify({"error": f"routing_mode must be one of {sorted(CONTACT_ROUTING_MODES)}"}), 400
+            query = query.filter(ContactRequest.routing_mode == routing_mode)
+
+        contradiction = request.args.get("contradiction")
+        if contradiction is not None:
+            contradiction = contradiction.strip().lower()
+            if contradiction not in {"true", "false"}:
+                return jsonify({"error": "contradiction must be true or false"}), 400
+            contradiction_exists = (
+                db.session.query(ContactAuditEvent.id)
+                .filter(
+                    ContactAuditEvent.contact_request_id == ContactRequest.id,
+                    ContactAuditEvent.event_type == "created",
+                    ContactAuditEvent.event_metadata["status_contradiction"].as_boolean().is_(True),
+                )
+                .exists()
+            )
+            query = query.filter(contradiction_exists if contradiction == "true" else ~contradiction_exists)
+
+        page, per_page = _admin_pagination()
+        total = query.count()
+        rows = (
+            query.order_by(ContactRequest.created_at.desc(), ContactRequest.id.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        request_ids = [row.ContactRequest.id for row in rows]
+        metadata_by_request = _created_metadata_by_request(request_ids)
+        verification_by_scout = _verification_by_scout([row.ContactRequest.scout_user_id for row in rows])
+        requests_payload = [
+            _admin_contact_request_payload(
+                row,
+                verification_by_scout.get(row.ContactRequest.scout_user_id),
+                metadata_by_request.get(row.ContactRequest.id),
+            )
+            for row in rows
+        ]
+        return jsonify(
+            {
+                "requests": requests_payload,
+                "total": total,
+                "page": page,
+                "pages": (total + per_page - 1) // per_page,
+            }
+        )
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("Failed to list contact requests for admin oversight")
+        return jsonify(_safe_error_payload(exc, "Failed to list admin contact requests")), 500
+
+
+@contact_bp.route("/admin/contact/requests/<string:request_id>", methods=["GET"])
+@require_api_key
+def admin_get_contact_request(request_id: str):
+    """Return one contact request with participant data and its full audit trail."""
+    try:
+        row = _contact_admin_query().filter(ContactRequest.id == request_id).one_or_none()
+        if row is None:
+            return jsonify({"error": "contact request not found"}), 404
+
+        contact_request = row.ContactRequest
+        created_metadata = _created_metadata_by_request([contact_request.id]).get(contact_request.id)
+        verification = _verification_by_scout([contact_request.scout_user_id]).get(contact_request.scout_user_id)
+        payload = _contact_request_payload(contact_request)
+        payload.update(_admin_contact_request_payload(row, verification, created_metadata))
+        payload["audit_events"] = [
+            {
+                "event_type": event.event_type,
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+                "metadata": event.event_metadata,
+            }
+            for event in contact_request.audit_events.order_by(None)
+            .order_by(ContactAuditEvent.created_at.asc(), ContactAuditEvent.id.asc())
+            .all()
+        ]
+        return jsonify({"request": payload})
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("Failed to load contact request %s for admin oversight", request_id)
+        return jsonify(_safe_error_payload(exc, "Failed to load admin contact request")), 500
 
 
 @contact_bp.route("/contact/requests", methods=["GET"])

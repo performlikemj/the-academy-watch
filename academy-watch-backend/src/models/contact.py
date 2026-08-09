@@ -11,6 +11,8 @@ from uuid import uuid4
 import sqlalchemy as sa
 from src.models.league import db
 
+_UNSET = object()
+
 
 def _utcnow():
     # Columns are ``timestamp without time zone`` throughout this repository;
@@ -115,10 +117,19 @@ class ContactRequest(db.Model):
             .first()
         )
 
-    def status_contradiction_at_creation(self) -> bool:
-        """Read the schema-free review flag persisted in the created audit event."""
-        created_event = self.audit_events.filter_by(event_type="created").order_by(ContactAuditEvent.id.asc()).first()
-        metadata = created_event.event_metadata if created_event is not None else None
+    def status_contradiction_at_creation(self, *, created_metadata=_UNSET) -> bool:
+        """Read the schema-free review flag persisted in the created audit event.
+
+        Admin oversight can pass metadata loaded in one batch; participant
+        serializers retain the historical relationship lookup.
+        """
+        if created_metadata is _UNSET:
+            created_event = (
+                self.audit_events.filter_by(event_type="created").order_by(ContactAuditEvent.id.asc()).first()
+            )
+            metadata = created_event.event_metadata if created_event is not None else None
+        else:
+            metadata = created_metadata
         return bool(metadata.get("status_contradiction")) if isinstance(metadata, dict) else False
 
     def to_dict(self, *, include_user_ids: bool = False):

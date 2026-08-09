@@ -3806,6 +3806,13 @@ def admin_review_claim(claim_id: int):
         claim.reviewed_by = getattr(g, "user_email", None)
         claim.reviewed_at = datetime.now(UTC)
         db.session.commit()
+        if action in {"approve", "reject"}:
+            try:
+                from src.services.trust_decision_email_service import send_player_claim_decision_email
+
+                send_player_claim_decision_email(claim, action, _resolve_claim_player_name(claim))
+            except Exception:
+                logger.exception("Failed to dispatch %s email for player claim %s", action, claim_id)
         return jsonify({"claim": _profile_claim_dict(claim)})
     except Exception as e:
         db.session.rollback()
