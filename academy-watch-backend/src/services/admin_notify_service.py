@@ -185,6 +185,33 @@ def notify_tracking_request(team_name: str, email: str | None = None, reason: st
         logger.exception("notify_tracking_request failed for %s", team_name)
 
 
+def notify_club_contact_request(
+    contact_request_id: str,
+    player_api_id: int,
+    *,
+    club_program_id: int | None,
+    club_notice_sent: bool,
+    status_contradiction: bool,
+) -> None:
+    """Create an admin-channel audit trail for every club-notified request."""
+    try:
+        subject = f"[Academy Watch] Club-notified contact request: {contact_request_id}"
+        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        lines = [
+            f"Request ID: {contact_request_id}",
+            f"Player API ID: {player_api_id}",
+            f"Club program ID: {club_program_id if club_program_id is not None else '(unresolved)'}",
+            f"Club notice sent: {'yes' if club_notice_sent else 'no'}",
+            f"Status contradiction: {'yes' if status_contradiction else 'no'}",
+            f"Time: {now}",
+        ]
+        text = "New club-notified contact request.\n\n" + "\n".join(lines) + "\n"
+        html = _simple_html(["<strong>New club-notified contact request</strong>"] + lines)
+        _notify_in_background(subject, text, html)
+    except Exception:
+        logger.exception("notify_club_contact_request failed for %s", contact_request_id)
+
+
 def notify_unsubscribe(email: str, team_name: str | None = None) -> None:
     """Notify admin when a user unsubscribes."""
     try:

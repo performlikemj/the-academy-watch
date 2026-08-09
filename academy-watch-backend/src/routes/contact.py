@@ -28,12 +28,16 @@ from src.services.contact import (
     decline_cooldown_cutoff,
     decline_cooldown_days,
     expire_if_due,
+    has_status_contradiction,
+    load_club_consent_token,
     messaging_is_open,
     parse_occurred_at,
+    platform_contract_belief,
     request_can_expire,
     request_expires_at,
     require_contact_rail,
     routing_mode_for_claim,
+    send_club_consent_notice,
     send_club_courtesy_notice,
     utcnow,
 )
@@ -116,6 +120,10 @@ def _contact_request_payload(contact_request: ContactRequest) -> dict:
 def _contact_message_payload(message: ContactMessage) -> dict:
     """Expose a thread sender's block target without changing account exports."""
     return message.to_dict(include_user_ids=True)
+
+
+def _invalid_consent_link():
+    return jsonify({"error": "Consent link is invalid or no longer available", "code": "invalid_consent_link"}), 404
 
 
 def _pagination() -> tuple[int, int]:
@@ -317,7 +325,13 @@ def create_contact_request():
             db.session.rollback()
             return _player_not_claimable()
 
-        routing_mode = routing_mode_for_claim(claim)
+        platform_belief, platform_pathway_status = platform_contract_belief(player_api_id)
+        routing_mode = routing_mode_for_claim(claim, platform_belief=platform_belief)
+        status_contradiction = has_status_contradiction(
+            player_api_id,
+            claim.contract_status,
+            platform_belief=platform_belief,
+        )
         permission_attestation = payload.get("permission_attestation") is True
         if routing_mode == ROUTING_CLUB_NOTIFIED and not permission_attestation:
             db.session.rollback()
@@ -382,9 +396,25 @@ def create_contact_request():
                     "claim_id": claim.id,
                     "routing_mode": routing_mode,
                     "club_program_id": club_program_id,
+                    "status_contradiction": status_contradiction,
+                    "platform_contract_belief": platform_belief,
+                    "platform_pathway_status": platform_pathway_status,
                 },
                 created_at=now,
             )
+            if status_contradiction:
+                logger.warning(
+                    "contact_status_contradiction",
+                    extra={
+                        "contact_request_id": contact_request.id,
+                        "player_api_id": player_api_id,
+                        "claim_id": claim.id,
+                        "claim_contract_status": claim.contract_status,
+                        "platform_contract_belief": platform_belief,
+                        "platform_pathway_status": platform_pathway_status,
+                        "routing_mode": routing_mode,
+                    },
+                )
             if routing_mode == ROUTING_CLUB_NOTIFIED:
                 add_audit_event(
                     contact_request,
@@ -414,7 +444,12 @@ def create_contact_request():
                 ), 409
             raise
         if routing_mode == ROUTING_CLUB_NOTIFIED:
-            notice_metadata = send_club_courtesy_notice(contact_request)
+            try:
+                notice_metadata = send_club_courtesy_notice(contact_request)
+            except Exception:
+                db.session.rollback()
+                notice_metadata = None
+                logger.exception("Club notice dispatch failed for request %s", contact_request.id)
             if notice_metadata is not None:
                 try:
                     add_audit_event(
@@ -427,6 +462,28 @@ def create_contact_request():
                 except Exception:
                     db.session.rollback()
                     logger.exception("Failed to record club notice audit for request %s", contact_request.id)
+            try:
+                from src.services.admin_notify_service import notify_club_contact_request
+
+                notify_club_contact_request(
+                    contact_request.id,
+                    contact_request.player_api_id,
+                    club_program_id=(
+                        notice_metadata["club_program_id"]
+                        if notice_metadata is not None
+                        else contact_request.club_program_id
+                    ),
+                    club_notice_sent=notice_metadata is not None,
+                    status_contradiction=status_contradiction,
+                )
+            except Exception:
+                logger.exception("Failed to queue admin notice for contact request %s", contact_request.id)
+        elif routing_mode == ROUTING_CLUB_INCLUDED:
+            try:
+                send_club_consent_notice(contact_request)
+            except Exception:
+                db.session.rollback()
+                logger.exception("Club consent dispatch failed for request %s", contact_request.id)
         return jsonify({"contact_request": _contact_request_payload(contact_request)}), 201
     except ValueError as exc:
         db.session.rollback()
@@ -557,6 +614,31 @@ def decline_contact_request(request_id: str):
     return _respond_to_request(request_id, "decline")
 
 
+def _apply_club_consent(
+    contact_request: ContactRequest,
+    action: str,
+    *,
+    actor_user_id: int | None,
+    note: str | None,
+) -> None:
+    now = utcnow()
+    contact_request.club_consent_status = "granted" if action == "grant" else "declined"
+    contact_request.club_consent_at = now
+    contact_request.club_consent_by_user_id = actor_user_id
+    contact_request.club_consent_note = note
+    if action == "decline":
+        contact_request.status = "declined"
+        contact_request.responded_at = now
+    event_type = "club_consent_granted" if action == "grant" else "club_consent_declined"
+    add_audit_event(
+        contact_request,
+        event_type,
+        actor_user_id=actor_user_id,
+        metadata={"note": note} if note else {},
+        created_at=now,
+    )
+
+
 @contact_bp.route("/contact/requests/<string:request_id>/club-consent", methods=["POST"])
 @require_contact_rail
 @require_user_auth
@@ -594,21 +676,11 @@ def set_club_consent(request_id: str):
             required=False,
         )
 
-        now = utcnow()
-        contact_request.club_consent_status = "granted" if action == "grant" else "declined"
-        contact_request.club_consent_at = now
-        contact_request.club_consent_by_user_id = user.id
-        contact_request.club_consent_note = note
-        if action == "decline":
-            contact_request.status = "declined"
-            contact_request.responded_at = now
-        event_type = "club_consent_granted" if action == "grant" else "club_consent_declined"
-        add_audit_event(
+        _apply_club_consent(
             contact_request,
-            event_type,
+            action,
             actor_user_id=user.id,
-            metadata={"note": note} if note else {},
-            created_at=now,
+            note=note,
         )
         db.session.commit()
         return jsonify({"contact_request": _contact_request_payload(contact_request)})
@@ -619,6 +691,77 @@ def set_club_consent(request_id: str):
         db.session.rollback()
         logger.exception("Failed to set club consent for request %s", request_id)
         return jsonify(_safe_error_payload(exc, "Failed to set club consent")), 500
+
+
+def _public_consent_summary(contact_request: ContactRequest, action: str) -> dict:
+    from src.models.trust import ScoutVerification
+    from src.services.club_registry import get_club_program
+
+    verification = (
+        ScoutVerification.query.filter_by(user_account_id=contact_request.scout_user_id, status="approved")
+        .order_by(ScoutVerification.submitted_at.desc(), ScoutVerification.id.desc())
+        .first()
+    )
+    program = get_club_program(contact_request.club_program_id)
+    return {
+        "action": action,
+        "contact_request_id": contact_request.id,
+        "player_reference": f"player profile {contact_request.player_api_id}",
+        "program_name": program.get("name") if program else None,
+        "scout": {
+            "name": verification.full_name
+            if verification
+            else (contact_request.scout.display_name if contact_request.scout else None),
+            "organization": verification.organization if verification else None,
+        },
+        "confirmation_required": True,
+    }
+
+
+@contact_bp.route("/contact/club-consent/<string:token>", methods=["GET", "POST"])
+@require_contact_rail
+def public_club_consent(token: str):
+    """Inspect or execute one signed, state-bound club consent capability."""
+    payload = load_club_consent_token(token)
+    if payload is None:
+        return _invalid_consent_link()
+    try:
+        query = ContactRequest.query.filter_by(id=payload["contact_request_id"])
+        if request.method == "POST":
+            query = query.populate_existing().with_for_update()
+        contact_request = query.first()
+        if (
+            contact_request is None
+            or contact_request.routing_mode != ROUTING_CLUB_INCLUDED
+            or contact_request.status not in ACTIVE_REQUEST_STATUSES
+            or contact_request.club_consent_status != "pending"
+        ):
+            db.session.rollback()
+            return _invalid_consent_link()
+        if request_can_expire(contact_request) and contact_request.expires_at <= utcnow():
+            expire_if_due(contact_request)
+            db.session.commit()
+            return _invalid_consent_link()
+        if request.method == "GET":
+            return jsonify({"decision": _public_consent_summary(contact_request, payload["action"])})
+
+        _apply_club_consent(
+            contact_request,
+            payload["action"],
+            actor_user_id=None,
+            note=None,
+        )
+        db.session.commit()
+        return jsonify(
+            {
+                "decision": "granted" if payload["action"] == "grant" else "declined",
+                "contact_request_id": contact_request.id,
+            }
+        )
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to process public club consent link")
+        return _invalid_consent_link()
 
 
 @contact_bp.route("/contact/requests/<string:request_id>/withdraw", methods=["POST"])

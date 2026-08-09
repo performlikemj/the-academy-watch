@@ -920,7 +920,11 @@ def test_contact_creation_is_blocked_but_existing_participant_thread_remains_ava
     _, owner_headers, _ = _approved_player_claim("player-owner@example.com", SUPPRESSED_ID)
     created = client.post(
         "/api/contact/requests",
-        json={"player_api_id": SUPPRESSED_ID, "message": "Can we arrange a call?"},
+        json={
+            "player_api_id": SUPPRESSED_ID,
+            "message": "Can we arrange a call?",
+            "permission_attestation": True,
+        },
         headers=first_scout_headers,
     )
     assert created.status_code == 201, created.get_json()
