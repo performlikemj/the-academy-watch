@@ -106,7 +106,8 @@ enum PlayerProfileClaimStatus: String, Decodable, Equatable, Sendable {
 
 struct PlayerProfileClaim: Decodable, Equatable, Identifiable, Sendable {
     let id: Int
-    let playerApiId: Int
+    let playerApiId: Int?
+    let localPlayerId: Int?
     let userAccountId: Int
     let relationshipType: String
     let status: PlayerProfileClaimStatus
@@ -122,7 +123,8 @@ struct PlayerProfileClaim: Decodable, Equatable, Identifiable, Sendable {
 
     init(
         id: Int,
-        playerApiId: Int,
+        playerApiId: Int?,
+        localPlayerId: Int? = nil,
         userAccountId: Int,
         relationshipType: String,
         status: PlayerProfileClaimStatus,
@@ -138,6 +140,7 @@ struct PlayerProfileClaim: Decodable, Equatable, Identifiable, Sendable {
     ) {
         self.id = id
         self.playerApiId = playerApiId
+        self.localPlayerId = localPlayerId
         self.userAccountId = userAccountId
         self.relationshipType = relationshipType
         self.status = status
@@ -155,6 +158,7 @@ struct PlayerProfileClaim: Decodable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case playerApiId
+        case localPlayerId
         case userAccountId
         case relationshipType
         case status
@@ -172,7 +176,8 @@ struct PlayerProfileClaim: Decodable, Equatable, Identifiable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(Int.self, forKey: .id)
-        playerApiId = try container.decode(Int.self, forKey: .playerApiId)
+        playerApiId = try container.decodeIfPresent(Int.self, forKey: .playerApiId)
+        localPlayerId = try container.decodeIfPresent(Int.self, forKey: .localPlayerId)
         userAccountId = try container.decode(Int.self, forKey: .userAccountId)
         relationshipType = try container.decode(String.self, forKey: .relationshipType)
         status = try container.decode(PlayerProfileClaimStatus.self, forKey: .status)

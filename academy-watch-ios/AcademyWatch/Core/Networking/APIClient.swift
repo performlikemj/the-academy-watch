@@ -131,6 +131,20 @@ protocol FollowListsAPIClientProtocol: Sendable {
     func resolveFollowList(listID: Int, limit: Int, offset: Int) async throws -> ResolvedFollowListResponse
 }
 
+protocol OnboardingAPIClientProtocol: Sendable {
+    func createLocalPlayer(_ submission: LocalPlayerSubmission) async throws -> LocalPlayerCreateResponse
+    func fetchLocalPlayer(id: Int) async throws -> LocalPlayerResponse
+    func searchWorldwidePlayers(query: String) async throws -> WorldwidePlayerSearchResponse
+    func addWorldwidePlayerFollow(
+        listID: Int,
+        player: WorldwidePlayer
+    ) async throws -> FollowResponse
+    func searchClubs(query: String) async throws -> ClubSearchResponse
+    func fetchMyClubClaims() async throws -> ClubClaimsResponse
+    func submitClubClaim(_ submission: ClubClaimSubmission) async throws -> ClubClaimResponse
+    func verifyClubClaim(id: Int, proofURL: String) async throws -> ClubClaimResponse
+}
+
 struct APIClient: ScoutAPIClientProtocol,
     SeasonDirectoryAPIClientProtocol,
     PlayerDetailAPIClientProtocol,
@@ -151,6 +165,7 @@ struct APIClient: ScoutAPIClientProtocol,
     ContentReportAPIClientProtocol,
     WatchlistAPIClientProtocol,
     FollowListsAPIClientProtocol,
+    OnboardingAPIClientProtocol,
     CompareAPIClientProtocol,
     Sendable
 {
@@ -632,6 +647,55 @@ struct APIClient: ScoutAPIClientProtocol,
                 URLQueryItem(name: "limit", value: String(limit)),
                 URLQueryItem(name: "offset", value: String(offset)),
             ]
+        )
+    }
+
+    func createLocalPlayer(_ submission: LocalPlayerSubmission) async throws -> LocalPlayerCreateResponse {
+        try await send(path: "local-players", method: "POST", body: submission)
+    }
+
+    func fetchLocalPlayer(id: Int) async throws -> LocalPlayerResponse {
+        try await get(path: "local-players/\(id)", queryItems: [])
+    }
+
+    func searchWorldwidePlayers(query: String) async throws -> WorldwidePlayerSearchResponse {
+        try await get(
+            path: "scout/player-search",
+            queryItems: [URLQueryItem(name: "q", value: query)]
+        )
+    }
+
+    func addWorldwidePlayerFollow(
+        listID: Int,
+        player: WorldwidePlayer
+    ) async throws -> FollowResponse {
+        try await send(
+            path: "scout/lists/\(listID)/follows",
+            method: "POST",
+            body: WorldwidePlayerFollowSubmission(player: player)
+        )
+    }
+
+    func searchClubs(query: String) async throws -> ClubSearchResponse {
+        try await get(
+            path: "clubs/search",
+            queryItems: [URLQueryItem(name: "q", value: query)]
+        )
+    }
+
+    func fetchMyClubClaims() async throws -> ClubClaimsResponse {
+        try await get(path: "me/club-claims", queryItems: [])
+    }
+
+    func submitClubClaim(_ submission: ClubClaimSubmission) async throws -> ClubClaimResponse {
+        try await send(path: "clubs/claim", method: "POST", body: submission)
+    }
+
+    func verifyClubClaim(id: Int, proofURL: String) async throws -> ClubClaimResponse {
+        try await send(
+            path: "me/club-claims/\(id)/verify",
+            method: "POST",
+            body: ClubClaimProofSubmission(proofUrl: proofURL)
         )
     }
 

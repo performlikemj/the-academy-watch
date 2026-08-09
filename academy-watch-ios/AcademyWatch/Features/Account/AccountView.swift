@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 
 enum AccountDestination: String, Hashable, Identifiable {
+    case playerOnboarding
+    case clubOnboarding
     case verification
     case sentRequests
     case incomingRequests
@@ -24,6 +26,7 @@ struct AccountView: View {
 
     @State private var isDeleteAccountPresented = false
     @State private var hasApprovedPlayerClaim = false
+    @State private var hasAnyPlayerClaim = false
     @State private var exportState: AccountExportState = .idle
     @State private var exportFile: AccountExportFile?
     @State private var exportedFileURL: URL?
@@ -33,6 +36,10 @@ struct AccountView: View {
             debugOrAccountContent
                 .navigationDestination(item: $destination) { destination in
                     switch destination {
+                    case .playerOnboarding:
+                        PlayerOnboardingView(apiClient: apiClient)
+                    case .clubOnboarding:
+                        ClubOnboardingView(apiClient: apiClient)
                     case .verification:
                         ScoutVerificationView(apiClient: apiClient)
                     case .sentRequests:
@@ -112,6 +119,7 @@ struct AccountView: View {
                 VStack(spacing: 18) {
                     if displaysSignedInAccount {
                         signedInHeader
+                        identityOnboardingSection
                         verificationSection
                         contactSection
                         accountActionsSection
@@ -136,6 +144,7 @@ struct AccountView: View {
         .task(id: authManager.isAuthenticated) {
             guard authManager.isAuthenticated else {
                 hasApprovedPlayerClaim = false
+                hasAnyPlayerClaim = false
                 return
             }
             #if DEBUG
@@ -149,6 +158,7 @@ struct AccountView: View {
                 hasApprovedPlayerClaim = response.claims.contains {
                     $0.relationshipType == "player" && $0.status == .approved
                 }
+                hasAnyPlayerClaim = !response.claims.isEmpty
             } catch {
                 hasApprovedPlayerClaim = incomingRequestsViewModel.ownsApprovedPlayerClaim
             }
@@ -237,6 +247,36 @@ struct AccountView: View {
             return AccountRole.player.displayName
         }
         return authManager.accountRole?.displayName ?? "Member"
+    }
+
+    private var identityOnboardingSection: some View {
+        VStack(spacing: 12) {
+            if !hasAnyPlayerClaim {
+                Button {
+                    destination = .playerOnboarding
+                } label: {
+                    OnboardingActionRow(
+                        icon: "figure.soccer",
+                        title: "Are you a player?",
+                        detail: "Find and claim your profile, or create a pending community profile."
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("account-player-onboarding")
+            }
+
+            Button {
+                destination = .clubOnboarding
+            } label: {
+                OnboardingActionRow(
+                    icon: "shield.fill",
+                    title: "Represent a club or academy?",
+                    detail: "Submit a reviewed official claim and complete the public proof step."
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("account-club-onboarding")
+        }
     }
 
     private var verificationSection: some View {
