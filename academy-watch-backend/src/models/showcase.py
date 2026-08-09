@@ -28,6 +28,20 @@ from sqlalchemy.orm import validates
 from src.models.league import db
 
 
+def is_minor_birth_year(birth_year):
+    """Conservative year-only minor test for scalar and SQL birth years.
+
+    Without a full date of birth, someone who may still be 17 during the
+    current year stays private.  SQL callers use the same cutoff as the model
+    property so the age boundary cannot drift between read paths.
+    """
+
+    cutoff = datetime.now(UTC).year - 18
+    if hasattr(birth_year, "is_not"):
+        return sa.and_(birth_year.is_not(None), birth_year >= cutoff)
+    return birth_year is not None and birth_year >= cutoff
+
+
 class LocalPlayer(db.Model):
     """A moderated local player kept outside API-synced player tracking."""
 
@@ -64,7 +78,7 @@ class LocalPlayer(db.Model):
     @property
     def is_minor(self) -> bool:
         """Conservative year-only minor flag used at every serialization gate."""
-        return self.birth_year is not None and datetime.now(UTC).year - self.birth_year < 18
+        return bool(is_minor_birth_year(self.birth_year))
 
     @validates("display_name")
     def _sync_normalized_name(self, _key, value):
@@ -82,6 +96,17 @@ class LocalPlayer(db.Model):
             return self.normalize_name(value) if isinstance(value, str) else value
         source = self.display_name if isinstance(self.display_name, str) else value
         return self.normalize_name(source) if isinstance(source, str) else source
+
+
+def without_minor_local_bridge(api_player_id):
+    """SQL predicate excluding API ids bridged to any minor local identity."""
+
+    return ~sa.exists().where(
+        sa.and_(
+            LocalPlayer.api_player_id == api_player_id,
+            is_minor_birth_year(LocalPlayer.birth_year),
+        )
+    )
 
 
 class PlayerProfileClaim(db.Model):

@@ -8,6 +8,7 @@ the existing admin-only concierge routes.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import uuid
@@ -23,6 +24,7 @@ from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services import video_storage
 from src.services.club_registry import require_club_manager
+from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.utils.sanitize import sanitize_plain_text
 
@@ -32,6 +34,9 @@ RAW_RETENTION_DAYS = 90
 DEFAULT_MATCH_QUOTA = 3
 MAX_MATCH_QUOTA = 100
 QUOTA_LOCK_NAMESPACE = 4_343_202
+MAX_CAPTURE_META_BYTES = 8 * 1024
+MAX_CAPTURE_META_DEPTH = 4
+MAX_CAPTURE_META_KEYS = 50
 CLUB_EDITABLE_MATCH_STATUSES = {"created", "uploaded"}
 TEXT_LIMITS = {
     "opponent_name": 200,
@@ -92,6 +97,40 @@ def _match_date(value):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError as exc:
         raise ValueError("match_date must be YYYY-MM-DD or null") from exc
+
+
+def _capture_meta(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("capture_meta must be an object or null")
+
+    key_count = 0
+
+    def inspect_shape(node, depth: int) -> None:
+        nonlocal key_count
+        if isinstance(node, dict):
+            if depth > MAX_CAPTURE_META_DEPTH:
+                raise ValueError(f"capture_meta nesting depth must be at most {MAX_CAPTURE_META_DEPTH}")
+            key_count += len(node)
+            if key_count > MAX_CAPTURE_META_KEYS:
+                raise ValueError(f"capture_meta must contain at most {MAX_CAPTURE_META_KEYS} keys")
+            for child in node.values():
+                inspect_shape(child, depth + 1)
+        elif isinstance(node, list):
+            if depth > MAX_CAPTURE_META_DEPTH:
+                raise ValueError(f"capture_meta nesting depth must be at most {MAX_CAPTURE_META_DEPTH}")
+            for child in node:
+                inspect_shape(child, depth + 1)
+
+    inspect_shape(value, 1)
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("capture_meta must contain valid JSON values") from exc
+    if len(encoded) > MAX_CAPTURE_META_BYTES:
+        raise ValueError(f"capture_meta must be at most {MAX_CAPTURE_META_BYTES} serialized bytes")
+    return value
 
 
 def _club_match(program_id: int, match_id: int) -> VideoMatch | None:
@@ -221,7 +260,20 @@ def add_club_roster_member(program_id: int):
             local = db.session.get(LocalPlayer, local_player_id)
             # A manager can attach only a local identity they personally created.
             # The response is neutral for foreign, merged, rejected, or suppressed rows.
-            if local is None or local.created_by_user_id != g.user_id or not _local_player_available(local):
+            if (
+                local is None
+                or local.created_by_user_id != g.user_id
+                or local.status in {"rejected", "merged"}
+                or local.merged_into_local_player_id is not None
+            ):
+                return jsonify({"error": "Player not found"}), 404
+            if retained_shadow_identity_exists(
+                display_name=local.display_name,
+                birth_year=local.birth_year,
+                api_player_id=local.api_player_id,
+            ):
+                return jsonify({"error": "An existing player identity needs review"}), 409
+            if not _local_player_available(local):
                 return jsonify({"error": "Player not found"}), 404
 
         member = ClubRosterMember(
@@ -263,9 +315,7 @@ def delete_club_roster_member(program_id: int, member_id: int):
 def create_club_match(program_id: int):
     try:
         data = _payload()
-        capture_meta = data.get("capture_meta")
-        if capture_meta is not None and not isinstance(capture_meta, dict):
-            raise ValueError("capture_meta must be an object or null")
+        capture_meta = _capture_meta(data.get("capture_meta"))
         program = db.session.get(ClubProgram, program_id)
         if program is None:
             return jsonify({"error": "Club manager access denied"}), 403
@@ -331,6 +381,7 @@ def club_match_upload_complete(program_id: int, match_id: int):
     check = video_storage.verify_uploaded_blob(match.blob_path)
     if not check["ok"]:
         return jsonify({"error": check["error"]}), 422
+    # TODO(C2 follow-up): validate media signatures/container with ffprobe during admin processing.
     try:
         data = _payload()
         for field in ("kickoff_s", "halftime_s", "second_half_kickoff_s", "duration_s"):
@@ -366,9 +417,7 @@ def update_club_match(program_id: int, match_id: int):
             if field in data:
                 setattr(match, field, _timeline_value(data[field], field))
         if "capture_meta" in data:
-            if data["capture_meta"] is not None and not isinstance(data["capture_meta"], dict):
-                raise ValueError("capture_meta must be an object or null")
-            match.capture_meta = data["capture_meta"]
+            match.capture_meta = _capture_meta(data["capture_meta"])
     except ValueError as exc:
         return _bad_request(str(exc))
     db.session.commit()

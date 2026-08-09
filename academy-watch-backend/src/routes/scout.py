@@ -39,6 +39,7 @@ from src.models.journey import PlayerJourney
 from src.models.league import PlayerStatsCache, Team, UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.season_rollup import PlayerSeasonTotal
+from src.models.showcase import without_minor_local_bridge
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services.follow_resolver import derive_label, resolve_list, validate_selector
@@ -466,6 +467,7 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season
         # products) — never surface them even before a data repair runs.
         .filter(TrackedPlayer.data_source != "owning-club")
         .filter(without_active_suppression(TrackedPlayer.player_api_id))
+        .filter(without_minor_local_bridge(TrackedPlayer.player_api_id))
         .filter(_preferred_row_filter())
         # to_public_dict touches .team and .current_club — eager-load so a
         # page (or 1000-row CSV export) doesn't lazy-load per distinct club.
@@ -1028,6 +1030,7 @@ def scout_compare():
                 TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True)
                 .filter(TrackedPlayer.data_source != "owning-club")
                 .filter(without_active_suppression(TrackedPlayer.player_api_id))
+                .filter(without_minor_local_bridge(TrackedPlayer.player_api_id))
                 .order_by(TrackedPlayer.id)
                 .first()
             )

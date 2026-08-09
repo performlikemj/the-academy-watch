@@ -26,7 +26,7 @@ from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qs, unquote, urlparse
 
 from flask import Blueprint, abort, g, jsonify, request, send_file
-from sqlalchemy import case, func, or_, text
+from sqlalchemy import case, func, literal, or_, text
 from sqlalchemy.exc import IntegrityError
 from src.auth import (
     _ensure_user_account,
@@ -48,6 +48,7 @@ from src.models.showcase import (
     PlayerProfileClaim,
     PlayerShowcaseMedia,
     PlayerShowcaseProfile,
+    without_minor_local_bridge,
 )
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
@@ -64,6 +65,7 @@ from src.services.contact import (
     utcnow,
 )
 from src.services.photo_processing import process_photo, validate_photo
+from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_suppression import (
     hide_suppressed_player,
     is_local_player_suppressed,
@@ -1404,7 +1406,10 @@ def create_local_player():
                 }
             return jsonify(body), 409
 
-        if _duplicates_tracked_identity(display_name, birth_year):
+        if _duplicates_tracked_identity(display_name, birth_year) or retained_shadow_identity_exists(
+            display_name=display_name,
+            birth_year=birth_year,
+        ):
             return jsonify({"error": "An existing player identity needs review"}), 409
 
         pending_count = LocalPlayer.query.filter_by(
@@ -1563,6 +1568,9 @@ def get_player_showcase(player_api_id: int):
     or bad-token callers get the approved-only public view — never a 401.
     """
     try:
+        visible = db.session.query(literal(1)).filter(without_minor_local_bridge(player_api_id)).first()
+        if visible is None:
+            return neutral_player_not_found()
         return jsonify(_subject_showcase_payload(_api_subject(player_api_id)))
     except Exception as e:
         logger.error("Error in get_player_showcase: %s", e)

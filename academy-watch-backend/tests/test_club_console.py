@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -11,6 +11,7 @@ import pytest
 from flask import Flask
 from src.auth import issue_user_token
 from src.extensions import limiter
+from src.models.follow import PlayerShadow
 from src.models.funding import (
     ClubProgram,
     ClubProgramClaim,
@@ -246,6 +247,29 @@ def test_require_club_manager_denies_cross_program_pending_revoked_and_removed(c
         assert response.get_json() == {"error": "Club manager access denied"}
 
 
+def test_require_club_manager_denies_active_manager_when_program_or_claim_not_approved(club_app, client):
+    program_id = club_app.c2["program_a"]
+    program = db.session.get(ClubProgram, program_id)
+    program.platform_status = "suspended"
+    db.session.commit()
+
+    suspended = client.get(f"/api/club/{program_id}/roster", headers=_headers("a"))
+    assert suspended.status_code == 403
+    assert suspended.get_json() == {"error": "Club manager access denied"}
+
+    program.platform_status = "approved"
+    claim = ClubProgramClaim.query.filter_by(
+        program_id=program_id,
+        user_account_id=club_app.c2["users"]["a"],
+    ).one()
+    claim.status = "revoked"
+    db.session.commit()
+
+    revoked_claim = client.get(f"/api/club/{program_id}/roster", headers=_headers("a"))
+    assert revoked_claim.status_code == 403
+    assert revoked_claim.get_json() == {"error": "Club manager access denied"}
+
+
 def test_every_club_console_route_is_manager_gated_before_resource_access(club_app, client):
     b = club_app.c2["program_b"]
     member = _add_api_member(client, b, 7002, "b")
@@ -348,6 +372,59 @@ def test_local_identity_cannot_duplicate_real_or_suppressed_tracked_player(club_
     assert response.get_json() == {"error": "An existing player identity needs review"}
 
 
+def test_suppressed_retained_shadow_cannot_be_recreated_or_attached_as_local(club_app, client):
+    program_id = club_app.c2["program_a"]
+    user_id = club_app.c2["users"]["a"]
+    shadow_api_id = 8_801
+    birth_year = datetime.now(UTC).year - 20
+    db.session.add(
+        PlayerShadow(
+            player_api_id=shadow_api_id,
+            player_name="Retained Shadow Player",
+            birth_date=date(birth_year, 6, 1),
+            is_active=False,
+        )
+    )
+    db.session.commit()
+    _active_suppression(player_api_id=shadow_api_id)
+
+    recreated = client.post(
+        "/api/local-players",
+        json={
+            "display_name": "  RETAINED   shadow player ",
+            "birth_year": birth_year,
+            "relationship_type": "guardian",
+        },
+        headers=_headers("a"),
+    )
+    assert recreated.status_code == 409
+    assert recreated.get_json() == {"error": "An existing player identity needs review"}
+
+    name_alias = _local(
+        user_id,
+        name="Retained Shadow Player",
+        birth_year=birth_year,
+        status="approved",
+    )
+    api_alias = _local(
+        user_id,
+        name="Different Local Name",
+        birth_year=birth_year - 1,
+        status="approved",
+    )
+    api_alias.api_player_id = shadow_api_id
+    db.session.commit()
+
+    for alias in (name_alias, api_alias):
+        attached = client.post(
+            f"/api/club/{program_id}/roster",
+            json={"local_player_id": alias.id},
+            headers=_headers("a"),
+        )
+        assert attached.status_code == 409
+        assert attached.get_json() == {"error": "An existing player identity needs review"}
+
+
 def test_sas_and_upload_complete_are_program_scoped_and_expiry_bounded(club_app, client):
     a = club_app.c2["program_a"]
     b = club_app.c2["program_b"]
@@ -429,6 +506,35 @@ def test_match_quota_uses_serialized_count_and_returns_429(club_app, client, mon
     assert second.status_code == 429
     assert "quota reached" in second.get_json()["error"].lower()
     assert lock.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "capture_meta",
+    [
+        {"notes": "x" * (8 * 1024)},
+        {"one": {"two": {"three": {"four": {"five": "too deep"}}}}},
+        {f"key_{index}": index for index in range(51)},
+    ],
+    ids=("serialized-size", "nesting-depth", "key-count"),
+)
+def test_capture_meta_bounds_are_enforced_on_create_and_update(club_app, client, capture_meta):
+    program_id = club_app.c2["program_a"]
+    created = client.post(
+        f"/api/club/{program_id}/matches",
+        json={"capture_meta": capture_meta},
+        headers=_headers("a"),
+    )
+    assert created.status_code == 400
+    assert "capture_meta" in created.get_json()["error"]
+
+    match = _match(program_id, status="created")
+    updated = client.patch(
+        f"/api/club/{program_id}/matches/{match.id}",
+        json={"capture_meta": capture_meta},
+        headers=_headers("a"),
+    )
+    assert updated.status_code == 400
+    assert "capture_meta" in updated.get_json()["error"]
 
 
 def test_club_match_roster_rejects_foreign_and_departed_members(club_app, client):
