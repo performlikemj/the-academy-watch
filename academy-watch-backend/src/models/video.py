@@ -5,8 +5,9 @@ Match-video upload → GPU pipeline → tag review → per-player reports.
 Spec: ledgers/CONTINUITY_video-analysis.md "Data model" section.
 
 Key invariants:
-- VideoMatch.team_id is the PAYING club (NOT NULL). Opposition is free text and
-  is only ever identified by jersey number — never names (legal posture).
+- Legacy VideoMatch.team_id is the paying club. Club-console matches instead
+  carry club_program_id and may not have an API-backed Team. Opposition is free
+  text and is identified only by jersey number — never names (legal posture).
 - VideoCreditLedger is append-only; a team's balance is SUM(delta). The Stripe
   session id carries a unique constraint so webhook replays cannot double-credit.
 - VideoTracklet rows are what human tags bind to. `kind` distinguishes
@@ -71,7 +72,10 @@ class VideoMatch(db.Model):
     __tablename__ = "video_matches"
 
     id = db.Column(db.Integer, primary_key=True)
-    team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=False, index=True)
+    # Legacy concierge matches are Team-owned. Club-console matches are owned
+    # directly by a verified ClubProgram and may not have an API-backed Team.
+    team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=True, index=True)
+    club_program_id = db.Column(db.Integer, db.ForeignKey("club_programs.id"), nullable=True, index=True)
 
     # Match metadata (opponent stays free text — opposition players are numbers only)
     opponent_name = db.Column(db.String(200))
@@ -99,10 +103,13 @@ class VideoMatch(db.Model):
 
     created_at = db.Column(db.DateTime, default=_utcnow)
     uploaded_at = db.Column(db.DateTime)
+    processing_requested_at = db.Column(db.DateTime)
+    processing_requested_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=True)
     finalized_at = db.Column(db.DateTime)
     expires_at = db.Column(db.DateTime)  # raw-footage retention deadline (90d policy)
 
     team = db.relationship("Team", foreign_keys=[team_id])
+    club_program = db.relationship("ClubProgram", foreign_keys=[club_program_id])
     jobs = db.relationship(
         "VideoAnalysisJob",
         backref="match",
@@ -119,6 +126,7 @@ class VideoMatch(db.Model):
         out = {
             "id": self.id,
             "team_id": self.team_id,
+            "club_program_id": self.club_program_id,
             "opponent_name": self.opponent_name,
             "match_date": self.match_date.isoformat() if self.match_date else None,
             "competition": self.competition,
@@ -136,6 +144,9 @@ class VideoMatch(db.Model):
             "quality_flags": self.quality_flags,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "uploaded_at": self.uploaded_at.isoformat() if self.uploaded_at else None,
+            "processing_requested_at": (
+                self.processing_requested_at.isoformat() if self.processing_requested_at else None
+            ),
             "finalized_at": self.finalized_at.isoformat() if self.finalized_at else None,
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
         }
@@ -198,6 +209,14 @@ class VideoRosterEntry(db.Model):
     position = db.Column(db.String(50))
     # Optional link into the existing tracking universe (club-owned record → pro journey hook)
     tracked_player_id = db.Column(db.Integer, db.ForeignKey("tracked_players.id"), nullable=True)
+    # Present only for club-console matches. The referenced membership may be
+    # deleted before finalize; reports therefore copy an immutable snapshot.
+    club_roster_member_id = db.Column(
+        db.Integer,
+        db.ForeignKey("club_roster_members.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     created_at = db.Column(db.DateTime, default=_utcnow)
 
@@ -209,6 +228,7 @@ class VideoRosterEntry(db.Model):
             "jersey_number": self.jersey_number,
             "position": self.position,
             "tracked_player_id": self.tracked_player_id,
+            "club_roster_member_id": self.club_roster_member_id,
         }
 
 
@@ -280,13 +300,23 @@ class VideoTracklet(db.Model):
 
 class VideoPlayerReport(db.Model):
     __tablename__ = "video_player_reports"
-    __table_args__ = (db.UniqueConstraint("video_match_id", "roster_entry_id", name="uq_video_report_match_roster"),)
+    __table_args__ = (
+        db.UniqueConstraint("video_match_id", "roster_entry_id", name="uq_video_report_match_roster"),
+        db.Index("ix_video_player_reports_club_program_finalize", "club_program_id_at_finalize"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     video_match_id = db.Column(db.Integer, db.ForeignKey("video_matches.id"), nullable=False, index=True)
     roster_entry_id = db.Column(db.Integer, db.ForeignKey("video_roster_entries.id"), nullable=False)
     # Denormalized for the PlayerPage join (authed + team-scoped, never public)
     tracked_player_id = db.Column(db.Integer, db.ForeignKey("tracked_players.id"), nullable=True, index=True)
+
+    # Immutable club authorization snapshot. These values are populated only
+    # when the subject is still on the owning program's roster at finalize.
+    club_program_id_at_finalize = db.Column(db.Integer, nullable=True)
+    club_roster_member_id_at_finalize = db.Column(db.Integer, nullable=True)
+    club_player_api_id_at_finalize = db.Column(db.Integer, nullable=True)
+    club_local_player_id_at_finalize = db.Column(db.Integer, nullable=True)
 
     minutes_visible = db.Column(db.Float)  # on-camera minutes — NEVER implied as full-match
     distance_m = db.Column(db.Float)  # on-camera distance, clamped

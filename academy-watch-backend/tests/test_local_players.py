@@ -29,6 +29,7 @@ from src.services import social_proof
 
 ADMIN_KEY = "test-admin-key"
 CODE_PATTERN = re.compile(r"^AW-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$")
+DEFAULT_ADULT_BIRTH_YEAR = datetime.now(UTC).year - 19
 
 
 @pytest.fixture
@@ -123,7 +124,7 @@ def _make_user(email):
 def _seed_local_player(
     display_name="Northside Prospect",
     *,
-    birth_year=2008,
+    birth_year=DEFAULT_ADULT_BIRTH_YEAR,
     position="Midfielder",
     country="England",
     city="Leeds",

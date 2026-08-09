@@ -35,18 +35,32 @@ class PlayerSuppression(db.Model):
             "status IN ('requested','active','lifted','rejected')",
             name="ck_player_suppressions_status",
         ),
+        db.CheckConstraint(
+            "(player_api_id IS NOT NULL AND local_player_id IS NULL) OR "
+            "(player_api_id IS NULL AND local_player_id IS NOT NULL)",
+            name="ck_player_suppressions_subject_xor",
+        ),
         db.Index(
             "uq_player_suppressions_open_player",
             "player_api_id",
             unique=True,
-            postgresql_where=sa.text("status IN ('requested', 'active')"),
-            sqlite_where=sa.text("status IN ('requested', 'active')"),
+            postgresql_where=sa.text("player_api_id IS NOT NULL AND status IN ('requested', 'active')"),
+            sqlite_where=sa.text("player_api_id IS NOT NULL AND status IN ('requested', 'active')"),
+        ),
+        db.Index(
+            "uq_player_suppressions_open_local_player",
+            "local_player_id",
+            unique=True,
+            postgresql_where=sa.text("local_player_id IS NOT NULL AND status IN ('requested', 'active')"),
+            sqlite_where=sa.text("local_player_id IS NOT NULL AND status IN ('requested', 'active')"),
         ),
         db.Index("ix_player_suppressions_status_created", "status", "created_at"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
-    player_api_id = db.Column(db.Integer, nullable=False)
+    player_api_id = db.Column(db.Integer, nullable=True)
+    # No FK by design: neutral public intake accepts known and unknown ids alike.
+    local_player_id = db.Column(db.Integer, nullable=True)
     reason_code = db.Column(db.String(30), nullable=False)
     requester_role = db.Column(db.String(20), nullable=False)
     # Plaintext is bounded by the route before this encrypted-at-rest field is bound.
@@ -80,6 +94,7 @@ class PlayerSuppression(db.Model):
         return {
             "id": self.id,
             "player_api_id": self.player_api_id,
+            "local_player_id": self.local_player_id,
             "reason_code": self.reason_code,
             "requester_role": self.requester_role,
             "requester_contact": self.requester_contact,

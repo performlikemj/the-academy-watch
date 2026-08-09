@@ -35,7 +35,7 @@ from src.models.league import (
 from src.models.player_suppression import PlayerSuppression
 from src.models.pulse import PlayerCardCache, PlayerPulse
 from src.models.scout_watchlist import ScoutWatchlistEntry
-from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
+from src.models.showcase import LocalPlayer, PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.tracked_player import TrackedPlayer
 from src.models.trust import ScoutVerification
 from src.models.weekly import Fixture, FixturePlayerStats
@@ -625,6 +625,75 @@ def test_scout_queries_exclude_suppressed_players_at_sql_level(client, suppressi
     assert searched.status_code == 200
     assert [row["player_api_id"] for row in searched.get_json()["players"]] == [VISIBLE_ID]
     assert "Suppressed Prospect" not in searched.get_data(as_text=True)
+
+
+def test_minor_api_bridge_is_query_filtered_from_all_scout_surfaces_at_age_boundary(
+    client, suppression_app, seeded_players, monkeypatch
+):
+    current_year = datetime.now(UTC).year
+    minor_bridge = LocalPlayer(
+        display_name="Private Local Alias",
+        birth_year=current_year - 18,
+        status="approved",
+        provenance="admin",
+        api_player_id=SUPPRESSED_ID,
+    )
+    adult_bridge = LocalPlayer(
+        display_name="Adult Local Alias",
+        birth_year=current_year - 19,
+        status="approved",
+        provenance="admin",
+        api_player_id=VISIBLE_ID,
+    )
+    db.session.add_all([minor_bridge, adult_bridge])
+    db.session.commit()
+    assert minor_bridge.is_minor is True
+    assert adult_bridge.is_minor is False
+
+    from src.routes.scout import _base_scout_query
+
+    with suppression_app.test_request_context("/api/scout/players"):
+        query, _ = _base_scout_query()
+        sql = str(query.statement.compile(compile_kwargs={"literal_binds": True})).lower()
+    assert "local_players" in sql
+    assert "not (exists" in sql or "not exists" in sql
+
+    browse = client.get("/api/scout/players?sort=name")
+    assert browse.status_code == 200
+    assert [row["player_id"] for row in browse.get_json()["players"]] == [VISIBLE_ID]
+
+    leaderboards = client.get("/api/scout/leaderboards?limit=10")
+    assert leaderboards.status_code == 200
+    board_ids = {row["player_id"] for board in leaderboards.get_json()["leaderboards"].values() for row in board}
+    assert SUPPRESSED_ID not in board_ids
+    assert VISIBLE_ID in board_ids
+
+    compared = client.get(f"/api/scout/compare?ids={VISIBLE_ID},{SUPPRESSED_ID}")
+    assert compared.status_code == 200
+    assert [row["profile"]["player_id"] for row in compared.get_json()["players"]] == [VISIBLE_ID]
+    assert compared.get_json()["missing_ids"] == [SUPPRESSED_ID]
+
+    hidden_showcase = client.get(f"/api/players/{SUPPRESSED_ID}/showcase")
+    assert hidden_showcase.status_code == 404
+    assert hidden_showcase.get_json() == NEUTRAL_NOT_FOUND
+    assert client.get(f"/api/players/{VISIBLE_ID}/showcase").status_code == 200
+
+    class SearchClient:
+        def search_player_profiles_global(self, _query):
+            return [
+                {"player": {"id": VISIBLE_ID, "name": "Visible Prospect"}, "statistics": []},
+                {
+                    "player": {"id": SUPPRESSED_ID, "name": "Private Local Alias"},
+                    "statistics": [],
+                },
+            ]
+
+    _, headers = _user_headers("minor-bridge-search@example.com")
+    monkeypatch.setattr("src.routes.scout._get_api_client", lambda: SearchClient())
+    searched = client.get("/api/scout/player-search?q=Prospect", headers=headers)
+    assert searched.status_code == 200
+    assert [row["player_api_id"] for row in searched.get_json()["players"]] == [VISIBLE_ID]
+    assert "Private Local Alias" not in searched.get_data(as_text=True)
 
 
 def test_public_player_showcase_and_new_claim_are_neutral_then_restore_on_lift(client, seeded_players):

@@ -68,12 +68,8 @@ def _neutral_acknowledgment():
     return jsonify(ACKNOWLEDGMENT), 202
 
 
-@player_suppression_bp.route("/players/<int:player_api_id>/takedown-request", methods=["POST"])
-@limiter.limit(INTAKE_RATE_LIMIT_PER_MINUTE)
-@limiter.limit(INTAKE_RATE_LIMIT_PER_HOUR)
-def submit_takedown_request(player_api_id: int):
-    """Accept a request without checking or revealing player existence."""
-
+def _submit_takedown_request(*, player_api_id: int | None = None, local_player_id: int | None = None):
+    """Accept one API or local request without revealing subject existence."""
     try:
         payload = _json_object()
         requester_role = _clean_required(payload.get("requester_role"), "requester_role", max_len=20).lower()
@@ -86,6 +82,7 @@ def submit_takedown_request(player_api_id: int):
         suppression = (
             PlayerSuppression.query.filter(
                 PlayerSuppression.player_api_id == player_api_id,
+                PlayerSuppression.local_player_id == local_player_id,
                 PlayerSuppression.status.in_(("requested", "active")),
             )
             .order_by(PlayerSuppression.created_at.desc(), PlayerSuppression.id.desc())
@@ -96,6 +93,7 @@ def submit_takedown_request(player_api_id: int):
         if suppression is None:
             suppression = PlayerSuppression(
                 player_api_id=player_api_id,
+                local_player_id=local_player_id,
                 reason_code=ROLE_REASON_CODES[requester_role],
                 requester_role=requester_role,
                 requester_contact=contact,
@@ -129,6 +127,24 @@ def submit_takedown_request(player_api_id: int):
         db.session.rollback()
         logger.exception("Failed to record player takedown request")
         return jsonify(_safe_error_payload(exc, "Failed to submit takedown request")), 500
+
+
+@player_suppression_bp.route("/players/<int:player_api_id>/takedown-request", methods=["POST"])
+@limiter.limit(INTAKE_RATE_LIMIT_PER_MINUTE)
+@limiter.limit(INTAKE_RATE_LIMIT_PER_HOUR)
+def submit_takedown_request(player_api_id: int):
+    """Accept an API-player request without checking or revealing existence."""
+
+    return _submit_takedown_request(player_api_id=player_api_id)
+
+
+@player_suppression_bp.route("/local-players/<int:local_player_id>/takedown-request", methods=["POST"])
+@limiter.limit(INTAKE_RATE_LIMIT_PER_MINUTE)
+@limiter.limit(INTAKE_RATE_LIMIT_PER_HOUR)
+def submit_local_player_takedown_request(local_player_id: int):
+    """Apply the same neutral takedown lifecycle to a local identity."""
+
+    return _submit_takedown_request(local_player_id=local_player_id)
 
 
 def _admin_actor() -> str:
@@ -201,12 +217,12 @@ def _decide_suppression(suppression_id: int, action: str):
         suppression.decided_by = _admin_actor()
         suppression.updated_at = suppression.decided_at
 
-        if action == "activate":
+        if action == "activate" and suppression.player_api_id is not None:
             PlayerShadow.query.filter_by(player_api_id=suppression.player_api_id).update(
                 {PlayerShadow.is_active: False},
                 synchronize_session=False,
             )
-        elif action == "lift":
+        elif action == "lift" and suppression.player_api_id is not None:
             # Activation only soft-deactivates the shadow; lifting restores it
             # so existing follows work again without deleting/re-minting data.
             PlayerShadow.query.filter_by(player_api_id=suppression.player_api_id).update(

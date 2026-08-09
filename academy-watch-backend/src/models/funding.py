@@ -328,6 +328,43 @@ class ClubProgramProfileRevision(db.Model):
     )
 
 
+class ClubRosterMember(db.Model):
+    """One tracked or club-created player in a private club-program roster.
+
+    Roster membership grants only club match-video/report scope. It is never a
+    player claim, a public affiliation, or a contact-consent delegation.
+    """
+
+    __tablename__ = "club_roster_members"
+    __table_args__ = (
+        db.CheckConstraint(
+            "(player_api_id IS NOT NULL AND local_player_id IS NULL) OR "
+            "(player_api_id IS NULL AND local_player_id IS NOT NULL)",
+            name="ck_club_roster_member_subject_xor",
+        ),
+        db.UniqueConstraint("program_id", "player_api_id", name="uq_club_roster_program_player"),
+        db.UniqueConstraint("program_id", "local_player_id", name="uq_club_roster_program_local_player"),
+        db.Index("ix_club_roster_members_program", "program_id", "created_at"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(
+        db.Integer,
+        db.ForeignKey("club_programs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    player_api_id = db.Column(db.Integer)
+    local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"))
+    added_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=False)
+    role = db.Column(db.String(80))
+    note = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+
+    program = db.relationship("ClubProgram", backref=db.backref("roster_members", lazy="dynamic"))
+    local_player = db.relationship("LocalPlayer", foreign_keys=[local_player_id])
+    added_by = db.relationship("UserAccount", foreign_keys=[added_by_user_id])
+
+
 class ClubConnectAccount(db.Model):
     __tablename__ = "club_connect_accounts"
     __table_args__ = (

@@ -26,7 +26,7 @@ from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qs, unquote, urlparse
 
 from flask import Blueprint, abort, g, jsonify, request, send_file
-from sqlalchemy import case, func, or_, text
+from sqlalchemy import case, func, literal, or_, text
 from sqlalchemy.exc import IntegrityError
 from src.auth import (
     _ensure_user_account,
@@ -48,6 +48,7 @@ from src.models.showcase import (
     PlayerProfileClaim,
     PlayerShowcaseMedia,
     PlayerShowcaseProfile,
+    without_minor_local_bridge,
 )
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
@@ -64,8 +65,10 @@ from src.services.contact import (
     utcnow,
 )
 from src.services.photo_processing import process_photo, validate_photo
+from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_suppression import (
     hide_suppressed_player,
+    is_local_player_suppressed,
     is_player_suppressed,
     neutral_player_not_found,
 )
@@ -312,7 +315,7 @@ def _approved_subject_claim_or_403(subject: ShowcaseSubject):
         return None, (jsonify({"error": "auth context missing email"}), 401)
     if subject.is_local:
         player = db.session.get(LocalPlayer, subject.local_player_id)
-        if player is None or player.status in ("merged", "rejected"):
+        if player is None or player.status in ("merged", "rejected") or _local_player_is_suppressed(player):
             return None, (jsonify({"error": "local player not found"}), 404)
     if not _has_approved_subject_claim(subject, user.id):
         return None, (jsonify({"error": "You do not have an approved claim for this player"}), 403)
@@ -354,6 +357,44 @@ def _normalize_club_name(value: str) -> str:
 def _normalize_local_player_name(value: str) -> str:
     """Canonical key for local-player duplicate detection."""
     return LocalPlayer.normalize_name(value)
+
+
+def _local_player_is_suppressed(player: LocalPlayer) -> bool:
+    """Honor both a local takedown and a suppression on a linked API identity."""
+
+    return is_local_player_suppressed(player.id) or bool(
+        player.api_player_id is not None and is_player_suppressed(player.api_player_id)
+    )
+
+
+def _duplicates_tracked_identity(display_name: str, birth_year: int | None) -> bool:
+    """Block a local alias for an existing tracked identity.
+
+    The response remains identity-neutral, so this also closes the path where
+    an active suppression would otherwise be bypassed with a local duplicate.
+    A missing birth year is treated conservatively; a supplied year must match
+    the tracked DOB (or a tracked row whose DOB is unavailable).
+    """
+
+    normalized = _normalize_local_player_name(display_name)
+    first_token = normalized.split(" ", 1)[0]
+    candidates = TrackedPlayer.query.filter(
+        func.lower(TrackedPlayer.player_name).like(
+            f"%{_escape_like_literal(first_token)}%",
+            escape="\\",
+        )
+    ).all()
+    for candidate in candidates:
+        if _normalize_local_player_name(candidate.player_name) != normalized:
+            continue
+        if birth_year is None or not candidate.birth_date:
+            return True
+        try:
+            if int(str(candidate.birth_date)[:4]) == birth_year:
+                return True
+        except (TypeError, ValueError):
+            return True
+    return False
 
 
 def _escape_like_literal(value: str) -> str:
@@ -1365,6 +1406,12 @@ def create_local_player():
                 }
             return jsonify(body), 409
 
+        if _duplicates_tracked_identity(display_name, birth_year) or retained_shadow_identity_exists(
+            display_name=display_name,
+            birth_year=birth_year,
+        ):
+            return jsonify({"error": "An existing player identity needs review"}), 409
+
         pending_count = LocalPlayer.query.filter_by(
             created_by_user_id=user.id,
             status="pending",
@@ -1454,9 +1501,15 @@ def _subject_showcase_payload(subject: ShowcaseSubject, *, auth_context=None) ->
 
 
 def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
+    if _local_player_is_suppressed(player):
+        return False
+    user = auth_context["user"] if auth_context else None
+    # Year-only academy records are club-private while under 18, even after an
+    # identity moderator approves the row. Their claimant may still manage it.
+    if player.is_minor:
+        return bool(user and _has_visible_local_claim(player.id, user.id))
     if player.status == "approved":
         return True
-    user = auth_context["user"] if auth_context else None
     return bool(user and _has_visible_local_claim(player.id, user.id))
 
 
@@ -1464,6 +1517,9 @@ def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
 def get_local_player(lp_id: int):
     """Public local-player identity, with claimant-only pending visibility."""
     try:
+        requested = db.session.get(LocalPlayer, lp_id)
+        if requested is not None and _local_player_is_suppressed(requested):
+            return jsonify({"error": "local player not found"}), 404
         player, merged_into = _resolved_local_player(lp_id)
         if player is None:
             return jsonify({"error": "local player not found"}), 404
@@ -1486,6 +1542,9 @@ def get_local_player(lp_id: int):
 def get_local_player_showcase(lp_id: int):
     """Showcase-only local profile; local subjects never have Film Room evidence."""
     try:
+        requested = db.session.get(LocalPlayer, lp_id)
+        if requested is not None and _local_player_is_suppressed(requested):
+            return jsonify({"error": "local player not found"}), 404
         player, _ = _resolved_local_player(lp_id)
         if player is None:
             return jsonify({"error": "local player not found"}), 404
@@ -1509,6 +1568,9 @@ def get_player_showcase(player_api_id: int):
     or bad-token callers get the approved-only public view — never a 401.
     """
     try:
+        visible = db.session.query(literal(1)).filter(without_minor_local_bridge(player_api_id)).first()
+        if visible is None:
+            return neutral_player_not_found()
         return jsonify(_subject_showcase_payload(_api_subject(player_api_id)))
     except Exception as e:
         logger.error("Error in get_player_showcase: %s", e)
@@ -3277,6 +3339,8 @@ def admin_review_local_player(lp_id: int):
             return jsonify({"error": "action must be approve or reject"}), 400
         if player.status != "pending":
             return jsonify({"error": f"cannot {action} a {player.status} local player"}), 409
+        if action == "approve" and _local_player_is_suppressed(player):
+            return jsonify({"error": "local player not found"}), 404
 
         now = datetime.now(UTC)
         player.status = "approved" if action == "approve" else "rejected"
@@ -3543,6 +3607,8 @@ def admin_link_local_player_api(lp_id: int):
         player_api_id = payload.get("player_api_id")
         if isinstance(player_api_id, bool) or not isinstance(player_api_id, int) or player_api_id <= 0:
             return jsonify({"error": "player_api_id must be a positive integer"}), 400
+        if is_player_suppressed(player_api_id):
+            return neutral_player_not_found()
         player.api_player_id = player_api_id
         player.updated_at = datetime.now(UTC)
         db.session.commit()

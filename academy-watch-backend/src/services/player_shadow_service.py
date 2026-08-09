@@ -16,8 +16,10 @@ refresh no-ops — none of these paths raise.
 import logging
 from datetime import UTC, date, datetime, timedelta
 
+from sqlalchemy import literal, select, union_all
 from src.models.follow import PlayerShadow, PlayerShadowStats
 from src.models.league import db
+from src.models.showcase import without_minor_local_bridge
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import (
     PlayerSuppressedError,
@@ -214,6 +216,16 @@ def search_players(q, api_client=None):
     suppressed_ids = active_suppressed_player_ids(pids)
     if suppressed_ids:
         results = [r for r in results if r["player_api_id"] not in suppressed_ids]
+        pids = [r["player_api_id"] for r in results]
+    if pids:
+        candidates = union_all(*(select(literal(player_id).label("player_api_id")) for player_id in pids)).subquery()
+        public_ids = {
+            row[0]
+            for row in db.session.query(candidates.c.player_api_id)
+            .filter(without_minor_local_bridge(candidates.c.player_api_id))
+            .all()
+        }
+        results = [r for r in results if r["player_api_id"] in public_ids]
         pids = [r["player_api_id"] for r in results]
     tracked_ids: set[int] = set()
     shadow_ids: set[int] = set()

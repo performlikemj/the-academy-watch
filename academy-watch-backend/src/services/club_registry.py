@@ -8,11 +8,16 @@ to "registry unavailable" while the two migration stacks are being ordered.
 
 from __future__ import annotations
 
+from functools import wraps
+
 import sqlalchemy as sa
+from flask import g, jsonify
+from src.auth import require_user_auth
 from src.models.league import db
 
 PROGRAMS_TABLE = "club_programs"
 MANAGERS_TABLE = "club_program_managers"
+CLAIMS_TABLE = "club_program_claims"
 USERS_TABLE = "user_accounts"
 
 
@@ -84,6 +89,60 @@ def is_active_program_manager(user_id: int | None, program_id: int | None) -> bo
         ).scalar()
         is not None
     )
+
+
+def _is_manager_of_approved_program(user_id: int | None, program_id: int | None) -> bool:
+    """Strict console authorization: active grant, claim, and program standing."""
+
+    program_columns = _table_columns(PROGRAMS_TABLE)
+    manager_columns = _table_columns(MANAGERS_TABLE)
+    claim_columns = _table_columns(CLAIMS_TABLE)
+    if (
+        user_id is None
+        or program_id is None
+        or not {"id", "platform_status"}.issubset(program_columns)
+        or not {"program_id", "user_account_id", "source_claim_id", "status"}.issubset(manager_columns)
+        or not {"id", "program_id", "user_account_id", "status"}.issubset(claim_columns)
+    ):
+        return False
+    return (
+        db.session.execute(
+            sa.text(
+                f"SELECT 1 FROM {MANAGERS_TABLE} AS managers "
+                f"JOIN {PROGRAMS_TABLE} AS programs ON programs.id = managers.program_id "
+                f"JOIN {CLAIMS_TABLE} AS claims ON claims.id = managers.source_claim_id "
+                "AND claims.program_id = managers.program_id "
+                "AND claims.user_account_id = managers.user_account_id "
+                "WHERE managers.user_account_id = :user_id AND managers.program_id = :program_id "
+                "AND managers.status = 'active' AND programs.platform_status = 'approved' "
+                "AND claims.status = 'approved' LIMIT 1"
+            ),
+            {"user_id": user_id, "program_id": program_id},
+        ).scalar()
+        is not None
+    )
+
+
+def require_club_manager(program_id_arg: str = "program_id"):
+    """Require one authenticated, active manager for the route's program.
+
+    The denial is deliberately neutral: an unknown program, a pending claim,
+    and a revoked/removed manager all receive the same 403.  Resource-owning
+    routes must still query their child row through ``program_id``; this
+    decorator establishes authority, not ownership of an arbitrary resource id.
+    """
+
+    def decorator(view):
+        @wraps(view)
+        def manager_checked(*args, **kwargs):
+            program_id = kwargs.get(program_id_arg)
+            if not _is_manager_of_approved_program(getattr(g, "user_id", None), program_id):
+                return jsonify({"error": "Club manager access denied"}), 403
+            return view(*args, **kwargs)
+
+        return require_user_auth(manager_checked)
+
+    return decorator
 
 
 def active_manager_program_ids(user_id: int | None) -> list[int]:
@@ -264,5 +323,6 @@ __all__ = [
     "get_club_program",
     "is_active_program_manager",
     "program_has_active_manager",
+    "require_club_manager",
     "registry_available",
 ]
