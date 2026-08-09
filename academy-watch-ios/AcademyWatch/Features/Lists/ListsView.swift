@@ -14,6 +14,7 @@ struct ListsView: View {
     @EnvironmentObject private var viewModel: FollowListsViewModel
     @State private var isCreatingList = false
     @State private var newListName = ""
+    @State private var isWorldwideSearchPresented = false
 
     private let apiClient: any FollowListsAPIClientProtocol
     private let playerDetailAPIClient: APIClient
@@ -62,6 +63,13 @@ struct ListsView: View {
                         }
                         .accessibilityLabel("Create list")
 
+                        Button {
+                            isWorldwideSearchPresented = true
+                        } label: {
+                            Image(systemName: "globe.badge.chevron.backward")
+                        }
+                        .accessibilityLabel("Search worldwide players")
+
                         Menu {
                             Button(role: .destructive) {
                                 authManager.signOut()
@@ -85,6 +93,14 @@ struct ListsView: View {
                 .disabled(newListName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } message: {
                 Text("Give this group a clear scouting name.")
+            }
+            .sheet(isPresented: $isWorldwideSearchPresented) {
+                NavigationStack {
+                    WorldwidePlayerSearchView(
+                        purpose: .addToList,
+                        apiClient: playerDetailAPIClient
+                    )
+                }
             }
         }
     }
@@ -134,7 +150,7 @@ struct ListsView: View {
         ContentUnavailableView {
             Label("No lists yet", systemImage: "list.bullet.rectangle")
         } description: {
-            Text("Create a list, then add players from any player profile.")
+            Text("Create a list, then add a tracked player or search worldwide.")
         } actions: {
             Button("Create List") {
                 newListName = ""
@@ -142,6 +158,11 @@ struct ListsView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(AcademyColors.claretFill)
+
+            Button("Search worldwide") {
+                isWorldwideSearchPresented = true
+            }
+            .buttonStyle(.bordered)
         }
         .padding(24)
     }
@@ -418,14 +439,23 @@ private struct ResolvedPlayerCard: View {
     let player: ResolvedFollowPlayer
 
     var body: some View {
-        PlayerIdentityHeader(
-            name: player.playerName ?? "Player #\(player.playerApiId)",
-            photoURL: player.photoURL,
-            position: nil,
-            metadata: player.source == "shadow" ? "Worldwide player" : nil,
-            club: player.teamName ?? "Club unavailable",
-            status: player.status
-        )
+        VStack(alignment: .leading, spacing: 8) {
+            if player.source == "shadow" {
+                BadgeView(
+                    text: "WORLDWIDE SHADOW",
+                    foregroundColor: AcademyColors.claret,
+                    backgroundColor: AcademyColors.claretSoft
+                )
+            }
+            PlayerIdentityHeader(
+                name: player.playerName ?? "Player #\(player.playerApiId)",
+                photoURL: player.photoURL,
+                position: nil,
+                metadata: player.source == "shadow" ? "Worldwide player · limited coverage" : nil,
+                club: player.teamName ?? "Club unavailable",
+                status: player.status
+            )
+        }
         .padding(14)
         .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {

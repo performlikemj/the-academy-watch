@@ -2,6 +2,11 @@ import SwiftUI
 
 @main
 struct AcademyWatchApp: App {
+    #if DEBUG
+    private let onboardingFixture = OnboardingFixtureDestination.fromLaunchArguments(
+        ProcessInfo.processInfo.arguments
+    )
+    #endif
     private let initialPhase = ScoutPhase.fromLaunchArguments(ProcessInfo.processInfo.arguments)
     private let initialPlayerID: Int? = {
         let arguments = ProcessInfo.processInfo.arguments
@@ -38,6 +43,19 @@ struct AcademyWatchApp: App {
 
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
+            if let onboardingFixture {
+                OnboardingEvidenceRoot(destination: onboardingFixture)
+            } else {
+                appRoot
+            }
+            #else
+            appRoot
+            #endif
+        }
+    }
+
+    private var appRoot: some View {
             RootTabView(
                 initialPhase: initialPhase,
                 initialPlayerID: initialPlayerID,
@@ -46,6 +64,5 @@ struct AcademyWatchApp: App {
                 initiallyShowsSignIn: initiallyShowsSignIn
             )
                 .tint(AcademyColors.claretForeground)
-        }
     }
 }

@@ -3,10 +3,13 @@ import SwiftUI
 
 @MainActor
 struct ScoutDeskView: View {
+    @EnvironmentObject private var authManager: AuthManager
     @StateObject private var viewModel: ScoutDeskViewModel
     @State private var navigationPath: [Int]
     @State private var selectedPlayerIDs: [Int]
     @State private var isComparePresented: Bool
+    @State private var isWorldwideAddPresented = false
+    @State private var isLocalAddPresented = false
     private let onSignInRequested: () -> Void
     private let onVerificationRequested: () -> Void
     private let playerDetailAPIClient: APIClient
@@ -81,6 +84,25 @@ struct ScoutDeskView: View {
             }
             .navigationTitle("Scout Desk")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            presentAuthenticatedAdd { isWorldwideAddPresented = true }
+                        } label: {
+                            Label("Search worldwide", systemImage: "globe")
+                        }
+                        Button {
+                            presentAuthenticatedAdd { isLocalAddPresented = true }
+                        } label: {
+                            Label("Add a local player", systemImage: "person.badge.plus")
+                        }
+                    } label: {
+                        Image(systemName: "person.badge.plus")
+                    }
+                    .accessibilityLabel("Add a player")
+                }
+            }
             .navigationDestination(for: Int.self) { playerID in
                 PlayerDetailView(
                     playerID: playerID,
@@ -104,6 +126,22 @@ struct ScoutDeskView: View {
                 CompareView(
                     playerIDs: selectedPlayerIDs,
                     season: viewModel.selectedSeason
+                )
+            }
+        }
+        .sheet(isPresented: $isWorldwideAddPresented) {
+            NavigationStack {
+                WorldwidePlayerSearchView(
+                    purpose: .addToList,
+                    apiClient: playerDetailAPIClient
+                )
+            }
+        }
+        .sheet(isPresented: $isLocalAddPresented) {
+            NavigationStack {
+                LocalPlayerCreateView(
+                    context: .scoutAdd,
+                    apiClient: playerDetailAPIClient
                 )
             }
         }
@@ -394,11 +432,22 @@ struct ScoutDeskView: View {
             }
             .padding(.horizontal, 16)
         } else if viewModel.players.isEmpty {
-            ContentUnavailableView(
-                "No players found",
-                systemImage: "person.3",
-                description: Text("Try a different name, age band or status.")
-            )
+            ContentUnavailableView {
+                Label("No players found", systemImage: "person.3")
+            } description: {
+                Text("Try another filter, search worldwide, or add a pending local player profile.")
+            } actions: {
+                Button("Search worldwide") {
+                    presentAuthenticatedAdd { isWorldwideAddPresented = true }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AcademyColors.claretFill)
+
+                Button("Add a player") {
+                    presentAuthenticatedAdd { isLocalAddPresented = true }
+                }
+                .buttonStyle(.bordered)
+            }
             .padding(.horizontal, 16)
         } else {
             if let message = viewModel.errorMessage {
@@ -461,6 +510,14 @@ struct ScoutDeskView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
             }
+        }
+    }
+
+    private func presentAuthenticatedAdd(_ action: () -> Void) {
+        if authManager.isAuthenticated {
+            action()
+        } else {
+            onSignInRequested()
         }
     }
 

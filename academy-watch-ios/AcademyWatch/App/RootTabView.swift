@@ -30,6 +30,7 @@ struct RootTabView: View {
     @StateObject private var incomingRequestsViewModel: IncomingContactRequestsViewModel
     @State private var selectedTab: RootTab
     @State private var isSignInPresented: Bool
+    @State private var isPlayerPromptPresented = false
     @State private var accountDestination: AccountDestination?
 
     private let apiClient: APIClient
@@ -197,6 +198,22 @@ struct RootTabView: View {
         .sheet(isPresented: $isSignInPresented) {
             SignInView(authManager: authManager)
         }
+        .sheet(isPresented: $isPlayerPromptPresented) {
+            PlayerFirstSignInPrompt(
+                onStart: {
+                    markPlayerPromptDismissed()
+                    isPlayerPromptPresented = false
+                    selectedTab = .account
+                    accountDestination = .playerOnboarding
+                },
+                onDismiss: {
+                    markPlayerPromptDismissed()
+                    isPlayerPromptPresented = false
+                }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        }
         .alert(
             "Unable to Sign Out",
             isPresented: Binding(
@@ -225,9 +242,11 @@ struct RootTabView: View {
                 async let lists: Void = followListsViewModel.loadLists()
                 async let sentRequests: Void = sentRequestsViewModel.reload()
                 async let incomingRequests: Void = incomingRequestsViewModel.reload()
-                _ = await (account, watchlist, lists, sentRequests, incomingRequests)
+                async let playerPrompt: Void = evaluatePlayerPrompt()
+                _ = await (account, watchlist, lists, sentRequests, incomingRequests, playerPrompt)
             } else {
                 accountDestination = nil
+                isPlayerPromptPresented = false
                 watchlistViewModel.resetForSignOut()
                 followListsViewModel.resetForSignOut()
                 sentRequestsViewModel.resetForSignOut()
@@ -244,5 +263,57 @@ struct RootTabView: View {
         isSignInPresented = false
         selectedTab = .account
         accountDestination = .verification
+    }
+
+    private func evaluatePlayerPrompt() async {
+        guard !UserDefaults.standard.bool(forKey: playerPromptDefaultsKey) else { return }
+        do {
+            let response = try await apiClient.fetchMyProfileClaims()
+            guard authManager.isAuthenticated, response.claims.isEmpty else { return }
+            isPlayerPromptPresented = true
+        } catch {
+            // The Account entry remains available. A transient read failure
+            // must not turn a one-time prompt into a false claim-status statement.
+        }
+    }
+
+    private func markPlayerPromptDismissed() {
+        UserDefaults.standard.set(true, forKey: playerPromptDefaultsKey)
+    }
+
+    private var playerPromptDefaultsKey: String {
+        "academyWatch.playerOnboardingPromptDismissed.v1"
+    }
+}
+
+private struct PlayerFirstSignInPrompt: View {
+    let onStart: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            ZStack {
+                Circle().fill(AcademyColors.claretSoft).frame(width: 70, height: 70)
+                Image(systemName: "figure.soccer")
+                    .font(.system(size: 34))
+                    .foregroundStyle(AcademyColors.claret)
+            }
+            VStack(spacing: 7) {
+                Text("Are you a player?").font(.title2.weight(.bold))
+                Text("Find an existing profile to claim, search worldwide, or create a private community profile for review.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Button("Find my profile", action: onStart)
+                .buttonStyle(.borderedProminent)
+                .tint(AcademyColors.claretFill)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
+            Button("Not now", action: onDismiss)
+                .font(.subheadline.weight(.semibold))
+        }
+        .padding(24)
+        .accessibilityIdentifier("first-sign-in-player-prompt")
     }
 }
