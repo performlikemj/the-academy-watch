@@ -38,8 +38,8 @@ def is_minor_birth_year(birth_year):
 
     cutoff = datetime.now(UTC).year - 18
     if hasattr(birth_year, "is_not"):
-        return sa.and_(birth_year.is_not(None), birth_year >= cutoff)
-    return birth_year is not None and birth_year >= cutoff
+        return sa.or_(birth_year.is_(None), birth_year >= cutoff)
+    return birth_year is None or birth_year >= cutoff
 
 
 class LocalPlayer(db.Model):

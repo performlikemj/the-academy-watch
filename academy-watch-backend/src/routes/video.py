@@ -294,6 +294,10 @@ def process_match(match_id: int):
     elif VideoCreditLedger.balance(match.team_id) < 1:
         return jsonify({"error": "no credits", "credit_balance": 0}), 402
 
+    integrity = video_storage.verify_expected_blob(match.blob_path, match.blob_etag)
+    if not integrity["ok"]:
+        return jsonify({"error": integrity["error"]}), 422
+
     job = VideoAnalysisJob(
         video_match_id=match.id,
         status="queued",

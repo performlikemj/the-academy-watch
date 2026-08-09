@@ -4,8 +4,9 @@ so the GPU pass can window to in-play time."""
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from src.workers.vision_worker import _build_pipeline_cmd
+from src.workers.vision_worker import _build_pipeline_cmd, _download_footage
 
 TEMPLATE = "python /app/run_spike.py --device cuda"
 VIDEO = Path("/tmp/match.mp4")
@@ -52,3 +53,15 @@ def test_zero_kickoff_is_forwarded_not_dropped():
     # 0.0 is a valid kickoff (footage begins exactly at kickoff); the builder must key on
     # "is not None", not truthiness, or a 0-second marker would silently vanish.
     assert "--kickoff-s" in _cmd(kickoff_s=0.0)
+
+
+def test_download_is_conditionally_pinned_to_stored_etag():
+    with (
+        patch("src.services.video_storage.mint_read_sas", return_value="https://blob.invalid/read"),
+        patch("src.workers.vision_worker.subprocess.run") as run,
+    ):
+        _download_footage("matches/1/video.mp4", VIDEO, '"etag-1"')
+
+    command = run.call_args.args[0]
+    assert command[command.index("-H") + 1] == 'If-Match: "etag-1"'
+    assert command[-1] == "https://blob.invalid/read"

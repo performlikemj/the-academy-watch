@@ -1161,6 +1161,9 @@ def _verified_footage(player_api_id: int) -> list[dict]:
             .join(VideoMatch, VideoMatch.id == VideoPlayerReport.video_match_id)
             .filter(VideoRosterEntry.tracked_player_id.in_(tp_ids))
             .filter(VideoMatch.status == "finalized")
+            # Self-serve club-console footage is private club/report data and
+            # must never create public attribution on a player's showcase.
+            .filter(VideoMatch.club_program_id.is_(None))
             .filter(VideoPlayerReport.identity_confidence == VERIFIED_IDENTITY)
             .order_by(VideoMatch.match_date.desc().nullslast(), VideoMatch.id.desc())
             .limit(VERIFIED_FOOTAGE_CAP)
@@ -3735,6 +3738,16 @@ def admin_review_showcase_media(media_id: int):
         if media.status != "pending":
             return jsonify({"error": f"cannot {action} a {media.status} photo"}), 409
         note = _clean_optional_text(payload.get("note"), MAX_REVIEW_NOTE_LENGTH)
+        if action == "approve":
+            if media.player_api_id is not None:
+                suppressed = is_player_suppressed(media.player_api_id)
+            else:
+                local_player = db.session.get(LocalPlayer, media.local_player_id)
+                suppressed = local_player is None or _local_player_is_suppressed(local_player)
+            if suppressed:
+                # Neutral refusal: the pending row/blob remains private for
+                # incident review and cannot be published after a takedown.
+                return jsonify({"error": "photo not found"}), 404
         if not showcase_media_storage.is_configured():
             return jsonify({"error": "Showcase media storage is not configured"}), 503
 
