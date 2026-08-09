@@ -8,7 +8,11 @@ to "registry unavailable" while the two migration stacks are being ordered.
 
 from __future__ import annotations
 
+from functools import wraps
+
 import sqlalchemy as sa
+from flask import g, jsonify
+from src.auth import require_user_auth
 from src.models.league import db
 
 PROGRAMS_TABLE = "club_programs"
@@ -84,6 +88,28 @@ def is_active_program_manager(user_id: int | None, program_id: int | None) -> bo
         ).scalar()
         is not None
     )
+
+
+def require_club_manager(program_id_arg: str = "program_id"):
+    """Require one authenticated, active manager for the route's program.
+
+    The denial is deliberately neutral: an unknown program, a pending claim,
+    and a revoked/removed manager all receive the same 403.  Resource-owning
+    routes must still query their child row through ``program_id``; this
+    decorator establishes authority, not ownership of an arbitrary resource id.
+    """
+
+    def decorator(view):
+        @wraps(view)
+        def manager_checked(*args, **kwargs):
+            program_id = kwargs.get(program_id_arg)
+            if not is_active_program_manager(getattr(g, "user_id", None), program_id):
+                return jsonify({"error": "Club manager access denied"}), 403
+            return view(*args, **kwargs)
+
+        return require_user_auth(manager_checked)
+
+    return decorator
 
 
 def active_manager_program_ids(user_id: int | None) -> list[int]:
@@ -264,5 +290,6 @@ __all__ = [
     "get_club_program",
     "is_active_program_manager",
     "program_has_active_manager",
+    "require_club_manager",
     "registry_available",
 ]

@@ -24,7 +24,9 @@ from datetime import UTC, datetime, timedelta
 
 from flask import Blueprint, Response, g, jsonify, redirect, request, send_file
 from src.auth import mint_media_token, verify_media_token
+from src.models.funding import ClubRosterMember
 from src.models.league import Team, db
+from src.models.showcase import LocalPlayer
 from src.models.video import (
     CREDIT_REASONS,
     VideoAnalysisJob,
@@ -36,6 +38,7 @@ from src.models.video import (
 )
 from src.routes.api import require_api_key
 from src.services import video_dev_artifacts, video_queue, video_storage
+from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.video_feedback import build_feedback_labels
 from src.services.video_identity import NUMBER_AGREEMENT_MIN, split_chain
 from src.services.video_learning import match_accuracy, recalibration_signals, training_manifest
@@ -284,7 +287,11 @@ def process_match(match_id: int):
     if match.kickoff_s is None:
         return _bad_request("kickoff_s must be marked before processing")
 
-    if VideoCreditLedger.balance(match.team_id) < 1:
+    is_club_console_match = match.club_program_id is not None
+    if is_club_console_match:
+        if match.processing_requested_at is None:
+            return _bad_request("club match processing must be requested by its manager first")
+    elif VideoCreditLedger.balance(match.team_id) < 1:
         return jsonify({"error": "no credits", "credit_balance": 0}), 402
 
     job = VideoAnalysisJob(
@@ -293,15 +300,16 @@ def process_match(match_id: int):
         pipeline_version=PIPELINE_VERSION,
     )
     db.session.add(job)
-    db.session.add(
-        VideoCreditLedger(
-            team_id=match.team_id,
-            delta=-1,
-            reason="debit",
-            video_match_id=match.id,
-            note=f"processing job {job.id}",
+    if not is_club_console_match:
+        db.session.add(
+            VideoCreditLedger(
+                team_id=match.team_id,
+                delta=-1,
+                reason="debit",
+                video_match_id=match.id,
+                note=f"processing job {job.id}",
+            )
         )
-    )
     match.status = "queued"
     db.session.commit()  # debit + job + status are atomic; signal comes after
     mode = video_queue.enqueue(job.id)
@@ -471,6 +479,7 @@ def finalize_match(match_id: int):
             match_duration_s=match.duration_s,
         )
         identity = structured["identity"]
+        club_snapshot = _club_report_snapshot(match, entry)
         report = VideoPlayerReport(
             video_match_id=match.id,
             roster_entry_id=entry.id,
@@ -488,6 +497,7 @@ def finalize_match(match_id: int):
             metrics=structured["metrics"],
             events=structured["events"],
             model_version=model_version,
+            **club_snapshot,
         )
         db.session.add(report)
         reports.append(report)
@@ -496,6 +506,42 @@ def finalize_match(match_id: int):
     match.finalized_at = datetime.now(UTC)
     db.session.commit()
     return jsonify({"reports": len(reports), "match": match.to_dict()})
+
+
+def _club_report_snapshot(match: VideoMatch, entry: VideoRosterEntry) -> dict:
+    """Copy club authorization only for a live, unsuppressed finalize member."""
+    if match.club_program_id is None or entry.club_roster_member_id is None:
+        return {}
+    member = (
+        ClubRosterMember.query.filter_by(
+            id=entry.club_roster_member_id,
+            program_id=match.club_program_id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if member is None:
+        return {}
+    snapshot = {
+        "club_program_id_at_finalize": match.club_program_id,
+        "club_roster_member_id_at_finalize": member.id,
+    }
+    if member.player_api_id is not None:
+        if is_player_suppressed(member.player_api_id):
+            return {}
+        snapshot["club_player_api_id_at_finalize"] = member.player_api_id
+        return snapshot
+    local = db.session.get(LocalPlayer, member.local_player_id)
+    if (
+        local is None
+        or local.status in {"rejected", "merged"}
+        or local.merged_into_local_player_id is not None
+        or is_local_player_suppressed(local.id)
+        or (local.api_player_id and is_player_suppressed(local.api_player_id))
+    ):
+        return {}
+    snapshot["club_local_player_id_at_finalize"] = local.id
+    return snapshot
 
 
 @video_bp.route("/admin/video/matches/<int:match_id>/report", methods=["GET"])

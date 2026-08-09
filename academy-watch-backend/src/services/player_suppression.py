@@ -33,6 +33,17 @@ def active_suppression_exists(player_api_id):
     )
 
 
+def active_local_suppression_exists(local_player_id):
+    """Correlated ``EXISTS`` for a local showcase identity."""
+
+    return exists().where(
+        and_(
+            PlayerSuppression.local_player_id == local_player_id,
+            PlayerSuppression.status == ACTIVE_SUPPRESSION_STATUS,
+        )
+    )
+
+
 def without_active_suppression(player_api_id):
     """SQL predicate retaining only players without an active suppression."""
 
@@ -43,6 +54,12 @@ def is_player_suppressed(player_api_id: int) -> bool:
     """Scalar check for single-player routes and write guards."""
 
     return bool(db.session.query(active_suppression_exists(int(player_api_id))).scalar())
+
+
+def is_local_player_suppressed(local_player_id: int) -> bool:
+    """Scalar suppression check for club-created/local identities."""
+
+    return bool(db.session.query(active_local_suppression_exists(int(local_player_id))).scalar())
 
 
 def active_suppressed_player_ids(player_api_ids: Iterable[int]) -> set[int]:
@@ -92,10 +109,12 @@ def hide_suppressed_player(argument_name: str):
 __all__ = [
     "ACTIVE_SUPPRESSION_STATUS",
     "PlayerSuppressedError",
+    "active_local_suppression_exists",
     "active_suppressed_player_ids",
     "active_suppression_exists",
     "hide_suppressed_player",
     "is_player_suppressed",
+    "is_local_player_suppressed",
     "neutral_player_not_found",
     "without_active_suppression",
 ]

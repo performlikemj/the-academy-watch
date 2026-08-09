@@ -61,6 +61,11 @@ class LocalPlayer(db.Model):
         """Lowercase and collapse whitespace for duplicate detection."""
         return " ".join(value.lower().split())
 
+    @property
+    def is_minor(self) -> bool:
+        """Conservative year-only minor flag used at every serialization gate."""
+        return self.birth_year is not None and datetime.now(UTC).year - self.birth_year < 18
+
     @validates("display_name")
     def _sync_normalized_name(self, _key, value):
         if isinstance(value, str):
