@@ -209,6 +209,89 @@ def _seed_contact(client, *, suffix="base", player_api_id=5001):
     return scout, scout_headers, player, player_headers, claim, created.get_json()["contact_request"]
 
 
+class TestAdminContactOversight:
+    def test_list_and_detail_work_while_rail_dark_with_filters_and_audit_metadata(self, client, monkeypatch):
+        scout, scout_headers, _, player_headers, _, request_payload = _seed_contact(
+            client,
+            suffix="oversight",
+            player_api_id=5002,
+        )
+        db.session.add(PlayerJourney(player_api_id=5002, player_name="Oversight Player"))
+        db.session.commit()
+        request_id = request_payload["id"]
+        assert client.post(f"/api/contact/requests/{request_id}/accept", headers=player_headers).status_code == 200
+        sent = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "A message visible to the Trust Desk"},
+            headers=scout_headers,
+        )
+        assert sent.status_code == 201
+
+        created_event = ContactAuditEvent.query.filter_by(
+            contact_request_id=request_id,
+            event_type="created",
+        ).one()
+        created_event.event_metadata = {
+            **created_event.event_metadata,
+            "status_contradiction": True,
+            "admin_context": {"source": "fixture"},
+        }
+        db.session.commit()
+
+        monkeypatch.setenv("CONTACT_RAIL_ENABLED", "false")
+        listed = client.get(
+            "/api/admin/contact/requests?status=accepted&routing_mode=direct&contradiction=true&page=1&per_page=500",
+            headers=_admin_headers(),
+        )
+        assert listed.status_code == 200, listed.get_json()
+        body = listed.get_json()
+        assert set(body) == {"requests", "total", "page", "pages"}
+        assert (body["total"], body["page"], body["pages"]) == (1, 1, 1)
+        row = body["requests"][0]
+        assert row == {
+            "id": request_id,
+            "created_at": row["created_at"],
+            "last_activity": row["last_activity"],
+            "status": "accepted",
+            "routing_mode": "direct",
+            "club_consent_status": None,
+            "scout": {
+                "account_id": scout.id,
+                "name": "Alex Scout",
+                "organization": "Fixture Recruitment",
+            },
+            "player_api_id": 5002,
+            "player_name": "Oversight Player",
+            "message_count": 1,
+            "status_contradiction": True,
+        }
+
+        detail = client.get(f"/api/admin/contact/requests/{request_id}", headers=_admin_headers())
+        assert detail.status_code == 200, detail.get_json()
+        detail_body = detail.get_json()
+        assert set(detail_body) == {"request"}
+        request_detail = detail_body["request"]
+        assert request_detail["message"] == "Hello from recruitment"
+        assert request_detail["permission_attestation"] is False
+        assert request_detail["permission_attested_at"] is None
+        assert request_detail["participants"]["scout"]["user_id"] == scout.id
+        assert [event["event_type"] for event in request_detail["audit_events"]] == [
+            "created",
+            "accepted",
+            "message_sent",
+        ]
+        assert request_detail["audit_events"][0]["metadata"]["admin_context"] == {"source": "fixture"}
+        assert request_detail["last_activity"] == request_detail["audit_events"][-1]["created_at"]
+
+        assert (
+            client.get("/api/admin/contact/requests?contradiction=false", headers=_admin_headers()).get_json()["total"]
+            == 0
+        )
+        assert client.get("/api/admin/contact/requests?status=invalid", headers=_admin_headers()).status_code == 400
+        assert client.get("/api/admin/contact/requests", headers=scout_headers).status_code in (401, 403)
+        assert client.get("/api/admin/contact/requests/missing", headers=_admin_headers()).status_code == 404
+
+
 class TestContactLifecycle:
     def test_create_accept_messages_outcomes_and_every_audit(self, client):
         scout, scout_headers, player, player_headers, claim, request_payload = _seed_contact(client)
@@ -869,7 +952,13 @@ class TestContactAuthorizationAndFlag:
 
         admin_queue = client.get("/api/admin/reports?status=open", headers=_admin_headers())
         assert admin_queue.status_code == 200
-        assert admin_queue.get_json()["reports"][0]["subject_id"] == message["id"]
+        admin_report = admin_queue.get_json()["reports"][0]
+        assert admin_report["subject_id"] == message["id"]
+        assert admin_report["target"] == {
+            "content_type": "contact_message",
+            "id": message["id"],
+            "excerpt": "A reportable participant message",
+        }
 
 
 class TestContractStatusRouting:
@@ -1491,7 +1580,7 @@ class TestContractStatusRouting:
 
         monkeypatch.setattr(
             admin_notify_service,
-            "notify_club_contact_request",
+            "notify_contact_request",
             lambda *args, **kwargs: admin_calls.append((args, kwargs)),
         )
         monkeypatch.setattr(email_service, "send_email", lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("down")))
@@ -1503,6 +1592,7 @@ class TestContractStatusRouting:
         assert ContactAuditEvent.query.filter_by(event_type="club_notice_sent").count() == 0
         assert len(admin_calls) == 1
         assert admin_calls[0][0][1] == 5815
+        assert admin_calls[0][1]["routing_mode"] == "club_notified"
         assert admin_calls[0][1]["club_notice_sent"] is False
 
     def test_club_notified_queues_admin_when_no_club_contact_exists(self, client, monkeypatch):
@@ -1520,7 +1610,7 @@ class TestContractStatusRouting:
 
         monkeypatch.setattr(
             admin_notify_service,
-            "notify_club_contact_request",
+            "notify_contact_request",
             lambda *args, **kwargs: admin_calls.append((args, kwargs)),
         )
         monkeypatch.setattr(
@@ -1533,7 +1623,29 @@ class TestContractStatusRouting:
 
         assert created.status_code == 201, created.get_json()
         assert len(admin_calls) == 1
+        assert admin_calls[0][1]["routing_mode"] == "club_notified"
         assert admin_calls[0][1]["club_notice_sent"] is False
+
+    def test_direct_creation_queues_uniform_admin_notice(self, client, monkeypatch):
+        admin_calls = []
+        from src.services import admin_notify_service
+
+        monkeypatch.setattr(
+            admin_notify_service,
+            "notify_contact_request",
+            lambda *args, **kwargs: admin_calls.append((args, kwargs)),
+        )
+        _, scout_headers = _verified_scout("direct-admin-notice-scout@example.com")
+        _claim("direct-admin-notice-player@example.com", 5818, contract_status="free_agent")
+
+        created = _create(client, scout_headers, 5818)
+
+        assert created.status_code == 201, created.get_json()
+        assert created.get_json()["contact_request"]["routing_mode"] == "direct"
+        assert len(admin_calls) == 1
+        assert admin_calls[0][0][1] == 5818
+        assert admin_calls[0][1]["routing_mode"] == "direct"
+        assert admin_calls[0][1]["club_notice_sent"] is None
 
 
 class TestPublicClubConsentLinks:

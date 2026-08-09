@@ -7,6 +7,7 @@ roster linking, and the submit_player_link URL hardening in api.py.
 """
 
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 from flask import Flask
@@ -29,6 +30,13 @@ def app(monkeypatch):
     monkeypatch.setenv("API_USE_STUB_DATA", "true")
     monkeypatch.setenv("ADMIN_API_KEY", ADMIN_KEY)
     monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
+    from src.services.email_service import email_service
+
+    monkeypatch.setattr(
+        email_service,
+        "send_email",
+        lambda **_kwargs: SimpleNamespace(success=True, provider="mailgun", message_id="showcase-test"),
+    )
 
     from src.routes.api import api_bp
     from src.routes.showcase import showcase_bp
@@ -473,6 +481,63 @@ class TestContractStatusAttestation:
 
 
 class TestAdminClaimReview:
+    def test_decision_emails_dispatch_and_mail_failure_does_not_fail_decision(self, client, monkeypatch):
+        sends = []
+        from src.services.email_service import email_service
+
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **kwargs: (
+                sends.append(kwargs) or SimpleNamespace(success=True, provider="mailgun", message_id="claim-decision")
+            ),
+        )
+        approved_id = client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": "player", "contract_status": "free_agent"},
+            headers=_user_headers("claim-approved@example.com"),
+        ).get_json()["claim"]["id"]
+        approved = client.post(
+            f"/api/admin/showcase/claims/{approved_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert approved.status_code == 200
+        assert sends[0]["to"] == "claim-approved@example.com"
+        assert sends[0]["subject"] == "Your player profile claim was approved"
+        assert "Profile ownership is now live" in sends[0]["text"]
+
+        rejected_id = client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": "agent"},
+            headers=_user_headers("claim-rejected@example.com"),
+        ).get_json()["claim"]["id"]
+        rejected = client.post(
+            f"/api/admin/showcase/claims/{rejected_id}/review",
+            json={"action": "reject"},
+            headers=_admin_headers(),
+        )
+        assert rejected.status_code == 200
+        assert sends[1]["subject"] == "Your player profile claim was not approved"
+
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("mail unavailable")),
+        )
+        failure_id = client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": "guardian"},
+            headers=_user_headers("claim-failure@example.com"),
+        ).get_json()["claim"]["id"]
+        failure = client.post(
+            f"/api/admin/showcase/claims/{failure_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert failure.status_code == 200
+        assert failure.get_json()["claim"]["status"] == "approved"
+
     def test_approve_then_public_claim_status_claimed(self, app, client):
         headers = _user_headers("kobbie@example.com")
         create = client.post(

@@ -7,8 +7,10 @@ from datetime import UTC, datetime
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
 from src.extensions import limiter
+from src.models.contact import ContactMessage
 from src.models.league import UserAccount, db
 from src.models.trust import ContentReport, ScoutVerification
 from src.utils.sanitize import is_safe_https_url, sanitize_comment_body, sanitize_plain_text
@@ -160,6 +162,36 @@ def _json_object() -> dict:
     return payload
 
 
+def _message_report_excerpts(rows: list[ContentReport]) -> dict[str, str]:
+    message_ids = [row.subject_id for row in rows if row.subject_type == "contact_message"]
+    if not message_ids:
+        return {}
+    messages = ContactMessage.query.filter(ContactMessage.id.in_(message_ids)).all()
+    return {message.id: " ".join(message.body.split())[:160] for message in messages}
+
+
+def _admin_report_payload(report: ContentReport, message_excerpts: dict[str, str]) -> dict:
+    payload = report.admin_dict()
+    payload.update(
+        {
+            "reason": report.reason_code,
+            "reporter": {
+                "account_id": report.reporter_user_id,
+                "display_name": report.reporter.display_name if report.reporter else None,
+                "email": report.reporter.email if report.reporter else None,
+            },
+            "target": {
+                "content_type": report.subject_type,
+                "id": report.subject_id,
+                "excerpt": message_excerpts.get(report.subject_id)
+                if report.subject_type == "contact_message"
+                else None,
+            },
+        }
+    )
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # Scout verification
 # ---------------------------------------------------------------------------
@@ -307,6 +339,17 @@ def _review_scout_verification(verification_id: int, action: str):
         verification.reviewed_by = _admin_actor()
         verification.reviewed_at = now
         db.session.commit()
+        if action in {"approve", "reject"}:
+            try:
+                from src.services.trust_decision_email_service import send_scout_verification_decision_email
+
+                send_scout_verification_decision_email(verification, action)
+            except Exception:
+                logger.exception(
+                    "Failed to dispatch %s email for scout verification %s",
+                    action,
+                    verification_id,
+                )
         return jsonify({"verification": verification.admin_dict()})
     except ValueError as exc:
         db.session.rollback()
@@ -377,7 +420,7 @@ def admin_list_content_reports():
     """List content reports, defaulting to the open moderation queue."""
     try:
         status = (request.args.get("status") or "open").strip().lower()
-        query = ContentReport.query
+        query = ContentReport.query.options(joinedload(ContentReport.reporter))
         if status != "all":
             if status not in REPORT_STATUSES:
                 return jsonify({"error": f"status must be one of {sorted(REPORT_STATUSES)} or all"}), 400
@@ -386,9 +429,10 @@ def admin_list_content_reports():
         limit, offset = _pagination()
         total = query.count()
         rows = query.order_by(ContentReport.created_at.asc(), ContentReport.id.asc()).offset(offset).limit(limit).all()
+        message_excerpts = _message_report_excerpts(rows)
         return jsonify(
             {
-                "reports": [row.admin_dict() for row in rows],
+                "reports": [_admin_report_payload(row, message_excerpts) for row in rows],
                 "total": total,
                 "limit": limit,
                 "offset": offset,

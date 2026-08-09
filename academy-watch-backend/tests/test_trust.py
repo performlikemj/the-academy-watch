@@ -1,6 +1,7 @@
 """Scout verification and content-report trust prerequisite tests."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from flask import Flask
@@ -18,6 +19,13 @@ ADMIN_KEY = "trust-admin-test-key"
 def trust_app(monkeypatch):
     monkeypatch.setenv("ADMIN_API_KEY", ADMIN_KEY)
     monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
+    from src.services.email_service import email_service
+
+    monkeypatch.setattr(
+        email_service,
+        "send_email",
+        lambda **_kwargs: SimpleNamespace(success=True, provider="mailgun", message_id="trust-test"),
+    )
 
     app = Flask(__name__)
     app.config.update(
@@ -84,6 +92,62 @@ def _report_payload(index=1, **overrides):
 
 
 class TestScoutVerificationLifecycle:
+    def test_decision_emails_dispatch_and_mail_failure_does_not_fail_decision(self, client, monkeypatch):
+        sends = []
+        from src.services.email_service import email_service
+
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **kwargs: (
+                sends.append(kwargs) or SimpleNamespace(success=True, provider="mailgun", message_id="decision")
+            ),
+        )
+        _, approved_headers = _user_headers("approved-scout@example.com")
+        approved_id = client.post(
+            "/api/scout/verification", json=_verification_payload(), headers=approved_headers
+        ).get_json()["verification"]["id"]
+        approved = client.post(
+            f"/api/admin/scout-verifications/{approved_id}/approve",
+            json={"review_notes": "Credential confirmed"},
+            headers=_admin_headers(),
+        )
+        assert approved.status_code == 200
+        assert sends[0]["to"] == "approved-scout@example.com"
+        assert sends[0]["subject"] == "Your scout verification was approved"
+        assert "request introductions" in sends[0]["text"]
+        assert "Credential confirmed" not in sends[0]["text"]
+
+        _, rejected_headers = _user_headers("rejected-scout@example.com")
+        rejected_id = client.post(
+            "/api/scout/verification", json=_verification_payload(), headers=rejected_headers
+        ).get_json()["verification"]["id"]
+        rejected = client.post(
+            f"/api/admin/scout-verifications/{rejected_id}/reject",
+            json={"review_notes": "Evidence could not be confirmed"},
+            headers=_admin_headers(),
+        )
+        assert rejected.status_code == 200
+        assert sends[1]["subject"] == "Your scout verification application was not approved"
+        assert "Review note: Evidence could not be confirmed" in sends[1]["text"]
+
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("mail unavailable")),
+        )
+        _, failure_headers = _user_headers("failure-scout@example.com")
+        failure_id = client.post(
+            "/api/scout/verification", json=_verification_payload(), headers=failure_headers
+        ).get_json()["verification"]["id"]
+        failure = client.post(
+            f"/api/admin/scout-verifications/{failure_id}/approve",
+            json={"review_notes": "Approved despite mail failure"},
+            headers=_admin_headers(),
+        )
+        assert failure.status_code == 200
+        assert failure.get_json()["verification"]["status"] == "approved"
+
     def test_apply_duplicate_approve_derive_and_revoke(self, client):
         user, headers = _user_headers()
 
@@ -246,6 +310,17 @@ class TestContentReports:
         assert listed_body["total"] == 1
         assert listed_body["reports"][0]["reporter_user_id"] == user.id
         assert listed_body["reports"][0]["reporter_email"] == user.email
+        assert listed_body["reports"][0]["reason"] == "misleading_information"
+        assert listed_body["reports"][0]["reporter"] == {
+            "account_id": user.id,
+            "display_name": user.display_name,
+            "email": user.email,
+        }
+        assert listed_body["reports"][0]["target"] == {
+            "content_type": "player_profile",
+            "id": "5001",
+            "excerpt": None,
+        }
 
         resolved = client.post(
             f"/api/admin/reports/{report['id']}/resolve",
