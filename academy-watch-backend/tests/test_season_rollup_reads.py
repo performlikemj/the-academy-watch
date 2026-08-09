@@ -568,7 +568,7 @@ def test_scout_fixtures_primary_projects_total_headline_verbatim(client, monkeyp
     _assert_rollup_provenance(row["provenance"], total)
 
 
-def test_scout_flag_leaves_leaderboards_on_live_phase_query(client, monkeypatch):
+def test_scout_flag_routes_supported_leaderboards_to_rollups(client, monkeypatch):
     _seed_live_player(goals=0, minutes=30)
     _seed_live_player(
         SECOND_PLAYER,
@@ -592,10 +592,64 @@ def test_scout_flag_leaves_leaderboards_on_live_phase_query(client, monkeypatch)
 
     response = client.get("/api/scout/leaderboards?limit=2")
     assert response.status_code == 200
-    top_scorers = response.get_json()["leaderboards"]["top_scorers"]
-    assert top_scorers[0]["player_id"] == SECOND_PLAYER
-    assert top_scorers[0]["goals"] == 9
-    assert "rollup_missing" not in top_scorers[0]
+    data = response.get_json()
+    top_scorers = data["leaderboards"]["top_scorers"]
+    assert data["season"] == 2025
+    assert top_scorers[0]["player_id"] == PLAYER
+    assert top_scorers[0]["goals"] == 2
+    assert top_scorers[0]["rollup_missing"] is False
+    assert top_scorers[0]["provenance"]["primary_source"] == "journey"
+
+
+def test_scout_compare_rollup_honors_season_and_carries_provenance(client, monkeypatch):
+    _seed_live_player(goals=9, minutes=900)
+    total = _seed_rollup()
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "scout")
+
+    response = client.get(f"/api/scout/compare?ids={PLAYER}&season=2025")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["season"] == 2025
+    compared = data["players"][0]
+    assert compared["totals"]["goals"] == total.goals
+    assert compared["totals"]["minutes_played"] == total.minutes
+    _assert_rollup_provenance(compared["provenance"], total)
+
+
+def test_scout_rollup_gk_boards_keep_position_clamp(client, monkeypatch):
+    goalkeeper = _seed_live_player()
+    goalkeeper.position = "Goalkeeper"
+    _seed_live_player(SECOND_PLAYER, fixture_id=940002, goals=9, minutes=900)
+    _seed_rollup()
+    _seed_rollup(
+        SECOND_PLAYER,
+        minutes=900,
+        appearances=10,
+        goals=9,
+        assists=0,
+        fixtures_minutes=900,
+        journey_minutes=0,
+        with_cells=False,
+    )
+    db.session.commit()
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "scout")
+
+    response = client.get("/api/scout/leaderboards?phase=gk&season=2025")
+
+    assert response.status_code == 200
+    for entries in response.get_json()["leaderboards"].values():
+        assert all(entry["position"] == "Goalkeeper" for entry in entries)
+
+
+@pytest.mark.parametrize("path", ["leaderboards", f"compare?ids={PLAYER}&extra=1"])
+def test_scout_new_season_params_reject_out_of_range(client, path):
+    _seed_live_player()
+    separator = "&" if "?" in path else "?"
+
+    response = client.get(f"/api/scout/{path}{separator}season=2024")
+
+    assert response.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -686,7 +740,7 @@ def test_rollup_flag_unset_and_empty_disable_all(monkeypatch):
             monkeypatch.delenv("SEASON_ROLLUP_READS", raising=False)
         else:
             monkeypatch.setenv("SEASON_ROLLUP_READS", raw)
-        assert not any(rollup_reads_enabled(surface) for surface in ("season_stats", "player_stats", "scout"))
+        assert not any(rollup_reads_enabled(surface) for surface in ("season_stats", "player_stats", "scout", "teams"))
 
 
 def test_rollup_flag_one_key_is_surface_scoped(monkeypatch):
@@ -696,13 +750,22 @@ def test_rollup_flag_one_key_is_surface_scoped(monkeypatch):
     assert rollup_reads_enabled("player_stats") is True
     assert rollup_reads_enabled("season_stats") is False
     assert rollup_reads_enabled("scout") is False
+    assert rollup_reads_enabled("teams") is False
 
 
 def test_rollup_flag_all_keys_enable_all_surfaces(monkeypatch):
     from src.utils.feature_flags import rollup_reads_enabled
 
-    monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats,player_stats,scout,SCOUT")
-    assert all(rollup_reads_enabled(surface) for surface in ("season_stats", "player_stats", "scout"))
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats,player_stats,scout,teams,SCOUT")
+    assert all(rollup_reads_enabled(surface) for surface in ("season_stats", "player_stats", "scout", "teams"))
+
+
+def test_rollup_flag_teams_key_is_surface_scoped(monkeypatch):
+    from src.utils.feature_flags import rollup_reads_enabled
+
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "teams")
+    assert rollup_reads_enabled("teams") is True
+    assert rollup_reads_enabled("scout") is False
 
 
 def test_rollup_flag_ignores_junk_keys(monkeypatch):

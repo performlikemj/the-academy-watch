@@ -379,7 +379,7 @@ def _preferred_row_filter():
     return ~better_row
 
 
-def _base_scout_query(requested_season=None, *, allow_rollup=True):
+def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season=None):
     """TrackedPlayer rows joined to aggregated stats, deduped per player."""
     from src.utils.academy_window import resolve_stats_season, stats_season_with_data
 
@@ -416,7 +416,7 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True):
         ]
     else:
         # Legacy path is intentionally unchanged when the flag is off.
-        season = stats_season_with_data(db.session)
+        season = legacy_season if legacy_season is not None else stats_season_with_data(db.session)
         fps = _fixture_stats_subquery(season)
         cache = _cache_stats_subquery()
 
@@ -757,6 +757,22 @@ PHASE_BOARDS = {
     ),
 }
 
+# Totals-backed boards use one source-selected PlayerSeasonTotal row. Rich
+# fixture-only fields keep their season-scoped legacy aggregate because they do
+# not exist in the rollup schema.
+ROLLUP_LEADERBOARD_SORT_KEYS = {
+    "goals",
+    "assists",
+    "minutes",
+    "appearances",
+    "rating",
+    "contributions",
+    "per90",
+    "saves",
+    "goals_conceded",
+    "conceded_per90",
+}
+
 
 @scout_bp.route("/scout/leaderboards", methods=["GET"])
 def scout_leaderboards():
@@ -769,16 +785,23 @@ def scout_leaderboards():
     - position / status / min_age / max_age / nationality: same as /scout/players
     """
     try:
+        from src.utils.academy_window import resolve_stats_season
+
         limit = min(max(request.args.get("limit", 10, type=int), 1), 25)
         phase = request.args.get("phase", "all").strip().lower() or "all"
         if phase not in PHASE_BOARDS:
             return jsonify({"error": f"Invalid phase. One of: {sorted(PHASE_BOARDS)}"}), 400
+        requested_season = request.args.get("season") or None
+        season = resolve_stats_season(db.session, requested=requested_season, surface="discovery")
+        use_rollup = rollup_reads_enabled("scout")
 
         def board(sort_key, extra_min_minutes=0, board_order="desc"):
-            # Phase/leaderboard metrics are out of D4c scope and most rich
-            # columns do not exist on PlayerSeasonTotal. Keep their legacy
-            # aggregate rather than returning arbitrary all-NULL rankings.
-            query, columns = _base_scout_query(allow_rollup=False)
+            board_uses_rollup = use_rollup and sort_key in ROLLUP_LEADERBOARD_SORT_KEYS
+            query, columns = _base_scout_query(
+                requested_season if board_uses_rollup else None,
+                allow_rollup=board_uses_rollup,
+                legacy_season=season if use_rollup and not board_uses_rollup else None,
+            )
             query, error = _apply_filters(query, columns)
             if error:
                 return None, error
@@ -802,7 +825,9 @@ def scout_leaderboards():
                 return error
             boards[key] = entries
 
-        return jsonify({"leaderboards": boards, "limit": limit, "phase": phase})
+        return jsonify({"leaderboards": boards, "limit": limit, "phase": phase, "season": season})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.error(f"Error in scout_leaderboards: {e}")
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
@@ -812,6 +837,124 @@ def _per90(value, minutes):
     if not minutes or value is None:
         return None
     return round(float(value) * 90.0 / minutes, 2)
+
+
+def _compare_fixture_totals(player_id: int, season: int):
+    """Detailed fixture-backed compare totals for one player-season."""
+    compare_is_gk_row = FixturePlayerStats.position == "G"
+    return (
+        db.session.query(
+            func.count(FixturePlayerStats.id).label("appearances"),
+            func.coalesce(func.sum(FixturePlayerStats.goals), 0).label("goals"),
+            func.coalesce(func.sum(FixturePlayerStats.assists), 0).label("assists"),
+            func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label("minutes"),
+            func.avg(FixturePlayerStats.rating).label("avg_rating"),
+            func.coalesce(func.sum(FixturePlayerStats.shots_total), 0).label("shots_total"),
+            func.coalesce(func.sum(FixturePlayerStats.shots_on), 0).label("shots_on"),
+            func.coalesce(func.sum(FixturePlayerStats.passes_total), 0).label("passes_total"),
+            func.coalesce(func.sum(FixturePlayerStats.passes_key), 0).label("key_passes"),
+            func.coalesce(func.sum(FixturePlayerStats.dribbles_attempts), 0).label("dribbles_attempts"),
+            func.coalesce(func.sum(FixturePlayerStats.dribbles_success), 0).label("dribbles_success"),
+            func.coalesce(func.sum(FixturePlayerStats.tackles_total), 0).label("tackles"),
+            func.coalesce(func.sum(FixturePlayerStats.tackles_interceptions), 0).label("interceptions"),
+            func.coalesce(func.sum(FixturePlayerStats.duels_total), 0).label("duels_total"),
+            func.coalesce(func.sum(FixturePlayerStats.duels_won), 0).label("duels_won"),
+            func.coalesce(func.sum(FixturePlayerStats.fouls_drawn), 0).label("fouls_drawn"),
+            func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label("yellows"),
+            func.coalesce(func.sum(FixturePlayerStats.reds), 0).label("reds"),
+            func.sum(case((compare_is_gk_row, func.coalesce(FixturePlayerStats.saves, 0)), else_=None)).label("saves"),
+            func.sum(case((compare_is_gk_row, func.coalesce(FixturePlayerStats.goals_conceded, 0)), else_=None)).label(
+                "goals_conceded"
+            ),
+            func.sum(case((compare_is_gk_row, func.coalesce(FixturePlayerStats.penalty_saved, 0)), else_=None)).label(
+                "penalty_saved"
+            ),
+            func.sum(
+                case(
+                    (
+                        and_(
+                            compare_is_gk_row,
+                            FixturePlayerStats.goals_conceded == 0,
+                            FixturePlayerStats.minutes >= CLEAN_SHEET_MIN_MINUTES,
+                        ),
+                        1,
+                    ),
+                    (compare_is_gk_row, 0),
+                    else_=None,
+                )
+            ).label("clean_sheets"),
+        )
+        .join(Fixture, Fixture.id == FixturePlayerStats.fixture_id)
+        .filter(
+            FixturePlayerStats.player_api_id == player_id,
+            Fixture.season == season,
+        )
+        .first()
+    )
+
+
+def _compare_rollup_totals(total: PlayerSeasonTotal | None) -> tuple[dict, dict | None]:
+    """Project one source-selected rollup row into the compare contract."""
+    rich_fields = {
+        key: None
+        for key in (
+            "shots_total",
+            "shots_on",
+            "passes_total",
+            "key_passes",
+            "dribbles_attempts",
+            "dribbles_success",
+            "tackles",
+            "interceptions",
+            "duels_total",
+            "duels_won",
+            "fouls_drawn",
+            "penalty_saved",
+            "clean_sheets",
+        )
+    }
+    if total is None:
+        return (
+            {
+                "appearances": None,
+                "goals": None,
+                "assists": None,
+                "minutes_played": None,
+                "avg_rating": None,
+                "yellows": None,
+                "reds": None,
+                "saves": None,
+                "goals_conceded": None,
+                "stats_coverage": "season-rollup",
+                "rollup_missing": True,
+                **rich_fields,
+            },
+            None,
+        )
+    provenance = {
+        "primary_source": total.primary_source,
+        "reconcile_flag": total.reconcile_flag,
+        "fixtures_minutes": total.fixtures_minutes,
+        "journey_minutes": total.journey_minutes,
+        "computed_at": total.computed_at.isoformat() if total.computed_at else None,
+    }
+    return (
+        {
+            "appearances": total.appearances,
+            "goals": total.goals,
+            "assists": total.assists,
+            "minutes_played": total.minutes,
+            "avg_rating": float(total.avg_rating) if total.avg_rating is not None else None,
+            "yellows": total.yellows,
+            "reds": total.reds,
+            "saves": total.saves,
+            "goals_conceded": total.goals_conceded,
+            "stats_coverage": "season-rollup",
+            "rollup_missing": False,
+            **rich_fields,
+        },
+        provenance,
+    )
 
 
 @scout_bp.route("/scout/compare", methods=["GET"])
@@ -835,7 +978,7 @@ def scout_compare():
         except ValueError:
             return jsonify({"error": "ids must be integers"}), 400
 
-        from src.utils.academy_window import stats_season_with_data
+        from src.utils.academy_window import resolve_stats_season, stats_season_with_data
 
         # One season figure per player, summed across EVERY club the player
         # appeared for — mirrors the season-scoped /scout/players list and
@@ -843,7 +986,28 @@ def scout_compare():
         # was) both hid a returned loanee's whole loan season and let a stray
         # parent-club cup cameo masquerade as his season, so the compare panel
         # contradicted the list on the same Scout Desk page.
-        season = stats_season_with_data(db.session)
+        requested_season = request.args.get("season") or None
+        use_rollup = rollup_reads_enabled("scout")
+        resolved_season = resolve_stats_season(
+            db.session,
+            requested=requested_season,
+            surface="compare" if use_rollup else "discovery",
+        )
+        # Preserve the unflagged aggregate exactly; the resolved value is still
+        # echoed so callers can label the compatibility path deterministically.
+        stats_season = resolved_season if use_rollup else stats_season_with_data(db.session)
+        rollup_totals = (
+            {
+                total.player_api_id: total
+                for total in PlayerSeasonTotal.query.filter(
+                    PlayerSeasonTotal.player_api_id.in_(player_ids),
+                    PlayerSeasonTotal.season == resolved_season,
+                    PlayerSeasonTotal.level_group == "senior",
+                ).all()
+            }
+            if use_rollup
+            else {}
+        )
 
         players = []
         for player_id in player_ids:
@@ -857,61 +1021,15 @@ def scout_compare():
             if not tracked_player:
                 continue
 
-            totals = None
-            # Same GK gating as _fixture_stats_subquery: conceded:0 on outfield
-            # rows must not fabricate clean sheets / 0-conceded totals here.
-            compare_is_gk_row = FixturePlayerStats.position == "G"
-            row = (
-                db.session.query(
-                    func.count(FixturePlayerStats.id).label("appearances"),
-                    func.coalesce(func.sum(FixturePlayerStats.goals), 0).label("goals"),
-                    func.coalesce(func.sum(FixturePlayerStats.assists), 0).label("assists"),
-                    func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label("minutes"),
-                    func.avg(FixturePlayerStats.rating).label("avg_rating"),
-                    func.coalesce(func.sum(FixturePlayerStats.shots_total), 0).label("shots_total"),
-                    func.coalesce(func.sum(FixturePlayerStats.shots_on), 0).label("shots_on"),
-                    func.coalesce(func.sum(FixturePlayerStats.passes_total), 0).label("passes_total"),
-                    func.coalesce(func.sum(FixturePlayerStats.passes_key), 0).label("key_passes"),
-                    func.coalesce(func.sum(FixturePlayerStats.dribbles_attempts), 0).label("dribbles_attempts"),
-                    func.coalesce(func.sum(FixturePlayerStats.dribbles_success), 0).label("dribbles_success"),
-                    func.coalesce(func.sum(FixturePlayerStats.tackles_total), 0).label("tackles"),
-                    func.coalesce(func.sum(FixturePlayerStats.tackles_interceptions), 0).label("interceptions"),
-                    func.coalesce(func.sum(FixturePlayerStats.duels_total), 0).label("duels_total"),
-                    func.coalesce(func.sum(FixturePlayerStats.duels_won), 0).label("duels_won"),
-                    func.coalesce(func.sum(FixturePlayerStats.fouls_drawn), 0).label("fouls_drawn"),
-                    func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label("yellows"),
-                    func.coalesce(func.sum(FixturePlayerStats.reds), 0).label("reds"),
-                    func.sum(case((compare_is_gk_row, func.coalesce(FixturePlayerStats.saves, 0)), else_=None)).label(
-                        "saves"
-                    ),
-                    func.sum(
-                        case((compare_is_gk_row, func.coalesce(FixturePlayerStats.goals_conceded, 0)), else_=None)
-                    ).label("goals_conceded"),
-                    func.sum(
-                        case((compare_is_gk_row, func.coalesce(FixturePlayerStats.penalty_saved, 0)), else_=None)
-                    ).label("penalty_saved"),
-                    func.sum(
-                        case(
-                            (
-                                and_(
-                                    compare_is_gk_row,
-                                    FixturePlayerStats.goals_conceded == 0,
-                                    FixturePlayerStats.minutes >= CLEAN_SHEET_MIN_MINUTES,
-                                ),
-                                1,
-                            ),
-                            (compare_is_gk_row, 0),
-                            else_=None,
-                        )
-                    ).label("clean_sheets"),
-                )
-                .join(Fixture, Fixture.id == FixturePlayerStats.fixture_id)
-                .filter(
-                    FixturePlayerStats.player_api_id == player_id,
-                    Fixture.season == season,
-                )
-                .first()
-            )
+            provenance = None
+            if use_rollup:
+                totals, provenance = _compare_rollup_totals(rollup_totals.get(player_id))
+                row = None
+            else:
+                totals = None
+                # Same GK gating as _fixture_stats_subquery: conceded:0 on
+                # outfield rows must not fabricate clean sheets here.
+                row = _compare_fixture_totals(player_id, stats_season)
             if row and row.appearances:
                 minutes = int(row.minutes or 0)
                 totals = {
@@ -996,18 +1114,21 @@ def scout_compare():
                 profile["owner_team_id"] = journey.current_owner_api_id
                 profile["owner_team_name"] = journey.current_owner_name
 
-            players.append(
-                {
-                    "profile": profile,
-                    "totals": totals,
-                    "per90": per90,
-                    "career": career,
-                    "availability": availability,
-                }
-            )
+            comparison = {
+                "profile": profile,
+                "totals": totals,
+                "per90": per90,
+                "career": career,
+                "availability": availability,
+            }
+            if use_rollup:
+                comparison["provenance"] = provenance
+            players.append(comparison)
 
         missing = [pid for pid in player_ids if pid not in {p["profile"]["player_id"] for p in players}]
-        return jsonify({"players": players, "missing_ids": missing})
+        return jsonify({"players": players, "missing_ids": missing, "season": resolved_season})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.error(f"Error in scout_compare: {e}")
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500

@@ -109,6 +109,7 @@ from src.utils.background_jobs import (
 from src.utils.background_jobs import (
     update_job as _update_job,
 )
+from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.fixture_stats_mapper import map_player_stat_block
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 from src.utils.player_names import resolve_player_name
@@ -119,6 +120,7 @@ from src.utils.sanitize import (
     sanitize_plain_text,
 )
 from src.utils.slug import resolve_team_by_identifier
+from src.utils.team_season_stats import live_stats_by_player, missing_rollup_stats, rollup_stats_by_player
 from werkzeug.exceptions import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -12728,6 +12730,20 @@ def get_team_players(team_identifier):
     try:
         team = resolve_team_by_identifier(team_identifier)
         team_id = team.id
+        requested_season = request.args.get("season") or None
+        use_rollup = rollup_reads_enabled("teams")
+        resolved_season = None
+        if requested_season is not None or use_rollup:
+            from src.utils.academy_window import resolve_stats_season
+
+            try:
+                resolved_season = resolve_stats_season(
+                    db.session,
+                    requested=requested_season,
+                    surface="discovery",
+                )
+            except ValueError as error:
+                return jsonify({"error": str(error)}), 400
 
         from src.utils.academy_classifier import is_academy_product
 
@@ -12755,10 +12771,13 @@ def get_team_players(team_identifier):
         parent_club_apps = {}
         if journey_ids:
             # Get all non-international entries for these journeys
-            all_entries = PlayerJourneyEntry.query.filter(
+            entries_query = PlayerJourneyEntry.query.filter(
                 PlayerJourneyEntry.journey_id.in_(journey_ids),
                 PlayerJourneyEntry.entry_type != "international",
-            ).all()
+            )
+            if resolved_season is not None:
+                entries_query = entries_query.filter(PlayerJourneyEntry.season == resolved_season)
+            all_entries = entries_query.all()
             for entry in all_entries:
                 # Count entries at parent club (by API ID or youth-suffix name match)
                 if entry.club_api_id == team.team_id or is_same_club(entry.club_name or "", team.name):
@@ -12772,7 +12791,15 @@ def get_team_players(team_identifier):
 
         player_api_ids_on_loan = [tp.player_api_id for tp in players if tp.current_club_api_id]
         player_stats_map = {}
-        if player_api_ids_on_loan:
+        rollup_clubs = {}
+        if use_rollup:
+            player_stats_map, rollup_clubs = rollup_stats_by_player(
+                [player.player_api_id for player in players],
+                resolved_season,
+            )
+        elif requested_season is not None:
+            player_stats_map = live_stats_by_player(players, resolved_season)
+        elif player_api_ids_on_loan:
             stats_rows = (
                 db.session.query(
                     FixturePlayerStats.player_api_id,
@@ -12866,7 +12893,15 @@ def get_team_players(team_identifier):
         results = []
         for tp in players:
             d = tp.to_public_dict()
-            d["parent_club_appearances"] = parent_club_apps.get(tp.journey_id, 0)
+            if use_rollup:
+                parent_club_appearances = sum(
+                    club.get("appearances") or 0
+                    for club in rollup_clubs.get(tp.player_api_id, [])
+                    if club.get("id") == team.team_id
+                )
+            else:
+                parent_club_appearances = parent_club_apps.get(tp.journey_id, 0)
+            d["parent_club_appearances"] = parent_club_appearances
 
             # First-team tier split: academy (0 apps) / debut / established
             if tp.status == "first_team":
@@ -12884,6 +12919,8 @@ def get_team_players(team_identifier):
             # Enrich stats from batch query
             if tp.player_api_id in player_stats_map:
                 d.update(player_stats_map[tp.player_api_id])
+            elif use_rollup:
+                d.update(missing_rollup_stats())
 
             # Enrich photo and position from Player table
             pr = player_records_map.get(tp.player_api_id)
@@ -12941,18 +12978,19 @@ def get_team_players(team_identifier):
 
             results.append(d)
 
-        return jsonify(
-            {
-                "team": {
-                    "id": team.id,
-                    "team_id": team.team_id,
-                    "name": team.name,
-                    "logo": team.logo,
-                },
-                "players": results,
-                "total": len(results),
-            }
-        )
+        response = {
+            "team": {
+                "id": team.id,
+                "team_id": team.team_id,
+                "name": team.name,
+                "logo": team.logo,
+            },
+            "players": results,
+            "total": len(results),
+        }
+        if resolved_season is not None:
+            response["season"] = resolved_season
+        return jsonify(response)
     except Exception as e:
         logger.exception("get_team_players failed")
         return jsonify(_safe_error_payload(e, "Failed to fetch team players")), 500

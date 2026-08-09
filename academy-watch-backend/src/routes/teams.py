@@ -25,9 +25,11 @@ from src.models.league import (
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import without_active_suppression
 from src.utils.academy_classifier import _get_latest_season, classify_tracked_player, is_same_club
+from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.geocoding import get_team_coordinates
 from src.utils.slug import resolve_team_by_identifier
 from src.utils.supported_leagues import get_league_region, get_supported_leagues
+from src.utils.team_season_stats import live_stats_by_player, missing_rollup_stats, rollup_stats_by_player
 from werkzeug.exceptions import NotFound
 
 logger = logging.getLogger(__name__)
@@ -361,12 +363,27 @@ def get_team_loans(team_identifier):
         team = resolve_team_by_identifier(team_identifier)
         active_only = request.args.get("active_only", "true").lower() in ("1", "true", "yes", "on", "y")
         dedupe = request.args.get("dedupe", "true").lower() in ("1", "true", "yes", "on", "y")
-        season_val = request.args.get("season", type=int)
+        requested_season = request.args.get("season") or None
+        use_rollup = rollup_reads_enabled("teams")
+        resolved_season = None
+        if requested_season is not None or use_rollup:
+            from src.utils.academy_window import resolve_stats_season
+
+            try:
+                resolved_season = resolve_stats_season(
+                    db.session,
+                    requested=requested_season,
+                    surface="discovery",
+                )
+            except ValueError as error:
+                return jsonify({"error": str(error)}), 400
         direction = request.args.get("direction", "loaned_from").lower()
         pathway_status = request.args.get("pathway_status", "").strip().lower()
         academy_only = request.args.get("academy_only", "false").lower() in ("1", "true", "yes", "on", "y")
 
-        # Query TrackedPlayer by direction
+        # Membership intentionally remains today's tracked roster: status
+        # snapshots have no season axis, so historical roster reconstruction is
+        # out of scope; only each member's stats are season-scoped below.
         if direction == "loaned_to":
             tp_query = TrackedPlayer.query.filter_by(current_club_db_id=team.id)
         else:
@@ -405,7 +422,7 @@ def get_team_loans(team_identifier):
         tp_api_ids = [tp.player_api_id for tp in tracked]
         stats_by_player = {}
         cache_by_player = {}
-        if tp_api_ids:
+        if tp_api_ids and not use_rollup and requested_season is None:
             # Season-scope the aggregate to the current stats season (latest with
             # data on rollover) so team-roster numbers match the season-scoped
             # profile / Scout Desk figures. Without this, once next-season
@@ -485,12 +502,23 @@ def get_team_loans(team_identifier):
                         "reds": int(row.reds),
                     }
 
+        season_stats_by_player = None
+        if use_rollup:
+            season_stats_by_player, _ = rollup_stats_by_player(tp_api_ids, resolved_season)
+        elif requested_season is not None:
+            season_stats_by_player = live_stats_by_player(tracked, resolved_season)
+
         result = []
         for tp in tracked:
             tp_dict = tp.to_public_dict()
-            # Route stats by coverage tier exactly like compute_stats: limited
-            # rows read from the cache, everyone else from the fixture aggregate.
-            if tp.data_depth in ("events_only", "profile_only"):
+            if season_stats_by_player is not None:
+                if tp.player_api_id in season_stats_by_player:
+                    tp_dict.update(season_stats_by_player[tp.player_api_id])
+                elif use_rollup:
+                    tp_dict.update(missing_rollup_stats())
+            # No-param + flag-off is the byte-compatible legacy path: route
+            # limited rows from latest cache and full rows from fixtures.
+            elif tp.data_depth in ("events_only", "profile_only"):
                 if tp.player_api_id in cache_by_player:
                     tp_dict.update(cache_by_player[tp.player_api_id])
             elif tp.player_api_id in stats_by_player:
@@ -499,6 +527,8 @@ def get_team_loans(team_identifier):
 
         # Supplemental loans removed (deprecated SupplementalLoan table)
 
+        if resolved_season is not None:
+            return jsonify({"season": resolved_season, "loans": result})
         return jsonify(result)
     except NotFound:
         raise
@@ -537,10 +567,15 @@ def _get_team_logo(team_api_id: int) -> str | None:
 
 @teams_bp.route("/teams/<team_identifier>/loans/season/<int:season>", methods=["GET"])
 def get_team_loans_by_season(team_identifier: str, season: int):
-    """Get loans for a specific team in a specific season (by window_key prefix)."""
+    """Get current tracked roster members with stats for one season."""
     try:
         team = resolve_team_by_identifier(team_identifier)
-        slug = f"{season}-{str(season + 1)[-2:]}"
+        from src.utils.academy_window import resolve_stats_season
+
+        try:
+            resolved_season = resolve_stats_season(db.session, requested=season, surface="discovery")
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
         active_only = request.args.get("active_only", "false").lower() in ("true", "1", "yes", "y")
 
         q = TrackedPlayer.query.filter(
@@ -551,7 +586,24 @@ def get_team_loans_by_season(team_identifier: str, season: int):
             q = q.filter(TrackedPlayer.is_active.is_(True))
 
         players = q.order_by(TrackedPlayer.updated_at.desc()).all()
-        return jsonify([tp.to_public_dict() for tp in players])
+        use_rollup = rollup_reads_enabled("teams")
+        if use_rollup:
+            stats_by_player, _ = rollup_stats_by_player(
+                [player.player_api_id for player in players],
+                resolved_season,
+            )
+        else:
+            stats_by_player = live_stats_by_player(players, resolved_season)
+
+        loans = []
+        for player in players:
+            payload = player.to_public_dict()
+            if player.player_api_id in stats_by_player:
+                payload.update(stats_by_player[player.player_api_id])
+            elif use_rollup:
+                payload.update(missing_rollup_stats())
+            loans.append(payload)
+        return jsonify({"season": resolved_season, "loans": loans})
     except NotFound:
         raise
     except Exception as e:
