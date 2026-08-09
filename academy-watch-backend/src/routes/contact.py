@@ -479,6 +479,16 @@ def create_contact_request():
             ), 409
 
         now = utcnow()
+        # Serialize emergency hide/suspend updates against both persistence and
+        # consent dispatch so inclusion cannot escape through a stale decision.
+        if routing_mode == ROUTING_CLUB_INCLUDED and not program_is_operational(
+            claim.club_program_id,
+            for_update=True,
+        ):
+            routing_mode = ROUTING_CLUB_NOTIFIED
+            if not permission_attestation:
+                db.session.rollback()
+                return jsonify({"error": APPROACH_RULES_WARNING, "code": "attestation_required"}), 400
         club_program_id = claim.club_program_id if routing_mode != "direct" else None
         contact_request = ContactRequest(
             scout_user_id=user.id,
@@ -536,6 +546,11 @@ def create_contact_request():
                     },
                     created_at=now,
                 )
+            elif routing_mode == ROUTING_CLUB_INCLUDED:
+                try:
+                    send_club_consent_notice(contact_request)
+                except Exception:
+                    logger.exception("Club consent dispatch failed for request %s", contact_request.id)
             db.session.commit()
         except IntegrityError:
             db.session.rollback()
@@ -554,7 +569,9 @@ def create_contact_request():
                 ), 409
             raise
         notice_metadata = None
-        if routing_mode == ROUTING_CLUB_NOTIFIED:
+        if routing_mode == ROUTING_CLUB_NOTIFIED and (
+            club_program_id is None or program_is_operational(club_program_id)
+        ):
             try:
                 notice_metadata = send_club_courtesy_notice(contact_request)
             except Exception:
@@ -573,12 +590,6 @@ def create_contact_request():
                 except Exception:
                     db.session.rollback()
                     logger.exception("Failed to record club notice audit for request %s", contact_request.id)
-        elif routing_mode == ROUTING_CLUB_INCLUDED:
-            try:
-                send_club_consent_notice(contact_request)
-            except Exception:
-                db.session.rollback()
-                logger.exception("Club consent dispatch failed for request %s", contact_request.id)
         if routing_mode in {ROUTING_DIRECT, ROUTING_CLUB_NOTIFIED}:
             try:
                 from src.services.admin_notify_service import notify_contact_request
@@ -743,7 +754,9 @@ def list_contact_requests():
             if related_user_ids:
                 query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
         elif box == "club":
-            program_ids = active_manager_program_ids(user.id)
+            program_ids = [
+                program_id for program_id in active_manager_program_ids(user.id) if program_is_operational(program_id)
+            ]
             query = ContactRequest.query.filter(
                 ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
                 ContactRequest.club_program_id.in_(program_ids),
@@ -947,6 +960,10 @@ def public_club_consent(token: str):
         if (
             contact_request is None
             or contact_request.routing_mode != ROUTING_CLUB_INCLUDED
+            or not program_is_operational(
+                contact_request.club_program_id,
+                for_update=request.method == "POST",
+            )
             or contact_request.status not in ACTIVE_REQUEST_STATUSES
             or contact_request.club_consent_status != "pending"
         ):
@@ -1069,7 +1086,9 @@ def create_contact_message(request_id: str):
 
         player_user_id = contact_request.claim.user_account_id if contact_request.claim is not None else None
         counterpart_user_ids = [contact_request.scout_user_id, player_user_id]
-        if contact_request.routing_mode == ROUTING_CLUB_INCLUDED:
+        if contact_request.routing_mode == ROUTING_CLUB_INCLUDED and program_is_operational(
+            contact_request.club_program_id
+        ):
             counterpart_user_ids.extend(active_program_manager_user_ids(contact_request.club_program_id))
         if user_has_block_relationship_with_any(
             user_id=user.id,

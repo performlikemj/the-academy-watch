@@ -22,7 +22,9 @@ USERS_TABLE = "user_accounts"
 
 
 def _table_columns(table_name: str) -> set[str]:
-    bind = db.session.get_bind()
+    # Stay on the session's transaction. An inspector-owned wrapper can roll
+    # back SQLite's shared in-memory connection when it closes mid-request.
+    bind = db.session.connection()
     inspector = sa.inspect(bind)
     if not inspector.has_table(table_name):
         return set()
@@ -59,23 +61,32 @@ def club_program_exists(program_id: int | None) -> bool:
     return get_club_program(program_id) is not None
 
 
-def program_is_operational(program_id: int | None) -> bool:
+def program_is_operational(program_id: int | None, *, for_update: bool = False) -> bool:
     """Return whether a program may participate in operational contact flows."""
     if program_id is None:
         return False
     columns = _table_columns(PROGRAMS_TABLE)
     if not {"id", "platform_status", "emergency_hidden"}.issubset(columns):
         return False
-    return (
-        db.session.execute(
-            sa.text(
-                f"SELECT 1 FROM {PROGRAMS_TABLE} WHERE id = :program_id "
-                "AND platform_status = 'approved' AND emergency_hidden = false LIMIT 1"
-            ),
-            {"program_id": program_id},
-        ).scalar()
-        is not None
+    programs = sa.table(
+        PROGRAMS_TABLE,
+        sa.column("id"),
+        sa.column("platform_status"),
+        sa.column("emergency_hidden"),
     )
+    statement = (
+        sa.select(sa.literal(1))
+        .select_from(programs)
+        .where(
+            programs.c.id == program_id,
+            programs.c.platform_status == "approved",
+            programs.c.emergency_hidden.is_(False),
+        )
+        .limit(1)
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    return db.session.execute(statement).scalar() is not None
 
 
 def program_has_active_manager(program_id: int | None) -> bool:

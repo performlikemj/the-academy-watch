@@ -739,6 +739,7 @@ def test_export_matches_live_contact_authorization(client, monkeypatch):
     )
     db.session.commit()
     monkeypatch.setattr(account_service, "active_manager_program_ids", lambda user_id: [44])
+    monkeypatch.setattr(account_service, "program_is_operational", lambda program_id: program_id == 44)
 
     response = client.get("/api/account/export", headers=_headers(subject.email))
 

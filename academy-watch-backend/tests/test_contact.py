@@ -42,6 +42,7 @@ def contact_app(monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://contact-test.example")
     monkeypatch.delenv("ADMIN_EMAILS", raising=False)
 
+    from src.routes.account import account_bp
     from src.routes.blocks import blocks_bp
     from src.routes.contact import contact_bp
     from src.routes.showcase import showcase_bp
@@ -57,6 +58,7 @@ def contact_app(monkeypatch):
     )
     db.init_app(app)
     limiter.init_app(app)
+    app.register_blueprint(account_bp, url_prefix="/api")
     app.register_blueprint(showcase_bp, url_prefix="/api")
     app.register_blueprint(contact_bp, url_prefix="/api")
     app.register_blueprint(trust_bp, url_prefix="/api")
@@ -212,6 +214,21 @@ def _club_manager(program_id: int, email: str, *, status="active"):
     )
     db.session.commit()
     return user, headers
+
+
+def _set_program_state(program_id: int, *, platform_status="approved", emergency_hidden=False):
+    db.session.execute(
+        text(
+            "UPDATE club_programs SET platform_status = :platform_status, "
+            "emergency_hidden = :emergency_hidden WHERE id = :program_id"
+        ),
+        {
+            "program_id": program_id,
+            "platform_status": platform_status,
+            "emergency_hidden": emergency_hidden,
+        },
+    )
+    db.session.commit()
 
 
 def _seed_contact(client, *, suffix="base", player_api_id=5001):
@@ -1122,6 +1139,7 @@ class TestContractStatusRouting:
     def test_non_operational_club_is_omitted_from_new_claim_routing(
         self,
         client,
+        monkeypatch,
         platform_status,
         emergency_hidden,
     ):
@@ -1139,6 +1157,11 @@ class TestContractStatusRouting:
             contract_status="contracted",
             club_program_id=110,
         )
+        courtesy_calls = []
+        monkeypatch.setattr(
+            "src.routes.contact.send_club_courtesy_notice",
+            lambda contact_request: courtesy_calls.append(contact_request.id),
+        )
 
         created = _create(client, scout_headers, 5814, permission_attestation=True)
 
@@ -1147,6 +1170,7 @@ class TestContractStatusRouting:
         assert request_payload["routing_mode"] == "club_notified"
         assert request_payload["club_consent_status"] is None
         assert program_is_operational(110) is False
+        assert courtesy_calls == []
 
     @pytest.mark.parametrize(
         ("platform_status", "emergency_hidden"),
@@ -1179,14 +1203,7 @@ class TestContractStatusRouting:
             == 200
         )
 
-        db.session.execute(
-            text(
-                "UPDATE club_programs SET platform_status = :platform_status, "
-                "emergency_hidden = :emergency_hidden WHERE id = 111"
-            ),
-            {"platform_status": platform_status, "emergency_hidden": emergency_hidden},
-        )
-        db.session.commit()
+        _set_program_state(111, platform_status=platform_status, emergency_hidden=emergency_hidden)
 
         refused = client.post(
             f"/api/contact/requests/{request_id}/messages",
@@ -1196,6 +1213,226 @@ class TestContractStatusRouting:
         assert refused.status_code == 404
         assert refused.get_json() == {"error": "contact request not found"}
         assert ContactMessage.query.count() == 0
+
+    @pytest.mark.parametrize(
+        ("platform_status", "emergency_hidden"),
+        [("approved", True), ("suspended", False)],
+    )
+    def test_non_operational_club_is_removed_from_inbox_and_cannot_read_request(
+        self,
+        client,
+        platform_status,
+        emergency_hidden,
+    ):
+        _club_program(112, "Frozen Inbox FC")
+        _, club_headers = _club_manager(112, "frozen-inbox-manager@example.com")
+        _, scout_headers = _verified_scout("frozen-inbox-scout@example.com")
+        _claim(
+            "frozen-inbox-player@example.com",
+            5816,
+            contract_status="contracted",
+            club_program_id=112,
+        )
+        created = _create(client, scout_headers, 5816)
+        request_id = created.get_json()["contact_request"]["id"]
+
+        visible = client.get("/api/contact/requests?box=club", headers=club_headers)
+        assert [row["id"] for row in visible.get_json()["requests"]] == [request_id]
+
+        _set_program_state(112, platform_status=platform_status, emergency_hidden=emergency_hidden)
+
+        frozen = client.get("/api/contact/requests?box=club", headers=club_headers)
+        assert frozen.status_code == 200
+        assert frozen.get_json()["requests"] == []
+        assert frozen.get_json()["total"] == 0
+        detail = client.get(f"/api/contact/requests/{request_id}/messages", headers=club_headers)
+        assert detail.status_code == 404
+        assert detail.get_json() == {"error": "contact request not found"}
+
+    @pytest.mark.parametrize(
+        ("platform_status", "emergency_hidden"),
+        [("approved", True), ("suspended", False)],
+    )
+    def test_non_operational_club_thread_is_removed_from_manager_account_export(
+        self,
+        client,
+        platform_status,
+        emergency_hidden,
+    ):
+        _club_program(113, "Frozen Export FC")
+        manager, club_headers = _club_manager(113, "frozen-export-manager@example.com")
+        _, scout_headers = _verified_scout("frozen-export-scout@example.com")
+        _claim(
+            "frozen-export-player@example.com",
+            5817,
+            contract_status="contracted",
+            club_program_id=113,
+        )
+        created = _create(client, scout_headers, 5817)
+        request_id = created.get_json()["contact_request"]["id"]
+        now = utcnow()
+        db.session.add_all(
+            [
+                ContactMessage(
+                    contact_request_id=request_id,
+                    sender_user_id=manager.id,
+                    sender_role="club",
+                    body="FROZEN CLUB EXPORT MESSAGE",
+                ),
+                ContactOutcome(
+                    contact_request_id=request_id,
+                    stage="contacted",
+                    reported_by_user_id=manager.id,
+                    notes="FROZEN CLUB EXPORT OUTCOME",
+                    occurred_at=now,
+                ),
+            ]
+        )
+        db.session.commit()
+
+        visible = client.get("/api/account/export", headers=club_headers)
+        assert visible.status_code == 200, visible.get_json()
+        visible_club = visible.get_json()["contact_requests"]["club"]
+        assert [row["id"] for row in visible_club] == [request_id]
+        assert visible_club[0]["messages"][0]["body"] == "FROZEN CLUB EXPORT MESSAGE"
+        assert visible_club[0]["outcomes"][0]["notes"] == "FROZEN CLUB EXPORT OUTCOME"
+
+        _set_program_state(113, platform_status=platform_status, emergency_hidden=emergency_hidden)
+
+        frozen = client.get("/api/account/export", headers=club_headers)
+        assert frozen.status_code == 200, frozen.get_json()
+        export_payload = frozen.get_json()
+        assert export_payload["contact_requests"]["club"] == []
+        serialized = str(export_payload)
+        assert "FROZEN CLUB EXPORT MESSAGE" not in serialized
+        assert "FROZEN CLUB EXPORT OUTCOME" not in serialized
+
+    @pytest.mark.parametrize(
+        ("platform_status", "emergency_hidden"),
+        [("approved", True), ("suspended", False)],
+    )
+    def test_non_operational_club_blocks_do_not_control_scout_or_player_messages(
+        self,
+        client,
+        platform_status,
+        emergency_hidden,
+    ):
+        _club_program(114, "Frozen Block FC")
+        manager, club_headers = _club_manager(114, "frozen-block-manager@example.com")
+        scout, scout_headers = _verified_scout("frozen-block-scout@example.com")
+        player, player_headers, _ = _claim(
+            "frozen-block-player@example.com",
+            5818,
+            contract_status="contracted",
+            club_program_id=114,
+        )
+        created = _create(client, scout_headers, 5818)
+        request_id = created.get_json()["contact_request"]["id"]
+        assert client.post(f"/api/contact/requests/{request_id}/accept", headers=player_headers).status_code == 200
+        assert (
+            client.post(
+                f"/api/contact/requests/{request_id}/club-consent",
+                json={"action": "grant"},
+                headers=club_headers,
+            ).status_code
+            == 200
+        )
+        for blocked_user_id in (scout.id, player.id):
+            assert (
+                client.post(
+                    "/api/blocks",
+                    json={"blocked_user_id": blocked_user_id},
+                    headers=club_headers,
+                ).status_code
+                == 204
+            )
+
+        approved_refused = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "Operational manager blocks still apply."},
+            headers=scout_headers,
+        )
+        assert approved_refused.status_code == 403
+        assert approved_refused.get_json()["code"] == "messaging_unavailable"
+
+        _set_program_state(114, platform_status=platform_status, emergency_hidden=emergency_hidden)
+
+        scout_post = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "Scout can post after the club is frozen out."},
+            headers=scout_headers,
+        )
+        player_post = client.post(
+            f"/api/contact/requests/{request_id}/messages",
+            json={"body": "Player can post after the club is frozen out."},
+            headers=player_headers,
+        )
+        assert scout_post.status_code == 201, scout_post.get_json()
+        assert player_post.status_code == 201, player_post.get_json()
+        assert [row.sender_role for row in ContactMessage.query.order_by(ContactMessage.created_at)] == [
+            "scout",
+            "player",
+        ]
+        assert manager.id not in {scout.id, player.id}
+
+    def test_routing_rechecks_operational_status_under_lock_before_persist_and_notice(self, client, monkeypatch):
+        _club_program(115, "Routing Race FC")
+        _club_manager(115, "routing-race-manager@example.com")
+        _, scout_headers = _verified_scout("routing-race-scout@example.com")
+        _claim(
+            "routing-race-player@example.com",
+            5819,
+            contract_status="contracted",
+            club_program_id=115,
+        )
+        checks = []
+        consent_calls = []
+        courtesy_calls = []
+
+        def hidden_at_final_check(program_id, *, for_update=False):
+            checks.append((program_id, for_update))
+            return False
+
+        monkeypatch.setattr("src.routes.contact.program_is_operational", hidden_at_final_check)
+        monkeypatch.setattr(
+            "src.routes.contact.send_club_consent_notice",
+            lambda contact_request: consent_calls.append(contact_request.id),
+        )
+        monkeypatch.setattr(
+            "src.routes.contact.send_club_courtesy_notice",
+            lambda contact_request: courtesy_calls.append(contact_request.id),
+        )
+
+        created = _create(client, scout_headers, 5819, permission_attestation=True)
+
+        assert created.status_code == 201, created.get_json()
+        payload = created.get_json()["contact_request"]
+        assert payload["routing_mode"] == "club_notified"
+        assert payload["club_consent_status"] is None
+        assert checks[0] == (115, True)
+        assert consent_calls == []
+        assert courtesy_calls == []
+
+    def test_routing_race_does_not_downgrade_without_permission_attestation(self, client, monkeypatch):
+        _club_program(116, "Routing Race Consent FC")
+        _club_manager(116, "routing-race-consent-manager@example.com")
+        _, scout_headers = _verified_scout("routing-race-consent-scout@example.com")
+        _claim(
+            "routing-race-consent-player@example.com",
+            5824,
+            contract_status="contracted",
+            club_program_id=116,
+        )
+        monkeypatch.setattr(
+            "src.routes.contact.program_is_operational",
+            lambda program_id, *, for_update=False: False,
+        )
+
+        refused = _create(client, scout_headers, 5824)
+
+        assert refused.status_code == 400
+        assert refused.get_json()["code"] == "attestation_required"
+        assert ContactRequest.query.count() == 0
 
     @pytest.mark.parametrize("columns", [set(), {"id", "platform_status"}, {"id", "emergency_hidden"}])
     def test_program_is_operational_fails_closed_without_required_schema(self, monkeypatch, columns):
@@ -1867,6 +2104,45 @@ class TestPublicClubConsentLinks:
 
         assert response.status_code == 404
         assert response.get_json()["code"] == "invalid_consent_link"
+
+    @pytest.mark.parametrize(
+        ("platform_status", "emergency_hidden"),
+        [("approved", True), ("suspended", False)],
+    )
+    def test_non_operational_club_invalidates_consent_view_grant_and_decline_links(
+        self,
+        client,
+        monkeypatch,
+        platform_status,
+        emergency_hidden,
+    ):
+        request_id, _, _ = self._create_included(
+            client,
+            monkeypatch,
+            suffix=f"frozen-{platform_status}-{emergency_hidden}",
+            player_api_id=5825,
+            program_id=124,
+        )
+        grant_token = issue_club_consent_token(request_id, "grant")
+        decline_token = issue_club_consent_token(request_id, "decline")
+        assert client.get(f"/api/contact/club-consent/{grant_token}").status_code == 200
+
+        _set_program_state(124, platform_status=platform_status, emergency_hidden=emergency_hidden)
+
+        for method, token in (
+            ("get", grant_token),
+            ("post", grant_token),
+            ("post", decline_token),
+        ):
+            response = getattr(client, method)(f"/api/contact/club-consent/{token}")
+            assert response.status_code == 404
+            assert response.get_json() == {
+                "error": "Consent link is invalid or no longer available",
+                "code": "invalid_consent_link",
+            }
+        request_row = db.session.get(ContactRequest, request_id)
+        assert request_row.status == "pending"
+        assert request_row.club_consent_status == "pending"
 
 
 class TestContactLimits:
