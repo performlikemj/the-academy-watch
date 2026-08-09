@@ -127,6 +127,7 @@ def _seed_local_player(
     position="Midfielder",
     country="England",
     city="Leeds",
+    club_name="Northside Juniors",
     status="pending",
     api_player_id=None,
     merged_into_local_player_id=None,
@@ -139,6 +140,7 @@ def _seed_local_player(
         position=position,
         country=country,
         city=city,
+        club_name=club_name,
         status=status,
         api_player_id=api_player_id,
         merged_into_local_player_id=merged_into_local_player_id,
@@ -223,6 +225,7 @@ def _create_local_player(client, email="creator@example.com", **overrides):
         "position": "Midfielder",
         "country": "England",
         "city": "Leeds",
+        "club_name": "Northside Juniors",
     }
     payload.update(overrides)
     response = client.post("/api/local-players", json=payload, headers=_user_headers(email))
@@ -316,6 +319,7 @@ class TestLocalPlayerCreation:
                 "position": f"<i>{'M' * 60}</i>",
                 "country": f"<script>{'E' * 110}</script>",
                 "city": f"<b>{'C' * 130}</b>",
+                "club_name": f" <em>Northside {'F' * 210}</em> ",
                 "birth_date": "2009-04-03",
             },
             headers=_user_headers("creator@example.com"),
@@ -331,6 +335,7 @@ class TestLocalPlayerCreation:
             "position",
             "country",
             "city",
+            "club_name",
             "status",
             "api_player_id",
         }
@@ -341,6 +346,7 @@ class TestLocalPlayerCreation:
             "position": "M" * 50,
             "country": "E" * 100,
             "city": "C" * 120,
+            "club_name": f"Northside {'F' * 190}",
             "status": "pending",
             "api_player_id": None,
         }
@@ -360,6 +366,7 @@ class TestLocalPlayerCreation:
             assert stored.normalized_name == "north star prospect"
             assert stored.created_by_user_id == creator.id
             assert stored.provenance == "user"
+            assert stored.club_name == f"Northside {'F' * 190}"
             assert not hasattr(stored, "birth_date")
             stored.display_name = "  Renamed\n  Prospect  "
             db.session.flush()
@@ -437,6 +444,7 @@ class TestLocalPlayerCreation:
             assert body["existing"] == {
                 "id": existing_id,
                 "display_name": "North Star Prospect",
+                "club_name": "Northside Juniors",
                 "status": "approved",
             }
             assert not {"city", "birth_year", "position", "country"} & body["existing"].keys()
@@ -469,6 +477,7 @@ class TestLocalPlayerCreation:
         assert body["existing"] == {
             "id": existing_id,
             "display_name": "North Star Prospect",
+            "club_name": "Northside Juniors",
             "status": "pending",
         }
         assert not {"city", "birth_year", "position", "country"} & body["existing"].keys()
@@ -536,6 +545,7 @@ class TestLocalPlayerVisibility:
         )
         assert owner.status_code == 200, owner.get_json()
         assert owner.get_json()["player"]["status"] == "pending"
+        assert owner.get_json()["player"]["club_name"] == "Northside Juniors"
 
         approved = client.post(
             f"/api/admin/local-players/{player_id}/review",
@@ -547,6 +557,7 @@ class TestLocalPlayerVisibility:
         public = client.get(f"/api/local-players/{player_id}")
         assert public.status_code == 200, public.get_json()
         assert public.get_json()["player"]["id"] == player_id
+        assert public.get_json()["player"]["club_name"] == "Northside Juniors"
 
         with app.app_context():
             # Identity approval does not silently approve the ownership claim.
@@ -1137,6 +1148,7 @@ class TestLocalClaims:
         assert local["local_player"] == {
             "id": player_id,
             "display_name": "Academy Prospect",
+            "club_name": "Northside Juniors",
             "status": "pending",
         }
         assert local["player_name"] == "Academy Prospect"
@@ -1206,6 +1218,7 @@ class TestAdminLocalPlayers:
         assert listed["created_by_email"] == "creator@example.com"
         assert listed["normalized_name"] == f"{action} prospect"
         assert listed["provenance"] == "user"
+        assert listed["club_name"] == "Northside Juniors"
 
         reviewed = client.post(
             f"/api/admin/local-players/{player_id}/review",
@@ -1215,6 +1228,7 @@ class TestAdminLocalPlayers:
         assert reviewed.status_code == 200, reviewed.get_json()
         player = reviewed.get_json()["player"]
         assert player["status"] == expected_status
+        assert player["club_name"] == "Northside Juniors"
         assert player["review_note"] == "Reviewed safely"
         assert player["reviewed_by"] == "admin@test.com"
         assert player["reviewed_at"]

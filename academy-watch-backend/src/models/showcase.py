@@ -44,6 +44,7 @@ class LocalPlayer(db.Model):
     position = db.Column(db.String(50))
     country = db.Column(db.String(100))
     city = db.Column(db.String(120))
+    club_name = db.Column(db.String(200))
     status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending")
     api_player_id = db.Column(db.Integer)
     merged_into_local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"), nullable=True)
