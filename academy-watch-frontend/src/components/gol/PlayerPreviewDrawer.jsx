@@ -151,11 +151,11 @@ export function PlayerPreviewDrawer({ playerId, open, onOpenChange }) {
   const parentClub = profile?.parent_team_name
   const currentClub = profile?.loan_team_name
 
-  // Stats is an array of match objects (most recent last)
-  const allMatches = Array.isArray(stats) ? stats : []
-  const seasonGoals = allMatches.reduce((s, m) => s + (m.goals || 0), 0)
-  const seasonAssists = allMatches.reduce((s, m) => s + (m.assists || 0), 0)
-  const seasonApps = allMatches.length
+  // Stats may be the legacy array or the rollup envelope.
+  const allMatches = Array.isArray(stats) ? stats : stats?.matches ?? []
+  const careerGoals = allMatches.reduce((s, m) => s + (m.goals || 0), 0)
+  const careerAssists = allMatches.reduce((s, m) => s + (m.assists || 0), 0)
+  const careerApps = allMatches.length
   const avgRating = allMatches.length > 0
     ? (allMatches.reduce((s, m) => s + (m.rating || 0), 0) / allMatches.length).toFixed(1)
     : null
@@ -205,12 +205,17 @@ export function PlayerPreviewDrawer({ playerId, open, onOpenChange }) {
                 </div>
               </div>
 
-              {/* ── Season stats grid ── */}
-              <div className="grid grid-cols-4 gap-2">
-                <StatCard value={seasonGoals} label="Goals" accent="emerald" />
-                <StatCard value={seasonAssists} label="Assists" accent="amber" />
-                <StatCard value={seasonApps} label="Apps" />
-                <StatCard value={avgRating} label="Rating" />
+              {/* ── Career stats grid ── */}
+              <div>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Career totals
+                </h3>
+                <div className="grid grid-cols-4 gap-2">
+                  <StatCard value={careerGoals} label="Goals" accent="emerald" />
+                  <StatCard value={careerAssists} label="Assists" accent="amber" />
+                  <StatCard value={careerApps} label="Apps" />
+                  <StatCard value={avgRating} label="Rating" />
+                </div>
               </div>
 
               {/* ── Recent form ── */}

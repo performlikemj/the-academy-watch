@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -42,6 +42,9 @@ import { CommentSection } from '@/components/CommentSection'
 import { PlayerLinksSection } from '@/components/PlayerLinksSection'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
 import { PlayerAvailability } from '@/components/PlayerAvailability'
+import { SeasonSelect } from '@/components/ui/SeasonSelect'
+import { formatSeasonLabel } from '@/lib/seasons'
+import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, CHART_TOOLTIP_BG, CHART_TOOLTIP_BORDER } from '../lib/theme-constants'
 
 /** Dims children when viewing a past career stop so SeasonStatsPanel takes focus. */
@@ -254,8 +257,12 @@ function AcademyStatsSection({ academyStats, defaultOpen = false }) {
 export function PlayerPage() {
     const { playerId } = useParams()
     const navigate = useNavigate()
+    const [searchParams, setSearchParams] = useSearchParams()
+    const seasonParam = searchParams.get('season')
+    const selectedSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
     const [profile, setProfile] = useState(null)
     const [stats, setStats] = useState([])
+    const [statsMeta, setStatsMeta] = useState(null)
     const [seasonStats, setSeasonStats] = useState(null)
     const [commentaries, setCommentaries] = useState({ commentaries: [], authors: [], total_count: 0 })
     const [loading, setLoading] = useState(true)
@@ -342,7 +349,7 @@ export function PlayerPage() {
         if (playerId) {
             loadPlayerData()
         }
-    }, [playerId])
+    }, [playerId, selectedSeason])
 
     const loadPlayerData = async () => {
         setLoading(true)
@@ -350,15 +357,17 @@ export function PlayerPage() {
         try {
             const [profileData, statsData, seasonData, commentariesData, journeyMapData, academyData] = await Promise.all([
                 APIService.getPublicPlayerProfile(playerId).catch(() => null),
-                APIService.getPublicPlayerStats(playerId),
-                APIService.getPublicPlayerSeasonStats(playerId).catch(() => null),
+                APIService.getPublicPlayerStats(playerId, selectedSeason),
+                APIService.getPublicPlayerSeasonStats(playerId, selectedSeason).catch(() => null),
                 APIService.getPlayerCommentaries(playerId).catch(() => ({ commentaries: [], authors: [], total_count: 0 })),
                 APIService.getPlayerJourneyMap(playerId).catch(() => null),
                 APIService.getPlayerAcademyStats(playerId).catch(() => null),
             ])
 
+            const statRows = Array.isArray(statsData) ? statsData : statsData?.matches ?? []
             setProfile(profileData)
-            setStats(statsData || [])
+            setStats(statRows)
+            setStatsMeta(Array.isArray(statsData) ? null : statsData)
             setSeasonStats(seasonData)
             setCommentaries(commentariesData || { commentaries: [], authors: [], total_count: 0 })
             setAcademyStats(academyData)
@@ -387,8 +396,8 @@ export function PlayerPage() {
             }
 
             // Infer position from stats
-            if (statsData && statsData.length > 0) {
-                const positions = statsData.map(s => s.position).filter(Boolean)
+            if (statRows.length > 0) {
+                const positions = statRows.map(s => s.position).filter(Boolean)
                 if (positions.length > 0) {
                     const counts = positions.reduce((acc, p) => {
                         acc[p] = (acc[p] || 0) + 1
@@ -519,6 +528,21 @@ export function PlayerPage() {
 
     const currentConfig = METRIC_CONFIG[position] || METRIC_CONFIG[DEFAULT_POSITION]
     const playerName = profile?.name || `Player #${playerId}`
+    const resolvedSeason = selectedSeason ?? seasonStats?.season ?? statsMeta?.summary?.season
+    const seasonLabel = formatSeasonLabel(resolvedSeason)
+    const provenance = seasonStats?.provenance ?? statsMeta?.provenance
+    const provenanceSource = provenance?.primary_source ?? provenance?.source
+    const provenanceText = provenanceSource === 'journey' && ['cup-gap', 'fixtures-invisible'].includes(provenance?.reconcile_flag)
+        ? 'incl. cups — journey'
+        : provenanceSource
+
+    const handleSeasonChange = (season) => {
+        setSearchParams((previous) => {
+            const next = new URLSearchParams(previous)
+            next.set('season', String(season))
+            return next
+        }, { replace: true })
+    }
 
     // Calculate season totals - prefer API season stats, fallback to calculated from match data
     const seasonTotals = {
@@ -534,6 +558,7 @@ export function PlayerPage() {
         goalsConceded: seasonStats?.goals_conceded ?? stats.reduce((acc, s) => acc + (s.goals_conceded || 0), 0),
         cleanSheets: seasonStats?.clean_sheets ?? 0,
     }
+    const hasSeasonTotals = (seasonStats?.appearances ?? 0) > 0 || (seasonStats?.minutes ?? 0) > 0
 
     if (loading) {
         return (
@@ -658,9 +683,129 @@ export function PlayerPage() {
             <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 pb-24 sm:pb-6">
                     <div className="space-y-8">
                         <ShowcaseSection playerApiId={playerApiId} playerName={playerName} />
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                                    {seasonLabel} Totals
+                                </h2>
+                                {provenanceText && provenanceText !== 'none' && provenanceText !== 'live-fallback' ? (
+                                    <UiTooltip>
+                                        <TooltipTrigger asChild>
+                                            <Badge variant="outline" className="cursor-help text-[11px] font-medium text-muted-foreground">
+                                                {provenanceText}
+                                            </Badge>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="max-w-72">
+                                            Reconciliation: {provenance.reconcile_flag || 'sources agree'}
+                                            {provenance.fixtures_minutes != null ? ` · fixtures ${provenance.fixtures_minutes.toLocaleString()} min` : ''}
+                                            {provenance.journey_minutes != null ? ` · journey ${provenance.journey_minutes.toLocaleString()} min` : ''}
+                                        </TooltipContent>
+                                    </UiTooltip>
+                                ) : null}
+                            </div>
+                            <SeasonSelect value={selectedSeason} onValueChange={handleSeasonChange} />
+                        </div>
                         {stats.length === 0 && academyStats?.appearances > 0 ? (
                             /* Academy player with no loan stats — academy section below is the primary view */
                             null
+                        ) : stats.length === 0 && hasSeasonTotals && seasonStats?.stats_coverage !== 'limited' ? (
+                            <div className="space-y-6">
+                                <p className="text-sm text-muted-foreground">
+                                    Season totals — per-match breakdown not available for this season.
+                                </p>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-foreground tabular-nums">{seasonStats.appearances ?? 0}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Appearances</div>
+                                        </CardContent>
+                                    </Card>
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-emerald-600 tabular-nums">{seasonStats.goals ?? 0}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Goals</div>
+                                        </CardContent>
+                                    </Card>
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-amber-600 tabular-nums">{seasonStats.assists ?? 0}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Assists</div>
+                                        </CardContent>
+                                    </Card>
+                                    <Card>
+                                        <CardContent className="pt-4 text-center">
+                                            <div className="text-3xl font-bold text-foreground tabular-nums">{(seasonStats.minutes ?? 0).toLocaleString()}</div>
+                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Minutes</div>
+                                        </CardContent>
+                                    </Card>
+                                    {seasonStats.avg_rating != null && (
+                                        <Card>
+                                            <CardContent className="pt-4 text-center">
+                                                <div className="text-3xl font-bold text-violet-600 tabular-nums">{seasonStats.avg_rating}</div>
+                                                <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Avg Rating</div>
+                                            </CardContent>
+                                        </Card>
+                                    )}
+                                </div>
+
+                                {seasonStats.clubs?.length > 0 && (
+                                    <Card>
+                                        <CardHeader className="pb-2">
+                                            <CardTitle className="text-base flex items-center gap-2">
+                                                <Calendar className="h-4 w-4" />
+                                                Stats by Club
+                                            </CardTitle>
+                                            <CardDescription>Season breakdown by club</CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                {seasonStats.clubs.map((club, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        className={`p-4 rounded-lg border ${club.is_current ? 'bg-primary/5 border-primary/20' : 'bg-secondary border-border'}`}
+                                                    >
+                                                        <div className="flex items-center gap-2 mb-3">
+                                                            {club.team_logo && (
+                                                                <img src={club.team_logo} alt="" width={24} height={24} className="w-6 h-6 rounded-full" />
+                                                            )}
+                                                            <span className="font-semibold">{club.team_name}</span>
+                                                            {club.window_type && (
+                                                                <Badge
+                                                                    variant="outline"
+                                                                    className={`text-xs ${club.is_current
+                                                                        ? 'bg-primary/10 text-primary border-primary/20'
+                                                                        : 'bg-secondary text-muted-foreground border-border'}`}
+                                                                >
+                                                                    {club.window_type}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        <div className="grid grid-cols-4 gap-3 text-center">
+                                                            <div>
+                                                                <div className="text-lg font-bold text-foreground">{club.appearances ?? 0}</div>
+                                                                <div className="text-xs text-muted-foreground">Apps</div>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-lg font-bold text-foreground">{(club.minutes ?? 0).toLocaleString()}</div>
+                                                                <div className="text-xs text-muted-foreground">Mins</div>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-lg font-bold text-emerald-600">{club.goals ?? 0}</div>
+                                                                <div className="text-xs text-muted-foreground">Goals</div>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-lg font-bold text-amber-600">{club.assists ?? 0}</div>
+                                                                <div className="text-xs text-muted-foreground">Assists</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                )}
+                            </div>
                         ) : stats.length === 0 && seasonStats?.stats_coverage !== 'limited' ? (
                             <Card>
                                 <CardContent className="py-12 text-center">
@@ -1356,4 +1501,3 @@ export function PlayerPage() {
 }
 
 export default PlayerPage
-

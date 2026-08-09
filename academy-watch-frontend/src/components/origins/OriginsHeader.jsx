@@ -1,28 +1,11 @@
 import { PieChart, Pie, Cell } from 'recharts'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  SeasonSelect,
+} from '@/components/ui/SeasonSelect'
 
 const COLORS = {
   homegrown: '#10b981',
   external: '#334155',
-}
-
-const CURRENT_SEASON =
-  new Date().getFullYear() - (new Date().getMonth() < 7 ? 1 : 0)
-
-function generateSeasons(count = 4) {
-  return Array.from({ length: count }, (_, i) => {
-    const year = CURRENT_SEASON - i
-    return {
-      value: year,
-      label: `${year}/${String(year + 1).slice(2)}`,
-    }
-  })
 }
 
 export function OriginsHeader({ origins, season, onSeasonChange }) {
@@ -34,7 +17,6 @@ export function OriginsHeader({ origins, season, onSeasonChange }) {
     { name: 'External', value: Math.max(0, squad_size - homegrown_count) },
   ]
 
-  const seasons = generateSeasons()
   const pctDisplay = Math.round(homegrown_pct)
 
   return (
@@ -94,21 +76,11 @@ export function OriginsHeader({ origins, season, onSeasonChange }) {
       </div>
 
       {/* Season selector */}
-      <Select
+      <SeasonSelect
         value={String(season)}
         onValueChange={(v) => onSeasonChange(Number(v))}
-      >
-        <SelectTrigger className="w-[7.5rem] bg-slate-800 border-slate-700 text-slate-200">
-          <SelectValue placeholder="Season" />
-        </SelectTrigger>
-        <SelectContent>
-          {seasons.map((s) => (
-            <SelectItem key={s.value} value={String(s.value)}>
-              {s.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        className="w-[8.5rem] bg-slate-800 border-slate-700 text-slate-200"
+      />
     </div>
   )
 }

@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { SeasonSelect } from '@/components/ui/SeasonSelect'
+import { formatSeasonLabel } from '@/lib/seasons'
 import {
   Loader2, Search, ArrowUpDown, ArrowLeft, ArrowRight,
   Trophy, Zap, Clock, Gauge, X, GitCompareArrows, Globe,
@@ -271,13 +273,14 @@ export function PlayerCell({ player }) {
   )
 }
 
-function LeaderboardCard({ board, entries, loading }) {
+function LeaderboardCard({ board, entries, loading, season }) {
   const Icon = board.icon
   return (
     <Card className="overflow-hidden border-border/80">
       <div className="flex items-center gap-2 border-b border-border/60 bg-secondary/60 px-4 py-2.5">
         <Icon className="h-4 w-4 text-primary" />
         <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground/70">{board.title}</h3>
+        <span className="ml-auto text-[10px] font-medium tabular-nums text-muted-foreground">{formatSeasonLabel(season)}</span>
       </div>
       <CardContent className="p-0">
         {loading ? (
@@ -315,7 +318,7 @@ function LeaderboardCard({ board, entries, loading }) {
   )
 }
 
-function CompareDialog({ open, onOpenChange, playerIds }) {
+function CompareDialog({ open, onOpenChange, playerIds, season }) {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
@@ -327,17 +330,19 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
     let cancelled = false
     setLoading(true)
     setError(null)
-    APIService.compareScoutPlayers(playerIds, { includeAvailability: true })
+    APIService.compareScoutPlayers(playerIds, { includeAvailability: true, season })
       .then((res) => { if (!cancelled) setData(res) })
       .catch((err) => { if (!cancelled) setError(err.message || 'Comparison failed') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [open, playerIds])
+  }, [open, playerIds, season])
 
   useEffect(() => () => clearTimeout(copyTimer.current), [])
 
   const handleCopyLink = useCallback(() => {
-    const url = `${window.location.origin}/scout?compare=${playerIds.join(',')}`
+    const params = new URLSearchParams({ compare: playerIds.join(',') })
+    if (season != null) params.set('season', String(season))
+    const url = `${window.location.origin}/scout?${params}`
     const flash = (state) => {
       setCopyState(state)
       clearTimeout(copyTimer.current)
@@ -348,7 +353,7 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
       return
     }
     navigator.clipboard.writeText(url).then(() => flash('copied')).catch(() => flash('failed'))
-  }, [playerIds])
+  }, [playerIds, season])
 
   const players = data?.players || []
   const anyGoalkeeper = players.some((p) => p.profile?.position === 'Goalkeeper')
@@ -359,7 +364,7 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <GitCompareArrows className="h-5 w-5 text-primary" />
-            Player Comparison
+            Player Comparison · {formatSeasonLabel(data?.season ?? season)}
             <Button
               variant="ghost"
               size="sm"
@@ -409,6 +414,15 @@ function CompareDialog({ open, onOpenChange, playerIds }) {
                         <span className="text-xs text-muted-foreground font-normal">
                           {p.profile.loan_team_name || p.profile.primary_team_name}
                         </span>
+                        {p.totals?.rollup_missing ? (
+                          <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                            No data for this season
+                          </span>
+                        ) : p.provenance?.primary_source ? (
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Source: {p.provenance.primary_source}
+                          </span>
+                        ) : null}
                       </Link>
                     </th>
                   ))}
@@ -469,6 +483,7 @@ export function ScoutPage() {
   const [loading, setLoading] = useState(true)
   const [boards, setBoards] = useState(null)
   const [boardsLoading, setBoardsLoading] = useState(true)
+  const [resolvedSeason, setResolvedSeason] = useState(null)
 
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -496,6 +511,8 @@ export function ScoutPage() {
   const [watchedIds, setWatchedIds] = useState(null)
   const [exporting, setExporting] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
+  const seasonParam = searchParams.get('season')
+  const selectedSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
 
   const phaseConfig = PHASES[phase]
   // The phase IS a position filter when active; the standalone position
@@ -528,6 +545,14 @@ export function ScoutPage() {
       return params
     }, { replace: true })
     track('scout_phase_changed', { phase: next })
+  }, [setSearchParams])
+
+  const changeSeason = useCallback((season) => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous)
+      next.set('season', String(season))
+      return next
+    }, { replace: true })
   }, [setSearchParams])
 
   // Compare deep links: /scout?compare=1,2,3
@@ -596,13 +621,14 @@ export function ScoutPage() {
       if (status !== 'all') params.status = status
       const preset = AGE_PRESETS.find((p) => p.key === agePreset)
       Object.assign(params, preset?.params || {})
+      if (selectedSeason != null) params.season = selectedSeason
       await APIService.downloadScoutCsv({ ...params, sort, order })
     } catch (err) {
       console.error('CSV export failed', err)
     } finally {
       setExporting(false)
     }
-  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, agePreset, sort, order])
+  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, agePreset, sort, order, selectedSeason])
 
   useEffect(() => {
     clearTimeout(searchTimer.current)
@@ -621,8 +647,9 @@ export function ScoutPage() {
     if (status !== 'all') params.status = status
     const preset = AGE_PRESETS.find((p) => p.key === agePreset)
     Object.assign(params, preset?.params || {})
+    if (selectedSeason != null) params.season = selectedSeason
     return params
-  }, [debouncedSearch, effectivePosition, status, agePreset])
+  }, [debouncedSearch, effectivePosition, status, agePreset, selectedSeason])
 
   // Reset to first page when filters change
   useEffect(() => { setPage(1) }, [filterParams, sort, order])
@@ -636,6 +663,7 @@ export function ScoutPage() {
         setPlayers(data?.players || [])
         setTotal(data?.total || 0)
         setTotalPages(data?.total_pages || 0)
+        if (data?.season != null) setResolvedSeason(data.season)
       })
       .catch((err) => {
         console.error('Failed to load scout players', err)
@@ -649,19 +677,24 @@ export function ScoutPage() {
     let cancelled = false
     setBoardsLoading(true)
     const boardFilters = { limit: 5, phase }
+    if (selectedSeason != null) boardFilters.season = selectedSeason
     const preset = AGE_PRESETS.find((p) => p.key === agePreset)
     Object.assign(boardFilters, preset?.params || {})
     if (effectivePosition) boardFilters.position = effectivePosition
     if (status !== 'all') boardFilters.status = status
     APIService.getScoutLeaderboards(boardFilters)
-      .then((data) => { if (!cancelled) setBoards(data?.leaderboards || null) })
+      .then((data) => {
+        if (cancelled) return
+        setBoards(data?.leaderboards || null)
+        if (data?.season != null) setResolvedSeason(data.season)
+      })
       .catch((err) => {
         console.error('Failed to load leaderboards', err)
         if (!cancelled) setBoards(null)
       })
       .finally(() => { if (!cancelled) setBoardsLoading(false) })
     return () => { cancelled = true }
-  }, [phase, effectivePosition, status, agePreset])
+  }, [phase, effectivePosition, status, agePreset, selectedSeason])
 
   const toggleCompare = useCallback((playerId) => {
     setCompareIds((current) => {
@@ -771,7 +804,7 @@ export function ScoutPage() {
         {/* Leaderboards */}
         <section aria-label="Leaderboards" className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {phaseConfig.boards.map((board) => (
-            <LeaderboardCard key={board.key} board={board} entries={boards?.[board.key]} loading={boardsLoading} />
+            <LeaderboardCard key={board.key} board={board} entries={boards?.[board.key]} loading={boardsLoading} season={resolvedSeason ?? selectedSeason} />
           ))}
         </section>
 
@@ -807,6 +840,7 @@ export function ScoutPage() {
                 aria-label="Search players"
               />
             </div>
+            <SeasonSelect value={selectedSeason} onValueChange={changeSeason} />
             {phase === 'all' && (
               <Select value={position} onValueChange={setPosition}>
                 <SelectTrigger className="w-full sm:w-44" aria-label="Filter by position">
@@ -995,7 +1029,7 @@ export function ScoutPage() {
           </div>
         )}
 
-        <CompareDialog open={compareOpen} onOpenChange={setCompareOpen} playerIds={compareIds} />
+        <CompareDialog open={compareOpen} onOpenChange={setCompareOpen} playerIds={compareIds} season={selectedSeason} />
       </div>
     </div>
   )
