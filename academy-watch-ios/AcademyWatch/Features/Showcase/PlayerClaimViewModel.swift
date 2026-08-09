@@ -51,9 +51,9 @@ final class PlayerClaimViewModel: ObservableObject {
                 playerName: "Habeeb Amass"
             )
             hasLoaded = true
-        } else if FullCircleFixtureDestination.fromLaunchArguments(
+        } else if let fixtureDestination = FullCircleFixtureDestination.fromLaunchArguments(
             ProcessInfo.processInfo.arguments
-        ) == .claimGate {
+        ), fixtureDestination == .claimGate || fixtureDestination == .takedown {
             hasLoaded = true
         }
         #endif
@@ -93,7 +93,9 @@ final class PlayerClaimViewModel: ObservableObject {
         let fixtureDestination = FullCircleFixtureDestination.fromLaunchArguments(
             ProcessInfo.processInfo.arguments
         )
-        if fixtureDestination == .watchingYou || fixtureDestination == .claimGate {
+        if fixtureDestination == .watchingYou
+            || fixtureDestination == .claimGate
+            || fixtureDestination == .takedown {
             return
         }
         #endif

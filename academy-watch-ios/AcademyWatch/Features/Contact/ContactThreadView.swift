@@ -33,65 +33,69 @@ struct ContactThreadView: View {
             AcademyColors.background.ignoresSafeArea()
 
             ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 14) {
-                        requestSummary
-                        outcomeCard
+                VStack(spacing: 0) {
+                    antiScamBanner
 
-                        if viewModel.isLoading, !viewModel.hasLoaded {
-                            ProgressView("Loading conversation…")
-                                .padding(.vertical, 28)
-                        } else if viewModel.messages.isEmpty {
-                            ContentUnavailableView(
-                                "Conversation ready",
-                                systemImage: "bubble.left.and.bubble.right",
-                                description: Text("Send the first message to continue the introduction.")
-                            )
-                            .padding(.vertical, 12)
-                        } else {
-                            if viewModel.canLoadMore {
-                                Button("Load more messages") {
-                                    Task { await viewModel.loadNextPage() }
+                    ScrollView {
+                        LazyVStack(spacing: 14) {
+                            requestSummary
+                            outcomeCard
+
+                            if viewModel.isLoading, !viewModel.hasLoaded {
+                                ProgressView("Loading conversation…")
+                                    .padding(.vertical, 28)
+                            } else if viewModel.messages.isEmpty {
+                                ContentUnavailableView(
+                                    "Conversation ready",
+                                    systemImage: "bubble.left.and.bubble.right",
+                                    description: Text("Send the first message to continue the introduction.")
+                                )
+                                .padding(.vertical, 12)
+                            } else {
+                                if viewModel.canLoadMore {
+                                    Button("Load more messages") {
+                                        Task { await viewModel.loadNextPage() }
+                                    }
+                                    .font(.subheadline.weight(.semibold))
                                 }
-                                .font(.subheadline.weight(.semibold))
+
+                                ForEach(viewModel.messages) { message in
+                                    ContactMessageBubble(
+                                        message: message,
+                                        viewerRole: viewModel.viewerRole,
+                                        clubDisplayName: viewModel.contactRequest.participants.club?.displayName,
+                                        onReport: { reportSubject = .message(message) }
+                                    )
+                                    .id(message.id)
+                                }
                             }
 
-                            ForEach(viewModel.messages) { message in
-                                ContactMessageBubble(
-                                    message: message,
-                                    viewerRole: viewModel.viewerRole,
-                                    clubDisplayName: viewModel.contactRequest.participants.club?.displayName,
-                                    onReport: { reportSubject = .message(message) }
-                                )
-                                .id(message.id)
+                            if let error = viewModel.errorMessage {
+                                Label(error, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.footnote)
+                                    .foregroundStyle(.red)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(12)
+                                    .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 12))
                             }
                         }
-
-                        if let error = viewModel.errorMessage {
-                            Label(error, systemImage: "exclamationmark.triangle.fill")
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(12)
-                                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                    }
+                    .onChange(of: viewModel.messages.count) { _, _ in
+                        if let lastID = viewModel.messages.last?.id {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo(lastID, anchor: .bottom)
+                            }
                         }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                }
-                .onChange(of: viewModel.messages.count) { _, _ in
-                    if let lastID = viewModel.messages.last?.id {
-                        withAnimation(.easeOut(duration: 0.2)) {
+                    .onAppear {
+                        guard viewModel.isFixturePreview,
+                              let lastID = viewModel.messages.last?.id
+                        else { return }
+                        DispatchQueue.main.async {
                             proxy.scrollTo(lastID, anchor: .bottom)
                         }
-                    }
-                }
-                .onAppear {
-                    guard viewModel.isFixturePreview,
-                          let lastID = viewModel.messages.last?.id
-                    else { return }
-                    DispatchQueue.main.async {
-                        proxy.scrollTo(lastID, anchor: .bottom)
                     }
                 }
             }
@@ -134,6 +138,28 @@ struct ContactThreadView: View {
                 dismiss()
             }
         }
+    }
+
+    private var antiScamBanner: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "shield.lefthalf.filled")
+                .font(.footnote.weight(.semibold))
+                .accessibilityHidden(true)
+            Text("Never pay to be scouted. Legitimate scouts and clubs never ask players for fees — report anyone who does.")
+                .font(.footnote)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(AcademyColors.loanAmber)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AcademyColors.loanAmber.opacity(0.1))
+        .overlay(alignment: .bottom) {
+            Divider().overlay(AcademyColors.loanAmber.opacity(0.22))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("contact-thread-anti-scam-banner")
     }
 
     private var requestSummary: some View {

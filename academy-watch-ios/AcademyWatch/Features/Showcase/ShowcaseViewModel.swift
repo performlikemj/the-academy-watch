@@ -28,7 +28,8 @@ final class ShowcaseViewModel: ObservableObject {
             || fixtureDestination == .introduction
             || fixtureDestination == .attestationWarning
             || fixtureDestination == .watchingYou
-            || fixtureDestination == .claimGate {
+            || fixtureDestination == .claimGate
+            || fixtureDestination == .takedown {
             showcase = .debugFixture
             hasAttemptedLoad = true
             isFixturePreview = true

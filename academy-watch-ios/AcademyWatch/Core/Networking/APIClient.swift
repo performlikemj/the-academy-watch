@@ -51,6 +51,19 @@ protocol PlayerClaimAPIClientProtocol: Sendable {
     ) async throws -> PlayerClaimResponse
 }
 
+protocol PlayerTakedownAPIClientProtocol: Sendable {
+    func submitPlayerTakedownRequest(
+        playerID: Int,
+        requesterRole: TakedownRequesterRole,
+        contactEmail: String,
+        statement: String
+    ) async throws
+}
+
+protocol AccountDataExportAPIClientProtocol: Sendable {
+    func exportAccountData() async throws -> Data
+}
+
 protocol ScoutVerificationAPIClientProtocol: Sendable {
     func fetchScoutVerification() async throws -> ScoutVerificationResponse
     func submitScoutVerification(_ submission: ScoutVerificationSubmission) async throws -> ScoutVerificationResponse
@@ -123,8 +136,10 @@ struct APIClient: ScoutAPIClientProtocol,
     PlayerDetailAPIClientProtocol,
     ShowcaseAPIClientProtocol,
     PlayerClaimAPIClientProtocol,
+    PlayerTakedownAPIClientProtocol,
     AuthAPIClientProtocol,
     AccountAPIClientProtocol,
+    AccountDataExportAPIClientProtocol,
     AccountDeletionAPIClientProtocol,
     BlocksAPIClientProtocol,
     ScoutVerificationAPIClientProtocol,
@@ -343,6 +358,15 @@ struct APIClient: ScoutAPIClientProtocol,
         try await get(path: "auth/me", queryItems: [])
     }
 
+    func exportAccountData() async throws -> Data {
+        try await requestData(
+            path: "account/export",
+            method: "GET",
+            queryItems: [],
+            body: nil
+        ).data
+    }
+
     func deleteAccount() async throws -> AccountDeletionResponse {
         try await send(
             path: "account/delete",
@@ -384,6 +408,23 @@ struct APIClient: ScoutAPIClientProtocol,
                 playerApiId: playerID,
                 message: message,
                 permissionAttestation: permissionAttestation
+            )
+        )
+    }
+
+    func submitPlayerTakedownRequest(
+        playerID: Int,
+        requesterRole: TakedownRequesterRole,
+        contactEmail: String,
+        statement: String
+    ) async throws {
+        let _: EmptyResponse = try await send(
+            path: "players/\(playerID)/takedown-request",
+            method: "POST",
+            body: PlayerTakedownRequestBody(
+                requesterRole: requesterRole,
+                contactEmail: contactEmail,
+                statement: statement
             )
         )
     }
@@ -664,6 +705,41 @@ struct APIClient: ScoutAPIClientProtocol,
         #if DEBUG
         let requestStartedAt = ProcessInfo.processInfo.systemUptime
         #endif
+        let result = try await requestData(
+            path: path,
+            method: method,
+            queryItems: queryItems,
+            body: body
+        )
+        let data = result.data
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        do {
+            if data.isEmpty, let empty = EmptyResponse() as? Response {
+                return empty
+            }
+            let decoded = try decoder.decode(Response.self, from: data)
+            #if DEBUG
+            let decodedAt = ProcessInfo.processInfo.systemUptime
+            let networkDuration = String(format: "%.3f", result.receivedAt - requestStartedAt)
+            let decodeDuration = String(format: "%.3f", decodedAt - result.receivedAt)
+            print(
+                "[LaunchPerformance] endpoint=/\(path) network=\(networkDuration)s decode=\(decodeDuration)s bytes=\(data.count)"
+            )
+            #endif
+            return decoded
+        } catch {
+            throw APIClientError.decoding(error)
+        }
+    }
+
+    private func requestData(
+        path: String,
+        method: String,
+        queryItems: [URLQueryItem],
+        body: Data?
+    ) async throws -> (data: Data, receivedAt: TimeInterval) {
         let url = try makeURL(path: path, queryItems: queryItems)
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -691,9 +767,7 @@ struct APIClient: ScoutAPIClientProtocol,
         }
 
         let (data, response) = try await session.data(for: request)
-        #if DEBUG
         let responseReceivedAt = ProcessInfo.processInfo.systemUptime
-        #endif
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIClientError.invalidResponse
         }
@@ -719,26 +793,7 @@ struct APIClient: ScoutAPIClientProtocol,
             }
             throw APIClientError.httpStatus(httpResponse.statusCode)
         }
-
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        do {
-            if data.isEmpty, let empty = EmptyResponse() as? Response {
-                return empty
-            }
-            let decoded = try decoder.decode(Response.self, from: data)
-            #if DEBUG
-            let decodedAt = ProcessInfo.processInfo.systemUptime
-            let networkDuration = String(format: "%.3f", responseReceivedAt - requestStartedAt)
-            let decodeDuration = String(format: "%.3f", decodedAt - responseReceivedAt)
-            print(
-                "[LaunchPerformance] endpoint=/\(path) network=\(networkDuration)s decode=\(decodeDuration)s bytes=\(data.count)"
-            )
-            #endif
-            return decoded
-        } catch {
-            throw APIClientError.decoding(error)
-        }
+        return (data, responseReceivedAt)
     }
 
     private static func errorPayload(from data: Data) -> APIErrorPayload? {
@@ -842,6 +897,12 @@ private struct AccountDeletionRequest: Encodable {
 
 private struct BlockUserRequest: Encodable {
     let accountId: Int
+}
+
+private struct PlayerTakedownRequestBody: Encodable {
+    let requesterRole: TakedownRequesterRole
+    let contactEmail: String
+    let statement: String
 }
 
 private struct EmptyResponse: Decodable {}
