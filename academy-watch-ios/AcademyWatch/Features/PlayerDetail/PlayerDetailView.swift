@@ -15,11 +15,16 @@ struct PlayerDetailView: View {
     init(
         playerID: Int,
         apiClient: APIClient = APIClient(),
+        initialSeason: Int? = nil,
         onSignInRequested: @escaping () -> Void = {},
         onVerificationRequested: @escaping () -> Void = {}
     ) {
         _viewModel = StateObject(
-            wrappedValue: PlayerDetailViewModel(playerID: playerID, apiClient: apiClient)
+            wrappedValue: PlayerDetailViewModel(
+                playerID: playerID,
+                initialSeason: initialSeason,
+                apiClient: apiClient
+            )
         )
         _showcaseViewModel = StateObject(
             wrappedValue: ShowcaseViewModel(playerID: playerID, apiClient: apiClient)
@@ -219,8 +224,16 @@ struct PlayerDetailView: View {
             DetailSectionHeader(
                 title: "SEASON STATS",
                 iconName: "chart.xyaxis.line",
-                detail: viewModel.seasonStats?.season
+                detail: viewModel.seasonStats?.season,
+                badge: viewModel.seasonStats?.provenance?.badgeText
             )
+
+            SeasonPicker(
+                seasons: viewModel.seasons,
+                selectedSeason: viewModel.selectedSeason
+            ) { season in
+                Task { await viewModel.selectSeason(season) }
+            }
 
             if viewModel.isLoading(.seasonStats) {
                 PlayerDetailLoadingCard(label: "Loading season totals…")
@@ -975,6 +988,7 @@ private struct DetailSectionHeader: View {
     let title: String
     let iconName: String
     var detail: String?
+    var badge: String?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -983,6 +997,9 @@ private struct DetailSectionHeader: View {
                 .tracking(1.05)
                 .foregroundStyle(AcademyColors.claret)
             Spacer()
+            if let badge {
+                SourceBadge(text: badge)
+            }
             if let detail {
                 Text(detail)
                     .font(.caption)

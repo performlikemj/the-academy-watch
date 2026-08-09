@@ -1,0 +1,9 @@
+{
+  "current_season": 2025,
+  "bounds": { "min": 2007, "max": 2026 },
+  "seasons": [
+    { "season": 2026, "label": "2026/27", "has_rollup": false, "is_current": false },
+    { "season": 2025, "label": "2025/26", "has_rollup": true, "is_current": true },
+    { "season": 2024, "label": "2024/25", "has_rollup": true, "is_current": false }
+  ]
+}

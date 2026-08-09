@@ -6,12 +6,14 @@ struct ScoutPlayersResponse: Codable, Equatable, Sendable {
     let page: Int
     let perPage: Int
     let totalPages: Int
+    var season: Int? = nil
 }
 
 struct ScoutLeaderboardsResponse: Codable, Equatable, Sendable {
     let leaderboards: [String: [ScoutPlayerSummary]]
     let limit: Int
     let phase: ScoutPhase
+    var season: Int? = nil
 }
 
 struct ScoutPlayerSummary: Codable, Equatable, Sendable {
@@ -78,6 +80,8 @@ struct ScoutPlayerSummary: Codable, Equatable, Sendable {
 
     // Present on `/scout/players`, intentionally absent on leaderboard rows.
     let recentForm: [ScoutRecentForm]?
+    var provenance: SeasonProvenance? = nil
+    var rollupMissing: Bool? = nil
 
     var photoURL: URL? {
         playerPhoto.flatMap(URL.init(string:))

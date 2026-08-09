@@ -85,6 +85,7 @@ struct ScoutDeskView: View {
                 PlayerDetailView(
                     playerID: playerID,
                     apiClient: playerDetailAPIClient,
+                    initialSeason: viewModel.selectedSeason,
                     onSignInRequested: onSignInRequested,
                     onVerificationRequested: onVerificationRequested
                 )
@@ -100,7 +101,10 @@ struct ScoutDeskView: View {
         }
         .sheet(isPresented: $isComparePresented) {
             NavigationStack {
-                CompareView(playerIDs: selectedPlayerIDs)
+                CompareView(
+                    playerIDs: selectedPlayerIDs,
+                    season: viewModel.selectedSeason
+                )
             }
         }
         .task(id: navigationPath.isEmpty) {
@@ -155,6 +159,11 @@ struct ScoutDeskView: View {
 
                 Spacer()
 
+                Text(viewModel.leaderboardsSeasonLabel)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+
                 if viewModel.isUpdatingCachedLeaderboards {
                     Label("Updating…", systemImage: "arrow.triangle.2.circlepath")
                         .font(.caption2.weight(.medium))
@@ -186,6 +195,7 @@ struct ScoutDeskView: View {
                 }
                 .padding(.horizontal, 16)
             }
+
         }
     }
 
@@ -205,6 +215,13 @@ struct ScoutDeskView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+            }
+
+            SeasonPicker(
+                seasons: viewModel.seasons,
+                selectedSeason: viewModel.selectedSeason
+            ) { season in
+                Task { await viewModel.selectSeason(season) }
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -325,6 +342,10 @@ struct ScoutDeskView: View {
                 Text("Ranked by \(viewModel.selectedSortLabel.lowercased())")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text(viewModel.playersSeasonLabel)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
             }
             Spacer()
             if viewModel.isUpdatingCachedPlayers {

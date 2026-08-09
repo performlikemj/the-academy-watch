@@ -21,6 +21,8 @@ final class PlayerDetailViewModel: ObservableObject {
     @Published private(set) var loadingSections: Set<PlayerDetailSection> = []
     @Published private(set) var errorMessages: [PlayerDetailSection: String] = [:]
     @Published private(set) var hasAttemptedLoad = false
+    @Published private(set) var seasons: [Season] = []
+    @Published private(set) var selectedSeason: Int?
 
     private let apiClient: any PlayerDetailAPIClientProtocol
     private var loadRevision = 0
@@ -29,9 +31,11 @@ final class PlayerDetailViewModel: ObservableObject {
 
     init(
         playerID: Int,
+        initialSeason: Int? = nil,
         apiClient: any PlayerDetailAPIClientProtocol = APIClient()
     ) {
         self.playerID = playerID
+        selectedSeason = initialSeason
         self.apiClient = apiClient
 
         #if DEBUG
@@ -70,10 +74,18 @@ final class PlayerDetailViewModel: ObservableObject {
 
     func loadIfNeeded() async {
         guard !hasAttemptedLoad, loadingSections.isEmpty, activeLoadTask == nil else { return }
+        await loadSeasonDirectoryIfNeeded()
         await beginLoad(replacingExisting: false)
     }
 
     func reload() async {
+        await loadSeasonDirectoryIfNeeded()
+        await beginLoad(replacingExisting: true)
+    }
+
+    func selectSeason(_ season: Int) async {
+        guard selectedSeason != season else { return }
+        selectedSeason = season
         await beginLoad(replacingExisting: true)
     }
 
@@ -153,6 +165,7 @@ final class PlayerDetailViewModel: ObservableObject {
     private func load(revision: Int) async {
         let client = apiClient
         let playerID = playerID
+        let season = selectedSeason
 
         if !hasAttemptedLoad {
             profile = nil
@@ -176,7 +189,9 @@ final class PlayerDetailViewModel: ObservableObject {
             }
             group.addTask {
                 do {
-                    return .recentForm(try await client.fetchPlayerRecentFixtures(playerID: playerID))
+                    return .recentForm(
+                        try await client.fetchPlayerRecentFixtures(playerID: playerID, season: season)
+                    )
                 } catch {
                     return .failure(.recentForm, Self.displayMessage(for: error))
                 }
@@ -190,7 +205,9 @@ final class PlayerDetailViewModel: ObservableObject {
             }
             group.addTask {
                 do {
-                    return .availability(try await client.fetchPlayerAvailability(playerID: playerID))
+                    return .availability(
+                        try await client.fetchPlayerAvailability(playerID: playerID, season: season)
+                    )
                 } catch {
                     return .failure(.availability, Self.displayMessage(for: error))
                 }
@@ -214,7 +231,7 @@ final class PlayerDetailViewModel: ObservableObject {
                     group.addTask {
                         do {
                             return .seasonStats(
-                                try await client.fetchPlayerSeasonStats(playerID: playerID)
+                                try await client.fetchPlayerSeasonStats(playerID: playerID, season: season)
                             )
                         } catch {
                             return .failure(.seasonStats, Self.displayMessage(for: error))
@@ -231,6 +248,23 @@ final class PlayerDetailViewModel: ObservableObject {
             return
         }
         hasAttemptedLoad = true
+    }
+
+    private func loadSeasonDirectoryIfNeeded() async {
+        guard seasons.isEmpty,
+              let seasonClient = apiClient as? any SeasonDirectoryAPIClientProtocol
+        else { return }
+
+        do {
+            let directory = try await seasonClient.fetchSeasons()
+            seasons = directory.seasons
+            if selectedSeason == nil {
+                selectedSeason = directory.currentSeason
+            }
+        } catch {
+            // Player reads retain their existing implicit-current behavior if
+            // the directory is temporarily unavailable.
+        }
     }
 
     private func apply(_ result: PlayerDetailLoadResult) {

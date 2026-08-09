@@ -25,6 +25,10 @@ final class ScoutDeskViewModel: ObservableObject {
     @Published private(set) var isShowingCachedPlayers = false
     @Published private(set) var isShowingCachedLeaderboards = false
     @Published private(set) var initialLoadStartedAt: TimeInterval?
+    @Published private(set) var seasons: [Season] = []
+    @Published private(set) var selectedSeason: Int?
+    @Published private(set) var resolvedPlayersSeason: Int?
+    @Published private(set) var resolvedLeaderboardsSeason: Int?
 
     @Published private(set) var selectedPhase: ScoutPhase
     @Published private(set) var selectedAgePreset: ScoutAgePreset = .all
@@ -74,6 +78,18 @@ final class ScoutDeskViewModel: ObservableObject {
             ?? "Sort"
     }
 
+    var selectedSeasonLabel: String {
+        seasonLabel(for: selectedSeason)
+    }
+
+    var playersSeasonLabel: String {
+        seasonLabel(for: resolvedPlayersSeason ?? selectedSeason)
+    }
+
+    var leaderboardsSeasonLabel: String {
+        seasonLabel(for: resolvedLeaderboardsSeason ?? selectedSeason)
+    }
+
     var isUpdatingCachedData: Bool {
         isUpdatingCachedPlayers || isUpdatingCachedLeaderboards
     }
@@ -102,6 +118,7 @@ final class ScoutDeskViewModel: ObservableObject {
     func loadInitialIfNeeded() async {
         guard !hasAttemptedInitialLoad else { return }
         hasAttemptedInitialLoad = true
+        await loadSeasonDirectoryIfNeeded()
         await reloadFullUsingCache()
     }
 
@@ -130,6 +147,12 @@ final class ScoutDeskViewModel: ObservableObject {
     func selectStatus(_ status: ScoutStatusFilter) async {
         guard selectedStatus != status else { return }
         selectedStatus = status
+        await reloadFullUsingCache()
+    }
+
+    func selectSeason(_ season: Int) async {
+        guard selectedSeason != season else { return }
+        selectedSeason = season
         await reloadFullUsingCache()
     }
 
@@ -295,11 +318,13 @@ final class ScoutDeskViewModel: ObservableObject {
         isShowingCachedPlayers = true
         firstRowDataSource = "disk-cache"
         initialLoadStartedAt = nil
+        resolvedPlayersSeason = response.season ?? selectedSeason
     }
 
     private func applyCachedLeaderboards(_ response: ScoutLeaderboardsResponse) {
         leaderboards = response.leaderboards
         isShowingCachedLeaderboards = true
+        resolvedLeaderboardsSeason = response.season ?? selectedSeason
     }
 
     private func scheduleFullReload(
@@ -386,6 +411,7 @@ final class ScoutDeskViewModel: ObservableObject {
             isShowingCachedPlayers = false
             firstRowDataSource = "network"
             initialLoadStartedAt = nil
+            resolvedPlayersSeason = response.season ?? selectedSeason
             await responseCache.savePlayers(response, for: context.cacheKey)
         } catch {
             guard context.revision == listRevision else { return }
@@ -433,6 +459,7 @@ final class ScoutDeskViewModel: ObservableObject {
             let response = try await apiClient.fetchScoutLeaderboards(context.request)
             guard context.revision == leaderboardsRevision else { return }
             leaderboards = response.leaderboards
+            resolvedLeaderboardsSeason = response.season ?? selectedSeason
             isShowingCachedLeaderboards = false
             await responseCache.saveLeaderboards(response, for: context.cacheKey)
         } catch {
@@ -506,7 +533,8 @@ final class ScoutDeskViewModel: ObservableObject {
             status: selectedStatus.queryValue,
             maximumAge: selectedAgePreset.maximumAge,
             sort: selectedSortKey,
-            order: selectedSortOrder
+            order: selectedSortOrder,
+            season: selectedSeason
         )
     }
 
@@ -516,8 +544,32 @@ final class ScoutDeskViewModel: ObservableObject {
             limit: 5,
             position: selectedPhase.position,
             status: selectedStatus.queryValue,
-            maximumAge: selectedAgePreset.maximumAge
+            maximumAge: selectedAgePreset.maximumAge,
+            season: selectedSeason
         )
+    }
+
+    private func loadSeasonDirectoryIfNeeded() async {
+        guard seasons.isEmpty,
+              let seasonClient = apiClient as? any SeasonDirectoryAPIClientProtocol
+        else { return }
+
+        do {
+            let directory = try await seasonClient.fetchSeasons()
+            seasons = directory.seasons
+            if selectedSeason == nil {
+                selectedSeason = directory.currentSeason
+            }
+        } catch {
+            // Season discovery is additive; the existing implicit-current reads
+            // remain available when the directory cannot be reached.
+        }
+    }
+
+    private func seasonLabel(for season: Int?) -> String {
+        guard let season else { return "Season" }
+        return seasons.first { $0.season == season }?.label
+            ?? SeasonLabelFormatter.label(for: season)
     }
 
     private func isCancellation(_ error: Error) -> Bool {

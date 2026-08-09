@@ -11,11 +11,13 @@ struct CompareView: View {
 
     init(
         playerIDs: [Int],
+        season: Int? = nil,
         apiClient: any CompareAPIClientProtocol = APIClient()
     ) {
         _viewModel = StateObject(
             wrappedValue: CompareViewModel(
                 playerIDs: playerIDs,
+                season: season,
                 apiClient: apiClient
             )
         )
@@ -76,7 +78,7 @@ struct CompareView: View {
 
                     ForEach(visibleRows) { row in
                         if let section = row.section {
-                            sectionHeader(section)
+                            sectionHeader(section == "Season" ? viewModel.resolvedSeasonLabel : section)
                         }
                         statRow(row)
                     }
@@ -123,7 +125,13 @@ struct CompareView: View {
     }
 
     private func statRow(_ row: CompareRow) -> some View {
-        let values = viewModel.players.map(row.value)
+        let values: [CompareCellValue?] = viewModel.players.map { player in
+            if player.totals.rollupMissing == true,
+               (row.id.hasPrefix("season-") || row.id.hasPrefix("per90-")) {
+                return CompareCellValue.text("No data this season")
+            }
+            return row.value(player)
+        }
         let numericValues = values.map { $0?.numericValue }
         let highlightedIndices = row.highlightsBest
             ? CompareHighlighting.highlightedIndices(
