@@ -13,8 +13,9 @@ import { OriginsList } from './OriginsList'
 
 const CURRENT_SEASON = new Date().getFullYear() - (new Date().getMonth() < 7 ? 1 : 0)
 
-export function SquadOriginsView({ teamApiId, teamLogo, teamName, initialSeason }) {
-    const [season, setSeason] = useState(initialSeason || CURRENT_SEASON)
+export function SquadOriginsView({ teamApiId, teamLogo, teamName, season: controlledSeason, onSeasonChange }) {
+    const [internalSeason, setInternalSeason] = useState(CURRENT_SEASON)
+    const season = controlledSeason ?? internalSeason
     const [origins, setOrigins] = useState(null)
     const [loading, setLoading] = useState(true)
     const [selectedAcademy, setSelectedAcademy] = useState(null)
@@ -47,6 +48,11 @@ export function SquadOriginsView({ teamApiId, teamLogo, teamName, initialSeason 
         setSelectedAcademy(prev =>
             prev?.academy?.api_id === group.academy.api_id ? null : group
         )
+    }
+
+    const handleSeasonChange = (nextSeason) => {
+        setInternalSeason(nextSeason)
+        onSeasonChange?.(nextSeason)
     }
 
     if (loading) {
@@ -145,7 +151,7 @@ export function SquadOriginsView({ teamApiId, teamLogo, teamName, initialSeason 
             <OriginsHeader
                 origins={origins}
                 season={season}
-                onSeasonChange={setSeason}
+                onSeasonChange={handleSeasonChange}
             />
 
             {/* Radial visualization */}

@@ -382,7 +382,7 @@ export function PlayerStatsDrawer({ playerId, isOpen, onClose, playerName }) {
 
                                         {/* Key Stats Summary */}
                                         <div className="bg-card p-4 rounded-lg border shadow-sm">
-                                            <h3 className="text-sm font-medium mb-4 text-foreground/80">Season Totals</h3>
+                                            <h3 className="text-sm font-medium mb-4 text-foreground/80">All-time Totals</h3>
                                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                                                 <div className="p-3 bg-secondary rounded text-center">
                                                     <div className="text-2xl font-bold text-foreground">{stats.reduce((acc, s) => acc + (s.minutes || 0), 0)}</div>

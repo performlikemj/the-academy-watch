@@ -320,6 +320,10 @@ export class APIService {
         return this.request('/leagues')
     }
 
+    static async getSeasons() {
+        return this.request('/seasons')
+    }
+
     static async getGameweeks(season) {
         const query = season ? `?season=${season}` : ''
         return this.request(`/gameweeks${query}`)
@@ -330,8 +334,9 @@ export class APIService {
         return this.request(`/teams?${params}`)
     }
 
-    static async getTeamLoans(teamId, params = {}) {
+    static async getTeamLoans(teamId, params = {}, season) {
         const merged = { active_only: 'true', dedupe: 'true', ...params }
+        if (season !== undefined && season !== null) merged.season = season
         const search = new URLSearchParams()
         for (const [key, value] of Object.entries(merged)) {
             if (value === undefined || value === null) continue
@@ -339,11 +344,13 @@ export class APIService {
         }
         const query = search.toString()
         const suffix = query ? `?${query}` : ''
-        return this.request(`/teams/${teamId}/loans${suffix}`)
+        const data = await this.request(`/teams/${teamId}/loans${suffix}`)
+        return Array.isArray(data) ? data : data?.loans ?? []
     }
 
-    static async getTeamPlayers(teamId) {
-        return this.request(`/teams/${teamId}/players`)
+    static async getTeamPlayers(teamId, season) {
+        const query = season === undefined || season === null ? '' : `?season=${encodeURIComponent(season)}`
+        return this.request(`/teams/${teamId}/players${query}`)
     }
 
     static async adminTrackedPlayersList(params = {}) {
@@ -428,16 +435,18 @@ export class APIService {
         })
     }
 
-    static async getPublicPlayerStats(playerId) {
-        return this.request(`/players/${playerId}/stats`)
+    static async getPublicPlayerStats(playerId, season) {
+        const query = season === undefined || season === null ? '' : `?season=${encodeURIComponent(season)}`
+        return this.request(`/players/${playerId}/stats${query}`)
     }
 
     static async getPublicPlayerProfile(playerId) {
         return this.request(`/players/${playerId}/profile`)
     }
 
-    static async getPublicPlayerSeasonStats(playerId) {
-        return this.request(`/players/${playerId}/season-stats`)
+    static async getPublicPlayerSeasonStats(playerId, season) {
+        const query = season === undefined || season === null ? '' : `?season=${encodeURIComponent(season)}`
+        return this.request(`/players/${playerId}/season-stats${query}`)
     }
 
     static async getPlayerCommentaries(playerId) {
@@ -454,9 +463,10 @@ export class APIService {
         return this.request(`/scout/leaderboards?${params}`)
     }
 
-    static async compareScoutPlayers(ids = [], { includeAvailability = false } = {}) {
+    static async compareScoutPlayers(ids = [], { includeAvailability = false, season } = {}) {
         const params = new URLSearchParams({ ids: ids.join(',') })
         if (includeAvailability) params.set('include_availability', 'true')
+        if (season !== undefined && season !== null) params.set('season', String(season))
         return this.request(`/scout/compare?${params}`)
     }
 

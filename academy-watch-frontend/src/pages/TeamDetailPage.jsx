@@ -19,6 +19,7 @@ import { getStatusLabel } from '@/components/constellation/constellation-utils'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
+import { SeasonSelect } from '@/components/ui/SeasonSelect'
 
 const STATUS_ICONS = {
     first_team: Star,
@@ -62,7 +63,7 @@ export function TeamDetailPage() {
     const { teamSlug: teamId } = useParams()
     const navigate = useNavigate()
     const location = useLocation()
-    const [searchParams] = useSearchParams()
+    const [searchParams, setSearchParams] = useSearchParams()
 
     const [team, setTeam] = useState(null)
     const [loading, setLoading] = useState(true)
@@ -75,12 +76,12 @@ export function TeamDetailPage() {
     // Academy Network subtab: 'outbound' (constellation) or 'origins' (squad origins)
     const initialView = searchParams.get('view') || 'outbound'
     const [academyView, setAcademyView] = useState(initialView)
-    const urlSeason = searchParams.get('season') ? parseInt(searchParams.get('season')) : undefined
+    const seasonParam = searchParams.get('season')
+    const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
 
     // Squad tab state
     const [players, setPlayers] = useState([])
     const [playersLoading, setPlayersLoading] = useState(false)
-    const [playersLoaded, setPlayersLoaded] = useState(false)
     const [statusFilter, setStatusFilter] = useState('all')
 
     // Newsletters tab state
@@ -98,6 +99,14 @@ export function TeamDetailPage() {
     const { openLoginModal } = useAuthUI()
     const [isSubscribed, setIsSubscribed] = useState(false)
     const [subscriptionLoading, setSubscriptionLoading] = useState(false)
+
+    const handleSeasonChange = useCallback((season) => {
+        setSearchParams((previous) => {
+            const next = new URLSearchParams(previous)
+            next.set('season', String(season))
+            return next
+        }, { replace: true })
+    }, [setSearchParams])
 
     // Check subscription status when logged in
     useEffect(() => {
@@ -170,10 +179,9 @@ export function TeamDetailPage() {
 
     // Load squad data
     const loadSquad = useCallback(async () => {
-        if (playersLoaded || playersLoading) return
         setPlayersLoading(true)
         try {
-            const data = await APIService.getTeamPlayers(teamId)
+            const data = await APIService.getTeamPlayers(teamId, urlSeason)
             const tracked = data?.players ?? (Array.isArray(data) ? data : [])
             setPlayers(tracked)
         } catch (err) {
@@ -181,9 +189,8 @@ export function TeamDetailPage() {
             setPlayers([])
         } finally {
             setPlayersLoading(false)
-            setPlayersLoaded(true)
         }
-    }, [teamId, playersLoaded, playersLoading])
+    }, [teamId, urlSeason])
 
     // Load newsletters data
     const loadNewsletters = useCallback(async () => {
@@ -204,14 +211,13 @@ export function TeamDetailPage() {
 
     // Load squad on mount (default tab)
     useEffect(() => {
-        if (team && !playersLoaded) loadSquad()
-    }, [team, playersLoaded, loadSquad])
+        if (team) loadSquad()
+    }, [team, loadSquad])
 
     // Lazy-load tab data when tab changes
     useEffect(() => {
-        if (activeTab === 'squad' && !playersLoaded) loadSquad()
         if (activeTab === 'newsletters' && !newslettersLoaded) loadNewsletters()
-    }, [activeTab, playersLoaded, newslettersLoaded, loadSquad, loadNewsletters])
+    }, [activeTab, newslettersLoaded, loadNewsletters])
 
     // Tracking request handlers
     const openRequestTracking = () => {
@@ -396,6 +402,9 @@ export function TeamDetailPage() {
 
                     {/* Squad Tab */}
                     <TabsContent value="squad" className="mt-4">
+                        <div className="mb-4 flex items-center justify-end">
+                            <SeasonSelect value={urlSeason} onValueChange={handleSeasonChange} />
+                        </div>
                         {playersLoading ? (
                             <div className="flex items-center justify-center py-16">
                                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70 mr-2" />
@@ -575,7 +584,8 @@ export function TeamDetailPage() {
                                             teamApiId={team?.team_id || teamId}
                                             teamLogo={team?.logo}
                                             teamName={team?.name}
-                                            initialSeason={urlSeason}
+                                            season={urlSeason}
+                                            onSeasonChange={handleSeasonChange}
                                         />
                                     </motion.div>
                                 )}
