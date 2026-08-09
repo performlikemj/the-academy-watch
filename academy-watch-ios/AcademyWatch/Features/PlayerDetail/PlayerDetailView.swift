@@ -8,9 +8,11 @@ struct PlayerDetailView: View {
     @StateObject private var interestSignalsViewModel: PlayerInterestSignalsViewModel
     @ObservedObject private var contactAvailability: ContactFeatureAvailability
     @EnvironmentObject private var authManager: AuthManager
+    @State private var isTakedownRequestPresented = false
     private let onSignInRequested: () -> Void
     private let onVerificationRequested: () -> Void
     private let contactAPIClient: any ContactAPIClientProtocol
+    private let takedownAPIClient: any PlayerTakedownAPIClientProtocol
 
     init(
         playerID: Int,
@@ -44,6 +46,7 @@ struct PlayerDetailView: View {
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
         contactAPIClient = apiClient
+        takedownAPIClient = apiClient
     }
 
     init(
@@ -51,6 +54,7 @@ struct PlayerDetailView: View {
         showcaseAPIClient: any ShowcaseAPIClientProtocol = APIClient(),
         claimAPIClient: any PlayerClaimAPIClientProtocol = APIClient(),
         contactAPIClient: any ContactAPIClientProtocol = APIClient(),
+        takedownAPIClient: any PlayerTakedownAPIClientProtocol = APIClient(),
         interestSignalsAPIClient: any InterestSignalsAPIClientProtocol = APIClient(),
         contactAvailability: ContactFeatureAvailability? = nil,
         onSignInRequested: @escaping () -> Void = {},
@@ -81,6 +85,7 @@ struct PlayerDetailView: View {
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
         self.contactAPIClient = contactAPIClient
+        self.takedownAPIClient = takedownAPIClient
     }
 
     var body: some View {
@@ -108,16 +113,32 @@ struct PlayerDetailView: View {
         .navigationTitle(viewModel.profile?.name ?? "Player Detail")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let profile = viewModel.profile, !profile.isShadow {
-                ToolbarItem(placement: .topBarTrailing) {
-                    WatchlistStarButton(
-                        playerID: viewModel.playerID,
-                        playerName: profile.name,
-                        onSignInRequested: onSignInRequested,
-                        showsBackground: false
-                    )
+            if let profile = viewModel.profile {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if !profile.isShadow {
+                        WatchlistStarButton(
+                            playerID: viewModel.playerID,
+                            playerName: profile.name,
+                            onSignInRequested: onSignInRequested,
+                            showsBackground: false
+                        )
+                    }
+                    Menu {
+                        Button("Request profile removal…", systemImage: "person.crop.circle.badge.minus") {
+                            isTakedownRequestPresented = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("More player actions")
                 }
             }
+        }
+        .sheet(isPresented: $isTakedownRequestPresented) {
+            PlayerTakedownRequestSheet(
+                playerID: viewModel.playerID,
+                apiClient: takedownAPIClient
+            )
         }
         .task {
             async let detailLoad: Void = viewModel.loadIfNeeded()
@@ -127,6 +148,15 @@ struct PlayerDetailView: View {
         .task(id: authManager.isAuthenticated) {
             guard !prioritizesIntroductionFixture else { return }
             await claimViewModel.load(isAuthenticated: authManager.isAuthenticated)
+        }
+        .task {
+            #if DEBUG
+            guard FullCircleFixtureDestination.fromLaunchArguments(
+                ProcessInfo.processInfo.arguments
+            ) == .takedown else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            isTakedownRequestPresented = true
+            #endif
         }
     }
 

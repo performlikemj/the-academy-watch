@@ -52,7 +52,7 @@ struct RootTabView: View {
         #if DEBUG
         if fixtureDestination != nil {
             switch fixtureDestination {
-            case .playerInbox, .declineConfirmation, .watchingYou, .messageReport, .claimGate:
+            case .playerInbox, .declineConfirmation, .watchingYou, .messageReport, .claimGate, .takedown:
                 fixtureState = .signedIn(
                     email: "habeeb.player@fixture.example",
                     accountRole: .player,
@@ -60,7 +60,7 @@ struct RootTabView: View {
                     isVerifiedScout: false
                 )
             case .verification, .introduction, .attestationWarning, .inbox, .clubConsent, .thread,
-                 .deleteAccount, .blockedUsers, .watchlistNullStats:
+                 .deleteAccount, .blockedUsers, .watchlistNullStats, .exportData:
                 fixtureState = .signedIn(
                     email: "alex.scout@fixture.example",
                     accountRole: .scout,
@@ -111,11 +111,11 @@ struct RootTabView: View {
         let resolvedTab: RootTab = {
             switch fixtureDestination {
             case .verification, .inbox, .clubConsent, .thread, .playerInbox, .declineConfirmation,
-                 .messageReport, .deleteAccount, .blockedUsers:
+                 .messageReport, .deleteAccount, .blockedUsers, .exportData:
                 return .account
             case .watchlistNullStats:
                 return .watchlist
-            case .introduction, .attestationWarning, .watchingYou, .claimGate, nil:
+            case .introduction, .attestationWarning, .watchingYou, .claimGate, .takedown, nil:
                 return initialTab
             }
         }()
@@ -128,6 +128,7 @@ struct RootTabView: View {
             || fixtureDestination == .attestationWarning
             || fixtureDestination == .watchingYou
             || fixtureDestination == .claimGate
+            || fixtureDestination == .takedown
             ? 403_064
             : initialPlayerID
         self.initialComparePlayerIDs = initialComparePlayerIDs

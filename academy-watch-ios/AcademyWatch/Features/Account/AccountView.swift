@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum AccountDestination: String, Hashable, Identifiable {
     case verification
@@ -23,6 +24,9 @@ struct AccountView: View {
 
     @State private var isDeleteAccountPresented = false
     @State private var hasApprovedPlayerClaim = false
+    @State private var exportState: AccountExportState = .idle
+    @State private var exportFile: AccountExportFile?
+    @State private var exportedFileURL: URL?
 
     var body: some View {
         NavigationStack {
@@ -91,7 +95,8 @@ struct AccountView: View {
             }
         case .blockedUsers:
             BlockedUsersView(apiClient: apiClient)
-        case .deleteAccount, .introduction, .attestationWarning, .watchingYou, .claimGate, .watchlistNullStats, nil:
+        case .deleteAccount, .introduction, .attestationWarning, .watchingYou, .claimGate,
+             .watchlistNullStats, .exportData, .takedown, nil:
             accountHome
         }
         #else
@@ -105,7 +110,7 @@ struct AccountView: View {
 
             ScrollView {
                 VStack(spacing: 18) {
-                    if authManager.isAuthenticated {
+                    if displaysSignedInAccount {
                         signedInHeader
                         verificationSection
                         contactSection
@@ -123,6 +128,9 @@ struct AccountView: View {
         .sheet(isPresented: $isDeleteAccountPresented) {
             DeleteAccountSheet(apiClient: apiClient)
                 .environmentObject(authManager)
+        }
+        .sheet(item: $exportFile, onDismiss: removeExportFile) { file in
+            ActivityView(activityItems: [file.url])
         }
         .task(id: authManager.isAuthenticated) {
             guard authManager.isAuthenticated else {
@@ -144,6 +152,10 @@ struct AccountView: View {
                 hasApprovedPlayerClaim = incomingRequestsViewModel.ownsApprovedPlayerClaim
             }
         }
+    }
+
+    private var displaysSignedInAccount: Bool {
+        authManager.isAuthenticated || fixtureDestination == .exportData
     }
 
     private var signedInHeader: some View {
@@ -359,6 +371,55 @@ struct AccountView: View {
     private var accountActionsSection: some View {
         VStack(spacing: 12) {
             Button {
+                Task { await exportAccountData() }
+            } label: {
+                HStack(spacing: 13) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.title2)
+                        .foregroundStyle(AcademyColors.claret)
+                        .frame(width: 34)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Export my data").font(.headline)
+                        Text("Download a copy of everything we store about you")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    Spacer(minLength: 6)
+                    if exportState == .loading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "chevron.right")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(16)
+                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 17))
+            }
+            .buttonStyle(.plain)
+            .disabled(exportState == .loading)
+            .accessibilityIdentifier("account-export-data")
+
+            if exportState == .failed {
+                HStack(alignment: .top, spacing: 10) {
+                    Label(
+                        "We couldn’t prepare your export. Check your connection and try again.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    Button("Retry") {
+                        Task { await exportAccountData() }
+                    }
+                    .font(.footnote.weight(.semibold))
+                }
+                .padding(.horizontal, 4)
+            }
+
+            Button {
                 destination = .blockedUsers
             } label: {
                 HStack(spacing: 13) {
@@ -404,6 +465,37 @@ struct AccountView: View {
         }
     }
 
+    private func exportAccountData() async {
+        guard exportState != .loading else { return }
+        exportState = .loading
+
+        do {
+            let data = try await apiClient.exportAccountData()
+            let formatter = DateFormatter()
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = "yyyy-MM-dd"
+            let fileName = "academy-watch-export-\(formatter.string(from: Date())).json"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+            try data.write(to: url, options: .atomic)
+            exportState = .ready
+            exportedFileURL = url
+            exportFile = AccountExportFile(url: url)
+        } catch {
+            exportState = .failed
+        }
+    }
+
+    private func removeExportFile() {
+        if let exportedFileURL {
+            try? FileManager.default.removeItem(at: exportedFileURL)
+        }
+        exportedFileURL = nil
+        exportFile = nil
+        exportState = .idle
+    }
+
     private var signedOutContent: some View {
         VStack(spacing: 18) {
             if let confirmation = authManager.accountDeletionConfirmationMessage {
@@ -432,6 +524,28 @@ struct AccountView: View {
         .frame(maxWidth: .infinity)
         .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 20))
     }
+}
+
+private enum AccountExportState: Equatable {
+    case idle
+    case loading
+    case ready
+    case failed
+}
+
+private struct AccountExportFile: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+private struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context _: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_: UIActivityViewController, context _: Context) {}
 }
 
 private struct DeleteAccountSheet: View {
