@@ -13,7 +13,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { SeasonSelect } from '@/components/ui/SeasonSelect'
-import { formatSeasonLabel } from '@/lib/seasons'
+import { seasonStore } from '@/lib/seasonStore'
+import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import {
   Loader2, Search, ArrowUpDown, ArrowLeft, ArrowRight,
   Trophy, Zap, Clock, Gauge, X, GitCompareArrows, Globe,
@@ -251,9 +252,9 @@ export function FormIndicator({ form }) {
   )
 }
 
-export function PlayerCell({ player }) {
+export function PlayerCell({ player, season }) {
   return (
-    <Link to={`/players/${player.player_id}`} className="flex items-center gap-3 no-underline hover:no-underline group">
+    <Link to={withSeasonParam(`/players/${player.player_id}`, season)} className="flex items-center gap-3 no-underline hover:no-underline group">
       {player.player_photo ? (
         <img src={player.player_photo} alt="" loading="lazy" className="h-9 w-9 rounded-full object-cover bg-secondary shrink-0" />
       ) : (
@@ -273,7 +274,7 @@ export function PlayerCell({ player }) {
   )
 }
 
-function LeaderboardCard({ board, entries, loading, season }) {
+function LeaderboardCard({ board, entries, loading, season, seasonOverride }) {
   const Icon = board.icon
   return (
     <Card className="overflow-hidden border-border/80">
@@ -292,7 +293,7 @@ function LeaderboardCard({ board, entries, loading, season }) {
             {entries.map((player, index) => (
               <li key={player.player_id}>
                 <Link
-                  to={`/players/${player.player_id}`}
+                  to={withSeasonParam(`/players/${player.player_id}`, seasonOverride)}
                   className="flex items-center gap-3 px-4 py-2.5 no-underline hover:no-underline hover:bg-secondary/50 transition-colors"
                 >
                   <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${RANK_CHIP_CLASSES[index] || 'bg-secondary text-muted-foreground'}`}>
@@ -318,7 +319,7 @@ function LeaderboardCard({ board, entries, loading, season }) {
   )
 }
 
-function CompareDialog({ open, onOpenChange, playerIds, season }) {
+function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride }) {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
@@ -396,7 +397,7 @@ function CompareDialog({ open, onOpenChange, playerIds, season }) {
                   <th className="w-36 p-2" />
                   {players.map((p) => (
                     <th key={p.profile.player_id} className="p-2 text-center align-bottom">
-                      <Link to={`/players/${p.profile.player_id}`} className="inline-flex flex-col items-center gap-1.5 no-underline hover:no-underline group">
+                      <Link to={withSeasonParam(`/players/${p.profile.player_id}`, seasonOverride)} className="inline-flex flex-col items-center gap-1.5 no-underline hover:no-underline group">
                         {p.profile.player_photo ? (
                           <img src={p.profile.player_photo} alt="" className="h-14 w-14 rounded-full object-cover bg-secondary" />
                         ) : (
@@ -484,6 +485,8 @@ export function ScoutPage() {
   const [boards, setBoards] = useState(null)
   const [boardsLoading, setBoardsLoading] = useState(true)
   const [resolvedSeason, setResolvedSeason] = useState(null)
+  const [currentSeason, setCurrentSeason] = useState()
+  const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
 
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -512,7 +515,11 @@ export function ScoutPage() {
   const [exporting, setExporting] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const seasonParam = searchParams.get('season')
-  const selectedSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
+  const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
+  const selectedSeason = seasonParam === null ? storedSeason : urlSeason
+  const seasonOverride = selectedSeason != null && (
+    currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null
+  ) ? selectedSeason : undefined
 
   const phaseConfig = PHASES[phase]
   // The phase IS a position filter when active; the standalone position
@@ -547,7 +554,14 @@ export function ScoutPage() {
     track('scout_phase_changed', { phase: next })
   }, [setSearchParams])
 
-  const changeSeason = useCallback((season) => {
+  const changeSeason = useCallback((season, isCurrent) => {
+    if (isCurrent) {
+      seasonStore.clear()
+      setStoredSeason(undefined)
+    } else {
+      seasonStore.set(season)
+      setStoredSeason(season)
+    }
     setSearchParams((previous) => {
       const next = new URLSearchParams(previous)
       next.set('season', String(season))
@@ -730,6 +744,7 @@ export function ScoutPage() {
 
   const statColumns = phaseConfig.columns.map((key) => STAT_COLUMNS[key])
   const tableColumnCount = 7 + statColumns.length
+  const displaySeason = selectedSeason ?? resolvedSeason ?? currentSeason
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
@@ -745,11 +760,18 @@ export function ScoutPage() {
               The Scout Desk
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
-              Every tracked academy and loan player, ranked across clubs and leagues.
-              Filter by position and age band, sort by output, and compare prospects side by side.
+              Every tracked academy and loan player, ranked across clubs and leagues — viewing {formatSeasonLabel(displaySeason)}.
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2 sm:pt-7">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end sm:pt-7">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Season</span>
+              <SeasonSelect
+                value={selectedSeason}
+                onValueChange={changeSeason}
+                onCurrentSeasonChange={setCurrentSeason}
+              />
+            </div>
             <Button variant="outline" size="sm" asChild>
               <Link to="/scout/watchlist" className="no-underline hover:no-underline">
                 <Star className="mr-1.5 h-4 w-4" />
@@ -804,7 +826,14 @@ export function ScoutPage() {
         {/* Leaderboards */}
         <section aria-label="Leaderboards" className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {phaseConfig.boards.map((board) => (
-            <LeaderboardCard key={board.key} board={board} entries={boards?.[board.key]} loading={boardsLoading} season={resolvedSeason ?? selectedSeason} />
+            <LeaderboardCard
+              key={board.key}
+              board={board}
+              entries={boards?.[board.key]}
+              loading={boardsLoading}
+              season={selectedSeason ?? resolvedSeason}
+              seasonOverride={seasonOverride}
+            />
           ))}
         </section>
 
@@ -840,7 +869,6 @@ export function ScoutPage() {
                 aria-label="Search players"
               />
             </div>
-            <SeasonSelect value={selectedSeason} onValueChange={changeSeason} />
             {phase === 'all' && (
               <Select value={position} onValueChange={setPosition}>
                 <SelectTrigger className="w-full sm:w-44" aria-label="Filter by position">
@@ -946,7 +974,7 @@ export function ScoutPage() {
                             aria-label={`Compare ${player.player_name}`}
                           />
                         </td>
-                        <td className="px-3 py-2.5"><PlayerCell player={player} /></td>
+                        <td className="px-3 py-2.5"><PlayerCell player={player} season={seasonOverride} /></td>
                         <td className="px-3 py-2.5 text-sm text-foreground/80 whitespace-nowrap">{player.position?.slice(0, 3) || '—'}</td>
                         <td className="px-3 py-2.5"><StatusBadge status={player.status} /></td>
                         <td className="px-3 py-2.5 max-w-44">
@@ -1029,7 +1057,13 @@ export function ScoutPage() {
           </div>
         )}
 
-        <CompareDialog open={compareOpen} onOpenChange={setCompareOpen} playerIds={compareIds} season={selectedSeason} />
+        <CompareDialog
+          open={compareOpen}
+          onOpenChange={setCompareOpen}
+          playerIds={compareIds}
+          season={selectedSeason}
+          seasonOverride={seasonOverride}
+        />
       </div>
     </div>
   )

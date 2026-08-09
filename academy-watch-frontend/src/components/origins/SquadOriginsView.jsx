@@ -10,10 +10,19 @@ import { motion } from 'framer-motion' // eslint-disable-line no-unused-vars
 import { OriginsHeader } from './OriginsHeader'
 import { RadialOriginsChart } from './RadialOriginsChart'
 import { OriginsList } from './OriginsList'
+import { withSeasonParam } from '@/lib/seasons'
 
 const CURRENT_SEASON = new Date().getFullYear() - (new Date().getMonth() < 7 ? 1 : 0)
 
-export function SquadOriginsView({ teamApiId, teamLogo, teamName, season: controlledSeason, onSeasonChange }) {
+export function SquadOriginsView({
+    teamApiId,
+    teamLogo,
+    teamName,
+    season: controlledSeason,
+    seasonOverride,
+    onSeasonChange,
+    onCurrentSeasonChange,
+}) {
     const [internalSeason, setInternalSeason] = useState(CURRENT_SEASON)
     const season = controlledSeason ?? internalSeason
     const [origins, setOrigins] = useState(null)
@@ -50,9 +59,9 @@ export function SquadOriginsView({ teamApiId, teamLogo, teamName, season: contro
         )
     }
 
-    const handleSeasonChange = (nextSeason) => {
+    const handleSeasonChange = (nextSeason, isCurrent) => {
         setInternalSeason(nextSeason)
-        onSeasonChange?.(nextSeason)
+        onSeasonChange?.(nextSeason, isCurrent)
     }
 
     if (loading) {
@@ -116,7 +125,7 @@ export function SquadOriginsView({ teamApiId, teamLogo, teamName, season: contro
                         transition={{ delay: index * 0.04 }}
                     >
                         <Link
-                            to={`/players/${player.player_api_id}`}
+                            to={withSeasonParam(`/players/${player.player_api_id}`, seasonOverride)}
                             className="flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-slate-700/50 transition-colors group"
                         >
                             <Avatar className="h-8 w-8 shrink-0">
@@ -152,6 +161,7 @@ export function SquadOriginsView({ teamApiId, teamLogo, teamName, season: contro
                 origins={origins}
                 season={season}
                 onSeasonChange={handleSeasonChange}
+                onCurrentSeasonChange={onCurrentSeasonChange}
             />
 
             {/* Radial visualization */}
@@ -179,7 +189,7 @@ export function SquadOriginsView({ teamApiId, teamLogo, teamName, season: contro
                         {unknown_origin.map((player) => (
                             <Link
                                 key={player.player_api_id}
-                                to={`/players/${player.player_api_id}`}
+                                to={withSeasonParam(`/players/${player.player_api_id}`, seasonOverride)}
                                 className="flex items-center gap-3 py-2.5 px-3 hover:bg-slate-700/50 transition-colors"
                             >
                                 <Avatar className="h-7 w-7">

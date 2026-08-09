@@ -53,7 +53,28 @@ async function installApiMocks(page, requests, { rollupWithoutMatches = false } 
     }
     if (url.pathname === '/api/scout/players') {
       requests.scoutPlayers.push(url.href)
-      return route.fulfill({ json: { season, players: [], total: 0, total_pages: 0 } })
+      return route.fulfill({
+        json: {
+          season,
+          players: [{
+            id: 1,
+            player_id: 42,
+            player_name: 'Test Prospect',
+            nationality: 'England',
+            age: 19,
+            position: 'Midfielder',
+            status: 'academy',
+            primary_team_name: 'Test Academy',
+            appearances: 1,
+            minutes_played: 90,
+            goals: 1,
+            assists: 0,
+            recent_form: [],
+          }],
+          total: 1,
+          total_pages: 1,
+        },
+      })
     }
     if (url.pathname === '/api/scout/leaderboards') {
       return route.fulfill({
@@ -106,4 +127,16 @@ test('ScoutPage picker refetches players with the selected season', async ({ pag
 
   await expect(page).toHaveURL(/season=2024/)
   await expect.poll(() => requests.scoutPlayers.some((url) => url.includes('season=2024'))).toBe(true)
+})
+
+test('ScoutPage carries a historical season into player links', async ({ page }) => {
+  const requests = { playerStats: [], playerSeasonStats: [], scoutPlayers: [] }
+  await installApiMocks(page, requests)
+
+  await page.goto('/scout')
+  await page.getByRole('combobox', { name: 'Select season' }).click()
+  await page.getByRole('option', { name: /2024\/25/ }).click()
+  await page.getByRole('link', { name: /Test Prospect/ }).click()
+
+  await expect(page).toHaveURL(/\/players\/42\?season=2024$/)
 })

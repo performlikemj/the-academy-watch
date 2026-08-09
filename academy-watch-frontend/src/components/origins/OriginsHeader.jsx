@@ -8,7 +8,7 @@ const COLORS = {
   external: '#334155',
 }
 
-export function OriginsHeader({ origins, season, onSeasonChange }) {
+export function OriginsHeader({ origins, season, onSeasonChange, onCurrentSeasonChange }) {
   const { squad_size = 0, homegrown_count = 0, homegrown_pct = 0, academy_breakdown = [] } =
     origins ?? {}
 
@@ -78,7 +78,8 @@ export function OriginsHeader({ origins, season, onSeasonChange }) {
       {/* Season selector */}
       <SeasonSelect
         value={String(season)}
-        onValueChange={(v) => onSeasonChange(Number(v))}
+        onValueChange={(v, isCurrent) => onSeasonChange(Number(v), isCurrent)}
+        onCurrentSeasonChange={onCurrentSeasonChange}
         className="w-[8.5rem] bg-slate-800 border-slate-700 text-slate-200"
       />
     </div>
