@@ -433,6 +433,14 @@ private struct PlayerContractAttestationSheet: View {
                             .foregroundStyle(AcademyColors.claret)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityIdentifier("player-claim-adults-only-copy")
+
+                        LegalSafariLink(destination: .communityRules) {
+                            Label("Community Rules", systemImage: "arrow.up.right.square")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(AcademyColors.claret)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("player-claim-community-rules")
                     } else {
                         Text(mode.introduction)
                             .font(.subheadline)

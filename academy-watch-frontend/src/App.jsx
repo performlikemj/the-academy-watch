@@ -113,6 +113,7 @@ import { TeamDetailPage } from '@/pages/TeamDetailPage'
 import { ProgramClaimPage } from '@/pages/ProgramClaimPage'
 import { ProgramPage } from '@/pages/ProgramPage'
 import { JournalistProfile } from '@/pages/JournalistProfile'
+import { CommunityRulesPage, PrivacyPage, SupportPage, TermsPage } from '@/pages/LegalPages'
 import { JournalistNewsletterView } from '@/components/JournalistNewsletterView'
 import {
   NewsletterWriterOverlay,
@@ -175,6 +176,13 @@ const LEAGUE_COLORS = {
 }
 
 const NEWSLETTER_PAGE_SIZE = 5
+
+const LEGAL_FOOTER_LINKS = [
+  { to: '/terms', label: 'Terms' },
+  { to: '/privacy', label: 'Privacy' },
+  { to: '/community-rules', label: 'Community Rules' },
+  { to: '/support', label: 'Support' },
+]
 
 const filterLatestSeasonTeams = (rows = []) => {
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -4041,6 +4049,7 @@ function StatsPage() {
 function AppWithRouter() {
   const globalSearch = useGlobalSearch()
   const location = useLocation()
+  const isAdminRoute = location.pathname.startsWith('/admin')
 
   // Central pageview tracking — fires on every route change (inside <Router> so useLocation is safe)
   useEffect(() => {
@@ -4065,6 +4074,15 @@ function AppWithRouter() {
         <footer className="bg-secondary border-t border-border py-8 mt-auto">
           <div className="max-w-6xl mx-auto px-4 text-center">
             <BuyMeCoffeeButton />
+            {!isAdminRoute ? (
+              <nav aria-label="Legal and support" className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
+                {LEGAL_FOOTER_LINKS.map((item) => (
+                  <Link key={item.to} to={item.to} className="text-muted-foreground transition-colors hover:text-foreground">
+                    {item.label}
+                  </Link>
+                ))}
+              </nav>
+            ) : null}
             <p className="text-sm text-muted-foreground mt-4">&copy; {new Date().getFullYear()} The Academy Watch. All rights reserved.</p>
           </div>
         </footer>
@@ -4119,6 +4137,10 @@ function AppRoutes() {
       <Route path="/scout/lists" element={<ListsPage />} />
       <Route path="/my-club" element={<MyClub />} />
       <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/community-rules" element={<CommunityRulesPage />} />
+      <Route path="/support" element={<SupportPage />} />
       <Route path="/academy" element={<CohortBrowser />} />
       <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
       <Route path="/academy/analytics" element={<CohortAnalytics />} />
