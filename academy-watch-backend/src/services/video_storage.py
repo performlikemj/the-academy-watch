@@ -106,11 +106,15 @@ def verify_uploaded_blob(blob_path: str) -> dict:
 
 
 def verify_expected_blob(blob_path: str, expected_etag: str | None) -> dict:
-    """Re-check size/existence and require the upload-complete ETag."""
+    """Re-check size/existence and, when recorded, the upload-complete ETag.
+
+    Legacy matches can have a null ETag because their upload predates ETag
+    stamping. They still receive the basic existence and size verification.
+    """
     check = verify_uploaded_blob(blob_path)
     if not check["ok"]:
         return check
-    if expected_etag is None or check.get("etag") != expected_etag:
+    if expected_etag is not None and check.get("etag") != expected_etag:
         return {
             "ok": False,
             "error": "footage blob changed since upload-complete (ETag mismatch)",

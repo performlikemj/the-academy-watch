@@ -683,6 +683,99 @@ def test_changed_blob_etag_blocks_club_request_and_admin_enqueue(club_app, clien
     assert VideoAnalysisJob.query.filter_by(video_match_id=match.id).count() == 0
     enqueue.assert_not_called()
 
+    match.status = "failed"
+    db.session.add(VideoAnalysisJob(video_match_id=match.id, status="failed", pipeline_version="c2-test"))
+    db.session.commit()
+    with (
+        patch("src.services.video_storage.verify_uploaded_blob", return_value=changed),
+        patch("src.routes.video.video_queue.enqueue") as requeue_enqueue,
+    ):
+        requeue_response = client.post(
+            f"/api/admin/video/matches/{match.id}/requeue",
+            headers=_admin_headers(),
+        )
+    assert requeue_response.status_code == 422
+    assert "ETag mismatch" in requeue_response.get_json()["error"]
+    assert VideoAnalysisJob.query.filter_by(video_match_id=match.id).count() == 1
+    requeue_enqueue.assert_not_called()
+
+
+def test_null_etag_allows_club_admin_process_and_failed_job_requeue(club_app, client):
+    program_id = club_app.c2["program_a"]
+    match = _match(program_id)
+    match.blob_etag = None
+    db.session.commit()
+    current = {"ok": True, "etag": "legacy-current-etag", "size_bytes": 2048}
+
+    with (
+        patch("src.services.video_storage.verify_uploaded_blob", return_value=current) as verify,
+        patch("src.routes.video.video_queue.enqueue", return_value="fixture") as enqueue,
+    ):
+        club_response = client.post(
+            f"/api/club/{program_id}/matches/{match.id}/process",
+            headers=_headers("a"),
+        )
+        assert club_response.status_code == 202
+
+        admin_response = client.post(
+            f"/api/admin/video/matches/{match.id}/process",
+            headers=_admin_headers(),
+        )
+        assert admin_response.status_code == 202
+
+        job = VideoAnalysisJob.query.filter_by(video_match_id=match.id).one()
+        job.status = "failed"
+        match.status = "failed"
+        db.session.commit()
+
+        requeue_response = client.post(
+            f"/api/admin/video/matches/{match.id}/requeue",
+            headers=_admin_headers(),
+        )
+        assert requeue_response.status_code == 202
+
+    assert verify.call_count == 3
+    assert enqueue.call_count == 2
+    assert VideoAnalysisJob.query.filter_by(video_match_id=match.id).count() == 2
+
+
+def test_upload_complete_reattestation_clears_processing_request_for_club_and_admin(club_app, client):
+    program_id = club_app.c2["program_a"]
+    manager_id = club_app.c2["users"]["a"]
+    match = _match(program_id)
+    match.processing_requested_at = datetime.now(UTC)
+    match.processing_requested_by_user_id = manager_id
+    db.session.commit()
+    verified = {"ok": True, "etag": "reattested-etag", "size_bytes": 2048}
+
+    with (
+        patch("src.services.video_storage.is_configured", return_value=True),
+        patch("src.services.video_storage.verify_uploaded_blob", return_value=verified),
+    ):
+        club_response = client.post(
+            f"/api/club/{program_id}/matches/{match.id}/upload-complete",
+            json={},
+            headers=_headers("a"),
+        )
+        assert club_response.status_code == 200
+        refreshed = db.session.get(VideoMatch, match.id)
+        assert refreshed.processing_requested_at is None
+        assert refreshed.processing_requested_by_user_id is None
+
+        refreshed.processing_requested_at = datetime.now(UTC)
+        refreshed.processing_requested_by_user_id = manager_id
+        db.session.commit()
+        admin_response = client.post(
+            f"/api/admin/video/matches/{match.id}/upload-complete",
+            json={},
+            headers=_admin_headers(),
+        )
+        assert admin_response.status_code == 200
+
+    refreshed = db.session.get(VideoMatch, match.id)
+    assert refreshed.processing_requested_at is None
+    assert refreshed.processing_requested_by_user_id is None
+
 
 def test_finalize_snapshot_excludes_departed_and_never_rostered_players(club_app, client):
     a = club_app.c2["program_a"]

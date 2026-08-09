@@ -49,13 +49,17 @@ IDLE_POLL_SECONDS = 30
 IDLE_EXIT_AFTER_POLLS = 10  # loop mode: exit after ~5 idle minutes (KEDA rescales)
 
 
-def _download_footage(blob_path: str, dest: Path, expected_etag: str) -> None:
+def _download_footage(blob_path: str, dest: Path, expected_etag: str | None) -> None:
     from src.services.video_storage import mint_read_sas
 
     url = mint_read_sas(blob_path)
     log.info("downloading footage to %s", dest)
+    command = ["curl", "-fsSL", "--retry", "3"]
+    if expected_etag is not None:
+        command.extend(["-H", f"If-Match: {expected_etag}"])
+    command.extend(["-o", str(dest), url])
     subprocess.run(
-        ["curl", "-fsSL", "--retry", "3", "-H", f"If-Match: {expected_etag}", "-o", str(dest), url],
+        command,
         check=True,
         timeout=3600,
     )
@@ -105,7 +109,7 @@ def process_job(app, job_id: str) -> bool:
     match = db.session.get(VideoMatch, job.video_match_id)
     t0 = time.monotonic()
     try:
-        # content-swap TOCTOU check: blob must still match the upload-complete ETag
+        # Content-swap TOCTOU check: enforce the upload-complete ETag when one was recorded.
         heartbeat(job_id, stage="decode", progress=0)
         check = verify_expected_blob(match.blob_path, match.blob_etag)
         if not check["ok"]:

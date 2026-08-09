@@ -385,6 +385,7 @@ def club_match_upload_complete(program_id: int, match_id: int):
         return _bad_request(f"cannot complete upload in status '{match.status}'")
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
+    is_reattestation = match.status == "uploaded"
     check = video_storage.verify_uploaded_blob(match.blob_path)
     if not check["ok"]:
         return jsonify({"error": check["error"]}), 422
@@ -401,6 +402,9 @@ def club_match_upload_complete(program_id: int, match_id: int):
     match.status = "uploaded"
     match.uploaded_at = now
     match.expires_at = now + timedelta(days=RAW_RETENTION_DAYS)
+    if is_reattestation:
+        match.processing_requested_at = None
+        match.processing_requested_by_user_id = None
     db.session.commit()
     return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
 

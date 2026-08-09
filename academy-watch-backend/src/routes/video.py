@@ -138,6 +138,7 @@ def upload_complete(match_id: int):
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
 
+    is_reattestation = match.status == "uploaded"
     check = video_storage.verify_uploaded_blob(match.blob_path)
     if not check["ok"]:
         return jsonify({"error": check["error"]}), 422
@@ -154,6 +155,9 @@ def upload_complete(match_id: int):
     match.status = "uploaded"
     match.uploaded_at = datetime.now(UTC)
     match.expires_at = datetime.now(UTC) + timedelta(days=RAW_RETENTION_DAYS)
+    if is_reattestation:
+        match.processing_requested_at = None
+        match.processing_requested_by_user_id = None
     db.session.commit()
     return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
 
@@ -331,6 +335,9 @@ def requeue_match(match_id: int):
     last = match.latest_job()
     if last is None or last.status not in ("failed", "cancelled"):
         return _bad_request("requeue requires a failed or cancelled job")
+    integrity = video_storage.verify_expected_blob(match.blob_path, match.blob_etag)
+    if not integrity["ok"]:
+        return jsonify({"error": integrity["error"]}), 422
     job = VideoAnalysisJob(
         video_match_id=match.id,
         status="queued",
