@@ -115,6 +115,12 @@ class ContactRequest(db.Model):
             .first()
         )
 
+    def status_contradiction_at_creation(self) -> bool:
+        """Read the schema-free review flag persisted in the created audit event."""
+        created_event = self.audit_events.filter_by(event_type="created").order_by(ContactAuditEvent.id.asc()).first()
+        metadata = created_event.event_metadata if created_event is not None else None
+        return bool(metadata.get("status_contradiction")) if isinstance(metadata, dict) else False
+
     def to_dict(self, *, include_user_ids: bool = False):
         latest = self.latest_outcome()
         club_participant = None
@@ -141,6 +147,7 @@ class ContactRequest(db.Model):
             "message": self.message,
             "status": self.status,
             "routing_mode": self.routing_mode,
+            "status_contradiction": self.status_contradiction_at_creation(),
             "club_program_id": self.club_program_id,
             "club_consent_status": self.club_consent_status,
             "club_consent_at": _iso(self.club_consent_at),

@@ -1,5 +1,6 @@
 """FC-B2/B3 contact-rail lifecycle, routing, privacy, and migration tests."""
 
+import time
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,12 +14,19 @@ from src.auth import _ensure_user_account, issue_user_token
 from src.extensions import limiter
 from src.models.contact import ContactAuditEvent, ContactMessage, ContactOutcome, ContactRequest
 from src.models.follow import Follow, FollowList
+from src.models.journey import PlayerJourney
 from src.models.league import UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim
 from src.models.trust import ContentReport, ScoutVerification
 from src.models.user_block import UserBlock
-from src.services.contact import utcnow
+from src.services.contact import (
+    CLUB_CONSENT_TOKEN_MAX_AGE_SECONDS,
+    has_status_contradiction,
+    issue_club_consent_token,
+    routing_mode_for_claim,
+    utcnow,
+)
 
 ADMIN_KEY = "contact-admin-test-key"
 
@@ -30,6 +38,8 @@ def contact_app(monkeypatch):
     monkeypatch.setenv("CONTACT_DECLINE_COOLDOWN_DAYS", "30")
     monkeypatch.setenv("ADMIN_API_KEY", ADMIN_KEY)
     monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://contact-test.example")
+    monkeypatch.delenv("ADMIN_EMAILS", raising=False)
 
     from src.routes.blocks import blocks_bp
     from src.routes.contact import contact_bp
@@ -59,7 +69,8 @@ def contact_app(monkeypatch):
             connection.execute(
                 text(
                     "CREATE TABLE club_programs ("
-                    "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254))"
+                    "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254), "
+                    "team_api_id INTEGER)"
                 )
             )
             connection.execute(
@@ -160,10 +171,18 @@ def _create(
     )
 
 
-def _club_program(program_id: int, name: str, *, contact_email=None):
+def _club_program(program_id: int, name: str, *, contact_email=None, team_api_id=None):
     db.session.execute(
-        text("INSERT INTO club_programs (id, name, contact_email) VALUES (:program_id, :name, :contact_email)"),
-        {"program_id": program_id, "name": name, "contact_email": contact_email},
+        text(
+            "INSERT INTO club_programs (id, name, contact_email, team_api_id) "
+            "VALUES (:program_id, :name, :contact_email, :team_api_id)"
+        ),
+        {
+            "program_id": program_id,
+            "name": name,
+            "contact_email": contact_email,
+            "team_api_id": team_api_id,
+        },
     )
     db.session.commit()
 
@@ -802,6 +821,8 @@ class TestContactAuthorizationAndFlag:
             ("POST", "/api/contact/requests/opaque-id/accept", None),
             ("POST", "/api/contact/requests/opaque-id/decline", None),
             ("POST", "/api/contact/requests/opaque-id/club-consent", {"action": "grant"}),
+            ("GET", "/api/contact/club-consent/opaque-token", None),
+            ("POST", "/api/contact/club-consent/opaque-token", None),
             ("POST", "/api/contact/requests/opaque-id/withdraw", None),
             ("GET", "/api/contact/requests/opaque-id/messages", None),
             ("POST", "/api/contact/requests/opaque-id/messages", {"body": "hidden"}),
@@ -852,6 +873,65 @@ class TestContactAuthorizationAndFlag:
 
 
 class TestContractStatusRouting:
+    @pytest.mark.parametrize("platform_belief", ["contracted", "free_agent", "unknown"])
+    @pytest.mark.parametrize("claim_status", ["free_agent", "contracted", None])
+    @pytest.mark.parametrize("active_manager", [True, False])
+    def test_complete_fail_closed_routing_matrix(
+        self,
+        client,
+        monkeypatch,
+        platform_belief,
+        claim_status,
+        active_manager,
+    ):
+        monkeypatch.setattr(
+            "src.services.contact.platform_contract_belief",
+            lambda _player_api_id: (platform_belief, platform_belief),
+        )
+        monkeypatch.setattr("src.services.contact.program_has_active_manager", lambda _program_id: active_manager)
+        claim = SimpleNamespace(player_api_id=999001, contract_status=claim_status, club_program_id=777)
+
+        mode = routing_mode_for_claim(claim)
+        club_mode = "club_included" if active_manager else "club_notified"
+        expected = (
+            "direct" if claim_status == "free_agent" and platform_belief in {"free_agent", "unknown"} else club_mode
+        )
+
+        assert mode == expected
+        contradiction = has_status_contradiction(claim.player_api_id, claim_status)
+        assert contradiction is (
+            claim_status in {"free_agent", "contracted"}
+            and platform_belief in {"free_agent", "contracted"}
+            and claim_status != platform_belief
+        )
+        if contradiction:
+            assert mode != "direct"
+
+    def test_request_time_contradiction_is_audited_and_serialized(self, client):
+        db.session.add(
+            PlayerJourney(
+                player_api_id=5799,
+                player_name="Contradiction Player",
+                current_status="first_team",
+                current_club_name="Current Platform Club",
+            )
+        )
+        db.session.commit()
+        _, scout_headers = _verified_scout("contradiction-scout@example.com")
+        _, _, claim = _claim("contradiction-player@example.com", 5799, contract_status="free_agent")
+
+        created = _create(client, scout_headers, 5799, permission_attestation=True)
+
+        assert created.status_code == 201, created.get_json()
+        payload = created.get_json()["contact_request"]
+        assert payload["routing_mode"] == "club_notified"
+        assert payload["status_contradiction"] is True
+        assert claim.status_contradiction is False
+        created_event = ContactAuditEvent.query.filter_by(event_type="created").one()
+        assert created_event.event_metadata["status_contradiction"] is True
+        listed = client.get("/api/contact/requests?box=sent", headers=scout_headers)
+        assert listed.get_json()["requests"][0]["status_contradiction"] is True
+
     def test_free_agent_keeps_direct_behavior(self, client):
         _, scout_headers = _verified_scout("direct-routing-scout@example.com")
         _claim("direct-routing-player@example.com", 5801, contract_status="free_agent")
@@ -1261,10 +1341,11 @@ class TestContractStatusRouting:
 
         assert created.status_code == 201, created.get_json()
         assert created.get_json()["contact_request"]["routing_mode"] == "club_notified"
-        assert len(sends) == 1
-        assert sends[0]["to"] == "contact@notice-fc.example"
-        assert sends[0]["use_fallback"] is False
-        rendered = " ".join(str(sends[0][key]) for key in ("subject", "html", "text"))
+        club_sends = [send for send in sends if send.get("tags") == ["club-contact-notice"]]
+        assert len(club_sends) == 1
+        assert club_sends[0]["to"] == "contact@notice-fc.example"
+        assert club_sends[0]["use_fallback"] is False
+        rendered = " ".join(str(club_sends[0][key]) for key in ("subject", "html", "text"))
         for private_value in (
             scout.email,
             player.email,
@@ -1307,8 +1388,269 @@ class TestContractStatusRouting:
         created = _create(client, scout_headers, 5812, permission_attestation=True)
 
         assert created.status_code == 201, created.get_json()
-        assert [send["to"] for send in sends] == ["hello@named-notice.example"]
+        assert [send["to"] for send in sends if send.get("tags") == ["club-contact-notice"]] == [
+            "hello@named-notice.example"
+        ]
         assert ContactAuditEvent.query.filter_by(event_type="club_notice_sent").count() == 1
+
+    def test_platform_believed_club_contact_is_notified_for_contradictory_claim(self, client, monkeypatch):
+        _club_program(
+            110,
+            "Platform Belief FC",
+            contact_email="registry@platform-belief.example",
+            team_api_id=99110,
+        )
+        db.session.add(
+            PlayerJourney(
+                player_api_id=5814,
+                player_name="Protected Player",
+                current_status="first_team",
+                current_club_api_id=99110,
+                current_club_name="Platform Belief FC",
+            )
+        )
+        db.session.commit()
+        _, scout_headers = _verified_scout("platform-belief-scout@example.com")
+        _claim("platform-belief-player@example.com", 5814, contract_status="free_agent")
+        sends = []
+
+        from src.services.email_service import email_service
+
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **kwargs: (
+                sends.append(kwargs) or SimpleNamespace(success=True, provider="mailgun", message_id="platform-belief")
+            ),
+        )
+        created = _create(client, scout_headers, 5814, permission_attestation=True)
+
+        assert created.status_code == 201, created.get_json()
+        assert created.get_json()["contact_request"]["routing_mode"] == "club_notified"
+        assert created.get_json()["contact_request"]["status_contradiction"] is True
+        assert [send["to"] for send in sends] == ["registry@platform-belief.example"]
+
+    def test_platform_club_fallback_wins_when_claim_program_has_no_contact(self, client, monkeypatch):
+        _club_program(112, "Claim Program Without Contact")
+        _club_program(
+            113,
+            "Authoritative Platform FC",
+            contact_email="registry@authoritative-platform.example",
+            team_api_id=99113,
+        )
+        db.session.add(
+            PlayerJourney(
+                player_api_id=5817,
+                player_name="Platform Fallback Player",
+                current_status="first_team",
+                current_club_api_id=99113,
+                current_club_name="Authoritative Platform FC",
+            )
+        )
+        db.session.commit()
+        _, scout_headers = _verified_scout("platform-fallback-scout@example.com")
+        _claim(
+            "platform-fallback-player@example.com",
+            5817,
+            contract_status="contracted",
+            club_program_id=112,
+        )
+        sends = []
+
+        from src.services.email_service import email_service
+
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **kwargs: (
+                sends.append(kwargs)
+                or SimpleNamespace(success=True, provider="mailgun", message_id="platform-fallback")
+            ),
+        )
+
+        created = _create(client, scout_headers, 5817, permission_attestation=True)
+
+        assert created.status_code == 201, created.get_json()
+        assert [send["to"] for send in sends] == ["registry@authoritative-platform.example"]
+        event = ContactAuditEvent.query.filter_by(event_type="club_notice_sent").one()
+        assert event.event_metadata["club_program_id"] == 113
+
+    def test_club_notified_always_queues_admin_and_mail_failure_is_tolerated(self, client, monkeypatch):
+        _club_program(111, "Failure Tolerant FC", contact_email="contact@failure-tolerant.example")
+        _, scout_headers = _verified_scout("failure-tolerant-scout@example.com")
+        _claim(
+            "failure-tolerant-player@example.com",
+            5815,
+            contract_status="contracted",
+            club_program_id=111,
+        )
+        admin_calls = []
+
+        from src.services import admin_notify_service
+        from src.services.email_service import email_service
+
+        monkeypatch.setattr(
+            admin_notify_service,
+            "notify_club_contact_request",
+            lambda *args, **kwargs: admin_calls.append((args, kwargs)),
+        )
+        monkeypatch.setattr(email_service, "send_email", lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("down")))
+
+        created = _create(client, scout_headers, 5815, permission_attestation=True)
+
+        assert created.status_code == 201, created.get_json()
+        assert ContactRequest.query.count() == 1
+        assert ContactAuditEvent.query.filter_by(event_type="club_notice_sent").count() == 0
+        assert len(admin_calls) == 1
+        assert admin_calls[0][0][1] == 5815
+        assert admin_calls[0][1]["club_notice_sent"] is False
+
+    def test_club_notified_queues_admin_when_no_club_contact_exists(self, client, monkeypatch):
+        _, scout_headers = _verified_scout("no-club-contact-scout@example.com")
+        _claim(
+            "no-club-contact-player@example.com",
+            5816,
+            contract_status="contracted",
+            current_club_name="Unregistered Club",
+        )
+        admin_calls = []
+
+        from src.services import admin_notify_service
+        from src.services.email_service import email_service
+
+        monkeypatch.setattr(
+            admin_notify_service,
+            "notify_club_contact_request",
+            lambda *args, **kwargs: admin_calls.append((args, kwargs)),
+        )
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **_kwargs: (_ for _ in ()).throw(AssertionError("club mail should not be attempted")),
+        )
+
+        created = _create(client, scout_headers, 5816, permission_attestation=True)
+
+        assert created.status_code == 201, created.get_json()
+        assert len(admin_calls) == 1
+        assert admin_calls[0][1]["club_notice_sent"] is False
+
+
+class TestPublicClubConsentLinks:
+    def _create_included(self, client, monkeypatch, *, suffix: str, player_api_id: int, program_id: int):
+        _club_program(program_id, f"Consent Link {suffix} FC")
+        manager, _ = _club_manager(program_id, f"consent-link-{suffix}-manager@example.com")
+        _, scout_headers = _verified_scout(f"consent-link-{suffix}-scout@example.com")
+        _, player_headers, _ = _claim(
+            f"consent-link-{suffix}-player@example.com",
+            player_api_id,
+            contract_status="contracted",
+            club_program_id=program_id,
+        )
+        sends = []
+
+        from src.services.email_service import email_service
+
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **kwargs: (
+                sends.append(kwargs)
+                or SimpleNamespace(success=True, provider="mailgun", message_id=f"consent-{suffix}")
+            ),
+        )
+        created = _create(client, scout_headers, player_api_id)
+        assert created.status_code == 201, created.get_json()
+        request_id = created.get_json()["contact_request"]["id"]
+        assert len(sends) == 1
+        assert sends[0]["to"] == [manager.email]
+        assert sends[0]["tags"] == ["club-consent-request"]
+        assert sends[0]["text"].count("https://contact-test.example/api/contact/club-consent/") == 2
+        return request_id, scout_headers, player_headers
+
+    def test_happy_grant_is_single_use_and_messaging_waits_for_grant(self, client, monkeypatch):
+        request_id, scout_headers, player_headers = self._create_included(
+            client,
+            monkeypatch,
+            suffix="grant",
+            player_api_id=5820,
+            program_id=120,
+        )
+        grant_token = issue_club_consent_token(request_id, "grant")
+        decline_token = issue_club_consent_token(request_id, "decline")
+        confirmation = client.get(f"/api/contact/club-consent/{grant_token}")
+        assert confirmation.status_code == 200
+        summary = confirmation.get_json()["decision"]
+        assert summary["action"] == "grant"
+        assert summary["scout"]["organization"] == "Fixture Recruitment"
+        assert "@" not in confirmation.get_data(as_text=True)
+
+        assert client.post(f"/api/contact/requests/{request_id}/accept", headers=player_headers).status_code == 200
+        closed = client.get(f"/api/contact/requests/{request_id}/messages", headers=scout_headers)
+        assert closed.status_code == 409
+        assert closed.get_json()["code"] == "club_consent_required"
+
+        granted = client.post(f"/api/contact/club-consent/{grant_token}")
+        assert granted.status_code == 200
+        assert granted.get_json()["decision"] == "granted"
+        assert client.get(f"/api/contact/requests/{request_id}/messages", headers=scout_headers).status_code == 200
+        for used_token in (grant_token, decline_token):
+            reused = client.post(f"/api/contact/club-consent/{used_token}")
+            assert reused.status_code == 404
+            assert reused.get_json()["code"] == "invalid_consent_link"
+
+    def test_happy_decline_resolves_request_and_rejects_other_link(self, client, monkeypatch):
+        request_id, _, _ = self._create_included(
+            client,
+            monkeypatch,
+            suffix="decline",
+            player_api_id=5821,
+            program_id=121,
+        )
+        decline_token = issue_club_consent_token(request_id, "decline")
+        grant_token = issue_club_consent_token(request_id, "grant")
+
+        declined = client.post(f"/api/contact/club-consent/{decline_token}")
+
+        assert declined.status_code == 200
+        assert declined.get_json()["decision"] == "declined"
+        assert db.session.get(ContactRequest, request_id).status == "declined"
+        assert client.post(f"/api/contact/club-consent/{grant_token}").status_code == 404
+
+    def test_expired_token_is_neutral_and_does_not_change_request(self, client, monkeypatch):
+        request_id, _, _ = self._create_included(
+            client,
+            monkeypatch,
+            suffix="expired",
+            player_api_id=5822,
+            program_id=122,
+        )
+        old_timestamp = time.time() - CLUB_CONSENT_TOKEN_MAX_AGE_SECONDS - 60
+        with monkeypatch.context() as token_time:
+            token_time.setattr("itsdangerous.timed.time.time", lambda: old_timestamp)
+            expired_token = issue_club_consent_token(request_id, "grant")
+
+        response = client.post(f"/api/contact/club-consent/{expired_token}")
+
+        assert response.status_code == 404
+        assert response.get_json()["code"] == "invalid_consent_link"
+        assert db.session.get(ContactRequest, request_id).club_consent_status == "pending"
+
+    def test_post_resolution_token_is_rejected(self, client, monkeypatch):
+        request_id, scout_headers, _ = self._create_included(
+            client,
+            monkeypatch,
+            suffix="resolved",
+            player_api_id=5823,
+            program_id=123,
+        )
+        token = issue_club_consent_token(request_id, "grant")
+        assert client.post(f"/api/contact/requests/{request_id}/withdraw", headers=scout_headers).status_code == 200
+
+        response = client.post(f"/api/contact/club-consent/{token}")
+
+        assert response.status_code == 404
+        assert response.get_json()["code"] == "invalid_consent_link"
 
 
 class TestContactLimits:

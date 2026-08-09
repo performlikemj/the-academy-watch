@@ -9,10 +9,16 @@ from email.utils import parseaddr
 from functools import wraps
 from html import escape
 
-from flask import abort
+from flask import abort, current_app
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from src.models.contact import ContactAuditEvent, ContactRequest
 from src.models.league import db
-from src.services.club_registry import find_club_notice_target, program_has_active_manager
+from src.services.club_registry import (
+    active_program_manager_contacts,
+    find_club_notice_target,
+    get_club_program,
+    program_has_active_manager,
+)
 from src.utils.player_status import player_facing_status
 from src.utils.sanitize import sanitize_plain_text
 
@@ -24,6 +30,8 @@ CONTACT_DECLINE_COOLDOWN_ENV = "CONTACT_DECLINE_COOLDOWN_DAYS"
 DEFAULT_REQUEST_EXPIRY_DAYS = 14
 DEFAULT_DECLINE_COOLDOWN_DAYS = 30
 MAX_POLICY_DAYS = 365
+CLUB_CONSENT_TOKEN_MAX_AGE_SECONDS = 14 * 24 * 60 * 60
+CLUB_CONSENT_TOKEN_SALT = "contact-club-consent"
 
 CONTRACT_STATUSES = {"free_agent", "contracted", "unknown"}
 CONTRACTED_PATHWAY_STATUSES = {"academy", "on_loan", "first_team", "sold", "left"}
@@ -141,8 +149,14 @@ def platform_contract_belief(player_api_id: int) -> tuple[str, str | None]:
     return "unknown", pathway_status
 
 
-def has_status_contradiction(player_api_id: int, contract_status: str) -> bool:
-    platform_belief, _ = platform_contract_belief(player_api_id)
+def has_status_contradiction(
+    player_api_id: int,
+    contract_status: str | None,
+    *,
+    platform_belief: str | None = None,
+) -> bool:
+    if platform_belief is None:
+        platform_belief, _ = platform_contract_belief(player_api_id)
     return (
         contract_status in {"free_agent", "contracted"}
         and platform_belief in {"free_agent", "contracted"}
@@ -155,8 +169,14 @@ def effective_contract_status(contract_status: str | None) -> str:
     return "free_agent" if contract_status == "free_agent" else "contracted"
 
 
-def routing_mode_for_claim(claim) -> str:
-    if effective_contract_status(getattr(claim, "contract_status", None)) == "free_agent":
+def routing_mode_for_claim(claim, *, platform_belief: str | None = None) -> str:
+    player_api_id = getattr(claim, "player_api_id", None)
+    if platform_belief is None:
+        platform_belief, _ = platform_contract_belief(player_api_id)
+    claim_status = getattr(claim, "contract_status", None)
+    if platform_belief == "free_agent" and claim_status == "free_agent":
+        return ROUTING_DIRECT
+    if platform_belief == "unknown" and effective_contract_status(claim_status) == "free_agent":
         return ROUTING_DIRECT
     program_id = getattr(claim, "club_program_id", None)
     if program_id is not None and program_has_active_manager(program_id):
@@ -188,6 +208,41 @@ def _stored_email(value) -> str | None:
     return candidate if parsed == candidate and "@" in parsed else None
 
 
+def _club_consent_serializer() -> URLSafeTimedSerializer:
+    secret = current_app.config.get("SECRET_KEY") or os.getenv("SECRET_KEY") or "change-me"
+    return URLSafeTimedSerializer(secret_key=secret, salt=CLUB_CONSENT_TOKEN_SALT)
+
+
+def issue_club_consent_token(contact_request_id: str, action: str) -> str:
+    if action not in {"grant", "decline"}:
+        raise ValueError("action must be grant or decline")
+    return _club_consent_serializer().dumps(
+        {"contact_request_id": contact_request_id, "action": action},
+    )
+
+
+def load_club_consent_token(token: str) -> dict | None:
+    try:
+        payload = _club_consent_serializer().loads(token, max_age=CLUB_CONSENT_TOKEN_MAX_AGE_SECONDS)
+    except (BadSignature, SignatureExpired):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    request_id = payload.get("contact_request_id")
+    action = payload.get("action")
+    if not isinstance(request_id, str) or action not in {"grant", "decline"}:
+        return None
+    return {"contact_request_id": request_id, "action": action}
+
+
+def club_consent_action_links(contact_request_id: str) -> dict[str, str]:
+    base = (os.getenv("PUBLIC_BASE_URL") or "https://theacademywatch.com").strip().rstrip("/")
+    path = "/api/contact/club-consent/"
+    return {
+        action: f"{base}{path}{issue_club_consent_token(contact_request_id, action)}" for action in ("grant", "decline")
+    }
+
+
 def send_club_courtesy_notice(contact_request: ContactRequest) -> dict | None:
     """Best-effort courtesy notice using only a registry-row contact email.
 
@@ -198,6 +253,7 @@ def send_club_courtesy_notice(contact_request: ContactRequest) -> dict | None:
     target = find_club_notice_target(
         program_id=contact_request.club_program_id,
         club_name=getattr(claim, "current_club_name", None),
+        player_api_id=contact_request.player_api_id,
     )
     if target is None:
         return None
@@ -210,17 +266,15 @@ def send_club_courtesy_notice(contact_request: ContactRequest) -> dict | None:
     subject = f"Courtesy notice: approach request for {player_reference}"
     text = (
         f"Hello {club_name},\n\n"
-        f"A verified scout submitted an approach request through The Academy Watch for {player_reference}. "
-        "The scout explicitly attested that the current club's permission has already been obtained. "
-        "This is a courtesy notice; it does not expose the private message or create a club consent gate.\n\n"
+        "A verified scout has requested an introduction to a player associated with your club/program "
+        f"through The Academy Watch ({player_reference}). This neutral notice does not expose the private message.\n\n"
         "The Academy Watch"
     )
     html = (
         f"<p>Hello {escape(club_name)},</p>"
-        f"<p>A verified scout submitted an approach request through The Academy Watch for "
-        f"{escape(player_reference)}. The scout explicitly attested that the current club's permission "
-        "has already been obtained.</p>"
-        "<p>This is a courtesy notice; it does not expose the private message or create a club consent gate.</p>"
+        "<p>A verified scout has requested an introduction to a player associated with your club/program "
+        f"through The Academy Watch ({escape(player_reference)}).</p>"
+        "<p>This neutral notice does not expose the private message.</p>"
         "<p>The Academy Watch</p>"
     )
 
@@ -246,6 +300,70 @@ def send_club_courtesy_notice(contact_request: ContactRequest) -> dict | None:
         "provider": getattr(result, "provider", None),
         "message_id": getattr(result, "message_id", None),
     }
+
+
+def send_club_consent_notice(contact_request: ContactRequest) -> bool:
+    """Best-effort delivery of signed consent actions to active managers."""
+    contacts = active_program_manager_contacts(contact_request.club_program_id)
+    recipients = [email for row in contacts if (email := _stored_email(row.get("email")))]
+    if not recipients:
+        logger.warning("No active manager email for contact request %s", contact_request.id)
+        return False
+
+    program = get_club_program(contact_request.club_program_id)
+    program_name = sanitize_plain_text(str((program or {}).get("name") or "your program")).strip()[:180]
+    from src.models.trust import ScoutVerification
+
+    verification = (
+        ScoutVerification.query.filter_by(user_account_id=contact_request.scout_user_id, status="approved")
+        .order_by(ScoutVerification.submitted_at.desc(), ScoutVerification.id.desc())
+        .first()
+    )
+    scout_name = sanitize_plain_text(
+        str(
+            getattr(verification, "full_name", None)
+            or getattr(contact_request.scout, "display_name", None)
+            or "Verified scout"
+        )
+    )
+    organization = sanitize_plain_text(str(getattr(verification, "organization", None) or "")).strip() or None
+
+    links = club_consent_action_links(contact_request.id)
+    identity = f"{scout_name} ({organization})" if organization else scout_name
+    subject = f"Club consent requested for player profile {contact_request.player_api_id}"
+    text = (
+        f"Hello {program_name},\n\n"
+        f"{identity}, a verified scout, requested an introduction to player profile "
+        f"{contact_request.player_api_id}. Messaging remains closed unless both the player and club consent.\n\n"
+        f"Grant: {links['grant']}\nDecline: {links['decline']}\n\n"
+        "These signed links expire after 14 days and stop working after either choice or request resolution.\n"
+    )
+    html = (
+        f"<p>Hello {escape(program_name)},</p>"
+        f"<p>{escape(identity)}, a verified scout, requested an introduction to player profile "
+        f"{contact_request.player_api_id}. Messaging remains closed unless both the player and club consent.</p>"
+        f'<p><a href="{escape(links["grant"])}">Review and grant</a> &nbsp; '
+        f'<a href="{escape(links["decline"])}">Review and decline</a></p>'
+        "<p>These signed links expire after 14 days and stop working after either choice or request resolution.</p>"
+    )
+    try:
+        from src.services.email_service import email_service
+
+        result = email_service.send_email(
+            to=recipients,
+            subject=subject,
+            html=html,
+            text=text,
+            tags=["club-consent-request"],
+            use_fallback=False,
+        )
+    except Exception:
+        logger.exception("Club consent notice failed for contact request %s", contact_request.id)
+        return False
+    if not getattr(result, "success", False):
+        logger.warning("Club consent notice was not delivered for contact request %s", contact_request.id)
+        return False
+    return True
 
 
 def add_audit_event(
@@ -291,17 +409,21 @@ def expire_if_due(contact_request: ContactRequest, *, now: datetime | None = Non
 __all__ = [
     "APPROACH_RULES_WARNING",
     "CONTRACT_STATUSES",
+    "CLUB_CONSENT_TOKEN_MAX_AGE_SECONDS",
     "ROUTING_CLUB_INCLUDED",
     "ROUTING_CLUB_NOTIFIED",
     "ROUTING_DIRECT",
     "add_audit_event",
     "clean_plain_text",
     "contact_rail_enabled",
+    "club_consent_action_links",
     "decline_cooldown_cutoff",
     "decline_cooldown_days",
     "expire_if_due",
     "effective_contract_status",
     "has_status_contradiction",
+    "issue_club_consent_token",
+    "load_club_consent_token",
     "messaging_is_open",
     "parse_occurred_at",
     "platform_contract_belief",
@@ -311,5 +433,6 @@ __all__ = [
     "require_contact_rail",
     "routing_mode_for_claim",
     "send_club_courtesy_notice",
+    "send_club_consent_notice",
     "utcnow",
 ]
