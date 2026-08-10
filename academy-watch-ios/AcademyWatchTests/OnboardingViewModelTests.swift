@@ -2,6 +2,11 @@ import XCTest
 @testable import AcademyWatch
 
 final class OnboardingViewModelTests: XCTestCase {
+    func testClubConsoleDestinationUsesCanonicalWebURL() {
+        XCTAssertEqual(LegalDestination.clubConsole.url.absoluteString, "https://theacademywatch.com/my-club")
+        XCTAssertFalse(LegalDestination.legalCases.contains(.clubConsole))
+    }
+
     @MainActor
     func testLocalPlayerValidationMirrorsBackendBoundsAndCarriesClubName() {
         let viewModel = LocalPlayerFormViewModel(context: .claimant, apiClient: OnboardingStubClient())

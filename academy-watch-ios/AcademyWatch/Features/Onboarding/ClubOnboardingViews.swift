@@ -71,7 +71,7 @@ struct ClubOnboardingView: View {
             Label("What verified clubs get", systemImage: "checkmark.shield.fill")
                 .font(.headline)
                 .foregroundStyle(AcademyColors.positiveGreen)
-            Text("Roster vouching is available now: approved club officials can confirm player affiliations and help review player claims connected to their club. A fuller club console is coming.")
+            Text("Roster vouching is available now: approved club officials can confirm player affiliations and help review player claims connected to their club. Roster, match video and player reports live in the web console.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -287,7 +287,7 @@ private struct ClubSearchResultButton: View {
 }
 
 @MainActor
-private struct ClubClaimDetailView: View {
+struct ClubClaimDetailView: View {
     let claimID: Int
     @ObservedObject var viewModel: ClubClaimViewModel
     @State private var proofURL = ""
@@ -316,9 +316,26 @@ private struct ClubClaimDetailView: View {
 
                         if claim.status == "pending" {
                             proofStep(claim)
+                        } else if claim.status == "approved" {
+                            VStack(alignment: .leading, spacing: 11) {
+                                LegalSafariLink(destination: .clubConsole) {
+                                    Label("Manage your club on the web", systemImage: "arrow.up.right.square")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(AcademyColors.claretFill)
+                                .accessibilityIdentifier("club-console-link")
+
+                                Text("Roster, match video and player reports live in the web console.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(17)
+                            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
                         }
 
-                        Text("Pending claims grant no club permissions. Once approved, club officials can vouch for roster affiliations; the broader club console is coming.")
+                        Text(claimStatusCopy(claim.status))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -330,6 +347,16 @@ private struct ClubClaimDetailView: View {
         .navigationTitle("Club claim")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { proofURL = claim?.verificationProofUrl ?? "" }
+    }
+
+    private func claimStatusCopy(_ status: String) -> String {
+        if status == "pending" {
+            return "Pending claims grant no club permissions. Once approved, club officials can vouch for roster affiliations and manage roster, match video and player reports in the web console."
+        }
+        if status == "approved" {
+            return "Your approved claim also lets you vouch for roster affiliations connected to your club."
+        }
+        return "This claim does not grant club permissions. You can review its status here and submit a new claim if appropriate."
     }
 
     private func proofStep(_ claim: ClubClaim) -> some View {
