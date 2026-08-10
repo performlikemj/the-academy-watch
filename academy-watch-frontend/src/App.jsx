@@ -95,6 +95,7 @@ import { ListsPage } from '@/pages/ListsPage'
 import { MyClub } from '@/pages/MyClub'
 import { LocalPlayerPage } from '@/pages/LocalPlayerPage'
 import { LocalPlayerCreate } from '@/pages/LocalPlayerCreate'
+import { PlayerOnboarding } from '@/pages/PlayerOnboarding'
 import { PricingPage } from '@/pages/PricingPage'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
@@ -183,6 +184,8 @@ const LEGAL_FOOTER_LINKS = [
   { to: '/community-rules', label: 'Community Rules' },
   { to: '/support', label: 'Support' },
 ]
+
+const PLAYER_ONBOARDING_PROMPT_KEY = 'academyWatch.playerOnboardingPromptDismissed.v1'
 
 const filterLatestSeasonTeams = (rows = []) => {
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -4045,6 +4048,65 @@ function StatsPage() {
   )
 }
 
+function PlayerOnboardingPrompt() {
+  const { token } = useAuth()
+  const navigate = useNavigate()
+  const [openForToken, setOpenForToken] = useState(null)
+
+  useEffect(() => {
+    if (!token || typeof window === 'undefined') return undefined
+
+    try {
+      if (window.localStorage.getItem(PLAYER_ONBOARDING_PROMPT_KEY)) return undefined
+    } catch {
+      return undefined
+    }
+
+    let cancelled = false
+    APIService.getMyClaims()
+      .then((data) => {
+        if (cancelled || !Array.isArray(data?.claims) || data.claims.length > 0) return
+        try {
+          if (!window.localStorage.getItem(PLAYER_ONBOARDING_PROMPT_KEY)) setOpenForToken(token)
+        } catch { /* localStorage unavailable: do not prompt */ }
+      })
+      .catch(() => { /* Transient claims failures must not trigger the prompt. */ })
+
+    return () => { cancelled = true }
+  }, [token])
+
+  const dismissPrompt = () => {
+    try {
+      window.localStorage.setItem(PLAYER_ONBOARDING_PROMPT_KEY, 'true')
+    } catch {
+      // Keep the prompt closed for this session when storage is unavailable.
+    }
+    setOpenForToken(null)
+  }
+
+  const findProfile = () => {
+    setOpenForToken(null)
+    navigate('/onboarding/player')
+  }
+
+  return (
+    <Dialog open={Boolean(token) && openForToken === token} onOpenChange={(nextOpen) => { if (!nextOpen) dismissPrompt() }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Are you a player?</DialogTitle>
+          <DialogDescription>
+            Find your tracked profile and start a “This is me” claim, or create a profile if you are not covered yet.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={dismissPrompt}>Not now</Button>
+          <Button type="button" onClick={findProfile}>Find my profile</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // Inner app component with Router context (for useNavigate in GlobalSearchDialog)
 function AppWithRouter() {
   const globalSearch = useGlobalSearch()
@@ -4068,6 +4130,7 @@ function AppWithRouter() {
           onSelect={globalSearch.addRecentSearch}
           onClearRecent={globalSearch.clearRecentSearches}
         />
+        <PlayerOnboardingPrompt />
         <main>
           <AppRoutes />
         </main>
@@ -4114,6 +4177,7 @@ function AppRoutes() {
       <Route path="/newsletters/historical" element={<HistoricalNewslettersPage />} />
       <Route path="/writeups/:commentaryId" element={<WriteupPage />} />
       <Route path="/players/:playerId" element={<PlayerPage />} />
+      <Route path="/onboarding/player" element={<PlayerOnboarding />} />
       <Route path="/local-players/new" element={<LocalPlayerCreate />} />
       <Route path="/local-players/:localPlayerId" element={<LocalPlayerPage />} />
       <Route path="/journalists" element={<JournalistList apiService={APIService} />} />
