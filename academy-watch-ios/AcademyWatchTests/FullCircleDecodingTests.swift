@@ -196,6 +196,19 @@ final class FullCircleDecodingTests: XCTestCase {
         XCTAssertNil(response.report.resolvedAt)
     }
 
+    func testPlayerProfileReportSubjectTypeUsesBackendRawValue() {
+        XCTAssertEqual(ContentReportSubjectType.playerProfile.rawValue, "player_profile")
+    }
+
+    func testPlayerProfileReportSubjectFactoryUsesPlayerIdentity() {
+        let subject = ContentReportSubject.playerProfile(playerID: 284_324, name: "Alejandro Garnacho")
+
+        XCTAssertEqual(subject.subjectType, .playerProfile)
+        XCTAssertEqual(subject.subjectID, "284324")
+        XCTAssertEqual(subject.title, "Report profile")
+        XCTAssertEqual(subject.defaultReason, .inappropriateContent)
+    }
+
     func testRequestReportSubjectsUseOtherAndStatusAwareBlockGuidance() throws {
         let response: ContactRequestsResponse = try decodeFixture("contact_requests_inbox")
         let request = try XCTUnwrap(response.requests.first)
