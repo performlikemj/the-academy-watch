@@ -327,6 +327,7 @@ def send_club_courtesy_notice(
             text=text,
             tags=["club-contact-notice"],
             use_fallback=False,
+            max_retries=0,
         )
     except Exception:
         logger.exception("Club courtesy notice failed for contact request %s", contact_request.id)
@@ -411,6 +412,7 @@ def send_club_consent_notice(contact_request: ContactRequest) -> bool:
             text=text,
             tags=["club-consent-request"],
             use_fallback=False,
+            max_retries=0,
         )
     except Exception:
         logger.exception("Club consent notice failed for contact request %s", contact_request.id)

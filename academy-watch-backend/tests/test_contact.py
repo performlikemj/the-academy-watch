@@ -1875,6 +1875,58 @@ class TestContractStatusRouting:
         assert len(matching_sends) == (1 if operational_at_send else 0)
         assert ContactRequest.query.count() == 1
 
+    @pytest.mark.parametrize("notice_kind", ["consent", "courtesy"])
+    def test_club_notice_provider_failure_has_no_unvalidated_retry(self, client, monkeypatch, notice_kind):
+        program_id = 142
+        player_api_id = 5841
+        _club_program(
+            program_id,
+            f"Single Attempt {notice_kind.title()} FC",
+            contact_email=f"single-attempt-{notice_kind}@example.com",
+        )
+        if notice_kind == "consent":
+            _club_manager(program_id, "single-attempt-manager@example.com")
+        _, scout_headers = _verified_scout(f"single-attempt-{notice_kind}-scout@example.com")
+        _claim(
+            f"single-attempt-{notice_kind}-player@example.com",
+            player_api_id,
+            contract_status="contracted",
+            club_program_id=program_id,
+        )
+        provider_attempts = []
+
+        from src.services.email_service import EmailResult, email_service
+
+        send_calls = []
+        real_send_email = email_service.send_email
+
+        def tracked_send_email(**kwargs):
+            send_calls.append(kwargs)
+            return real_send_email(**kwargs)
+
+        monkeypatch.setattr(email_service, "send_email", tracked_send_email)
+        monkeypatch.setattr(email_service.mailgun, "is_configured", lambda: True)
+
+        def failed_provider_attempt(**kwargs):
+            provider_attempts.append(kwargs)
+            return EmailResult(success=False, provider="mailgun", error="provider timeout", http_status=500)
+
+        monkeypatch.setattr(email_service.mailgun, "send", failed_provider_attempt)
+
+        created = _create(
+            client,
+            scout_headers,
+            player_api_id,
+            permission_attestation=True if notice_kind == "courtesy" else None,
+        )
+
+        assert created.status_code == 201, created.get_json()
+        assert len(send_calls) == 1
+        assert send_calls[0]["max_retries"] == 0
+        assert len(provider_attempts) == 1
+        expected_tag = "club-consent-request" if notice_kind == "consent" else "club-contact-notice"
+        assert provider_attempts[0]["tags"] == [expected_tag]
+
     @pytest.mark.parametrize("late_change", ["consent_hide", "consent_revoke", "courtesy_hide"])
     def test_notice_final_validation_runs_after_build_and_blocks_late_change(
         self,
