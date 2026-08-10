@@ -1,11 +1,14 @@
 import SafariServices
 import SwiftUI
 
-enum LegalDestination: String, CaseIterable, Identifiable {
+enum LegalDestination: String, Identifiable {
     case privacy
     case terms
     case communityRules
     case support
+    case clubConsole
+
+    static let legalCases: [Self] = [.privacy, .terms, .communityRules, .support]
 
     var id: String { rawValue }
 
@@ -15,6 +18,7 @@ enum LegalDestination: String, CaseIterable, Identifiable {
         case .terms: "Terms of Service"
         case .communityRules: "Community Rules"
         case .support: "Support"
+        case .clubConsole: "Club Console"
         }
     }
 
@@ -24,6 +28,7 @@ enum LegalDestination: String, CaseIterable, Identifiable {
         case .terms: URL(string: "https://theacademywatch.com/terms")!
         case .communityRules: URL(string: "https://theacademywatch.com/community-rules")!
         case .support: URL(string: "https://theacademywatch.com/support")!
+        case .clubConsole: URL(string: "https://theacademywatch.com/my-club")!
         }
     }
 
@@ -33,6 +38,7 @@ enum LegalDestination: String, CaseIterable, Identifiable {
         case .terms: "doc.text.fill"
         case .communityRules: "person.2.fill"
         case .support: "questionmark.circle.fill"
+        case .clubConsole: "building.2.fill"
         }
     }
 }

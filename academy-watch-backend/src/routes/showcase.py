@@ -3138,6 +3138,13 @@ def admin_review_club_claim(claim_id: int):
         claim.reviewed_at = now
         claim.updated_at = now
         db.session.commit()
+        if action in {"approve", "reject"}:
+            try:
+                from src.services.trust_decision_email_service import send_club_claim_decision_email
+
+                send_club_claim_decision_email(claim, action)
+            except Exception:
+                logger.exception("Failed to dispatch %s email for club claim %s", action, claim_id)
         return jsonify({"claim": _club_claim_dict(claim, include_verification_code=False)})
     except Exception as e:
         db.session.rollback()

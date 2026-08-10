@@ -573,7 +573,7 @@ struct AccountView: View {
                 .padding(.horizontal, 4)
 
             VStack(spacing: 0) {
-                ForEach(LegalDestination.allCases) { destination in
+                ForEach(LegalDestination.legalCases) { destination in
                     LegalSafariLink(destination: destination) {
                         HStack(spacing: 13) {
                             Image(systemName: destination.systemImage)
@@ -598,7 +598,7 @@ struct AccountView: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("account-legal-\(destination.rawValue)")
 
-                    if destination != LegalDestination.allCases.last {
+                    if destination != LegalDestination.legalCases.last {
                         Divider().padding(.leading, 57)
                     }
                 }

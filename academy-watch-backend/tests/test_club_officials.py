@@ -9,10 +9,13 @@ import json
 import re
 from datetime import UTC, datetime
 from io import BytesIO
+from types import SimpleNamespace
 
 import pytest
 from flask import Flask
+from sqlalchemy import select
 from src.auth import _ensure_user_account, issue_user_token
+from src.models.funding import ClubProgram  # noqa: F401 - registers the FK target for db.create_all()
 from src.models.league import League, Team, db
 from src.models.showcase import (
     ClubOfficialClaim,
@@ -29,6 +32,17 @@ OTHER_PLAYER_ID = 5002
 TEAM_ID = 4401
 OTHER_TEAM_ID = 4402
 CODE_PATTERN = re.compile(r"^AW-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$")
+
+
+@pytest.fixture(autouse=True)
+def _stub_email_delivery(monkeypatch):
+    from src.services.email_service import email_service
+
+    monkeypatch.setattr(
+        email_service,
+        "send_email",
+        lambda **_kwargs: SimpleNamespace(success=True, provider="stub", message_id="test-email"),
+    )
 
 
 @pytest.fixture
@@ -911,6 +925,140 @@ class TestAdminClubClaims:
             stored = db.session.get(ClubOfficialClaim, claim_id)
             assert stored.status == expected_status
             assert stored.review_note == "Checked by operations"
+
+    def test_approve_sends_decision_email_with_console_link(self, app, client, monkeypatch):
+        sends = []
+        from src.services.email_service import email_service
+
+        monkeypatch.setenv("PUBLIC_BASE_URL", "https://clubs.example/")
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **kwargs: (
+                sends.append(kwargs) or SimpleNamespace(success=True, provider="mailgun", message_id="club-approved")
+            ),
+        )
+        with app.app_context():
+            _seed_team()
+            _, claim = _seed_official_claim(email="approved-club@example.com", team_api_id=TEAM_ID)
+            claim_id = claim.id
+
+        response = client.post(
+            f"/api/admin/club-claims/{claim_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert sends[0]["to"] == "approved-club@example.com"
+        assert sends[0]["subject"] == "Your club claim was approved"
+        assert "your claim for northbridge united" in sends[0]["text"].lower()
+        assert "https://clubs.example/my-club" in sends[0]["text"]
+        assert 'href="https://clubs.example/my-club"' in sends[0]["html"]
+
+    def test_reject_sends_decision_email_without_console_link(self, app, client, monkeypatch):
+        sends = []
+        from src.services.email_service import email_service
+
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **kwargs: (
+                sends.append(kwargs) or SimpleNamespace(success=True, provider="mailgun", message_id="club-rejected")
+            ),
+        )
+        with app.app_context():
+            club = _seed_local_club("Northside Juniors")
+            _, claim = _seed_official_claim(email="rejected-club@example.com", local_club_id=club.id)
+            claim_id = claim.id
+
+        response = client.post(
+            f"/api/admin/club-claims/{claim_id}/review",
+            json={"action": "reject"},
+            headers=_admin_headers(),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert sends[0]["to"] == "rejected-club@example.com"
+        assert sends[0]["subject"] == "Your club claim was not approved"
+        assert "your claim for northside juniors" in sends[0]["text"].lower()
+        assert "/my-club" not in sends[0]["text"]
+        assert "/my-club" not in sends[0]["html"]
+
+    def test_revoke_does_not_send_decision_email(self, app, client, monkeypatch):
+        sends = []
+        from src.services.email_service import email_service
+
+        monkeypatch.setattr(email_service, "send_email", lambda **kwargs: sends.append(kwargs))
+        with app.app_context():
+            _, claim = _seed_official_claim(team_api_id=TEAM_ID, status="approved")
+            claim_id = claim.id
+
+        response = client.post(
+            f"/api/admin/club-claims/{claim_id}/review",
+            json={"action": "revoke"},
+            headers=_admin_headers(),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert sends == []
+
+    def test_decision_email_failure_does_not_fail_review(self, app, client, monkeypatch):
+        from src.services.email_service import email_service
+
+        monkeypatch.setattr(
+            email_service,
+            "send_email",
+            lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("mail unavailable")),
+        )
+        with app.app_context():
+            _, claim = _seed_official_claim(team_api_id=TEAM_ID)
+            claim_id = claim.id
+
+        response = client.post(
+            f"/api/admin/club-claims/{claim_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert response.get_json()["claim"]["status"] == "approved"
+
+    def test_decision_email_runs_after_commit_and_failure_does_not_rollback(self, app, client, monkeypatch):
+        from src.services import trust_decision_email_service
+
+        persisted_statuses = []
+        with app.app_context():
+            _, claim = _seed_official_claim(team_api_id=TEAM_ID)
+            claim_id = claim.id
+
+        def record_persisted_status_and_fail(claim, action):
+            assert action == "approve"
+            with db.engine.connect() as connection:
+                persisted_status = connection.execute(
+                    select(ClubOfficialClaim.status).where(ClubOfficialClaim.id == claim.id)
+                ).scalar_one()
+            persisted_statuses.append(persisted_status)
+            assert persisted_status == "approved"
+            raise RuntimeError("mail hook unavailable")
+
+        monkeypatch.setattr(
+            trust_decision_email_service,
+            "send_club_claim_decision_email",
+            record_persisted_status_and_fail,
+        )
+
+        response = client.post(
+            f"/api/admin/club-claims/{claim_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert persisted_statuses == ["approved"]
+        with app.app_context():
+            db.session.expire_all()
+            assert db.session.get(ClubOfficialClaim, claim_id).status == "approved"
 
     @pytest.mark.parametrize(
         ("starting_status", "action"),

@@ -1,9 +1,10 @@
 """Best-effort applicant emails for Trust Desk decisions."""
 
 import logging
+import os
 from html import escape
 
-from src.models.showcase import PlayerProfileClaim
+from src.models.showcase import ClubOfficialClaim, PlayerProfileClaim
 from src.models.trust import ScoutVerification
 
 logger = logging.getLogger(__name__)
@@ -100,4 +101,52 @@ def send_player_claim_decision_email(claim: PlayerProfileClaim, action: str, pla
     )
 
 
-__all__ = ["send_player_claim_decision_email", "send_scout_verification_decision_email"]
+def send_club_claim_decision_email(claim: ClubOfficialClaim, action: str) -> bool:
+    """Email a club claimant after an approve/reject decision."""
+    from src.routes.showcase import _club_reference_name
+
+    recipient = claim.user.email if claim.user else None
+    name = claim.user.display_name if claim.user and claim.user.display_name else "there"
+    club_name = _club_reference_name(
+        team_api_id=claim.team_api_id,
+        local_club_id=claim.local_club_id,
+    )
+    club_reference = club_name or "the club"
+    if action == "approve":
+        subject = "Your club claim was approved"
+        decision = f"Your claim for {club_reference} has been approved."
+        base = (os.getenv("PUBLIC_BASE_URL") or "https://theacademywatch.com").strip().rstrip("/")
+        console_url = f"{base}/my-club"
+        console_text = f"Manage your club on the web — roster, match video and player reports: {console_url}"
+        console_html = (
+            "<p>Manage your club on the web — roster, match video and player reports: "
+            f'<a href="{escape(console_url, quote=True)}">{escape(console_url)}</a></p>'
+        )
+    else:
+        subject = "Your club claim was not approved"
+        decision = (
+            f"Your claim for {club_reference} was not approved. You may review your claim details "
+            "and submit a new claim if appropriate."
+        )
+        console_text = ""
+        console_html = ""
+
+    text = f"Hello {name},\n\n{decision}"
+    if console_text:
+        text += f"\n\n{console_text}"
+    text += "\n\nThe Academy Watch"
+    html = f"<p>Hello {escape(name)},</p><p>{escape(decision)}</p>{console_html}<p>The Academy Watch</p>"
+    return _send_decision_email(
+        recipient=recipient,
+        subject=subject,
+        text=text,
+        html=html,
+        tag="club-claim-decision",
+    )
+
+
+__all__ = [
+    "send_club_claim_decision_email",
+    "send_player_claim_decision_email",
+    "send_scout_verification_decision_email",
+]
