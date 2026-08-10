@@ -986,11 +986,11 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
       ) : null}
       {loading ? (
         <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading saved matches…</CardContent></Card>
-      ) : error ? (
+      ) : error && loadFailureCount === 0 ? (
         <Card><CardContent className="space-y-3 py-10 text-center"><InlineError>{error}</InlineError><Button variant="outline" onClick={onReload}><RefreshCw className="mr-1.5 h-4 w-4" /> Try again</Button></CardContent></Card>
-      ) : matches.length === 0 ? (
+      ) : matches.length === 0 && loadFailureCount === 0 ? (
         <EmptyState icon={Film} title="No matches in this browser yet">Create the first match workspace. Until a backend list endpoint exists, this browser remembers the match IDs it creates.</EmptyState>
-      ) : (
+      ) : matches.length > 0 ? (
         <div className="grid items-start gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
           <div className="space-y-2 lg:sticky lg:top-20">
             {matches.map((match) => {
@@ -1018,7 +1018,7 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
             />
           ) : null}
         </div>
-      )}
+      ) : null}
       <CreateMatchDialog open={createOpen} onOpenChange={setCreateOpen} programId={programId} onCreated={created} onAccessDenied={onAccessDenied} />
     </div>
   )

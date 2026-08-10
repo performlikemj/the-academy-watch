@@ -124,7 +124,7 @@ function AuthenticatedMyClub() {
   const [message, setMessage] = useState(null)
   const [programClaims, setProgramClaims] = useState([])
   const [programClaimsLoaded, setProgramClaimsLoaded] = useState(false)
-  const [consoleEligibility, setConsoleEligibility] = useState({ pending: false, allowed: [], deniedProgramIds: [] })
+  const [consoleEligibility, setConsoleEligibility] = useState({ pending: false, allowed: [], deniedProgramIds: [], erroredProgramIds: [] })
   const [selectedProgramId, setSelectedProgramId] = useState(null)
 
   const [claimOpen, setClaimOpen] = useState(false)
@@ -255,9 +255,10 @@ function AuthenticatedMyClub() {
     let cancelled = false
     const expectedToken = auth?.token
     const timer = setTimeout(async () => {
-      setConsoleEligibility({ pending: approvedProgramClaims.length > 0, allowed: [], deniedProgramIds: [] })
+      setConsoleEligibility({ pending: approvedProgramClaims.length > 0, allowed: [], deniedProgramIds: [], erroredProgramIds: [] })
       const allowed = []
       const deniedProgramIds = []
+      const erroredProgramIds = []
       for (const programClaim of approvedProgramClaims) {
         const programId = Number(programClaim.program.id)
         try {
@@ -267,10 +268,11 @@ function AuthenticatedMyClub() {
         } catch (error) {
           if (cancelled || activeTokenRef.current !== expectedToken) return
           if (error?.status === 403) deniedProgramIds.push(programId)
+          else erroredProgramIds.push(programId)
         }
       }
       if (cancelled || activeTokenRef.current !== expectedToken) return
-      setConsoleEligibility({ pending: false, allowed, deniedProgramIds })
+      setConsoleEligibility({ pending: false, allowed, deniedProgramIds, erroredProgramIds })
       setSelectedProgramId((current) => (
         allowed.some(({ programClaim }) => Number(programClaim.program.id) === Number(current))
           ? current
@@ -551,6 +553,40 @@ function AuthenticatedMyClub() {
     }))
   }, [])
 
+  const retryConsoleEligibility = useCallback(async () => {
+    const expectedToken = auth?.token
+    const retryProgramIds = consoleEligibility.erroredProgramIds
+    if (!expectedToken || consoleEligibility.pending || retryProgramIds.length === 0) return
+    const retryProgramIdSet = new Set(retryProgramIds.map(Number))
+    const retryClaims = approvedProgramClaims.filter((programClaim) => (
+      retryProgramIdSet.has(Number(programClaim.program.id))
+    ))
+    setConsoleEligibility((current) => ({ ...current, pending: true }))
+    const allowed = []
+    const deniedProgramIds = []
+    const erroredProgramIds = []
+    for (const programClaim of retryClaims) {
+      const programId = Number(programClaim.program.id)
+      try {
+        const roster = await APIService.getClubRoster(programId)
+        if (activeTokenRef.current !== expectedToken) return
+        allowed.push({ programClaim, roster })
+      } catch (error) {
+        if (activeTokenRef.current !== expectedToken) return
+        if (error?.status === 403) deniedProgramIds.push(programId)
+        else erroredProgramIds.push(programId)
+      }
+    }
+    if (activeTokenRef.current !== expectedToken) return
+    setConsoleEligibility((current) => ({
+      pending: false,
+      allowed: [...current.allowed, ...allowed],
+      deniedProgramIds: [...new Set([...current.deniedProgramIds, ...deniedProgramIds])],
+      erroredProgramIds,
+    }))
+    setSelectedProgramId((current) => current ?? allowed[0]?.programClaim?.program?.id ?? null)
+  }, [approvedProgramClaims, auth?.token, consoleEligibility.erroredProgramIds, consoleEligibility.pending])
+
   if (hasLoadedData && loadedToken === auth.token && !consoleEligibility.pending && activeConsoleProgram) {
     const activeProgramId = Number(activeConsoleProgram.programClaim.program.id)
     return (
@@ -598,6 +634,23 @@ function AuthenticatedMyClub() {
             )}
             <AlertDescription className={message.type === 'error' ? 'text-rose-800' : 'text-emerald-800'}>
               {message.text}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {hasLoadedData && loadedToken === auth.token && !activeConsoleProgram && consoleEligibility.erroredProgramIds.length > 0 ? (
+          <Alert className="border-amber-200 bg-amber-50">
+            <AlertCircle className="h-4 w-4 text-amber-800" />
+            <AlertDescription className="flex flex-wrap items-center gap-1 text-amber-950">
+              We couldn&apos;t check your club console access.
+              <Button
+                variant="link"
+                className="h-auto p-0 text-amber-950 underline"
+                onClick={retryConsoleEligibility}
+                disabled={consoleEligibility.pending}
+              >
+                {consoleEligibility.pending ? 'Checking…' : 'Retry'}
+              </Button>
             </AlertDescription>
           </Alert>
         ) : null}
