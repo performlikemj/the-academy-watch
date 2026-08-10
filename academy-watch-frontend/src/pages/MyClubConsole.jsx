@@ -45,6 +45,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -69,6 +70,18 @@ const EMPTY_MATCH_FORM = {
   opponent_kit_color: '',
   match_date: '',
 }
+const MATCH_FORM_FIELDS = [
+  'opponent_name',
+  'competition',
+  'our_kit_color',
+  'opponent_kit_color',
+  'match_date',
+  'kickoff_s',
+  'halftime_s',
+  'second_half_kickoff_s',
+  'duration_s',
+]
+const TIMELINE_FIELDS = ['kickoff_s', 'halftime_s', 'second_half_kickoff_s', 'duration_s']
 
 function errorText(error, fallback) {
   return error?.body?.error || error?.message || fallback
@@ -126,30 +139,33 @@ function isSasFresh(grant) {
   return Number.isFinite(expiry) && expiry > Date.now() + 60_000
 }
 
-function uploadVideo(uploadUrl, file, onProgress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('PUT', uploadUrl)
-    xhr.setRequestHeader('x-ms-blob-type', 'BlockBlob')
-    xhr.setRequestHeader('Content-Type', 'video/mp4')
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
-    }
-    xhr.onerror = () => reject(Object.assign(new Error('The video upload could not reach blob storage.'), { status: 0 }))
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve()
-      else reject(Object.assign(new Error(`Video upload failed (HTTP ${xhr.status})`), { status: xhr.status }))
-    }
-    xhr.send(file)
-  })
+function matchFormValues(match) {
+  return {
+    opponent_name: match.opponent_name || '',
+    competition: match.competition || '',
+    our_kit_color: match.our_kit_color || '',
+    opponent_kit_color: match.opponent_kit_color || '',
+    match_date: match.match_date || '',
+    kickoff_s: match.kickoff_s ?? '',
+    halftime_s: match.halftime_s ?? '',
+    second_half_kickoff_s: match.second_half_kickoff_s ?? '',
+    duration_s: match.duration_s ?? '',
+  }
 }
 
-function timelinePayload(values, { includeEmpty = false } = {}) {
+function matchRosterValues(match) {
+  return Array.isArray(match.roster) ? match.roster.map((entry) => ({
+    club_roster_member_id: entry.club_roster_member_id,
+    jersey_number: String(entry.jersey_number),
+  })).filter((entry) => entry.club_roster_member_id) : []
+}
+
+function timelinePayload(values, { dirtyFields } = {}) {
   const payload = {}
-  for (const field of ['kickoff_s', 'halftime_s', 'second_half_kickoff_s', 'duration_s']) {
+  for (const field of TIMELINE_FIELDS) {
     const raw = values[field]
     if (raw === '' || raw === null || typeof raw === 'undefined') {
-      if (includeEmpty) payload[field] = null
+      if (dirtyFields?.has(field)) payload[field] = null
       continue
     }
     const parsed = Number(raw)
@@ -630,35 +646,42 @@ function MatchReport({ programId, match, onAccessDenied }) {
 
 function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChange, onUploadGrantChange, onAccessDenied, onRefresh }) {
   const editable = EDITABLE_MATCH_STATUSES.has(match.status)
-  const [form, setForm] = useState({
-    opponent_name: match.opponent_name || '',
-    competition: match.competition || '',
-    our_kit_color: match.our_kit_color || '',
-    opponent_kit_color: match.opponent_kit_color || '',
-    match_date: match.match_date || '',
-    kickoff_s: match.kickoff_s ?? '',
-    halftime_s: match.halftime_s ?? '',
-    second_half_kickoff_s: match.second_half_kickoff_s ?? '',
-    duration_s: match.duration_s ?? '',
-  })
+  const [form, setForm] = useState(() => matchFormValues(match))
+  const dirtyFieldsRef = useRef(new Set())
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState(null)
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadError, setUploadError] = useState(null)
   const [processing, setProcessing] = useState(false)
   const [processError, setProcessError] = useState(null)
-  const [matchRoster, setMatchRoster] = useState(() => (Array.isArray(match.roster) ? match.roster.map((entry) => ({
-    club_roster_member_id: entry.club_roster_member_id,
-    jersey_number: String(entry.jersey_number),
-  })).filter((entry) => entry.club_roster_member_id) : []))
+  const [matchRoster, setMatchRoster] = useState(() => matchRosterValues(match))
+  const rosterDirtyRef = useRef(false)
   const [rosterSaving, setRosterSaving] = useState(false)
   const [rosterError, setRosterError] = useState(null)
 
   const availableMembers = useMemo(() => rosterMembers.filter((member) => member.available), [rosterMembers])
   const selectedMemberIds = useMemo(() => new Set(matchRoster.map((entry) => entry.club_roster_member_id)), [matchRoster])
-  const updateForm = (field, value) => setForm((current) => ({ ...current, [field]: value }))
+  const updateForm = (field, value) => {
+    dirtyFieldsRef.current.add(field)
+    setForm((current) => ({ ...current, [field]: value }))
+  }
+
+  useEffect(() => {
+    const refreshedForm = matchFormValues(match)
+    setForm((current) => Object.fromEntries(MATCH_FORM_FIELDS.map((field) => [
+      field,
+      dirtyFieldsRef.current.has(field) ? current[field] : refreshedForm[field],
+    ])))
+    const validMemberIds = new Set(rosterMembers.map((member) => member.id))
+    setMatchRoster((current) => {
+      const refreshedRoster = rosterDirtyRef.current ? current : matchRosterValues(match)
+      return refreshedRoster.filter((entry) => validMemberIds.has(entry.club_roster_member_id))
+    })
+  }, [match, rosterMembers])
 
   const handleConsoleError = (requestError, fallback, setter) => {
     if (requestError?.status === 403) {
@@ -679,9 +702,10 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
         our_kit_color: form.our_kit_color.trim() || null,
         opponent_kit_color: form.opponent_kit_color.trim() || null,
         match_date: form.match_date || null,
-        ...timelinePayload(form, { includeEmpty: true }),
+        ...timelinePayload(form, { dirtyFields: dirtyFieldsRef.current }),
       }
       const updated = await APIService.patchClubMatch(programId, match.id, payload)
+      dirtyFieldsRef.current.clear()
       onMatchChange({ ...match, ...updated, roster: match.roster, processing_request_status: match.processing_request_status })
     } catch (requestError) {
       handleConsoleError(requestError, 'Could not save match details.', setSaveError)
@@ -708,7 +732,7 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
         throw new Error(`This file is ${formatBytes(file.size)}. The maximum is ${formatBytes(grant.max_bytes)}.`)
       }
       try {
-        await uploadVideo(grant.upload_url, file, setUploadProgress)
+        await APIService.uploadVideoToBlob(grant.upload_url, file, setUploadProgress)
       } catch (storageError) {
         if (storageError?.status !== 403) throw storageError
         grant = await APIService.mintMatchSas(programId, match.id)
@@ -716,7 +740,7 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
         if (Number.isFinite(Number(grant.max_bytes)) && file.size > Number(grant.max_bytes)) {
           throw new Error(`This file is ${formatBytes(file.size)}. The maximum is ${formatBytes(grant.max_bytes)}.`, { cause: storageError })
         }
-        await uploadVideo(grant.upload_url, file, setUploadProgress)
+        await APIService.uploadVideoToBlob(grant.upload_url, file, setUploadProgress)
       }
       const completed = await APIService.completeMatchUpload(programId, match.id, timelinePayload(form))
       onMatchChange({ ...match, ...completed, roster: match.roster, processing_request_status: null })
@@ -737,11 +761,15 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
 
   const toggleRosterMember = (memberId, checked) => {
     setRosterError(null)
+    rosterDirtyRef.current = true
     setMatchRoster((current) => checked
       ? [...current, { club_roster_member_id: memberId, jersey_number: '' }]
       : current.filter((entry) => entry.club_roster_member_id !== memberId))
   }
-  const setJersey = (memberId, value) => setMatchRoster((current) => current.map((entry) => entry.club_roster_member_id === memberId ? { ...entry, jersey_number: value } : entry))
+  const setJersey = (memberId, value) => {
+    rosterDirtyRef.current = true
+    setMatchRoster((current) => current.map((entry) => entry.club_roster_member_id === memberId ? { ...entry, jersey_number: value } : entry))
+  }
 
   const saveRoster = async () => {
     if (!editable || rosterSaving) return
@@ -763,11 +791,25 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
     setRosterError(null)
     try {
       const response = await APIService.setMatchRoster(programId, match.id, entries)
+      rosterDirtyRef.current = false
       onMatchChange({ ...match, roster: Array.isArray(response?.roster) ? response.roster : [] })
     } catch (requestError) {
       handleConsoleError(requestError, 'Could not save the match roster.', setRosterError)
     } finally {
       setRosterSaving(false)
+    }
+  }
+
+  const refreshMatch = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    setRefreshError(null)
+    try {
+      await onRefresh()
+    } catch (requestError) {
+      setRefreshError(errorText(requestError, 'Could not refresh this match.'))
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -804,8 +846,9 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
             <span><Users className="mr-1 inline h-3.5 w-3.5" /> {Array.isArray(match.roster) ? match.roster.length : 0} selected</span>
             <span><CircleDot className="mr-1 inline h-3.5 w-3.5" /> {match.processing_request_status === 'requested' ? 'Processing requested' : 'Not queued'}</span>
           </div>
-          <Button variant="ghost" size="sm" onClick={onRefresh}><RefreshCw className="mr-1.5 h-4 w-4" /> Refresh</Button>
+          <Button variant="ghost" size="sm" onClick={refreshMatch} disabled={refreshing}>{refreshing ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />} Refresh</Button>
         </div>
+        {refreshError ? <Alert className="border-amber-200 bg-amber-50"><AlertCircle className="h-4 w-4 text-amber-800" /><AlertDescription className="flex flex-wrap items-center gap-1 text-amber-950">{refreshError} <Button variant="link" className="h-auto p-0 text-amber-950 underline" onClick={refreshMatch}>Retry</Button></AlertDescription></Alert> : null}
 
         <section className="space-y-3" aria-labelledby={`match-${match.id}-details`}>
           <div><h3 id={`match-${match.id}-details`} className="font-bold text-foreground">Match details &amp; timeline</h3><p className="text-sm text-muted-foreground">Timeline values are raw seconds from the start of the video.</p></div>
@@ -890,7 +933,7 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
   )
 }
 
-function MatchesPanel({ programId, rosterMembers, matches, loading, error, uploadGrants, onMatchesChange, onUploadGrantChange, onReload, onAccessDenied }) {
+function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadFailureCount, uploadGrants, onMatchesChange, onUploadGrantChange, onReload, onAccessDenied }) {
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedId, setSelectedId] = useState(() => matches[0]?.id || null)
   const selectedMatch = matches.find((match) => match.id === selectedId) || matches[0] || null
@@ -918,7 +961,11 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, uploa
       const updated = await APIService.getClubMatch(programId, selectedMatch.id)
       upsertMatch(updated)
     } catch (requestError) {
-      if (requestError?.status === 403) onAccessDenied()
+      if (requestError?.status === 403) {
+        onAccessDenied()
+        return
+      }
+      throw requestError
     }
   }
 
@@ -928,6 +975,15 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, uploa
         <div><h2 className="text-xl font-bold tracking-tight text-foreground">Matches &amp; reports</h2><p className="mt-1 text-sm text-muted-foreground">Create, upload and queue private match analysis.</p></div>
         <Button onClick={() => setCreateOpen(true)}><Plus className="mr-1.5 h-4 w-4" /> Create match</Button>
       </div>
+      {loadFailureCount > 0 ? (
+        <Alert className="border-amber-200 bg-amber-50">
+          <AlertCircle className="h-4 w-4 text-amber-800" />
+          <AlertDescription className="flex flex-wrap items-center gap-1 text-amber-950">
+            {loadFailureCount} saved {loadFailureCount === 1 ? 'match' : 'matches'} could not be loaded —
+            <Button variant="link" className="h-auto p-0 text-amber-950 underline" onClick={onReload}>Retry</Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {loading ? (
         <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading saved matches…</CardContent></Card>
       ) : error ? (
@@ -997,15 +1053,16 @@ function ClubProfile({ program, claim }) {
   )
 }
 
-export function MyClubConsole({ programClaim, onAccessDenied }) {
+export function MyClubConsole({ programClaim, initialRoster, programOptions, onProgramChange, onAccessDenied }) {
   const program = programClaim.program
   const programId = program.id
-  const [members, setMembers] = useState([])
-  const [rosterLoading, setRosterLoading] = useState(true)
+  const [members, setMembers] = useState(() => (Array.isArray(initialRoster?.members) ? initialRoster.members : []))
+  const [rosterLoading, setRosterLoading] = useState(false)
   const [rosterError, setRosterError] = useState(null)
   const [matches, setMatches] = useState([])
   const [matchesLoading, setMatchesLoading] = useState(true)
   const [matchesError, setMatchesError] = useState(null)
+  const [matchesLoadFailureCount, setMatchesLoadFailureCount] = useState(0)
   const [uploadGrants, setUploadGrants] = useState({})
   const mountedRef = useRef(true)
 
@@ -1034,6 +1091,7 @@ export function MyClubConsole({ programClaim, onAccessDenied }) {
   const loadMatches = useCallback(async () => {
     setMatchesLoading(true)
     setMatchesError(null)
+    setMatchesLoadFailureCount(0)
     const ids = loadMatchIds(programId)
     if (ids.length === 0) {
       setMatches([])
@@ -1049,8 +1107,10 @@ export function MyClubConsole({ programClaim, onAccessDenied }) {
     }
     const loaded = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
     const retainedIds = results.flatMap((result, index) => result.status === 'fulfilled' || result.reason?.status !== 404 ? [ids[index]] : [])
+    const failureCount = results.filter((result) => result.status === 'rejected' && result.reason?.status !== 404).length
     saveMatchIds(programId, retainedIds)
     setMatches(loaded)
+    setMatchesLoadFailureCount(failureCount)
     if (loaded.length === 0 && results.some((result) => result.status === 'rejected' && result.reason?.status !== 404)) {
       setMatchesError('Saved match details could not be loaded. Try again.')
     }
@@ -1059,11 +1119,10 @@ export function MyClubConsole({ programClaim, onAccessDenied }) {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      loadRoster()
       loadMatches()
     }, 0)
     return () => clearTimeout(timer)
-  }, [loadMatches, loadRoster])
+  }, [loadMatches])
 
   const setGrant = useCallback((matchId, grant) => setUploadGrants((current) => ({ ...current, [matchId]: grant })), [])
 
@@ -1079,7 +1138,19 @@ export function MyClubConsole({ programClaim, onAccessDenied }) {
               <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">{program.name}</h1>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">Run your private squad and match-analysis workflow from upload through finalized player reports.</p>
             </div>
-            <Badge className="w-fit border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-emerald-200"><CircleDot className="mr-1.5 h-3.5 w-3.5" /> Program active</Badge>
+            <div className="flex w-full flex-col items-start gap-3 sm:w-auto sm:items-end">
+              <Badge className="w-fit border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-emerald-200"><CircleDot className="mr-1.5 h-3.5 w-3.5" /> Program active</Badge>
+              {programOptions.length > 1 ? (
+                <Select value={String(programId)} onValueChange={(value) => onProgramChange(Number(value))}>
+                  <SelectTrigger className="w-full border-white/20 bg-white/10 text-white sm:w-64" aria-label="Switch club program">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {programOptions.map((option) => <SelectItem key={option.program.id} value={String(option.program.id)}>{option.program.name || `Program #${option.program.id}`}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : null}
+            </div>
           </div>
         </header>
 
@@ -1093,7 +1164,7 @@ export function MyClubConsole({ programClaim, onAccessDenied }) {
             <RosterPanel programId={programId} members={members} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onReload={loadRoster} onAccessDenied={onAccessDenied} />
           </TabsContent>
           <TabsContent value="matches">
-            <MatchesPanel programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
+            <MatchesPanel programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
           </TabsContent>
           <TabsContent value="profile"><ClubProfile program={program} claim={programClaim} /></TabsContent>
         </Tabs>
