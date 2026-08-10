@@ -31,6 +31,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { VerificationCode, VerificationInstructions } from '@/components/showcase/VerificationCode'
+import { MyClubConsole } from '@/pages/MyClubConsole'
 
 const EMPTY_CLUB_RESULTS = { api_teams: [], local_clubs: [] }
 
@@ -121,6 +122,8 @@ function AuthenticatedMyClub() {
   const [loadedToken, setLoadedToken] = useState(null)
   const [hasLoadedData, setHasLoadedData] = useState(false)
   const [message, setMessage] = useState(null)
+  const [programClaims, setProgramClaims] = useState([])
+  const [consoleAccessDenied, setConsoleAccessDenied] = useState(false)
 
   const [claimOpen, setClaimOpen] = useState(false)
   const [clubSearch, setClubSearch] = useState('')
@@ -215,6 +218,26 @@ function AuthenticatedMyClub() {
       dataRequestRef.current += 1
     }
   }, [auth?.token, refreshData])
+
+  useEffect(() => {
+    if (!auth?.token) return undefined
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      try {
+        const response = await APIService.getMyProgramClaims()
+        if (!cancelled && activeTokenRef.current === auth.token) {
+          setProgramClaims(Array.isArray(response?.claims) ? response.claims : [])
+        }
+      } catch {
+        // Program discovery is additive. The established claim and verification
+        // workspace remains unchanged if the funding registry is unavailable.
+      }
+    }, 0)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [auth?.token])
 
   useEffect(() => {
     const query = clubSearch.trim()
@@ -473,6 +496,17 @@ function AuthenticatedMyClub() {
   }
 
   const clubResultCount = clubResults.api_teams.length + clubResults.local_clubs.length
+  const activeProgramClaim = programClaims.find((programClaim) => (
+    programClaim?.status === 'approved'
+    && programClaim?.program?.platform_status === 'approved'
+    && Number.isInteger(Number(programClaim?.program?.id))
+    && Number(programClaim.program.id) > 0
+  ))
+  const handleConsoleAccessDenied = useCallback(() => setConsoleAccessDenied(true), [])
+
+  if (hasLoadedData && loadedToken === auth.token && activeProgramClaim && !consoleAccessDenied) {
+    return <MyClubConsole programClaim={activeProgramClaim} onAccessDenied={handleConsoleAccessDenied} />
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
