@@ -8,6 +8,7 @@ from src.auth import _safe_error_payload, require_user_auth
 from src.extensions import limiter
 from src.models.league import UserAccount, db
 from src.models.user_block import UserBlock
+from src.services.club_registry import active_manager_program_ids, program_is_operational
 from src.services.user_blocks import (
     is_user_blocks_undefined_table_error,
     log_user_blocks_table_unavailable_once,
@@ -103,6 +104,9 @@ def create_user_block():
 def list_user_blocks():
     """List only blocks created by the authenticated caller."""
     try:
+        managed_program_ids = sorted(active_manager_program_ids(g.user.id))
+        if any(not program_is_operational(program_id, for_update=True) for program_id in managed_program_ids):
+            return jsonify({"blocks": []})
         rows = (
             db.session.query(UserBlock, UserAccount)
             .join(UserAccount, UserAccount.id == UserBlock.blocked_user_id)

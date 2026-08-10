@@ -207,7 +207,9 @@ def build_account_export(user: UserAccount) -> dict:
     received_request_ids = {row.id for row in received_requests}
 
     managed_program_ids = [
-        program_id for program_id in active_manager_program_ids(user.id) if program_is_operational(program_id)
+        program_id
+        for program_id in sorted(active_manager_program_ids(user.id))
+        if program_is_operational(program_id, for_update=True)
     ]
     club_requests = []
     if managed_program_ids:

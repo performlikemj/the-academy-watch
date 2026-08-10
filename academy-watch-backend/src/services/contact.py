@@ -244,18 +244,39 @@ def club_consent_action_links(contact_request_id: str) -> dict[str, str]:
     }
 
 
-def send_club_courtesy_notice(contact_request: ContactRequest) -> dict | None:
+def resolve_club_courtesy_target(
+    *,
+    program_id: int | None,
+    club_name: str | None,
+    player_api_id: int | None,
+    for_update: bool = False,
+) -> dict | None:
+    """Resolve and optionally lock the exact/discovered courtesy target."""
+    return find_club_notice_target(
+        program_id=program_id,
+        club_name=club_name,
+        player_api_id=player_api_id,
+        for_update=for_update,
+    )
+
+
+def send_club_courtesy_notice(
+    contact_request: ContactRequest,
+    *,
+    target: dict | None = None,
+) -> dict | None:
     """Best-effort courtesy notice using only a registry-row contact email.
 
     Delivery is deliberately outside request creation's transaction.  The
     caller appends ``club_notice_sent`` only when this returns success metadata.
     """
     claim = contact_request.claim
-    target = find_club_notice_target(
-        program_id=contact_request.club_program_id,
-        club_name=getattr(claim, "current_club_name", None),
-        player_api_id=contact_request.player_api_id,
-    )
+    if target is None:
+        target = resolve_club_courtesy_target(
+            program_id=contact_request.club_program_id,
+            club_name=getattr(claim, "current_club_name", None),
+            player_api_id=contact_request.player_api_id,
+        )
     if target is None:
         return None
     recipient = _stored_email(target.get("contact_email"))
@@ -432,6 +453,7 @@ __all__ = [
     "request_expires_at",
     "request_expiry_days",
     "require_contact_rail",
+    "resolve_club_courtesy_target",
     "routing_mode_for_claim",
     "send_club_courtesy_notice",
     "send_club_consent_notice",

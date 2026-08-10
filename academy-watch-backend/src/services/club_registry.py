@@ -276,6 +276,7 @@ def find_club_notice_target(
     program_id: int | None,
     club_name: str | None,
     player_api_id: int | None = None,
+    for_update: bool = False,
 ) -> dict | None:
     """Resolve a courtesy-notice target without discovering external emails.
 
@@ -295,6 +296,8 @@ def find_club_notice_target(
     verification_sql = "".join(f" AND {condition}" for condition in verification_filters)
 
     if program_id is not None:
+        if not program_is_operational(program_id, for_update=for_update):
+            return None
         row = (
             db.session.execute(
                 sa.text(
@@ -307,8 +310,7 @@ def find_club_notice_target(
             .mappings()
             .first()
         )
-        if row is not None:
-            return dict(row)
+        return dict(row) if row is not None else None
 
     platform_club_api_id, platform_club_name = _platform_club_identity(player_api_id)
     if platform_club_api_id is not None and "team_api_id" in columns:

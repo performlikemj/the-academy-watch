@@ -739,7 +739,13 @@ def test_export_matches_live_contact_authorization(client, monkeypatch):
     )
     db.session.commit()
     monkeypatch.setattr(account_service, "active_manager_program_ids", lambda user_id: [44])
-    monkeypatch.setattr(account_service, "program_is_operational", lambda program_id: program_id == 44)
+    operational_checks = []
+
+    def operational(program_id, *, for_update=False):
+        operational_checks.append((program_id, for_update))
+        return program_id == 44
+
+    monkeypatch.setattr(account_service, "program_is_operational", operational)
 
     response = client.get("/api/account/export", headers=_headers(subject.email))
 
@@ -749,6 +755,7 @@ def test_export_matches_live_contact_authorization(client, monkeypatch):
     assert exported["received"] == []
     assert [row["id"] for row in exported["club"]] == [participated_request.id]
     assert exported["club"][0]["messages"][0]["body"] == "subject club message"
+    assert operational_checks == [(44, True)]
     assert historical_request.id not in json.dumps(exported)
     assert "UNRELATED PARTICIPANT THREAD SENTINEL" not in json.dumps(exported)
 
