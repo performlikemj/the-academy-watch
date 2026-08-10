@@ -115,6 +115,7 @@ function LocalPlayerProfile({ numericPlayerId, onRetry }) {
   const details = [
     player.birth_year != null ? `Born ${player.birth_year}` : null,
     player.position || null,
+    player.club_name ? `Club: ${player.club_name}` : null,
     !player.city ? player.country || null : null,
   ].filter(Boolean)
 

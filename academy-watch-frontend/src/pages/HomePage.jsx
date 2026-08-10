@@ -11,6 +11,7 @@ import {
   Settings,
   ArrowRight,
   Users,
+  Building2,
   Newspaper,
   ChevronRight
 } from 'lucide-react'
@@ -98,6 +99,24 @@ export function HomePage() {
                     </Button>
                   </Link>
                 )}
+              </div>
+
+              <div className="mt-3 flex w-full flex-col items-center gap-3 border-t border-border/70 pt-5">
+                <p className="text-sm font-medium text-foreground/80">Choose the path that fits you</p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  <Button size="lg" asChild>
+                    <Link to="/onboarding/player">
+                      <Users className="mr-2 h-5 w-5" />
+                      Are you a player?
+                    </Link>
+                  </Button>
+                  <Button size="lg" variant="outline" asChild>
+                    <Link to="/my-club">
+                      <Building2 className="mr-2 h-5 w-5" />
+                      Represent a club or academy?
+                    </Link>
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

@@ -19,7 +19,7 @@ import {
   Loader2, Search, ArrowUpDown, ArrowLeft, ArrowRight,
   Trophy, Zap, Clock, Gauge, X, GitCompareArrows, Globe,
   Star, Download, Link2, ListChecks,
-  Crosshair, Sparkles, Send, Swords, Shield, ShieldCheck, Hand,
+  Crosshair, Sparkles, Send, Swords, Shield, ShieldCheck, Hand, UserPlus,
 } from 'lucide-react'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
 
@@ -1007,7 +1007,21 @@ export function ScoutPage() {
                 ) : (
                   <tr>
                     <td colSpan={tableColumnCount} className="px-3 py-12 text-center text-sm text-muted-foreground">
-                      No players match these filters.
+                      <p>No players match these filters.</p>
+                      <div className="mt-4 flex flex-wrap justify-center gap-2">
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to="/scout/lists">
+                            <Globe className="mr-1.5 h-4 w-4" />
+                            Search worldwide
+                          </Link>
+                        </Button>
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to="/local-players/new">
+                            <UserPlus className="mr-1.5 h-4 w-4" />
+                            Add a local player
+                          </Link>
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 )}

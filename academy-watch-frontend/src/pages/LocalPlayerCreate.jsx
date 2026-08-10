@@ -21,6 +21,7 @@ const EMPTY_FORM = {
   display_name: '',
   birth_year: '',
   position: '',
+  club_name: '',
   country: '',
   city: '',
   relationship_type: 'player',
@@ -86,9 +87,11 @@ function AuthenticatedLocalPlayerCreate({ token }) {
   const validate = () => {
     const next = {}
     const name = form.display_name.trim()
+    const clubName = form.club_name.trim()
     const year = form.birth_year.trim()
     if (name.length < 2) next.display_name = 'Enter at least 2 characters.'
     if (name.length > 200) next.display_name = 'Use 200 characters or fewer.'
+    if (clubName.length > 200) next.club_name = 'Use 200 characters or fewer.'
     if (year && !Number.isInteger(Number(year))) {
       next.birth_year = 'Enter a whole year, for example 2008.'
     }
@@ -109,6 +112,7 @@ function AuthenticatedLocalPlayerCreate({ token }) {
     }
     if (birthYear) payload.birth_year = Number(birthYear)
     if (form.position.trim()) payload.position = form.position.trim()
+    if (form.club_name.trim()) payload.club_name = form.club_name.trim()
     if (form.country.trim()) payload.country = form.country.trim()
     if (form.city.trim()) payload.city = form.city.trim()
 
@@ -192,9 +196,11 @@ function AuthenticatedLocalPlayerCreate({ token }) {
 
   const duplicateId = duplicate?.id
   const duplicateName = duplicate?.display_name
+  const duplicateClubName = duplicate?.club_name
   const duplicateStatus = duplicate?.status
   const duplicateDetails = [
     duplicateName || null,
+    duplicateClubName ? `Club: ${duplicateClubName}` : null,
     duplicateStatus ? `Status: ${duplicateStatus}` : null,
   ].filter(Boolean).join(' · ')
 
@@ -260,27 +266,28 @@ function AuthenticatedLocalPlayerCreate({ token }) {
                 ) : null}
               </div>
 
+              <div className="space-y-2 sm:max-w-[calc(50%-0.5rem)]">
+                <Label htmlFor="local-player-birth-year">Birth year (optional)</Label>
+                <Input
+                  id="local-player-birth-year"
+                  type="number"
+                  step="1"
+                  inputMode="numeric"
+                  value={form.birth_year}
+                  onChange={(event) => updateField('birth_year', event.target.value)}
+                  placeholder="e.g. 2008"
+                  disabled={submitting}
+                  aria-invalid={Boolean(errors.birth_year)}
+                  aria-describedby={errors.birth_year ? 'local-player-birth-year-error' : undefined}
+                />
+                {errors.birth_year ? (
+                  <p id="local-player-birth-year-error" className="text-xs text-destructive" role="alert">
+                    {errors.birth_year}
+                  </p>
+                ) : null}
+              </div>
+
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="local-player-birth-year">Birth year (optional)</Label>
-                  <Input
-                    id="local-player-birth-year"
-                    type="number"
-                    step="1"
-                    inputMode="numeric"
-                    value={form.birth_year}
-                    onChange={(event) => updateField('birth_year', event.target.value)}
-                    placeholder="e.g. 2008"
-                    disabled={submitting}
-                    aria-invalid={Boolean(errors.birth_year)}
-                    aria-describedby={errors.birth_year ? 'local-player-birth-year-error' : undefined}
-                  />
-                  {errors.birth_year ? (
-                    <p id="local-player-birth-year-error" className="text-xs text-destructive" role="alert">
-                      {errors.birth_year}
-                    </p>
-                  ) : null}
-                </div>
                 <div className="space-y-2">
                   <Label htmlFor="local-player-position">Position (optional)</Label>
                   <Input
@@ -290,6 +297,24 @@ function AuthenticatedLocalPlayerCreate({ token }) {
                     placeholder="e.g. Centre-forward"
                     disabled={submitting}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="local-player-club">Current club (optional)</Label>
+                  <Input
+                    id="local-player-club"
+                    value={form.club_name}
+                    onChange={(event) => updateField('club_name', event.target.value)}
+                    placeholder="Club or academy"
+                    maxLength={200}
+                    disabled={submitting}
+                    aria-invalid={Boolean(errors.club_name)}
+                    aria-describedby={errors.club_name ? 'local-player-club-error' : undefined}
+                  />
+                  {errors.club_name ? (
+                    <p id="local-player-club-error" className="text-xs text-destructive" role="alert">
+                      {errors.club_name}
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
