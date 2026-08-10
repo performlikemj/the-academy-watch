@@ -4085,7 +4085,7 @@ function PlayerOnboardingPrompt() {
   }
 
   const findProfile = () => {
-    setOpenForToken(null)
+    dismissPrompt()
     navigate('/onboarding/player')
   }
 
