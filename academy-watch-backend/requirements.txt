@@ -52,7 +52,7 @@ pandas==3.0.5
 openai==2.53.0
 openai-agents==0.19.3
 ordered-set==4.1.0
-packaging==26.2
+packaging==26.3
 pillow==12.3.0
 pluggy==1.6.0
 psycopg==3.3.4
