@@ -1282,6 +1282,72 @@ export class APIService {
         return this.request('/me/club')
     }
 
+    // ── Verified club console ───────────────────────────────────────
+    static async getClubRoster(programId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/roster`)
+    }
+
+    static async addRosterMember(programId, payload) {
+        return this.request(`/club/${encodeURIComponent(programId)}/roster`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async removeRosterMember(programId, memberId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/roster/${encodeURIComponent(memberId)}`, {
+            method: 'DELETE',
+        })
+    }
+
+    static async createClubMatch(programId, payload) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async mintMatchSas(programId, matchId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}/sas`, {
+            method: 'POST',
+        })
+    }
+
+    static async completeMatchUpload(programId, matchId, payload = {}) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}/upload-complete`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async patchClubMatch(programId, matchId, payload) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async getClubMatch(programId, matchId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}`)
+    }
+
+    static async setMatchRoster(programId, matchId, entries) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}/roster`, {
+            method: 'PUT',
+            body: JSON.stringify({ entries }),
+        })
+    }
+
+    static async requestMatchProcessing(programId, matchId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}/process`, {
+            method: 'POST',
+        })
+    }
+
+    static async getClubMatchReport(programId, matchId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}/report`)
+    }
+
     static async confirmClubAffiliation(affId) {
         return this.request(`/me/club/affiliations/${encodeURIComponent(affId)}/confirm`, {
             method: 'POST',
