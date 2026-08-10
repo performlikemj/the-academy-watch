@@ -38,7 +38,7 @@ from src.models.product_event import ProductEvent
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.trust import ContentReport, ScoutVerification
-from src.services.club_registry import active_manager_program_ids
+from src.services.club_registry import active_manager_program_ids, program_is_operational
 from src.services.player_suppression import active_suppressed_player_ids
 from src.services.user_blocks import delete_user_block_rows_for_account
 
@@ -206,7 +206,11 @@ def build_account_export(user: UserAccount) -> dict:
         )
     received_request_ids = {row.id for row in received_requests}
 
-    managed_program_ids = active_manager_program_ids(user.id)
+    managed_program_ids = [
+        program_id
+        for program_id in sorted(active_manager_program_ids(user.id))
+        if program_is_operational(program_id, for_update=True)
+    ]
     club_requests = []
     if managed_program_ids:
         already_exported_request_ids = sent_request_ids | received_request_ids

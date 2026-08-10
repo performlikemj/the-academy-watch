@@ -18,6 +18,7 @@ from src.services.club_registry import (
     active_manager_program_ids,
     active_program_manager_user_ids,
     is_active_program_manager,
+    program_is_operational,
 )
 from src.services.contact import (
     APPROACH_RULES_WARNING,
@@ -38,6 +39,7 @@ from src.services.contact import (
     request_can_expire,
     request_expires_at,
     require_contact_rail,
+    resolve_club_courtesy_target,
     routing_mode_for_claim,
     send_club_consent_notice,
     send_club_courtesy_notice,
@@ -290,27 +292,43 @@ def _is_claim_owner(contact_request: ContactRequest, user: UserAccount) -> bool:
     )
 
 
-def _is_club_manager(contact_request: ContactRequest, user: UserAccount) -> bool:
+def _is_club_manager(
+    contact_request: ContactRequest,
+    user: UserAccount,
+    *,
+    for_update: bool = False,
+) -> bool:
     return bool(
         contact_request.routing_mode == ROUTING_CLUB_INCLUDED
         and contact_request.club_program_id is not None
         and is_active_program_manager(user.id, contact_request.club_program_id)
+        and program_is_operational(contact_request.club_program_id, for_update=for_update)
     )
 
 
-def _participant_role(contact_request: ContactRequest, user: UserAccount) -> str | None:
+def _participant_role(
+    contact_request: ContactRequest,
+    user: UserAccount,
+    *,
+    club_for_update: bool = False,
+) -> str | None:
     """Resolve a stable role, with deterministic overlap precedence."""
     if contact_request.scout_user_id == user.id:
         return "scout"
     if _is_claim_owner(contact_request, user):
         return "player"
-    if _is_club_manager(contact_request, user):
+    if _is_club_manager(contact_request, user, for_update=club_for_update):
         return "club"
     return None
 
 
-def _is_participant(contact_request: ContactRequest, user: UserAccount) -> bool:
-    return _participant_role(contact_request, user) is not None
+def _is_participant(
+    contact_request: ContactRequest,
+    user: UserAccount,
+    *,
+    club_for_update: bool = False,
+) -> bool:
+    return _participant_role(contact_request, user, club_for_update=club_for_update) is not None
 
 
 def _active_request_filter():
@@ -340,9 +358,13 @@ def _expire_authorized_request(contact_request: ContactRequest) -> bool:
     return True
 
 
-def _participant_request(request_id: str, user: UserAccount):
+def _participant_request(request_id: str, user: UserAccount, *, club_for_update: bool = False):
     contact_request = db.session.get(ContactRequest, request_id)
-    if contact_request is None or not _is_participant(contact_request, user):
+    if contact_request is None or not _is_participant(
+        contact_request,
+        user,
+        club_for_update=club_for_update,
+    ):
         return None, (jsonify({"error": "contact request not found"}), 404)
     if (
         request_can_expire(contact_request)
@@ -477,7 +499,25 @@ def create_contact_request():
             ), 409
 
         now = utcnow()
+        # Serialize emergency hide/suspend updates against both persistence and
+        # consent dispatch so inclusion cannot escape through a stale decision.
+        if routing_mode == ROUTING_CLUB_INCLUDED and not program_is_operational(
+            claim.club_program_id,
+            for_update=True,
+        ):
+            routing_mode = ROUTING_CLUB_NOTIFIED
+            if not permission_attestation:
+                db.session.rollback()
+                return jsonify({"error": APPROACH_RULES_WARNING, "code": "attestation_required"}), 400
         club_program_id = claim.club_program_id if routing_mode != "direct" else None
+        courtesy_target = None
+        if routing_mode == ROUTING_CLUB_NOTIFIED and club_program_id is not None:
+            courtesy_target = resolve_club_courtesy_target(
+                program_id=club_program_id,
+                club_name=claim.current_club_name,
+                player_api_id=player_api_id,
+                for_update=True,
+            )
         contact_request = ContactRequest(
             scout_user_id=user.id,
             player_api_id=player_api_id,
@@ -552,7 +592,7 @@ def create_contact_request():
                 ), 409
             raise
         notice_metadata = None
-        if routing_mode == ROUTING_CLUB_NOTIFIED:
+        if routing_mode == ROUTING_CLUB_NOTIFIED and (club_program_id is None or courtesy_target is not None):
             try:
                 notice_metadata = send_club_courtesy_notice(contact_request)
             except Exception:
@@ -741,7 +781,26 @@ def list_contact_requests():
             if related_user_ids:
                 query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
         elif box == "club":
-            program_ids = active_manager_program_ids(user.id)
+            managed_program_ids = sorted(active_manager_program_ids(user.id))
+            expiry_query = ContactRequest.query.filter(
+                ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
+                ContactRequest.club_program_id.in_(managed_program_ids),
+            )
+            if related_user_ids:
+                expiry_query = expiry_query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
+            if related_claim_ids is not None:
+                expiry_query = expiry_query.filter(
+                    or_(
+                        ContactRequest.claim_id.is_(None),
+                        ContactRequest.claim_id.notin_(related_claim_ids),
+                    )
+                )
+            # Lazy expiry may commit. Finish it before acquiring program locks so
+            # no lock can be released between the operational check and listing.
+            _expire_visible_rows(expiry_query)
+            program_ids = [
+                program_id for program_id in managed_program_ids if program_is_operational(program_id, for_update=True)
+            ]
             query = ContactRequest.query.filter(
                 ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
                 ContactRequest.club_program_id.in_(program_ids),
@@ -758,7 +817,8 @@ def list_contact_requests():
         else:
             return jsonify({"error": "box must be sent, inbox, or club"}), 400
 
-        _expire_visible_rows(query)
+        if box != "club":
+            _expire_visible_rows(query)
         limit, offset = _pagination()
         total = query.count()
         rows = (
@@ -863,7 +923,7 @@ def set_club_consent(request_id: str):
         if (
             contact_request is None
             or contact_request.routing_mode != ROUTING_CLUB_INCLUDED
-            or not _is_club_manager(contact_request, user)
+            or not _is_club_manager(contact_request, user, for_update=True)
         ):
             db.session.rollback()
             return jsonify({"error": "contact request not found"}), 404
@@ -906,14 +966,16 @@ def set_club_consent(request_id: str):
 
 
 def _public_consent_summary(contact_request: ContactRequest, action: str) -> dict:
-    from src.models.trust import ScoutVerification
     from src.services.club_registry import get_club_program
 
     verification = (
         ScoutVerification.query.filter_by(user_account_id=contact_request.scout_user_id, status="approved")
         .order_by(ScoutVerification.submitted_at.desc(), ScoutVerification.id.desc())
+        .populate_existing()
+        .with_for_update()
         .first()
     )
+    scout = UserAccount.query.filter_by(id=contact_request.scout_user_id).populate_existing().with_for_update().first()
     program = get_club_program(contact_request.club_program_id)
     return {
         "action": action,
@@ -921,9 +983,7 @@ def _public_consent_summary(contact_request: ContactRequest, action: str) -> dic
         "player_reference": f"player profile {contact_request.player_api_id}",
         "program_name": program.get("name") if program else None,
         "scout": {
-            "name": verification.full_name
-            if verification
-            else (contact_request.scout.display_name if contact_request.scout else None),
+            "name": verification.full_name if verification else (scout.display_name if scout else None),
             "organization": verification.organization if verification else None,
         },
         "confirmation_required": True,
@@ -938,13 +998,15 @@ def public_club_consent(token: str):
     if payload is None:
         return _invalid_consent_link()
     try:
-        query = ContactRequest.query.filter_by(id=payload["contact_request_id"])
-        if request.method == "POST":
-            query = query.populate_existing().with_for_update()
+        query = ContactRequest.query.filter_by(id=payload["contact_request_id"]).populate_existing().with_for_update()
         contact_request = query.first()
         if (
             contact_request is None
             or contact_request.routing_mode != ROUTING_CLUB_INCLUDED
+            or not program_is_operational(
+                contact_request.club_program_id,
+                for_update=True,
+            )
             or contact_request.status not in ACTIVE_REQUEST_STATUSES
             or contact_request.club_consent_status != "pending"
         ):
@@ -1013,7 +1075,7 @@ def list_contact_messages(request_id: str):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        contact_request, error = _participant_request(request_id, user)
+        contact_request, error = _participant_request(request_id, user, club_for_update=True)
         if error:
             return error
         if not messaging_is_open(contact_request):
@@ -1049,16 +1111,16 @@ def create_contact_message(request_id: str):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        contact_request, error = _participant_request(request_id, user)
+        contact_request, error = _participant_request(request_id, user, club_for_update=True)
         if error:
             return error
         if not messaging_is_open(contact_request):
             return _messaging_gate_error(contact_request, sending=True)
-        sender_role = _participant_role(contact_request, user)
+        sender_role = _participant_role(contact_request, user, club_for_update=True)
         if sender_role == "player" and _lock_claim_owner(contact_request, user) is None:
             db.session.rollback()
             return jsonify({"error": "contact request not found"}), 404
-        if sender_role == "club" and not _is_club_manager(contact_request, user):
+        if sender_role == "club" and not _is_club_manager(contact_request, user, for_update=True):
             db.session.rollback()
             return jsonify({"error": "contact request not found"}), 404
         if sender_role is None:
@@ -1067,7 +1129,10 @@ def create_contact_message(request_id: str):
 
         player_user_id = contact_request.claim.user_account_id if contact_request.claim is not None else None
         counterpart_user_ids = [contact_request.scout_user_id, player_user_id]
-        if contact_request.routing_mode == ROUTING_CLUB_INCLUDED:
+        if contact_request.routing_mode == ROUTING_CLUB_INCLUDED and program_is_operational(
+            contact_request.club_program_id,
+            for_update=True,
+        ):
             counterpart_user_ids.extend(active_program_manager_user_ids(contact_request.club_program_id))
         if user_has_block_relationship_with_any(
             user_id=user.id,
@@ -1119,7 +1184,7 @@ def report_contact_outcome(request_id: str):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        contact_request, error = _participant_request(request_id, user)
+        contact_request, error = _participant_request(request_id, user, club_for_update=True)
         if error:
             return error
         if contact_request.scout_user_id != user.id and _lock_claim_owner(contact_request, user) is None:
