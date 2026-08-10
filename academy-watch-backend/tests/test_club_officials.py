@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 from flask import Flask
+from sqlalchemy import select
 from src.auth import _ensure_user_account, issue_user_token
 from src.models.funding import ClubProgram  # noqa: F401 - registers the FK target for db.create_all()
 from src.models.league import League, Team, db
@@ -31,6 +32,17 @@ OTHER_PLAYER_ID = 5002
 TEAM_ID = 4401
 OTHER_TEAM_ID = 4402
 CODE_PATTERN = re.compile(r"^AW-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$")
+
+
+@pytest.fixture(autouse=True)
+def _stub_email_delivery(monkeypatch):
+    from src.services.email_service import email_service
+
+    monkeypatch.setattr(
+        email_service,
+        "send_email",
+        lambda **_kwargs: SimpleNamespace(success=True, provider="stub", message_id="test-email"),
+    )
 
 
 @pytest.fixture
@@ -1011,6 +1023,42 @@ class TestAdminClubClaims:
 
         assert response.status_code == 200, response.get_json()
         assert response.get_json()["claim"]["status"] == "approved"
+
+    def test_decision_email_runs_after_commit_and_failure_does_not_rollback(self, app, client, monkeypatch):
+        from src.services import trust_decision_email_service
+
+        persisted_statuses = []
+        with app.app_context():
+            _, claim = _seed_official_claim(team_api_id=TEAM_ID)
+            claim_id = claim.id
+
+        def record_persisted_status_and_fail(claim, action):
+            assert action == "approve"
+            with db.engine.connect() as connection:
+                persisted_status = connection.execute(
+                    select(ClubOfficialClaim.status).where(ClubOfficialClaim.id == claim.id)
+                ).scalar_one()
+            persisted_statuses.append(persisted_status)
+            assert persisted_status == "approved"
+            raise RuntimeError("mail hook unavailable")
+
+        monkeypatch.setattr(
+            trust_decision_email_service,
+            "send_club_claim_decision_email",
+            record_persisted_status_and_fail,
+        )
+
+        response = client.post(
+            f"/api/admin/club-claims/{claim_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert persisted_statuses == ["approved"]
+        with app.app_context():
+            db.session.expire_all()
+            assert db.session.get(ClubOfficialClaim, claim_id).status == "approved"
 
     @pytest.mark.parametrize(
         ("starting_status", "action"),
