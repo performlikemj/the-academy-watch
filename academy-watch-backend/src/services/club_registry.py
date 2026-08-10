@@ -189,6 +189,19 @@ def active_manager_program_ids(user_id: int | None) -> list[int]:
     return [int(row[0]) for row in rows]
 
 
+def manager_program_ids(user_id: int | None) -> list[int]:
+    """Return every program ever managed by the user, including revoked grants."""
+    if user_id is None or not registry_available():
+        return []
+    rows = db.session.execute(
+        sa.text(
+            f"SELECT DISTINCT program_id FROM {MANAGERS_TABLE} WHERE user_account_id = :user_id ORDER BY program_id"
+        ),
+        {"user_id": user_id},
+    ).all()
+    return [int(row[0]) for row in rows]
+
+
 def active_program_manager_user_ids(program_id: int | None) -> list[int]:
     """Return the active user accounts participating for one club program."""
     if program_id is None or not registry_available():
@@ -280,9 +293,9 @@ def find_club_notice_target(
 ) -> dict | None:
     """Resolve a courtesy-notice target without discovering external emails.
 
-    Only ``club_programs.contact_email`` is eligible. With no linked program,
-    the platform's current club id/name is tried before the claim's exact name.
-    Name matches must resolve to exactly one row to avoid ambiguous delivery.
+    Only ``club_programs.contact_email`` is eligible. A linked program resolves
+    only to that exact row. Without a link, only the platform's persisted team
+    API id is strong enough; name-only discovery is deliberately suppressed.
     """
     columns = _table_columns(PROGRAMS_TABLE)
     if not {"id", "name", "contact_email"}.issubset(columns):
@@ -312,7 +325,7 @@ def find_club_notice_target(
         )
         return dict(row) if row is not None else None
 
-    platform_club_api_id, platform_club_name = _platform_club_identity(player_api_id)
+    platform_club_api_id, _platform_club_name = _platform_club_identity(player_api_id)
     if platform_club_api_id is not None and "team_api_id" in columns:
         rows = (
             db.session.execute(
@@ -328,23 +341,7 @@ def find_club_notice_target(
         )
         if len(rows) == 1:
             return dict(rows[0])
-
-    resolved_name = platform_club_name or club_name
-    if not resolved_name:
-        return None
-    rows = (
-        db.session.execute(
-            sa.text(
-                f"SELECT id, name, contact_email FROM {PROGRAMS_TABLE} "
-                "WHERE lower(name) = lower(:club_name) AND contact_email IS NOT NULL "
-                f"AND trim(contact_email) <> ''{verification_sql} ORDER BY id LIMIT 2"
-            ),
-            {"club_name": resolved_name},
-        )
-        .mappings()
-        .all()
-    )
-    return dict(rows[0]) if len(rows) == 1 else None
+    return None
 
 
 __all__ = [
@@ -355,6 +352,7 @@ __all__ = [
     "find_club_notice_target",
     "get_club_program",
     "is_active_program_manager",
+    "manager_program_ids",
     "program_has_active_manager",
     "program_is_operational",
     "require_club_manager",

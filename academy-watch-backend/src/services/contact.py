@@ -279,6 +279,9 @@ def send_club_courtesy_notice(
         )
     if target is None:
         return None
+    delivery_program_id = target.get("id")
+    if not program_is_operational(delivery_program_id):
+        return None
     recipient = _stored_email(target.get("contact_email"))
     if recipient is None:
         return None
@@ -326,6 +329,8 @@ def send_club_courtesy_notice(
 
 def send_club_consent_notice(contact_request: ContactRequest) -> bool:
     """Best-effort delivery of signed consent actions to active managers."""
+    if not program_is_operational(contact_request.club_program_id):
+        return False
     contacts = active_program_manager_contacts(contact_request.club_program_id)
     recipients = [email for row in contacts if (email := _stored_email(row.get("email")))]
     if not recipients:

@@ -781,10 +781,25 @@ def list_contact_requests():
             if related_user_ids:
                 query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
         elif box == "club":
+            managed_program_ids = sorted(active_manager_program_ids(user.id))
+            expiry_query = ContactRequest.query.filter(
+                ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
+                ContactRequest.club_program_id.in_(managed_program_ids),
+            )
+            if related_user_ids:
+                expiry_query = expiry_query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
+            if related_claim_ids is not None:
+                expiry_query = expiry_query.filter(
+                    or_(
+                        ContactRequest.claim_id.is_(None),
+                        ContactRequest.claim_id.notin_(related_claim_ids),
+                    )
+                )
+            # Lazy expiry may commit. Finish it before acquiring program locks so
+            # no lock can be released between the operational check and listing.
+            _expire_visible_rows(expiry_query)
             program_ids = [
-                program_id
-                for program_id in sorted(active_manager_program_ids(user.id))
-                if program_is_operational(program_id, for_update=True)
+                program_id for program_id in managed_program_ids if program_is_operational(program_id, for_update=True)
             ]
             query = ContactRequest.query.filter(
                 ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
@@ -802,7 +817,8 @@ def list_contact_requests():
         else:
             return jsonify({"error": "box must be sent, inbox, or club"}), 400
 
-        _expire_visible_rows(query)
+        if box != "club":
+            _expire_visible_rows(query)
         limit, offset = _pagination()
         total = query.count()
         rows = (
@@ -982,9 +998,7 @@ def public_club_consent(token: str):
     if payload is None:
         return _invalid_consent_link()
     try:
-        query = ContactRequest.query.filter_by(id=payload["contact_request_id"])
-        if request.method == "POST":
-            query = query.populate_existing().with_for_update()
+        query = ContactRequest.query.filter_by(id=payload["contact_request_id"]).populate_existing().with_for_update()
         contact_request = query.first()
         if (
             contact_request is None

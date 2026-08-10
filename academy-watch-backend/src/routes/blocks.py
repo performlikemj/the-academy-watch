@@ -6,9 +6,11 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from src.auth import _safe_error_payload, require_user_auth
 from src.extensions import limiter
+from src.models.contact import ContactRequest
 from src.models.league import UserAccount, db
+from src.models.showcase import PlayerProfileClaim
 from src.models.user_block import UserBlock
-from src.services.club_registry import active_manager_program_ids, program_is_operational
+from src.services.club_registry import manager_program_ids, program_is_operational
 from src.services.user_blocks import (
     is_user_blocks_undefined_table_error,
     log_user_blocks_table_unavailable_once,
@@ -46,6 +48,25 @@ def _blocked_user_id(payload) -> int:
 
 def _blocks_unavailable():
     return jsonify({"error": "Blocking is temporarily unavailable", "code": "blocks_unavailable"}), 503
+
+
+def _club_counterpart_user_ids(program_ids: list[int]) -> set[int]:
+    """Resolve scout/player accounts exposed through the given club threads."""
+    if not program_ids:
+        return set()
+    rows = (
+        db.session.query(
+            ContactRequest.scout_user_id,
+            PlayerProfileClaim.user_account_id,
+        )
+        .outerjoin(PlayerProfileClaim, PlayerProfileClaim.id == ContactRequest.claim_id)
+        .filter(
+            ContactRequest.routing_mode == "club_included",
+            ContactRequest.club_program_id.in_(program_ids),
+        )
+        .all()
+    )
+    return {int(user_id) for row in rows for user_id in (row.scout_user_id, row.user_account_id) if user_id is not None}
 
 
 @blocks_bp.route("/blocks", methods=["POST"])
@@ -104,19 +125,33 @@ def create_user_block():
 def list_user_blocks():
     """List only blocks created by the authenticated caller."""
     try:
-        managed_program_ids = sorted(active_manager_program_ids(g.user.id))
-        if any(not program_is_operational(program_id, for_update=True) for program_id in managed_program_ids):
-            return jsonify({"blocks": []})
-        rows = (
+        historical_program_ids = sorted(manager_program_ids(g.user.id))
+        operational_program_ids = []
+        frozen_program_ids = []
+        for program_id in historical_program_ids:
+            destination = (
+                operational_program_ids if program_is_operational(program_id, for_update=True) else frozen_program_ids
+            )
+            destination.append(program_id)
+
+        query = (
             db.session.query(UserBlock, UserAccount)
             .join(UserAccount, UserAccount.id == UserBlock.blocked_user_id)
             .filter(
                 UserBlock.blocker_user_id == g.user.id,
                 UserAccount.is_tombstone.is_(False),
             )
-            .order_by(UserBlock.created_at.desc(), UserBlock.id.desc())
-            .all()
         )
+        if frozen_program_ids:
+            # UserBlock predates club contact and has no program key. Thread
+            # counterpart membership is the narrowest available provenance;
+            # keep a shared counterpart visible when any managed program is live.
+            frozen_counterparts = _club_counterpart_user_ids(frozen_program_ids)
+            operational_counterparts = _club_counterpart_user_ids(operational_program_ids)
+            frozen_only_counterparts = frozen_counterparts - operational_counterparts
+            if frozen_only_counterparts:
+                query = query.filter(UserBlock.blocked_user_id.notin_(frozen_only_counterparts))
+        rows = query.order_by(UserBlock.created_at.desc(), UserBlock.id.desc()).all()
         return jsonify({"blocks": [_block_payload(block, target) for block, target in rows]})
     except Exception as exc:
         db.session.rollback()
