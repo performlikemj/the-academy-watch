@@ -216,6 +216,22 @@ def active_program_manager_user_ids(program_id: int | None) -> list[int]:
     return [int(row[0]) for row in rows]
 
 
+def program_manager_user_ids(program_ids: list[int]) -> set[int]:
+    """Return current or historical manager accounts for the given programs."""
+    columns = _table_columns(MANAGERS_TABLE)
+    if not program_ids or not {"program_id", "user_account_id"}.issubset(columns):
+        return set()
+    managers = sa.table(
+        MANAGERS_TABLE,
+        sa.column("program_id"),
+        sa.column("user_account_id"),
+    )
+    rows = db.session.execute(
+        sa.select(managers.c.user_account_id).distinct().where(managers.c.program_id.in_(program_ids))
+    ).scalars()
+    return {int(user_id) for user_id in rows if user_id is not None}
+
+
 def active_program_manager_contacts(program_id: int | None) -> list[dict]:
     """Return stored account contacts for the program's active managers."""
     manager_columns = _table_columns(MANAGERS_TABLE)
@@ -354,6 +370,7 @@ __all__ = [
     "is_active_program_manager",
     "manager_program_ids",
     "program_has_active_manager",
+    "program_manager_user_ids",
     "program_is_operational",
     "require_club_manager",
     "registry_available",

@@ -594,7 +594,7 @@ def create_contact_request():
         notice_metadata = None
         if routing_mode == ROUTING_CLUB_NOTIFIED and (club_program_id is None or courtesy_target is not None):
             try:
-                notice_metadata = send_club_courtesy_notice(contact_request, target=courtesy_target)
+                notice_metadata = send_club_courtesy_notice(contact_request)
             except Exception:
                 db.session.rollback()
                 notice_metadata = None
@@ -966,14 +966,16 @@ def set_club_consent(request_id: str):
 
 
 def _public_consent_summary(contact_request: ContactRequest, action: str) -> dict:
-    from src.models.trust import ScoutVerification
     from src.services.club_registry import get_club_program
 
     verification = (
         ScoutVerification.query.filter_by(user_account_id=contact_request.scout_user_id, status="approved")
         .order_by(ScoutVerification.submitted_at.desc(), ScoutVerification.id.desc())
+        .populate_existing()
+        .with_for_update()
         .first()
     )
+    scout = UserAccount.query.filter_by(id=contact_request.scout_user_id).populate_existing().with_for_update().first()
     program = get_club_program(contact_request.club_program_id)
     return {
         "action": action,
@@ -981,9 +983,7 @@ def _public_consent_summary(contact_request: ContactRequest, action: str) -> dic
         "player_reference": f"player profile {contact_request.player_api_id}",
         "program_name": program.get("name") if program else None,
         "scout": {
-            "name": verification.full_name
-            if verification
-            else (contact_request.scout.display_name if contact_request.scout else None),
+            "name": verification.full_name if verification else (scout.display_name if scout else None),
             "organization": verification.organization if verification else None,
         },
         "confirmation_required": True,

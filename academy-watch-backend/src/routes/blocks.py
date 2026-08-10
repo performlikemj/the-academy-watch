@@ -6,11 +6,11 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from src.auth import _safe_error_payload, require_user_auth
 from src.extensions import limiter
-from src.models.contact import ContactRequest
+from src.models.contact import ContactMessage, ContactRequest
 from src.models.league import UserAccount, db
 from src.models.showcase import PlayerProfileClaim
 from src.models.user_block import UserBlock
-from src.services.club_registry import manager_program_ids, program_is_operational
+from src.services.club_registry import manager_program_ids, program_is_operational, program_manager_user_ids
 from src.services.user_blocks import (
     is_user_blocks_undefined_table_error,
     log_user_blocks_table_unavailable_once,
@@ -51,7 +51,7 @@ def _blocks_unavailable():
 
 
 def _club_counterpart_user_ids(program_ids: list[int]) -> set[int]:
-    """Resolve scout/player accounts exposed through the given club threads."""
+    """Resolve all accounts exposed through the given club threads."""
     if not program_ids:
         return set()
     rows = (
@@ -66,7 +66,22 @@ def _club_counterpart_user_ids(program_ids: list[int]) -> set[int]:
         )
         .all()
     )
-    return {int(user_id) for row in rows for user_id in (row.scout_user_id, row.user_account_id) if user_id is not None}
+    counterpart_ids = {
+        int(user_id) for row in rows for user_id in (row.scout_user_id, row.user_account_id) if user_id is not None
+    }
+    sender_ids = (
+        db.session.query(ContactMessage.sender_user_id)
+        .join(ContactRequest, ContactRequest.id == ContactMessage.contact_request_id)
+        .filter(
+            ContactRequest.routing_mode == "club_included",
+            ContactRequest.club_program_id.in_(program_ids),
+        )
+        .distinct()
+        .all()
+    )
+    counterpart_ids.update(int(row.sender_user_id) for row in sender_ids if row.sender_user_id is not None)
+    counterpart_ids.update(program_manager_user_ids(program_ids))
+    return counterpart_ids
 
 
 @blocks_bp.route("/blocks", methods=["POST"])

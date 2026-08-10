@@ -271,16 +271,14 @@ def send_club_courtesy_notice(
     caller appends ``club_notice_sent`` only when this returns success metadata.
     """
     claim = contact_request.claim
+    # Never trust the pre-commit target supplied by older callers. Registry
+    # contact data and the persisted current-club identity are refreshed here.
+    target = resolve_club_courtesy_target(
+        program_id=contact_request.club_program_id,
+        club_name=getattr(claim, "current_club_name", None),
+        player_api_id=contact_request.player_api_id,
+    )
     if target is None:
-        target = resolve_club_courtesy_target(
-            program_id=contact_request.club_program_id,
-            club_name=getattr(claim, "current_club_name", None),
-            player_api_id=contact_request.player_api_id,
-        )
-    if target is None:
-        return None
-    delivery_program_id = target.get("id")
-    if not program_is_operational(delivery_program_id):
         return None
     recipient = _stored_email(target.get("contact_email"))
     if recipient is None:
@@ -303,9 +301,25 @@ def send_club_courtesy_notice(
         "<p>The Academy Watch</p>"
     )
 
+    # Refresh recipient validity at the provider boundary. The final
+    # operational check stays last so only the irreducible check->HTTP gap
+    # remains.
+    target = resolve_club_courtesy_target(
+        program_id=contact_request.club_program_id,
+        club_name=getattr(claim, "current_club_name", None),
+        player_api_id=contact_request.player_api_id,
+    )
+    if target is None:
+        return None
+    recipient = _stored_email(target.get("contact_email"))
+    delivery_program_id = target.get("id")
+    if recipient is None:
+        return None
     try:
         from src.services.email_service import email_service
 
+        if not program_is_operational(delivery_program_id):
+            return None
         result = email_service.send_email(
             to=recipient,
             subject=subject,
@@ -327,15 +341,24 @@ def send_club_courtesy_notice(
     }
 
 
+def _manager_recipient_snapshot(contacts: list[dict]) -> tuple[tuple[int, str], ...]:
+    return tuple(
+        sorted(
+            (int(row["user_account_id"]), email)
+            for row in contacts
+            if row.get("user_account_id") is not None and (email := _stored_email(row.get("email")))
+        )
+    )
+
+
 def send_club_consent_notice(contact_request: ContactRequest) -> bool:
     """Best-effort delivery of signed consent actions to active managers."""
-    if not program_is_operational(contact_request.club_program_id):
-        return False
     contacts = active_program_manager_contacts(contact_request.club_program_id)
-    recipients = [email for row in contacts if (email := _stored_email(row.get("email")))]
-    if not recipients:
+    captured_recipients = _manager_recipient_snapshot(contacts)
+    if not captured_recipients:
         logger.warning("No active manager email for contact request %s", contact_request.id)
         return False
+    recipients = [email for _, email in captured_recipients]
 
     program = get_club_program(contact_request.club_program_id)
     program_name = sanitize_plain_text(str((program or {}).get("name") or "your program")).strip()[:180]
@@ -376,6 +399,11 @@ def send_club_consent_notice(contact_request: ContactRequest) -> bool:
     try:
         from src.services.email_service import email_service
 
+        current_recipients = _manager_recipient_snapshot(
+            active_program_manager_contacts(contact_request.club_program_id)
+        )
+        if current_recipients != captured_recipients or not program_is_operational(contact_request.club_program_id):
+            return False
         result = email_service.send_email(
             to=recipients,
             subject=subject,
