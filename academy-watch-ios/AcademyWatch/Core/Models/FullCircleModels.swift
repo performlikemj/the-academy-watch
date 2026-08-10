@@ -421,6 +421,7 @@ struct InterestSignalsResponse: Decodable, Equatable, Sendable {
 
 enum ContentReportSubjectType: String, Codable, Equatable, Sendable {
     case contactMessage = "contact_message"
+    case playerProfile = "player_profile"
     case other
 }
 
@@ -514,6 +515,16 @@ struct ContentReportSubject: Identifiable, Equatable, Sendable {
             title: "Report Message",
             explanation: "Reporting sends this message to Academy Watch for review. It does not block the other participants.",
             defaultReason: .participantSafety
+        )
+    }
+
+    static func playerProfile(playerID: Int, name: String?) -> ContentReportSubject {
+        ContentReportSubject(
+            subjectType: .playerProfile,
+            subjectID: String(playerID),
+            title: "Report profile",
+            explanation: "Report this player profile for content that violates the community rules. Our team reviews every report.",
+            defaultReason: .inappropriateContent
         )
     }
 }

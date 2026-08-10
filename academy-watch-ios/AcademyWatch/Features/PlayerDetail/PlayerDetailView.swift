@@ -9,9 +9,11 @@ struct PlayerDetailView: View {
     @ObservedObject private var contactAvailability: ContactFeatureAvailability
     @EnvironmentObject private var authManager: AuthManager
     @State private var isTakedownRequestPresented = false
+    @State private var reportSubject: ContentReportSubject?
     private let onSignInRequested: () -> Void
     private let onVerificationRequested: () -> Void
     private let contactAPIClient: any ContactAPIClientProtocol
+    private let reportAPIClient: any ContentReportAPIClientProtocol
     private let takedownAPIClient: any PlayerTakedownAPIClientProtocol
 
     init(
@@ -46,6 +48,7 @@ struct PlayerDetailView: View {
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
         contactAPIClient = apiClient
+        reportAPIClient = apiClient
         takedownAPIClient = apiClient
     }
 
@@ -54,6 +57,7 @@ struct PlayerDetailView: View {
         showcaseAPIClient: any ShowcaseAPIClientProtocol = APIClient(),
         claimAPIClient: any PlayerClaimAPIClientProtocol = APIClient(),
         contactAPIClient: any ContactAPIClientProtocol = APIClient(),
+        reportAPIClient: any ContentReportAPIClientProtocol = APIClient(),
         takedownAPIClient: any PlayerTakedownAPIClientProtocol = APIClient(),
         interestSignalsAPIClient: any InterestSignalsAPIClientProtocol = APIClient(),
         contactAvailability: ContactFeatureAvailability? = nil,
@@ -85,6 +89,7 @@ struct PlayerDetailView: View {
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
         self.contactAPIClient = contactAPIClient
+        self.reportAPIClient = reportAPIClient
         self.takedownAPIClient = takedownAPIClient
     }
 
@@ -127,6 +132,17 @@ struct PlayerDetailView: View {
                         Button("Request profile removal…", systemImage: "person.crop.circle.badge.minus") {
                             isTakedownRequestPresented = true
                         }
+                        Button("Report profile…", systemImage: "exclamationmark.bubble") {
+                            guard authManager.isAuthenticated else {
+                                onSignInRequested()
+                                return
+                            }
+                            reportSubject = .playerProfile(
+                                playerID: viewModel.playerID,
+                                name: profile.name
+                            )
+                        }
+                        .accessibilityIdentifier("player-report-profile")
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -139,6 +155,9 @@ struct PlayerDetailView: View {
                 playerID: viewModel.playerID,
                 apiClient: takedownAPIClient
             )
+        }
+        .sheet(item: $reportSubject) { subject in
+            ContentReportSheet(subject: subject, apiClient: reportAPIClient)
         }
         .task {
             async let detailLoad: Void = viewModel.loadIfNeeded()
