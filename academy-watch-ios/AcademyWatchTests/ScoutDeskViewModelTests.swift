@@ -134,7 +134,7 @@ final class ScoutDeskViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testColdStartFeedbackAppearsAfterThreeSecondsAndClearsWhenPlayersArrive() async throws {
+    func testColdStartFeedbackStagesCopyAndClearsWhenPlayersArrive() async throws {
         let playersResponse = try capturedPlayersResponse()
         let client = SuspendedScoutAPIClient(
             playersResponse: playersResponse,
@@ -155,18 +155,37 @@ final class ScoutDeskViewModelTests: XCTestCase {
         await client.waitUntilBothRequestsStart()
 
         let startedAt = try XCTUnwrap(viewModel.initialLoadStartedAt)
-        XCTAssertNil(viewModel.initialLoadFeedback(atUptime: startedAt + 2.999))
         XCTAssertEqual(
-            viewModel.initialLoadFeedback(atUptime: startedAt + 3),
-            ScoutInitialLoadFeedback(elapsedSeconds: 3)
+            viewModel.initialLoadFeedback(atUptime: startedAt),
+            ScoutInitialLoadFeedback(elapsedSeconds: 0)
         )
         XCTAssertEqual(
-            viewModel.initialLoadFeedback(atUptime: startedAt + 8.9)?.title,
-            "Waking up the match server…"
+            viewModel.initialLoadFeedback(atUptime: startedAt + 3.999)?.title,
+            "Scouting talent…"
         )
         XCTAssertEqual(
-            viewModel.initialLoadFeedback(atUptime: startedAt + 8.9)?.detail,
-            "Still working — 8s elapsed"
+            viewModel.initialLoadFeedback(atUptime: startedAt + 4)?.title,
+            "Checking the team sheets…"
+        )
+        XCTAssertEqual(
+            viewModel.initialLoadFeedback(atUptime: startedAt + 4)?.detail,
+            "Waking the scouts and loading this season."
+        )
+        XCTAssertEqual(
+            viewModel.initialLoadFeedback(atUptime: startedAt + 12),
+            ScoutInitialLoadFeedback(elapsedSeconds: 12)
+        )
+        XCTAssertEqual(
+            viewModel.initialLoadFeedback(atUptime: startedAt + 12)?.title,
+            "Almost there"
+        )
+        XCTAssertEqual(
+            viewModel.initialLoadFeedback(atUptime: startedAt + 12)?.detail,
+            "First visit — we're gathering players from around the world."
+        )
+        XCTAssertEqual(
+            viewModel.initialLoadFeedback(atUptime: startedAt + 12)?.showsFirstVisitDuration,
+            true
         )
 
         await client.releaseRequests()
@@ -210,8 +229,8 @@ final class ScoutDeskViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.players.isEmpty)
         XCTAssertFalse(viewModel.isShowingCachedPlayers)
         XCTAssertEqual(
-            viewModel.initialLoadFeedback(atUptime: startedAt + 3),
-            ScoutInitialLoadFeedback(elapsedSeconds: 3)
+            viewModel.initialLoadFeedback(atUptime: startedAt),
+            ScoutInitialLoadFeedback(elapsedSeconds: 0)
         )
 
         await client.releaseRequests()

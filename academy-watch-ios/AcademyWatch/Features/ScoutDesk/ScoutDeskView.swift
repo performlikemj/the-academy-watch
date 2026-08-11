@@ -81,9 +81,26 @@ struct ScoutDeskView: View {
                 .refreshable {
                     await viewModel.reload()
                 }
+
+                if isShowingInitialLoadingCard {
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        WingLiftLoadingView(
+                            feedback: viewModel.initialLoadFeedback()
+                                ?? ScoutInitialLoadFeedback(elapsedSeconds: 0)
+                        )
+                    }
+                    .transition(.opacity)
+                    .zIndex(1)
+                }
             }
+            .animation(
+                .easeInOut(duration: 0.45),
+                value: isShowingInitialLoadingCard
+            )
             .navigationTitle("Scout Desk")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(isShowingInitialLoadingCard ? .hidden : .automatic, for: .navigationBar)
+            .toolbar(isShowingInitialLoadingCard ? .hidden : .automatic, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -149,6 +166,10 @@ struct ScoutDeskView: View {
             guard navigationPath.isEmpty else { return }
             await viewModel.loadInitialIfNeeded()
         }
+    }
+
+    private var isShowingInitialLoadingCard: Bool {
+        viewModel.isLoadingInitial && viewModel.players.isEmpty
     }
 
     private var phaseSwitcher: some View {
@@ -401,32 +422,7 @@ struct ScoutDeskView: View {
 
     @ViewBuilder
     private var resultsContent: some View {
-        if viewModel.isLoadingInitial, viewModel.players.isEmpty {
-            TimelineView(.periodic(from: .now, by: 1)) { _ in
-                VStack(spacing: 7) {
-                    if let feedback = viewModel.initialLoadFeedback() {
-                        ProgressView()
-                            .tint(AcademyColors.claret)
-                        Text(feedback.title)
-                            .font(.subheadline.weight(.semibold))
-                        Text(feedback.detail)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        Text("First visits can take about 30 seconds.")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    } else {
-                        ProgressView("Scouting talent…")
-                            .tint(AcademyColors.claret)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("initial-load-feedback")
-            }
-        } else if let message = viewModel.errorMessage, viewModel.players.isEmpty {
+        if let message = viewModel.errorMessage, viewModel.players.isEmpty {
             ScoutErrorView(message: message) {
                 Task { await viewModel.reload() }
             }
