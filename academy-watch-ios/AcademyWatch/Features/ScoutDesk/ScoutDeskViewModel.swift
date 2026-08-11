@@ -35,6 +35,8 @@ final class ScoutDeskViewModel: ObservableObject {
     @Published private(set) var paginationErrorMessage: String?
     @Published private(set) var leaderboardsErrorMessage: String?
     @Published private(set) var hasAttemptedInitialLoad = false
+    /// One-way gate that closes when first content appears or the first player load settles.
+    @Published private(set) var hasCompletedFirstLoad = false
     @Published private(set) var isShowingCachedPlayers = false
     @Published private(set) var isShowingCachedLeaderboards = false
     @Published private(set) var initialLoadStartedAt: TimeInterval?
@@ -77,6 +79,10 @@ final class ScoutDeskViewModel: ObservableObject {
         selectedPhase = initialPhase
         selectedSortKey = initialPhase.defaultSortKey
         selectedSortOrder = ScoutSortOrder.defaultOrder(for: initialPhase.defaultSortKey)
+
+        #if DEBUG
+        applyLoadingEvidenceFixture(from: ProcessInfo.processInfo.arguments)
+        #endif
     }
 
     deinit {
@@ -115,11 +121,14 @@ final class ScoutDeskViewModel: ObservableObject {
         isShowingCachedLeaderboards && isLoadingLeaderboards
     }
 
+    var shouldShowWingLiftLoadingCard: Bool {
+        isLoadingInitial && players.isEmpty && !hasCompletedFirstLoad
+    }
+
     func initialLoadFeedback(
         atUptime uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) -> ScoutInitialLoadFeedback? {
-        guard isLoadingInitial,
-              players.isEmpty,
+        guard shouldShowWingLiftLoadingCard,
               let initialLoadStartedAt
         else { return nil }
 
@@ -331,12 +340,18 @@ final class ScoutDeskViewModel: ObservableObject {
         firstRowDataSource = "disk-cache"
         initialLoadStartedAt = nil
         resolvedPlayersSeason = response.season ?? selectedSeason
+        if !response.players.isEmpty {
+            hasCompletedFirstLoad = true
+        }
     }
 
     private func applyCachedLeaderboards(_ response: ScoutLeaderboardsResponse) {
         leaderboards = response.leaderboards
         isShowingCachedLeaderboards = true
         resolvedLeaderboardsSeason = response.season ?? selectedSeason
+        if response.leaderboards.values.contains(where: { !$0.isEmpty }) {
+            hasCompletedFirstLoad = true
+        }
     }
 
     private func scheduleFullReload(
@@ -424,6 +439,7 @@ final class ScoutDeskViewModel: ObservableObject {
             firstRowDataSource = "network"
             initialLoadStartedAt = nil
             resolvedPlayersSeason = response.season ?? selectedSeason
+            hasCompletedFirstLoad = true
             await responseCache.savePlayers(response, for: context.cacheKey)
         } catch {
             guard context.revision == listRevision else { return }
@@ -433,6 +449,7 @@ final class ScoutDeskViewModel: ObservableObject {
                 return
             }
             errorMessage = displayMessage(for: error)
+            hasCompletedFirstLoad = true
         }
 
         guard context.revision == listRevision else { return }
@@ -473,6 +490,9 @@ final class ScoutDeskViewModel: ObservableObject {
             leaderboards = response.leaderboards
             resolvedLeaderboardsSeason = response.season ?? selectedSeason
             isShowingCachedLeaderboards = false
+            if response.leaderboards.values.contains(where: { !$0.isEmpty }) {
+                hasCompletedFirstLoad = true
+            }
             await responseCache.saveLeaderboards(response, for: context.cacheKey)
         } catch {
             guard context.revision == leaderboardsRevision else { return }
@@ -592,6 +612,26 @@ final class ScoutDeskViewModel: ObservableObject {
         (error as? LocalizedError)?.errorDescription
             ?? "We couldn't load the Scout Desk. Check your connection and try again."
     }
+
+    #if DEBUG
+    private func applyLoadingEvidenceFixture(from arguments: [String]) {
+        guard let flagIndex = arguments.firstIndex(of: "-scoutDeskLoadingFixture"),
+              arguments.indices.contains(flagIndex + 1),
+              ["firstLaunch", "laterReload"].contains(arguments[flagIndex + 1])
+        else { return }
+
+        hasAttemptedInitialLoad = true
+        isLoadingInitial = true
+        initialLoadStartedAt = ProcessInfo.processInfo.systemUptime
+
+        if arguments[flagIndex + 1] == "laterReload" {
+            hasCompletedFirstLoad = true
+            selectedAgePreset = .under18
+            searchText = "No cached result"
+            appliedSearch = searchText
+        }
+    }
+    #endif
 }
 
 private struct RequestWork {

@@ -3,6 +3,115 @@ import XCTest
 
 final class ScoutDeskViewModelTests: XCTestCase {
     @MainActor
+    func testTrueFirstLoadShowsWingLiftCardWhileWaitingForContent() async throws {
+        let playersResponse = try capturedPlayersResponse()
+        let client = SuspendedScoutAPIClient(
+            playersResponse: playersResponse,
+            leaderboardsResponse: ScoutLeaderboardsResponse(
+                leaderboards: [:],
+                limit: 5,
+                phase: .all
+            )
+        )
+        let viewModel = ScoutDeskViewModel(
+            apiClient: client,
+            responseCache: EmptyScoutResponseCache()
+        )
+
+        let loadTask = Task {
+            await viewModel.loadInitialIfNeeded()
+        }
+        await client.waitUntilBothRequestsStart()
+
+        XCTAssertTrue(viewModel.isLoadingInitial)
+        XCTAssertTrue(viewModel.players.isEmpty)
+        XCTAssertFalse(viewModel.hasCompletedFirstLoad)
+        XCTAssertTrue(viewModel.shouldShowWingLiftLoadingCard)
+
+        await client.releaseRequests()
+        await loadTask.value
+    }
+
+    @MainActor
+    func testFilterChangeAfterSuccessfulFirstLoadUsesInlineLoadingState() async throws {
+        let playersResponse = try capturedPlayersResponse()
+        let client = SuspendedScoutAPIClient(
+            playersResponse: playersResponse,
+            leaderboardsResponse: ScoutLeaderboardsResponse(
+                leaderboards: [:],
+                limit: 5,
+                phase: .all
+            )
+        )
+        let viewModel = ScoutDeskViewModel(
+            apiClient: client,
+            responseCache: EmptyScoutResponseCache()
+        )
+
+        let initialLoad = Task {
+            await viewModel.loadInitialIfNeeded()
+        }
+        await client.waitUntilBothRequestsStart()
+        await client.releaseRequests()
+        await initialLoad.value
+
+        XCTAssertTrue(viewModel.hasCompletedFirstLoad)
+
+        let filterReload = Task {
+            await viewModel.selectAgePreset(.under18)
+        }
+        await client.waitUntilSecondPairStarts()
+
+        XCTAssertTrue(viewModel.isLoadingInitial)
+        XCTAssertTrue(viewModel.players.isEmpty)
+        XCTAssertFalse(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertNil(viewModel.initialLoadFeedback())
+
+        await client.releaseRequests()
+        await filterReload.value
+    }
+
+    @MainActor
+    func testWarmCacheDisarmsWingLiftCardBeforeLaterCacheMiss() async throws {
+        let playersResponse = try capturedPlayersResponse()
+        let leaderboardsResponse = ScoutLeaderboardsResponse(
+            leaderboards: ["top_scorers": Array(playersResponse.players.prefix(1))],
+            limit: 5,
+            phase: .all
+        )
+        let client = SuspendedScoutAPIClient(
+            playersResponse: playersResponse,
+            leaderboardsResponse: leaderboardsResponse
+        )
+        let cache = OneShotSeededScoutResponseCache(
+            playersResponse: playersResponse,
+            leaderboardsResponse: leaderboardsResponse
+        )
+        let viewModel = ScoutDeskViewModel(apiClient: client, responseCache: cache)
+
+        let initialLoad = Task {
+            await viewModel.loadInitialIfNeeded()
+        }
+        await client.waitUntilBothRequestsStart()
+
+        XCTAssertTrue(viewModel.hasCompletedFirstLoad)
+        XCTAssertFalse(viewModel.shouldShowWingLiftLoadingCard)
+
+        let filterReload = Task {
+            await viewModel.selectAgePreset(.under18)
+        }
+        await client.waitUntilSecondPairStarts()
+
+        XCTAssertTrue(viewModel.isLoadingInitial)
+        XCTAssertTrue(viewModel.players.isEmpty)
+        XCTAssertFalse(viewModel.shouldShowWingLiftLoadingCard)
+
+        await client.releaseRequests()
+        await initialLoad.value
+        await filterReload.value
+    }
+
+    @MainActor
     func testPhaseSwitchResetsPaginationAndAppliesDefaultSort() async throws {
         let fixture = try capturedPlayersResponse()
         let client = RecordingScoutAPIClient(players: Array(fixture.players.prefix(2)))
@@ -350,6 +459,37 @@ private actor SeededScoutResponseCache: ScoutResponseCaching {
     func saveLeaderboards(_: ScoutLeaderboardsResponse, for _: ScoutLeaderboardsCacheKey) async {}
 }
 
+private actor OneShotSeededScoutResponseCache: ScoutResponseCaching {
+    private let playersResponse: ScoutPlayersResponse
+    private let leaderboardsResponse: ScoutLeaderboardsResponse
+    private var hasLoadedPlayers = false
+    private var hasLoadedLeaderboards = false
+
+    init(
+        playersResponse: ScoutPlayersResponse,
+        leaderboardsResponse: ScoutLeaderboardsResponse
+    ) {
+        self.playersResponse = playersResponse
+        self.leaderboardsResponse = leaderboardsResponse
+    }
+
+    func loadPlayers(for _: ScoutPlayersCacheKey) async -> ScoutPlayersResponse? {
+        guard !hasLoadedPlayers else { return nil }
+        hasLoadedPlayers = true
+        return playersResponse
+    }
+
+    func savePlayers(_: ScoutPlayersResponse, for _: ScoutPlayersCacheKey) async {}
+
+    func loadLeaderboards(for _: ScoutLeaderboardsCacheKey) async -> ScoutLeaderboardsResponse? {
+        guard !hasLoadedLeaderboards else { return nil }
+        hasLoadedLeaderboards = true
+        return leaderboardsResponse
+    }
+
+    func saveLeaderboards(_: ScoutLeaderboardsResponse, for _: ScoutLeaderboardsCacheKey) async {}
+}
+
 private actor DelayedLeaderboardsScoutResponseCache: ScoutResponseCaching {
     private let playersResponse: ScoutPlayersResponse
     private var leaderboardsLoadStarted = false
@@ -435,6 +575,7 @@ private actor SuspendedScoutAPIClient: ScoutAPIClientProtocol {
     private var leaderboardRequestCount = 0
     private var startWaiters: [CheckedContinuation<Void, Never>] = []
     private var playerStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var secondPairStartWaiters: [CheckedContinuation<Void, Never>] = []
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
 
     init(
@@ -450,6 +591,7 @@ private actor SuspendedScoutAPIClient: ScoutAPIClientProtocol {
         playerStartWaiters.forEach { $0.resume() }
         playerStartWaiters = []
         signalBothRequestsIfNeeded()
+        signalSecondPairIfNeeded()
         await suspendUntilReleased()
         return playersResponse
     }
@@ -457,6 +599,7 @@ private actor SuspendedScoutAPIClient: ScoutAPIClientProtocol {
     func fetchScoutLeaderboards(_: ScoutLeaderboardsRequest) async throws -> ScoutLeaderboardsResponse {
         leaderboardRequestCount += 1
         signalBothRequestsIfNeeded()
+        signalSecondPairIfNeeded()
         await suspendUntilReleased()
         return leaderboardsResponse
     }
@@ -472,6 +615,13 @@ private actor SuspendedScoutAPIClient: ScoutAPIClientProtocol {
         guard playerRequestCount == 0 else { return }
         await withCheckedContinuation { continuation in
             playerStartWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilSecondPairStarts() async {
+        guard playerRequestCount < 2 || leaderboardRequestCount < 2 else { return }
+        await withCheckedContinuation { continuation in
+            secondPairStartWaiters.append(continuation)
         }
     }
 
@@ -498,6 +648,14 @@ private actor SuspendedScoutAPIClient: ScoutAPIClientProtocol {
         if playerRequestCount > 0, leaderboardRequestCount > 0 {
             startWaiters.forEach { $0.resume() }
             startWaiters = []
+        }
+    }
+
+
+    private func signalSecondPairIfNeeded() {
+        if playerRequestCount >= 2, leaderboardRequestCount >= 2 {
+            secondPairStartWaiters.forEach { $0.resume() }
+            secondPairStartWaiters = []
         }
     }
 }
