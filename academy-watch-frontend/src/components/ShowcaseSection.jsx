@@ -41,6 +41,7 @@ import {
   Building2,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
+import { formatDateOnly } from '@/lib/dateOnly'
 import { track } from '@/lib/track'
 import { isYouTubeUrl } from '@/lib/youtube'
 import { VideoEmbed } from '@/components/VideoEmbed'
@@ -93,13 +94,6 @@ const PHOTO_MAX_BYTES = 8 * 1024 * 1024
 const isSynthetic = (item) =>
   typeof item?.id === 'string' && item.id.startsWith('yt-')
 
-function formatDate(value) {
-  if (!value) return null
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return null
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
 function toDateInputValue(value) {
   if (!value) return ''
   const text = String(value)
@@ -107,14 +101,6 @@ function toDateInputValue(value) {
   if (dateOnly) return dateOnly
   const d = new Date(value)
   return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
-}
-
-function formatDateOnly(value) {
-  if (!value) return null
-  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (!match) return formatDate(value)
-  const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function optionLabel(options, value) {
@@ -1432,8 +1418,8 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
                     <p className="truncate font-medium text-foreground">
                       {v.opponent_name ? `vs ${v.opponent_name}` : v.team_name || 'Match'}
                     </p>
-                    {formatDate(v.match_date) && (
-                      <p className="text-xs text-muted-foreground">{formatDate(v.match_date)}</p>
+                    {formatDateOnly(v.match_date) && (
+                      <p className="text-xs text-muted-foreground">{formatDateOnly(v.match_date)}</p>
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-4 text-right">

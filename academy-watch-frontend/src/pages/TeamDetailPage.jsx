@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Loader2, ArrowLeft, ChevronRight, User, TrendingUp, Share2, Users, FileText, Search, X, Star, ArrowRightLeft, GraduationCap, UserMinus, BadgeDollarSign, Globe, Bell, Check, LogOut } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion' // eslint-disable-line no-unused-vars
 import { APIService } from '@/lib/api'
+import { formatDateOnly } from '@/lib/dateOnly'
 import { AcademyConstellation } from '@/components/constellation/AcademyConstellation'
 import { SquadOriginsView } from '@/components/origins/SquadOriginsView'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -22,6 +23,14 @@ import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { SeasonSelect } from '@/components/ui/SeasonSelect'
 import { seasonStore } from '@/lib/seasonStore'
 import { withSeasonParam } from '@/lib/seasons'
+
+const NEWSLETTER_DATE_OPTIONS = { day: 'numeric', month: 'short', year: 'numeric' }
+
+function formatNewsletterDate(newsletter) {
+    if (newsletter.published_at) return new Date(newsletter.published_at).toLocaleDateString('en-GB', NEWSLETTER_DATE_OPTIONS)
+    if (newsletter.target_date) return formatDateOnly(newsletter.target_date, NEWSLETTER_DATE_OPTIONS, 'en-GB')
+    return newsletter.created_at ? new Date(newsletter.created_at).toLocaleDateString('en-GB', NEWSLETTER_DATE_OPTIONS) : null
+}
 
 const STATUS_ICONS = {
     first_team: Star,
@@ -630,10 +639,7 @@ export function TeamDetailPage() {
                         ) : (
                             <div className="space-y-3">
                                 {newsletters.map((nl) => {
-                                    const date = nl.published_at || nl.target_date || nl.created_at
-                                    const formattedDate = date ? new Date(date).toLocaleDateString('en-GB', {
-                                        day: 'numeric', month: 'short', year: 'numeric'
-                                    }) : null
+                                    const formattedDate = formatNewsletterDate(nl)
 
                                     return (
                                         <Link

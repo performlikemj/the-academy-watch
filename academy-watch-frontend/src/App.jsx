@@ -125,6 +125,7 @@ import {
 import { NewsletterView } from '@/components/newsletter/NewsletterView'
 
 import { APIService } from '@/lib/api'
+import { formatDateOnly } from '@/lib/dateOnly'
 import { trackPageview } from '@/lib/track'
 import { UniversalDatePicker } from '@/components/ui/UniversalDatePicker'
 import { AuthContext, AuthUIContext, useAuth, useAuthUI, buildAuthSnapshot } from '@/context/AuthContext'
@@ -2564,7 +2565,7 @@ function NewslettersPage() {
                       <div className="text-sm text-muted-foreground mb-2">
                         <Calendar className="h-4 w-4 inline mr-1" />
                         {newsletter.week_start_date && newsletter.week_end_date && (
-                          `${new Date(newsletter.week_start_date).toLocaleDateString()} - ${new Date(newsletter.week_end_date).toLocaleDateString()}`
+                          `${formatDateOnly(newsletter.week_start_date, {})} - ${formatDateOnly(newsletter.week_end_date, {})}`
                         )}
                       </div>
                       {isExpanded ? (

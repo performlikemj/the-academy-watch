@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
+import { formatDateOnly } from '@/lib/dateOnly'
 
 export function UniversalDatePicker({ onDateChange, className = "" }) {
     const [startDate, setStartDate] = useState('')
@@ -163,7 +164,7 @@ export function UniversalDatePicker({ onDateChange, className = "" }) {
 
             {(startDate && endDate) && (
                 <div className="text-sm text-muted-foreground bg-primary/5 p-2 rounded">
-                    Showing data from <strong>{new Date(startDate).toLocaleDateString()}</strong> to <strong>{new Date(endDate).toLocaleDateString()}</strong>
+                    Showing data from <strong>{formatDateOnly(startDate, {})}</strong> to <strong>{formatDateOnly(endDate, {})}</strong>
                 </div>
             )}
         </div>

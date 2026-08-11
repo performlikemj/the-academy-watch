@@ -734,11 +734,17 @@ function AuthenticatedMyClub() {
     setSelectedProgramId((current) => current ?? allowed[0]?.programClaim?.program?.id ?? null)
   }, [approvedProgramClaims, auth?.token, consoleEligibility.erroredProgramIds, consoleEligibility.pending])
 
-  const moderationCount = clubs.reduce((count, clubEntry) => (
-    count
-    + (Array.isArray(clubEntry.pending_affiliations) ? clubEntry.pending_affiliations.length : 0)
-    + (Array.isArray(clubEntry.vouchable_player_claims) ? clubEntry.vouchable_player_claims.length : 0)
-  ), 0)
+  const pendingAffiliationIds = new Set()
+  const vouchableClaimIds = new Set()
+  for (const clubEntry of clubs) {
+    for (const affiliation of clubEntry.pending_affiliations || []) {
+      if (affiliation?.id != null) pendingAffiliationIds.add(String(affiliation.id))
+    }
+    for (const claim of clubEntry.vouchable_player_claims || []) {
+      if (claim?.id != null) vouchableClaimIds.add(String(claim.id))
+    }
+  }
+  const moderationCount = pendingAffiliationIds.size + vouchableClaimIds.size
   const moderationWorkspace = (
     <ClubModerationWorkspace
       clubs={clubs}
@@ -772,7 +778,7 @@ function AuthenticatedMyClub() {
           programClaim={activeConsoleProgram.programClaim}
           initialRoster={activeConsoleProgram.roster}
           programOptions={consoleEligibility.allowed.map(({ programClaim }) => programClaim)}
-          moderationContent={<div className="space-y-4">{statusAlert}{moderationWorkspace}</div>}
+          moderationContent={clubs.length > 0 ? <div className="space-y-4">{statusAlert}{moderationWorkspace}</div> : null}
           moderationCount={moderationCount}
           erroredProgramCount={consoleEligibility.erroredProgramIds.length}
           checkingPrograms={consoleEligibility.pending}
