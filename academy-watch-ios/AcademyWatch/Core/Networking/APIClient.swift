@@ -258,6 +258,18 @@ struct APIClient: ScoutAPIClientProtocol,
     }
 
     func fetchSeasons() async throws -> SeasonDirectory {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if let flagIndex = arguments.firstIndex(of: "-scoutDeskSeasonDelaySeconds"),
+           arguments.indices.contains(flagIndex + 1),
+           let delay = Double(arguments[flagIndex + 1]),
+           delay > 0 {
+            try await Task.sleep(
+                nanoseconds: UInt64(min(delay, 120) * 1_000_000_000)
+            )
+        }
+        #endif
+
         if let cached = await SeasonDirectoryMemoryCache.shared.value() {
             return cached
         }

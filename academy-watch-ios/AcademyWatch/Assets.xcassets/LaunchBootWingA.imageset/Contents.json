@@ -4,6 +4,16 @@
       "filename" : "LaunchBootWingA.png",
       "idiom" : "universal",
       "scale" : "1x"
+    },
+    {
+      "filename" : "LaunchBootWingA@2x.png",
+      "idiom" : "universal",
+      "scale" : "2x"
+    },
+    {
+      "filename" : "LaunchBootWingA@3x.png",
+      "idiom" : "universal",
+      "scale" : "3x"
     }
   ],
   "info" : {

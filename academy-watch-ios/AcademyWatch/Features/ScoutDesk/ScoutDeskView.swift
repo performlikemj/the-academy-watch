@@ -10,6 +10,7 @@ struct ScoutDeskView: View {
     @State private var isComparePresented: Bool
     @State private var isWorldwideAddPresented = false
     @State private var isLocalAddPresented = false
+    @State private var revealsTabBarDuringInitialLoad = false
     private let onSignInRequested: () -> Void
     private let onVerificationRequested: () -> Void
     private let playerDetailAPIClient: APIClient
@@ -81,6 +82,8 @@ struct ScoutDeskView: View {
                 .refreshable {
                     await viewModel.reload()
                 }
+                .allowsHitTesting(!isShowingInitialLoadingCard)
+                .accessibilityHidden(isShowingInitialLoadingCard)
 
                 if isShowingInitialLoadingCard {
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
@@ -100,7 +103,7 @@ struct ScoutDeskView: View {
             .navigationTitle("Scout Desk")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(isShowingInitialLoadingCard ? .hidden : .automatic, for: .navigationBar)
-            .toolbar(isShowingInitialLoadingCard ? .hidden : .automatic, for: .tabBar)
+            .toolbar(hidesTabBarForInitialGrace ? .hidden : .automatic, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -131,7 +134,7 @@ struct ScoutDeskView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !selectedPlayerIDs.isEmpty {
+            if !isShowingInitialLoadingCard, !selectedPlayerIDs.isEmpty {
                 compareTray
                     .padding(.horizontal, 16)
                     .padding(.bottom, 6)
@@ -166,10 +169,31 @@ struct ScoutDeskView: View {
             guard navigationPath.isEmpty else { return }
             await viewModel.loadInitialIfNeeded()
         }
+        .task(id: isShowingInitialLoadingCard) {
+            guard isShowingInitialLoadingCard else {
+                revealsTabBarDuringInitialLoad = false
+                return
+            }
+
+            revealsTabBarDuringInitialLoad = false
+            do {
+                try await Task.sleep(nanoseconds: 2_500_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, isShowingInitialLoadingCard else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                revealsTabBarDuringInitialLoad = true
+            }
+        }
     }
 
     private var isShowingInitialLoadingCard: Bool {
-        viewModel.shouldShowWingLiftLoadingCard
+        navigationPath.isEmpty && viewModel.shouldShowWingLiftLoadingCard
+    }
+
+    private var hidesTabBarForInitialGrace: Bool {
+        isShowingInitialLoadingCard && !revealsTabBarDuringInitialLoad
     }
 
     private var phaseSwitcher: some View {

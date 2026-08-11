@@ -3,6 +3,46 @@ import XCTest
 
 final class ScoutDeskViewModelTests: XCTestCase {
     @MainActor
+    func testTrueFirstLoadIsArmedBeforeDelayedSeasonDiscoveryCompletes() async throws {
+        let playersResponse = try capturedPlayersResponse()
+        let client = SeasonSuspendedScoutAPIClient(
+            playersResponse: playersResponse,
+            leaderboardsResponse: ScoutLeaderboardsResponse(
+                leaderboards: [:],
+                limit: 5,
+                phase: .all
+            )
+        )
+        let viewModel = ScoutDeskViewModel(
+            apiClient: client,
+            responseCache: EmptyScoutResponseCache()
+        )
+
+        XCTAssertTrue(viewModel.isLoadingInitial)
+        XCTAssertTrue(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertFalse(viewModel.shouldShowInlineInitialLoader)
+
+        let loadTask = Task {
+            await viewModel.loadInitialIfNeeded()
+        }
+        await client.waitUntilSeasonDiscoveryStarts()
+
+        XCTAssertTrue(viewModel.isLoadingInitial)
+        XCTAssertTrue(viewModel.players.isEmpty)
+        XCTAssertFalse(viewModel.hasCompletedFirstLoad)
+        XCTAssertTrue(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertFalse(viewModel.shouldShowInlineInitialLoader)
+        let requestCountsDuringSeasonDiscovery = await client.requestCounts()
+        XCTAssertEqual(requestCountsDuringSeasonDiscovery.players, 0)
+        XCTAssertEqual(requestCountsDuringSeasonDiscovery.leaderboards, 0)
+
+        await client.releaseSeasonDiscovery()
+        await client.waitUntilBothScoutRequestsStart()
+        await client.releaseScoutRequests()
+        await loadTask.value
+    }
+
+    @MainActor
     func testTrueFirstLoadShowsWingLiftCardWhileWaitingForContent() async throws {
         let playersResponse = try capturedPlayersResponse()
         let client = SuspendedScoutAPIClient(
@@ -434,6 +474,97 @@ final class ScoutDeskViewModelTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(ScoutPlayersResponse.self, from: data)
+    }
+}
+
+private actor SeasonSuspendedScoutAPIClient:
+    ScoutAPIClientProtocol,
+    SeasonDirectoryAPIClientProtocol
+{
+    private let playersResponse: ScoutPlayersResponse
+    private let leaderboardsResponse: ScoutLeaderboardsResponse
+    private var seasonDiscoveryStarted = false
+    private var seasonStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var seasonContinuation: CheckedContinuation<Void, Never>?
+    private var playerRequestCount = 0
+    private var leaderboardRequestCount = 0
+    private var scoutStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var scoutReleaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    init(
+        playersResponse: ScoutPlayersResponse,
+        leaderboardsResponse: ScoutLeaderboardsResponse
+    ) {
+        self.playersResponse = playersResponse
+        self.leaderboardsResponse = leaderboardsResponse
+    }
+
+    func fetchSeasons() async throws -> SeasonDirectory {
+        seasonDiscoveryStarted = true
+        seasonStartWaiters.forEach { $0.resume() }
+        seasonStartWaiters = []
+        await withCheckedContinuation { continuation in
+            seasonContinuation = continuation
+        }
+        return SeasonDirectory(
+            currentSeason: 2025,
+            bounds: SeasonBounds(min: 2022, max: 2025),
+            seasons: []
+        )
+    }
+
+    func fetchScoutPlayers(_: ScoutPlayersRequest) async throws -> ScoutPlayersResponse {
+        playerRequestCount += 1
+        signalScoutRequestsIfNeeded()
+        await suspendScoutRequest()
+        return playersResponse
+    }
+
+    func fetchScoutLeaderboards(_: ScoutLeaderboardsRequest) async throws -> ScoutLeaderboardsResponse {
+        leaderboardRequestCount += 1
+        signalScoutRequestsIfNeeded()
+        await suspendScoutRequest()
+        return leaderboardsResponse
+    }
+
+    func waitUntilSeasonDiscoveryStarts() async {
+        guard !seasonDiscoveryStarted else { return }
+        await withCheckedContinuation { continuation in
+            seasonStartWaiters.append(continuation)
+        }
+    }
+
+    func releaseSeasonDiscovery() {
+        seasonContinuation?.resume()
+        seasonContinuation = nil
+    }
+
+    func waitUntilBothScoutRequestsStart() async {
+        guard playerRequestCount == 0 || leaderboardRequestCount == 0 else { return }
+        await withCheckedContinuation { continuation in
+            scoutStartWaiters.append(continuation)
+        }
+    }
+
+    func releaseScoutRequests() {
+        scoutReleaseContinuations.forEach { $0.resume() }
+        scoutReleaseContinuations = []
+    }
+
+    func requestCounts() -> (players: Int, leaderboards: Int) {
+        (playerRequestCount, leaderboardRequestCount)
+    }
+
+    private func signalScoutRequestsIfNeeded() {
+        guard playerRequestCount > 0, leaderboardRequestCount > 0 else { return }
+        scoutStartWaiters.forEach { $0.resume() }
+        scoutStartWaiters = []
+    }
+
+    private func suspendScoutRequest() async {
+        await withCheckedContinuation { continuation in
+            scoutReleaseContinuations.append(continuation)
+        }
     }
 }
 
