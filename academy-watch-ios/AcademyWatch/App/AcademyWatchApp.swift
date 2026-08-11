@@ -6,6 +6,12 @@ struct AcademyWatchApp: App {
     private let onboardingFixture = OnboardingFixtureDestination.fromLaunchArguments(
         ProcessInfo.processInfo.arguments
     )
+    private let wingLiftFixtureElapsedSeconds = WingLiftLoadingView.fixtureElapsedSeconds(
+        from: ProcessInfo.processInfo.arguments
+    )
+    private let wingLiftFixtureReducesMotion = ProcessInfo.processInfo.arguments.contains(
+        "-wingLiftFixtureReduceMotion"
+    )
     #endif
     private let initialPhase = ScoutPhase.fromLaunchArguments(ProcessInfo.processInfo.arguments)
     private let initialPlayerID: Int? = {
@@ -44,7 +50,14 @@ struct AcademyWatchApp: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            if let onboardingFixture {
+            if let wingLiftFixtureElapsedSeconds {
+                WingLiftLoadingView(
+                    feedback: ScoutInitialLoadFeedback(
+                        elapsedSeconds: wingLiftFixtureElapsedSeconds
+                    ),
+                    reduceMotionOverride: wingLiftFixtureReducesMotion
+                )
+            } else if let onboardingFixture {
                 OnboardingEvidenceRoot(destination: onboardingFixture)
             } else {
                 appRoot

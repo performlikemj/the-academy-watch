@@ -2,12 +2,25 @@ import Combine
 import Foundation
 
 struct ScoutInitialLoadFeedback: Equatable {
-    static let thresholdSeconds = 3
-
     let elapsedSeconds: Int
 
-    var title: String { "Waking up the match server…" }
-    var detail: String { "Still working — \(elapsedSeconds)s elapsed" }
+    var title: String {
+        switch elapsedSeconds {
+        case ..<4: "Scouting talent…"
+        case ..<12: "Checking the team sheets…"
+        default: "Almost there"
+        }
+    }
+
+    var detail: String {
+        switch elapsedSeconds {
+        case ..<4: "Setting up your Scout Desk."
+        case ..<12: "Waking the scouts and loading this season."
+        default: "First visit — we're gathering players from around the world."
+        }
+    }
+
+    var showsFirstVisitDuration: Bool { elapsedSeconds >= 12 }
 }
 
 @MainActor
@@ -111,7 +124,6 @@ final class ScoutDeskViewModel: ObservableObject {
         else { return nil }
 
         let elapsedSeconds = Int(max(0, uptime - initialLoadStartedAt))
-        guard elapsedSeconds >= ScoutInitialLoadFeedback.thresholdSeconds else { return nil }
         return ScoutInitialLoadFeedback(elapsedSeconds: elapsedSeconds)
     }
 
