@@ -27,8 +27,8 @@ import { withSeasonParam } from '@/lib/seasons'
 const NEWSLETTER_DATE_OPTIONS = { day: 'numeric', month: 'short', year: 'numeric' }
 
 function formatNewsletterDate(newsletter) {
-    if (newsletter.published_at) return new Date(newsletter.published_at).toLocaleDateString('en-GB', NEWSLETTER_DATE_OPTIONS)
-    if (newsletter.target_date) return formatDateOnly(newsletter.target_date, NEWSLETTER_DATE_OPTIONS, 'en-GB')
+    if (newsletter.published_date) return new Date(newsletter.published_date).toLocaleDateString('en-GB', NEWSLETTER_DATE_OPTIONS)
+    if (newsletter.issue_date) return formatDateOnly(newsletter.issue_date, NEWSLETTER_DATE_OPTIONS, 'en-GB')
     return newsletter.created_at ? new Date(newsletter.created_at).toLocaleDateString('en-GB', NEWSLETTER_DATE_OPTIONS) : null
 }
 
