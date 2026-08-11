@@ -82,14 +82,26 @@ const MATCH_FORM_FIELDS = [
   'duration_s',
 ]
 const TIMELINE_FIELDS = ['kickoff_s', 'halftime_s', 'second_half_kickoff_s', 'duration_s']
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
 
 function errorText(error, fallback) {
   return error?.body?.error || error?.message || fallback
 }
 
 function formatDate(value, includeTime = false) {
-  if (!value) return null
-  const date = new Date(value)
+  if (value === null || typeof value === 'undefined' || value === '') return null
+  const normalizedValue = typeof value === 'string' ? value.trim() : value
+  const dateOnlyMatch = typeof normalizedValue === 'string' ? DATE_ONLY_PATTERN.exec(normalizedValue) : null
+  let date
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1])
+    const monthIndex = Number(dateOnlyMatch[2]) - 1
+    const day = Number(dateOnlyMatch[3])
+    date = new Date(year, monthIndex, day)
+    if (date.getFullYear() !== year || date.getMonth() !== monthIndex || date.getDate() !== day) return null
+  } else {
+    date = new Date(normalizedValue)
+  }
   if (Number.isNaN(date.getTime())) return null
   return date.toLocaleString(undefined, includeTime
     ? { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }
@@ -1053,7 +1065,18 @@ function ClubProfile({ program, claim }) {
   )
 }
 
-export function MyClubConsole({ programClaim, initialRoster, programOptions, onProgramChange, onAccessDenied }) {
+export function MyClubConsole({
+  programClaim,
+  initialRoster,
+  programOptions,
+  moderationContent,
+  moderationCount = 0,
+  erroredProgramCount = 0,
+  checkingPrograms = false,
+  onProgramChange,
+  onRetryPrograms,
+  onAccessDenied,
+}) {
   const program = programClaim.program
   const programId = program.id
   const [members, setMembers] = useState(() => (Array.isArray(initialRoster?.members) ? initialRoster.members : []))
@@ -1154,11 +1177,32 @@ export function MyClubConsole({ programClaim, initialRoster, programOptions, onP
           </div>
         </header>
 
+        {erroredProgramCount > 0 ? (
+          <Alert className="border-amber-200 bg-amber-50">
+            <AlertCircle className="h-4 w-4 text-amber-800" />
+            <AlertDescription className="flex flex-wrap items-center gap-1 text-amber-950">
+              {erroredProgramCount} {erroredProgramCount === 1 ? 'club' : 'clubs'} couldn&apos;t be checked —
+              <Button
+                variant="link"
+                className="h-auto p-0 text-amber-950 underline"
+                onClick={onRetryPrograms}
+                disabled={checkingPrograms}
+              >
+                {checkingPrograms ? 'Checking…' : 'Retry'}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         <Tabs defaultValue="roster" className="gap-5">
-          <TabsList className="grid h-auto w-full grid-cols-3 bg-slate-200/70 p-1 sm:w-fit sm:min-w-[32rem]">
+          <TabsList className="grid h-auto w-full grid-cols-2 bg-slate-200/70 p-1 sm:grid-cols-4 lg:w-fit lg:min-w-[44rem]">
             <TabsTrigger value="roster" className="py-2"><Users className="h-4 w-4" /> Roster</TabsTrigger>
             <TabsTrigger value="matches" className="py-2"><Film className="h-4 w-4" /> Matches &amp; reports</TabsTrigger>
             <TabsTrigger value="profile" className="py-2"><ShieldCheck className="h-4 w-4" /> Club profile</TabsTrigger>
+            <TabsTrigger value="affiliations" className="py-2">
+              <Check className="h-4 w-4" /> Affiliations &amp; vouches
+              {moderationCount > 0 ? <Badge className="ml-1 border-amber-300 bg-amber-100 text-amber-900">{moderationCount}</Badge> : null}
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="roster">
             <RosterPanel programId={programId} members={members} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onReload={loadRoster} onAccessDenied={onAccessDenied} />
@@ -1167,6 +1211,7 @@ export function MyClubConsole({ programClaim, initialRoster, programOptions, onP
             <MatchesPanel programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
           </TabsContent>
           <TabsContent value="profile"><ClubProfile program={program} claim={programClaim} /></TabsContent>
+          <TabsContent value="affiliations">{moderationContent}</TabsContent>
         </Tabs>
 
         <p className="flex items-center justify-center gap-2 text-center text-xs text-muted-foreground"><LockKeyhole className="h-3.5 w-3.5" /> Club-console data is manager-only. Opposition players remain anonymous.</p>

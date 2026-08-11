@@ -103,6 +103,153 @@ function SignedOutState({ onSignIn }) {
   )
 }
 
+function ClubModerationWorkspace({
+  clubs,
+  actingAffiliationId,
+  affiliationNotes,
+  onAffiliationNoteChange,
+  onReviewAffiliation,
+  onVouch,
+}) {
+  return clubs.map((clubEntry) => {
+    const pendingAffiliations = Array.isArray(clubEntry.pending_affiliations) ? clubEntry.pending_affiliations : []
+    const vouchableClaims = Array.isArray(clubEntry.vouchable_player_claims) ? clubEntry.vouchable_player_claims : []
+    return (
+      <section key={clubEntry.claim?.id || clubEntry.club_name} className="space-y-4" aria-labelledby={`club-${clubEntry.claim?.id}-heading`}>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/15 bg-primary/5 px-5 py-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Approved club</p>
+            <h2 id={`club-${clubEntry.claim?.id}-heading`} className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+              {clubEntry.club_name || clubEntry.claim?.club_name || 'Your club'}
+            </h2>
+            {clubEntry.claim?.role_title ? (
+              <p className="mt-1 text-sm text-muted-foreground">Your role: {clubEntry.claim.role_title}</p>
+            ) : null}
+          </div>
+          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">
+            <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+            Verified official
+          </Badge>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Player affiliations</CardTitle>
+              <CardDescription>Confirm or reject players who name this club on their showcase.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {pendingAffiliations.length === 0 ? (
+                <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                  No affiliations need your review.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {pendingAffiliations.map((affiliation) => {
+                    const isActing = actingAffiliationId === affiliation.id
+                    const affiliationStatus = AFFILIATION_STATUS[affiliation.status] || AFFILIATION_STATUS.pending
+                    return (
+                      <div key={affiliation.id} className="space-y-3 rounded-lg border border-border/80 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <Link to={`/players/${affiliation.player_api_id}`} className="font-semibold text-foreground hover:text-primary hover:underline">
+                              Player #{affiliation.player_api_id}
+                            </Link>
+                            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                              <span>Season: {affiliation.season || 'Not provided'}</span>
+                              {formatDate(affiliation.created_at) ? <span>Submitted {formatDate(affiliation.created_at)}</span> : null}
+                            </div>
+                          </div>
+                          <Badge className={affiliationStatus.className}>{affiliationStatus.label}</Badge>
+                        </div>
+                        {affiliation.review_note ? (
+                          <p className="text-xs text-muted-foreground">Previous note: {affiliation.review_note}</p>
+                        ) : null}
+                        <div className="space-y-2">
+                          <Input
+                            value={affiliationNotes[affiliation.id] || ''}
+                            onChange={(event) => onAffiliationNoteChange(affiliation.id, event.target.value)}
+                            placeholder="Rejection note (optional)"
+                            aria-label={`Rejection note for player ${affiliation.player_api_id}`}
+                            maxLength={1000}
+                            disabled={isActing}
+                          />
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-rose-600 text-rose-600 hover:bg-rose-50"
+                              disabled={Boolean(actingAffiliationId)}
+                              onClick={() => onReviewAffiliation(affiliation, 'reject')}
+                            >
+                              {isActing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <X className="mr-1 h-4 w-4" />}
+                              Reject
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                              disabled={Boolean(actingAffiliationId)}
+                              onClick={() => onReviewAffiliation(affiliation, 'confirm')}
+                            >
+                              {isActing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />}
+                              Confirm
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Player claim vouching</CardTitle>
+              <CardDescription>Identity approval only. Profile content remains separately moderated.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {vouchableClaims.length === 0 ? (
+                <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                  No player claims are waiting for a vouch.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {vouchableClaims.map((claim) => (
+                    <div key={claim.id} className="flex flex-col gap-3 rounded-lg border border-border/80 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link to={`/players/${claim.player_api_id}`} className="font-semibold text-foreground hover:text-primary hover:underline">
+                            Player #{claim.player_api_id}
+                          </Link>
+                          <VerificationBadge status={claim.verification_status} />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {RELATIONSHIP_LABELS[claim.relationship_type] || claim.relationship_type || 'Claimant'}
+                          {formatDate(claim.created_at) ? ` · Submitted ${formatDate(claim.created_at)}` : ''}
+                        </p>
+                        {formatDate(claim.verification_checked_at) ? (
+                          <p className="text-xs text-muted-foreground">Social profile checked {formatDate(claim.verification_checked_at)}</p>
+                        ) : null}
+                      </div>
+                      <Button size="sm" onClick={() => onVouch(claim, clubEntry.club_name)} className="shrink-0">
+                        <UserCheck className="mr-1.5 h-4 w-4" />
+                        Vouch
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+    )
+  })
+}
+
 export function MyClub() {
   const auth = useAuth()
   const { openLoginModal } = useAuthUI()
@@ -587,23 +734,54 @@ function AuthenticatedMyClub() {
     setSelectedProgramId((current) => current ?? allowed[0]?.programClaim?.program?.id ?? null)
   }, [approvedProgramClaims, auth?.token, consoleEligibility.erroredProgramIds, consoleEligibility.pending])
 
-  if (hasLoadedData && loadedToken === auth.token && !consoleEligibility.pending && activeConsoleProgram) {
-    const activeProgramId = Number(activeConsoleProgram.programClaim.program.id)
-    return (
-      <MyClubConsole
-        key={activeProgramId}
-        programClaim={activeConsoleProgram.programClaim}
-        initialRoster={activeConsoleProgram.roster}
-        programOptions={consoleEligibility.allowed.map(({ programClaim }) => programClaim)}
-        onProgramChange={setSelectedProgramId}
-        onAccessDenied={() => handleConsoleAccessDenied(activeProgramId)}
-      />
-    )
-  }
+  const moderationCount = clubs.reduce((count, clubEntry) => (
+    count
+    + (Array.isArray(clubEntry.pending_affiliations) ? clubEntry.pending_affiliations.length : 0)
+    + (Array.isArray(clubEntry.vouchable_player_claims) ? clubEntry.vouchable_player_claims.length : 0)
+  ), 0)
+  const moderationWorkspace = (
+    <ClubModerationWorkspace
+      clubs={clubs}
+      actingAffiliationId={actingAffiliationId}
+      affiliationNotes={affiliationNotes}
+      onAffiliationNoteChange={(affiliationId, value) => setAffiliationNotes((current) => ({ ...current, [affiliationId]: value }))}
+      onReviewAffiliation={reviewAffiliation}
+      onVouch={openVouchDialog}
+    />
+  )
+  const statusAlert = message ? (
+    <Alert className={message.type === 'error' ? 'border-rose-500 bg-rose-50' : 'border-emerald-500 bg-emerald-50'}>
+      {message.type === 'error' ? (
+        <AlertCircle className="h-4 w-4 text-rose-600" />
+      ) : (
+        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+      )}
+      <AlertDescription className={message.type === 'error' ? 'text-rose-800' : 'text-emerald-800'}>
+        {message.text}
+      </AlertDescription>
+    </Alert>
+  ) : null
+  const showConsole = hasLoadedData && loadedToken === auth.token && Boolean(activeConsoleProgram)
+  const activeProgramId = showConsole ? Number(activeConsoleProgram.programClaim.program.id) : null
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
-      <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+    <div className={showConsole ? undefined : 'min-h-screen bg-gradient-to-b from-secondary to-background'}>
+      {showConsole ? (
+        <MyClubConsole
+          key={activeProgramId}
+          programClaim={activeConsoleProgram.programClaim}
+          initialRoster={activeConsoleProgram.roster}
+          programOptions={consoleEligibility.allowed.map(({ programClaim }) => programClaim)}
+          moderationContent={<div className="space-y-4">{statusAlert}{moderationWorkspace}</div>}
+          moderationCount={moderationCount}
+          erroredProgramCount={consoleEligibility.erroredProgramIds.length}
+          checkingPrograms={consoleEligibility.pending}
+          onProgramChange={setSelectedProgramId}
+          onRetryPrograms={retryConsoleEligibility}
+          onAccessDenied={() => handleConsoleAccessDenied(activeProgramId)}
+        />
+      ) : (
+        <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
@@ -625,18 +803,7 @@ function AuthenticatedMyClub() {
           </Button>
         </header>
 
-        {message ? (
-          <Alert className={message.type === 'error' ? 'border-rose-500 bg-rose-50' : 'border-emerald-500 bg-emerald-50'}>
-            {message.type === 'error' ? (
-              <AlertCircle className="h-4 w-4 text-rose-600" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            )}
-            <AlertDescription className={message.type === 'error' ? 'text-rose-800' : 'text-emerald-800'}>
-              {message.text}
-            </AlertDescription>
-          </Alert>
-        ) : null}
+        {statusAlert}
 
         {hasLoadedData && loadedToken === auth.token && !activeConsoleProgram && consoleEligibility.erroredProgramIds.length > 0 ? (
           <Alert className="border-amber-200 bg-amber-50">
@@ -736,146 +903,11 @@ function AuthenticatedMyClub() {
               </Card>
             )}
 
-            {clubs.map((clubEntry) => {
-              const pendingAffiliations = Array.isArray(clubEntry.pending_affiliations) ? clubEntry.pending_affiliations : []
-              const vouchableClaims = Array.isArray(clubEntry.vouchable_player_claims) ? clubEntry.vouchable_player_claims : []
-              return (
-                <section key={clubEntry.claim?.id || clubEntry.club_name} className="space-y-4" aria-labelledby={`club-${clubEntry.claim?.id}-heading`}>
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/15 bg-primary/5 px-5 py-4">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Approved club</p>
-                      <h2 id={`club-${clubEntry.claim?.id}-heading`} className="mt-1 text-2xl font-bold tracking-tight text-foreground">
-                        {clubEntry.club_name || clubEntry.claim?.club_name || 'Your club'}
-                      </h2>
-                      {clubEntry.claim?.role_title ? (
-                        <p className="mt-1 text-sm text-muted-foreground">Your role: {clubEntry.claim.role_title}</p>
-                      ) : null}
-                    </div>
-                    <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">
-                      <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-                      Verified official
-                    </Badge>
-                  </div>
-
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-lg">Player affiliations</CardTitle>
-                        <CardDescription>Confirm or reject players who name this club on their showcase.</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        {pendingAffiliations.length === 0 ? (
-                          <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-                            No affiliations need your review.
-                          </p>
-                        ) : (
-                          <div className="space-y-3">
-                            {pendingAffiliations.map((affiliation) => {
-                              const isActing = actingAffiliationId === affiliation.id
-                              const affiliationStatus = AFFILIATION_STATUS[affiliation.status] || AFFILIATION_STATUS.pending
-                              return (
-                                <div key={affiliation.id} className="space-y-3 rounded-lg border border-border/80 p-4">
-                                  <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div>
-                                      <Link to={`/players/${affiliation.player_api_id}`} className="font-semibold text-foreground hover:text-primary hover:underline">
-                                        Player #{affiliation.player_api_id}
-                                      </Link>
-                                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                                        <span>Season: {affiliation.season || 'Not provided'}</span>
-                                        {formatDate(affiliation.created_at) ? <span>Submitted {formatDate(affiliation.created_at)}</span> : null}
-                                      </div>
-                                    </div>
-                                    <Badge className={affiliationStatus.className}>{affiliationStatus.label}</Badge>
-                                  </div>
-                                  {affiliation.review_note ? (
-                                    <p className="text-xs text-muted-foreground">Previous note: {affiliation.review_note}</p>
-                                  ) : null}
-                                  <div className="space-y-2">
-                                    <Input
-                                      value={affiliationNotes[affiliation.id] || ''}
-                                      onChange={(event) => setAffiliationNotes((current) => ({ ...current, [affiliation.id]: event.target.value }))}
-                                      placeholder="Rejection note (optional)"
-                                      aria-label={`Rejection note for player ${affiliation.player_api_id}`}
-                                      maxLength={1000}
-                                      disabled={isActing}
-                                    />
-                                    <div className="flex flex-wrap justify-end gap-2">
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="border-rose-600 text-rose-600 hover:bg-rose-50"
-                                        disabled={Boolean(actingAffiliationId)}
-                                        onClick={() => reviewAffiliation(affiliation, 'reject')}
-                                      >
-                                        {isActing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <X className="mr-1 h-4 w-4" />}
-                                        Reject
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="border-emerald-600 text-emerald-700 hover:bg-emerald-50"
-                                        disabled={Boolean(actingAffiliationId)}
-                                        onClick={() => reviewAffiliation(affiliation, 'confirm')}
-                                      >
-                                        {isActing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />}
-                                        Confirm
-                                      </Button>
-                                    </div>
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-lg">Player claim vouching</CardTitle>
-                        <CardDescription>Identity approval only. Profile content remains separately moderated.</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        {vouchableClaims.length === 0 ? (
-                          <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-                            No player claims are waiting for a vouch.
-                          </p>
-                        ) : (
-                          <div className="space-y-3">
-                            {vouchableClaims.map((claim) => (
-                              <div key={claim.id} className="flex flex-col gap-3 rounded-lg border border-border/80 p-4 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="min-w-0 space-y-2">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <Link to={`/players/${claim.player_api_id}`} className="font-semibold text-foreground hover:text-primary hover:underline">
-                                      Player #{claim.player_api_id}
-                                    </Link>
-                                    <VerificationBadge status={claim.verification_status} />
-                                  </div>
-                                  <p className="text-xs text-muted-foreground">
-                                    {RELATIONSHIP_LABELS[claim.relationship_type] || claim.relationship_type || 'Claimant'}
-                                    {formatDate(claim.created_at) ? ` · Submitted ${formatDate(claim.created_at)}` : ''}
-                                  </p>
-                                  {formatDate(claim.verification_checked_at) ? (
-                                    <p className="text-xs text-muted-foreground">Social profile checked {formatDate(claim.verification_checked_at)}</p>
-                                  ) : null}
-                                </div>
-                                <Button size="sm" onClick={() => openVouchDialog(claim, clubEntry.club_name)} className="shrink-0">
-                                  <UserCheck className="mr-1.5 h-4 w-4" />
-                                  Vouch
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </div>
-                </section>
-              )
-            })}
+            {moderationWorkspace}
           </>
         )}
-      </div>
+        </div>
+      )}
 
       <Dialog
         open={claimOpen}
