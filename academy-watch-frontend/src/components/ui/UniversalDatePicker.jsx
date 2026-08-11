@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Label } from '@/components/ui/label.jsx'
+import { formatDateOnly, toLocalISODate } from '@/lib/dateOnly'
 
 export function UniversalDatePicker({ onDateChange, className = "" }) {
     const [startDate, setStartDate] = useState('')
@@ -14,35 +15,45 @@ export function UniversalDatePicker({ onDateChange, className = "" }) {
 
         switch (preset) {
             case 'today':
-                start = end = today.toISOString().split('T')[0]
+                start = end = toLocalISODate(today)
                 break
             case 'this_week':
                 {
                     const monday = new Date(today)
                     monday.setDate(today.getDate() - today.getDay() + 1)
-                    start = monday.toISOString().split('T')[0]
-                    end = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                    const sunday = new Date(monday)
+                    sunday.setDate(monday.getDate() + 6)
+                    start = toLocalISODate(monday)
+                    end = toLocalISODate(sunday)
                 }
                 break
             case 'this_month':
-                start = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]
-                end = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0]
+                start = toLocalISODate(new Date(today.getFullYear(), today.getMonth(), 1))
+                end = toLocalISODate(new Date(today.getFullYear(), today.getMonth() + 1, 0))
                 break
             case 'last_30_days':
-                start = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-                end = today.toISOString().split('T')[0]
+                {
+                    const thirtyDaysAgo = new Date(today)
+                    thirtyDaysAgo.setDate(today.getDate() - 30)
+                    start = toLocalISODate(thirtyDaysAgo)
+                    end = toLocalISODate(today)
+                }
                 break
             case 'last_90_days':
-                start = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-                end = today.toISOString().split('T')[0]
+                {
+                    const ninetyDaysAgo = new Date(today)
+                    ninetyDaysAgo.setDate(today.getDate() - 90)
+                    start = toLocalISODate(ninetyDaysAgo)
+                    end = toLocalISODate(today)
+                }
                 break
             case 'last_year':
-                start = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate()).toISOString().split('T')[0]
-                end = today.toISOString().split('T')[0]
+                start = toLocalISODate(new Date(today.getFullYear() - 1, today.getMonth(), today.getDate()))
+                end = toLocalISODate(today)
                 break
             case 'all_time':
                 start = '2020-01-01' // Reasonable start date for football data
-                end = today.toISOString().split('T')[0]
+                end = toLocalISODate(today)
                 break
             case 'custom':
                 setIsCustomRange(true)
@@ -163,7 +174,7 @@ export function UniversalDatePicker({ onDateChange, className = "" }) {
 
             {(startDate && endDate) && (
                 <div className="text-sm text-muted-foreground bg-primary/5 p-2 rounded">
-                    Showing data from <strong>{new Date(startDate).toLocaleDateString()}</strong> to <strong>{new Date(endDate).toLocaleDateString()}</strong>
+                    Showing data from <strong>{formatDateOnly(startDate, {})}</strong> to <strong>{formatDateOnly(endDate, {})}</strong>
                 </div>
             )}
         </div>

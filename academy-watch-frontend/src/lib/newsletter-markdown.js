@@ -5,21 +5,17 @@
  * with proper formatting for sharing on Reddit.
  */
 
+import { formatDateOnly } from '@/lib/dateOnly'
+
 /**
  * Format a date string for display
  */
 function formatDate(dateStr) {
-    if (!dateStr) return ''
-    try {
-        const date = new Date(dateStr)
-        return date.toLocaleDateString('en-GB', { 
-            day: 'numeric', 
-            month: 'short', 
-            year: 'numeric' 
-        })
-    } catch {
-        return dateStr
-    }
+    return formatDateOnly(dateStr, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+    }, 'en-GB') || dateStr || ''
 }
 
 /**
@@ -510,4 +506,3 @@ export default {
     convertNewsletterToMarkdown,
     convertNewsletterToCompactMarkdown
 }
-

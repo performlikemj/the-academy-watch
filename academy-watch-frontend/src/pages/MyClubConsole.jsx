@@ -20,6 +20,7 @@ import {
   Users,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
+import { formatDateOnly } from '@/lib/dateOnly'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   AlertDialog,
@@ -82,30 +83,15 @@ const MATCH_FORM_FIELDS = [
   'duration_s',
 ]
 const TIMELINE_FIELDS = ['kickoff_s', 'halftime_s', 'second_half_kickoff_s', 'duration_s']
-const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
-
 function errorText(error, fallback) {
   return error?.body?.error || error?.message || fallback
 }
 
-function formatDate(value, includeTime = false) {
-  if (value === null || typeof value === 'undefined' || value === '') return null
-  const normalizedValue = typeof value === 'string' ? value.trim() : value
-  const dateOnlyMatch = typeof normalizedValue === 'string' ? DATE_ONLY_PATTERN.exec(normalizedValue) : null
-  let date
-  if (dateOnlyMatch) {
-    const year = Number(dateOnlyMatch[1])
-    const monthIndex = Number(dateOnlyMatch[2]) - 1
-    const day = Number(dateOnlyMatch[3])
-    date = new Date(year, monthIndex, day)
-    if (date.getFullYear() !== year || date.getMonth() !== monthIndex || date.getDate() !== day) return null
-  } else {
-    date = new Date(normalizedValue)
-  }
+function formatTimestampDate(value) {
+  if (!value) return null
+  const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString(undefined, includeTime
-    ? { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }
-    : { day: 'numeric', month: 'short', year: 'numeric' })
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function formatBytes(value) {
@@ -846,7 +832,7 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300">Match #{match.id}</p>
             <CardTitle className="mt-1 text-xl text-white">vs {match.opponent_name || 'Opponent TBD'}</CardTitle>
-            <CardDescription className="mt-1 text-slate-300">{[match.competition, formatDate(match.match_date)].filter(Boolean).join(' · ') || 'Add match details below'}</CardDescription>
+            <CardDescription className="mt-1 text-slate-300">{[match.competition, formatDateOnly(match.match_date)].filter(Boolean).join(' · ') || 'Add match details below'}</CardDescription>
           </div>
           <MatchStatusBadge status={match.status} />
         </div>
@@ -1010,7 +996,7 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
               return (
                 <button key={match.id} type="button" onClick={() => setSelectedId(match.id)} className={`w-full rounded-xl border p-4 text-left transition-all ${selected ? 'border-primary/40 bg-primary/5 shadow-sm' : 'border-border bg-card hover:border-primary/25 hover:bg-muted/30'}`}>
                   <div className="flex items-start justify-between gap-3"><p className="truncate font-bold text-foreground">vs {match.opponent_name || 'Opponent TBD'}</p><ChevronRight className={`h-4 w-4 shrink-0 ${selected ? 'text-primary' : 'text-muted-foreground'}`} /></div>
-                  <p className="mt-1 truncate text-xs text-muted-foreground">{[match.competition, formatDate(match.match_date)].filter(Boolean).join(' · ') || `Match #${match.id}`}</p>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">{[match.competition, formatDateOnly(match.match_date)].filter(Boolean).join(' · ') || `Match #${match.id}`}</p>
                   <div className="mt-3"><MatchStatusBadge status={match.status} /></div>
                 </button>
               )
@@ -1056,7 +1042,7 @@ function ClubProfile({ program, claim }) {
           ['Age groups', Array.isArray(program.league?.age_bands) ? program.league.age_bands.join(', ') : null],
           ['Data tier', program.league?.data_tier],
           ['Provenance', program.provenance?.label],
-          ['Verified', formatDate(program.verified_at)],
+          ['Verified', formatTimestampDate(program.verified_at)],
         ].map(([label, value]) => (
           <div key={label} className="rounded-xl border border-border bg-secondary/25 p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</p><p className="mt-1.5 font-semibold capitalize text-foreground">{value || '—'}</p></div>
         ))}
@@ -1195,14 +1181,16 @@ export function MyClubConsole({
         ) : null}
 
         <Tabs defaultValue="roster" className="gap-5">
-          <TabsList className="grid h-auto w-full grid-cols-2 bg-slate-200/70 p-1 sm:grid-cols-4 lg:w-fit lg:min-w-[44rem]">
+          <TabsList className={`grid h-auto w-full grid-cols-2 bg-slate-200/70 p-1 ${moderationContent ? 'sm:grid-cols-4 lg:min-w-[44rem]' : 'sm:grid-cols-3 lg:min-w-[33rem]'} lg:w-fit`}>
             <TabsTrigger value="roster" className="py-2"><Users className="h-4 w-4" /> Roster</TabsTrigger>
             <TabsTrigger value="matches" className="py-2"><Film className="h-4 w-4" /> Matches &amp; reports</TabsTrigger>
             <TabsTrigger value="profile" className="py-2"><ShieldCheck className="h-4 w-4" /> Club profile</TabsTrigger>
-            <TabsTrigger value="affiliations" className="py-2">
-              <Check className="h-4 w-4" /> Affiliations &amp; vouches
-              {moderationCount > 0 ? <Badge className="ml-1 border-amber-300 bg-amber-100 text-amber-900">{moderationCount}</Badge> : null}
-            </TabsTrigger>
+            {moderationContent ? (
+              <TabsTrigger value="affiliations" className="py-2">
+                <Check className="h-4 w-4" /> Affiliations &amp; vouches
+                {moderationCount > 0 ? <Badge className="ml-1 border-amber-300 bg-amber-100 text-amber-900">{moderationCount}</Badge> : null}
+              </TabsTrigger>
+            ) : null}
           </TabsList>
           <TabsContent value="roster">
             <RosterPanel programId={programId} members={members} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onReload={loadRoster} onAccessDenied={onAccessDenied} />
@@ -1211,7 +1199,7 @@ export function MyClubConsole({
             <MatchesPanel programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
           </TabsContent>
           <TabsContent value="profile"><ClubProfile program={program} claim={programClaim} /></TabsContent>
-          <TabsContent value="affiliations">{moderationContent}</TabsContent>
+          {moderationContent ? <TabsContent value="affiliations">{moderationContent}</TabsContent> : null}
         </Tabs>
 
         <p className="flex items-center justify-center gap-2 text-center text-xs text-muted-foreground"><LockKeyhole className="h-3.5 w-3.5" /> Club-console data is manager-only. Opposition players remain anonymous.</p>

@@ -17,6 +17,7 @@ import {
 import { Loader2, Plus, FileText, Users, LogOut, TrendingUp, UserPlus, Trash2, MapPin, Building2 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { APIService } from '@/lib/api'
+import { formatDateOnly } from '@/lib/dateOnly'
 import { useAuthUI } from '@/context/AuthContext'
 import { ManualPlayerModal } from '@/components/ManualPlayerModal'
 
@@ -171,8 +172,7 @@ export function WriterDashboard() {
                                                     dataKey="week"
                                                     className="text-xs"
                                                     tickFormatter={(value) => {
-                                                        const date = new Date(value)
-                                                        return `${date.getMonth() + 1}/${date.getDate()}`
+                                                        return formatDateOnly(value, { month: 'numeric', day: 'numeric' }) || value
                                                     }}
                                                 />
                                                 <YAxis className="text-xs" />

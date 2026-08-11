@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { APIService } from '@/lib/api'
+import { formatDateOnly } from '@/lib/dateOnly'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -100,14 +101,6 @@ function formatDate(value) {
     if (!value) return null
     const d = new Date(value)
     if (Number.isNaN(d.getTime())) return null
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-function formatDateOnly(value) {
-    if (!value) return null
-    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/)
-    if (!match) return formatDate(value)
-    const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
     return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
@@ -1184,8 +1177,8 @@ function RostersTab({ setMessage }) {
                                 <div className="flex items-center gap-2">
                                     <Film className="h-4 w-4 text-muted-foreground" />
                                     <span className="text-sm font-semibold text-foreground">{group.label}</span>
-                                    {formatDate(group.date) && (
-                                        <span className="text-xs text-muted-foreground">{formatDate(group.date)}</span>
+                                    {formatDateOnly(group.date) && (
+                                        <span className="text-xs text-muted-foreground">{formatDateOnly(group.date)}</span>
                                     )}
                                 </div>
                                 <div className="space-y-2">
