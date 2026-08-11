@@ -28,7 +28,7 @@ final class ScoutDeskViewModel: ObservableObject {
     @Published private(set) var players: [ScoutPlayerSummary] = []
     @Published private(set) var leaderboards: [String: [ScoutPlayerSummary]] = [:]
     @Published private(set) var totalPlayers = 0
-    @Published private(set) var isLoadingInitial = false
+    @Published private(set) var isLoadingInitial = true
     @Published private(set) var isLoadingNextPage = false
     @Published private(set) var isLoadingLeaderboards = false
     @Published private(set) var errorMessage: String?
@@ -79,6 +79,7 @@ final class ScoutDeskViewModel: ObservableObject {
         selectedPhase = initialPhase
         selectedSortKey = initialPhase.defaultSortKey
         selectedSortOrder = ScoutSortOrder.defaultOrder(for: initialPhase.defaultSortKey)
+        initialLoadStartedAt = ProcessInfo.processInfo.systemUptime
 
         #if DEBUG
         applyLoadingEvidenceFixture(from: ProcessInfo.processInfo.arguments)
@@ -143,6 +144,7 @@ final class ScoutDeskViewModel: ObservableObject {
     func loadInitialIfNeeded() async {
         guard !hasAttemptedInitialLoad else { return }
         hasAttemptedInitialLoad = true
+        armTrueFirstLoadPresentation()
         await loadSeasonDirectoryIfNeeded()
         await reloadFullUsingCache()
     }
@@ -320,7 +322,9 @@ final class ScoutDeskViewModel: ObservableObject {
         players = []
         isShowingCachedPlayers = false
         firstRowDataSource = "network"
-        initialLoadStartedAt = nil
+        if hasCompletedFirstLoad {
+            initialLoadStartedAt = nil
+        }
         isLoadingInitial = true
         isLoadingNextPage = false
         errorMessage = nil
@@ -408,7 +412,8 @@ final class ScoutDeskViewModel: ObservableObject {
             players = []
             isShowingCachedPlayers = false
             firstRowDataSource = "network"
-            initialLoadStartedAt = ProcessInfo.processInfo.systemUptime
+            initialLoadStartedAt = initialLoadStartedAt
+                ?? ProcessInfo.processInfo.systemUptime
         } else {
             initialLoadStartedAt = nil
         }
@@ -600,6 +605,14 @@ final class ScoutDeskViewModel: ObservableObject {
             // Season discovery is additive; the existing implicit-current reads
             // remain available when the directory cannot be reached.
         }
+    }
+
+    private func armTrueFirstLoadPresentation() {
+        guard players.isEmpty, !hasCompletedFirstLoad else { return }
+        isLoadingInitial = true
+        initialLoadStartedAt = initialLoadStartedAt
+            ?? ProcessInfo.processInfo.systemUptime
+        errorMessage = nil
     }
 
     private func seasonLabel(for season: Int?) -> String {
