@@ -422,7 +422,7 @@ struct ScoutDeskView: View {
 
     @ViewBuilder
     private var resultsContent: some View {
-        if viewModel.isLoadingInitial, viewModel.players.isEmpty {
+        if viewModel.shouldShowInlineInitialLoader {
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 VStack(spacing: 7) {
                     if let feedback = viewModel.initialLoadFeedback() {

@@ -27,6 +27,11 @@ final class ScoutDeskViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.players.isEmpty)
         XCTAssertFalse(viewModel.hasCompletedFirstLoad)
         XCTAssertTrue(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertFalse(viewModel.shouldShowInlineInitialLoader)
+        XCTAssertNotEqual(
+            viewModel.shouldShowWingLiftLoadingCard,
+            viewModel.shouldShowInlineInitialLoader
+        )
 
         await client.releaseRequests()
         await loadTask.value
@@ -65,6 +70,11 @@ final class ScoutDeskViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isLoadingInitial)
         XCTAssertTrue(viewModel.players.isEmpty)
         XCTAssertFalse(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertTrue(viewModel.shouldShowInlineInitialLoader)
+        XCTAssertNotEqual(
+            viewModel.shouldShowWingLiftLoadingCard,
+            viewModel.shouldShowInlineInitialLoader
+        )
         XCTAssertNil(viewModel.initialLoadFeedback())
 
         await client.releaseRequests()

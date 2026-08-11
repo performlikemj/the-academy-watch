@@ -125,6 +125,10 @@ final class ScoutDeskViewModel: ObservableObject {
         isLoadingInitial && players.isEmpty && !hasCompletedFirstLoad
     }
 
+    var shouldShowInlineInitialLoader: Bool {
+        isLoadingInitial && players.isEmpty && !shouldShowWingLiftLoadingCard
+    }
+
     func initialLoadFeedback(
         atUptime uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) -> ScoutInitialLoadFeedback? {
