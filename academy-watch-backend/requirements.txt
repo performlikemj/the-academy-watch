@@ -24,7 +24,7 @@ Flask-SQLAlchemy==3.1.1
 flask-talisman==1.1.0
 fonttools==4.63.0
 greenlet==3.5.5
-griffe==2.1.0
+griffe==2.2.0
 groq==1.6.0
 gunicorn==26.0.0
 h11==0.16.0
