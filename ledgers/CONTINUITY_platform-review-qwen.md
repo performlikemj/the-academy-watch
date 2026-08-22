@@ -1,0 +1,111 @@
+# CONTINUITY — Platform review 2026-08-23 build-out (qwen lane)
+
+Parent: `CONTINUITY.md` · Plan: `docs/platform-review-2026-08-23.md` (untracked in the primary checkout
+on 2026-08-23; copy lives with MJ) · Orchestrator: Fable · Executor: qwen3.8:27b on basecamp.
+
+## Goal
+
+Build out the platform review, Phase 0 first (unblockers), then Phases 1–4 + the frontend performance
+workstream, with qwen doing ALL implementation from surgical briefs and Fable authoring briefs, verifying
+every hand-back (diff + gate, own eyes), committing by path, and shipping PRs per coherent group.
+
+## Constraints & assumptions
+
+- Executor runtime: harness dsh 0.1.0-rc.7 headless + `~/Projects/harness/adapters/dsh/qwen-forge.patch.yml`
+  → ollama on basecamp (`192.168.86.96:11434`, tailscale name `basecamp`), model `qwen3.8:27b-mlx-bf16`
+  (262K ctx resident, keep-alive forever; ~17 tok/s). ONE qwen run at a time. Laptop must be on AC
+  (runner refuses battery).
+- Lane worktree: `.claude/worktrees/platform-review-qwen`, branch `feat/platform-review-p0-qwen`, based on
+  `origin/main` `b90b180` (2026-08-23). The primary checkout's `main` is 37 commits behind origin (all
+  dependabot) and dirty (CONTINUITY.md has ~600 lines of local-only ledger edits) — leave it alone.
+- Runner: `./run-qwen.sh <TASK> [think=off]` (copied from the nbhd-ios constellation lane, adapted:
+  forge patch default, loanarmy activity paths, prompt points at `briefs/QWEN.md` — NOT CLAUDE.md, whose
+  router would send a small model into docs/agents). Budget 5400 s, first nudge 1800 s, then 900 s.
+- Gate: `make gate TASK=<id>` → `lane-gate.sh`: `ruff check` + `ruff format --check` (CI mirrors) + the
+  brief's NAMED tests from `briefs/<id>.gate` (+ `pnpm lint` + `pnpm build` for frontend briefs).
+  `make integrate-gate` = every brief's tests + lint/build (lane gate before push).
+  PROVEN 2026-08-23 to run INSIDE dsh's exact Seatbelt profile (`(allow default)(deny file-write*)
+  (allow file-write* (literal "/dev/null"))(allow file-write* (subpath <worktree>)…)`): backend pair
+  147 tests in 12 s; `node --test` + `pnpm lint` + `pnpm build` in 15 s. So qwen runs the gate itself;
+  the runner re-runs it after dsh exits and exits non-zero on red.
+- WHY named tests: on main, 12 backend test files fail at import (`LoanedPlayer`, `src.utils.brave_loans`,
+  `wikipedia_loans`, `youth_competition_resolver.resolve_team_name`, `_enforce_loanee_metadata`) and
+  `pnpm test` has 14 red source-grep tests (external-writers feature, seed-top5, navbar). Blanket suites
+  are not a gate here. `tests/test_contact.py` CANNOT run alone (`NoReferencedTableError
+  video_matches.club_program_id → club_programs`); always run it AFTER `tests/test_club_console.py`.
+- Backend tests use the PRIMARY checkout's venv by absolute path
+  (`/Users/michaeljones/Projects/loanarmy/.loan/bin/python`, 3.11.14, pytest 8.4.1). Frontend deps in the
+  worktree came from `./scripts/setup_frontend.sh` (OSV gate + frozen lockfile; pnpm store hit, 3.6 s).
+- qwen never commits (the sandbox cannot write the parent `.git` index). Fable stages by path.
+
+## Key decisions
+
+- 2026-08-23 MJ: "we will use qwen 27b to do the implementation. fable orchestrates and checks the work" —
+  directions laid out clearly, no heavy thinking for the executor. Overrides the codex-executor default
+  for this lane.
+- Brief ids: `P0-<group><n>` per the review's Phase 0: A = contact-rail web surface (0.1), B = club
+  match-list endpoint (0.2), C = small fixes (0.3), D = retention/sweeper (0.4). Patterns: copy-adapt or
+  surgical, think=off, ≤60–90 min, verbatim anchors, failing test first, enumerated failure branches.
+- Recon findings that shaped Phase 0 (verified in code on 2026-08-23):
+  1. Club-consent emails link to `{PUBLIC_BASE_URL}/api/contact/club-consent/<token>`
+     (`services/contact.py:238-245`); PUBLIC_BASE_URL is the SWA site, whose `navigationFallback`
+     rewrites unknown paths to the SPA → the link is DEAD in prod (no React route). Even on the API host,
+     GET returns JSON and nothing POSTs. → P0-A1 (link path) + a public consent page (A3).
+  2. Web has ZERO contact-rail UI: `api.js` has only admin list/get; no scout verification submit either
+     (backend `POST/GET /api/scout/verification` exists in `routes/trust.py`). iOS has the whole scout loop.
+  3. `/api/scout/players` rows carry no claim info → an "Introduce" button cannot know claimability;
+     probably a small backend brief (A0: `contactable` flag) before the ScoutPage button.
+  4. Prod `CONTACT_RAIL_ENABLED`: the 2026-08-10 audit says ON; code default is false. UNCONFIRMED live
+     (curl to the ledger FQDN returned 000 — off-peak scale-to-zero).
+  5. `club_registry._table_columns` introspects on every call (13 call sites); a per-app-context memo
+     must keep `test_contact.py:2124`'s monkeypatch of `_table_columns` working.
+  6. `scout_watchlist_entries` has only the (user, player) unique; new migration must chain from head
+     `c201` using `create_index_safe` (copy `ug01_user_blocks.py`).
+  7. Retention: `RAW_RETENTION_DAYS=90`, `VideoMatch.expires_at` stamped at upload-complete, status
+     `expired` exists in the model's list but no code sets it and `video_storage.py` has no delete;
+     reaper `video_queue.reap_stale_jobs()` is only behind `POST /admin/video/reap-stale-jobs`; scheduled
+     ACA jobs run `python -m src.jobs.run_*` with `from src.main import app` + `app.app_context()`.
+  8. Read SAS for the admin media redirect is 6 h (`READ_SAS_HOURS`) vs a 30-min media token
+     (`routes/video.py:677-716`).
+
+## State
+
+- Done (2026-08-23): full recon; lane scaffolding committed `56bf789` (runner, gate, Makefile, QWEN.md,
+  BACKLOG, 4 briefs); sandbox proof; baseline gates green (backend pair 147/147, frontend lint/build ok).
+- Now: SMOKE run `qwen-SMOKE-20260822T2230` (proves brief → file → gate → handback on basecamp).
+- Next (in order): P0-C1 → P0-A1 → P0-B1 → author A-group briefs (A0 contactable flag, A2 api.js
+  methods, A3 consent page + route, A5 scout verification page, A4 Introduce dialog on ScoutPage, A6
+  introductions page + thread, A7 player inbox, A8 club inbox tab, A9 nav), B2 (console switch to the
+  list endpoint + delete localStorage index), C2 (watchlist index `sw01`), C3 (memoize), C4
+  (`run_video_maintenance.py` job), D1 (`expire_raw_footage` + `delete_blob`), D2 (30-min read SAS +
+  `Cache-Control: private, no-store` on the redirect). Infra (Fable, MJ-gated): ACA job for maintenance,
+  Azure lifecycle rules (Hot→Cool→delete @90d).
+- PR plan: one PR per group (C, A1+A3, B, D…) from this branch via `gh pr create`; merge squash; watch
+  deploy; re-base the lane on main between groups.
+
+## Run log
+
+| Session | Task | Result | Verified by Fable | Notes |
+|---|---|---|---|---|
+| qwen-SMOKE-20260822T2230 | SMOKE | pipe proven; budget-stopped (900 s) before handback | file byte-exact; gate event green in telemetry | 155K input / 3K output tokens over 13 tool calls — prefill-bound (~35 s/step); real briefs need ≥60 min |
+| qwen-P0-C1-20260822T2246 | P0-C1 | DONE — gate green twice (red→green), handback filed, runner post-gate green (153 s) | diff byte-exact to brief; commit `84369d1` | 44 min wall; ~30 min between test write and App.jsx edit (reading the 4,300-line file); no nudge fired |
+| qwen-P0-A1-20260822T2330 | P0-A1 | running | — | |
+
+## Executor performance notes (measured)
+
+- SMOKE: 835 s wall, 13 tool calls, 155K input / 3K output tokens, 7.5 tok/s streaming.
+- P0-C1: 2402 s wall, 26 tool calls, **600K input / 12K output**, 7.3 tok/s streaming, 0 compactions.
+  Generation (not prefill) dominates: ~28 min of the 40 were output at ~7 tok/s. The box benchmarked
+  17 tok/s for this tag on 2026-08-22; `/api/ps` during the lane shows qwen 64 GiB + gemma4 48 GiB
+  resident (= 112 GiB on a 128 GB Mac) → likely memory pressure from co-residency. A concurrent probe
+  queued behind the in-flight request (ollama serves one at a time) — measure at IDLE between runs.
+  If idle speed is still ~7 tok/s, propose to MJ: unload gemma during lane hours
+  (`OLLAMA_MAX_LOADED_MODELS=1`) — his family-server call, not mine.
+- Brief hygiene that pays: verbatim old/new blocks, exact line ranges to read (`sed -n 'a,bp'`), never
+  "read the file"; big files (App.jsx 4,300 lines) cost ~30 min of re-reading in C1.
+
+## Open questions (UNCONFIRMED)
+
+- Live value of prod `CONTACT_RAIL_ENABLED` (see decision 4).
+- Whether the web should gate "Introduce" on an A0 `contactable` flag vs. letting the 403
+  `player_not_claimable` response explain it (recommendation: A0 — never show an action that always fails).
