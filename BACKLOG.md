@@ -7,10 +7,26 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 
 | Task | Brief | What it is | Status |
 |---|---|---|---|
-| SMOKE | `briefs/SMOKE.md` | Prove the pipe: one trivial backend test file. | ready |
-| P0-C1 | `briefs/P0-C1.md` | `RequireAuth` honors its `requireJournalist` prop (dead prop today). | ready |
+| SMOKE | `briefs/SMOKE.md` | Prove the pipe: one trivial backend test file. | done 08-23 (pipe proven: file + gate green; handback missed on a 15-min budget) |
+| P0-C1 | `briefs/P0-C1.md` | `RequireAuth` honors its `requireJournalist` prop (dead prop today). | in-progress |
 | P0-A1 | `briefs/P0-A1.md` | Club-consent email links point at the web page `/contact/club-consent/<token>`, not `/api/...`. | ready |
 | P0-B1 | `briefs/P0-B1.md` | Backend `GET /api/club/<program_id>/matches` (club match list; kills the localStorage history). | ready |
+| P0-A0 | `briefs/P0-A0.md` | `contactable` flag on `/api/scout/players` rows (approved self-claim exists) — one batched query. | ready |
+| P0-C2 | `briefs/P0-C2.md` | Index `scout_watchlist_entries.player_api_id` (model + guarded migration `sw01` off head `c201`). | ready |
+| P0-C3 | `briefs/P0-C3.md` | `club_registry._table_columns` introspects once per HTTP request (no cache outside requests). | ready |
+| P0-C4 | `briefs/P0-C4.md` | New scheduled job `src/jobs/run_video_maintenance.py` that calls `reap_stale_jobs()`. | ready |
+| P0-A2 | `briefs/P0-A2.md` | `api.js` learns the contact rail (13 user-level methods) + source test. | ready |
+| P0-B2 | `briefs/P0-B2.md` | Club console reads `listClubMatches`; localStorage index deleted. Depends on P0-B1. | ready |
+| P0-D1a | `briefs/P0-D1a.md` | `video_storage.delete_blob` + `services/video_retention.py` (`due_matches`, `expire_raw_footage`). | ready |
+| P0-D1b | `briefs/P0-D1b.md` | Maintenance job runs the retention sweep. Depends on P0-C4 + P0-D1a. | ready |
+| P0-D2 | `briefs/P0-D2.md` | Footage redirect uses a 30-min media read SAS + `Cache-Control: private, no-store`. | ready |
+| P0-A3 | `briefs/P0-A3.md` | Public club-consent page `/contact/club-consent/:token` (+ pure copy helper). Depends on P0-A2. | ready |
+| P0-A5 | `briefs/P0-A5.md` | Scout verification page `/scout/verification` (status + apply form). Depends on P0-A2. | ready |
+| P0-A4 | `briefs/P0-A4.md` | "Introduce" action on the Scout Desk + `IntroduceDialog` (server codes mapped). Depends on P0-A0, P0-A2. | ready |
+| P0-A6b | `briefs/P0-A6b.md` | `ContactThread` component: messages + send + outcome report (shared by scout/player/club views). Depends on P0-A2. | ready |
+| P0-A6 | `briefs/P0-A6.md` | `/introductions` page: Sent (scout) and Inbox (player) tabs, accept/decline/withdraw, opens the thread. Depends on P0-A6b. | ready |
+| P0-A8 | `briefs/P0-A8.md` | Club console "Introductions" tab: `box=club`, grant/decline consent, thread. Depends on P0-A6b. | ready |
+| P0-A9 | `briefs/P0-A9.md` | Nav: "Introductions" item for signed-in users; Scout Desk header links (Introductions, Get verified). | ready |
 
 Done means BOTH: (1) `make gate TASK=<id>` green — you ran it, you saw it; (2) the brief's observable
 is real. Then write your handback file and end with the `HANDBACK-FILED:` line, exactly as the brief says.
