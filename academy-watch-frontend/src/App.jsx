@@ -517,9 +517,12 @@ function HistoricalNewslettersPage() {
   )
 }
 
-function RequireAuth({ children }) {
-  const { token } = useAuth()
+function RequireAuth({ children, requireJournalist = false }) {
+  const { token, isJournalist } = useAuth()
   if (!token) {
+    return <Navigate to="/" replace />
+  }
+  if (requireJournalist && !isJournalist) {
     return <Navigate to="/" replace />
   }
   return children
