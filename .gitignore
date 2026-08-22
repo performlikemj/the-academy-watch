@@ -50,3 +50,9 @@ spike/video-analysis/footage/
 spike/video-analysis/results/
 spike/video-analysis/.cache/
 spike/video-analysis/.ruff_cache/
+
+# qwen lane (machine/session state — never committed)
+.harness/
+PLAN.md
+PROGRESS.md
+.ruff_cache/
