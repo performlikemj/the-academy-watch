@@ -14,6 +14,13 @@ this branch.
 (`video_retention.expire_raw_footage`) exists but nothing calls it. Make the job run both steps and
 report both counts; dry-run must report what WOULD expire without changing anything.
 
+## Shipped step scripts
+
+Commands that look like `bash briefs/assets/P0-D1b/step-N.sh` are the brief's own commands shipped as files.
+Run them EXACTLY like that, from the worktree root. Never open, copy out, or retype their contents — they print the
+same `X=<n>` / `...-INSERTED` / `...-REPLACED` markers the steps describe. If one prints BLOCKED or an empty `X=`, STOP
+and say BLOCKED with the line.
+
 ## The job — `academy-watch-backend/src/jobs/run_video_maintenance.py` (three replacements by `sed`; no typing)
 
 Do NOT use your edit tool on this file. Three commands, exactly, in this order:
@@ -21,19 +28,19 @@ Do NOT use your edit tool on this file. Three commands, exactly, in this order:
 Replace the services import line (adds `video_retention`):
 
 ```bash
-SI=$(grep -n '^from src.services import video_queue$' academy-watch-backend/src/jobs/run_video_maintenance.py | cut -d: -f1); echo "SI=$SI"; sed -i '' "${SI}d" academy-watch-backend/src/jobs/run_video_maintenance.py && sed -i '' "$((SI-1))r briefs/assets/P0-D1b/services_import.py" academy-watch-backend/src/jobs/run_video_maintenance.py && echo IMPORT-REPLACED
+bash briefs/assets/P0-D1b/step-1.sh
 ```
 
 Replace the whole `run` function (its `def` line through its `return {"stale_failed": stale, "dry_run": False}` line):
 
 ```bash
-RS=$(grep -n '^def run(dry_run=False) -> dict:$' academy-watch-backend/src/jobs/run_video_maintenance.py | cut -d: -f1); RE=$(grep -n '^    return {"stale_failed": stale, "dry_run": False}$' academy-watch-backend/src/jobs/run_video_maintenance.py | cut -d: -f1); echo "RS=$RS RE=$RE"; sed -i '' "${RS},${RE}d" academy-watch-backend/src/jobs/run_video_maintenance.py && sed -i '' "$((RS-1))r briefs/assets/P0-D1b/run_function.py" academy-watch-backend/src/jobs/run_video_maintenance.py && echo RUN-REPLACED
+bash briefs/assets/P0-D1b/step-2.sh
 ```
 
 Replace the docstring's last two lines about retention:
 
 ```bash
-DL=$(grep -n 'Raw-footage retention expiry joins this job in a$' academy-watch-backend/src/jobs/run_video_maintenance.py | cut -d: -f1); echo "DL=$DL"; sed -i '' "${DL},$((DL+1))d" academy-watch-backend/src/jobs/run_video_maintenance.py && sed -i '' "$((DL-1))r briefs/assets/P0-D1b/docstring_lines.py" academy-watch-backend/src/jobs/run_video_maintenance.py && echo DOCSTRING-REPLACED
+bash briefs/assets/P0-D1b/step-3.sh
 ```
 
 Confirm, read-only: `grep -c "expire_raw_footage" academy-watch-backend/src/jobs/run_video_maintenance.py` → `3`

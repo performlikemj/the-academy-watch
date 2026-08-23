@@ -1,0 +1,3 @@
+#!/bin/bash
+# P0-C3 — shipped step 2 (run from the worktree root: bash briefs/assets/P0-C3/step-2.sh)
+TS=$(grep -n '^def _table_columns(table_name: str) -> set\[str\]:$' academy-watch-backend/src/services/club_registry.py | cut -d: -f1); TE=$(grep -n '^    return {column\["name"\] for column in inspector.get_columns(table_name)}$' academy-watch-backend/src/services/club_registry.py | cut -d: -f1); echo "TS=$TS TE=$TE"; sed -i '' "${TS},${TE}d" academy-watch-backend/src/services/club_registry.py && sed -i '' "$((TS-1))r briefs/assets/P0-C3/table_columns.py" academy-watch-backend/src/services/club_registry.py && echo FUNCTIONS-REPLACED

@@ -1,0 +1,3 @@
+#!/bin/bash
+# P0-D1b — shipped step 2 (run from the worktree root: bash briefs/assets/P0-D1b/step-2.sh)
+RS=$(grep -n '^def run(dry_run=False) -> dict:$' academy-watch-backend/src/jobs/run_video_maintenance.py | cut -d: -f1); RE=$(grep -n '^    return {"stale_failed": stale, "dry_run": False}$' academy-watch-backend/src/jobs/run_video_maintenance.py | cut -d: -f1); echo "RS=$RS RE=$RE"; sed -i '' "${RS},${RE}d" academy-watch-backend/src/jobs/run_video_maintenance.py && sed -i '' "$((RS-1))r briefs/assets/P0-D1b/run_function.py" academy-watch-backend/src/jobs/run_video_maintenance.py && echo RUN-REPLACED

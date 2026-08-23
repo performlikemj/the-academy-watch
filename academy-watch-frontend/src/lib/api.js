@@ -1327,6 +1327,10 @@ export class APIService {
         })
     }
 
+    static async listClubMatches(programId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches`)
+    }
+
     static async getClubMatch(programId, matchId) {
         return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}`)
     }
