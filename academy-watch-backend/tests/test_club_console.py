@@ -291,6 +291,7 @@ def test_every_club_console_route_is_manager_gated_before_resource_access(club_a
     match = _match(b, status="finalized")
     attacks = (
         ("GET", f"/api/club/{b}/roster", None),
+        ("GET", f"/api/club/{b}/matches", None),
         ("POST", f"/api/club/{b}/roster", {"player_api_id": 7001}),
         ("DELETE", f"/api/club/{b}/roster/{member}", None),
         ("POST", f"/api/club/{b}/matches", {}),
@@ -958,3 +959,28 @@ def test_migration_chains_from_ob01_guards_rls_xor_and_downgrade_data(club_app):
     assert "downgrade refused: club roster membership exists" in source
     assert "downgrade refused: club-owned video matches exist" in source
     assert "downgrade refused: local-player suppression history exists" in source
+
+
+def test_list_club_matches_is_program_scoped_and_newest_first(club_app, client):
+    a = club_app.c2["program_a"]
+    b = club_app.c2["program_b"]
+    first = _match(a, status="uploaded")
+    second = _match(a, status="finalized")
+    other = _match(b, status="uploaded")
+
+    response = client.get(f"/api/club/{a}/matches", headers=_headers("a"))
+    assert response.status_code == 200, response.get_json()
+    body = response.get_json()
+    assert body["total"] == 2
+    assert [row["id"] for row in body["matches"]] == [second.id, first.id]
+    assert body["matches"][0]["status"] == "finalized"
+    assert body["matches"][0]["processing_request_status"] is None
+    assert "job" in body["matches"][0]
+    assert "roster" not in body["matches"][0]
+    assert other.id not in [row["id"] for row in body["matches"]]
+
+    response_b = client.get(f"/api/club/{b}/matches", headers=_headers("b"))
+    assert response_b.status_code == 200
+    assert [row["id"] for row in response_b.get_json()["matches"]] == [other.id]
+
+    assert client.get(f"/api/club/{a}/matches").status_code == 401
