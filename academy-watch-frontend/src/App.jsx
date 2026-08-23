@@ -58,7 +58,8 @@ import {
   CreditCard,
   XCircle,
   RotateCcw,
-  Clock
+  Clock,
+  Send
 } from 'lucide-react'
 import { estimateReadingTime, extractNewsletterExcerpt } from '@/lib/formatText'
 import { parseNewsletterId } from '@/lib/newsletter-admin.js'
@@ -584,6 +585,7 @@ function Navigation() {
     if (token) {
       // The retention surface: logged-in scouts jump straight to their lists.
       items.push({ path: '/scout/lists', label: 'Lists', icon: ListChecks })
+      items.push({ path: '/introductions', label: 'Introductions', icon: Send })
       items.push({ path: '/settings', label: 'Settings', icon: UserCog })
     }
     if (adminUnlocked) {
