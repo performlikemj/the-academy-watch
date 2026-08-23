@@ -6,6 +6,8 @@
 **Depends on:** P0-C4 (the job module) and P0-D1a (`src/services/video_retention.py`) — both landed on
 this branch.
 
+**Shipped files:** this brief ships the replacement test under `briefs/assets/P0-D1b/`; the section below gives the exact `cp` command. Never retype a shipped file.
+
 ## The situation
 
 `run_video_maintenance.run()` reaps stale analysis jobs. The retention service
@@ -60,51 +62,16 @@ Also update the module docstring's second paragraph: replace
 
 ## The tests — `academy-watch-backend/tests/test_video_maintenance_job.py` (edit FIRST)
 
-Replace the whole file with:
+Replace the whole file with the shipped one — COPY it, never retype (one command):
 
-```python
-"""The video-maintenance job reaps stale analysis jobs and expires raw footage (honest dry-run)."""
-
-from src.jobs import run_video_maintenance as job
-
-SWEPT = {"due": 2, "expired": 2, "failed": 0, "dry_run": False}
-DRY = {"due": 2, "expired": 0, "failed": 0, "dry_run": True}
-
-
-def test_run_reaps_then_expires_and_reports_both(monkeypatch):
-    calls = []
-
-    def fake_reap():
-        calls.append("reap")
-        return 3
-
-    def fake_expire(now=None, *, dry_run=False):
-        calls.append("expire" if not dry_run else "expire-dry")
-        return DRY if dry_run else SWEPT
-
-    monkeypatch.setattr(job.video_queue, "reap_stale_jobs", fake_reap)
-    monkeypatch.setattr(job.video_retention, "expire_raw_footage", fake_expire)
-    assert job.run() == {"stale_failed": 3, "retention": SWEPT, "dry_run": False}
-    assert calls == ["reap", "expire"]
-
-
-def test_dry_run_changes_nothing_but_reports_due_count(monkeypatch):
-    def explode():
-        raise AssertionError("dry run must not reap")
-
-    def fake_expire(now=None, *, dry_run=False):
-        assert dry_run is True
-        return DRY
-
-    monkeypatch.setattr(job.video_queue, "reap_stale_jobs", explode)
-    monkeypatch.setattr(job.video_retention, "expire_raw_footage", fake_expire)
-    assert job.run(dry_run=True) == {"stale_failed": 0, "retention": DRY, "dry_run": True}
+```bash
+cp briefs/assets/P0-D1b/test_video_maintenance_job.py academy-watch-backend/tests/test_video_maintenance_job.py
 ```
 
 ## How to start
 
 1. `PLAN.md`, at most 5 lines. Then act.
-2. Replace the test file. Run `make gate TASK=P0-D1b`. RED: `AttributeError: module … has no attribute
+2. Copy the replacement test file (the `cp` command above). Run `make gate TASK=P0-D1b`. RED: `AttributeError: module … has no attribute
    'video_retention'`. Correct.
 3. Edit the job (import + `run` + docstring line). Gate again. GREEN.
 
