@@ -1,3 +1,5 @@
+
+
 def delete_blob(blob_path: str) -> bool:
     """Delete one raw-footage blob. True when it is gone afterwards (deleted now, or already absent)."""
     try:
