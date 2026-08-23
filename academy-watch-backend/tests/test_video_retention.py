@@ -4,6 +4,7 @@ from datetime import datetime
 
 import pytest
 from flask import Flask
+from sqlalchemy import update
 from src.extensions import limiter
 from src.models.follow import PlayerShadow  # noqa: F401
 from src.models.funding import ClubProgram  # noqa: F401
@@ -79,7 +80,7 @@ def test_expire_deletes_blob_then_flips_row(video_app, monkeypatch):
 
     result = video_retention.expire_raw_footage(NOW)
 
-    assert result == {"due": 1, "expired": 1, "failed": 0, "dry_run": False}
+    assert result == {"due": 1, "expired": 1, "failed": 0, "skipped": 0, "dry_run": False}
     assert deleted == ["matches/7/raw.mp4"]
     fresh = db.session.get(VideoMatch, row.id)
     assert fresh.status == "expired"
@@ -94,7 +95,7 @@ def test_failed_delete_keeps_row_for_next_run(video_app, monkeypatch):
 
     result = video_retention.expire_raw_footage(NOW)
 
-    assert result == {"due": 1, "expired": 0, "failed": 1, "dry_run": False}
+    assert result == {"due": 1, "expired": 0, "failed": 1, "skipped": 0, "dry_run": False}
     fresh = db.session.get(VideoMatch, row.id)
     assert fresh.status == "finalized"
     assert fresh.blob_path == "matches/x.mp4"
@@ -112,6 +113,7 @@ def test_dry_run_counts_and_changes_nothing(video_app, monkeypatch):
         "due": 1,
         "expired": 0,
         "failed": 0,
+        "skipped": 0,
         "dry_run": True,
     }
     assert db.session.get(VideoMatch, row.id).status == "finalized"
@@ -124,7 +126,7 @@ def test_unconfigured_storage_counts_as_failed_and_keeps_row(video_app, monkeypa
 
     result = video_retention.expire_raw_footage(NOW)
 
-    assert result == {"due": 1, "expired": 0, "failed": 1, "dry_run": False}
+    assert result == {"due": 1, "expired": 0, "failed": 1, "skipped": 0, "dry_run": False}
     db.session.refresh(row)
     assert row.status == "finalized"
     assert row.blob_path == "matches/x.mp4"
@@ -168,3 +170,26 @@ def test_delete_blob_treats_404_as_gone(monkeypatch):
 
     monkeypatch.setattr(video_storage, "_service_client", lambda: BoomClient())
     assert video_storage.delete_blob("matches/stuck.mp4") is False
+
+
+def test_row_claimed_by_process_after_the_snapshot_is_skipped_not_expired(video_app, monkeypatch):
+    row = _match(status="uploaded", expires_at=PAST)
+    snapshot = video_retention.due_matches(NOW)
+    assert [m.id for m in snapshot] == [row.id]
+    # The race: /process claims the match between the snapshot and the delete (another transaction, so go
+    # through SQL and expire the in-memory copy — the sweeper must re-read, not trust its snapshot).
+    db.session.execute(update(VideoMatch).where(VideoMatch.id == row.id).values(status="queued"))
+    db.session.commit()
+    db.session.expire_all()
+    monkeypatch.setattr(video_retention, "due_matches", lambda now=None: snapshot)
+    monkeypatch.setattr(video_storage, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        video_storage, "delete_blob", lambda path: pytest.fail("must not delete a claimed match's footage")
+    )
+
+    result = video_retention.expire_raw_footage(NOW)
+
+    assert result == {"due": 1, "expired": 0, "failed": 0, "skipped": 1, "dry_run": False}
+    fresh = db.session.get(VideoMatch, row.id)
+    assert fresh.status == "queued"
+    assert fresh.blob_path == "matches/x.mp4"
