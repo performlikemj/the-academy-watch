@@ -128,3 +128,8 @@ run exactly that line from the worktree root. Never open the script, never copy 
 "fix" it — retyped commands lose spaces and then cannot find their lines (this is exactly what blocked P0-B2). The
 script prints the markers the brief describes (`X=<n>`, `…-INSERTED`, `…-REPLACED`); an empty `X=` or a `BLOCKED`
 line means STOP and say BLOCKED with that line pasted.
+
+**Do NOT inspect the step scripts and do NOT re-check their anchors yourself.** No `cat`/`read`/`od`/python on
+`step-N.sh`, no grep of your own for the lines they target: a retyped grep loses spaces and WILL disagree with the
+script — the script is right, your retype is wrong, every time. If a script prints its marker (`X=<n>`, `…-INSERTED`,
+`…-REPLACED`), the step is done; move to the next. Investigating anchors is the one thing that burns your whole budget.

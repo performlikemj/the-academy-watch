@@ -13,6 +13,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { SeasonSelect } from '@/components/ui/SeasonSelect'
+import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
+import { useContactRail } from '@/hooks/useContactRail.js'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import {
@@ -510,7 +512,9 @@ export function ScoutPage() {
   const searchTimer = useRef(null)
 
   const auth = useAuth()
+  const contactRail = useContactRail()
   const { openLoginModal } = useAuthUI()
+  const [introducePlayer, setIntroducePlayer] = useState(null)
   const [watchedIds, setWatchedIds] = useState(null)
   const [exporting, setExporting] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -789,6 +793,20 @@ export function ScoutPage() {
                 Lists
               </Link>
             </Button>
+            {contactRail === true ? (
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/introductions" className="no-underline hover:no-underline">
+                  <Send className="mr-1.5 h-4 w-4" />
+                  Introductions
+                </Link>
+              </Button>
+            ) : null}
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/scout/verification" className="no-underline hover:no-underline">
+                <ShieldCheck className="mr-1.5 h-4 w-4" />
+                Get verified
+              </Link>
+            </Button>
             <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting}>
               {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
               Export CSV
@@ -955,7 +973,7 @@ export function ScoutPage() {
                     const watched = !!watchedIds?.has(player.player_id)
                     return (
                       <tr key={player.id} className={`transition-colors hover:bg-secondary/40 ${selected ? 'bg-primary/5' : ''}`}>
-                        <td className="px-2 py-2.5">
+                        <td className="px-2 py-2.5 whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => toggleWatch(player)}
@@ -965,6 +983,17 @@ export function ScoutPage() {
                           >
                             <Star className={`h-4 w-4 transition-colors ${watched ? 'fill-amber-400 text-amber-500' : 'text-muted-foreground/50 hover:text-muted-foreground'}`} />
                           </button>
+                          {contactRail === true && player.contactable ? (
+                            <button
+                              type="button"
+                              onClick={() => (auth?.token ? setIntroducePlayer(player) : openLoginModal())}
+                              className="ml-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              aria-label={`Introduce yourself to ${player.player_name}`}
+                              title="Introduce yourself"
+                            >
+                              <Send className="h-4 w-4 text-muted-foreground/60 hover:text-primary" />
+                            </button>
+                          ) : null}
                         </td>
                         <td className="px-3 py-2.5">
                           <Checkbox
@@ -1077,6 +1106,11 @@ export function ScoutPage() {
           playerIds={compareIds}
           season={selectedSeason}
           seasonOverride={seasonOverride}
+        />
+        <IntroduceDialog
+          open={!!introducePlayer}
+          onOpenChange={(next) => { if (!next) setIntroducePlayer(null) }}
+          player={introducePlayer}
         />
       </div>
     </div>

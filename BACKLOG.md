@@ -12,22 +12,23 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-A1 | `briefs/P0-A1.md` | Club-consent email links point at the web page `/contact/club-consent/<token>`, not `/api/...`. | done 08-23 (e54a750) |
 | P0-B1 | `briefs/P0-B1.md` | Backend `GET /api/club/<program_id>/matches` (club match list; kills the localStorage history). | done (bdae27f) |
 | P0-A3b | `briefs/P0-A3b.md` | Consent page: only the API 404 is "invalid link"; transient failures get Retry (codex P2 on PR #887). Shipped page, one `cp`. | done (cbe5a1e) |
-| P0-A0 | `briefs/P0-A0.md` | `contactable` flag on `/api/scout/players` rows (approved self-claim exists) — one batched query. | in-progress |
-| P0-C2 | `briefs/P0-C2.md` | Index `scout_watchlist_entries.player_api_id` (model + guarded migration `sw01` off head `c201`). | ready |
+| P0-A0 | `briefs/P0-A0.md` | `contactable` flag on `/api/scout/players` rows (approved self-claim exists) — one batched query. | done (95a70f9) |
+| P0-C2 | `briefs/P0-C2.md` | Index `scout_watchlist_entries.player_api_id` (model + guarded migration `sw01` off head `c201`). | in-progress |
 | P0-C3 | `briefs/P0-C3.md` | `club_registry._table_columns` introspects once per HTTP request (no cache outside requests). | ready |
 | P0-C4 | `briefs/P0-C4.md` | New scheduled job `src/jobs/run_video_maintenance.py` that calls `reap_stale_jobs()`. | ready |
 | P0-A2 | `briefs/P0-A2.md` | `api.js` learns the contact rail (13 user-level methods) + source test. | done 08-23 (b0690df) |
 | P0-B2 | `briefs/P0-B2.md` | Club console reads `listClubMatches`; localStorage index deleted. Depends on P0-B1. | done (6352091) |
+| P0-B2b | `briefs/P0-B2b.md` | Roster editor opens only a fully fetched match (codex P1 on PR #888: list rows carry no roster → a save could wipe it). Two step scripts + test. | done (99134a8) |
 | P0-D1a | `briefs/P0-D1a.md` | `video_storage.delete_blob` + `services/video_retention.py` (`due_matches`, `expire_raw_footage`). | ready |
 | P0-D1b | `briefs/P0-D1b.md` | Maintenance job runs the retention sweep. Depends on P0-C4 + P0-D1a. | ready |
 | P0-D2 | `briefs/P0-D2.md` | Footage redirect uses a 30-min media read SAS + `Cache-Control: private, no-store`. | ready |
 | P0-A3 | `briefs/P0-A3.md` | Public club-consent page `/contact/club-consent/:token` (+ pure copy helper). Depends on P0-A2. | done 08-23 (aedad98) |
-| P0-A5 | `briefs/P0-A5.md` | Scout verification page `/scout/verification` (status + apply form). Depends on P0-A2. | ready |
-| P0-A4 | `briefs/P0-A4.md` | "Introduce" action on the Scout Desk + `IntroduceDialog` (server codes mapped). Depends on P0-A0, P0-A2. | ready |
-| P0-A6b | `briefs/P0-A6b.md` | `ContactThread` component: messages + send + outcome report (shared by scout/player/club views). Depends on P0-A2. | ready |
-| P0-A6 | `briefs/P0-A6.md` | `/introductions` page: Sent (scout) and Inbox (player) tabs, accept/decline/withdraw, opens the thread. Depends on P0-A6b. | ready |
-| P0-A8 | `briefs/P0-A8.md` | Club console "Introductions" tab: `box=club`, grant/decline consent, thread. Depends on P0-A6b. | ready |
-| P0-A9 | `briefs/P0-A9.md` | Nav: "Introductions" item for signed-in users; Scout Desk header links (Introductions, Get verified). | ready |
+| P0-A5 | `briefs/P0-A5.md` | Scout verification page `/scout/verification` (status + apply form). Depends on P0-A2. | done (4244034) |
+| P0-A4 | `briefs/P0-A4.md` | "Introduce" action on the Scout Desk + `IntroduceDialog` (server codes mapped). Depends on P0-A0, P0-A2. | done (2d518d0) |
+| P0-A6b | `briefs/P0-A6b.md` | `ContactThread` component: messages + send + outcome report (shared by scout/player/club views). Depends on P0-A2. | done (9feaf78) |
+| P0-A6 | `briefs/P0-A6.md` | `/introductions` page: Sent (scout) and Inbox (player) tabs, accept/decline/withdraw, opens the thread. Depends on P0-A6b. | done (0e73fe1) |
+| P0-A8 | `briefs/P0-A8.md` | Club console "Introductions" tab: `box=club`, grant/decline consent, thread. Depends on P0-A6b. | done (ef5f113) |
+| P0-A9 | `briefs/P0-A9.md` | Nav: "Introductions" item for signed-in users; Scout Desk header links (Introductions, Get verified). | done (c02f96a) |
 
 Done means BOTH: (1) `make gate TASK=<id>` green — you ran it, you saw it; (2) the brief's observable
 is real. Then write your handback file and end with the `HANDBACK-FILED:` line, exactly as the brief says.
