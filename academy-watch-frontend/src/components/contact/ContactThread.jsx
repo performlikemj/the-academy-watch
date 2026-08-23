@@ -28,9 +28,14 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = tru
   const [outcomeError, setOutcomeError] = useState(null)
   // Discards stale loads: a slower fetch for a previously selected request must never overwrite this thread.
   const loadSeq = useRef(0)
+  // The thread this component currently shows; sends/outcomes that finish after a switch must not touch the new one.
+  const requestIdRef = useRef(request?.id)
 
   const state = describeThreadState(request)
   const requestId = request?.id
+  useEffect(() => {
+    requestIdRef.current = requestId
+  }, [requestId])
 
   const load = useCallback(async () => {
     const seq = loadSeq.current + 1
@@ -69,37 +74,45 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = tru
     setStage('')
     setNotes('')
     setOutcomeError(null)
+    setSending(false)
+    setReporting(false)
     load()
   }, [load])
 
   const send = async () => {
     if (!requestId || !canSendMessage(draft)) return
+    const sentFor = requestId
     setSending(true)
     setError(null)
     try {
-      const res = await APIService.sendContactMessage(requestId, draft.trim())
+      const res = await APIService.sendContactMessage(sentFor, draft.trim())
+      if (sentFor !== requestIdRef.current) return
       if (res?.message) setMessages((current) => [...current, res.message])
       setDraft('')
     } catch (err) {
+      if (sentFor !== requestIdRef.current) return
       setError(err?.body?.error || err?.message || 'Message could not be sent.')
     } finally {
-      setSending(false)
+      if (sentFor === requestIdRef.current) setSending(false)
     }
   }
 
   const report = async () => {
     if (!requestId || !stage) return
+    const reportedFor = requestId
     setReporting(true)
     setOutcomeError(null)
     try {
-      const res = await APIService.reportContactOutcome(requestId, { stage, notes: notes.trim() || null })
+      const res = await APIService.reportContactOutcome(reportedFor, { stage, notes: notes.trim() || null })
       if (res?.contact_request && onRequestChange) onRequestChange(res.contact_request)
+      if (reportedFor !== requestIdRef.current) return
       setStage('')
       setNotes('')
     } catch (err) {
+      if (reportedFor !== requestIdRef.current) return
       setOutcomeError(err?.body?.error || err?.message || 'Outcome could not be saved.')
     } finally {
-      setReporting(false)
+      if (reportedFor === requestIdRef.current) setReporting(false)
     }
   }
 

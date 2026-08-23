@@ -33,8 +33,8 @@ test('participantName, canSendMessage and outcome labels', () => {
 test('the component talks to the three thread endpoints through APIService', async () => {
   const src = await fs.readFile(componentFile, 'utf8')
   assert.ok(src.includes('APIService.getContactMessages(requestId, { limit: PAGE, offset })'))
-  assert.ok(src.includes('APIService.sendContactMessage(requestId, draft.trim())'))
-  assert.ok(src.includes('APIService.reportContactOutcome(requestId, { stage, notes: notes.trim() || null })'))
+  assert.ok(src.includes('APIService.sendContactMessage(sentFor, draft.trim())'))
+  assert.ok(src.includes('APIService.reportContactOutcome(reportedFor, { stage, notes: notes.trim() || null })'))
   assert.ok(src.includes('data-testid="contact-thread"'))
 })
 
@@ -54,4 +54,15 @@ test('a slower load for a previously selected request never overwrites the curre
   assert.ok(src.includes('const loadSeq = useRef(0)'), 'loads are sequenced')
   assert.ok(src.includes('if (seq !== loadSeq.current) return'), 'stale results are discarded before any state update')
   assert.ok(src.includes('if (seq === loadSeq.current) setLoading(false)'), 'a stale load does not clear the newer load\'s spinner')
+})
+
+test('a send or outcome that completes after switching threads never touches the new thread', async () => {
+  const src = await fs.readFile(componentFile, 'utf8')
+  assert.ok(src.includes('const requestIdRef = useRef(request?.id)'), 'the shown thread is tracked in a ref')
+  assert.ok(src.includes('const sentFor = requestId'), 'a send remembers which thread it was for')
+  assert.ok(src.includes('if (sentFor !== requestIdRef.current) return'), 'a stale send result is discarded')
+  assert.ok(src.includes('if (sentFor === requestIdRef.current) setSending(false)'), 'a stale send does not clear the new thread\'s sending flag')
+  assert.ok(src.includes('const reportedFor = requestId'), 'an outcome report remembers its thread')
+  assert.ok(src.includes('if (reportedFor !== requestIdRef.current) return'), 'a stale outcome result is discarded')
+  assert.ok(src.includes('    setSending(false)\n    setReporting(false)\n    load()'), 'in-flight flags reset when the thread changes')
 })
