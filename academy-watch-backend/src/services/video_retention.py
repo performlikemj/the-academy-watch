@@ -44,6 +44,13 @@ def retention_deadline(match: VideoMatch) -> datetime | None:
     return None
 
 
+def retention_window_closed(match: VideoMatch, now: datetime | None = None) -> bool:
+    """True once the retention deadline has passed: upload-complete must not re-stamp or re-verify such a match."""
+    now = now or _utcnow_naive()
+    deadline = retention_deadline(match)
+    return deadline is not None and deadline <= now
+
+
 def can_issue_upload_grant(match: VideoMatch, now: datetime | None = None) -> bool:
     """False when a write SAS minted now would still be usable at (or after) the retention deadline."""
     now = now or _utcnow_naive()

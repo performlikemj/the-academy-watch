@@ -241,3 +241,17 @@ def test_can_issue_upload_grant_refuses_grants_that_would_outlive_the_deadline(v
     assert video_retention.can_issue_upload_grant(young_created, NOW) is True
     assert video_retention.can_issue_upload_grant(old_created, NOW) is False
     assert video_retention.retention_deadline(young_created) == young_created.created_at + timedelta(days=90)
+
+
+def test_retention_window_closed_follows_the_deadline(video_app):
+    open_row = _match(status="uploaded", expires_at=NOW + timedelta(days=1))
+    closed_row = _match(status="uploaded", expires_at=NOW - timedelta(minutes=1))
+    fresh_created = VideoMatch(status="created", blob_path="matches/f.mp4", created_at=NOW - timedelta(days=1))
+    stale_created = VideoMatch(status="created", blob_path="matches/s.mp4", created_at=NOW - timedelta(days=91))
+    db.session.add_all([fresh_created, stale_created])
+    db.session.commit()
+
+    assert video_retention.retention_window_closed(open_row, NOW) is False
+    assert video_retention.retention_window_closed(closed_row, NOW) is True
+    assert video_retention.retention_window_closed(fresh_created, NOW) is False
+    assert video_retention.retention_window_closed(stale_created, NOW) is True

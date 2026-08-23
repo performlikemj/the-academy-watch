@@ -139,6 +139,8 @@ def upload_complete(match_id: int):
     db.session.refresh(match, with_for_update=True)
     if match.status not in ("created", "uploaded"):
         return _bad_request(f"cannot complete upload in status '{match.status}'")
+    if video_retention.retention_window_closed(match):
+        return jsonify({"error": "retention window closed; the footage is due for deletion"}), 409
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
 
@@ -158,7 +160,8 @@ def upload_complete(match_id: int):
     match.blob_etag = check["etag"]
     match.status = "uploaded"
     match.uploaded_at = datetime.now(UTC)
-    match.expires_at = datetime.now(UTC) + timedelta(days=RAW_RETENTION_DAYS)
+    if match.expires_at is None:  # first completion stamps the deadline; a reattestation keeps the original one
+        match.expires_at = datetime.now(UTC) + timedelta(days=RAW_RETENTION_DAYS)
     if is_reattestation:
         match.processing_requested_at = None
         match.processing_requested_by_user_id = None
