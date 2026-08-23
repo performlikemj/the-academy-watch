@@ -1,6 +1,6 @@
 """Raw-footage retention: due rows lose their blob and flip to expired; nothing else is touched."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from flask import Flask
@@ -193,3 +193,25 @@ def test_row_claimed_by_process_after_the_snapshot_is_skipped_not_expired(video_
     fresh = db.session.get(VideoMatch, row.id)
     assert fresh.status == "queued"
     assert fresh.blob_path == "matches/x.mp4"
+
+
+def test_abandoned_created_uploads_become_due_by_age(video_app, monkeypatch):
+    old = VideoMatch(status="created", blob_path="matches/abandoned.mp4", created_at=NOW - timedelta(days=91))
+    young = VideoMatch(status="created", blob_path="matches/young.mp4", created_at=NOW - timedelta(days=10))
+    pathless = VideoMatch(status="created", blob_path=None, created_at=NOW - timedelta(days=400))
+    db.session.add_all([old, young, pathless])
+    db.session.commit()
+
+    assert [m.id for m in video_retention.due_matches(NOW)] == [old.id]
+
+    deleted = []
+    monkeypatch.setattr(video_storage, "is_configured", lambda: True)
+    monkeypatch.setattr(video_storage, "delete_blob", lambda path: deleted.append(path) or True)
+    result = video_retention.expire_raw_footage(NOW)
+
+    assert result == {"due": 1, "expired": 1, "failed": 0, "skipped": 0, "dry_run": False}
+    assert deleted == ["matches/abandoned.mp4"]
+    db.session.expire_all()
+    assert db.session.get(VideoMatch, old.id).status == "expired"
+    assert db.session.get(VideoMatch, old.id).blob_path is None
+    assert db.session.get(VideoMatch, young.id).status == "created"

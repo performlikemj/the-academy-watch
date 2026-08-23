@@ -6,8 +6,9 @@ tracklets, reports, or jobs.
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import and_, func, or_
 from src.models.league import db
 from src.models.video import VideoMatch
 from src.services import video_storage
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 # Only footage no pipeline still needs may go: queued/preflight/processing rows are in flight and wait for the
 # next run, and created rows have no blob yet.
 EXPIRABLE_STATUSES = ("uploaded", "needs_tagging", "finalized", "failed")
+# A row that never reached upload-complete keeps status "created" and no expires_at, yet its blob may exist (the
+# browser uploaded straight to Azure and vanished). Those are swept by age instead — mirrors the routes' 90-day policy.
+ABANDONED_UPLOAD_DAYS = 90
 
 
 def _utcnow_naive() -> datetime:
@@ -24,17 +28,42 @@ def _utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def _abandoned_before(now: datetime) -> datetime:
+    return now - timedelta(days=ABANDONED_UPLOAD_DAYS)
+
+
+def _still_eligible(match: VideoMatch, now: datetime) -> bool:
+    """The in-loop re-check: the same rule as due_matches(), evaluated on a freshly re-read row."""
+    if not match.blob_path:
+        return False
+    if match.status in EXPIRABLE_STATUSES:
+        return match.expires_at is not None and match.expires_at <= now
+    if match.status == "created":
+        return match.created_at is not None and match.created_at <= _abandoned_before(now)
+    return False
+
+
 def due_matches(now: datetime | None = None) -> list[VideoMatch]:
-    """Matches whose raw footage is past retention and still present, oldest deadline first."""
+    """Matches whose raw footage is past retention and still present, oldest deadline first — plus abandoned
+    uploads (status created, blob path set, older than ABANDONED_UPLOAD_DAYS)."""
     now = now or _utcnow_naive()
     return (
         VideoMatch.query.filter(
-            VideoMatch.expires_at.isnot(None),
-            VideoMatch.expires_at <= now,
-            VideoMatch.status.in_(EXPIRABLE_STATUSES),
             VideoMatch.blob_path.isnot(None),
+            or_(
+                and_(
+                    VideoMatch.expires_at.isnot(None),
+                    VideoMatch.expires_at <= now,
+                    VideoMatch.status.in_(EXPIRABLE_STATUSES),
+                ),
+                and_(
+                    VideoMatch.status == "created",
+                    VideoMatch.created_at.isnot(None),
+                    VideoMatch.created_at <= _abandoned_before(now),
+                ),
+            ),
         )
-        .order_by(VideoMatch.expires_at.asc(), VideoMatch.id.asc())
+        .order_by(func.coalesce(VideoMatch.expires_at, VideoMatch.created_at).asc(), VideoMatch.id.asc())
         .all()
     )
 
@@ -59,7 +88,7 @@ def expire_raw_footage(now: datetime | None = None, *, dry_run: bool = False) ->
         # Re-read the row under lock right before acting: a /process call may have claimed the match
         # (uploaded -> queued) after due_matches() ran, and deleting its input would strand a queued job.
         db.session.refresh(match, with_for_update=True)
-        if match.status not in EXPIRABLE_STATUSES or not match.blob_path:
+        if not _still_eligible(match, now):
             db.session.rollback()
             skipped += 1
             continue

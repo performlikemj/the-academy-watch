@@ -283,7 +283,8 @@ def upsert_roster(match_id: int):
 @require_api_key
 def process_match(match_id: int):
     """Debit one credit and queue the GPU job. 402 when the team has no credits."""
-    match = _get_match_or_404(match_id)
+    # Hold the row: the retention sweeper re-checks under this same lock before deleting footage.
+    match = db.session.get(VideoMatch, match_id, with_for_update=True)
     if match is None:
         return jsonify({"error": "match not found"}), 404
     if match.status not in ("uploaded", "preflight"):
@@ -329,7 +330,8 @@ def process_match(match_id: int):
 @require_api_key
 def requeue_match(match_id: int):
     """Admin: re-run a failed job WITHOUT a new debit."""
-    match = _get_match_or_404(match_id)
+    # Hold the row: the retention sweeper re-checks under this same lock before deleting footage.
+    match = db.session.get(VideoMatch, match_id, with_for_update=True)
     if match is None:
         return jsonify({"error": "match not found"}), 404
     last = match.latest_job()
