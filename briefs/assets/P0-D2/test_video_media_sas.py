@@ -62,13 +62,9 @@ def test_footage_redirect_uses_media_sas_and_no_store(video_app, monkeypatch):
         "mint_read_sas",
         lambda *a, **k: pytest.fail("the 6h worker SAS must not serve browsers"),
     )
-    monkeypatch.setattr(
-        video_routes, "verify_media_token", lambda token, match_id: True
-    )
+    monkeypatch.setattr(video_routes, "verify_media_token", lambda token, match_id: True)
 
-    resp = video_app.test_client().get(
-        f"/api/admin/video/matches/{match.id}/footage?token=ok"
-    )
+    resp = video_app.test_client().get(f"/api/admin/video/matches/{match.id}/footage?token=ok")
 
     assert resp.status_code == 302
     assert resp.headers["Location"] == "https://blob.invalid/short?sig=1"
@@ -94,10 +90,7 @@ def test_media_read_sas_expires_within_thirty_minutes(monkeypatch):
 
     url = video_storage.mint_media_read_sas("matches/9/raw.mp4")
 
-    assert (
-        url
-        == "https://acct.blob.core.windows.net/video-matches/matches/9/raw.mp4?sig=fake"
-    )
+    assert url == "https://acct.blob.core.windows.net/video-matches/matches/9/raw.mp4?sig=fake"
     assert captured["expiry"] <= before + timedelta(minutes=30, seconds=5)
     assert captured["expiry"] >= before + timedelta(minutes=29)
     assert video_storage.MEDIA_READ_SAS_MINUTES == 30
