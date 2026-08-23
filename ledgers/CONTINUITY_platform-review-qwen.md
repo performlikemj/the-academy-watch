@@ -83,6 +83,16 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 - PR plan: one PR per group (C, A1+A3, B, D…) from this branch via `gh pr create`; merge squash; watch
   deploy; re-base the lane on main between groups.
 
+
+### 2026-08-23 03:05Z — PR-1 merged; step scripts everywhere
+
+- PR #887 squash-merged → main `5af2ab5` (C1, A1, A2, A3, A3b, B1). Deploy run 32614375785 watched; live smoke = `scratchpad/pr1-smoke.sh`.
+- Lesson (second whitespace failure): qwen cannot reproduce leading spaces even when COPYING a command from the brief.
+  Every block containing `grep -n` / `sed -i` / `awk` in the remaining briefs is now a shipped `briefs/assets/<TASK>/step-N.sh`
+  (36 scripts, byte-identical to the former blocks, no cross-block variables); the brief says `bash …/step-N.sh`; QWEN.md rule added (ad82b2f).
+- Lane rebase plan: squash-merge leaves the lane based on b90b180; rebase with `git rebase --onto origin/main cbe5a1e` at a quiet
+  moment (finish scripts honour `$S/PAUSE_LANE`: commit but do not launch). Next PR branches can also be built by cherry-pick onto origin/main in a separate worktree.
+
 ## Run log
 
 | Session | Task | Result | Verified by Fable | Notes |
@@ -98,7 +108,7 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 | qwen-P0-A3-20260823T0221 | P0-A3 (consent page; 3 shipped files + 2 sed lines) | DONE in 8 min — gate RED→GREEN (12 s), handback, runner post-gate green | 3 copied files byte-identical to assets; App.jsx +2 asset lines, insert-only; commit `aedad98` | |
 | qwen-P0-B1-20260823T0229 | P0-B1 (club match-list route; snippets + sed/cat) | completed, gate green 1st try (ruff+148 tests), 0 nudges, ~12 min | bdae27f | route + test byte-exact vs assets |
 | qwen-P0-A3b-20260823T0241 | P0-A3b (consent page transient-error fix; one cp) | completed, gate green 1st try, 0 nudges, ~10 min (mostly pnpm build) | cbe5a1e | page identical to asset |
-| qwen-P0-B2-20260823T0252 | P0-B2 (console uses listClubMatches; localStorage index removed) | running | — | |
+| qwen-P0-B2-20260823T0252 | P0-B2 (console uses listClubMatches; localStorage index removed) | HELP at 585s (step 2e: qwen retyped the awk regex, lost the 2 leading spaces → Z empty; 2a–2d + api.js were correct) → step 2e shipped as `step2e.sh`, resumed with answer 03:04Z | — | |
 | — | **PR-1 #887** `feat/p0-contact-foundation` (snapshot of lane HEAD c4b98af: tooling + C1 + A1 + A2 + A3) | OPEN 02:31Z; lane full gate green (26 s) before push | CI watch in progress; read codex-connector reviews before merging (MJ 2026-08-11 rule) | https://github.com/performlikemj/the-academy-watch/pull/887 |
 | qwen-P0-A2-20260823T0118 (v3, earlier note) | — | test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | — | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now | — test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | pending | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now |
 
