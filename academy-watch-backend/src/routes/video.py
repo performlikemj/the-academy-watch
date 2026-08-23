@@ -23,7 +23,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from flask import Blueprint, Response, g, jsonify, redirect, request, send_file
-from src.auth import mint_media_token, verify_media_token
+from src.auth import media_token_remaining_seconds, mint_media_token, verify_media_token
 from src.models.funding import ClubRosterMember
 from src.models.league import Team, db
 from src.models.showcase import LocalPlayer
@@ -37,7 +37,7 @@ from src.models.video import (
     VideoTracklet,
 )
 from src.routes.api import require_api_key
-from src.services import video_dev_artifacts, video_queue, video_storage
+from src.services import video_dev_artifacts, video_queue, video_retention, video_storage
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.video_feedback import build_feedback_labels
 from src.services.video_identity import NUMBER_AGREEMENT_MIN, split_chain
@@ -120,6 +120,8 @@ def remint_upload_sas(match_id: int):
         return jsonify({"error": "match not found"}), 404
     if match.status not in ("created", "uploaded"):
         return _bad_request(f"cannot re-mint SAS in status '{match.status}'")
+    if not video_retention.can_issue_upload_grant(match):
+        return jsonify({"error": "retention deadline too close to issue an upload grant; create a new match"}), 409
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
     return jsonify(video_storage.mint_upload_sas(match.blob_path))
@@ -133,8 +135,12 @@ def upload_complete(match_id: int):
     match = _get_match_or_404(match_id)
     if match is None:
         return jsonify({"error": "match not found"}), 404
+    # Serialize with the retention sweeper: it re-checks this row under the same lock before deleting footage.
+    db.session.refresh(match, with_for_update=True)
     if match.status not in ("created", "uploaded"):
         return _bad_request(f"cannot complete upload in status '{match.status}'")
+    if video_retention.retention_window_closed(match):
+        return jsonify({"error": "retention window closed; the footage is due for deletion"}), 409
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
 
@@ -154,7 +160,8 @@ def upload_complete(match_id: int):
     match.blob_etag = check["etag"]
     match.status = "uploaded"
     match.uploaded_at = datetime.now(UTC)
-    match.expires_at = datetime.now(UTC) + timedelta(days=RAW_RETENTION_DAYS)
+    if match.expires_at is None:  # first completion stamps the deadline; a reattestation keeps the original one
+        match.expires_at = datetime.now(UTC) + timedelta(days=RAW_RETENTION_DAYS)
     if is_reattestation:
         match.processing_requested_at = None
         match.processing_requested_by_user_id = None
@@ -283,7 +290,8 @@ def upsert_roster(match_id: int):
 @require_api_key
 def process_match(match_id: int):
     """Debit one credit and queue the GPU job. 402 when the team has no credits."""
-    match = _get_match_or_404(match_id)
+    # Hold the row: the retention sweeper re-checks under this same lock before deleting footage.
+    match = db.session.get(VideoMatch, match_id, with_for_update=True)
     if match is None:
         return jsonify({"error": "match not found"}), 404
     if match.status not in ("uploaded", "preflight"):
@@ -329,7 +337,8 @@ def process_match(match_id: int):
 @require_api_key
 def requeue_match(match_id: int):
     """Admin: re-run a failed job WITHOUT a new debit."""
-    match = _get_match_or_404(match_id)
+    # Hold the row: the retention sweeper re-checks under this same lock before deleting footage.
+    match = db.session.get(VideoMatch, match_id, with_for_update=True)
     if match is None:
         return jsonify({"error": "match not found"}), 404
     last = match.latest_job()
@@ -705,7 +714,13 @@ def stream_footage(match_id: int):
     if video_storage.is_configured():
         if not match.blob_path:
             return jsonify({"error": "no footage"}), 404
-        return redirect(video_storage.mint_read_sas(match.blob_path))
+        remaining = media_token_remaining_seconds(request.args.get("token", ""), match_id)
+        if remaining <= 0:
+            return jsonify({"error": "invalid or expired media token"}), 403
+        resp = redirect(video_storage.mint_media_read_sas(match.blob_path, seconds=remaining))
+        resp.headers["Cache-Control"] = "private, no-store"  # SAS rides the Location — don't cache/leak
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        return resp
     art = video_dev_artifacts.local_artifacts(match)
     path = (art or {}).get("footage")
     if not path or not os.path.exists(path):

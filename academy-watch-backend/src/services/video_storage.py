@@ -31,6 +31,7 @@ except ImportError:  # keep the app importable without the optional dependency
 
 UPLOAD_SAS_MINUTES = 60  # re-mint endpoint exists because 6GB at club uplink speeds outlives this
 READ_SAS_HOURS = 6
+MEDIA_READ_SAS_MINUTES = 30  # browser footage redirect; matches src.auth.MEDIA_TOKEN_TTL
 
 
 def _container() -> str:
@@ -87,6 +88,16 @@ def mint_read_sas(blob_path: str, hours: int = READ_SAS_HOURS) -> str:
     return f"{client.url}{_container()}/{blob_path}?{sas}"
 
 
+def mint_media_read_sas(blob_path: str, *, seconds: int = MEDIA_READ_SAS_MINUTES * 60) -> str:
+    """Short read-only SAS for the browser footage redirect — never longer than the media token, and never
+    longer than the token's REMAINING life when the caller passes it (``seconds``)."""
+    ttl = max(1, min(int(seconds), MEDIA_READ_SAS_MINUTES * 60))
+    expiry = datetime.now(UTC) + timedelta(seconds=ttl)
+    sas = _mint_sas(blob_path, BlobSasPermissions(read=True), expiry)
+    client = _service_client()
+    return f"{client.url}{_container()}/{blob_path}?{sas}"
+
+
 def verify_uploaded_blob(blob_path: str) -> dict:
     """Post-upload verification: blob exists and is within the size cap.
     Returns {ok, size_bytes, etag} or {ok: False, error}."""
@@ -120,3 +131,16 @@ def verify_expected_blob(blob_path: str, expected_etag: str | None) -> dict:
             "error": "footage blob changed since upload-complete (ETag mismatch)",
         }
     return check
+
+
+def delete_blob(blob_path: str) -> bool:
+    """Delete one raw-footage blob. True when it is gone afterwards (deleted now, or already absent)."""
+    try:
+        blob = _service_client().get_blob_client(_container(), blob_path)
+        blob.delete_blob()
+        return True
+    except Exception as e:  # auth, network — all mean "not gone"; a 404 means it was already gone
+        if getattr(e, "status_code", None) == 404:
+            return True
+        logger.warning("video blob delete failed for %s: %s", blob_path, e)
+        return False

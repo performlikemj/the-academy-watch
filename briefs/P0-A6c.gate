@@ -1,0 +1,2 @@
+FRONTEND_TESTS="tests/contact-thread.test.mjs tests/club-introductions-panel.test.mjs"
+FRONTEND_BUILD=1

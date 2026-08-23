@@ -97,7 +97,7 @@ if [ -n "${BACKEND_TESTS// /}" ]; then
     fi
     present="$present $t"
   done
-  if [ -n "${present// /}" ]; then (cd "$BACKEND" && "$PY" -m pytest -q -p no:cacheprovider $present) || finish 1; fi
+  if [ -n "${present// /}" ]; then (cd "$BACKEND" && API_USE_STUB_DATA=true SKIP_API_HANDSHAKE=1 "$PY" -m pytest -q -p no:cacheprovider $present) || finish 1; fi
 else
   echo "(no backend tests named)"
 fi

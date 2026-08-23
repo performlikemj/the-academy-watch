@@ -49,9 +49,7 @@ def video_app(monkeypatch):
 
 
 def _match(*, status, expires_at, blob_path="matches/x.mp4"):
-    row = VideoMatch(
-        status=status, expires_at=expires_at, blob_path=blob_path, blob_etag="etag"
-    )
+    row = VideoMatch(status=status, expires_at=expires_at, blob_path=blob_path, blob_etag="etag")
     db.session.add(row)
     db.session.commit()
     return row
@@ -77,9 +75,7 @@ def test_expire_deletes_blob_then_flips_row(video_app, monkeypatch):
     row = _match(status="finalized", expires_at=PAST, blob_path="matches/7/raw.mp4")
     deleted = []
     monkeypatch.setattr(video_storage, "is_configured", lambda: True)
-    monkeypatch.setattr(
-        video_storage, "delete_blob", lambda path: deleted.append(path) or True
-    )
+    monkeypatch.setattr(video_storage, "delete_blob", lambda path: deleted.append(path) or True)
 
     result = video_retention.expire_raw_footage(NOW)
 

@@ -1,0 +1,1 @@
+BACKEND_TESTS="tests/test_video_media_sas.py tests/test_video_retention.py tests/test_video_maintenance_job.py"

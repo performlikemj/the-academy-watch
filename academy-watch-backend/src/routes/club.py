@@ -22,7 +22,7 @@ from src.models.league import Team, db
 from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
-from src.services import video_storage
+from src.services import video_retention, video_storage
 from src.services.club_registry import require_club_manager
 from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
@@ -387,6 +387,8 @@ def club_match_sas(program_id: int, match_id: int):
         return jsonify({"error": "Match not found"}), 404
     if match.status not in {"created", "uploaded"}:
         return _bad_request(f"cannot re-mint SAS in status '{match.status}'")
+    if not video_retention.can_issue_upload_grant(match):
+        return jsonify({"error": "retention deadline too close to issue an upload grant; create a new match"}), 409
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
     return jsonify(video_storage.mint_upload_sas(match.blob_path))
@@ -398,8 +400,12 @@ def club_match_upload_complete(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
         return jsonify({"error": "Match not found"}), 404
+    # Serialize with the retention sweeper: it re-checks this row under the same lock before deleting footage.
+    db.session.refresh(match, with_for_update=True)
     if match.status not in {"created", "uploaded"}:
         return _bad_request(f"cannot complete upload in status '{match.status}'")
+    if video_retention.retention_window_closed(match):
+        return jsonify({"error": "retention window closed; the footage is due for deletion"}), 409
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
     is_reattestation = match.status == "uploaded"
@@ -418,7 +424,8 @@ def club_match_upload_complete(program_id: int, match_id: int):
     match.blob_etag = check["etag"]
     match.status = "uploaded"
     match.uploaded_at = now
-    match.expires_at = now + timedelta(days=RAW_RETENTION_DAYS)
+    if match.expires_at is None:  # first completion stamps the deadline; a reattestation keeps the original one
+        match.expires_at = now + timedelta(days=RAW_RETENTION_DAYS)
     if is_reattestation:
         match.processing_requested_at = None
         match.processing_requested_by_user_id = None

@@ -107,6 +107,63 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 
 - A0, A5, A4, A6b, A6, A8, A9 all landed (each re-derived/identical). PR-3 `feat/p0-contact-rail-ui` opened from lane HEAD; C-group starts on the lane meanwhile.
 
+
+### 2026-08-23 05:10Z — PR-3 review follow-ups briefed (run after C2, before C3)
+
+- Codex on #889: P1 entry points visible with CONTACT_RAIL_ENABLED off; P2 thread shows only first 100 msgs; P2 club sees an outcome form it cannot use. Prod has the flag ON (`CONTACT_RAIL_ENABLED=1` on the container) — fix is for default-off / containment.
+- Briefs: P0-A6c (thread pages until a short page + `canReportOutcome` prop; panel passes false) · P0-A10b (public `GET /api/features` → `{contact_rail}` in api_bp, import-free — the first draft's lazy import of services.contact broke the NEXT test app's create_all (NoReferencedTableError) and auth_bp isn't in the test app; two commits say 'proven' before the proof was actually green — corrected here) · P0-A10 (pure `contact-flags.js` + `useContactRail` hook over /api/features; nav/desk/club-tab gated on `=== true`; /introductions shows an unavailable card when off; proven in a temp worktree incl. pnpm build).
+- Order: A6c → A10b → A10 → cherry-pick the three onto `feat/p0-contact-rail-ui`, reply to codex, re-review, merge; then resume C3…
+
+### 2026-08-23 07:08Z — PR-3 fixes landed on the lane
+
+- A6c f396991, A10b 46c6c3f, A10 6ff3693 cherry-picked onto `feat/p0-contact-rail-ui` (pr3-update.sh: replies on the three codex threads + `@codex review`); C-chain resumed with C3.
+
+### 2026-08-23 07:13Z — codex round 2 on #889 → P0-A11
+
+- Round 2 (on 0adb2b4): P1 stale thread loads overwrite the current thread; P1 `introduce-dialog.test.mjs` still asserted the pre-flag condition (A10's gate ran only its own named tests — lesson: run ALL lane tests before a PR snapshot; `pnpm test` = node --test over tests/ but main has legacy red files, so use the lane list); P2 consent controls on closed requests; P2 request lists capped at 100. All four in P0-A11 (eight shipped files; proven: 37 lane tests + eslint + build). Runs after C3, then cherry-pick onto PR-3, reply, re-review.
+
+### 2026-08-23 08:20Z — codex rounds 3–4 on #889
+
+- Round 3 (P1 stale send → A11b 78c0a87) and round 4 (P2 dialog epoch + P2 box load race → A11c) — each a whole-file brief, proven (tests + eslint + build) before dispatch. Decision: merge PR-3 once A11c is on it even if a further P2-only round appears (diminishing returns; P1s would still block).
+
+### 2026-08-23 08:39Z — PR-3 merged; lane rebased (with a lesson)
+
+- PR #889 squash-merged → main `9289e8a` (A-group + A6c/A10b/A10/A11/A11b/A11c). Deploy 32628689908 = success. Live smoke: `GET /api/features` → `{"contact_rail":true}` ✓; `/introductions` 200 ✓; bundle `index-xBCYGbCN.js` has '/features', 'No longer needed', 'Introductions aren', 'canReportOutcome' ✓; signed-out /introductions renders the Sign-in card (Playwright) ✓. Round-5 P2 (per-box action sequencing) → P0-A11d, for PR-4.
+- Rebase `--onto origin/main e5cf24d` CONFLICTED: six lane commits were cherry-picked into the PR and then squashed; when several of them edit the same lines, replaying the earlier ones onto main (which holds the later state) conflicts. Fix: skip those already-merged commits (`lane-rebase.sh` now takes `MERGED="sha …"` and stops on any other conflict — the old `| tail` masked the failure and the script sailed on). Result verified: lane = main + backend-only commits (C2, C3, C4, D1a, D1b) + docs.
+
+### 2026-08-23 09:09Z — Phase 0 complete on the lane
+
+- Every Phase-0 task has landed: C1, A1, A2, A3(+b), B1 (PR-1); B2(+b) (PR-2); A0, A5, A4, A6b, A6, A8, A9 + A6c/A10b/A10/A11/A11b/A11c (PR-3); C2, C3, C4, D1a, D1b, D2, A11d → PR-4 (opening now after the full integrate gate).
+- Still Fable/MJ: schedule `run_video_maintenance` (ACA job), Azure lifecycle rules; sw01 migration applies on PR-4's deploy.
+
+### 2026-08-23 09:24Z — PR-4 review → D3
+
+- Codex on #890: P1 SAS outlives the token near expiry; P1 sweeper forgets blobs when storage unconfigured; P2 preflight swept. All three in P0-D3 (proven in a temp worktree: ruff + 14 video tests). PR-4 branch fast-forwarded to lane HEAD, replies posted, re-review requested.
+
+### 2026-08-23 09:40Z — PR-4 round 2 → D4
+
+- Codex round 2 on #890: P1 reaped jobs leave matches in processing; P2 sweeper TOCTOU vs /process. Both in P0-D4 (proven 17/17). PR-4 fast-forwarded again; replies + re-review.
+
+### 2026-08-23 09:54Z — PR-4 round 3 → D5
+
+- Codex round 3 on #890: P1 abandoned `created` uploads never swept; P2 /process must take the row lock too; P2 reaper read-then-write lost the CAS. All in P0-D5 (proven: 47 tests, fresh-copy + pipefail proof). PR-4 fast-forwarded; replies + re-review.
+
+### 2026-08-23 10:07Z — PR-4 round 4 → D6
+
+- Codex round 4 on #890: P1 zombie worker after reap (heartbeat/completion ignored status; no heartbeat during long pipelines); P2 upload-complete without the row lock. Both in P0-D6 (proven 60/60). PR-4 fast-forwarded; replies + re-review. Policy stands: a further P2-only round → merge.
+
+### 2026-08-23 10:21Z — PR-4 round 5 → D7
+
+- Codex round 5 on #890: P1 matches stay `queued` during the run so the reaper's processing-only move was a no-op; P2 worker failure path read-then-write. Both in P0-D7 (proven 33/33). PR-4 fast-forwarded; replies + re-review.
+
+### 2026-08-23 10:36Z — PR-4 round 6 → D8
+
+- Codex round 6 on #890: P1 completion not fenced across persistence; P1 live upload grants can recreate swept blobs. Both in P0-D8 (proven 66/66). PR-4 fast-forwarded; replies + re-review.
+
+### 2026-08-23 10:48Z — PR-4 round 7 → D9
+
+- Codex round 7 on #890: P1 upload-complete reset expires_at on every reattestation (replay = indefinite retention + re-enabled grants). P0-D9 (proven 57/57). PR-4 fast-forwarded; reply + re-review.
+
 ## Run log
 
 | Session | Task | Result | Verified by Fable | Notes |
@@ -132,7 +189,27 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 | qwen-P0-A6-20260823T0427 | P0-A6 (introductions page + App.jsx import/route) | completed, gate green, 0 nudges, ~8 min | 0e73fe1 | App.jsx rederive IDENTICAL; 3 new files identical |
 | qwen-P0-A8-20260823T0435 | P0-A8 (club console Introductions tab: 5 step scripts + 2 new files) | completed, gate green, 0 nudges, ~9 min | ef5f113 | MyClubConsole rederive IDENTICAL; 2 new files identical; finish-a8 substring-count check mis-specified (committed by hand) |
 | qwen-P0-A9-20260823T0444 | P0-A9 (Introductions nav entries: 4 step scripts) | completed, gate green, 0 nudges, ~10 min | c02f96a | App.jsx + ScoutPage.jsx rederive IDENTICAL; test identical; finish-a9 had a py3.11 f-string bug (committed by hand) |
-| qwen-P0-C2-<see wrapper> | P0-C2 (scout_watchlist index migration sw01 + model) | running | — | |
+| qwen-P0-C2-20260823T0455 | P0-C2 (scout_watchlist index migration sw01 + model) | completed, gate green (attempt 3), 0 nudges, ~17 min (qwen had to ruff-format the shipped test — my asset was not format-clean; content unchanged, asset synced) | 8be23f8 | model rederive IDENTICAL; migration identical; test identical after sync |
+| qwen-P0-A6c-20260823T0637 | P0-A6c (thread pagination + canReportOutcome; 4 shipped files) | completed, gate green 1st try, 0 nudges, ~11 min | f396991 | 4 files identical to assets |
+| qwen-P0-A10b-20260823T0648 | P0-A10b (public /api/features route + test) | completed, gate green, 0 nudges, ~10 min | 46c6c3f | api.py rederive IDENTICAL; test identical |
+| qwen-P0-A10-20260823T0658 | P0-A10 (flag gating: 4 step scripts + 5 shipped files) | completed, gate green, 0 nudges, ~8 min | 6ff3693 | 4 modified files rederive IDENTICAL; 5 new/replaced identical |
+| qwen-P0-C3-20260823T0707 | P0-C3 (club_registry memo) | completed, gate green, 0 nudges, ~17 min | fffe186 | club_registry.py rederive IDENTICAL; test = ruff-formatted asset (synced; my asset lacked the repo config) |
+| qwen-P0-A11-20260823T0725 | P0-A11 (codex round-2 fixes; 8 shipped files) | completed, gate green 1st try, 0 nudges, ~8 min | b0f2548 | 8 files identical to assets; all 37 lane frontend tests green on the lane tree; cherry-picked onto PR-3 |
+| qwen-P0-C4-20260823T0733 | P0-C4 (run_video_maintenance job) | KILLED by Fable at 07:45Z (12 min): the new test imports src.main; qwen's sandbox inherits API_USE_STUB_DATA=false from my shell (key not passed through) → app init raised; qwen diagnosed instead of re-running — gate fixed (lane-gate.sh forces API_USE_STUB_DATA=true SKIP_API_HANDSHAKE=1 for pytest, 1602ac8) | — | |
+| qwen-P0-C4-20260823T0745 | P0-C4 relaunch | completed, gate green, 0 nudges, ~12 min | 3f0957c | 2 new files identical to assets |
+| qwen-P0-A11b-20260823T0757 | P0-A11b (stale send guard; 2 shipped files) | completed, gate green, 0 nudges, ~15 min | 78c0a87 | 2 files identical; all 38 lane frontend tests green; cherry-picked onto PR-3 |
+| qwen-P0-D1a-20260823T0812 | P0-D1a (video_retention service + delete_blob append; 2 new files) | completed, gate green, 0 nudges, ~8 min | 8e8e435 | new files identical; delete_blob appended exactly once at end (finish check) |
+| qwen-P0-A11c-20260823T0820 | P0-A11c (dialog epoch + page load sequence; 4 shipped files) | completed, gate green, 0 nudges, ~10 min | a32f6ec | 4 files identical; 40 lane frontend tests green; cherry-picked onto PR-3 |
+| qwen-P0-D1b-20260823T0830 | P0-D1b (maintenance job runs retention; 3 step scripts + test replaced) | completed, gate green, 0 nudges, ~6 min | ce302cb (post-rebase) | job rederive IDENTICAL; test identical |
+| qwen-P0-A11d-20260823T0839 | P0-A11d (per-box action sequencing; 2 shipped files; for PR-4) | completed, gate green, 0 nudges, ~5 min | 6d316b8 | 2 files identical; 41 lane frontend tests green |
+| qwen-P0-D2-20260823T0844 | P0-D2 (30-min media read SAS + no-store redirect; 4 step scripts + test) | HELP at 713s (missing_package: `.loan` venv lacked azure-storage-blob → NameError in the unit test; precise diagnosis, correct stop) → Fable installed the pinned azure-storage-blob==12.30.0, resumed → completed, gate green | 8307865 | video.py + video_storage.py rederive IDENTICAL; test identical |
+| qwen-P0-D3-20260823T0917 | P0-D3 (SAS ≤ token life; retention guard; preflight excluded; 3 step scripts + 3 shipped files) | completed, gate green, 0 nudges, ~7 min | 2ffed49 | auth/video_storage/video.py rederive IDENTICAL; 3 shipped files identical; 14 video tests green |
+| qwen-P0-D4-20260823T0934 | P0-D4 (reaper moves matches to failed; sweeper re-checks under lock; 1 step script + 3 shipped files) | completed, gate green, 0 nudges, ~5 min (first launch T0933 killed by Fable within a minute: a test asset shipped with a stale dict — my proof had swallowed pytest's exit code via a pipe, and the re-proof copied stale committed assets; both harness slips fixed: pipefail + fresh copy) | 5fe2124 | video_queue.py rederive IDENTICAL; 3 shipped files identical; 17 video tests green |
+| qwen-P0-D5-20260823T0949 | P0-D5 (abandoned uploads by age; /process+/requeue FOR UPDATE; reaper CAS RETURNING; 2 step scripts + 2 shipped files) | completed, gate green, 0 nudges, ~4 min | 81752c8 | video_queue.py + video.py rederive IDENTICAL; shipped files identical; 47 tests green in proof |
+| qwen-P0-D6-20260823T1003 | P0-D6 (worker fence + keepalive, completion guard, upload-complete locks; 3 step scripts + 2 shipped files) | completed, gate green, 0 nudges, ~3 min | 26b42e1 | 4 modified files rederive IDENTICAL; shipped files identical; 60 tests green in proof |
+| qwen-P0-D7-20260823T1015 | P0-D7 (queued-aware reaper + fail_running_job CAS; 1 step script + 3 shipped files) | completed, gate green, 0 nudges, ~5 min | 93db06c | video_queue.py rederive IDENTICAL; shipped files identical; 33 tests green in proof |
+| qwen-P0-D8-20260823T1031 | P0-D8 (fenced completion; upload-grant guard + grace; 2 step scripts + 3 shipped files) | completed, gate green, 0 nudges, ~4 min | 77e56e7 | 3 modified files rederive IDENTICAL; shipped files identical; 66 tests green in proof |
+| qwen-P0-D9-20260823T1043 | P0-D9 (upload-complete keeps deadline; closed window 409; 2 step scripts + 2 shipped files) | completed, gate green, 0 nudges, ~5 min | a8a9512 | 2 modified files rederive IDENTICAL; shipped files identical; 57 tests green in proof |
 | — | **PR-1 #887** `feat/p0-contact-foundation` (snapshot of lane HEAD c4b98af: tooling + C1 + A1 + A2 + A3) | OPEN 02:31Z; lane full gate green (26 s) before push | CI watch in progress; read codex-connector reviews before merging (MJ 2026-08-11 rule) | https://github.com/performlikemj/the-academy-watch/pull/887 |
 | qwen-P0-A2-20260823T0118 (v3, earlier note) | — | test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | — | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now | — test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | pending | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now |
 

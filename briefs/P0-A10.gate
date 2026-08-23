@@ -1,0 +1,2 @@
+FRONTEND_TESTS="tests/contact-flags.test.mjs tests/introductions-nav.test.mjs"
+FRONTEND_BUILD=1
