@@ -32,6 +32,7 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-A6c | `briefs/P0-A6c.md` | Thread pages through every message; `canReportOutcome` prop; club panel passes false (codex P2s on PR #889). Four shipped files. | done (f396991) |
 | P0-A10b | `briefs/P0-A10b.md` | Public `GET /api/features` → `{contact_rail}` (codex P1 on PR #889, backend half). | done (46c6c3f) |
 | P0-A10 | `briefs/P0-A10.md` | Contact entry points gated on the flag (nav, desk, club tab, /introductions page) (codex P1, frontend half). | done (6ff3693) |
+| P0-A11 | `briefs/P0-A11.md` | Stale thread loads discarded; request lists paged; consent controls only on active requests; stale test fixed (codex round 2 on PR #889). Eight shipped files. | ready |
 
 Done means BOTH: (1) `make gate TASK=<id>` green — you ran it, you saw it; (2) the brief's observable
 is real. Then write your handback file and end with the `HANDBACK-FILED:` line, exactly as the brief says.
