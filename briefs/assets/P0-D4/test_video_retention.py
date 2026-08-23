@@ -113,6 +113,7 @@ def test_dry_run_counts_and_changes_nothing(video_app, monkeypatch):
         "due": 1,
         "expired": 0,
         "failed": 0,
+        "skipped": 0,
         "dry_run": True,
     }
     assert db.session.get(VideoMatch, row.id).status == "finalized"
