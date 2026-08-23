@@ -19,7 +19,7 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-A2 | `briefs/P0-A2.md` | `api.js` learns the contact rail (13 user-level methods) + source test. | done 08-23 (b0690df) |
 | P0-B2 | `briefs/P0-B2.md` | Club console reads `listClubMatches`; localStorage index deleted. Depends on P0-B1. | done (6352091) |
 | P0-B2b | `briefs/P0-B2b.md` | Roster editor opens only a fully fetched match (codex P1 on PR #888: list rows carry no roster → a save could wipe it). Two step scripts + test. | done (99134a8) |
-| P0-D1a | `briefs/P0-D1a.md` | `video_storage.delete_blob` + `services/video_retention.py` (`due_matches`, `expire_raw_footage`). | ready |
+| P0-D1a | `briefs/P0-D1a.md` | `video_storage.delete_blob` + `services/video_retention.py` (`due_matches`, `expire_raw_footage`). | in-progress |
 | P0-D1b | `briefs/P0-D1b.md` | Maintenance job runs the retention sweep. Depends on P0-C4 + P0-D1a. | ready |
 | P0-D2 | `briefs/P0-D2.md` | Footage redirect uses a 30-min media read SAS + `Cache-Control: private, no-store`. | ready |
 | P0-A3 | `briefs/P0-A3.md` | Public club-consent page `/contact/club-consent/:token` (+ pure copy helper). Depends on P0-A2. | done 08-23 (aedad98) |
@@ -33,7 +33,7 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-A10b | `briefs/P0-A10b.md` | Public `GET /api/features` → `{contact_rail}` (codex P1 on PR #889, backend half). | done (46c6c3f) |
 | P0-A10 | `briefs/P0-A10.md` | Contact entry points gated on the flag (nav, desk, club tab, /introductions page) (codex P1, frontend half). | done (6ff3693) |
 | P0-A11 | `briefs/P0-A11.md` | Stale thread loads discarded; request lists paged; consent controls only on active requests; stale test fixed (codex round 2 on PR #889). Eight shipped files. | done (b0f2548) |
-| P0-A11b | `briefs/P0-A11b.md` | Stale send/outcome results discarded after a thread switch (codex round 3 on PR #889). Two shipped files. | in-progress |
+| P0-A11b | `briefs/P0-A11b.md` | Stale send/outcome results discarded after a thread switch (codex round 3 on PR #889). Two shipped files. | done (78c0a87) |
 
 Done means BOTH: (1) `make gate TASK=<id>` green — you ran it, you saw it; (2) the brief's observable
 is real. Then write your handback file and end with the `HANDBACK-FILED:` line, exactly as the brief says.
