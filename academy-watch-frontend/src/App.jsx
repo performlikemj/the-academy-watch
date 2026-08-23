@@ -101,6 +101,7 @@ import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
 import { GolPanel } from '@/components/gol/GolPanel'
 import { ClaimAccount } from '@/pages/ClaimAccount'
+import { ScoutVerificationPage } from '@/pages/ScoutVerificationPage'
 import { ClubConsentPage } from '@/pages/ClubConsentPage'
 import { SubmitTake } from '@/pages/SubmitTake'
 import { FlagData } from '@/pages/FlagData'
@@ -4205,6 +4206,7 @@ function AppRoutes() {
       <Route path="/scout" element={<ScoutPage />} />
       <Route path="/scout/watchlist" element={<WatchlistPage />} />
       <Route path="/scout/lists" element={<ListsPage />} />
+      <Route path="/scout/verification" element={<ScoutVerificationPage />} />
       <Route path="/my-club" element={<MyClub />} />
       <Route path="/pricing" element={<PricingPage />} />
       <Route path="/terms" element={<TermsPage />} />
