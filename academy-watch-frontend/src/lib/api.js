@@ -1645,6 +1645,76 @@ export class APIService {
         return this.request(`/admin/contact/requests/${encodeURIComponent(id)}`, {}, { admin: true })
     }
 
+    // ── Contact rail (user-level: scout ↔ player ↔ club) ──────────────────
+    static async getScoutVerification() {
+        return this.request('/scout/verification')
+    }
+
+    static async submitScoutVerification(payload) {
+        return this.request('/scout/verification', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async createContactRequest({ player_api_id, message, permission_attestation = false }) {
+        return this.request('/contact/requests', {
+            method: 'POST',
+            body: JSON.stringify({ player_api_id, message, permission_attestation }),
+        })
+    }
+
+    static async listContactRequests({ box = 'sent', limit = 50, offset = 0 } = {}) {
+        const query = new URLSearchParams({ box, limit: String(limit), offset: String(offset) }).toString()
+        return this.request(`/contact/requests?${query}`)
+    }
+
+    static async acceptContactRequest(id) {
+        return this.request(`/contact/requests/${encodeURIComponent(id)}/accept`, { method: 'POST' })
+    }
+
+    static async declineContactRequest(id) {
+        return this.request(`/contact/requests/${encodeURIComponent(id)}/decline`, { method: 'POST' })
+    }
+
+    static async withdrawContactRequest(id) {
+        return this.request(`/contact/requests/${encodeURIComponent(id)}/withdraw`, { method: 'POST' })
+    }
+
+    static async setClubConsent(id, { action, note = null }) {
+        return this.request(`/contact/requests/${encodeURIComponent(id)}/club-consent`, {
+            method: 'POST',
+            body: JSON.stringify({ action, note }),
+        })
+    }
+
+    static async getContactMessages(id, { limit = 100, offset = 0 } = {}) {
+        const query = new URLSearchParams({ limit: String(limit), offset: String(offset) }).toString()
+        return this.request(`/contact/requests/${encodeURIComponent(id)}/messages?${query}`)
+    }
+
+    static async sendContactMessage(id, body) {
+        return this.request(`/contact/requests/${encodeURIComponent(id)}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({ body }),
+        })
+    }
+
+    static async reportContactOutcome(id, { stage, notes = null, occurred_at = null }) {
+        return this.request(`/contact/requests/${encodeURIComponent(id)}/outcome`, {
+            method: 'POST',
+            body: JSON.stringify({ stage, notes, occurred_at }),
+        })
+    }
+
+    static async getClubConsentSummary(token) {
+        return this.request(`/contact/club-consent/${encodeURIComponent(token)}`)
+    }
+
+    static async submitClubConsent(token) {
+        return this.request(`/contact/club-consent/${encodeURIComponent(token)}`, { method: 'POST' })
+    }
+
     // ── Grassroots program registry + admission (F2; no checkout) ───────
     static async getFundingLeagues(params = {}) {
         const query = new URLSearchParams(params).toString()
