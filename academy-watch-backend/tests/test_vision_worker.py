@@ -138,6 +138,7 @@ def test_swap_after_verify_precondition_failure_marks_job_failed():
             patch.object(db.session, "rollback") as rollback,
             patch.object(db.session, "commit") as commit,
             patch("src.services.video_queue.heartbeat"),
+            patch("src.services.video_queue.fail_running_job", return_value=True) as fail_job,
             patch("src.services.video_storage.verify_expected_blob", return_value=current),
             patch("src.services.video_storage.mint_read_sas", return_value="https://blob.invalid/read"),
             patch("src.workers.vision_worker.subprocess.run", side_effect=precondition_failed) as run,
@@ -146,11 +147,15 @@ def test_swap_after_verify_precondition_failure_marks_job_failed():
 
     command = run.call_args.args[0]
     assert command[command.index("-H") + 1] == 'If-Match: "verified-current"'
-    assert job.status == "failed"
-    assert match.status == "failed"
-    assert "returned non-zero exit status 22" in job.error
+    # The failure transition is a compare-and-swap in the queue service (job still running → failed; match to failed
+    # only if nothing else is live), never an unconditional ORM write from the worker.
+    fail_job.assert_called_once()
+    assert fail_job.call_args.args == ("job-1",)
+    assert "returned non-zero exit status 22" in fail_job.call_args.kwargs["error"]
+    assert job.status == "running"
+    assert match.status == "processing"
     rollback.assert_called_once()
-    commit.assert_called_once()
+    commit.assert_not_called()
 
 
 def test_non_null_etag_mismatch_fails_worker_verification():

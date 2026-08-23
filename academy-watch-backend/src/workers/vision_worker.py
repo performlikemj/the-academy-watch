@@ -38,7 +38,6 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -129,7 +128,7 @@ def process_job(app, job_id: str) -> bool:
     from src.models.league import db
     from src.models.video import VideoAnalysisJob, VideoMatch
     from src.services.video_identity import complete_job_with_artifacts
-    from src.services.video_queue import JobFenced, heartbeat
+    from src.services.video_queue import JobFenced, fail_running_job, heartbeat
     from src.services.video_storage import verify_expected_blob
 
     job = db.session.get(VideoAnalysisJob, job_id)
@@ -188,17 +187,10 @@ def process_job(app, job_id: str) -> bool:
     except Exception as e:
         log.exception("job %s failed", job_id)
         db.session.rollback()
-        job = db.session.get(VideoAnalysisJob, job_id)
-        if job.status != "running":
-            log.warning("job %s already moved to %s by someone else; not overwriting", job_id, job.status)
-            return False
-        job.status = "failed"
-        job.error = str(e)[:2000]
-        job.gpu_seconds = round(time.monotonic() - t0, 1)
-        job.completed_at = datetime.now(UTC)
-        match = db.session.get(VideoMatch, job.video_match_id)
-        match.status = "failed"
-        db.session.commit()
+        # Compare-and-swap in the queue service: only a job that is STILL running flips (a reaper/requeue may own it
+        # by now), and its match moves to failed only if no other job is live for it.
+        if not fail_running_job(job_id, error=str(e), gpu_seconds=round(time.monotonic() - t0, 1)):
+            log.warning("job %s was no longer running; someone else owns it — nothing overwritten", job_id)
         return False
 
 
