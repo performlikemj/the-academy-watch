@@ -118,7 +118,7 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 
 - A6c f396991, A10b 46c6c3f, A10 6ff3693 cherry-picked onto `feat/p0-contact-rail-ui` (pr3-update.sh: replies on the three codex threads + `@codex review`); C-chain resumed with C3.
 
-### 2026-08-23 07:40Z — codex round 2 on #889 → P0-A11
+### 2026-08-23 07:13Z — codex round 2 on #889 → P0-A11
 
 - Round 2 (on 0adb2b4): P1 stale thread loads overwrite the current thread; P1 `introduce-dialog.test.mjs` still asserted the pre-flag condition (A10's gate ran only its own named tests — lesson: run ALL lane tests before a PR snapshot; `pnpm test` = node --test over tests/ but main has legacy red files, so use the lane list); P2 consent controls on closed requests; P2 request lists capped at 100. All four in P0-A11 (eight shipped files; proven: 37 lane tests + eslint + build). Runs after C3, then cherry-pick onto PR-3, reply, re-review.
 
