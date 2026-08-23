@@ -10,6 +10,11 @@ Commands that look like `bash briefs/assets/P0-B2b/step-N.sh` are the brief's ow
 Run them EXACTLY like that, from the worktree root. Never open, copy out, or retype their contents — they print the
 markers the steps describe. If one prints `…-BLOCKED`, STOP and say BLOCKED with the line.
 
+**Do NOT inspect the step scripts and do NOT re-check their anchors yourself.** No `cat`/`read`/`od`/python on
+`step-N.sh`, no grep of your own for the lines they target: a retyped grep loses spaces and WILL disagree with the
+script — the script is right, your retype is wrong, every time. If a script prints its marker (`X=<n>`, `…-INSERTED`,
+`…-REPLACED`), the step is done; move to the next. Investigating anchors is the one thing that burns your whole budget.
+
 ## The situation
 
 PR review (codex, P1) on P0-B2: the match LIST route returns summary rows without `roster`. The console stored those
