@@ -23,7 +23,7 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-D1b | `briefs/P0-D1b.md` | Maintenance job runs the retention sweep. Depends on P0-C4 + P0-D1a. | done (ce302cb) |
 | P0-D2 | `briefs/P0-D2.md` | Footage redirect uses a 30-min media read SAS + `Cache-Control: private, no-store`. | done (8307865) |
 | P0-D3 | `briefs/P0-D3.md` | Footage SAS ≤ token remaining life; sweeper keeps blob rows when storage unconfigured; preflight not swept (codex on PR #890). 3 step scripts + 3 shipped files. | done (2ffed49) |
-| P0-D4 | `briefs/P0-D4.md` | Reaped jobs move their match processing→failed; sweeper re-checks under lock before delete (codex round 2 on PR #890). 1 step script + 3 shipped files. | in-progress |
+| P0-D4 | `briefs/P0-D4.md` | Reaped jobs move their match processing→failed; sweeper re-checks under lock before delete (codex round 2 on PR #890). 1 step script + 3 shipped files. | done (5fe2124) |
 | P0-A3 | `briefs/P0-A3.md` | Public club-consent page `/contact/club-consent/:token` (+ pure copy helper). Depends on P0-A2. | done 08-23 (aedad98) |
 | P0-A5 | `briefs/P0-A5.md` | Scout verification page `/scout/verification` (status + apply form). Depends on P0-A2. | done (4244034) |
 | P0-A4 | `briefs/P0-A4.md` | "Introduce" action on the Scout Desk + `IntroduceDialog` (server codes mapped). Depends on P0-A0, P0-A2. | done (2d518d0) |
