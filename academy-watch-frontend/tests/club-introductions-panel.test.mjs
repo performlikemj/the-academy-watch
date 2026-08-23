@@ -11,7 +11,7 @@ test('the panel lists the club box, decides consent through APIService, and moun
   assert.ok(src.includes('APIService.setClubConsent(request.id, { action })'))
   assert.ok(src.includes("decide(request, 'grant')"))
   assert.ok(src.includes("decide(request, 'decline')"))
-  assert.ok(src.includes('<ContactThread request={selected} onRequestChange={applyUpdate} />'))
+  assert.ok(src.includes('<ContactThread request={selected} onRequestChange={applyUpdate} canReportOutcome={false} />'))
   assert.ok(src.includes('data-testid="club-introductions-panel"'))
 })
 
@@ -21,4 +21,9 @@ test('the club console gains an Introductions tab wired to the panel', async () 
   assert.ok(src.includes('<TabsTrigger value="introductions" className="py-2"><Send className="h-4 w-4" /> Introductions</TabsTrigger>'))
   assert.ok(src.includes('<TabsContent value="introductions"><ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /></TabsContent>'))
   assert.ok(src.includes("'sm:grid-cols-5 lg:min-w-[55rem]' : 'sm:grid-cols-4 lg:min-w-[44rem]'"))
+})
+
+test('the club panel mounts the thread without the outcome form (clubs cannot report outcomes)', async () => {
+  const src = await fs.readFile(panelFile, 'utf8')
+  assert.ok(src.includes('<ContactThread request={selected} onRequestChange={applyUpdate} canReportOutcome={false} />'))
 })

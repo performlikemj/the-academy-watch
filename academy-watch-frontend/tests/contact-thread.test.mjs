@@ -32,8 +32,18 @@ test('participantName, canSendMessage and outcome labels', () => {
 
 test('the component talks to the three thread endpoints through APIService', async () => {
   const src = await fs.readFile(componentFile, 'utf8')
-  assert.ok(src.includes('APIService.getContactMessages(requestId)'))
+  assert.ok(src.includes('APIService.getContactMessages(requestId, { limit: PAGE, offset })'))
   assert.ok(src.includes('APIService.sendContactMessage(requestId, draft.trim())'))
   assert.ok(src.includes('APIService.reportContactOutcome(requestId, { stage, notes: notes.trim() || null })'))
   assert.ok(src.includes('data-testid="contact-thread"'))
+})
+
+test('the thread pages through every message and hides the outcome form when the viewer cannot report', async () => {
+  const src = await fs.readFile(componentFile, 'utf8')
+  assert.ok(src.includes('export function ContactThread({ request, onRequestChange, canReportOutcome = true })'), 'canReportOutcome prop, default on')
+  assert.ok(src.includes('APIService.getContactMessages(requestId, { limit: PAGE, offset })'), 'messages are fetched page by page')
+  assert.ok(src.includes('if (more.length < PAGE) break'), 'fetching stops at the first short page')
+  const guard = src.indexOf('{canReportOutcome ? (')
+  const form = src.indexOf('Record the outcome')
+  assert.ok(guard !== -1 && form !== -1 && guard < form, 'the outcome form renders only behind the canReportOutcome guard')
 })

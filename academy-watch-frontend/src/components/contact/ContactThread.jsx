@@ -14,7 +14,9 @@ function formatWhen(value) {
   return date.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
 }
 
-export function ContactThread({ request, onRequestChange }) {
+const PAGE = 100
+
+export function ContactThread({ request, onRequestChange, canReportOutcome = true }) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -36,9 +38,19 @@ export function ContactThread({ request, onRequestChange }) {
     setLoading(true)
     setError(null)
     try {
-      const res = await APIService.getContactMessages(requestId)
-      setMessages(Array.isArray(res?.messages) ? res.messages : [])
-      if (res?.contact_request && onRequestChange) onRequestChange(res.contact_request)
+      // The API pages oldest-first (limit/offset). Keep fetching until a short page comes back, so a long thread
+      // still shows its newest messages instead of stopping at the first page.
+      let rows = []
+      let offset = 0
+      for (let page = 0; page < 50; page += 1) {
+        const res = await APIService.getContactMessages(requestId, { limit: PAGE, offset })
+        const more = Array.isArray(res?.messages) ? res.messages : []
+        rows = rows.concat(more)
+        if (page === 0 && res?.contact_request && onRequestChange) onRequestChange(res.contact_request)
+        if (more.length < PAGE) break
+        offset += more.length
+      }
+      setMessages(rows)
     } catch (err) {
       setError(err?.body?.error || err?.message || 'Messages could not be loaded.')
     } finally {
@@ -129,6 +141,7 @@ export function ContactThread({ request, onRequestChange }) {
           </div>
           {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
+          {canReportOutcome ? (
           <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
             <p className="text-sm font-semibold text-foreground">Record the outcome</p>
             <div className="flex flex-wrap items-center gap-2">
@@ -145,6 +158,7 @@ export function ContactThread({ request, onRequestChange }) {
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value.slice(0, OUTCOME_NOTES_MAX))} rows={2} maxLength={OUTCOME_NOTES_MAX} placeholder="Notes (optional)" aria-label="Outcome notes" />
             {outcomeError ? <p className="text-sm text-rose-600">{outcomeError}</p> : null}
           </div>
+          ) : null}
         </div>
       ) : null}
     </div>

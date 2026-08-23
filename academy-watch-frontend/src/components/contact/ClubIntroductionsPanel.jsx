@@ -106,7 +106,7 @@ export function ClubIntroductionsPanel({ programId, onAccessDenied }) {
       </div>
       <Card>
         <CardContent className="pt-6">
-          <ContactThread request={selected} onRequestChange={applyUpdate} />
+          <ContactThread request={selected} onRequestChange={applyUpdate} canReportOutcome={false} />
         </CardContent>
       </Card>
     </div>
