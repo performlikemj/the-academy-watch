@@ -238,7 +238,7 @@ def load_club_consent_token(token: str) -> dict | None:
 
 def club_consent_action_links(contact_request_id: str) -> dict[str, str]:
     base = (os.getenv("PUBLIC_BASE_URL") or "https://theacademywatch.com").strip().rstrip("/")
-    path = "/api/contact/club-consent/"
+    path = "/contact/club-consent/"
     return {
         action: f"{base}{path}{issue_club_consent_token(contact_request_id, action)}" for action in ("grant", "decline")
     }

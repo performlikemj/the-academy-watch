@@ -2747,7 +2747,8 @@ class TestPublicClubConsentLinks:
         assert len(sends) == 1
         assert sends[0]["to"] == [manager.email]
         assert sends[0]["tags"] == ["club-consent-request"]
-        assert sends[0]["text"].count("https://contact-test.example/api/contact/club-consent/") == 2
+        assert sends[0]["text"].count("https://contact-test.example/contact/club-consent/") == 2
+        assert "/api/contact/club-consent/" not in sends[0]["text"]
         return request_id, scout_headers, player_headers
 
     def test_happy_grant_is_single_use_and_messaging_waits_for_grant(self, client, monkeypatch):
