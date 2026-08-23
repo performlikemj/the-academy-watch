@@ -128,7 +128,7 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 
 ### 2026-08-23 08:39Z — PR-3 merged; lane rebased (with a lesson)
 
-- PR #889 squash-merged → main `9289e8a` (A-group + A6c/A10b/A10/A11/A11b/A11c). Round-5 P2 (per-box action sequencing) → P0-A11d, for PR-4.
+- PR #889 squash-merged → main `9289e8a` (A-group + A6c/A10b/A10/A11/A11b/A11c). Deploy 32628689908 = success. Live smoke: `GET /api/features` → `{"contact_rail":true}` ✓; `/introductions` 200 ✓; bundle `index-xBCYGbCN.js` has '/features', 'No longer needed', 'Introductions aren', 'canReportOutcome' ✓; signed-out /introductions renders the Sign-in card (Playwright) ✓. Round-5 P2 (per-box action sequencing) → P0-A11d, for PR-4.
 - Rebase `--onto origin/main e5cf24d` CONFLICTED: six lane commits were cherry-picked into the PR and then squashed; when several of them edit the same lines, replaying the earlier ones onto main (which holds the later state) conflicts. Fix: skip those already-merged commits (`lane-rebase.sh` now takes `MERGED="sha …"` and stops on any other conflict — the old `| tail` masked the failure and the script sailed on). Result verified: lane = main + backend-only commits (C2, C3, C4, D1a, D1b) + docs.
 
 ## Run log
