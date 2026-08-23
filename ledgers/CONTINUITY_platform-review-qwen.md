@@ -90,7 +90,9 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 | qwen-SMOKE-20260822T2230 | SMOKE | pipe proven; budget-stopped (900 s) before handback | file byte-exact; gate event green in telemetry | 155K input / 3K output tokens over 13 tool calls — prefill-bound (~35 s/step); real briefs need ≥60 min |
 | qwen-P0-C1-20260822T2246 | P0-C1 | DONE — gate green twice (red→green), handback filed, runner post-gate green (153 s) | diff byte-exact to brief; commit `84369d1` | 44 min wall; ~30 min between test write and App.jsx edit (reading the 4,300-line file); no nudge fired |
 | qwen-P0-A1-20260822T2330 | P0-A1 | DONE — gate red→green (test-first), handback filed, runner post-gate green | diff exactly as briefed (1 line + 2 asserts); commit `e54a750` | 34 min wall; in-sandbox gate 88–135 s and runner post-gate 370 s (vs 12 s in the proof) because the LAPTOP was at load avg ~47 — nine codex runs + two opencode processes from other sessions; not a lane defect |
-| qwen-P0-A2-20260823T0002 | P0-A2 | running | — | api.js contact-rail methods |
+| qwen-P0-A2-20260823T0002 | P0-A2 (brief v1) | BUDGET-STOPPED at 3605 s, 2 nudges, test file written only in the last minutes | test file REJECTED: qwen retyped the brace pattern as `'\n     }\n'` (5 spaces) → every assertion would pass vacuously; deleted | ROOT CAUSE found in the transcript: 1,337 reasoning chunks vs 35 text chunks — qwen3.8 ignores ` /no_think`; 97% of output was hidden thinking at ~5 tok/s |
+| qwen-PROBE-20260823T0106 | boot smoke | PONG in 1 step, 2 output tokens, ZERO reasoning chunks | config change verified by BOOTING (harness rule) | proves `reasoning_effort: "none"` via the patched forge route |
+| qwen-P0-A2-20260823T0111 | P0-A2 (brief v2: zero-discovery, two half-size pastes) | running | — | first run with thinking off at the wire |
 
 ## Executor performance notes (measured)
 
@@ -104,6 +106,21 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
   (`OLLAMA_MAX_LOADED_MODELS=1`) — his family-server call, not mine.
 - Brief hygiene that pays: verbatim old/new blocks, exact line ranges to read (`sed -n 'a,bp'`), never
   "read the file"; big files (App.jsx 4,300 lines) cost ~30 min of re-reading in C1.
+- **RESOLVED 2026-08-23 01:06Z — the slowness was THINKING, not the box.** Idle probe with gemma
+  unloaded: 45.8 tok/s generation. Transcript of the stalled A2 run: 1,337 reasoning chunks vs 35 text
+  chunks — qwen3.8 ignores the ` /no_think` prompt switch on ollama's /v1 route. Probes on basecamp:
+  `/v1/chat/completions` baseline = 46 completion tokens + `reasoning` field; with
+  `reasoning_effort: "none"` = 2 tokens, no reasoning, 0.5 s; raw `think: false` on /v1 is ignored;
+  `/api/chat think:false` works (control). FIX (harness `adapters/dsh/qwen-forge.patch.yml`, backup
+  `.bak-20260823`): provider `reasoning: "off"`, `compat.supportsReasoningEffort: true`, model
+  `reasoningEfforts: {"off": none, low: low, high: high}`. Verified by BOOTING (PROBE session: zero
+  reasoning chunks). Expect tasks to drop from ~40 min to ~10 min.
+- 2026-08-23 00:20Z MJ ("horses for courses"): gemma4 UNLOADED from basecamp for lane hours
+  (`keep_alive: 0`; reloads on the next family request, ~15 s). Before: qwen 63 GiB + gemma 48 GiB =
+  111 GiB resident on 128 GB (GPU wired cap ~96 GiB) → paging hypothesis. Idle-speed probe runs in the gap
+  before P0-A3; if it reads ~15–17 tok/s the harness directive's "MAX_LOADED_MODELS=2 — qwen + one more
+  fit" needs the footnote "fits at boot, not at 262K context". Re-load gemma after the lane if wanted:
+  any request to `gemma4:26b-a4b-it-bf16`.
 
 ## Open questions (UNCONFIRMED)
 

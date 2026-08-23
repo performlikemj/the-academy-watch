@@ -45,6 +45,17 @@ Facts about this repo's tests, so you do not rediscover them:
 - `ruff format --check` is a separate gate from `ruff check`. If it says "would reformat", run
   `ruff format <that file>` on a file YOU edited, then gate again. Line length is 120.
 
+## Reading files — the rule that saves your budget
+
+- **Never print a whole file.** The big ones (`App.jsx` 4,300 lines, `api.js` 3,000 lines) are
+  truncated and you lose your place; you will re-read them for half an hour and write nothing.
+- Use line ranges: `sed -n '1640,1650p' <file>`, or `grep -n "<exact text>" <file>`. Your brief
+  tells you the lines and the exact text — read ONLY those.
+- Act early. A brief that says "write the test FIRST" means your FIRST tool call creates that file.
+  Thinking longer does not make the file appear. Write, run the gate, read the error, fix.
+- Keep each tool call small: one file write or one edit per call. Big pastes are split in the brief —
+  follow the split.
+
 ## How to write code here
 
 1. Write or extend the test the brief names. Run the gate. See it RED. Good — the test works.
