@@ -1,0 +1,2 @@
+FRONTEND_TESTS="tests/club-console-match-list.test.mjs"
+FRONTEND_BUILD=1

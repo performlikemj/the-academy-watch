@@ -1,0 +1,2 @@
+FRONTEND_TESTS="tests/introduce-dialog.test.mjs"
+FRONTEND_BUILD=1
