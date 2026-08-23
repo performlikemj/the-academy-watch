@@ -122,6 +122,10 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 
 - Round 2 (on 0adb2b4): P1 stale thread loads overwrite the current thread; P1 `introduce-dialog.test.mjs` still asserted the pre-flag condition (A10's gate ran only its own named tests — lesson: run ALL lane tests before a PR snapshot; `pnpm test` = node --test over tests/ but main has legacy red files, so use the lane list); P2 consent controls on closed requests; P2 request lists capped at 100. All four in P0-A11 (eight shipped files; proven: 37 lane tests + eslint + build). Runs after C3, then cherry-pick onto PR-3, reply, re-review.
 
+### 2026-08-23 08:20Z — codex rounds 3–4 on #889
+
+- Round 3 (P1 stale send → A11b 78c0a87) and round 4 (P2 dialog epoch + P2 box load race → A11c) — each a whole-file brief, proven (tests + eslint + build) before dispatch. Decision: merge PR-3 once A11c is on it even if a further P2-only round appears (diminishing returns; P1s would still block).
+
 ## Run log
 
 | Session | Task | Result | Verified by Fable | Notes |
@@ -156,7 +160,8 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 | qwen-P0-C4-20260823T0733 | P0-C4 (run_video_maintenance job) | KILLED by Fable at 07:45Z (12 min): the new test imports src.main; qwen's sandbox inherits API_USE_STUB_DATA=false from my shell (key not passed through) → app init raised; qwen diagnosed instead of re-running — gate fixed (lane-gate.sh forces API_USE_STUB_DATA=true SKIP_API_HANDSHAKE=1 for pytest, 1602ac8) | — | |
 | qwen-P0-C4-20260823T0745 | P0-C4 relaunch | completed, gate green, 0 nudges, ~12 min | 3f0957c | 2 new files identical to assets |
 | qwen-P0-A11b-20260823T0757 | P0-A11b (stale send guard; 2 shipped files) | completed, gate green, 0 nudges, ~15 min | 78c0a87 | 2 files identical; all 38 lane frontend tests green; cherry-picked onto PR-3 |
-| qwen-P0-D1a-20260823T0812 | P0-D1a (video_retention service + delete_blob; 3 step scripts + 2 new files) | running | — | |
+| qwen-P0-D1a-20260823T0812 | P0-D1a (video_retention service + delete_blob append; 2 new files) | completed, gate green, 0 nudges, ~8 min | 8e8e435 | new files identical; delete_blob appended exactly once at end (finish check) |
+| qwen-P0-A11c-<see wrapper> | P0-A11c (dialog epoch + page load sequence; 4 shipped files) | running | — | |
 | — | **PR-1 #887** `feat/p0-contact-foundation` (snapshot of lane HEAD c4b98af: tooling + C1 + A1 + A2 + A3) | OPEN 02:31Z; lane full gate green (26 s) before push | CI watch in progress; read codex-connector reviews before merging (MJ 2026-08-11 rule) | https://github.com/performlikemj/the-academy-watch/pull/887 |
 | qwen-P0-A2-20260823T0118 (v3, earlier note) | — | test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | — | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now | — test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | pending | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now |
 
