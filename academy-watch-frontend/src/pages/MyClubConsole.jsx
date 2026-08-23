@@ -51,7 +51,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 
 const MAX_TIMELINE_SECONDS = 21600
-const MATCH_INDEX_VERSION = 'v1'
 const EDITABLE_MATCH_STATUSES = new Set(['created', 'uploaded'])
 const MATCH_STATUS = {
   created: { label: 'Awaiting upload', className: 'border-sky-200 bg-sky-50 text-sky-800' },
@@ -106,29 +105,6 @@ function formatSeconds(value) {
   const seconds = Math.round(Number(value))
   const minutes = Math.floor(seconds / 60)
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
-}
-
-function matchIndexKey(programId) {
-  return `club-console:matches:${MATCH_INDEX_VERSION}:${programId}`
-}
-
-function loadMatchIds(programId) {
-  try {
-    const value = JSON.parse(localStorage.getItem(matchIndexKey(programId)) || '[]')
-    if (!Array.isArray(value)) return []
-    return [...new Set(value.filter((id) => Number.isInteger(id) && id > 0))].slice(0, 100)
-  } catch {
-    return []
-  }
-}
-
-function saveMatchIds(programId, ids) {
-  try {
-    localStorage.setItem(matchIndexKey(programId), JSON.stringify([...new Set(ids)].slice(0, 100)))
-  } catch {
-    // The console remains usable when storage is disabled; the local match index
-    // simply cannot survive a reload because C2 exposes no list endpoint.
-  }
 }
 
 function isSasFresh(grant) {
@@ -948,8 +924,6 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
     const { upload: grant, ...match } = response
     upsertMatch({ ...match, roster: [], processing_request_status: null })
     if (grant) onUploadGrantChange(match.id, grant)
-    const ids = [match.id, ...loadMatchIds(programId).filter((id) => id !== match.id)]
-    saveMatchIds(programId, ids)
     setSelectedId(match.id)
   }
 
@@ -987,7 +961,7 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
       ) : error && loadFailureCount === 0 ? (
         <Card><CardContent className="space-y-3 py-10 text-center"><InlineError>{error}</InlineError><Button variant="outline" onClick={onReload}><RefreshCw className="mr-1.5 h-4 w-4" /> Try again</Button></CardContent></Card>
       ) : matches.length === 0 && loadFailureCount === 0 ? (
-        <EmptyState icon={Film} title="No matches in this browser yet">Create the first match workspace. Until a backend list endpoint exists, this browser remembers the match IDs it creates.</EmptyState>
+        <EmptyState icon={Film} title="No matches yet">Create the first match workspace. Your club's matches are saved to your account and follow you to any device.</EmptyState>
       ) : matches.length > 0 ? (
         <div className="grid items-start gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
           <div className="space-y-2 lg:sticky lg:top-20">
@@ -1101,29 +1075,22 @@ export function MyClubConsole({
     setMatchesLoading(true)
     setMatchesError(null)
     setMatchesLoadFailureCount(0)
-    const ids = loadMatchIds(programId)
-    if (ids.length === 0) {
+    try {
+      const response = await APIService.listClubMatches(programId)
+      if (!mountedRef.current) return
+      setMatches(Array.isArray(response?.matches) ? response.matches : [])
+    } catch (error) {
+      if (!mountedRef.current) return
+      if (error?.status === 403) {
+        onAccessDenied()
+        return
+      }
       setMatches([])
-      setMatchesLoading(false)
-      return
+      setMatchesLoadFailureCount(1)
+      setMatchesError(errorText(error, 'Matches could not be loaded. Try again.'))
+    } finally {
+      if (mountedRef.current) setMatchesLoading(false)
     }
-    const results = await Promise.allSettled(ids.map((id) => APIService.getClubMatch(programId, id)))
-    if (!mountedRef.current) return
-    const denied = results.some((result) => result.status === 'rejected' && result.reason?.status === 403)
-    if (denied) {
-      onAccessDenied()
-      return
-    }
-    const loaded = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
-    const retainedIds = results.flatMap((result, index) => result.status === 'fulfilled' || result.reason?.status !== 404 ? [ids[index]] : [])
-    const failureCount = results.filter((result) => result.status === 'rejected' && result.reason?.status !== 404).length
-    saveMatchIds(programId, retainedIds)
-    setMatches(loaded)
-    setMatchesLoadFailureCount(failureCount)
-    if (loaded.length === 0 && results.some((result) => result.status === 'rejected' && result.reason?.status !== 404)) {
-      setMatchesError('Saved match details could not be loaded. Try again.')
-    }
-    setMatchesLoading(false)
   }, [onAccessDenied, programId])
 
   useEffect(() => {
