@@ -152,6 +152,10 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 
 - Codex round 4 on #890: P1 zombie worker after reap (heartbeat/completion ignored status; no heartbeat during long pipelines); P2 upload-complete without the row lock. Both in P0-D6 (proven 60/60). PR-4 fast-forwarded; replies + re-review. Policy stands: a further P2-only round → merge.
 
+### 2026-08-23 10:21Z — PR-4 round 5 → D7
+
+- Codex round 5 on #890: P1 matches stay `queued` during the run so the reaper's processing-only move was a no-op; P2 worker failure path read-then-write. Both in P0-D7 (proven 33/33). PR-4 fast-forwarded; replies + re-review.
+
 ## Run log
 
 | Session | Task | Result | Verified by Fable | Notes |
@@ -195,6 +199,7 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 | qwen-P0-D4-20260823T0934 | P0-D4 (reaper moves matches to failed; sweeper re-checks under lock; 1 step script + 3 shipped files) | completed, gate green, 0 nudges, ~5 min (first launch T0933 killed by Fable within a minute: a test asset shipped with a stale dict — my proof had swallowed pytest's exit code via a pipe, and the re-proof copied stale committed assets; both harness slips fixed: pipefail + fresh copy) | 5fe2124 | video_queue.py rederive IDENTICAL; 3 shipped files identical; 17 video tests green |
 | qwen-P0-D5-20260823T0949 | P0-D5 (abandoned uploads by age; /process+/requeue FOR UPDATE; reaper CAS RETURNING; 2 step scripts + 2 shipped files) | completed, gate green, 0 nudges, ~4 min | 81752c8 | video_queue.py + video.py rederive IDENTICAL; shipped files identical; 47 tests green in proof |
 | qwen-P0-D6-20260823T1003 | P0-D6 (worker fence + keepalive, completion guard, upload-complete locks; 3 step scripts + 2 shipped files) | completed, gate green, 0 nudges, ~3 min | 26b42e1 | 4 modified files rederive IDENTICAL; shipped files identical; 60 tests green in proof |
+| qwen-P0-D7-20260823T1015 | P0-D7 (queued-aware reaper + fail_running_job CAS; 1 step script + 3 shipped files) | completed, gate green, 0 nudges, ~5 min | 93db06c | video_queue.py rederive IDENTICAL; shipped files identical; 33 tests green in proof |
 | — | **PR-1 #887** `feat/p0-contact-foundation` (snapshot of lane HEAD c4b98af: tooling + C1 + A1 + A2 + A3) | OPEN 02:31Z; lane full gate green (26 s) before push | CI watch in progress; read codex-connector reviews before merging (MJ 2026-08-11 rule) | https://github.com/performlikemj/the-academy-watch/pull/887 |
 | qwen-P0-A2-20260823T0118 (v3, earlier note) | — | test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | — | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now | — test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | pending | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now |
 
