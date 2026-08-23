@@ -120,3 +120,11 @@ A bad answer is saying you finished when the gate is red.
    ```
 
    The file is the deliverable; the sentinel is only the receipt.
+
+## Shipped step scripts (`bash briefs/assets/<TASK>/step-N.sh`)
+
+Many briefs ship their placement commands as script files. When a brief says `bash briefs/assets/<TASK>/step-N.sh`,
+run exactly that line from the worktree root. Never open the script, never copy its contents out, never retype or
+"fix" it — retyped commands lose spaces and then cannot find their lines (this is exactly what blocked P0-B2). The
+script prints the markers the brief describes (`X=<n>`, `…-INSERTED`, `…-REPLACED`); an empty `X=` or a `BLOCKED`
+line means STOP and say BLOCKED with that line pasted.
