@@ -15,9 +15,7 @@ def test_table_columns_is_memoized_per_request_only(monkeypatch):
     )
     db.init_app(app)
     with app.app_context():
-        db.session.execute(
-            text("CREATE TABLE probe_table (id INTEGER PRIMARY KEY, name VARCHAR(40))")
-        )
+        db.session.execute(text("CREATE TABLE probe_table (id INTEGER PRIMARY KEY, name VARCHAR(40))"))
         calls = []
         real = club_registry._introspect_table_columns
 
