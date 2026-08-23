@@ -55,6 +55,9 @@ Facts about this repo's tests, so you do not rediscover them:
   Thinking longer does not make the file appear. Write, run the gate, read the error, fix.
 - Keep each tool call small: one file write or one edit per call. Big pastes are split in the brief —
   follow the split.
+- When a brief ships a file under `briefs/assets/<TASK>/`, you COPY it with the exact `cp` command the
+  brief gives. Never retype a shipped file — retyping changes whitespace inside strings and silently
+  breaks tests. Your skill is the EDITS inside existing files; shipped files are not a test of typing.
 
 ## How to write code here
 
