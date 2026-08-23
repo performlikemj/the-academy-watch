@@ -104,6 +104,7 @@ import { GolPanel } from '@/components/gol/GolPanel'
 import { ClaimAccount } from '@/pages/ClaimAccount'
 import { IntroductionsPage } from '@/pages/IntroductionsPage'
 import { ScoutVerificationPage } from '@/pages/ScoutVerificationPage'
+import { useContactRail } from '@/hooks/useContactRail.js'
 import { ClubConsentPage } from '@/pages/ClubConsentPage'
 import { SubmitTake } from '@/pages/SubmitTake'
 import { FlagData } from '@/pages/FlagData'
@@ -560,6 +561,7 @@ function Navigation() {
   const location = useLocation()
   const isMobile = useIsMobile()
   const { token, isAdmin, hasApiKey, isJournalist, isCurator } = useAuth()
+  const contactRail = useContactRail()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const { open: openSearch } = useGlobalSearchContext()
 
@@ -585,14 +587,14 @@ function Navigation() {
     if (token) {
       // The retention surface: logged-in scouts jump straight to their lists.
       items.push({ path: '/scout/lists', label: 'Lists', icon: ListChecks })
-      items.push({ path: '/introductions', label: 'Introductions', icon: Send })
+      if (contactRail === true) items.push({ path: '/introductions', label: 'Introductions', icon: Send })
       items.push({ path: '/settings', label: 'Settings', icon: UserCog })
     }
     if (adminUnlocked) {
       items.push({ path: '/admin', label: 'Admin', icon: Settings })
     }
     return items
-  }, [adminUnlocked, isJournalist, isCurator, token])
+  }, [adminUnlocked, contactRail, isJournalist, isCurator, token])
 
   const linkClasses = (isActive) => (
     `inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors sm:px-3 whitespace-nowrap no-underline hover:no-underline ` +

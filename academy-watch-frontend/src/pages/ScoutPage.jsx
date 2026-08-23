@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { SeasonSelect } from '@/components/ui/SeasonSelect'
 import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
+import { useContactRail } from '@/hooks/useContactRail.js'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import {
@@ -511,6 +512,7 @@ export function ScoutPage() {
   const searchTimer = useRef(null)
 
   const auth = useAuth()
+  const contactRail = useContactRail()
   const { openLoginModal } = useAuthUI()
   const [introducePlayer, setIntroducePlayer] = useState(null)
   const [watchedIds, setWatchedIds] = useState(null)
@@ -791,12 +793,14 @@ export function ScoutPage() {
                 Lists
               </Link>
             </Button>
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/introductions" className="no-underline hover:no-underline">
-                <Send className="mr-1.5 h-4 w-4" />
-                Introductions
-              </Link>
-            </Button>
+            {contactRail === true ? (
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/introductions" className="no-underline hover:no-underline">
+                  <Send className="mr-1.5 h-4 w-4" />
+                  Introductions
+                </Link>
+              </Button>
+            ) : null}
             <Button variant="ghost" size="sm" asChild>
               <Link to="/scout/verification" className="no-underline hover:no-underline">
                 <ShieldCheck className="mr-1.5 h-4 w-4" />
@@ -979,7 +983,7 @@ export function ScoutPage() {
                           >
                             <Star className={`h-4 w-4 transition-colors ${watched ? 'fill-amber-400 text-amber-500' : 'text-muted-foreground/50 hover:text-muted-foreground'}`} />
                           </button>
-                          {player.contactable ? (
+                          {contactRail === true && player.contactable ? (
                             <button
                               type="button"
                               onClick={() => (auth?.token ? setIntroducePlayer(player) : openLoginModal())}

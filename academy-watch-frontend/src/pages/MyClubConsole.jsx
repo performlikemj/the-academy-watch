@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { ClubIntroductionsPanel } from '@/components/contact/ClubIntroductionsPanel'
+import { useContactRail } from '@/hooks/useContactRail.js'
 import { formatDateOnly } from '@/lib/dateOnly'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -1070,6 +1071,7 @@ export function MyClubConsole({
 }) {
   const program = programClaim.program
   const programId = program.id
+  const contactRail = useContactRail()
   const [members, setMembers] = useState(() => (Array.isArray(initialRoster?.members) ? initialRoster.members : []))
   const [rosterLoading, setRosterLoading] = useState(false)
   const [rosterError, setRosterError] = useState(null)
@@ -1183,7 +1185,7 @@ export function MyClubConsole({
             <TabsTrigger value="roster" className="py-2"><Users className="h-4 w-4" /> Roster</TabsTrigger>
             <TabsTrigger value="matches" className="py-2"><Film className="h-4 w-4" /> Matches &amp; reports</TabsTrigger>
             <TabsTrigger value="profile" className="py-2"><ShieldCheck className="h-4 w-4" /> Club profile</TabsTrigger>
-            <TabsTrigger value="introductions" className="py-2"><Send className="h-4 w-4" /> Introductions</TabsTrigger>
+            {contactRail === true ? <TabsTrigger value="introductions" className="py-2"><Send className="h-4 w-4" /> Introductions</TabsTrigger> : null}
             {moderationContent ? (
               <TabsTrigger value="affiliations" className="py-2">
                 <Check className="h-4 w-4" /> Affiliations &amp; vouches
@@ -1198,7 +1200,7 @@ export function MyClubConsole({
             <MatchesPanel programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
           </TabsContent>
           <TabsContent value="profile"><ClubProfile program={program} claim={programClaim} /></TabsContent>
-          <TabsContent value="introductions"><ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /></TabsContent>
+          {contactRail === true ? <TabsContent value="introductions"><ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /></TabsContent> : null}
           {moderationContent ? <TabsContent value="affiliations">{moderationContent}</TabsContent> : null}
         </Tabs>
 

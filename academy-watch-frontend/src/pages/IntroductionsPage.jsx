@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Loader2, Inbox, Send } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
+import { useContactRail } from '@/hooks/useContactRail.js'
 import { ContactThread } from '@/components/contact/ContactThread'
 import { statusLabel, counterpartName, canWithdraw, canRespond, previewText, upsertRequest } from '@/lib/introductions'
 
@@ -65,6 +66,7 @@ function RequestList({ box, requests, loading, error, selectedId, onSelect, onAc
 
 export function IntroductionsPage() {
   const auth = useAuth()
+  const contactRail = useContactRail()
   const { openLoginModal } = useAuthUI()
   const [box, setBox] = useState('sent')
   const [requests, setRequests] = useState({ sent: [], inbox: [] })
@@ -118,6 +120,17 @@ export function IntroductionsPage() {
 
   const list = requests[box] || []
   const selected = list.find((r) => r.id === selectedId) || null
+
+  if (contactRail === false) {
+    return (
+      <div className="min-h-screen bg-background p-4">
+        <Card className="mx-auto w-full max-w-md">
+          <CardHeader><CardTitle>Introductions</CardTitle><CardDescription>Introductions aren&apos;t available right now. Please check back later.</CardDescription></CardHeader>
+          <CardContent><Button asChild variant="outline"><Link to="/">Return to Home</Link></Button></CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   if (!auth?.token) {
     return (

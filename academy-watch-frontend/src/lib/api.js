@@ -206,6 +206,10 @@ export class APIService {
         this.setDisplayNameConfirmed(false, { silent: true })
     }
 
+    static async getFeatures() {
+        return this.request('/features')
+    }
+
     static async getProfile() {
         const res = await this.request('/auth/me')
         if (typeof res?.display_name_confirmed !== 'undefined') {
