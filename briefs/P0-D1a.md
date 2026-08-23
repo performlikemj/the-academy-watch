@@ -21,24 +21,17 @@ only after the blob is confirmed gone. When blob storage is not configured (dev/
 
 ## The job
 
-### 1. `academy-watch-backend/src/services/video_storage.py` — add `delete_blob`
+### 1. `academy-watch-backend/src/services/video_storage.py` — append `delete_blob` (one command; no typing)
 
-Append this function at the END of the file (after `verify_expected_blob`). It copies the shape of
-`verify_uploaded_blob` (client → blob → call → broad except that logs and returns a value):
+The function is shipped (it copies the shape of `verify_uploaded_blob`: client → blob → call → broad except
+that logs and returns a value). Append it at the END of the file:
 
-```python
-def delete_blob(blob_path: str) -> bool:
-    """Delete one raw-footage blob. True when it is gone afterwards (deleted now, or already absent)."""
-    try:
-        blob = _service_client().get_blob_client(_container(), blob_path)
-        blob.delete_blob()
-        return True
-    except Exception as e:  # auth, network — all mean "not gone"; a 404 means it was already gone
-        if getattr(e, "status_code", None) == 404:
-            return True
-        logger.warning("video blob delete failed for %s: %s", blob_path, e)
-        return False
+```bash
+cat briefs/assets/P0-D1a/delete_blob.py >> academy-watch-backend/src/services/video_storage.py && echo DELETE-BLOB-APPENDED
 ```
+
+Confirm, read-only: `grep -c "^def delete_blob" academy-watch-backend/src/services/video_storage.py` → `1`
+(`2` means you ran it twice — STOP, BLOCKED).
 
 ### 2. Create `academy-watch-backend/src/services/video_retention.py`
 

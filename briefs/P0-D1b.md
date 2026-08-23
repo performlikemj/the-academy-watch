@@ -14,51 +14,30 @@ this branch.
 (`video_retention.expire_raw_footage`) exists but nothing calls it. Make the job run both steps and
 report both counts; dry-run must report what WOULD expire without changing anything.
 
-## The job — `academy-watch-backend/src/jobs/run_video_maintenance.py`
+## The job — `academy-watch-backend/src/jobs/run_video_maintenance.py` (three replacements by `sed`; no typing)
 
-The import line `from src.services import video_queue` becomes:
+Do NOT use your edit tool on this file. Three commands, exactly, in this order:
 
-```python
-from src.services import video_queue, video_retention
+Replace the services import line (adds `video_retention`):
+
+```bash
+SI=$(grep -n '^from src.services import video_queue$' academy-watch-backend/src/jobs/run_video_maintenance.py | cut -d: -f1); echo "SI=$SI"; sed -i '' "${SI}d" academy-watch-backend/src/jobs/run_video_maintenance.py && sed -i '' "$((SI-1))r briefs/assets/P0-D1b/services_import.py" academy-watch-backend/src/jobs/run_video_maintenance.py && echo IMPORT-REPLACED
 ```
 
-The whole `run` function is currently:
+Replace the whole `run` function (its `def` line through its `return {"stale_failed": stale, "dry_run": False}` line):
 
-```python
-def run(dry_run=False) -> dict:
-    """Run every maintenance step once. Returns counts so a caller (or a test) can see what happened."""
-    if dry_run:
-        logger.info("video maintenance dry run: nothing changed")
-        return {"stale_failed": 0, "dry_run": True}
-    stale = video_queue.reap_stale_jobs()
-    logger.info("video maintenance: stale-failed %d job(s)", stale)
-    return {"stale_failed": stale, "dry_run": False}
+```bash
+RS=$(grep -n '^def run(dry_run=False) -> dict:$' academy-watch-backend/src/jobs/run_video_maintenance.py | cut -d: -f1); RE=$(grep -n '^    return {"stale_failed": stale, "dry_run": False}$' academy-watch-backend/src/jobs/run_video_maintenance.py | cut -d: -f1); echo "RS=$RS RE=$RE"; sed -i '' "${RS},${RE}d" academy-watch-backend/src/jobs/run_video_maintenance.py && sed -i '' "$((RS-1))r briefs/assets/P0-D1b/run_function.py" academy-watch-backend/src/jobs/run_video_maintenance.py && echo RUN-REPLACED
 ```
 
-Replace it with:
+Replace the docstring's last two lines about retention:
 
-```python
-def run(dry_run=False) -> dict:
-    """Run every maintenance step once. Returns counts so a caller (or a test) can see what happened."""
-    if dry_run:
-        retention = video_retention.expire_raw_footage(dry_run=True)
-        logger.info("video maintenance dry run: nothing changed (%d match(es) due for expiry)", retention["due"])
-        return {"stale_failed": 0, "retention": retention, "dry_run": True}
-    stale = video_queue.reap_stale_jobs()
-    retention = video_retention.expire_raw_footage()
-    logger.info(
-        "video maintenance: stale-failed %d job(s); footage expired %d of %d due (%d failed)",
-        stale,
-        retention["expired"],
-        retention["due"],
-        retention["failed"],
-    )
-    return {"stale_failed": stale, "retention": retention, "dry_run": False}
+```bash
+DL=$(grep -n 'Raw-footage retention expiry joins this job in a$' academy-watch-backend/src/jobs/run_video_maintenance.py | cut -d: -f1); echo "DL=$DL"; sed -i '' "${DL},$((DL+1))d" academy-watch-backend/src/jobs/run_video_maintenance.py && sed -i '' "$((DL-1))r briefs/assets/P0-D1b/docstring_lines.py" academy-watch-backend/src/jobs/run_video_maintenance.py && echo DOCSTRING-REPLACED
 ```
 
-Also update the module docstring's second paragraph: replace
-`Raw-footage retention expiry joins this job in a later task.` with
-`Then expires raw footage past its 90-day retention (``video_retention.expire_raw_footage``).`
+Confirm, read-only: `grep -c "expire_raw_footage" academy-watch-backend/src/jobs/run_video_maintenance.py` → `3`
+(docstring + two calls). Anything else → STOP, BLOCKED.
 
 ## The tests — `academy-watch-backend/tests/test_video_maintenance_job.py` (edit FIRST)
 
