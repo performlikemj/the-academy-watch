@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
@@ -26,11 +26,15 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = tru
   const [notes, setNotes] = useState('')
   const [reporting, setReporting] = useState(false)
   const [outcomeError, setOutcomeError] = useState(null)
+  // Discards stale loads: a slower fetch for a previously selected request must never overwrite this thread.
+  const loadSeq = useRef(0)
 
   const state = describeThreadState(request)
   const requestId = request?.id
 
   const load = useCallback(async () => {
+    const seq = loadSeq.current + 1
+    loadSeq.current = seq
     if (!requestId || !state.open) {
       setMessages([])
       return
@@ -44,6 +48,7 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = tru
       let offset = 0
       for (let page = 0; page < 50; page += 1) {
         const res = await APIService.getContactMessages(requestId, { limit: PAGE, offset })
+        if (seq !== loadSeq.current) return
         const more = Array.isArray(res?.messages) ? res.messages : []
         rows = rows.concat(more)
         if (page === 0 && res?.contact_request && onRequestChange) onRequestChange(res.contact_request)
@@ -52,9 +57,10 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = tru
       }
       setMessages(rows)
     } catch (err) {
+      if (seq !== loadSeq.current) return
       setError(err?.body?.error || err?.message || 'Messages could not be loaded.')
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [requestId, state.open, onRequestChange])
 

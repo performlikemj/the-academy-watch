@@ -37,3 +37,25 @@ export function upsertRequest(list, updated) {
   const exists = list.some((r) => r.id === updated.id)
   return exists ? list.map((r) => (r.id === updated.id ? updated : r)) : [updated, ...list]
 }
+
+// Mirrors the backend's ACTIVE_REQUEST_STATUSES: only these can still change (consent, accept, withdraw).
+export const ACTIVE_REQUEST_STATUSES = ['pending', 'accepted']
+
+export function canDecideConsent(request) {
+  return request?.club_consent_status === 'pending' && ACTIVE_REQUEST_STATUSES.includes(request?.status)
+}
+
+// Pages through a list endpoint (limit/offset) until a short page comes back, so users with more than one page of
+// introductions still see all of them. fetchPage(limit, offset) resolves to the API response ({ requests, total }).
+export async function fetchAllRequests(fetchPage, { pageSize = 100, maxPages = 20 } = {}) {
+  let rows = []
+  let offset = 0
+  for (let page = 0; page < maxPages; page += 1) {
+    const res = await fetchPage(pageSize, offset)
+    const more = Array.isArray(res?.requests) ? res.requests : []
+    rows = rows.concat(more)
+    if (more.length < pageSize) break
+    offset += more.length
+  }
+  return rows
+}

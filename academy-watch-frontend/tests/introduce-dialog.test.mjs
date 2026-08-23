@@ -31,7 +31,7 @@ test('the dialog posts through APIService and the desk mounts it only for contac
   assert.ok(dialog.includes('permission_attestation: attestationRequired && attested'))
   const scout = await fs.readFile(scoutFile, 'utf8')
   assert.ok(scout.includes("import { IntroduceDialog } from '@/components/contact/IntroduceDialog'"))
-  assert.ok(scout.includes('{player.contactable ? ('))
+  assert.ok(scout.includes('{contactRail === true && player.contactable ? ('))
   assert.ok(scout.includes('<IntroduceDialog'))
   assert.ok(scout.includes('const [introducePlayer, setIntroducePlayer] = useState(null)'))
 })

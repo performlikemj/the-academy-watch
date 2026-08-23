@@ -47,3 +47,11 @@ test('the thread pages through every message and hides the outcome form when the
   const form = src.indexOf('Record the outcome')
   assert.ok(guard !== -1 && form !== -1 && guard < form, 'the outcome form renders only behind the canReportOutcome guard')
 })
+
+test('a slower load for a previously selected request never overwrites the current thread', async () => {
+  const src = await fs.readFile(componentFile, 'utf8')
+  assert.ok(src.includes("import { useState, useEffect, useCallback, useRef } from 'react'"))
+  assert.ok(src.includes('const loadSeq = useRef(0)'), 'loads are sequenced')
+  assert.ok(src.includes('if (seq !== loadSeq.current) return'), 'stale results are discarded before any state update')
+  assert.ok(src.includes('if (seq === loadSeq.current) setLoading(false)'), 'a stale load does not clear the newer load\'s spinner')
+})

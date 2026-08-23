@@ -9,7 +9,7 @@ import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { ContactThread } from '@/components/contact/ContactThread'
-import { statusLabel, counterpartName, canWithdraw, canRespond, previewText, upsertRequest } from '@/lib/introductions'
+import { statusLabel, counterpartName, canWithdraw, canRespond, previewText, upsertRequest, fetchAllRequests } from '@/lib/introductions'
 
 function formatDate(value) {
   if (!value) return ''
@@ -81,8 +81,8 @@ export function IntroductionsPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await APIService.listContactRequests({ box: which, limit: 100 })
-      setRequests((current) => ({ ...current, [which]: Array.isArray(res?.requests) ? res.requests : [] }))
+      const rows = await fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: which, limit, offset }))
+      setRequests((current) => ({ ...current, [which]: rows }))
     } catch (err) {
       setError(err?.body?.error || err?.message || 'Introductions could not be loaded.')
     } finally {

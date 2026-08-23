@@ -6,11 +6,13 @@ import { Loader2 } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { ContactThread } from '@/components/contact/ContactThread'
 import { participantName } from '@/lib/contact-thread'
+import { fetchAllRequests, canDecideConsent } from '@/lib/introductions'
 
 export function consentLabel(status) {
   if (status === 'granted') return 'Allowed'
   if (status === 'declined') return 'Declined'
   if (status === 'pending') return 'Needs your decision'
+  if (status === 'closed') return 'No longer needed'
   return '—'
 }
 
@@ -31,8 +33,7 @@ export function ClubIntroductionsPanel({ programId, onAccessDenied }) {
     setLoading(true)
     setError(null)
     try {
-      const res = await APIService.listContactRequests({ box: 'club', limit: 100 })
-      const rows = Array.isArray(res?.requests) ? res.requests : []
+      const rows = await fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: 'club', limit, offset }))
       setRequests(programId ? rows.filter((r) => r.club_program_id === programId) : rows)
     } catch (err) {
       if (err?.status === 403 && onAccessDenied) {
@@ -76,7 +77,9 @@ export function ClubIntroductionsPanel({ programId, onAccessDenied }) {
         ) : (
           <ul className="space-y-2">
             {requests.map((request) => {
-              const pending = request.club_consent_status === 'pending'
+              // Allow/Decline only while the request can still change; a pending consent on a closed request is moot.
+              const pending = canDecideConsent(request)
+              const consentKey = pending ? 'pending' : (request.club_consent_status === 'pending' ? 'closed' : request.club_consent_status)
               const busy = busyId === request.id
               return (
                 <li key={request.id}>
@@ -87,7 +90,7 @@ export function ClubIntroductionsPanel({ programId, onAccessDenied }) {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate font-semibold text-foreground">{participantName(request, 'scout')} → {participantName(request, 'player')}</span>
-                      <Badge variant={pending ? 'default' : 'secondary'}>{consentLabel(request.club_consent_status)}</Badge>
+                      <Badge variant={pending ? 'default' : 'secondary'}>{consentLabel(consentKey)}</Badge>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">Player status: {request.status}</p>
                   </button>
