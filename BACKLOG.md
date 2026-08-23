@@ -29,8 +29,8 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-A6 | `briefs/P0-A6.md` | `/introductions` page: Sent (scout) and Inbox (player) tabs, accept/decline/withdraw, opens the thread. Depends on P0-A6b. | done (0e73fe1) |
 | P0-A8 | `briefs/P0-A8.md` | Club console "Introductions" tab: `box=club`, grant/decline consent, thread. Depends on P0-A6b. | done (ef5f113) |
 | P0-A9 | `briefs/P0-A9.md` | Nav: "Introductions" item for signed-in users; Scout Desk header links (Introductions, Get verified). | done (c02f96a) |
-| P0-A6c | `briefs/P0-A6c.md` | Thread pages through every message; `canReportOutcome` prop; club panel passes false (codex P2s on PR #889). Four shipped files. | in-progress |
-| P0-A10b | `briefs/P0-A10b.md` | Public `GET /api/features` → `{contact_rail}` (codex P1 on PR #889, backend half). | ready |
+| P0-A6c | `briefs/P0-A6c.md` | Thread pages through every message; `canReportOutcome` prop; club panel passes false (codex P2s on PR #889). Four shipped files. | done (f396991) |
+| P0-A10b | `briefs/P0-A10b.md` | Public `GET /api/features` → `{contact_rail}` (codex P1 on PR #889, backend half). | in-progress |
 | P0-A10 | `briefs/P0-A10.md` | Contact entry points gated on the flag (nav, desk, club tab, /introductions page) (codex P1, frontend half). | ready |
 
 Done means BOTH: (1) `make gate TASK=<id>` green — you ran it, you saw it; (2) the brief's observable
