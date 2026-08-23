@@ -49,7 +49,9 @@ def expire_raw_footage(now: datetime | None = None, *, dry_run: bool = False) ->
     expired = 0
     failed = 0
     for match in due:
-        if video_storage.is_configured() and not video_storage.delete_blob(match.blob_path):
+        if video_storage.is_configured() and not video_storage.delete_blob(
+            match.blob_path
+        ):
             failed += 1
             continue
         match.status = "expired"

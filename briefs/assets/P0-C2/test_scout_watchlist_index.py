@@ -4,11 +4,21 @@ from pathlib import Path
 
 from src.models.scout_watchlist import ScoutWatchlistEntry
 
-MIGRATION = Path(__file__).resolve().parents[1] / "migrations/versions/sw01_scout_watchlist_player_index.py"
+MIGRATION = (
+    Path(__file__).resolve().parents[1]
+    / "migrations/versions/sw01_scout_watchlist_player_index.py"
+)
 
 
 def test_model_declares_player_index():
-    index = next((i for i in ScoutWatchlistEntry.__table__.indexes if i.name == "ix_scout_watchlist_player"), None)
+    index = next(
+        (
+            i
+            for i in ScoutWatchlistEntry.__table__.indexes
+            if i.name == "ix_scout_watchlist_player"
+        ),
+        None,
+    )
     assert index is not None
     assert [column.name for column in index.columns] == ["player_api_id"]
 

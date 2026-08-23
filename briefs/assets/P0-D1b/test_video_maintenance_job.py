@@ -33,4 +33,8 @@ def test_dry_run_changes_nothing_but_reports_due_count(monkeypatch):
 
     monkeypatch.setattr(job.video_queue, "reap_stale_jobs", explode)
     monkeypatch.setattr(job.video_retention, "expire_raw_footage", fake_expire)
-    assert job.run(dry_run=True) == {"stale_failed": 0, "retention": DRY, "dry_run": True}
+    assert job.run(dry_run=True) == {
+        "stale_failed": 0,
+        "retention": DRY,
+        "dry_run": True,
+    }
