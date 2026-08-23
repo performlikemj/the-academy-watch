@@ -86,7 +86,9 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 
 ### 2026-08-23 03:05Z — PR-1 merged; step scripts everywhere
 
-- PR #887 squash-merged → main `5af2ab5` (C1, A1, A2, A3, A3b, B1). Deploy run 32614375785 watched; live smoke = `scratchpad/pr1-smoke.sh`.
+- PR #887 squash-merged → main `5af2ab5` (C1, A1, A2, A3, A3b, B1). Deploy run 32614375785 = success (all jobs). Live smoke 03:12Z:
+  `GET /api/contact/club-consent/<bogus>` → 404 `invalid_consent_link` ✓; `GET /api/club/1/matches` unauth → 401 ✓; SPA route 200 ✓;
+  Playwright on theacademywatch.com/contact/club-consent/<bogus> renders 'This link is no longer valid' (no Retry — correct for a 404) ✓.
 - Lesson (second whitespace failure): qwen cannot reproduce leading spaces even when COPYING a command from the brief.
   Every block containing `grep -n` / `sed -i` / `awk` in the remaining briefs is now a shipped `briefs/assets/<TASK>/step-N.sh`
   (36 scripts, byte-identical to the former blocks, no cross-block variables); the brief says `bash …/step-N.sh`; QWEN.md rule added (ad82b2f).
