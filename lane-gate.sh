@@ -13,6 +13,8 @@
 # refs) and 14 failing frontend unit tests — a blanket `pytest` / `pnpm test` is red for reasons that are
 # nobody's current work. The lane gates on the tests a brief names; the full tier unions every brief's list.
 # ruff check + ruff format --check + pnpm lint + pnpm build ARE the repo's real CI gates (docs/agents/workflow.md).
+# In `all` (lane) mode a named test file that does not exist yet is SKIPPED with a visible line — briefs not landed
+# yet must not redden the lane gate; in `fast` (slice) mode a missing named file is RED (the brief is wrong).
 set -u
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -87,10 +89,15 @@ ruff format --check --no-cache academy-watch-backend || finish 1
 # ---- 2. backend tests — ONLY the named files
 if [ -n "${BACKEND_TESTS// /}" ]; then
   step "pytest (from academy-watch-backend/): $BACKEND_TESTS"
+  present=
   for t in $BACKEND_TESTS; do
-    if [ ! -f "$BACKEND/$t" ]; then echo "lane-gate: named backend test file missing: $t" >&2; finish 1; fi
+    if [ ! -f "$BACKEND/$t" ]; then
+      if [ "$TASK" = all ]; then echo "lane-gate: SKIP (not landed yet): $t"; continue; fi
+      echo "lane-gate: named backend test file missing: $t" >&2; finish 1
+    fi
+    present="$present $t"
   done
-  (cd "$BACKEND" && "$PY" -m pytest -q -p no:cacheprovider $BACKEND_TESTS) || finish 1
+  if [ -n "${present// /}" ]; then (cd "$BACKEND" && "$PY" -m pytest -q -p no:cacheprovider $present) || finish 1; fi
 else
   echo "(no backend tests named)"
 fi
@@ -98,10 +105,15 @@ fi
 # ---- 3. frontend unit tests — ONLY the named files (plain node --test, no jsdom)
 if [ -n "${FRONTEND_TESTS// /}" ]; then
   step "node --test (from academy-watch-frontend/): $FRONTEND_TESTS"
+  presentf=
   for t in $FRONTEND_TESTS; do
-    if [ ! -f "$FRONTEND/$t" ]; then echo "lane-gate: named frontend test file missing: $t" >&2; finish 1; fi
+    if [ ! -f "$FRONTEND/$t" ]; then
+      if [ "$TASK" = all ]; then echo "lane-gate: SKIP (not landed yet): $t"; continue; fi
+      echo "lane-gate: named frontend test file missing: $t" >&2; finish 1
+    fi
+    presentf="$presentf $t"
   done
-  (cd "$FRONTEND" && node --test --test-concurrency=1 $FRONTEND_TESTS) || finish 1
+  if [ -n "${presentf// /}" ]; then (cd "$FRONTEND" && node --test --test-concurrency=1 $presentf) || finish 1; fi
 else
   echo "(no frontend tests named)"
 fi
