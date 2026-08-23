@@ -101,6 +101,7 @@ import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
 import { GolPanel } from '@/components/gol/GolPanel'
 import { ClaimAccount } from '@/pages/ClaimAccount'
+import { ClubConsentPage } from '@/pages/ClubConsentPage'
 import { SubmitTake } from '@/pages/SubmitTake'
 import { FlagData } from '@/pages/FlagData'
 import { WriterLogin } from '@/pages/writer/WriterLogin'
@@ -4198,6 +4199,7 @@ function AppRoutes() {
       <Route path="/unsubscribe" element={<UnsubscribePage />} />
       <Route path="/verify" element={<VerifyPage />} />
       <Route path="/claim-account" element={<ClaimAccount />} />
+      <Route path="/contact/club-consent/:token" element={<ClubConsentPage />} />
       <Route path="/submit-take" element={<SubmitTake />} />
       <Route path="/flag" element={<FlagData />} />
       <Route path="/scout" element={<ScoutPage />} />
