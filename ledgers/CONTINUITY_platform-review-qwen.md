@@ -126,6 +126,11 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 
 - Round 3 (P1 stale send → A11b 78c0a87) and round 4 (P2 dialog epoch + P2 box load race → A11c) — each a whole-file brief, proven (tests + eslint + build) before dispatch. Decision: merge PR-3 once A11c is on it even if a further P2-only round appears (diminishing returns; P1s would still block).
 
+### 2026-08-23 08:48Z — PR-3 merged; lane rebased (with a lesson)
+
+- PR #889 squash-merged → main `9289e8a` (A-group + A6c/A10b/A10/A11/A11b/A11c). Round-5 P2 (per-box action sequencing) → P0-A11d, for PR-4.
+- Rebase `--onto origin/main e5cf24d` CONFLICTED: six lane commits were cherry-picked into the PR and then squashed; when several of them edit the same lines, replaying the earlier ones onto main (which holds the later state) conflicts. Fix: skip those already-merged commits (`lane-rebase.sh` now takes `MERGED="sha …"` and stops on any other conflict — the old `| tail` masked the failure and the script sailed on). Result verified: lane = main + backend-only commits (C2, C3, C4, D1a, D1b) + docs.
+
 ## Run log
 
 | Session | Task | Result | Verified by Fable | Notes |
@@ -162,7 +167,8 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 | qwen-P0-A11b-20260823T0757 | P0-A11b (stale send guard; 2 shipped files) | completed, gate green, 0 nudges, ~15 min | 78c0a87 | 2 files identical; all 38 lane frontend tests green; cherry-picked onto PR-3 |
 | qwen-P0-D1a-20260823T0812 | P0-D1a (video_retention service + delete_blob append; 2 new files) | completed, gate green, 0 nudges, ~8 min | 8e8e435 | new files identical; delete_blob appended exactly once at end (finish check) |
 | qwen-P0-A11c-20260823T0820 | P0-A11c (dialog epoch + page load sequence; 4 shipped files) | completed, gate green, 0 nudges, ~10 min | a32f6ec | 4 files identical; 40 lane frontend tests green; cherry-picked onto PR-3 |
-| qwen-P0-D1b-20260823T0830 | P0-D1b (maintenance job runs retention; 3 step scripts + test replaced) | running | — | |
+| qwen-P0-D1b-20260823T0830 | P0-D1b (maintenance job runs retention; 3 step scripts + test replaced) | completed, gate green, 0 nudges, ~6 min | ce302cb (post-rebase) | job rederive IDENTICAL; test identical |
+| qwen-P0-A11d-<see wrapper> | P0-A11d (per-box action sequencing; 2 shipped files; for PR-4) | running | — | |
 | — | **PR-1 #887** `feat/p0-contact-foundation` (snapshot of lane HEAD c4b98af: tooling + C1 + A1 + A2 + A3) | OPEN 02:31Z; lane full gate green (26 s) before push | CI watch in progress; read codex-connector reviews before merging (MJ 2026-08-11 rule) | https://github.com/performlikemj/the-academy-watch/pull/887 |
 | qwen-P0-A2-20260823T0118 (v3, earlier note) | — | test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | — | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now | — test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | pending | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now |
 
