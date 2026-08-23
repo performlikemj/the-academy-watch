@@ -35,6 +35,7 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-A11 | `briefs/P0-A11.md` | Stale thread loads discarded; request lists paged; consent controls only on active requests; stale test fixed (codex round 2 on PR #889). Eight shipped files. | done (b0f2548) |
 | P0-A11b | `briefs/P0-A11b.md` | Stale send/outcome results discarded after a thread switch (codex round 3 on PR #889). Two shipped files. | done (78c0a87) |
 | P0-A11c | `briefs/P0-A11c.md` | Late Introduce send / late box load discarded (codex round 4 on PR #889, P2 ×2). Four shipped files. | done (a32f6ec) |
+| P0-A11d | `briefs/P0-A11d.md` | Introduction actions sequenced per box (codex round 5 on PR #889, P2; lands in PR-4). Two shipped files. | ready |
 
 Done means BOTH: (1) `make gate TASK=<id>` green — you ran it, you saw it; (2) the brief's observable
 is real. Then write your handback file and end with the `HANDBACK-FILED:` line, exactly as the brief says.
