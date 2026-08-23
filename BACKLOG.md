@@ -21,7 +21,7 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-B2b | `briefs/P0-B2b.md` | Roster editor opens only a fully fetched match (codex P1 on PR #888: list rows carry no roster → a save could wipe it). Two step scripts + test. | done (99134a8) |
 | P0-D1a | `briefs/P0-D1a.md` | `video_storage.delete_blob` + `services/video_retention.py` (`due_matches`, `expire_raw_footage`). | done (8e8e435) |
 | P0-D1b | `briefs/P0-D1b.md` | Maintenance job runs the retention sweep. Depends on P0-C4 + P0-D1a. | done (ce302cb) |
-| P0-D2 | `briefs/P0-D2.md` | Footage redirect uses a 30-min media read SAS + `Cache-Control: private, no-store`. | ready |
+| P0-D2 | `briefs/P0-D2.md` | Footage redirect uses a 30-min media read SAS + `Cache-Control: private, no-store`. | in-progress |
 | P0-A3 | `briefs/P0-A3.md` | Public club-consent page `/contact/club-consent/:token` (+ pure copy helper). Depends on P0-A2. | done 08-23 (aedad98) |
 | P0-A5 | `briefs/P0-A5.md` | Scout verification page `/scout/verification` (status + apply form). Depends on P0-A2. | done (4244034) |
 | P0-A4 | `briefs/P0-A4.md` | "Introduce" action on the Scout Desk + `IntroduceDialog` (server codes mapped). Depends on P0-A0, P0-A2. | done (2d518d0) |
@@ -35,7 +35,7 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-A11 | `briefs/P0-A11.md` | Stale thread loads discarded; request lists paged; consent controls only on active requests; stale test fixed (codex round 2 on PR #889). Eight shipped files. | done (b0f2548) |
 | P0-A11b | `briefs/P0-A11b.md` | Stale send/outcome results discarded after a thread switch (codex round 3 on PR #889). Two shipped files. | done (78c0a87) |
 | P0-A11c | `briefs/P0-A11c.md` | Late Introduce send / late box load discarded (codex round 4 on PR #889, P2 ×2). Four shipped files. | done (a32f6ec) |
-| P0-A11d | `briefs/P0-A11d.md` | Introduction actions sequenced per box (codex round 5 on PR #889, P2; lands in PR-4). Two shipped files. | in-progress |
+| P0-A11d | `briefs/P0-A11d.md` | Introduction actions sequenced per box (codex round 5 on PR #889, P2; lands in PR-4). Two shipped files. | done (6d316b8) |
 
 Done means BOTH: (1) `make gate TASK=<id>` green — you ran it, you saw it; (2) the brief's observable
 is real. Then write your handback file and end with the `HANDBACK-FILED:` line, exactly as the brief says.
