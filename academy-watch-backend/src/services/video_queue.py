@@ -24,6 +24,13 @@ logger = logging.getLogger(__name__)
 
 QUEUE_NAME = os.getenv("VIDEO_JOBS_QUEUE", "video-jobs")
 STALE_RUNNING_HOURS = 6  # reaper: running with no heartbeat for this long => failed
+
+
+class JobFenced(RuntimeError):
+    """The job is no longer ours: it was reaped (or cancelled) while a worker still held it. Workers stop and
+    write nothing; completion refuses. Keeps a zombie worker from clobbering a requeued job or its match."""
+
+
 MAX_ATTEMPTS = 3
 
 
@@ -86,14 +93,21 @@ def claim_next_job(worker_id: str) -> "VideoAnalysisJob | None":
     return job
 
 
-def heartbeat(job_id: str, stage: str | None = None, progress: int | None = None) -> None:
+def heartbeat(job_id: str, stage: str | None = None, progress: int | None = None) -> bool:
+    """Touch a RUNNING job. Returns False when the job is no longer running (reaped/cancelled/finished) — the
+    worker must then stop: it has been fenced out and another actor owns the job/match."""
     values: dict = {"heartbeat_at": datetime.now(UTC)}
     if stage is not None:
         values["stage"] = stage
     if progress is not None:
         values["progress"] = progress
-    db.session.query(VideoAnalysisJob).filter(VideoAnalysisJob.id == job_id).update(values, synchronize_session=False)
+    touched = (
+        db.session.query(VideoAnalysisJob)
+        .filter(VideoAnalysisJob.id == job_id, VideoAnalysisJob.status == "running")
+        .update(values, synchronize_session=False)
+    )
     db.session.commit()
+    return touched == 1
 
 
 def reap_stale_jobs() -> int:

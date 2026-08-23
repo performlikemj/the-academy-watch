@@ -36,6 +36,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -95,6 +96,23 @@ def _build_pipeline_cmd(cmd_template: str, video_path: Path, out_dir: Path, matc
     return cmd
 
 
+def _keepalive(app, job_id: str, stop: threading.Event, fenced: threading.Event, interval_s: int = 300) -> None:
+    """Heartbeat while the pipeline subprocess runs (it can outlive the reaper's window); a rejected heartbeat
+    means the job was reaped/cancelled underneath us — flag it so the results are discarded."""
+    from src.services.video_queue import heartbeat
+
+    with app.app_context():
+        while not stop.wait(interval_s):
+            try:
+                alive = heartbeat(job_id, stage="detect")
+            except Exception:  # a blip must not kill the worker; the next tick retries
+                log.exception("keepalive heartbeat failed")
+                continue
+            if not alive:
+                fenced.set()
+                return
+
+
 def _run_pipeline(video_path: Path, out_dir: Path, match) -> None:
     cmd_template = os.getenv("VIDEO_PIPELINE_CMD")
     if not cmd_template:
@@ -111,7 +129,7 @@ def process_job(app, job_id: str) -> bool:
     from src.models.league import db
     from src.models.video import VideoAnalysisJob, VideoMatch
     from src.services.video_identity import complete_job_with_artifacts
-    from src.services.video_queue import heartbeat
+    from src.services.video_queue import JobFenced, heartbeat
     from src.services.video_storage import verify_expected_blob
 
     job = db.session.get(VideoAnalysisJob, job_id)
@@ -120,7 +138,8 @@ def process_job(app, job_id: str) -> bool:
     try:
         # Pin the download to the ETag returned by this verification. For legacy
         # matches without a stored ETag, this is the just-observed current ETag.
-        heartbeat(job_id, stage="decode", progress=0)
+        if not heartbeat(job_id, stage="decode", progress=0):
+            raise JobFenced("job is no longer running (reaped before decode)")
         check = verify_expected_blob(match.blob_path, match.blob_etag)
         if not check["ok"]:
             raise RuntimeError(f"footage blob failed verification: {check.get('error')}")
@@ -133,12 +152,23 @@ def process_job(app, job_id: str) -> bool:
             video_path = tmp_path / "match.mp4"
             _download_footage(match.blob_path, video_path, verified_etag)
 
-            heartbeat(job_id, stage="detect", progress=5)
+            if not heartbeat(job_id, stage="detect", progress=5):
+                raise JobFenced("job is no longer running (reaped before detect)")
             out_dir = tmp_path / "artifacts"
             out_dir.mkdir()
-            _run_pipeline(video_path, out_dir, match)
+            stop, fenced = threading.Event(), threading.Event()
+            keeper = threading.Thread(target=_keepalive, args=(app, job_id, stop, fenced), daemon=True)
+            keeper.start()
+            try:
+                _run_pipeline(video_path, out_dir, match)
+            finally:
+                stop.set()
+                keeper.join(timeout=30)
+            if fenced.is_set():
+                raise JobFenced("job was reaped while the pipeline was running")
 
-            heartbeat(job_id, stage="persist", progress=90)
+            if not heartbeat(job_id, stage="persist", progress=90):
+                raise JobFenced("job is no longer running (reaped before persist)")
             artifacts = {
                 "fragments": json.loads((out_dir / "fragments.json").read_text()),
                 "votes": json.loads((out_dir / "votes.json").read_text()),
@@ -150,10 +180,18 @@ def process_job(app, job_id: str) -> bool:
             complete_job_with_artifacts(job_id, artifacts, gpu_seconds=round(time.monotonic() - t0, 1))
         log.info("job %s succeeded", job_id)
         return True
+    except JobFenced as e:
+        # Another actor (reaper + requeue, or a cancel) owns this job/match now. Write nothing.
+        log.warning("job %s fenced: %s — results discarded", job_id, e)
+        db.session.rollback()
+        return False
     except Exception as e:
         log.exception("job %s failed", job_id)
         db.session.rollback()
         job = db.session.get(VideoAnalysisJob, job_id)
+        if job.status != "running":
+            log.warning("job %s already moved to %s by someone else; not overwriting", job_id, job.status)
+            return False
         job.status = "failed"
         job.error = str(e)[:2000]
         job.gpu_seconds = round(time.monotonic() - t0, 1)

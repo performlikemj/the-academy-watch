@@ -539,6 +539,10 @@ def complete_job_with_artifacts(job_id: str, artifacts: dict, gpu_seconds: float
     job = db.session.get(VideoAnalysisJob, job_id)
     if job is None:
         raise ValueError(f"job {job_id} not found")
+    from src.services.video_queue import JobFenced  # local import avoids cycles
+
+    if job.status != "running":
+        raise JobFenced(f"job {job_id} is no longer running (status={job.status}); results discarded")
     match = db.session.get(VideoMatch, job.video_match_id)
     result = persist_artifacts(match, artifacts)
     job.status = "succeeded"

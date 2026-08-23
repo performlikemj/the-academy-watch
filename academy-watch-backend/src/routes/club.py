@@ -398,6 +398,8 @@ def club_match_upload_complete(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
         return jsonify({"error": "Match not found"}), 404
+    # Serialize with the retention sweeper: it re-checks this row under the same lock before deleting footage.
+    db.session.refresh(match, with_for_update=True)
     if match.status not in {"created", "uploaded"}:
         return _bad_request(f"cannot complete upload in status '{match.status}'")
     if not video_storage.is_configured():
