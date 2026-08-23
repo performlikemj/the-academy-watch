@@ -25,6 +25,7 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-D3 | `briefs/P0-D3.md` | Footage SAS ≤ token remaining life; sweeper keeps blob rows when storage unconfigured; preflight not swept (codex on PR #890). 3 step scripts + 3 shipped files. | done (2ffed49) |
 | P0-D4 | `briefs/P0-D4.md` | Reaped jobs move their match processing→failed; sweeper re-checks under lock before delete (codex round 2 on PR #890). 1 step script + 3 shipped files. | done (5fe2124) |
 | P0-D5 | `briefs/P0-D5.md` | Abandoned created uploads swept by age; /process + /requeue FOR UPDATE; reaper CAS with RETURNING (codex round 3 on PR #890). 2 step scripts + 2 shipped files. | done (81752c8) |
+| P0-D6 | `briefs/P0-D6.md` | Reaped workers fenced (conditional heartbeat, completion guard, keepalive thread); upload-complete FOR UPDATE (codex round 4 on PR #890). 3 step scripts + 2 shipped files. | in-progress |
 | P0-A3 | `briefs/P0-A3.md` | Public club-consent page `/contact/club-consent/:token` (+ pure copy helper). Depends on P0-A2. | done 08-23 (aedad98) |
 | P0-A5 | `briefs/P0-A5.md` | Scout verification page `/scout/verification` (status + apply form). Depends on P0-A2. | done (4244034) |
 | P0-A4 | `briefs/P0-A4.md` | "Introduce" action on the Scout Desk + `IntroduceDialog` (server codes mapped). Depends on P0-A0, P0-A2. | done (2d518d0) |
