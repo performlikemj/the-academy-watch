@@ -68,3 +68,10 @@ test('fetchAllRequests pages until a short page and concatenates in order', asyn
   const empty = await fetchAllRequests(async () => ({ requests: [] }))
   assert.equal(empty.length, 0)
 })
+
+test('a late load for the other box never overwrites the current box', async () => {
+  const page = await fs.readFile(pageFile, 'utf8')
+  assert.ok(page.includes('const loadSeq = useRef(0)'), 'loads are sequenced')
+  assert.ok(page.includes('if (seq !== loadSeq.current) return'), 'stale load results are discarded')
+  assert.ok(page.includes('if (seq === loadSeq.current) setLoading(false)'), 'a stale load does not clear the newer load\'s spinner')
+})

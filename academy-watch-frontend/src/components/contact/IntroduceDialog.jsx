@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -14,8 +14,11 @@ export function IntroduceDialog({ open, onOpenChange, player }) {
   const [attested, setAttested] = useState(false)
   const [sending, setSending] = useState(false)
   const [feedback, setFeedback] = useState(null) // { kind, message, href } | { kind: 'sent' }
+  // Epoch of the dialog: bumped when it closes or moves to another player, so a send that lands late is ignored.
+  const opSeq = useRef(0)
 
   useEffect(() => {
+    opSeq.current += 1
     if (open) {
       setMessage('')
       setAttestationRequired(false)
@@ -29,6 +32,7 @@ export function IntroduceDialog({ open, onOpenChange, player }) {
 
   const send = async () => {
     if (!player?.player_id || !canSend(message, attestationRequired, attested)) return
+    const seq = opSeq.current
     setSending(true)
     setFeedback(null)
     try {
@@ -37,13 +41,15 @@ export function IntroduceDialog({ open, onOpenChange, player }) {
         message: message.trim(),
         permission_attestation: attestationRequired && attested,
       })
+      if (seq !== opSeq.current) return
       setFeedback({ kind: 'sent' })
     } catch (err) {
+      if (seq !== opSeq.current) return
       const described = describeIntroduceError(err)
       if (described.kind === 'attestation') setAttestationRequired(true)
       setFeedback(described)
     } finally {
-      setSending(false)
+      if (seq === opSeq.current) setSending(false)
     }
   }
 

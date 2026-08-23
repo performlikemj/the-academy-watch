@@ -35,3 +35,11 @@ test('the dialog posts through APIService and the desk mounts it only for contac
   assert.ok(scout.includes('<IntroduceDialog'))
   assert.ok(scout.includes('const [introducePlayer, setIntroducePlayer] = useState(null)'))
 })
+
+test('a send that lands after the dialog closed or moved to another player is ignored', async () => {
+  const dialog = await fs.readFile(dialogFile, 'utf8')
+  assert.ok(dialog.includes('const opSeq = useRef(0)'), 'the dialog keeps an epoch')
+  assert.ok(dialog.includes('opSeq.current += 1'), 'the epoch moves on open/close/player change')
+  assert.ok(dialog.includes('if (seq !== opSeq.current) return'), 'stale results are discarded')
+  assert.ok(dialog.includes('if (seq === opSeq.current) setSending(false)'), 'a stale send does not clear the new form\'s sending flag')
+})

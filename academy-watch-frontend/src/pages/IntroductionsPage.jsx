@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -75,18 +75,24 @@ export function IntroductionsPage() {
   const [selectedId, setSelectedId] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const [actionError, setActionError] = useState(null)
+  // Sent and Inbox share loading/error state; a late result from the other box must not overwrite this one.
+  const loadSeq = useRef(0)
 
   const load = useCallback(async (which) => {
     if (!auth?.token) return
+    const seq = loadSeq.current + 1
+    loadSeq.current = seq
     setLoading(true)
     setError(null)
     try {
       const rows = await fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: which, limit, offset }))
+      if (seq !== loadSeq.current) return
       setRequests((current) => ({ ...current, [which]: rows }))
     } catch (err) {
+      if (seq !== loadSeq.current) return
       setError(err?.body?.error || err?.message || 'Introductions could not be loaded.')
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [auth?.token])
 
