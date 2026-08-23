@@ -8,14 +8,14 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | Task | Brief | What it is | Status |
 |---|---|---|---|
 | SMOKE | `briefs/SMOKE.md` | Prove the pipe: one trivial backend test file. | done 08-23 (pipe proven: file + gate green; handback missed on a 15-min budget) |
-| P0-C1 | `briefs/P0-C1.md` | `RequireAuth` honors its `requireJournalist` prop (dead prop today). | in-progress |
-| P0-A1 | `briefs/P0-A1.md` | Club-consent email links point at the web page `/contact/club-consent/<token>`, not `/api/...`. | ready |
+| P0-C1 | `briefs/P0-C1.md` | `RequireAuth` honors its `requireJournalist` prop (dead prop today). | done 08-23 (84369d1) |
+| P0-A1 | `briefs/P0-A1.md` | Club-consent email links point at the web page `/contact/club-consent/<token>`, not `/api/...`. | done 08-23 (e54a750) |
 | P0-B1 | `briefs/P0-B1.md` | Backend `GET /api/club/<program_id>/matches` (club match list; kills the localStorage history). | ready |
 | P0-A0 | `briefs/P0-A0.md` | `contactable` flag on `/api/scout/players` rows (approved self-claim exists) — one batched query. | ready |
 | P0-C2 | `briefs/P0-C2.md` | Index `scout_watchlist_entries.player_api_id` (model + guarded migration `sw01` off head `c201`). | ready |
 | P0-C3 | `briefs/P0-C3.md` | `club_registry._table_columns` introspects once per HTTP request (no cache outside requests). | ready |
 | P0-C4 | `briefs/P0-C4.md` | New scheduled job `src/jobs/run_video_maintenance.py` that calls `reap_stale_jobs()`. | ready |
-| P0-A2 | `briefs/P0-A2.md` | `api.js` learns the contact rail (13 user-level methods) + source test. | ready |
+| P0-A2 | `briefs/P0-A2.md` | `api.js` learns the contact rail (13 user-level methods) + source test. | in-progress |
 | P0-B2 | `briefs/P0-B2.md` | Club console reads `listClubMatches`; localStorage index deleted. Depends on P0-B1. | ready |
 | P0-D1a | `briefs/P0-D1a.md` | `video_storage.delete_blob` + `services/video_retention.py` (`due_matches`, `expire_raw_footage`). | ready |
 | P0-D1b | `briefs/P0-D1b.md` | Maintenance job runs the retention sweep. Depends on P0-C4 + P0-D1a. | ready |

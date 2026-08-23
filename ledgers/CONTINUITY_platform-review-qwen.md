@@ -89,7 +89,8 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 |---|---|---|---|---|
 | qwen-SMOKE-20260822T2230 | SMOKE | pipe proven; budget-stopped (900 s) before handback | file byte-exact; gate event green in telemetry | 155K input / 3K output tokens over 13 tool calls — prefill-bound (~35 s/step); real briefs need ≥60 min |
 | qwen-P0-C1-20260822T2246 | P0-C1 | DONE — gate green twice (red→green), handback filed, runner post-gate green (153 s) | diff byte-exact to brief; commit `84369d1` | 44 min wall; ~30 min between test write and App.jsx edit (reading the 4,300-line file); no nudge fired |
-| qwen-P0-A1-20260822T2330 | P0-A1 | running | — | |
+| qwen-P0-A1-20260822T2330 | P0-A1 | DONE — gate red→green (test-first), handback filed, runner post-gate green | diff exactly as briefed (1 line + 2 asserts); commit `e54a750` | 34 min wall; in-sandbox gate 88–135 s and runner post-gate 370 s (vs 12 s in the proof) because the LAPTOP was at load avg ~47 — nine codex runs + two opencode processes from other sessions; not a lane defect |
+| qwen-P0-A2-20260823T0002 | P0-A2 | running | — | api.js contact-rail methods |
 
 ## Executor performance notes (measured)
 
