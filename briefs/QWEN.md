@@ -55,6 +55,12 @@ Facts about this repo's tests, so you do not rediscover them:
   Thinking longer does not make the file appear. Write, run the gate, read the error, fix.
 - Keep each tool call small: one file write or one edit per call. Big pastes are split in the brief —
   follow the split.
+- Your `edit` tool refuses to edit a file you have not read in this session. So before an edit: `read`
+  ONLY the anchor lines with `offset`/`limit` (for example offset 1640, limit 12) — never the whole file —
+  then `edit` with the brief's exact old/new text. If `edit` says "old_string was not found", you
+  retyped it: copy the block from the brief again, byte for byte; do not search the file.
+- After a successful edit, move to the NEXT step immediately (the next edit or the gate). Do not re-read
+  the file to admire the change; the gate is your proof.
 - When a brief ships a file under `briefs/assets/<TASK>/`, you COPY it with the exact `cp` command the
   brief gives. Never retype a shipped file — retyping changes whitespace inside strings and silently
   breaks tests. Your skill is the EDITS inside existing files; shipped files are not a test of typing.
