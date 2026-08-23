@@ -99,8 +99,8 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 
 ### 2026-08-23 04:02Z — PR-2 merged
 
-- PR #888 (B2 + B2b) squash-merged → main `a72802b`. Deploy 32616820260 = success; live bundle `index-Bc1tz0rM.js` has the hydrate copy ('Loading match details' ×1) and no `club-console:matches` localStorage key (04:12Z). Codex P1 (roster wipe) fixed by B2b before merge; re-review requested, none came in 12 min (no 👍 either) — merged on green CI + the fix verified by rederive + test.
-- Lane still based on 5af2ab5; rebase at the next pause: `lane-rebase.sh c258c09 --launch P0-A6b 2700` (drops the cherry-picked B2b lane commit 99134a8 as empty).
+- PR #888 (B2 + B2b) squash-merged → main `a72802b`. Deploy 32616820260 = success; live bundle `index-Bc1tz0rM.js` has the hydrate copy ('Loading match details' ×1) and no `club-console:matches` localStorage key (04:08Z). Codex P1 (roster wipe) fixed by B2b before merge; re-review requested, none came in 12 min (no 👍 either) — merged on green CI + the fix verified by rederive + test.
+- Lane rebased onto origin/main a72802b at 04:19Z (`lane-rebase.sh c258c09 --launch P0-A6b 2700`; B2b lane commit dropped as empty).
 - Verifier: `scratchpad/rederive.sh <TASK> [BASE]` replays the brief's step scripts on BASE's files and cmp's against the tree (skips shipped-whole files identical to their asset) — used for A0, A5, B2b; finish scripts' added-lines checks are wrong-shaped for replacements.
 
 ## Run log
@@ -123,7 +123,8 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 | qwen-P0-B2b-20260823T0325 | P0-B2b (roster editor hydrates the selected match first — codex P1 on PR #888) | completed, gate green, 0 nudges, ~9 min | 99134a8 | rederive IDENTICAL (console) + test shipped-whole cmp; cherry-picked onto PR-2 |
 | qwen-P0-A5-20260823T0335 | P0-A5 (scout verification page) | completed, gate green, 0 nudges, ~12 min | 4244034 | 3 new files identical to assets; App.jsx rederive IDENTICAL |
 | qwen-P0-A4-20260823T0348 | P0-A4 (scout Introduce dialog: 5 step scripts + 3 new files) | KILLED by Fable at 04:09Z after 20 min, zero edits: qwen opened the step scripts, retyped their greps (24 spaces → typed 25/26), concluded the scripts were wrong, looped on python space-counting | — | lesson: forbid inspecting step scripts / self-checking anchors (briefs + QWEN.md, 9bf6a4d) |
-| qwen-P0-A4-<relaunch> | P0-A4 relaunch with the stronger rule | running | — | |
+| qwen-P0-A4-20260823T0407 | P0-A4 relaunch with the stronger rule | completed, gate green, 0 nudges, ~9 min (vs 20 min looping before) | 2d518d0 (post-rebase) | ScoutPage rederive IDENTICAL; 3 new files identical; finish-a4 count check mis-specified (substring vs line count) |
+| qwen-P0-A6b-<see wrapper> | P0-A6b (contact thread component) | running | — | |
 | — | **PR-1 #887** `feat/p0-contact-foundation` (snapshot of lane HEAD c4b98af: tooling + C1 + A1 + A2 + A3) | OPEN 02:31Z; lane full gate green (26 s) before push | CI watch in progress; read codex-connector reviews before merging (MJ 2026-08-11 rule) | https://github.com/performlikemj/the-academy-watch/pull/887 |
 | qwen-P0-A2-20260823T0118 (v3, earlier note) | — | test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | — | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now | — test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | pending | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now |
 

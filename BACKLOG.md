@@ -24,8 +24,8 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-D2 | `briefs/P0-D2.md` | Footage redirect uses a 30-min media read SAS + `Cache-Control: private, no-store`. | ready |
 | P0-A3 | `briefs/P0-A3.md` | Public club-consent page `/contact/club-consent/:token` (+ pure copy helper). Depends on P0-A2. | done 08-23 (aedad98) |
 | P0-A5 | `briefs/P0-A5.md` | Scout verification page `/scout/verification` (status + apply form). Depends on P0-A2. | done (4244034) |
-| P0-A4 | `briefs/P0-A4.md` | "Introduce" action on the Scout Desk + `IntroduceDialog` (server codes mapped). Depends on P0-A0, P0-A2. | in-progress |
-| P0-A6b | `briefs/P0-A6b.md` | `ContactThread` component: messages + send + outcome report (shared by scout/player/club views). Depends on P0-A2. | ready |
+| P0-A4 | `briefs/P0-A4.md` | "Introduce" action on the Scout Desk + `IntroduceDialog` (server codes mapped). Depends on P0-A0, P0-A2. | done (2d518d0) |
+| P0-A6b | `briefs/P0-A6b.md` | `ContactThread` component: messages + send + outcome report (shared by scout/player/club views). Depends on P0-A2. | in-progress |
 | P0-A6 | `briefs/P0-A6.md` | `/introductions` page: Sent (scout) and Inbox (player) tabs, accept/decline/withdraw, opens the thread. Depends on P0-A6b. | ready |
 | P0-A8 | `briefs/P0-A8.md` | Club console "Introductions" tab: `box=club`, grant/decline consent, thread. Depends on P0-A6b. | ready |
 | P0-A9 | `briefs/P0-A9.md` | Nav: "Introductions" item for signed-in users; Scout Desk header links (Introductions, Get verified). | ready |
