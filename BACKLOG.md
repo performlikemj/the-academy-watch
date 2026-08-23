@@ -26,8 +26,8 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-A5 | `briefs/P0-A5.md` | Scout verification page `/scout/verification` (status + apply form). Depends on P0-A2. | done (4244034) |
 | P0-A4 | `briefs/P0-A4.md` | "Introduce" action on the Scout Desk + `IntroduceDialog` (server codes mapped). Depends on P0-A0, P0-A2. | done (2d518d0) |
 | P0-A6b | `briefs/P0-A6b.md` | `ContactThread` component: messages + send + outcome report (shared by scout/player/club views). Depends on P0-A2. | done (9feaf78) |
-| P0-A6 | `briefs/P0-A6.md` | `/introductions` page: Sent (scout) and Inbox (player) tabs, accept/decline/withdraw, opens the thread. Depends on P0-A6b. | in-progress |
-| P0-A8 | `briefs/P0-A8.md` | Club console "Introductions" tab: `box=club`, grant/decline consent, thread. Depends on P0-A6b. | ready |
+| P0-A6 | `briefs/P0-A6.md` | `/introductions` page: Sent (scout) and Inbox (player) tabs, accept/decline/withdraw, opens the thread. Depends on P0-A6b. | done (0e73fe1) |
+| P0-A8 | `briefs/P0-A8.md` | Club console "Introductions" tab: `box=club`, grant/decline consent, thread. Depends on P0-A6b. | in-progress |
 | P0-A9 | `briefs/P0-A9.md` | Nav: "Introductions" item for signed-in users; Scout Desk header links (Introductions, Get verified). | ready |
 
 Done means BOTH: (1) `make gate TASK=<id>` green — you ran it, you saw it; (2) the brief's observable
