@@ -99,7 +99,7 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 
 ### 2026-08-23 04:02Z — PR-2 merged
 
-- PR #888 (B2 + B2b) squash-merged → main `a72802b`. Codex P1 (roster wipe) fixed by B2b before merge; re-review requested, none came in 12 min (no 👍 either) — merged on green CI + the fix verified by rederive + test.
+- PR #888 (B2 + B2b) squash-merged → main `a72802b`. Deploy 32616820260 = success; live bundle `index-Bc1tz0rM.js` has the hydrate copy ('Loading match details' ×1) and no `club-console:matches` localStorage key (04:12Z). Codex P1 (roster wipe) fixed by B2b before merge; re-review requested, none came in 12 min (no 👍 either) — merged on green CI + the fix verified by rederive + test.
 - Lane still based on 5af2ab5; rebase at the next pause: `lane-rebase.sh c258c09 --launch P0-A6b 2700` (drops the cherry-picked B2b lane commit 99134a8 as empty).
 - Verifier: `scratchpad/rederive.sh <TASK> [BASE]` replays the brief's step scripts on BASE's files and cmp's against the tree (skips shipped-whole files identical to their asset) — used for A0, A5, B2b; finish scripts' added-lines checks are wrong-shaped for replacements.
 
