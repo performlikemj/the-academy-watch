@@ -136,6 +136,10 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 - Every Phase-0 task has landed: C1, A1, A2, A3(+b), B1 (PR-1); B2(+b) (PR-2); A0, A5, A4, A6b, A6, A8, A9 + A6c/A10b/A10/A11/A11b/A11c (PR-3); C2, C3, C4, D1a, D1b, D2, A11d → PR-4 (opening now after the full integrate gate).
 - Still Fable/MJ: schedule `run_video_maintenance` (ACA job), Azure lifecycle rules; sw01 migration applies on PR-4's deploy.
 
+### 2026-08-23 09:24Z — PR-4 review → D3
+
+- Codex on #890: P1 SAS outlives the token near expiry; P1 sweeper forgets blobs when storage unconfigured; P2 preflight swept. All three in P0-D3 (proven in a temp worktree: ruff + 14 video tests). PR-4 branch fast-forwarded to lane HEAD, replies posted, re-review requested.
+
 ## Run log
 
 | Session | Task | Result | Verified by Fable | Notes |
@@ -175,6 +179,7 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 | qwen-P0-D1b-20260823T0830 | P0-D1b (maintenance job runs retention; 3 step scripts + test replaced) | completed, gate green, 0 nudges, ~6 min | ce302cb (post-rebase) | job rederive IDENTICAL; test identical |
 | qwen-P0-A11d-20260823T0839 | P0-A11d (per-box action sequencing; 2 shipped files; for PR-4) | completed, gate green, 0 nudges, ~5 min | 6d316b8 | 2 files identical; 41 lane frontend tests green |
 | qwen-P0-D2-20260823T0844 | P0-D2 (30-min media read SAS + no-store redirect; 4 step scripts + test) | HELP at 713s (missing_package: `.loan` venv lacked azure-storage-blob → NameError in the unit test; precise diagnosis, correct stop) → Fable installed the pinned azure-storage-blob==12.30.0, resumed → completed, gate green | 8307865 | video.py + video_storage.py rederive IDENTICAL; test identical |
+| qwen-P0-D3-20260823T0917 | P0-D3 (SAS ≤ token life; retention guard; preflight excluded; 3 step scripts + 3 shipped files) | completed, gate green, 0 nudges, ~7 min | 2ffed49 | auth/video_storage/video.py rederive IDENTICAL; 3 shipped files identical; 14 video tests green |
 | — | **PR-1 #887** `feat/p0-contact-foundation` (snapshot of lane HEAD c4b98af: tooling + C1 + A1 + A2 + A3) | OPEN 02:31Z; lane full gate green (26 s) before push | CI watch in progress; read codex-connector reviews before merging (MJ 2026-08-11 rule) | https://github.com/performlikemj/the-academy-watch/pull/887 |
 | qwen-P0-A2-20260823T0118 (v3, earlier note) | — | test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | — | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now | — test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | pending | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now |
 
