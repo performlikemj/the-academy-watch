@@ -39,7 +39,7 @@ from src.models.journey import PlayerJourney
 from src.models.league import PlayerStatsCache, Team, UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.season_rollup import PlayerSeasonTotal
-from src.models.showcase import without_minor_local_bridge
+from src.models.showcase import PlayerProfileClaim, without_minor_local_bridge
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services.follow_resolver import derive_label, resolve_list, validate_selector
@@ -657,6 +657,26 @@ def _sort_expression(sort, columns):
     return sort_map.get(sort)
 
 
+def _attach_contactable(players: list[dict]) -> None:
+    """Mark rows whose player has an approved self-claim — the contact rail's target set (one query)."""
+    ids = {p["player_id"] for p in players if p.get("player_id")}
+    claimed = set()
+    if ids:
+        rows = (
+            db.session.query(PlayerProfileClaim.player_api_id)
+            .filter(
+                PlayerProfileClaim.player_api_id.in_(ids),
+                PlayerProfileClaim.relationship_type == "player",
+                PlayerProfileClaim.status == "approved",
+            )
+            .distinct()
+            .all()
+        )
+        claimed = {row[0] for row in rows}
+    for player in players:
+        player["contactable"] = player.get("player_id") in claimed
+
+
 @scout_bp.route("/scout/players", methods=["GET"])
 def scout_players():
     """Browse all tracked players across clubs with filters and stat sorting.
@@ -706,6 +726,7 @@ def scout_players():
         rows = query.offset((page - 1) * per_page).limit(per_page).all()
 
         players = [_row_to_dict(row) for row in rows]
+        _attach_contactable(players)
         _attach_recent_form(players)
 
         return jsonify(
