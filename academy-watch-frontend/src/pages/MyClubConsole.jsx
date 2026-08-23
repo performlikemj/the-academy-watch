@@ -941,6 +941,33 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
     }
   }
 
+  // List rows are summaries without `roster`. MatchDetail must never start from a missing roster — a save would
+  // then wipe the saved entries — so the selected match is fetched in full once, and the editor renders only after.
+  const selectedMatchId = selectedMatch?.id || null
+  const hydrated = Array.isArray(selectedMatch?.roster)
+  const [hydrateError, setHydrateError] = useState(null) // { id, message } for the match whose fetch failed
+  const [hydrateAttempt, setHydrateAttempt] = useState(0)
+  useEffect(() => {
+    if (!selectedMatchId || hydrated) return undefined
+    let cancelled = false
+    APIService.getClubMatch(programId, selectedMatchId)
+      .then((full) => {
+        if (cancelled) return
+        setHydrateError(null)
+        upsertMatch({ ...full, roster: Array.isArray(full?.roster) ? full.roster : [] })
+      })
+      .catch((requestError) => {
+        if (cancelled) return
+        if (requestError?.status === 403) {
+          onAccessDenied()
+          return
+        }
+        setHydrateError({ id: selectedMatchId, message: errorText(requestError, 'Match details could not be loaded. Try again.') })
+      })
+    return () => { cancelled = true }
+  }, [selectedMatchId, hydrated, hydrateAttempt, programId, upsertMatch, onAccessDenied])
+  const hydrateMessage = hydrateError?.id === selectedMatchId ? hydrateError.message : null
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -976,7 +1003,9 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
               )
             })}
           </div>
-          {selectedMatch ? (
+          {selectedMatch && !hydrated ? (
+            <Card><CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-muted-foreground">{hydrateMessage ? (<><InlineError>{hydrateMessage}</InlineError><Button variant="outline" onClick={() => { setHydrateError(null); setHydrateAttempt((n) => n + 1) }}><RefreshCw className="mr-1.5 h-4 w-4" /> Retry</Button></>) : (<span className="inline-flex items-center"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading match details…</span>)}</CardContent></Card>
+          ) : selectedMatch ? (
             <MatchDetail
               key={selectedMatch.id}
               programId={programId}

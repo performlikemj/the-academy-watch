@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 
-const consoleFile = new URL('../src/pages/MyClubConsole.jsx', import.meta.url)
+const consoleFile = process.env.CONSOLE_SRC
+  ? new URL(process.env.CONSOLE_SRC, `file://${process.cwd()}/`)
+  : new URL('../src/pages/MyClubConsole.jsx', import.meta.url)
 const apiFile = new URL('../src/lib/api.js', import.meta.url)
 
 test('the club console lists matches from the backend and keeps no localStorage index', async () => {
@@ -19,4 +21,14 @@ test('APIService.listClubMatches hits GET /club/<id>/matches', async () => {
   assert.notEqual(start, -1)
   const body = src.slice(start, src.indexOf('\n    }\n', start))
   assert.ok(body.includes('`/club/${encodeURIComponent(programId)}/matches`'))
+})
+
+test('the roster editor only renders a match fetched in full (list rows carry no roster)', async () => {
+  const src = await fs.readFile(consoleFile, 'utf8')
+  const panel = src.slice(src.indexOf('function MatchesPanel('), src.indexOf('function ClubProfile('))
+  assert.ok(panel.includes('const hydrated = Array.isArray(selectedMatch?.roster)'), 'hydration is keyed on a roster array being present')
+  assert.ok(panel.includes('APIService.getClubMatch(programId, selectedMatchId)'), 'the selected match is fetched in full')
+  const guard = panel.indexOf('{selectedMatch && !hydrated ? (')
+  const detail = panel.indexOf('<MatchDetail')
+  assert.ok(guard !== -1 && detail !== -1 && guard < detail, 'MatchDetail renders only behind the hydration guard')
 })
