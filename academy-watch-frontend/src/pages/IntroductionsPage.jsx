@@ -77,6 +77,9 @@ export function IntroductionsPage() {
   const [actionError, setActionError] = useState(null)
   // Sent and Inbox share loading/error state; a late result from the other box must not overwrite this one.
   const loadSeq = useRef(0)
+  // Same for actions: a Sent accept/decline/withdraw that finishes after switching to Inbox must not write its
+  // error or clear the busy flag there (its data update still lands in the right box via the closure).
+  const actionSeq = useRef(0)
 
   const load = useCallback(async (which) => {
     if (!auth?.token) return
@@ -97,8 +100,10 @@ export function IntroductionsPage() {
   }, [auth?.token])
 
   useEffect(() => {
+    actionSeq.current += 1
     setSelectedId(null)
     setActionError(null)
+    setBusyId(null)
     load(box)
   }, [box, load])
 
@@ -107,6 +112,8 @@ export function IntroductionsPage() {
   }, [box])
 
   const act = async (action, request) => {
+    const seq = actionSeq.current + 1
+    actionSeq.current = seq
     setBusyId(request.id)
     setActionError(null)
     try {
@@ -118,9 +125,10 @@ export function IntroductionsPage() {
       const res = await call
       if (res?.contact_request) applyUpdate(res.contact_request)
     } catch (err) {
+      if (seq !== actionSeq.current) return
       setActionError(err?.body?.error || err?.message || 'That action did not go through.')
     } finally {
-      setBusyId(null)
+      if (seq === actionSeq.current) setBusyId(null)
     }
   }
 

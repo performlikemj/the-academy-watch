@@ -75,3 +75,11 @@ test('a late load for the other box never overwrites the current box', async () 
   assert.ok(page.includes('if (seq !== loadSeq.current) return'), 'stale load results are discarded')
   assert.ok(page.includes('if (seq === loadSeq.current) setLoading(false)'), 'a stale load does not clear the newer load\'s spinner')
 })
+
+test('an action that finishes after switching boxes never writes its error or clears the busy flag there', async () => {
+  const page = await fs.readFile(pageFile, 'utf8')
+  assert.ok(page.includes('const actionSeq = useRef(0)'), 'actions are sequenced')
+  assert.ok(page.includes('if (seq !== actionSeq.current) return'), 'a stale action error is discarded')
+  assert.ok(page.includes('if (seq === actionSeq.current) setBusyId(null)'), 'a stale action does not clear the new box\'s busy flag')
+  assert.ok(page.includes('    actionSeq.current += 1\n    setSelectedId(null)\n    setActionError(null)\n    setBusyId(null)\n    load(box)'), 'switching boxes resets action state')
+})
