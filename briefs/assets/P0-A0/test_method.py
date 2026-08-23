@@ -5,9 +5,15 @@
         db.session.flush()
         db.session.add_all(
             [
-                PlayerProfileClaim(player_api_id=1001, user_account_id=user.id, relationship_type="player", status="approved"),
-                PlayerProfileClaim(player_api_id=1002, user_account_id=user.id, relationship_type="agent", status="approved"),
-                PlayerProfileClaim(player_api_id=1003, user_account_id=user.id, relationship_type="player", status="pending"),
+                PlayerProfileClaim(
+                    player_api_id=1001, user_account_id=user.id, relationship_type="player", status="approved"
+                ),
+                PlayerProfileClaim(
+                    player_api_id=1002, user_account_id=user.id, relationship_type="agent", status="approved"
+                ),
+                PlayerProfileClaim(
+                    player_api_id=1003, user_account_id=user.id, relationship_type="player", status="pending"
+                ),
             ]
         )
         db.session.commit()
