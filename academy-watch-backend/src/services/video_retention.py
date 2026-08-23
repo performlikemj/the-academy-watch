@@ -14,9 +14,9 @@ from src.services import video_storage
 
 logger = logging.getLogger(__name__)
 
-# Only footage no pipeline still needs may go: queued/processing rows wait for the next run, and
-# created rows have no blob yet.
-EXPIRABLE_STATUSES = ("uploaded", "preflight", "needs_tagging", "finalized", "failed")
+# Only footage no pipeline still needs may go: queued/preflight/processing rows are in flight and wait for the
+# next run, and created rows have no blob yet.
+EXPIRABLE_STATUSES = ("uploaded", "needs_tagging", "finalized", "failed")
 
 
 def _utcnow_naive() -> datetime:
@@ -40,8 +40,8 @@ def due_matches(now: datetime | None = None) -> list[VideoMatch]:
 
 
 def expire_raw_footage(now: datetime | None = None, *, dry_run: bool = False) -> dict:
-    """Delete due raw footage and mark those matches expired. Returns counts; a failed delete is
-    counted and skipped (the row stays untouched for the next run), never raised."""
+    """Delete due raw footage and mark those matches expired. Returns counts; a failed delete — or storage
+    not being configured at all — is counted and skipped (the row stays untouched for the next run), never raised."""
     now = now or _utcnow_naive()
     due = due_matches(now)
     if dry_run:
@@ -49,7 +49,12 @@ def expire_raw_footage(now: datetime | None = None, *, dry_run: bool = False) ->
     expired = 0
     failed = 0
     for match in due:
-        if video_storage.is_configured() and not video_storage.delete_blob(match.blob_path):
+        if not video_storage.is_configured():
+            # No storage client here: the blob cannot be deleted, so the row must keep pointing at it for a
+            # configured run. Forgetting the path would strand the footage in Azure forever.
+            failed += 1
+            continue
+        if not video_storage.delete_blob(match.blob_path):
             failed += 1
             continue
         match.status = "expired"

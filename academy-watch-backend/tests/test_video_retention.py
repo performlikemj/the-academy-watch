@@ -117,11 +117,27 @@ def test_dry_run_counts_and_changes_nothing(video_app, monkeypatch):
     assert db.session.get(VideoMatch, row.id).status == "finalized"
 
 
-def test_unconfigured_storage_still_flips_row(video_app, monkeypatch):
-    row = _match(status="uploaded", expires_at=PAST)
+def test_unconfigured_storage_counts_as_failed_and_keeps_row(video_app, monkeypatch):
+    row = _match(status="finalized", expires_at=PAST)
     monkeypatch.setattr(video_storage, "is_configured", lambda: False)
-    assert video_retention.expire_raw_footage(NOW)["expired"] == 1
-    assert db.session.get(VideoMatch, row.id).status == "expired"
+    monkeypatch.setattr(video_storage, "delete_blob", lambda path: pytest.fail("must not be called without storage"))
+
+    result = video_retention.expire_raw_footage(NOW)
+
+    assert result == {"due": 1, "expired": 0, "failed": 1, "dry_run": False}
+    db.session.refresh(row)
+    assert row.status == "finalized"
+    assert row.blob_path == "matches/x.mp4"
+
+
+def test_preflight_rows_are_never_due_even_past_deadline(video_app):
+    _match(status="preflight", expires_at=PAST)
+    _match(status="finalized", expires_at=PAST)
+
+    due = video_retention.due_matches(NOW)
+
+    assert [m.status for m in due] == ["finalized"]
+    assert "preflight" not in video_retention.EXPIRABLE_STATUSES
 
 
 def test_delete_blob_treats_404_as_gone(monkeypatch):

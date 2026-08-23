@@ -23,7 +23,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from flask import Blueprint, Response, g, jsonify, redirect, request, send_file
-from src.auth import mint_media_token, verify_media_token
+from src.auth import media_token_remaining_seconds, mint_media_token, verify_media_token
 from src.models.funding import ClubRosterMember
 from src.models.league import Team, db
 from src.models.showcase import LocalPlayer
@@ -705,7 +705,10 @@ def stream_footage(match_id: int):
     if video_storage.is_configured():
         if not match.blob_path:
             return jsonify({"error": "no footage"}), 404
-        resp = redirect(video_storage.mint_media_read_sas(match.blob_path))
+        remaining = media_token_remaining_seconds(request.args.get("token", ""), match_id)
+        if remaining <= 0:
+            return jsonify({"error": "invalid or expired media token"}), 403
+        resp = redirect(video_storage.mint_media_read_sas(match.blob_path, seconds=remaining))
         resp.headers["Cache-Control"] = "private, no-store"  # SAS rides the Location — don't cache/leak
         resp.headers["Referrer-Policy"] = "no-referrer"
         return resp
