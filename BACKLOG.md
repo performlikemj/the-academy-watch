@@ -11,13 +11,13 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-C1 | `briefs/P0-C1.md` | `RequireAuth` honors its `requireJournalist` prop (dead prop today). | done 08-23 (84369d1) |
 | P0-A1 | `briefs/P0-A1.md` | Club-consent email links point at the web page `/contact/club-consent/<token>`, not `/api/...`. | done 08-23 (e54a750) |
 | P0-B1 | `briefs/P0-B1.md` | Backend `GET /api/club/<program_id>/matches` (club match list; kills the localStorage history). | done (bdae27f) |
-| P0-A3b | `briefs/P0-A3b.md` | Consent page: only the API 404 is "invalid link"; transient failures get Retry (codex P2 on PR #887). Shipped page, one `cp`. | in-progress |
+| P0-A3b | `briefs/P0-A3b.md` | Consent page: only the API 404 is "invalid link"; transient failures get Retry (codex P2 on PR #887). Shipped page, one `cp`. | done (cbe5a1e) |
 | P0-A0 | `briefs/P0-A0.md` | `contactable` flag on `/api/scout/players` rows (approved self-claim exists) — one batched query. | ready |
 | P0-C2 | `briefs/P0-C2.md` | Index `scout_watchlist_entries.player_api_id` (model + guarded migration `sw01` off head `c201`). | ready |
 | P0-C3 | `briefs/P0-C3.md` | `club_registry._table_columns` introspects once per HTTP request (no cache outside requests). | ready |
 | P0-C4 | `briefs/P0-C4.md` | New scheduled job `src/jobs/run_video_maintenance.py` that calls `reap_stale_jobs()`. | ready |
 | P0-A2 | `briefs/P0-A2.md` | `api.js` learns the contact rail (13 user-level methods) + source test. | done 08-23 (b0690df) |
-| P0-B2 | `briefs/P0-B2.md` | Club console reads `listClubMatches`; localStorage index deleted. Depends on P0-B1. | ready |
+| P0-B2 | `briefs/P0-B2.md` | Club console reads `listClubMatches`; localStorage index deleted. Depends on P0-B1. | in-progress |
 | P0-D1a | `briefs/P0-D1a.md` | `video_storage.delete_blob` + `services/video_retention.py` (`due_matches`, `expire_raw_footage`). | ready |
 | P0-D1b | `briefs/P0-D1b.md` | Maintenance job runs the retention sweep. Depends on P0-C4 + P0-D1a. | ready |
 | P0-D2 | `briefs/P0-D2.md` | Footage redirect uses a 30-min media read SAS + `Cache-Control: private, no-store`. | ready |
