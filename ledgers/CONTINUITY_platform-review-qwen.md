@@ -103,6 +103,10 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 - Lane rebased onto origin/main a72802b at 04:19Z (`lane-rebase.sh c258c09 --launch P0-A6b 2700`; B2b lane commit dropped as empty).
 - Verifier: `scratchpad/rederive.sh <TASK> [BASE]` replays the brief's step scripts on BASE's files and cmp's against the tree (skips shipped-whole files identical to their asset) — used for A0, A5, B2b; finish scripts' added-lines checks are wrong-shaped for replacements.
 
+### 2026-08-23 04:56Z — A-group complete → PR-3
+
+- A0, A5, A4, A6b, A6, A8, A9 all landed (each re-derived/identical). PR-3 `feat/p0-contact-rail-ui` opened from lane HEAD; C-group starts on the lane meanwhile.
+
 ## Run log
 
 | Session | Task | Result | Verified by Fable | Notes |
@@ -127,7 +131,8 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 | qwen-P0-A6b-20260823T0417 | P0-A6b (contact thread component: 3 new files) | completed, gate green, 0 nudges, ~10 min | 9feaf78 | 3 files identical to assets |
 | qwen-P0-A6-20260823T0427 | P0-A6 (introductions page + App.jsx import/route) | completed, gate green, 0 nudges, ~8 min | 0e73fe1 | App.jsx rederive IDENTICAL; 3 new files identical |
 | qwen-P0-A8-20260823T0435 | P0-A8 (club console Introductions tab: 5 step scripts + 2 new files) | completed, gate green, 0 nudges, ~9 min | ef5f113 | MyClubConsole rederive IDENTICAL; 2 new files identical; finish-a8 substring-count check mis-specified (committed by hand) |
-| qwen-P0-A9-<see wrapper> | P0-A9 (Introductions nav entries: 4 step scripts) | running | — | |
+| qwen-P0-A9-20260823T0444 | P0-A9 (Introductions nav entries: 4 step scripts) | completed, gate green, 0 nudges, ~10 min | c02f96a | App.jsx + ScoutPage.jsx rederive IDENTICAL; test identical; finish-a9 had a py3.11 f-string bug (committed by hand) |
+| qwen-P0-C2-<see wrapper> | P0-C2 (scout_watchlist index migration sw01 + model) | running | — | |
 | — | **PR-1 #887** `feat/p0-contact-foundation` (snapshot of lane HEAD c4b98af: tooling + C1 + A1 + A2 + A3) | OPEN 02:31Z; lane full gate green (26 s) before push | CI watch in progress; read codex-connector reviews before merging (MJ 2026-08-11 rule) | https://github.com/performlikemj/the-academy-watch/pull/887 |
 | qwen-P0-A2-20260823T0118 (v3, earlier note) | — | test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | — | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now | — test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | pending | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now |
 
