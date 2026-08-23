@@ -705,7 +705,10 @@ def stream_footage(match_id: int):
     if video_storage.is_configured():
         if not match.blob_path:
             return jsonify({"error": "no footage"}), 404
-        return redirect(video_storage.mint_read_sas(match.blob_path))
+        resp = redirect(video_storage.mint_media_read_sas(match.blob_path))
+        resp.headers["Cache-Control"] = "private, no-store"  # SAS rides the Location — don't cache/leak
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        return resp
     art = video_dev_artifacts.local_artifacts(match)
     path = (art or {}).get("footage")
     if not path or not os.path.exists(path):

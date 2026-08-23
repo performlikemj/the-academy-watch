@@ -31,6 +31,7 @@ except ImportError:  # keep the app importable without the optional dependency
 
 UPLOAD_SAS_MINUTES = 60  # re-mint endpoint exists because 6GB at club uplink speeds outlives this
 READ_SAS_HOURS = 6
+MEDIA_READ_SAS_MINUTES = 30  # browser footage redirect; matches src.auth.MEDIA_TOKEN_TTL
 
 
 def _container() -> str:
@@ -82,6 +83,14 @@ def mint_upload_sas(blob_path: str) -> dict:
 def mint_read_sas(blob_path: str, hours: int = READ_SAS_HOURS) -> str:
     """Read-only SAS URL (worker footage pull, report thumbnails)."""
     expiry = datetime.now(UTC) + timedelta(hours=hours)
+    sas = _mint_sas(blob_path, BlobSasPermissions(read=True), expiry)
+    client = _service_client()
+    return f"{client.url}{_container()}/{blob_path}?{sas}"
+
+
+def mint_media_read_sas(blob_path: str, minutes: int = MEDIA_READ_SAS_MINUTES) -> str:
+    """Short read-only SAS for the browser footage redirect — never longer than the media token."""
+    expiry = datetime.now(UTC) + timedelta(minutes=minutes)
     sas = _mint_sas(blob_path, BlobSasPermissions(read=True), expiry)
     client = _service_client()
     return f"{client.url}{_container()}/{blob_path}?{sas}"
