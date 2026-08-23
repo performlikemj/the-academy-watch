@@ -13,8 +13,8 @@ class ScoutWatchlistEntry(db.Model):
     __tablename__ = "scout_watchlist_entries"
 
     id = db.Column(db.Integer, primary_key=True)
-    # No standalone indexes: the composite unique below leads on
-    # user_account_id, which serves every user-scoped query.
+    # The composite unique below leads on user_account_id (every user-scoped query);
+    # ix_scout_watchlist_player serves the per-player lookups (digests, cleanup).
     user_account_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=False)
     player_api_id = db.Column(db.Integer, nullable=False)
     note = db.Column(db.Text)
@@ -23,7 +23,10 @@ class ScoutWatchlistEntry(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
-    __table_args__ = (db.UniqueConstraint("user_account_id", "player_api_id", name="uq_scout_watchlist_user_player"),)
+    __table_args__ = (
+        db.UniqueConstraint("user_account_id", "player_api_id", name="uq_scout_watchlist_user_player"),
+        db.Index("ix_scout_watchlist_player", "player_api_id"),
+    )
 
     user = db.relationship("UserAccount", backref=db.backref("scout_watchlist_entries", lazy="dynamic"))
 
