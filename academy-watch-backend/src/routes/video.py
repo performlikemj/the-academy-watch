@@ -37,7 +37,7 @@ from src.models.video import (
     VideoTracklet,
 )
 from src.routes.api import require_api_key
-from src.services import video_dev_artifacts, video_queue, video_storage
+from src.services import video_dev_artifacts, video_queue, video_retention, video_storage
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.video_feedback import build_feedback_labels
 from src.services.video_identity import NUMBER_AGREEMENT_MIN, split_chain
@@ -120,6 +120,8 @@ def remint_upload_sas(match_id: int):
         return jsonify({"error": "match not found"}), 404
     if match.status not in ("created", "uploaded"):
         return _bad_request(f"cannot re-mint SAS in status '{match.status}'")
+    if not video_retention.can_issue_upload_grant(match):
+        return jsonify({"error": "retention deadline too close to issue an upload grant; create a new match"}), 409
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
     return jsonify(video_storage.mint_upload_sas(match.blob_path))

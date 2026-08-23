@@ -22,7 +22,7 @@ from src.models.league import Team, db
 from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
-from src.services import video_storage
+from src.services import video_retention, video_storage
 from src.services.club_registry import require_club_manager
 from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
@@ -387,6 +387,8 @@ def club_match_sas(program_id: int, match_id: int):
         return jsonify({"error": "Match not found"}), 404
     if match.status not in {"created", "uploaded"}:
         return _bad_request(f"cannot re-mint SAS in status '{match.status}'")
+    if not video_retention.can_issue_upload_grant(match):
+        return jsonify({"error": "retention deadline too close to issue an upload grant; create a new match"}), 409
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
     return jsonify(video_storage.mint_upload_sas(match.blob_path))

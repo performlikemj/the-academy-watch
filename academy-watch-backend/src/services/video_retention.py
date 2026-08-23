@@ -21,6 +21,9 @@ EXPIRABLE_STATUSES = ("uploaded", "needs_tagging", "finalized", "failed")
 # A row that never reached upload-complete keeps status "created" and no expires_at, yet its blob may exist (the
 # browser uploaded straight to Azure and vanished). Those are swept by age instead — mirrors the routes' 90-day policy.
 ABANDONED_UPLOAD_DAYS = 90
+# A write SAS minted for an upload lives this long. No grant may be issued that would outlive the retention deadline,
+# and the sweep waits one grant-lifetime past the deadline — so a live grant can never recreate a swept blob.
+UPLOAD_GRANT_GRACE = timedelta(minutes=video_storage.UPLOAD_SAS_MINUTES)
 
 
 def _utcnow_naive() -> datetime:
@@ -32,14 +35,31 @@ def _abandoned_before(now: datetime) -> datetime:
     return now - timedelta(days=ABANDONED_UPLOAD_DAYS)
 
 
+def retention_deadline(match: VideoMatch) -> datetime | None:
+    """When this match's raw footage is due: the stamped deadline, or (never-completed uploads) created_at + policy."""
+    if match.expires_at is not None:
+        return match.expires_at
+    if match.status == "created" and match.created_at is not None:
+        return match.created_at + timedelta(days=ABANDONED_UPLOAD_DAYS)
+    return None
+
+
+def can_issue_upload_grant(match: VideoMatch, now: datetime | None = None) -> bool:
+    """False when a write SAS minted now would still be usable at (or after) the retention deadline."""
+    now = now or _utcnow_naive()
+    deadline = retention_deadline(match)
+    return deadline is None or deadline - UPLOAD_GRANT_GRACE > now
+
+
 def _still_eligible(match: VideoMatch, now: datetime) -> bool:
     """The in-loop re-check: the same rule as due_matches(), evaluated on a freshly re-read row."""
     if not match.blob_path:
         return False
+    cutoff = now - UPLOAD_GRANT_GRACE
     if match.status in EXPIRABLE_STATUSES:
-        return match.expires_at is not None and match.expires_at <= now
+        return match.expires_at is not None and match.expires_at <= cutoff
     if match.status == "created":
-        return match.created_at is not None and match.created_at <= _abandoned_before(now)
+        return match.created_at is not None and match.created_at <= _abandoned_before(cutoff)
     return False
 
 
@@ -47,19 +67,20 @@ def due_matches(now: datetime | None = None) -> list[VideoMatch]:
     """Matches whose raw footage is past retention and still present, oldest deadline first — plus abandoned
     uploads (status created, blob path set, older than ABANDONED_UPLOAD_DAYS)."""
     now = now or _utcnow_naive()
+    cutoff = now - UPLOAD_GRANT_GRACE  # one grant-lifetime past the deadline: every issued write SAS is dead by then
     return (
         VideoMatch.query.filter(
             VideoMatch.blob_path.isnot(None),
             or_(
                 and_(
                     VideoMatch.expires_at.isnot(None),
-                    VideoMatch.expires_at <= now,
+                    VideoMatch.expires_at <= cutoff,
                     VideoMatch.status.in_(EXPIRABLE_STATUSES),
                 ),
                 and_(
                     VideoMatch.status == "created",
                     VideoMatch.created_at.isnot(None),
-                    VideoMatch.created_at <= _abandoned_before(now),
+                    VideoMatch.created_at <= _abandoned_before(cutoff),
                 ),
             ),
         )

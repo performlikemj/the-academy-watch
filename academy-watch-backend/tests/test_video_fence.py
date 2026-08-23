@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from flask import Flask
+from sqlalchemy import update
 from src.extensions import limiter
 from src.models.follow import PlayerShadow  # noqa: F401
 from src.models.funding import ClubProgram  # noqa: F401
@@ -111,3 +112,37 @@ def test_worker_stops_and_writes_nothing_when_fenced_at_first_heartbeat():
     assert match.status == "queued"
     rollback.assert_called_once()
     commit.assert_not_called()
+
+
+def test_completion_marks_a_running_job_succeeded_after_persisting(video_app, monkeypatch):
+    match, running = _match_and_job(job_status="running")
+    persisted = []
+    monkeypatch.setattr(video_identity, "persist_artifacts", lambda m, a: persisted.append(m.id) or {"tracklets": 0})
+
+    result = video_identity.complete_job_with_artifacts(running.id, {"fragments": [], "votes": []}, gpu_seconds=2.5)
+
+    assert result == {"tracklets": 0}
+    assert persisted == [match.id]
+    db.session.expire_all()
+    job = db.session.get(VideoAnalysisJob, running.id)
+    assert job.status == "succeeded"
+    assert job.progress == 100
+    assert job.gpu_seconds == 2.5
+
+
+def test_completion_is_fenced_if_the_job_is_moved_during_persistence(video_app, monkeypatch):
+    match, running = _match_and_job(job_status="running")
+
+    def cancel_underneath(m, artifacts):
+        # An admin cancels while artifacts are being written (another transaction).
+        db.session.execute(update(VideoAnalysisJob).where(VideoAnalysisJob.id == running.id).values(status="cancelled"))
+        db.session.commit()
+        return {"tracklets": 0}
+
+    monkeypatch.setattr(video_identity, "persist_artifacts", cancel_underneath)
+
+    with pytest.raises(video_queue.JobFenced):
+        video_identity.complete_job_with_artifacts(running.id, {"fragments": [], "votes": []})
+
+    db.session.expire_all()
+    assert db.session.get(VideoAnalysisJob, running.id).status == "cancelled"

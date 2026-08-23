@@ -215,3 +215,29 @@ def test_abandoned_created_uploads_become_due_by_age(video_app, monkeypatch):
     assert db.session.get(VideoMatch, old.id).status == "expired"
     assert db.session.get(VideoMatch, old.id).blob_path is None
     assert db.session.get(VideoMatch, young.id).status == "created"
+
+
+def test_sweep_waits_one_upload_grant_lifetime_past_the_deadline(video_app):
+    just_past = _match(status="uploaded", expires_at=NOW - timedelta(minutes=30))
+    long_past = _match(status="uploaded", expires_at=NOW - timedelta(minutes=90))
+
+    assert [m.id for m in video_retention.due_matches(NOW)] == [long_past.id]
+    assert timedelta(minutes=video_storage.UPLOAD_SAS_MINUTES) == video_retention.UPLOAD_GRANT_GRACE
+    assert just_past.id not in [m.id for m in video_retention.due_matches(NOW)]
+
+
+def test_can_issue_upload_grant_refuses_grants_that_would_outlive_the_deadline(video_app):
+    fresh = _match(status="uploaded", expires_at=NOW + timedelta(days=10))
+    closing = _match(status="uploaded", expires_at=NOW + timedelta(minutes=30))
+    overdue = _match(status="uploaded", expires_at=NOW - timedelta(days=1))
+    young_created = VideoMatch(status="created", blob_path="matches/y.mp4", created_at=NOW - timedelta(days=1))
+    old_created = VideoMatch(status="created", blob_path="matches/o.mp4", created_at=NOW - timedelta(days=90))
+    db.session.add_all([young_created, old_created])
+    db.session.commit()
+
+    assert video_retention.can_issue_upload_grant(fresh, NOW) is True
+    assert video_retention.can_issue_upload_grant(closing, NOW) is False
+    assert video_retention.can_issue_upload_grant(overdue, NOW) is False
+    assert video_retention.can_issue_upload_grant(young_created, NOW) is True
+    assert video_retention.can_issue_upload_grant(old_created, NOW) is False
+    assert video_retention.retention_deadline(young_created) == young_created.created_at + timedelta(days=90)
