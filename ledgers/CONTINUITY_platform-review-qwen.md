@@ -107,6 +107,13 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 
 - A0, A5, A4, A6b, A6, A8, A9 all landed (each re-derived/identical). PR-3 `feat/p0-contact-rail-ui` opened from lane HEAD; C-group starts on the lane meanwhile.
 
+
+### 2026-08-23 05:25Z — PR-3 review follow-ups briefed (run after C2, before C3)
+
+- Codex on #889: P1 entry points visible with CONTACT_RAIL_ENABLED off; P2 thread shows only first 100 msgs; P2 club sees an outcome form it cannot use. Prod has the flag ON (`CONTACT_RAIL_ENABLED=1` on the container) — fix is for default-off / containment.
+- Briefs: P0-A6c (thread pages until a short page + `canReportOutcome` prop; panel passes false) · P0-A10b (public `GET /api/features` → `{contact_rail}` in api_bp, import-free — the first draft's lazy import of services.contact broke the NEXT test app's create_all (NoReferencedTableError) and auth_bp isn't in the test app; two commits say 'proven' before the proof was actually green — corrected here) · P0-A10 (pure `contact-flags.js` + `useContactRail` hook over /api/features; nav/desk/club-tab gated on `=== true`; /introductions shows an unavailable card when off; proven in a temp worktree incl. pnpm build).
+- Order: A6c → A10b → A10 → cherry-pick the three onto `feat/p0-contact-rail-ui`, reply to codex, re-review, merge; then resume C3…
+
 ## Run log
 
 | Session | Task | Result | Verified by Fable | Notes |
