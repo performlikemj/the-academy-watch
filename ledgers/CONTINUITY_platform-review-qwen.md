@@ -114,6 +114,10 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 - Briefs: P0-A6c (thread pages until a short page + `canReportOutcome` prop; panel passes false) · P0-A10b (public `GET /api/features` → `{contact_rail}` in api_bp, import-free — the first draft's lazy import of services.contact broke the NEXT test app's create_all (NoReferencedTableError) and auth_bp isn't in the test app; two commits say 'proven' before the proof was actually green — corrected here) · P0-A10 (pure `contact-flags.js` + `useContactRail` hook over /api/features; nav/desk/club-tab gated on `=== true`; /introductions shows an unavailable card when off; proven in a temp worktree incl. pnpm build).
 - Order: A6c → A10b → A10 → cherry-pick the three onto `feat/p0-contact-rail-ui`, reply to codex, re-review, merge; then resume C3…
 
+### 2026-08-23 07:08Z — PR-3 fixes landed on the lane
+
+- A6c f396991, A10b 46c6c3f, A10 6ff3693 cherry-picked onto `feat/p0-contact-rail-ui` (pr3-update.sh: replies on the three codex threads + `@codex review`); C-chain resumed with C3.
+
 ## Run log
 
 | Session | Task | Result | Verified by Fable | Notes |
@@ -142,7 +146,8 @@ every hand-back (diff + gate, own eyes), committing by path, and shipping PRs pe
 | qwen-P0-C2-20260823T0455 | P0-C2 (scout_watchlist index migration sw01 + model) | completed, gate green (attempt 3), 0 nudges, ~17 min (qwen had to ruff-format the shipped test — my asset was not format-clean; content unchanged, asset synced) | 8be23f8 | model rederive IDENTICAL; migration identical; test identical after sync |
 | qwen-P0-A6c-20260823T0637 | P0-A6c (thread pagination + canReportOutcome; 4 shipped files) | completed, gate green 1st try, 0 nudges, ~11 min | f396991 | 4 files identical to assets |
 | qwen-P0-A10b-20260823T0648 | P0-A10b (public /api/features route + test) | completed, gate green, 0 nudges, ~10 min | 46c6c3f | api.py rederive IDENTICAL; test identical |
-| qwen-P0-A10-20260823T0658 | P0-A10 (flag gating: 4 step scripts + 5 shipped files) | running | — | |
+| qwen-P0-A10-20260823T0658 | P0-A10 (flag gating: 4 step scripts + 5 shipped files) | completed, gate green, 0 nudges, ~8 min | 6ff3693 | 4 modified files rederive IDENTICAL; 5 new/replaced identical |
+| qwen-P0-C3-<see wrapper> | P0-C3 (club_registry memo) | running | — | |
 | — | **PR-1 #887** `feat/p0-contact-foundation` (snapshot of lane HEAD c4b98af: tooling + C1 + A1 + A2 + A3) | OPEN 02:31Z; lane full gate green (26 s) before push | CI watch in progress; read codex-connector reviews before merging (MJ 2026-08-11 rule) | https://github.com/performlikemj/the-academy-watch/pull/887 |
 | qwen-P0-A2-20260823T0118 (v3, earlier note) | — | test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | — | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now | — test copied in 2 min, gate RED as predicted, first paste (36 lines) LINE-EXACT to the brief; then a 30-min stall → nudge → restart re-read brief, hit dsh's "edit requires reading the file first" rule, read the anchor with offset/limit, re-applied, working on paste 2 | pending | dsh facts learned: `edit` refuses unread files (read the anchor range first); restart prompt works; zero reasoning chunks now |
 

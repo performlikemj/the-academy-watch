@@ -14,7 +14,7 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-A3b | `briefs/P0-A3b.md` | Consent page: only the API 404 is "invalid link"; transient failures get Retry (codex P2 on PR #887). Shipped page, one `cp`. | done (cbe5a1e) |
 | P0-A0 | `briefs/P0-A0.md` | `contactable` flag on `/api/scout/players` rows (approved self-claim exists) — one batched query. | done (95a70f9) |
 | P0-C2 | `briefs/P0-C2.md` | Index `scout_watchlist_entries.player_api_id` (model + guarded migration `sw01` off head `c201`). | done (8be23f8) |
-| P0-C3 | `briefs/P0-C3.md` | `club_registry._table_columns` introspects once per HTTP request (no cache outside requests). | ready |
+| P0-C3 | `briefs/P0-C3.md` | `club_registry._table_columns` introspects once per HTTP request (no cache outside requests). | in-progress |
 | P0-C4 | `briefs/P0-C4.md` | New scheduled job `src/jobs/run_video_maintenance.py` that calls `reap_stale_jobs()`. | ready |
 | P0-A2 | `briefs/P0-A2.md` | `api.js` learns the contact rail (13 user-level methods) + source test. | done 08-23 (b0690df) |
 | P0-B2 | `briefs/P0-B2.md` | Club console reads `listClubMatches`; localStorage index deleted. Depends on P0-B1. | done (6352091) |
@@ -31,7 +31,7 @@ gate list in `briefs/<TASK>.gate` that `make gate TASK=<TASK>` reads.
 | P0-A9 | `briefs/P0-A9.md` | Nav: "Introductions" item for signed-in users; Scout Desk header links (Introductions, Get verified). | done (c02f96a) |
 | P0-A6c | `briefs/P0-A6c.md` | Thread pages through every message; `canReportOutcome` prop; club panel passes false (codex P2s on PR #889). Four shipped files. | done (f396991) |
 | P0-A10b | `briefs/P0-A10b.md` | Public `GET /api/features` → `{contact_rail}` (codex P1 on PR #889, backend half). | done (46c6c3f) |
-| P0-A10 | `briefs/P0-A10.md` | Contact entry points gated on the flag (nav, desk, club tab, /introductions page) (codex P1, frontend half). | in-progress |
+| P0-A10 | `briefs/P0-A10.md` | Contact entry points gated on the flag (nav, desk, club tab, /introductions page) (codex P1, frontend half). | done (6ff3693) |
 
 Done means BOTH: (1) `make gate TASK=<id>` green — you ran it, you saw it; (2) the brief's observable
 is real. Then write your handback file and end with the `HANDBACK-FILED:` line, exactly as the brief says.
