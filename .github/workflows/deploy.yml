@@ -6,6 +6,7 @@
 # Required GitHub variables (Azure authentication and resource routing):
 #   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
 #   AZURE_RG, ACA_ENV, ACR_NAME, ACA_APP
+# Optional: API_BASE_URL (must include /api; defaults to https://api.theacademywatch.com/api)
 #
 # Required secrets:
 #   SWA_DEPLOYMENT_TOKEN  - Static Web App deployment token
@@ -264,8 +265,12 @@ jobs:
       - name: Build frontend
         working-directory: academy-watch-frontend
         env:
-          VITE_API_BASE: https://${{ needs.deploy-backend.outputs.backend_fqdn }}/api
+          VITE_API_BASE: ${{ vars.API_BASE_URL || 'https://api.theacademywatch.com/api' }}
         run: |
+          if [ -z "$VITE_API_BASE" ]; then
+            echo "::error::VITE_API_BASE is empty — refusing to ship the frontend bundle"
+            exit 1
+          fi
           echo "Building with VITE_API_BASE=$VITE_API_BASE"
           pnpm run build
 

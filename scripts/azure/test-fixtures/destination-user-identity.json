@@ -1,0 +1,8 @@
+{
+  "id": "/subscriptions/mock/resourceGroups/rg-nbhd-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-loanarmy-jobs",
+  "name": "id-loanarmy-jobs",
+  "principalId": "destination-uai-principal",
+  "clientId": "destination-uai-client",
+  "tenantId": "mock-tenant",
+  "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+}
