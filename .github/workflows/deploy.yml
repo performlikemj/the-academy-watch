@@ -173,7 +173,7 @@ jobs:
       - name: Get ACR server
         id: acr
         run: |
-          ACR_SERVER=$(az acr show -g "${{ env.AZURE_RG }}" -n "${{ env.ACR_NAME }}" --query loginServer -o tsv)
+          ACR_SERVER=$(az acr show -n "${{ env.ACR_NAME }}" --query loginServer -o tsv)
           echo "server=$ACR_SERVER" >> $GITHUB_OUTPUT
 
       - name: Configure app identity and registry
