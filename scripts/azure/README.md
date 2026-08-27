@@ -71,8 +71,10 @@ in the change ticket so the exact cut-over artifact remains auditable.
 
 ## 2. Stage the stable API hostname before changing the frontend
 
-The permanent frontend contract is `https://api.theacademywatch.com`. Establish
-and test it before dispatching any workflow that builds the frontend with
+The permanent frontend API-base contract is
+`https://api.theacademywatch.com/api`. The `/api` suffix is required because the
+frontend appends route paths directly to `VITE_API_BASE`. Establish and test the
+hostname before dispatching any workflow that builds the frontend with
 `API_BASE_URL`.
 
 Azure cannot attach a hostname to a Container App that does not exist. Therefore,
@@ -343,20 +345,16 @@ next scheduled execution. Manual and event-triggered source jobs remain intact.
 ## 5. Build the frontend against the stable API domain
 
 Both frontend workflows use repository variable `API_BASE_URL`, defaulting to
-`https://api.theacademywatch.com`, and refuse to build if `VITE_API_BASE` is
-empty. Set the variable explicitly after the API POST test passes:
-
-> **Path-prefix gate:** the current frontend concatenates endpoints such as
-> `/features` directly onto `VITE_API_BASE`, while Flask registers those routes
-> below `/api`. The exact root value requested for this move therefore requires
-> a separately verified Cloudflare URL rewrite that prefixes `/api`. If no such
-> rewrite is installed, use `https://api.theacademywatch.com/api` for
-> `API_BASE_URL` instead; otherwise the frontend will request non-API paths.
+`https://api.theacademywatch.com/api`, and refuse to build if `VITE_API_BASE` is
+empty. The variable must include the `/api` suffix. `src/lib/track.js` appends
+`/events`, so this value correctly produces
+`https://api.theacademywatch.com/api/events`. Set the variable explicitly after
+the API POST test passes:
 
 ```bash
 gh variable set API_BASE_URL \
   --repo "$REPO" \
-  --body "https://api.theacademywatch.com"
+  --body "https://api.theacademywatch.com/api"
 
 gh workflow run deploy-frontend.yml --repo "$REPO" --ref main
 gh run list --repo "$REPO" --workflow deploy-frontend.yml --limit 1
@@ -375,6 +373,9 @@ gh variable set ACA_ENV --repo "$REPO" --body "$DST_ENV"
 gh workflow run deploy.yml --repo "$REPO" --ref main -f skip_security_checks=false
 gh run list --repo "$REPO" --workflow deploy.yml --limit 1
 gh run watch --repo "$REPO"
+
+curl -sS --fail https://api.theacademywatch.com/api/seasons \
+  | jq -e '.seasons | type == "array"'
 ```
 
 Confirm repository variables:
@@ -481,8 +482,8 @@ gh variable set ACA_ENV --repo "$REPO" --body "$SRC_ENV"
 gh workflow run deploy.yml --repo "$REPO" --ref main -f skip_security_checks=false
 ```
 
-The stable `API_BASE_URL` does not change during rollback; only its DNS origin
-changes.
+The stable `API_BASE_URL` remains `https://api.theacademywatch.com/api` during
+rollback; only its DNS origin changes.
 
 ### Final old-resource-group deletion (operator only; never run by scripts)
 
