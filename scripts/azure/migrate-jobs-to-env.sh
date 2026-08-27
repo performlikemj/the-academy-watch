@@ -8,7 +8,7 @@ usage() {
 Usage:
   migrate-jobs-to-env.sh --src-rg <rg> --dst-rg <rg> --dst-env <env> \
     --dst-registry <acr> [--job <name> ...] [--image <ref>] [--apply] \
-    [--pause-source --report <path>]
+    [--user-identity <resource-id>] [--pause-source --report <path>]
 
 Copies Azure Container Apps Jobs into an existing Container Apps environment.
 With no --job flags, every job in --src-rg is selected. The default is a
@@ -24,6 +24,10 @@ Optional:
   --job NAME            Migrate only this job. Repeat for multiple jobs.
   --image REF           Exact image for the single main container in every
                         selected job. Otherwise only the registry host changes.
+  --user-identity ID    Use this pre-authorized user-assigned identity for the
+                        job, registry, and Key Vault references. The identity
+                        must already have AcrPull on the destination registry;
+                        no per-job runtime role grants are made in this mode.
   --apply               Permit Azure writes. Without it, no Azure state changes.
   --pause-source        After every destination job is created and authorized,
                         replace scheduled source crons with '0 0 31 2 *'. Manual
@@ -72,6 +76,8 @@ DST_RG=""
 DST_ENV=""
 DST_REGISTRY=""
 IMAGE_OVERRIDE=""
+USER_IDENTITY=""
+USER_IDENTITY_PRINCIPAL_ID=""
 APPLY=false
 PAUSE_SOURCE=false
 REPORT_PATH=""
@@ -108,6 +114,11 @@ while [[ $# -gt 0 ]]; do
     --image)
       [[ $# -ge 2 ]] || die "--image requires a value"
       IMAGE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --user-identity)
+      [[ $# -ge 2 ]] || die "--user-identity requires a value"
+      USER_IDENTITY="$2"
       shift 2
       ;;
     --apply)
@@ -169,6 +180,25 @@ DST_REGISTRY_SERVER="$(jq -r '.loginServer // empty' "$REGISTRY_JSON")"
 DST_REGISTRY_ID="$(jq -r '.id // empty' "$REGISTRY_JSON")"
 [[ -n "$DST_REGISTRY_SERVER" && -n "$DST_REGISTRY_ID" ]] || \
   die "Could not resolve destination registry server and ID"
+
+if [[ -n "$USER_IDENTITY" ]]; then
+  USER_IDENTITY_PRINCIPAL_ID="$(az identity show \
+    --ids "$USER_IDENTITY" \
+    --query principalId \
+    --output tsv)"
+  [[ -n "$USER_IDENTITY_PRINCIPAL_ID" ]] || \
+    die "Could not resolve principalId for user-assigned identity '$USER_IDENTITY'"
+
+  user_identity_acr_pull_count="$(az role assignment list \
+    --assignee "$USER_IDENTITY_PRINCIPAL_ID" \
+    --scope "$DST_REGISTRY_ID" \
+    --role AcrPull \
+    --output json | jq 'length')"
+  if [[ "$user_identity_acr_pull_count" == "0" ]]; then
+    die "User-assigned identity '$USER_IDENTITY' lacks AcrPull on destination registry '$DST_REGISTRY_ID'. Pre-grant AcrPull and Key Vault Secrets User before migration."
+  fi
+  log "Verified pre-authorized user-assigned identity AcrPull on '$DST_REGISTRY_SERVER'."
+fi
 
 if [[ "${#JOBS[@]}" -eq 0 ]]; then
   JOB_LIST_JSON="$TMP_DIR/source-jobs.json"
@@ -270,13 +300,24 @@ for job_name in "${JOBS[@]}"; do
     --arg environment_id "$DESTINATION_ENV_ID" \
     --arg environment_location "$DESTINATION_LOCATION" \
     --arg registry_server "$DST_REGISTRY_SERVER" \
+    --arg user_identity "$USER_IDENTITY" \
     --arg image_override "$IMAGE_OVERRIDE" '
       .location = $environment_location
-      | .identity = {"type": "SystemAssigned"}
+      | .identity =
+          (if $user_identity != "" then
+             {"type": "UserAssigned",
+              "userAssignedIdentities": {($user_identity): {}}}
+           else {"type": "SystemAssigned"}
+           end)
       | .properties.environmentId = $environment_id
       | .properties.managedEnvironmentId = $environment_id
       | .properties.configuration.registries =
-          [{"server": $registry_server, "identity": "system"}]
+          [{"server": $registry_server,
+            "identity": (if $user_identity != "" then $user_identity else "system" end)}]
+      | if $user_identity != "" and .properties.configuration.secrets then
+          .properties.configuration.secrets |= map(
+            if (.keyVaultUrl // "") != "" then .identity = $user_identity else . end)
+        else . end
       | (.properties.template.containers[]?.image) |=
           (if $image_override != "" then $image_override
            elif test("/") then ($registry_server + "/" + sub("^[^/]+/"; ""))
@@ -321,6 +362,7 @@ for job_name in "${JOBS[@]}"; do
       .properties.configuration.secrets |= map({
         name: .name,
         source: (if (.keyVaultUrl // "") != "" then "key-vault-reference" else "redacted" end),
+        identity: (.identity // null),
         redacted: true
       })
     else . end
@@ -336,7 +378,11 @@ log "== Phase 2: create destination jobs and grant runtime roles =="
 if ! $APPLY; then
   for job_name in "${JOBS[@]}"; do
     log "DRY-RUN: would create destination job '$job_name' in '$DST_RG'."
-    log "DRY-RUN: would grant its identity AcrPull and any required Key Vault Secrets User roles."
+    if [[ -n "$USER_IDENTITY" ]]; then
+      log "DRY-RUN: shared user-assigned identity is pre-authorized; would not create per-job role assignments."
+    else
+      log "DRY-RUN: would grant its identity AcrPull and any required Key Vault Secrets User roles."
+    fi
   done
 else
   for job_name in "${JOBS[@]}"; do
@@ -355,7 +401,11 @@ else
         --yaml "$spec_json" \
         --output none
     fi
-    grant_runtime_roles "$job_name" "$source_json"
+    if [[ -n "$USER_IDENTITY" ]]; then
+      log "Shared user-assigned identity is pre-authorized; skipping per-job role grants for '$job_name'."
+    else
+      grant_runtime_roles "$job_name" "$source_json"
+    fi
   done
 fi
 

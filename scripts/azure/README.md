@@ -225,6 +225,67 @@ rather than broadening scope.
 
 ## 4. Migrate all eight jobs, then pause source schedules
 
+The recommended path uses one pre-authorized user-assigned identity. This avoids
+the provisioning race where a newly created job cannot pull its image until its
+new SystemAssigned principal receives `AcrPull`, but `az containerapp job create`
+does not return in time to make that grant.
+
+Select the shared identity, grant its principal both runtime roles before any job
+creation, and verify the assignments. The identity resource itself should live in
+the retained destination resource group:
+
+```bash
+export JOB_USER_IDENTITY_ID="<full-resource-id-of-shared-job-user-assigned-identity>"
+export JOB_USER_IDENTITY_PRINCIPAL_ID="$(az identity show \
+  --ids "$JOB_USER_IDENTITY_ID" \
+  --query principalId \
+  --output tsv)"
+export DST_ACR_ID="$(az acr show \
+  --name "$DST_ACR" \
+  --query id \
+  --output tsv)"
+export KEY_VAULT_ID="$(az keyvault show \
+  --name "$KEY_VAULT_NAME" \
+  --query id \
+  --output tsv)"
+test -n "$JOB_USER_IDENTITY_PRINCIPAL_ID"
+test -n "$DST_ACR_ID"
+test -n "$KEY_VAULT_ID"
+
+az role assignment create \
+  --assignee-object-id "$JOB_USER_IDENTITY_PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role AcrPull \
+  --scope "$DST_ACR_ID" \
+  --output none
+
+az role assignment create \
+  --assignee-object-id "$JOB_USER_IDENTITY_PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Key Vault Secrets User" \
+  --scope "$KEY_VAULT_ID" \
+  --output none
+
+az role assignment list \
+  --assignee "$JOB_USER_IDENTITY_PRINCIPAL_ID" \
+  --scope "$DST_ACR_ID" \
+  --role AcrPull \
+  --output table
+az role assignment list \
+  --assignee "$JOB_USER_IDENTITY_PRINCIPAL_ID" \
+  --scope "$KEY_VAULT_ID" \
+  --role "Key Vault Secrets User" \
+  --output table
+
+JOB_IDENTITY_ARGS=(--user-identity "$JOB_USER_IDENTITY_ID")
+```
+
+With `--user-identity`, the tool writes the same identity resource ID into the
+job identity map, ACR registry configuration, and every Key Vault reference. It
+verifies `AcrPull` before exporting or creating jobs and makes no per-job role
+assignments. To retain the existing SystemAssigned behavior, set
+`JOB_IDENTITY_ARGS=()` instead.
+
 Use an explicit list so an unrelated future job in the source resource group is
 not migrated accidentally:
 
@@ -250,6 +311,7 @@ scripts/azure/migrate-jobs-to-env.sh \
   --dst-env "$DST_ENV" \
   --dst-registry "$DST_ACR" \
   --image "$BACKEND_IMAGE" \
+  "${JOB_IDENTITY_ARGS[@]}" \
   "${JOB_ARGS[@]}"
 ```
 
@@ -268,6 +330,7 @@ scripts/azure/migrate-jobs-to-env.sh \
   --dst-env "$DST_ENV" \
   --dst-registry "$DST_ACR" \
   --image "$BACKEND_IMAGE" \
+  "${JOB_IDENTITY_ARGS[@]}" \
   "${JOB_ARGS[@]}" \
   --apply
 ```
@@ -320,6 +383,7 @@ scripts/azure/migrate-jobs-to-env.sh \
   --dst-env "$DST_ENV" \
   --dst-registry "$DST_ACR" \
   --image "$BACKEND_IMAGE" \
+  "${JOB_IDENTITY_ARGS[@]}" \
   "${JOB_ARGS[@]}" \
   --apply \
   --pause-source \

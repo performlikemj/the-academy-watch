@@ -9,8 +9,10 @@ MANUAL_FIXTURE="${FIXTURE_DIR}/containerjob-manual-export.json"
 PLAIN_FIXTURE="${FIXTURE_DIR}/containerjob-plain-secret-export.json"
 ENVIRONMENT_FIXTURE="${FIXTURE_DIR}/destination-environment.json"
 REGISTRY_FIXTURE="${FIXTURE_DIR}/destination-registry.json"
+USER_IDENTITY_FIXTURE="${FIXTURE_DIR}/destination-user-identity.json"
 EXPECTED_ENVIRONMENT_ID="/subscriptions/mock/resourceGroups/rg-nbhd-prod/providers/Microsoft.App/managedEnvironments/nbhd-env-westus2"
 EXPECTED_IMAGE="acrbwmj.azurecr.io/loanarmy/backend:release-20260827"
+EXPECTED_USER_IDENTITY="/subscriptions/mock/resourceGroups/rg-nbhd-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-loanarmy-jobs"
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -98,6 +100,105 @@ test_tmp="$(mktemp -d "${TMPDIR:-/tmp}/job-migrate-test.XXXXXX")"
 trap 'rm -rf "$test_tmp"' EXIT
 call_log="$test_tmp/az-calls.log"
 report_path="$test_tmp/rollback.json"
+
+uai_call_log="$test_tmp/uai-az-calls.log"
+uai_output="$(
+  az() {
+    printf '%s\n' "$*" >> "$uai_call_log"
+    if [[ "$1" == "containerapp" && "$2" == "env" ]]; then
+      command cat "$ENVIRONMENT_FIXTURE"
+    elif [[ "$1" == "acr" && "$2" == "show" ]]; then
+      command cat "$REGISTRY_FIXTURE"
+    elif [[ "$1" == "identity" && "$2" == "show" ]]; then
+      jq -r '.principalId' "$USER_IDENTITY_FIXTURE"
+    elif [[ "$1" == "role" && "$2" == "assignment" && "$3" == "list" ]]; then
+      printf '[{"principalId":"destination-uai-principal","roleDefinitionName":"AcrPull"}]\n'
+    elif [[ "$1" == "containerapp" && "$2" == "job" && "$3" == "show" ]]; then
+      if [[ "$*" == *"--resource-group rg-loan-army-westus2"* ]]; then
+        command cat "$SCHEDULED_FIXTURE"
+      else
+        return 1
+      fi
+    elif [[ "$1" == "containerapp" && "$2" == "job" && "$3" == "create" ]]; then
+      return 0
+    else
+      printf 'Unexpected mock az call: %s\n' "$*" >&2
+      return 1
+    fi
+  }
+
+  set -- \
+    --src-rg rg-loan-army-westus2 \
+    --dst-rg rg-nbhd-prod \
+    --dst-env nbhd-env-westus2 \
+    --dst-registry acrbwmj \
+    --job job-video-maintenance \
+    --image "$EXPECTED_IMAGE" \
+    --user-identity "$EXPECTED_USER_IDENTITY" \
+    --apply
+  source "$MIGRATION_SCRIPT"
+)"
+uai_spec="$(extract_spec <<< "$uai_output")"
+
+if jq -e \
+  --arg user_identity "$EXPECTED_USER_IDENTITY" '
+    .identity.type == "UserAssigned"
+    and .identity.userAssignedIdentities == {($user_identity): {}}
+    and .properties.configuration.registries ==
+      [{"server":"acrbwmj.azurecr.io","identity":$user_identity}]
+    and (.properties.configuration.secrets | length) == 2
+    and all(.properties.configuration.secrets[]; .identity == $user_identity)
+  ' <<< "$uai_spec" >/dev/null; then
+  pass "user-assigned transform rewrites job, registry, and Key Vault identities"
+else
+  fail "user-assigned identity transform was incorrect"
+fi
+
+if grep -Fq "role assignment list --assignee destination-uai-principal --scope /subscriptions/mock/resourceGroups/rg-nbhd-prod/providers/Microsoft.ContainerRegistry/registries/acrbwmj --role AcrPull --output json" "$uai_call_log" && \
+   ! grep -Fq 'role assignment create' "$uai_call_log" && \
+   ! grep -Fq 'keyvault show' "$uai_call_log"; then
+  pass "user-assigned apply verifies AcrPull and creates no per-job role assignments"
+else
+  fail "user-assigned role preflight or grant skipping was incorrect"
+fi
+
+missing_role_log="$test_tmp/uai-missing-role-calls.log"
+missing_role_output="$test_tmp/uai-missing-role-output.txt"
+if (
+  az() {
+    printf '%s\n' "$*" >> "$missing_role_log"
+    if [[ "$1" == "containerapp" && "$2" == "env" ]]; then
+      command cat "$ENVIRONMENT_FIXTURE"
+    elif [[ "$1" == "acr" && "$2" == "show" ]]; then
+      command cat "$REGISTRY_FIXTURE"
+    elif [[ "$1" == "identity" && "$2" == "show" ]]; then
+      jq -r '.principalId' "$USER_IDENTITY_FIXTURE"
+    elif [[ "$1" == "role" && "$2" == "assignment" && "$3" == "list" ]]; then
+      printf '[]\n'
+    else
+      return 1
+    fi
+  }
+  set -- \
+    --src-rg rg-loan-army-westus2 \
+    --dst-rg rg-nbhd-prod \
+    --dst-env nbhd-env-westus2 \
+    --dst-registry acrbwmj \
+    --job job-video-maintenance \
+    --user-identity "$EXPECTED_USER_IDENTITY" \
+    --apply
+  source "$MIGRATION_SCRIPT"
+) >"$missing_role_output" 2>&1; then
+  fail "user-assigned identity without AcrPull did not abort"
+fi
+
+if grep -Fq 'lacks AcrPull on destination registry' "$missing_role_output" && \
+   ! grep -Fq 'containerapp job show' "$missing_role_log" && \
+   ! grep -Fq 'containerapp job create' "$missing_role_log"; then
+  pass "missing shared-identity AcrPull aborts before job export or creation"
+else
+  fail "missing AcrPull preflight did not fail early and clearly"
+fi
 
 (
   az() {
