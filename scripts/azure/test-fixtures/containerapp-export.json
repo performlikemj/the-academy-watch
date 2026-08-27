@@ -1,0 +1,68 @@
+{
+  "id": "/subscriptions/mock/resourceGroups/rg-bywayofmj/providers/Microsoft.App/containerApps/bywayofmj-web",
+  "location": "West US 2",
+  "name": "bywayofmj-web",
+  "type": "Microsoft.App/containerApps",
+  "identity": {
+    "type": "SystemAssigned",
+    "principalId": "source-principal",
+    "tenantId": "source-tenant"
+  },
+  "properties": {
+    "environmentId": "/subscriptions/mock/resourceGroups/rg-bywayofmj/providers/Microsoft.App/managedEnvironments/env-bywayofmj",
+    "managedEnvironmentId": "/subscriptions/mock/resourceGroups/rg-bywayofmj/providers/Microsoft.App/managedEnvironments/env-bywayofmj",
+    "workloadProfileName": "Consumption",
+    "provisioningState": "Succeeded",
+    "latestRevisionName": "bywayofmj-web--old",
+    "latestReadyRevisionName": "bywayofmj-web--old",
+    "runningStatus": "Running",
+    "configuration": {
+      "registries": [
+        {
+          "server": "bywayofmjacr.azurecr.io",
+          "username": "mock-user",
+          "passwordSecretRef": ""
+        },
+        {
+          "server": "acrbwmj.azurecr.io",
+          "identity": "system"
+        }
+      ],
+      "secrets": [],
+      "ingress": {
+        "external": true,
+        "targetPort": 3000,
+        "fqdn": "bywayofmj-web.old.example",
+        "customDomains": [
+          {"name": "bywayofmj.com"},
+          {"name": "www.bywayofmj.com"}
+        ],
+        "traffic": [
+          {
+            "latestRevision": true,
+            "revisionName": "bywayofmj-web--old",
+            "weight": 100
+          }
+        ]
+      }
+    },
+    "template": {
+      "containers": [
+        {
+          "name": "bywayofmj-web",
+          "image": "bywayofmjacr.azurecr.io/bywayofmj-web:release-20260827015903",
+          "resources": {
+            "cpu": 0.5,
+            "memory": "1Gi"
+          },
+          "env": []
+        }
+      ],
+      "scale": {
+        "minReplicas": 0,
+        "maxReplicas": 3,
+        "rules": null
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "/subscriptions/mock/resourceGroups/rg-loan-army-westus2/providers/Microsoft.App/jobs/job-seed-teams",
+  "name": "job-seed-teams",
+  "type": "Microsoft.App/jobs",
+  "location": "westus2",
+  "identity": {
+    "type": "SystemAssigned",
+    "principalId": "source-principal",
+    "tenantId": "mock-tenant"
+  },
+  "properties": {
+    "environmentId": "/subscriptions/mock/resourceGroups/rg-loan-army-westus2/providers/Microsoft.App/managedEnvironments/cae-loan-army",
+    "managedEnvironmentId": "/subscriptions/mock/resourceGroups/rg-loan-army-westus2/providers/Microsoft.App/managedEnvironments/cae-loan-army",
+    "configuration": {
+      "triggerType": "Manual",
+      "replicaTimeout": 1800,
+      "replicaRetryLimit": 0,
+      "manualTriggerConfig": {"parallelism": 1, "replicaCompletionCount": 1},
+      "registries": [{"server": "acrloanarmy.azurecr.io", "identity": "system"}],
+      "secrets": []
+    },
+    "template": {
+      "containers": [
+        {
+          "name": "job-seed-teams",
+          "image": "acrloanarmy.azurecr.io/loanarmy/backend:prod",
+          "args": ["seed-teams"],
+          "resources": {"cpu": 1.0, "memory": "2Gi"}
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "id": "/subscriptions/mock/resourceGroups/rg-loan-army-westus2/providers/Microsoft.App/jobs/job-video-maintenance",
+  "name": "job-video-maintenance",
+  "type": "Microsoft.App/jobs",
+  "location": "westus2",
+  "identity": {
+    "type": "SystemAssigned",
+    "principalId": "source-principal",
+    "tenantId": "mock-tenant"
+  },
+  "properties": {
+    "environmentId": "/subscriptions/mock/resourceGroups/rg-loan-army-westus2/providers/Microsoft.App/managedEnvironments/cae-loan-army",
+    "managedEnvironmentId": "/subscriptions/mock/resourceGroups/rg-loan-army-westus2/providers/Microsoft.App/managedEnvironments/cae-loan-army",
+    "provisioningState": "Succeeded",
+    "configuration": {
+      "triggerType": "Schedule",
+      "replicaTimeout": 1800,
+      "replicaRetryLimit": 1,
+      "scheduleTriggerConfig": {
+        "cronExpression": "0 3 * * *",
+        "parallelism": 1,
+        "replicaCompletionCount": 1
+      },
+      "registries": [
+        {"server": "acrloanarmy.azurecr.io", "identity": "system"}
+      ],
+      "secrets": [
+        {
+          "name": "database-url",
+          "keyVaultUrl": "https://kv-loan-army.vault.azure.net/secrets/database-url",
+          "identity": "system"
+        },
+        {
+          "name": "api-key",
+          "keyVaultUrl": "https://kv-loan-army.vault.azure.net/secrets/api-key",
+          "identity": "system"
+        }
+      ]
+    },
+    "template": {
+      "containers": [
+        {
+          "name": "job-video-maintenance",
+          "image": "acrloanarmy.azurecr.io/loanarmy/backend:prod",
+          "command": ["python", "scripts/video_maintenance.py"],
+          "env": [
+            {"name": "DATABASE_URL", "secretRef": "database-url"},
+            {"name": "MODE", "value": "scheduled"}
+          ],
+          "resources": {"cpu": 0.5, "memory": "1Gi"}
+        }
+      ]
+    },
+    "eventStreamEndpoint": "https://readonly.invalid",
+    "latestExecutionName": "job-video-maintenance-abc123"
+  },
+  "systemData": {"createdBy": "operator@example.invalid"}
+}
