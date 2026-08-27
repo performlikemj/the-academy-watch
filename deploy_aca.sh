@@ -8,21 +8,21 @@ set -euo pipefail
 # - Sets/updates ingress ports and prints FQDNs
 #
 # Prereqs: az CLI (containerapp, acr), jq, pnpm, OSV-Scanner
-# Login: az login; az account set --subscription "$SUBSCRIPTION_ID"
+# Login: az login; az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 
 # ---------------------------
 # Config (override via env)
 # ---------------------------
-SUBSCRIPTION_ID="${SUBSCRIPTION_ID:-63ceeeac-fe3f-4bcb-b6d2-b7aa7fd6bf52}"
-LOCATION="${LOCATION:-westus2}"
-RG="${RG:-rg-loan-army-westus2}"
-ENV_NAME="${ENV_NAME:-cae-loan-army}"
-ACR_NAME="${ACR_NAME:-acrloanarmy}"
-KV_NAME="${KV_NAME:-kv-loan-army}"
-APP_BACKEND="${APP_BACKEND:-ca-loan-army-backend}"
+: "${AZURE_SUBSCRIPTION_ID:=63ceeeac-fe3f-4bcb-b6d2-b7aa7fd6bf52}"
+: "${AZURE_LOCATION:=westus2}"
+: "${AZURE_RG:=rg-loan-army-westus2}"
+: "${ACA_ENV:=cae-loan-army}"
+: "${ACR_NAME:=acrloanarmy}"
+: "${KEY_VAULT_NAME:=kv-loan-army}"
+: "${ACA_APP:=ca-loan-army-backend}"
 # n8n is DEPRECATED - emails are now sent directly via Mailgun/SMTP from Flask
 # Set DEPLOY_N8N=1 to continue deploying n8n (for migration period only)
-# To fully remove n8n: az containerapp delete -g "$RG" -n "$APP_N8N" --yes
+# To fully remove n8n: az containerapp delete -g "$AZURE_RG" -n "$APP_N8N" --yes
 APP_N8N="${APP_N8N:-ca-loan-army-n8n}"
 DEPLOY_N8N="${DEPLOY_N8N:-0}"
 SWA_NAME="${SWA_NAME:-swa-goonloan}"
@@ -145,12 +145,12 @@ else
 fi
 
 log "Setting subscription"
-az account set --subscription "$SUBSCRIPTION_ID"
+az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 
 log "Upgrading containerapp extension if needed"
 az extension add -n containerapp --upgrade -y >/dev/null 2>&1 || true
 
-ACR_SERVER="$(az acr show -g "$RG" -n "$ACR_NAME" --query loginServer -o tsv)"
+ACR_SERVER="$(az acr show -g "$AZURE_RG" -n "$ACR_NAME" --query loginServer -o tsv)"
 
 # ---------------------------
 # Build backend
@@ -163,7 +163,7 @@ az acr build -r "$ACR_NAME" -t "loanarmy/backend:$TAG" -f "$BACKEND_DIR/Dockerfi
 # ---------------------------
 if [[ -z "${VITE_API_BASE}" ]]; then
   log "Deriving VITE_API_BASE from backend FQDN"
-  BACKEND_FQDN="$(az containerapp show -g "$RG" -n "$APP_BACKEND" --query properties.configuration.ingress.fqdn -o tsv)"
+  BACKEND_FQDN="$(az containerapp show -g "$AZURE_RG" -n "$ACA_APP" --query properties.configuration.ingress.fqdn -o tsv)"
   VITE_API_BASE="https://${BACKEND_FQDN}/api"
 fi
 
@@ -174,7 +174,7 @@ log "Building frontend with VITE_API_BASE=${VITE_API_BASE}"
 ( cd "$FRONTEND_DIR" && VITE_API_BASE="$VITE_API_BASE" pnpm run build )
 
 log "Deploying frontend to Static Web App ($SWA_NAME)"
-SWA_TOKEN="$(az staticwebapp secrets list --name "$SWA_NAME" -g "$RG" --query 'properties.apiKey' -o tsv)"
+SWA_TOKEN="$(az staticwebapp secrets list --name "$SWA_NAME" -g "$AZURE_RG" --query 'properties.apiKey' -o tsv)"
 npx --yes @azure/static-web-apps-cli deploy "$FRONTEND_DIR/dist" \
   --deployment-token "$SWA_TOKEN" \
   --env production
@@ -182,8 +182,8 @@ npx --yes @azure/static-web-apps-cli deploy "$FRONTEND_DIR/dist" \
 # ---------------------------
 # Grant ACR pull to app identities (backend, optionally n8n)
 # ---------------------------
-AcrScope="$(az acr show -g "$RG" -n "$ACR_NAME" --query id -o tsv)"
-APPS_TO_CONFIGURE=("$APP_BACKEND")
+AcrScope="$(az acr show -g "$AZURE_RG" -n "$ACR_NAME" --query id -o tsv)"
+APPS_TO_CONFIGURE=("$ACA_APP")
 if [[ "$DEPLOY_N8N" == "1" ]]; then
   APPS_TO_CONFIGURE+=("$APP_N8N")
   log "n8n deployment enabled (DEPLOY_N8N=1)"
@@ -192,14 +192,14 @@ else
 fi
 
 for APP in "${APPS_TO_CONFIGURE[@]}"; do
-  if az containerapp show -g "$RG" -n "$APP" >/dev/null 2>&1; then
+  if az containerapp show -g "$AZURE_RG" -n "$APP" >/dev/null 2>&1; then
     log "Assigning system identity to $APP"
-    az containerapp identity assign -g "$RG" -n "$APP" --system-assigned >/dev/null
-    PID="$(az containerapp show -g "$RG" -n "$APP" --query identity.principalId -o tsv)"
+    az containerapp identity assign -g "$AZURE_RG" -n "$APP" --system-assigned >/dev/null
+    PID="$(az containerapp show -g "$AZURE_RG" -n "$APP" --query identity.principalId -o tsv)"
     log "Granting AcrPull to $APP ($PID)"
     az role assignment create --assignee "$PID" --role "AcrPull" --scope "$AcrScope" >/dev/null 2>&1 || true
     log "Setting container registry for $APP"
-    az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system >/dev/null
+    az containerapp registry set -g "$AZURE_RG" -n "$APP" --server "$ACR_SERVER" --identity system >/dev/null
   else
     log "Skipping ACR grant for $APP (app not found)"
   fi
@@ -208,60 +208,64 @@ done
 # ---------------------------
 # Update backend to ACR image and ingress
 # ---------------------------
-if az containerapp show -g "$RG" -n "$APP_BACKEND" >/dev/null 2>&1; then
+if az containerapp show -g "$AZURE_RG" -n "$ACA_APP" >/dev/null 2>&1; then
   log "Updating backend image + ingress (force new revision)"
-  az containerapp revision set-mode -g "$RG" -n "$APP_BACKEND" --mode single >/dev/null 2>&1 || true
+  az containerapp revision set-mode -g "$AZURE_RG" -n "$ACA_APP" --mode single >/dev/null 2>&1 || true
 
   # Build --set-env-vars for GOL bot provider/model if configured in environment
-  GOL_ENV_VARS=""
+  GOL_ENV_VARS=()
   if [[ -n "${GOL_PROVIDER:-}" ]]; then
-    GOL_ENV_VARS="GOL_PROVIDER=$GOL_PROVIDER"
+    GOL_ENV_VARS+=("GOL_PROVIDER=$GOL_PROVIDER")
   fi
   if [[ -n "${GOL_MODEL:-}" ]]; then
-    GOL_ENV_VARS="$GOL_ENV_VARS GOL_MODEL=$GOL_MODEL"
+    GOL_ENV_VARS+=("GOL_MODEL=$GOL_MODEL")
   fi
-  if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
-    GOL_ENV_VARS="$GOL_ENV_VARS OPENROUTER_API_KEY=$OPENROUTER_API_KEY"
+  OPENROUTER_SECRET_COUNT="$(az containerapp show -g "$AZURE_RG" -n "$ACA_APP" \
+    --query "length(properties.configuration.secrets[?name=='openrouter-api-key'])" -o tsv)"
+  if [[ "$OPENROUTER_SECRET_COUNT" -gt 0 ]]; then
+    GOL_ENV_VARS+=("OPENROUTER_API_KEY=secretref:openrouter-api-key")
+  else
+    warn "Container App secret 'openrouter-api-key' is absent; leaving OPENROUTER_API_KEY unchanged"
   fi
 
-  if [[ -n "$GOL_ENV_VARS" ]]; then
-    az containerapp update -g "$RG" -n "$APP_BACKEND" --image "$ACR_SERVER/loanarmy/backend:$TAG" --min-replicas 1 --revision-suffix "r$RANDOM$RANDOM" --set-env-vars $GOL_ENV_VARS >/dev/null
+  if [[ "${#GOL_ENV_VARS[@]}" -gt 0 ]]; then
+    az containerapp update -g "$AZURE_RG" -n "$ACA_APP" --image "$ACR_SERVER/loanarmy/backend:$TAG" --min-replicas 1 --revision-suffix "r$RANDOM$RANDOM" --set-env-vars "${GOL_ENV_VARS[@]}" >/dev/null
   else
-    az containerapp update -g "$RG" -n "$APP_BACKEND" --image "$ACR_SERVER/loanarmy/backend:$TAG" --min-replicas 1 --revision-suffix "r$RANDOM$RANDOM" >/dev/null
+    az containerapp update -g "$AZURE_RG" -n "$ACA_APP" --image "$ACR_SERVER/loanarmy/backend:$TAG" --min-replicas 1 --revision-suffix "r$RANDOM$RANDOM" >/dev/null
   fi
-  az containerapp ingress enable -g "$RG" -n "$APP_BACKEND" --type external --target-port 5001 >/dev/null 2>&1 || true
+  az containerapp ingress enable -g "$AZURE_RG" -n "$ACA_APP" --type external --target-port 5001 >/dev/null 2>&1 || true
 fi
 
 # ---------------------------
 # Sync scheduled job image tag (if job exists)
 # ---------------------------
-if az containerapp job show -g "$RG" -n "$JOB_WEEKLY_NAME" >/dev/null 2>&1; then
+if az containerapp job show -g "$AZURE_RG" -n "$JOB_WEEKLY_NAME" >/dev/null 2>&1; then
   log "Updating scheduled job '$JOB_WEEKLY_NAME' image to $ACR_SERVER/loanarmy/backend:$TAG"
-  az containerapp job update -g "$RG" -n "$JOB_WEEKLY_NAME" \
+  az containerapp job update -g "$AZURE_RG" -n "$JOB_WEEKLY_NAME" \
     --image "$ACR_SERVER/loanarmy/backend:$TAG" >/dev/null
 else
   log "Skipping job update (job '$JOB_WEEKLY_NAME' not found)"
 fi
 
-if az containerapp job show -g "$RG" -n "$JOB_TRANSFER_HEAL_NAME" >/dev/null 2>&1; then
+if az containerapp job show -g "$AZURE_RG" -n "$JOB_TRANSFER_HEAL_NAME" >/dev/null 2>&1; then
   log "Updating scheduled job '$JOB_TRANSFER_HEAL_NAME' image to $ACR_SERVER/loanarmy/backend:$TAG"
-  az containerapp job update -g "$RG" -n "$JOB_TRANSFER_HEAL_NAME" \
+  az containerapp job update -g "$AZURE_RG" -n "$JOB_TRANSFER_HEAL_NAME" \
     --image "$ACR_SERVER/loanarmy/backend:$TAG" >/dev/null
 else
   log "Skipping job update (job '$JOB_TRANSFER_HEAL_NAME' not found)"
 fi
 
-if az containerapp job show -g "$RG" -n "$JOB_SYNC_FIXTURES_NAME" >/dev/null 2>&1; then
+if az containerapp job show -g "$AZURE_RG" -n "$JOB_SYNC_FIXTURES_NAME" >/dev/null 2>&1; then
   log "Updating scheduled job '$JOB_SYNC_FIXTURES_NAME' image to $ACR_SERVER/loanarmy/backend:$TAG"
-  az containerapp job update -g "$RG" -n "$JOB_SYNC_FIXTURES_NAME" \
+  az containerapp job update -g "$AZURE_RG" -n "$JOB_SYNC_FIXTURES_NAME" \
     --image "$ACR_SERVER/loanarmy/backend:$TAG" >/dev/null
 else
   log "Skipping job update (job '$JOB_SYNC_FIXTURES_NAME' not found)"
 fi
 
-if az containerapp job show -g "$RG" -n "$JOB_STATUS_REFRESH_NAME" >/dev/null 2>&1; then
+if az containerapp job show -g "$AZURE_RG" -n "$JOB_STATUS_REFRESH_NAME" >/dev/null 2>&1; then
   log "Updating scheduled job '$JOB_STATUS_REFRESH_NAME' image to $ACR_SERVER/loanarmy/backend:$TAG"
-  az containerapp job update -g "$RG" -n "$JOB_STATUS_REFRESH_NAME" \
+  az containerapp job update -g "$AZURE_RG" -n "$JOB_STATUS_REFRESH_NAME" \
     --image "$ACR_SERVER/loanarmy/backend:$TAG" >/dev/null
 else
   log "Skipping job update (job '$JOB_STATUS_REFRESH_NAME' not found)"
@@ -270,9 +274,9 @@ fi
 # ---------------------------
 # Output endpoints
 # ---------------------------
-BE_FQDN="$(az containerapp show -g "$RG" -n "$APP_BACKEND" --query properties.configuration.ingress.fqdn -o tsv || true)"
-SWA_HOSTNAME="$(az staticwebapp show -g "$RG" -n "$SWA_NAME" --query defaultHostname -o tsv || true)"
-SWA_CUSTOM_DOMAINS="$(az staticwebapp hostname list -g "$RG" -n "$SWA_NAME" --query '[].domainName' -o tsv 2>/dev/null || true)"
+BE_FQDN="$(az containerapp show -g "$AZURE_RG" -n "$ACA_APP" --query properties.configuration.ingress.fqdn -o tsv || true)"
+SWA_HOSTNAME="$(az staticwebapp show -g "$AZURE_RG" -n "$SWA_NAME" --query defaultHostname -o tsv || true)"
+SWA_CUSTOM_DOMAINS="$(az staticwebapp hostname list -g "$AZURE_RG" -n "$SWA_NAME" --query '[].domainName' -o tsv 2>/dev/null || true)"
 
 log "Deployed:"
 echo "  Backend:  $ACR_SERVER/loanarmy/backend:$TAG"
@@ -287,7 +291,7 @@ done
 
 # Only show n8n endpoint if deployed
 if [[ "$DEPLOY_N8N" == "1" ]]; then
-  N8N_FQDN="$(az containerapp show -g "$RG" -n "$APP_N8N" --query properties.configuration.ingress.fqdn -o tsv || true)"
+  N8N_FQDN="$(az containerapp show -g "$AZURE_RG" -n "$APP_N8N" --query properties.configuration.ingress.fqdn -o tsv || true)"
   [[ -n "$N8N_FQDN" ]] && echo "  n8n:      https://$N8N_FQDN (DEPRECATED)"
 fi
 
@@ -297,5 +301,5 @@ log "Done."
 if [[ "$DEPLOY_N8N" != "1" ]]; then
   log "NOTE: n8n container is deprecated. Emails are now sent directly via Mailgun/SMTP."
   log "To delete the n8n container and save costs:"
-  echo "  az containerapp delete -g \"$RG\" -n \"$APP_N8N\" --yes"
+  echo "  az containerapp delete -g \"$AZURE_RG\" -n \"$APP_N8N\" --yes"
 fi

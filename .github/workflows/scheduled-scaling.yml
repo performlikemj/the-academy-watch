@@ -4,11 +4,9 @@
 # - 02:00 UTC: Set minReplicas=1 (peak UK evening / US afternoon traffic)
 # - 10:00 UTC: Set minReplicas=0 (allow scale to zero during off-peak)
 #
-# Required secrets:
-# - AZURE_CREDENTIALS: Service principal JSON for Azure authentication
-#   Create with: az ad sp create-for-rbac --name "gol-scaling" --role contributor \
-#                --scopes /subscriptions/{sub-id}/resourceGroups/rg-loan-army-westus2 \
-#                --sdk-auth
+# Required GitHub variables:
+# - AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+# - AZURE_RG, ACA_ENV, ACR_NAME, ACA_APP
 
 name: Scheduled Scaling
 
@@ -30,12 +28,17 @@ on:
           - off-peak
 
 env:
-  RESOURCE_GROUP: rg-loan-army-westus2
-  APP_NAME: ca-loan-army-backend
+  AZURE_RG: ${{ vars.AZURE_RG }}
+  ACA_ENV: ${{ vars.ACA_ENV }}
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  ACA_APP: ${{ vars.ACA_APP }}
 
 jobs:
   scale:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Determine scaling mode
         id: mode
@@ -51,15 +54,17 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set Peak Scaling (minReplicas=1)
         if: steps.mode.outputs.mode == 'peak'
         run: |
           echo "🌅 Setting peak hours scaling: minReplicas=1"
           az containerapp update \
-            --name ${{ env.APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name "${{ env.ACA_APP }}" \
+            --resource-group "${{ env.AZURE_RG }}" \
             --min-replicas 1 \
             --output none
           echo "✅ Backend will maintain at least 1 replica"
@@ -69,8 +74,8 @@ jobs:
         run: |
           echo "🌙 Setting off-peak scaling: minReplicas=0"
           az containerapp update \
-            --name ${{ env.APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name "${{ env.ACA_APP }}" \
+            --resource-group "${{ env.AZURE_RG }}" \
             --min-replicas 0 \
             --output none
           echo "✅ Backend can now scale to zero when idle"
@@ -79,11 +84,10 @@ jobs:
         run: |
           echo "📊 Current scaling configuration:"
           az containerapp show \
-            --name ${{ env.APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name "${{ env.ACA_APP }}" \
+            --resource-group "${{ env.AZURE_RG }}" \
             --query 'properties.template.scale.{minReplicas:minReplicas,maxReplicas:maxReplicas}' \
             --output table
-
 
 
 

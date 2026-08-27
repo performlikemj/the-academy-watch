@@ -3,10 +3,13 @@
 # Deploys backend to Azure Container Apps and frontend to Azure Static Web App
 # Mirrors the functionality of deploy_aca.sh
 #
+# Required GitHub variables (Azure authentication and resource routing):
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#   AZURE_RG, ACA_ENV, ACR_NAME, ACA_APP
+#
 # Required secrets:
-#   AZURE_CREDENTIALS     - Service principal JSON (already configured for scaling workflow)
 #   SWA_DEPLOYMENT_TOKEN  - Static Web App deployment token
-#                           Get with: az staticwebapp secrets list --name swa-goonloan -g rg-loan-army-westus2 --query 'properties.apiKey' -o tsv
+#                           Get with: az staticwebapp secrets list --name swa-goonloan -g "$AZURE_RG" --query 'properties.apiKey' -o tsv
 #
 # Optional secrets (for security checks):
 #   SUPA_DB_PASSWORD      - Supabase database password for RLS verification
@@ -39,10 +42,11 @@ permissions:
   security-events: write
 
 env:
-  SUBSCRIPTION_ID: 63ceeeac-fe3f-4bcb-b6d2-b7aa7fd6bf52
-  RESOURCE_GROUP: rg-loan-army-westus2
-  ACR_NAME: acrloanarmy
-  APP_BACKEND: ca-loan-army-backend
+  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  AZURE_RG: ${{ vars.AZURE_RG }}
+  ACA_ENV: ${{ vars.ACA_ENV }}
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  ACA_APP: ${{ vars.ACA_APP }}
   SWA_NAME: swa-goonloan
   JOB_WEEKLY_NAME: job-weekly-newsletters
   JOB_TRANSFER_HEAL_NAME: job-transfer-heal
@@ -138,6 +142,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [security-checks, lint-backend]
     if: ${{ always() && (needs.security-checks.result == 'success' || needs.security-checks.result == 'skipped') }}
+    permissions:
+      id-token: write
+      contents: read
     outputs:
       backend_fqdn: ${{ steps.get-fqdn.outputs.fqdn }}
     steps:
@@ -147,10 +154,12 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set subscription
-        run: az account set --subscription "${{ env.SUBSCRIPTION_ID }}"
+        run: az account set --subscription "${{ env.AZURE_SUBSCRIPTION_ID }}"
 
       - name: Build backend image in ACR
         run: |
@@ -164,34 +173,21 @@ jobs:
       - name: Get ACR server
         id: acr
         run: |
-          ACR_SERVER=$(az acr show -g "${{ env.RESOURCE_GROUP }}" -n "${{ env.ACR_NAME }}" --query loginServer -o tsv)
+          ACR_SERVER=$(az acr show -g "${{ env.AZURE_RG }}" -n "${{ env.ACR_NAME }}" --query loginServer -o tsv)
           echo "server=$ACR_SERVER" >> $GITHUB_OUTPUT
 
-      - name: Configure identity and ACR pull
+      - name: Configure app identity and registry
         run: |
-          ACR_SCOPE=$(az acr show -g "${{ env.RESOURCE_GROUP }}" -n "${{ env.ACR_NAME }}" --query id -o tsv)
-
           echo "Assigning system identity to backend"
           az containerapp identity assign \
-            -g "${{ env.RESOURCE_GROUP }}" \
-            -n "${{ env.APP_BACKEND }}" \
+            -g "${{ env.AZURE_RG }}" \
+            -n "${{ env.ACA_APP }}" \
             --system-assigned > /dev/null
-
-          PRINCIPAL_ID=$(az containerapp show \
-            -g "${{ env.RESOURCE_GROUP }}" \
-            -n "${{ env.APP_BACKEND }}" \
-            --query identity.principalId -o tsv)
-
-          echo "Granting AcrPull to backend ($PRINCIPAL_ID)"
-          az role assignment create \
-            --assignee "$PRINCIPAL_ID" \
-            --role "AcrPull" \
-            --scope "$ACR_SCOPE" > /dev/null 2>&1 || true
 
           echo "Setting container registry for backend"
           az containerapp registry set \
-            -g "${{ env.RESOURCE_GROUP }}" \
-            -n "${{ env.APP_BACKEND }}" \
+            -g "${{ env.AZURE_RG }}" \
+            -n "${{ env.ACA_APP }}" \
             --server "${{ steps.acr.outputs.server }}" \
             --identity system > /dev/null
 
@@ -201,29 +197,29 @@ jobs:
 
           echo "Updating backend image + ingress (revision: $REVISION_SUFFIX)"
           az containerapp revision set-mode \
-            -g "${{ env.RESOURCE_GROUP }}" \
-            -n "${{ env.APP_BACKEND }}" \
+            -g "${{ env.AZURE_RG }}" \
+            -n "${{ env.ACA_APP }}" \
             --mode single > /dev/null 2>&1 || true
 
           az containerapp update \
-            -g "${{ env.RESOURCE_GROUP }}" \
-            -n "${{ env.APP_BACKEND }}" \
+            -g "${{ env.AZURE_RG }}" \
+            -n "${{ env.ACA_APP }}" \
             --image "${{ steps.acr.outputs.server }}/loanarmy/backend:${{ env.TAG }}" \
             --revision-suffix "$REVISION_SUFFIX" > /dev/null
 
           az containerapp ingress enable \
-            -g "${{ env.RESOURCE_GROUP }}" \
-            -n "${{ env.APP_BACKEND }}" \
+            -g "${{ env.AZURE_RG }}" \
+            -n "${{ env.ACA_APP }}" \
             --type external \
             --target-port 5001 > /dev/null 2>&1 || true
 
       - name: Update scheduled jobs
         run: |
           for JOB_NAME in "${{ env.JOB_WEEKLY_NAME }}" "${{ env.JOB_TRANSFER_HEAL_NAME }}" "${{ env.JOB_SYNC_FIXTURES_NAME }}" "${{ env.JOB_STATUS_REFRESH_NAME }}" "${{ env.JOB_DATA_FIX_NAME }}"; do
-            if az containerapp job show -g "${{ env.RESOURCE_GROUP }}" -n "$JOB_NAME" > /dev/null 2>&1; then
+            if az containerapp job show -g "${{ env.AZURE_RG }}" -n "$JOB_NAME" > /dev/null 2>&1; then
               echo "Updating job '$JOB_NAME' image"
               az containerapp job update \
-                -g "${{ env.RESOURCE_GROUP }}" \
+                -g "${{ env.AZURE_RG }}" \
                 -n "$JOB_NAME" \
                 --image "${{ steps.acr.outputs.server }}/loanarmy/backend:${{ env.TAG }}" > /dev/null
             else
@@ -235,8 +231,8 @@ jobs:
         id: get-fqdn
         run: |
           FQDN=$(az containerapp show \
-            -g "${{ env.RESOURCE_GROUP }}" \
-            -n "${{ env.APP_BACKEND }}" \
+            -g "${{ env.AZURE_RG }}" \
+            -n "${{ env.ACA_APP }}" \
             --query properties.configuration.ingress.fqdn -o tsv)
           echo "fqdn=$FQDN" >> $GITHUB_OUTPUT
           echo "Backend FQDN: $FQDN"

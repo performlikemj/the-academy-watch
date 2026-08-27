@@ -10,8 +10,11 @@
 #   2. Remove the `paths-ignore` block from `.github/workflows/deploy.yml`
 # That restores the original full-checks-on-every-push behaviour exactly.
 #
-# Required secrets (already configured for the full deploy workflow):
-#   AZURE_CREDENTIALS     - Service principal JSON
+# Required GitHub variables (Azure authentication and resource routing):
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#   AZURE_RG, ACA_ENV, ACR_NAME, ACA_APP
+#
+# Required secrets:
 #   SWA_DEPLOYMENT_TOKEN  - Static Web App deployment token
 
 name: Deploy Frontend (fast)
@@ -38,9 +41,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SUBSCRIPTION_ID: 63ceeeac-fe3f-4bcb-b6d2-b7aa7fd6bf52
-  RESOURCE_GROUP: rg-loan-army-westus2
-  APP_BACKEND: ca-loan-army-backend
+  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  AZURE_RG: ${{ vars.AZURE_RG }}
+  ACA_ENV: ${{ vars.ACA_ENV }}
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  ACA_APP: ${{ vars.ACA_APP }}
 
 jobs:
   dependency-security:
@@ -55,6 +60,9 @@ jobs:
     name: Deploy Frontend (no backend rebuild)
     needs: dependency-security
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,17 +70,19 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set subscription
-        run: az account set --subscription "${{ env.SUBSCRIPTION_ID }}"
+        run: az account set --subscription "${{ env.AZURE_SUBSCRIPTION_ID }}"
 
       - name: Get backend FQDN
         id: get-fqdn
         run: |
           FQDN=$(az containerapp show \
-            -g "${{ env.RESOURCE_GROUP }}" \
-            -n "${{ env.APP_BACKEND }}" \
+            -g "${{ env.AZURE_RG }}" \
+            -n "${{ env.ACA_APP }}" \
             --query properties.configuration.ingress.fqdn -o tsv)
           if [ -z "$FQDN" ]; then
             echo "::error::Failed to fetch backend FQDN — refusing to ship a frontend bundle with an empty VITE_API_BASE"
