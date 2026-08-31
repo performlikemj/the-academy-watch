@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -287,7 +287,9 @@ export function PlayerPage() {
     const [selectedMatch, setSelectedMatch] = useState(null)
 
     // Journey data (lifted here so MiniProgressBar can access it from header)
-    const [journeyData, setJourneyData] = useState(null)
+    const [journeyState, setJourneyState] = useState({ playerId: null, data: null })
+    const journeyData = journeyState.playerId === playerId ? journeyState.data : null
+    const journeyHydrationRef = useRef({ playerId: null, promise: null })
 
     // Academy stats (youth league data)
     const [academyStats, setAcademyStats] = useState(null)
@@ -353,6 +355,30 @@ export function PlayerPage() {
     }
 
     useEffect(() => {
+        if (!playerId) return
+
+        let cancelled = false
+
+        let hydration = journeyHydrationRef.current
+        if (hydration.playerId !== playerId) {
+            const promise = APIService.getPlayerJourneyMap(playerId)
+                .catch(() => null)
+                .then((journeyMapData) => {
+                    if (journeyMapData) return journeyMapData
+                    return APIService.request(`/players/${playerId}/journey/map?sync=true`).catch(() => null)
+                })
+            hydration = { playerId, promise }
+            journeyHydrationRef.current = hydration
+        }
+
+        hydration.promise.then((data) => {
+            if (!cancelled && data) setJourneyState({ playerId, data })
+        })
+
+        return () => { cancelled = true }
+    }, [playerId])
+
+    useEffect(() => {
         let cancelled = false
         if (playerId) {
             loadPlayerData(() => cancelled)
@@ -363,14 +389,12 @@ export function PlayerPage() {
     const loadPlayerData = async (isCancelled) => {
         setLoading(true)
         setError(null)
-        let journeyNeedsSync = false
         try {
-            const [profileData, statsData, seasonData, commentariesData, journeyMapData, academyData] = await Promise.all([
+            const [profileData, statsData, seasonData, commentariesData, academyData] = await Promise.all([
                 APIService.getPublicPlayerProfile(playerId).catch(() => null),
                 APIService.getPublicPlayerStats(playerId, selectedSeason),
                 APIService.getPublicPlayerSeasonStats(playerId, selectedSeason).catch(() => null),
                 APIService.getPlayerCommentaries(playerId).catch(() => ({ commentaries: [], authors: [], total_count: 0 })),
-                APIService.getPlayerJourneyMap(playerId).catch(() => null),
                 APIService.getPlayerAcademyStats(playerId).catch(() => null),
             ])
 
@@ -394,10 +418,6 @@ export function PlayerPage() {
                 else if (p === 'F' || p === 'Attacker') mapped = 'Attacker'
                 setPosition(mapped)
             }
-
-            // Journey: render cached data now; hydrate asynchronously if missing
-            setJourneyData(journeyMapData)
-            journeyNeedsSync = !journeyMapData
 
             // Infer position from stats
             if (statRows.length > 0) {
@@ -426,16 +446,6 @@ export function PlayerPage() {
             setError('Failed to load player data.')
         } finally {
             if (!isCancelled()) setLoading(false)
-        }
-
-        if (journeyNeedsSync && !isCancelled()) {
-            void APIService.request(`/players/${playerId}/journey/map?sync=true`)
-                .then((synced) => {
-                    if (!isCancelled() && synced) setJourneyData(synced)
-                })
-                .catch(() => {
-                    // Sync failed — MiniProgressBar will just not render
-                })
         }
     }
     
