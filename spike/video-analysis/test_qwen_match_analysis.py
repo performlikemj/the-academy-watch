@@ -8,6 +8,8 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+import qwen_match_analysis as qwen_analysis  # noqa: E402
+
 from qwen_match_analysis import (  # noqa: E402
     append_honest_limits,
     build_caption_prompt,
@@ -17,6 +19,7 @@ from qwen_match_analysis import (  # noqa: E402
     compute_player_confidence,
     filter_player_notes,
     finalize_analysis,
+    generate_window_captions,
     parse_observation,
     parse_window_caption,
     readable_jersey_evidence,
@@ -270,6 +273,89 @@ def test_caption_frame_timestamps_are_evenly_spaced():
     assert caption_frame_timestamps(10, 20) == [10.0, 15.0, 20.0]
     assert caption_frame_timestamps(10, 20, max_frames=1) == [15.0]
     assert caption_frame_timestamps(20, 10) == []
+
+
+def test_caption_output_copies_roster_identity_without_model_involvement(
+    monkeypatch, tmp_path
+):
+    model_caption = {
+        "caption": "Blue #8 carries the ball through the central third.",
+        "action_type": "carry",
+        "player_visible": True,
+        "visible_pitch_zone": "central",
+    }
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        qwen_analysis,
+        "ollama_chat",
+        lambda *args, **kwargs: json.dumps(model_caption),
+    )
+
+    captions, failed = generate_window_captions(
+        [
+            {
+                "tracklet_id": 10,
+                "roster_entry_id": 42,
+                "roster_jersey_number": 8,
+                "kit_color": "blue",
+                "start_s": 10.0,
+                "end_s": 20.0,
+            }
+        ],
+        video_path=tmp_path / "match.mp4",
+        out_dir=tmp_path / "out",
+        ffmpeg_path=tmp_path / "ffmpeg",
+        ffmpeg_dir=tmp_path,
+        profile_path=tmp_path / "decode.sb",
+        sandboxed=False,
+        sandbox_exec=None,
+        ollama_url="http://ollama.invalid",
+        model="vision-model",
+        timeout_s=30,
+    )
+
+    assert failed == 0
+    assert captions == [
+        {
+            "tracklet_id": 10,
+            "roster_entry_id": 42,
+            "roster_jersey_number": 8,
+            "start_s": 10,
+            "end_s": 20,
+            **model_caption,
+        }
+    ]
+
+
+def test_caption_context_preserves_roster_identity(tmp_path):
+    context_path = tmp_path / "context.json"
+    context_path.write_text(
+        json.dumps(
+            {
+                "caption_windows": [
+                    {
+                        "tracklet_id": 10,
+                        "roster_entry_id": 42,
+                        "roster_jersey_number": 8,
+                        "kit_color": "blue",
+                        "start_s": 10,
+                        "end_s": 20,
+                    }
+                ]
+            }
+        )
+    )
+
+    assert qwen_analysis._load_context(context_path)["caption_windows"] == [
+        {
+            "tracklet_id": 10,
+            "roster_entry_id": 42,
+            "roster_jersey_number": 8,
+            "kit_color": "blue",
+            "start_s": 10.0,
+            "end_s": 20.0,
+        }
+    ]
 
 
 def test_honest_limits_are_always_appended():

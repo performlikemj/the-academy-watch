@@ -109,6 +109,7 @@ def test_caption_window_selection_uses_rank_top_k_duration_and_kit_mapping():
     assert select_caption_windows(match, roster, tracklets, top_k=2) == [
         {
             "tracklet_id": 2,
+            "roster_entry_id": 1,
             "roster_jersey_number": 8,
             "kit_color": "blue",
             "start_s": 30.0,
@@ -116,6 +117,7 @@ def test_caption_window_selection_uses_rank_top_k_duration_and_kit_mapping():
         },
         {
             "tracklet_id": 4,
+            "roster_entry_id": 2,
             "roster_jersey_number": 11,
             "kit_color": "red",
             "start_s": 50.0,
@@ -123,6 +125,7 @@ def test_caption_window_selection_uses_rank_top_k_duration_and_kit_mapping():
         },
         {
             "tracklet_id": 5,
+            "roster_entry_id": 2,
             "roster_jersey_number": 11,
             "kit_color": "red",
             "start_s": 60.0,
@@ -130,6 +133,7 @@ def test_caption_window_selection_uses_rank_top_k_duration_and_kit_mapping():
         },
         {
             "tracklet_id": 1,
+            "roster_entry_id": 1,
             "roster_jersey_number": 8,
             "kit_color": "blue",
             "start_s": 0.0,

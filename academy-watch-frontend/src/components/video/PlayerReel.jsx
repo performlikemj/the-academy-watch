@@ -84,10 +84,11 @@ export function orderReelWindows(windows, ordering = 'chronological') {
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
-export function matchCaptionToWindow(window, captions) {
-    if (!window || !Array.isArray(captions)) return null
+export function matchCaptionToWindow(window, captions, player) {
+    if (!window || !Array.isArray(captions) || player?.roster_entry_id == null) return null
     for (const caption of captions) {
         if (caption?.tracklet_id !== window.tracklet_id) continue
+        if (caption.roster_entry_id == null || caption.roster_entry_id !== player.roster_entry_id) continue
         const windowDuration = window.end_s - window.start_s
         const captionDuration = caption.end_s - caption.start_s
         const shorter = Math.min(windowDuration, captionDuration)
@@ -96,6 +97,23 @@ export function matchCaptionToWindow(window, captions) {
         if (overlap / shorter >= 0.5) return caption
     }
     return null
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function captionPresentation(caption) {
+    if (!caption) return null
+    if (caption.player_visible === false) {
+        return {
+            kind: 'context',
+            label: 'clip context — player not confirmed in frame',
+            showActionType: false,
+        }
+    }
+    return {
+        kind: 'player',
+        label: 'AI clip notes — qualitative',
+        showActionType: true,
+    }
 }
 
 function evidenceEntry(matchId, trackletId) {
@@ -393,7 +411,8 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError }) {
     const [ordering, setOrdering] = useState('chronological')
     const windows = useMemo(() => orderReelWindows(player.windows, ordering), [ordering, player.windows])
     const activeWindow = windows[activeIdx]
-    const activeCaption = matchCaptionToWindow(activeWindow, captions)
+    const activeCaption = matchCaptionToWindow(activeWindow, captions, player)
+    const activeCaptionPresentation = captionPresentation(activeCaption)
     const footageUrl = mediaToken ? APIService.videoFootageUrl(matchId, mediaToken) : null
     const overlayLabel = `#${player.jersey_number} ${player.player_name}`
 
@@ -557,7 +576,8 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError }) {
                     </div>
                     <div className="space-y-1.5">
                         {windows.map((window, index) => {
-                            const caption = matchCaptionToWindow(window, captions)
+                            const caption = matchCaptionToWindow(window, captions, player)
+                            const presentation = captionPresentation(caption)
                             return (
                                 <button
                                     type="button"
@@ -572,9 +592,9 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError }) {
                                         </span>
                                         <span>{formatSeconds(window.end_s - window.start_s)}</span>
                                     </span>
-                                    {caption ? (
+                                    {caption && presentation ? (
                                         <span className="mt-1.5 flex flex-wrap gap-1 text-[9px] font-semibold uppercase tracking-wide">
-                                            <span className="rounded-sm bg-cyan-300/15 px-1.5 py-0.5 text-cyan-200">{caption.action_type?.replace('_', ' ')}</span>
+                                            {presentation.showActionType ? <span className="rounded-sm bg-cyan-300/15 px-1.5 py-0.5 text-cyan-200">{caption.action_type?.replace('_', ' ')}</span> : <span className="rounded-sm bg-white/[0.06] px-1.5 py-0.5 text-slate-500">clip context</span>}
                                             {caption.visible_pitch_zone ? <span className="rounded-sm bg-white/10 px-1.5 py-0.5 text-slate-300">{caption.visible_pitch_zone} zone</span> : null}
                                         </span>
                                     ) : null}
@@ -584,10 +604,10 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError }) {
                     </div>
                 </div>
             </div>
-            {activeCaption ? (
-                <div className="mt-4 border-l-2 border-cyan-300 bg-cyan-300/[0.07] px-3 py-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-cyan-300">AI clip notes — qualitative</p>
-                    <p className="mt-1 text-sm text-slate-200">{activeCaption.caption}</p>
+            {activeCaption && activeCaptionPresentation ? (
+                <div className={`mt-4 border-l-2 px-3 py-2.5 ${activeCaptionPresentation.kind === 'context' ? 'border-slate-600 bg-white/[0.03]' : 'border-cyan-300 bg-cyan-300/[0.07]'}`}>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.17em] ${activeCaptionPresentation.kind === 'context' ? 'text-slate-500' : 'text-cyan-300'}`}>{activeCaptionPresentation.label}</p>
+                    <p className={`mt-1 text-sm ${activeCaptionPresentation.kind === 'context' ? 'text-slate-400' : 'text-slate-200'}`}>{activeCaption.caption}</p>
                 </div>
             ) : null}
         </div>

@@ -116,6 +116,7 @@ def select_caption_windows(
             selected.append(
                 {
                     "tracklet_id": window["tracklet_id"],
+                    "roster_entry_id": int(_row_value(roster, "id")),
                     "roster_jersey_number": int(_row_value(roster, "jersey_number")),
                     "kit_color": kit_color,
                     "start_s": window["start_s"],

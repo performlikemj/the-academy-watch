@@ -649,12 +649,28 @@ def validate_analysis_schema(
         for window_caption in analysis["window_captions"]:
             if not isinstance(window_caption, dict):
                 raise ValueError("each window_caption must be an object")
-            if {"tracklet_id", "start_s", "end_s"} - window_caption.keys():
+            if {
+                "tracklet_id",
+                "roster_entry_id",
+                "roster_jersey_number",
+                "start_s",
+                "end_s",
+            } - window_caption.keys():
                 raise ValueError("window_caption is missing window identity fields")
             if not isinstance(window_caption["tracklet_id"], int) or isinstance(
                 window_caption["tracklet_id"], bool
             ):
                 raise ValueError("window_caption.tracklet_id must be an integer")
+            if not isinstance(window_caption["roster_entry_id"], int) or isinstance(
+                window_caption["roster_entry_id"], bool
+            ):
+                raise ValueError("window_caption.roster_entry_id must be an integer")
+            if not isinstance(
+                window_caption["roster_jersey_number"], int
+            ) or isinstance(window_caption["roster_jersey_number"], bool):
+                raise ValueError(
+                    "window_caption.roster_jersey_number must be an integer"
+                )
             if not _number(window_caption["start_s"]) or not _number(
                 window_caption["end_s"]
             ):
@@ -825,6 +841,7 @@ def _load_context(path: Path | None) -> dict:
             continue
         try:
             tracklet_id = window["tracklet_id"]
+            roster_entry_id = window["roster_entry_id"]
             jersey_number = window["roster_jersey_number"]
             start_s = float(window["start_s"])
             end_s = float(window["end_s"])
@@ -833,6 +850,8 @@ def _load_context(path: Path | None) -> dict:
         if (
             not isinstance(tracklet_id, int)
             or isinstance(tracklet_id, bool)
+            or not isinstance(roster_entry_id, int)
+            or isinstance(roster_entry_id, bool)
             or not isinstance(jersey_number, int)
             or isinstance(jersey_number, bool)
             or not math.isfinite(start_s)
@@ -844,6 +863,7 @@ def _load_context(path: Path | None) -> dict:
         caption_windows.append(
             {
                 "tracklet_id": tracklet_id,
+                "roster_entry_id": roster_entry_id,
                 "roster_jersey_number": jersey_number,
                 "kit_color": window.get("kit_color")
                 if isinstance(window.get("kit_color"), str)
@@ -945,6 +965,8 @@ def generate_window_captions(
             captions.append(
                 {
                     "tracklet_id": window["tracklet_id"],
+                    "roster_entry_id": window["roster_entry_id"],
+                    "roster_jersey_number": window["roster_jersey_number"],
                     "start_s": _clean_number(window["start_s"]),
                     "end_s": _clean_number(window["end_s"]),
                     **parsed,
