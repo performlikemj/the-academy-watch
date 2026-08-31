@@ -1,0 +1,28 @@
+;; Decode attacker-supplied footage with the smallest practical macOS Seatbelt grant.
+;; Runtime paths are passed with sandbox-exec -D KEY=value; this file stays static.
+(version 1)
+(deny default)
+(import "dyld-support.sb")
+
+;; ffmpeg/ffprobe may fork but execute only the exact binary selected by the script.
+;; FFMPEG_DIR separately covers dynamically loaded Homebrew/MacPorts codec libraries.
+(allow process-fork)
+(allow process-exec
+    (literal (param "EXECUTABLE")))
+
+;; Read the input directory and the platform/decoder libraries needed to start.
+(allow file-read*
+    (subpath (param "VIDEO_DIR"))
+    (subpath (param "FFMPEG_DIR"))
+    (subpath "/usr/lib")
+    (subpath "/System")
+    (subpath "/private/var/db/dyld")
+    (literal "/dev/null"))
+
+;; Images, decoder scratch files, and null output may be written nowhere else.
+(allow file-write*
+    (subpath (param "OUT_DIR"))
+    (literal "/dev/null"))
+
+;; Explicit even though deny-default already covers it: media decoding has no network.
+(deny network*)
