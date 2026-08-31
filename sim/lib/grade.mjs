@@ -66,7 +66,7 @@ async function imageBase64(filePath) {
   return (await fs.readFile(filePath)).toString('base64')
 }
 
-async function gradeOne({ record, reportDir, ollamaUrl, model }) {
+async function gradeOne({ record, reportDir, ollamaUrl, model, chat }) {
   let image
   try {
     image = await imageBase64(path.join(reportDir, record.shot))
@@ -76,12 +76,26 @@ async function gradeOne({ record, reportDir, ollamaUrl, model }) {
 
   const prompt = `${GRADE_PROMPT}\n\nExpectation: ${record.expectation}`
   try {
-    const first = parseGradeAttempt(await ollamaChat({ ollamaUrl, model, prompt, images: [image] }))
+    const first = parseGradeAttempt(await chat({ ollamaUrl, model, prompt, images: [image] }))
     if (first.valid) return first.result
-    const second = parseGradeAttempt(await ollamaChat({ ollamaUrl, model, prompt, images: [image] }))
+    const second = parseGradeAttempt(await chat({ ollamaUrl, model, prompt, images: [image] }))
     return second.result
   } catch (error) {
     return { verdict: 'ungraded', note: `Vision grading unavailable: ${error.message}` }
+  }
+}
+
+function mergeGrade(record, result) {
+  if (record.ok !== false) return { ...record, ...result }
+
+  const mechanicalError = typeof record.error === 'string' && record.error.trim()
+    ? record.error.trim()
+    : 'The step action failed mechanically.'
+  return {
+    ...record,
+    ...result,
+    verdict: 'fail',
+    note: `${mechanicalError}\nScreenshot grader: ${result.note}`,
   }
 }
 
@@ -100,11 +114,11 @@ async function contentRichImages(records, reportDir) {
   return Promise.all(candidates.slice(0, 3).map(({ filePath }) => imageBase64(filePath)))
 }
 
-async function proposeJourney({ records, reportDir, ollamaUrl, model }) {
+async function proposeJourney({ records, reportDir, ollamaUrl, model, chat }) {
   const images = await contentRichImages(records, reportDir)
   if (!images.length) return []
   try {
-    const raw = await ollamaChat({ ollamaUrl, model, prompt: EXPLORATION_PROMPT, images })
+    const raw = await chat({ ollamaUrl, model, prompt: EXPLORATION_PROMPT, images })
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
     const proposal = validateProposal(parsed)
     return proposal ? [proposal] : []
@@ -114,11 +128,10 @@ async function proposeJourney({ records, reportDir, ollamaUrl, model }) {
 }
 
 export async function gradeRecords(records, options) {
-  const { enabled, reportDir, ollamaUrl, model } = options
+  const { enabled, reportDir, ollamaUrl, model, chat = ollamaChat } = options
   if (!enabled) {
     return {
-      records: records.map((record) => ({
-        ...record,
+      records: records.map((record) => mergeGrade(record, {
         verdict: record.expectation ? 'ungraded' : 'observed',
         note: record.expectation ? 'Vision grading disabled by SIM_GRADE=0.' : 'Observed only.',
       })),
@@ -129,15 +142,15 @@ export async function gradeRecords(records, options) {
   const graded = []
   for (const record of records) {
     if (!record.expectation) {
-      graded.push({ ...record, verdict: 'observed', note: 'Observed only.' })
+      graded.push(mergeGrade(record, { verdict: 'observed', note: 'Observed only.' }))
       continue
     }
-    const result = await gradeOne({ record, reportDir, ollamaUrl, model })
-    graded.push({ ...record, ...result })
+    const result = await gradeOne({ record, reportDir, ollamaUrl, model, chat })
+    graded.push(mergeGrade(record, result))
   }
 
   return {
     records: graded,
-    proposals: await proposeJourney({ records, reportDir, ollamaUrl, model }),
+    proposals: await proposeJourney({ records, reportDir, ollamaUrl, model, chat }),
   }
 }
