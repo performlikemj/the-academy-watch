@@ -9,20 +9,24 @@ the chunk-and-merge architecture the ~33-min serverless-GPU eviction window
 forces anyway:
 
   $VIDEO_PIPELINE_CMD --video <local mp4> --out <artifacts dir> \
-      [--kickoff-s N] [--halftime-s N] [--second-half-kickoff-s N] [--end-s N]
+      [--kickoff-s N] [--halftime-s N] [--second-half-kickoff-s N] [--end-s N] \
+      [--context-json <path>]
 
 The timeline markers window the run to in-play time: the pipeline processes [kickoff, end]
 and skips the halftime gap [halftime, second-half-kickoff] (see game_time.in_play_plan /
 run_spike.py marker mode). All are optional and degrade safely; kickoff alone just trims warm-up.
 
-must produce fragments.json + votes.json (+ optional chains.json,
-thumbnails.json) in <artifacts dir> — the schema validated in the Phase 0 spike
-(invert_identity.py outputs). The worker then persists via
-video_identity.complete_job_with_artifacts().
+The default VIDEO_PIPELINE_KIND=cv must produce fragments.json + votes.json
+(+ optional chains.json, thumbnails.json). VIDEO_PIPELINE_KIND=qwen_analysis
+must produce analysis.json and receives match context via --context-json. Each
+kind is persisted through its fenced completion service.
 
 Modes:
   one-shot (VIDEO_JOB_ID set)  process exactly that job, exit — ACA Jobs path
-  loop (default)               poll-claim queued jobs until idle-timeout
+  loop (default)               poll-claim queued CV jobs until idle-timeout
+
+Loop mode is CV-only until jobs carry a persisted pipeline kind. Non-CV workers
+must use one-shot pinning so they cannot claim an ordinary CV job.
 
 Job state is DB-authoritative: claims are conditional UPDATEs, heartbeats let
 the stale-reaper recover from evictions, and a re-delivered queue message
@@ -74,7 +78,13 @@ def _download_footage(blob_path: str, dest: Path, expected_etag: str) -> None:
     )
 
 
-def _build_pipeline_cmd(cmd_template: str, video_path: Path, out_dir: Path, match) -> list[str]:
+def _build_pipeline_cmd(
+    cmd_template: str,
+    video_path: Path,
+    out_dir: Path,
+    match,
+    context_path: Path | None = None,
+) -> list[str]:
     """Assemble the pipeline argv, forwarding the operator's timeline markers.
 
     Only markers that are set are appended. The pipeline (run_spike.py in-play marker mode /
@@ -92,6 +102,8 @@ def _build_pipeline_cmd(cmd_template: str, video_path: Path, out_dir: Path, matc
     ):
         if value is not None:
             cmd += [flag, str(value)]
+    if context_path is not None:
+        cmd += ["--context-json", str(context_path)]
     return cmd
 
 
@@ -112,13 +124,28 @@ def _keepalive(app, job_id: str, stop: threading.Event, fenced: threading.Event,
                 return
 
 
-def _run_pipeline(video_path: Path, out_dir: Path, match) -> None:
+def _run_pipeline(video_path: Path, out_dir: Path, match, context_path: Path | None = None) -> None:
     cmd_template = os.getenv("VIDEO_PIPELINE_CMD")
     if not cmd_template:
         raise RuntimeError("VIDEO_PIPELINE_CMD is not set (vision image misconfigured)")
-    cmd = _build_pipeline_cmd(cmd_template, video_path, out_dir, match)
+    cmd = _build_pipeline_cmd(cmd_template, video_path, out_dir, match, context_path)
     log.info("running pipeline: %s", " ".join(cmd))
     subprocess.run(cmd, check=True)
+
+
+def _local_video_path(match) -> Path:
+    """Resolve the explicit dev-only local video mapping, failing closed."""
+    capture_meta = match.capture_meta if isinstance(match.capture_meta, dict) else {}
+    local = capture_meta.get("local")
+    value = local.get("video") if isinstance(local, dict) else None
+    if not isinstance(value, str) or not value:
+        raise RuntimeError("local footage is missing: capture_meta.local.video must be an absolute file path")
+    path = Path(value)
+    if not path.is_absolute():
+        raise RuntimeError("local footage is invalid: capture_meta.local.video must be an absolute file path")
+    if not path.is_file():
+        raise RuntimeError(f"local footage does not exist: {path}")
+    return path
 
 
 def process_job(app, job_id: str) -> bool:
@@ -127,39 +154,60 @@ def process_job(app, job_id: str) -> bool:
 
     from src.models.league import db
     from src.models.video import VideoAnalysisJob, VideoMatch
+    from src.services import video_storage
+    from src.services.video_analysis_store import complete_job_with_analysis
     from src.services.video_identity import complete_job_with_artifacts
     from src.services.video_queue import JobFenced, fail_running_job, heartbeat
-    from src.services.video_storage import verify_expected_blob
 
     job = db.session.get(VideoAnalysisJob, job_id)
     match = db.session.get(VideoMatch, job.video_match_id)
+    pipeline_kind = os.getenv("VIDEO_PIPELINE_KIND", "cv")
     t0 = time.monotonic()
     try:
         # Pin the download to the ETag returned by this verification. For legacy
         # matches without a stored ETag, this is the just-observed current ETag.
         if not heartbeat(job_id, stage="decode", progress=0):
             raise JobFenced("job is no longer running (reaped before decode)")
-        check = verify_expected_blob(match.blob_path, match.blob_etag)
-        if not check["ok"]:
-            raise RuntimeError(f"footage blob failed verification: {check.get('error')}")
-        verified_etag = check.get("etag")
-        if not verified_etag:
-            raise RuntimeError("footage blob verification returned no ETag")
+        storage_configured = video_storage.is_configured()
+        verified_etag = None
+        if storage_configured:
+            check = video_storage.verify_expected_blob(match.blob_path, match.blob_etag)
+            if not check["ok"]:
+                raise RuntimeError(f"footage blob failed verification: {check.get('error')}")
+            verified_etag = check.get("etag")
+            if not verified_etag:
+                raise RuntimeError("footage blob verification returned no ETag")
 
         with tempfile.TemporaryDirectory(prefix="vision-job-") as tmp:
             tmp_path = Path(tmp)
-            video_path = tmp_path / "match.mp4"
-            _download_footage(match.blob_path, video_path, verified_etag)
+            if storage_configured:
+                video_path = tmp_path / "match.mp4"
+                _download_footage(match.blob_path, video_path, verified_etag)
+            else:
+                video_path = _local_video_path(match)
 
             if not heartbeat(job_id, stage="detect", progress=5):
                 raise JobFenced("job is no longer running (reaped before detect)")
             out_dir = tmp_path / "artifacts"
             out_dir.mkdir()
+            context_path = None
+            if pipeline_kind == "qwen_analysis":
+                context_path = tmp_path / "context.json"
+                context_path.write_text(
+                    json.dumps(
+                        {
+                            "opponent_name": match.opponent_name,
+                            "our_kit_color": match.our_kit_color,
+                            "opponent_kit_color": match.opponent_kit_color,
+                            "competition": match.competition,
+                        }
+                    )
+                )
             stop, fenced = threading.Event(), threading.Event()
             keeper = threading.Thread(target=_keepalive, args=(app, job_id, stop, fenced), daemon=True)
             keeper.start()
             try:
-                _run_pipeline(video_path, out_dir, match)
+                _run_pipeline(video_path, out_dir, match, context_path)
             finally:
                 stop.set()
                 keeper.join(timeout=30)
@@ -168,15 +216,22 @@ def process_job(app, job_id: str) -> bool:
 
             if not heartbeat(job_id, stage="persist", progress=90):
                 raise JobFenced("job is no longer running (reaped before persist)")
-            artifacts = {
-                "fragments": json.loads((out_dir / "fragments.json").read_text()),
-                "votes": json.loads((out_dir / "votes.json").read_text()),
-            }
-            for opt in ("chains", "thumbnails"):
-                p = out_dir / f"{opt}.json"
-                if p.exists():
-                    artifacts[opt] = json.loads(p.read_text())
-            complete_job_with_artifacts(job_id, artifacts, gpu_seconds=round(time.monotonic() - t0, 1))
+            gpu_seconds = round(time.monotonic() - t0, 1)
+            if pipeline_kind == "qwen_analysis":
+                analysis = json.loads((out_dir / "analysis.json").read_text())
+                if not isinstance(analysis, dict):
+                    raise RuntimeError("analysis.json must contain a JSON object")
+                complete_job_with_analysis(job_id, analysis, gpu_seconds=gpu_seconds)
+            else:
+                artifacts = {
+                    "fragments": json.loads((out_dir / "fragments.json").read_text()),
+                    "votes": json.loads((out_dir / "votes.json").read_text()),
+                }
+                for opt in ("chains", "thumbnails"):
+                    p = out_dir / f"{opt}.json"
+                    if p.exists():
+                        artifacts[opt] = json.loads(p.read_text())
+                complete_job_with_artifacts(job_id, artifacts, gpu_seconds=gpu_seconds)
         log.info("job %s succeeded", job_id)
         return True
     except JobFenced as e:
@@ -195,13 +250,21 @@ def process_job(app, job_id: str) -> bool:
 
 
 def main() -> None:
+    pipeline_kind = os.getenv("VIDEO_PIPELINE_KIND", "cv")
+    pinned = os.getenv("VIDEO_JOB_ID")
+    if pipeline_kind != "cv" and not pinned:
+        log.error(
+            "VIDEO_PIPELINE_KIND=%s requires VIDEO_JOB_ID: loop mode could claim an ordinary CV job; exiting",
+            pipeline_kind,
+        )
+        raise SystemExit(2)
+
     from src.main import app
 
     worker_id = os.getenv("CONTAINER_APP_REPLICA_NAME") or socket.gethostname()
     with app.app_context():
         from src.services.video_queue import claim_job, claim_next_job
 
-        pinned = os.getenv("VIDEO_JOB_ID")
         if pinned:
             if not claim_job(pinned, worker_id):
                 log.info("job %s already claimed elsewhere — exiting (duplicate delivery)", pinned)

@@ -12,7 +12,13 @@ from flask import Flask
 from src.models.league import db
 from src.models.video import VideoAnalysisJob, VideoMatch
 from src.services.video_storage import verify_expected_blob
-from src.workers.vision_worker import _build_pipeline_cmd, _download_footage, process_job
+from src.workers.vision_worker import (
+    _build_pipeline_cmd,
+    _download_footage,
+    _local_video_path,
+    main,
+    process_job,
+)
 
 TEMPLATE = "python /app/run_spike.py --device cuda"
 VIDEO = Path("/tmp/match.mp4")
@@ -59,6 +65,18 @@ def test_zero_kickoff_is_forwarded_not_dropped():
     # 0.0 is a valid kickoff (footage begins exactly at kickoff); the builder must key on
     # "is not None", not truthiness, or a 0-second marker would silently vanish.
     assert "--kickoff-s" in _cmd(kickoff_s=0.0)
+
+
+def test_context_path_is_forwarded_after_markers():
+    context = Path("/tmp/context.json")
+    command = _build_pipeline_cmd(
+        TEMPLATE,
+        VIDEO,
+        OUT,
+        SimpleNamespace(kickoff_s=0, halftime_s=None, second_half_kickoff_s=None, duration_s=7200),
+        context,
+    )
+    assert command[-2:] == ["--context-json", str(context)]
 
 
 def test_download_is_pinned_to_verified_etag():
@@ -139,6 +157,7 @@ def test_swap_after_verify_precondition_failure_marks_job_failed():
             patch.object(db.session, "commit") as commit,
             patch("src.services.video_queue.heartbeat"),
             patch("src.services.video_queue.fail_running_job", return_value=True) as fail_job,
+            patch("src.services.video_storage.is_configured", return_value=True),
             patch("src.services.video_storage.verify_expected_blob", return_value=current),
             patch("src.services.video_storage.mint_read_sas", return_value="https://blob.invalid/read"),
             patch("src.workers.vision_worker.subprocess.run", side_effect=precondition_failed) as run,
@@ -167,3 +186,93 @@ def test_non_null_etag_mismatch_fails_worker_verification():
         "ok": False,
         "error": "footage blob changed since upload-complete (ETag mismatch)",
     }
+
+
+def test_local_video_path_requires_existing_absolute_path(tmp_path):
+    video = tmp_path / "match.mp4"
+    video.write_bytes(b"test footage")
+    match = SimpleNamespace(capture_meta={"local": {"video": str(video)}})
+    assert _local_video_path(match) == video
+
+
+def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path, monkeypatch):
+    app = Flask(__name__)
+    app.config.update(
+        TESTING=True,
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+    video = tmp_path / "match.mp4"
+    video.write_bytes(b"test footage")
+    job = SimpleNamespace(video_match_id=1)
+    match = SimpleNamespace(
+        blob_path=None,
+        blob_etag=None,
+        capture_meta={"local": {"video": str(video)}},
+        kickoff_s=0,
+        halftime_s=1800,
+        second_half_kickoff_s=2100,
+        duration_s=3900,
+        opponent_name="Red-kit opposition",
+        our_kit_color="blue",
+        opponent_kit_color="red",
+        competition="Academy fixture",
+        status="queued",
+    )
+
+    def fake_get(model, _identifier):
+        return job if model is VideoAnalysisJob else match
+
+    analysis = {"schema_version": "qwen-analysis-v1", "match_summary": "Sampled match analysis."}
+
+    def fake_pipeline(command, check):
+        assert check is True
+        assert command[command.index("--video") + 1] == str(video)
+        context_path = Path(command[command.index("--context-json") + 1])
+        context = __import__("json").loads(context_path.read_text())
+        assert context == {
+            "opponent_name": "Red-kit opposition",
+            "our_kit_color": "blue",
+            "opponent_kit_color": "red",
+            "competition": "Academy fixture",
+        }
+        out_dir = Path(command[command.index("--out") + 1])
+        (out_dir / "analysis.json").write_text(__import__("json").dumps(analysis))
+
+    monkeypatch.setenv("VIDEO_PIPELINE_KIND", "qwen_analysis")
+    monkeypatch.setenv("VIDEO_PIPELINE_CMD", "python qwen_match_analysis.py")
+    with app.app_context():
+        with (
+            patch.object(db.session, "get", side_effect=fake_get),
+            patch("src.services.video_storage.is_configured", return_value=False),
+            patch("src.services.video_storage.verify_expected_blob") as verify,
+            patch("src.workers.vision_worker._download_footage") as download,
+            patch("src.services.video_queue.heartbeat", return_value=True),
+            patch("src.workers.vision_worker.subprocess.run", side_effect=fake_pipeline),
+            patch("src.services.video_analysis_store.complete_job_with_analysis") as complete,
+        ):
+            assert process_job(app, "job-1") is True
+
+    verify.assert_not_called()
+    download.assert_not_called()
+    complete.assert_called_once()
+    assert complete.call_args.args[:2] == ("job-1", analysis)
+    assert complete.call_args.kwargs["gpu_seconds"] >= 0
+
+
+def test_qwen_analysis_requires_pinned_job_and_never_claims_loop_job(app, monkeypatch, caplog):
+    monkeypatch.setenv("VIDEO_PIPELINE_KIND", "qwen_analysis")
+    monkeypatch.delenv("VIDEO_JOB_ID", raising=False)
+
+    with (
+        patch("src.main.app", app),
+        patch("src.services.video_queue.claim_next_job") as claim_next,
+        pytest.raises(SystemExit) as exited,
+    ):
+        main()
+
+    assert exited.value.code != 0
+    claim_next.assert_not_called()
+    assert "requires VIDEO_JOB_ID" in caplog.text
+    assert "ordinary CV job" in caplog.text
