@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { ClubIntroductionsPanel } from '@/components/contact/ClubIntroductionsPanel'
+import { PlayerReels } from '@/components/video/PlayerReel'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { formatDateOnly } from '@/lib/dateOnly'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -85,6 +86,14 @@ const MATCH_FORM_FIELDS = [
   'duration_s',
 ]
 const TIMELINE_FIELDS = ['kickoff_s', 'halftime_s', 'second_half_kickoff_s', 'duration_s']
+const REEL_MATCH_STATUSES = new Set(['needs_tagging', 'finalized'])
+const CLUB_REEL_MEDIA_SOURCE = {
+  cacheKey: 'club',
+  loadTrackletCrops: (matchId, trackletId, token) => APIService.getClubVideoTrackletCrops(matchId, trackletId, token),
+  loadTrackletBbox: (matchId, trackletId, token) => APIService.getClubVideoTrackletBbox(matchId, trackletId, token),
+  footageUrl: (matchId, token) => APIService.videoFootageUrl(matchId, token),
+  cropUrl: (matchId, file, token) => APIService.videoCropUrl(matchId, file, token),
+}
 function errorText(error, fallback) {
   return error?.body?.error || error?.message || fallback
 }
@@ -621,6 +630,86 @@ function MatchReport({ programId, match, onAccessDenied }) {
   )
 }
 
+function ClubPlayerReels({ programId, match, onAccessDenied }) {
+  const [opened, setOpened] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [reel, setReel] = useState(null)
+  const [mediaToken, setMediaToken] = useState(null)
+  const [openPlayerId, setOpenPlayerId] = useState(null)
+  const [error, setError] = useState(null)
+
+  const load = useCallback(async () => {
+    if (loading) return
+    setLoading(true)
+    setError(null)
+    try {
+      const [reelResponse, tokenResponse] = await Promise.all([
+        APIService.getClubMatchReel(programId, match.id),
+        APIService.clubVideoMediaToken(programId, match.id),
+      ])
+      setReel(reelResponse)
+      setMediaToken(tokenResponse?.token || null)
+      setOpened(true)
+    } catch (requestError) {
+      if (requestError?.status === 403) {
+        onAccessDenied()
+        return
+      }
+      setError(requestError?.status === 404
+        ? 'Player reels are not available for this match.'
+        : errorText(requestError, 'Player reels could not be loaded. Try again.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [loading, match.id, onAccessDenied, programId])
+
+  const refreshMediaToken = useCallback(() => {
+    APIService.clubVideoMediaToken(programId, match.id)
+      .then((response) => setMediaToken(response?.token || null))
+      .catch((requestError) => {
+        if (requestError?.status === 403) onAccessDenied()
+      })
+  }, [match.id, onAccessDenied, programId])
+
+  if (!REEL_MATCH_STATUSES.has(match.status)) return null
+
+  return (
+    <section className="space-y-3 border-t border-border pt-5" aria-labelledby={`match-${match.id}-reels`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 id={`match-${match.id}-reels`} className="font-bold text-foreground">Player reels</h3>
+          <p className="text-sm text-muted-foreground">Watch read-only on-camera windows from this club&apos;s private match.</p>
+        </div>
+        <Button
+          variant={opened ? 'secondary' : 'outline'}
+          onClick={() => {
+            if (opened) setOpened(false)
+            else if (reel && mediaToken) setOpened(true)
+            else load()
+          }}
+          disabled={loading}
+        >
+          {loading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Film className="mr-1.5 h-4 w-4" />}
+          {loading ? 'Loading reels…' : opened ? 'Hide player reels' : 'View player reels'}
+        </Button>
+      </div>
+      {error ? <Alert className="border-amber-200 bg-amber-50"><AlertCircle className="h-4 w-4 text-amber-800" /><AlertDescription className="text-amber-950">{error}</AlertDescription></Alert> : null}
+      {opened && reel ? (
+        <PlayerReels
+          match={match}
+          reel={reel}
+          mediaToken={mediaToken}
+          openPlayerId={openPlayerId}
+          onTogglePlayer={(rosterEntryId) => setOpenPlayerId((current) => current === rosterEntryId ? null : rosterEntryId)}
+          onMediaError={refreshMediaToken}
+          readOnly
+          mediaSource={CLUB_REEL_MEDIA_SOURCE}
+        />
+      ) : null}
+    </section>
+  )
+}
+
 function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChange, onUploadGrantChange, onAccessDenied, onRefresh }) {
   const editable = EDITABLE_MATCH_STATUSES.has(match.status)
   const [form, setForm] = useState(() => matchFormValues(match))
@@ -905,6 +994,8 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
           <div><h3 id={`match-${match.id}-report`} className="font-bold text-foreground">Private player report</h3><p className="text-sm text-muted-foreground">Only reports scoped to this club program are shown here.</p></div>
           <MatchReport programId={programId} match={match} onAccessDenied={onAccessDenied} />
         </section>
+
+        <ClubPlayerReels programId={programId} match={match} onAccessDenied={onAccessDenied} />
       </CardContent>
     </Card>
   )

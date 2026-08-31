@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
+from src.auth import mint_media_token
 from src.models.funding import ClubProgram, ClubRosterMember
 from src.models.league import Team, db
 from src.models.showcase import LocalPlayer
@@ -469,6 +470,51 @@ def get_club_match(program_id: int, match_id: int):
     out["roster"] = [entry.to_dict() for entry in match.roster_entries]
     out["processing_request_status"] = "requested" if match.processing_requested_at else None
     return jsonify(out)
+
+
+@club_bp.route("/club/<int:program_id>/matches/<int:match_id>/media-token", methods=["GET"])
+@require_club_manager()
+def get_club_match_media_token(program_id: int, match_id: int):
+    match = _club_match(program_id, match_id)
+    if match is None:
+        return jsonify({"error": "Match not found"}), 404
+    return jsonify(
+        mint_media_token(
+            match.id,
+            email=getattr(g, "user_email", None),
+            club_program_id=program_id,
+        )
+    )
+
+
+@club_bp.route("/club/<int:program_id>/matches/<int:match_id>/reel", methods=["GET"])
+@require_club_manager()
+def get_club_match_reel(program_id: int, match_id: int):
+    match = _club_match(program_id, match_id)
+    if match is None:
+        return jsonify({"error": "Match not found"}), 404
+
+    # A club sees only identities still available through its own roster
+    # boundary. This mirrors the report's suppression/detachment posture while
+    # retaining private minor rows for their own verified manager.
+    visible_roster_entries = []
+    for entry in match.roster_entries:
+        member = (
+            ClubRosterMember.query.filter_by(
+                id=entry.club_roster_member_id,
+                program_id=program_id,
+            ).first()
+            if entry.club_roster_member_id is not None
+            else None
+        )
+        if member is not None and _member_subject(member)[0] is not None:
+            visible_roster_entries.append(entry)
+
+    # Imported lazily to keep the club blueprint independent of registration
+    # order while sharing the exact admin reel loader and aggregation service.
+    from src.routes.video import _reel_payload
+
+    return jsonify(_reel_payload(match, visible_roster_entries))
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/roster", methods=["PUT"])

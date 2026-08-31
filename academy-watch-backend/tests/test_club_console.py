@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 from flask import Flask
-from src.auth import issue_user_token
+from src.auth import issue_user_token, media_token_claims
 from src.extensions import limiter
 from src.models.follow import PlayerShadow
 from src.models.funding import (
@@ -22,7 +22,7 @@ from src.models.league import League, Team, UserAccount, db
 from src.models.player_suppression import PlayerSuppression
 from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.models.tracked_player import TrackedPlayer
-from src.models.video import VideoAnalysisJob, VideoMatch, VideoPlayerReport, VideoRosterEntry
+from src.models.video import VideoAnalysisJob, VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.routes.club import club_bp
 from src.routes.player_suppression import player_suppression_bp
 from src.routes.showcase import showcase_bp
@@ -984,3 +984,142 @@ def test_list_club_matches_is_program_scoped_and_newest_first(club_app, client):
     assert [row["id"] for row in response_b.get_json()["matches"]] == [other.id]
 
     assert client.get(f"/api/club/{a}/matches").status_code == 401
+
+
+def _reel_evidence(program_id: int, member_id: int) -> tuple[VideoMatch, VideoRosterEntry, VideoTracklet]:
+    match = _match(program_id, status="finalized")
+    entry = VideoRosterEntry(
+        video_match_id=match.id,
+        player_name="Known Academy Player",
+        jersey_number=8,
+        position="Midfielder",
+        club_roster_member_id=member_id,
+    )
+    db.session.add(entry)
+    db.session.flush()
+    tracklet = VideoTracklet(
+        video_match_id=match.id,
+        kind="chain",
+        pipeline_key="T0#8",
+        team_cluster=0,
+        confidence="high",
+        first_s=10,
+        last_s=16,
+        visible_s=6,
+        roster_entry_id=entry.id,
+        thumbnail_paths=["crop-8.jpg"],
+    )
+    db.session.add(tracklet)
+    db.session.commit()
+    return match, entry, tracklet
+
+
+def test_club_manager_gets_scoped_media_token_and_filtered_reel(club_app, client):
+    a = club_app.c2["program_a"]
+    b = club_app.c2["program_b"]
+    member_id = _add_api_member(client, a)
+    match, _entry, _tracklet = _reel_evidence(a, member_id)
+
+    token_response = client.get(f"/api/club/{a}/matches/{match.id}/media-token", headers=_headers("a"))
+    assert token_response.status_code == 200
+    token = token_response.get_json()["token"]
+    claims = media_token_claims(token, match.id)
+    assert claims["club_program_id"] == a
+    assert claims["email"] == "manager-a@c2.example"
+
+    reel = client.get(f"/api/club/{a}/matches/{match.id}/reel", headers=_headers("a"))
+    assert reel.status_code == 200
+    assert [(row["player_name"], row["jersey_number"]) for row in reel.get_json()["players"]] == [
+        ("Known Academy Player", 8)
+    ]
+
+    for path in ("media-token", "reel"):
+        foreign = client.get(f"/api/club/{b}/matches/{match.id}/{path}", headers=_headers("b"))
+        assert foreign.status_code == 404
+        assert foreign.get_json() == {"error": "Match not found"}
+
+    _active_suppression(player_api_id=7001)
+    hidden = client.get(f"/api/club/{a}/matches/{match.id}/reel", headers=_headers("a"))
+    assert hidden.status_code == 200
+    assert hidden.get_json()["players"] == []
+
+
+def test_club_media_token_streams_owned_footage_and_bbox_then_fails_closed_after_reassignment(
+    club_app, client, monkeypatch, tmp_path
+):
+    from src.routes import video as video_routes
+
+    a = club_app.c2["program_a"]
+    b = club_app.c2["program_b"]
+    member_id = _add_api_member(client, a)
+    match, _entry, tracklet = _reel_evidence(a, member_id)
+    other = _match(b, status="finalized")
+    footage = tmp_path / "owned-match.mp4"
+    footage.write_bytes(b"test-video-bytes")
+    monkeypatch.setattr(video_routes.video_dev_artifacts, "local_artifacts", lambda loaded: {"footage": str(footage)})
+    monkeypatch.setattr(
+        video_routes.video_dev_artifacts,
+        "tracklet_bbox_track",
+        lambda loaded_tracklet, _art: [[10.0, 1.0, 2.0, 3.0, 4.0]],
+    )
+
+    token = client.get(
+        f"/api/club/{a}/matches/{match.id}/media-token",
+        headers=_headers("a"),
+    ).get_json()["token"]
+
+    footage_response = client.get(f"/api/admin/video/matches/{match.id}/footage", query_string={"token": token})
+    assert footage_response.status_code == 200
+    bbox_response = client.get(
+        f"/api/admin/video/matches/{match.id}/tracklets/{tracklet.id}/bbox-track",
+        query_string={"token": token},
+    )
+    assert bbox_response.status_code == 200
+    assert bbox_response.get_json() == {"available": True, "boxes": [[10.0, 1.0, 2.0, 3.0, 4.0]]}
+
+    assert (
+        client.get(
+            f"/api/admin/video/matches/{other.id}/footage",
+            query_string={"token": token},
+        ).status_code
+        == 403
+    )
+
+    match.club_program_id = b
+    db.session.commit()
+    for path in (
+        f"/api/admin/video/matches/{match.id}/footage",
+        f"/api/admin/video/matches/{match.id}/tracklets/{tracklet.id}/bbox-track",
+    ):
+        denied = client.get(path, query_string={"token": token})
+        assert denied.status_code == 404
+        assert denied.get_json() == {"error": "match not found"}
+
+
+def test_admin_media_and_reel_paths_remain_dual_auth_gated(club_app, client, monkeypatch):
+    from src.routes import video as video_routes
+
+    a = club_app.c2["program_a"]
+    member_id = _add_api_member(client, a)
+    match, _entry, tracklet = _reel_evidence(a, member_id)
+    monkeypatch.setattr(video_routes.video_dev_artifacts, "local_artifacts", lambda loaded: None)
+
+    token_response = client.get(f"/api/admin/video/matches/{match.id}/media-token", headers=_admin_headers())
+    assert token_response.status_code == 200
+    assert "club_program_id" not in media_token_claims(token_response.get_json()["token"], match.id)
+    assert client.get(f"/api/admin/video/matches/{match.id}/reel", headers=_admin_headers()).status_code == 200
+    assert (
+        client.get(
+            f"/api/admin/video/matches/{match.id}/tracklets/{tracklet.id}/crops",
+            headers=_admin_headers(),
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(
+            f"/api/admin/video/matches/{match.id}/tracklets/{tracklet.id}/bbox-track",
+            headers=_admin_headers(),
+        ).status_code
+        == 200
+    )
+    assert client.get(f"/api/admin/video/matches/{match.id}/reel").status_code == 401

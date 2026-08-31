@@ -62,6 +62,30 @@ test('getVideoReel calls the admin reel endpoint', async () => {
   }
 })
 
+test('club reel and evidence requests never opt into admin headers', async () => {
+  const originalRequest = APIService.request
+  const calls = []
+  APIService.request = async (...args) => {
+    calls.push(args)
+    return {}
+  }
+
+  try {
+    await APIService.getClubMatchReel(7, 42)
+    await APIService.clubVideoMediaToken(7, 42)
+    await APIService.getClubVideoTrackletCrops(42, 9, 'club-token')
+    await APIService.getClubVideoTrackletBbox(42, 9, 'club-token')
+    assert.deepEqual(calls, [
+      ['/club/7/matches/42/reel'],
+      ['/club/7/matches/42/media-token'],
+      ['/admin/video/matches/42/tracklets/9/crops?token=club-token'],
+      ['/admin/video/matches/42/tracklets/9/bbox-track?token=club-token'],
+    ])
+  } finally {
+    APIService.request = originalRequest
+  }
+})
+
 test('nextWindowIndex stays live before the end and advances at the boundary', () => {
   const windows = [
     { start_s: 10, end_s: 12 },
