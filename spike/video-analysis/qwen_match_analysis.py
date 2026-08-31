@@ -660,9 +660,16 @@ def validate_analysis_schema(
             raise ValueError("player_note.times_seen must be an integer")
         if player["confidence"] not in ("low", "medium"):
             raise ValueError("player_note.confidence must be low or medium")
-        present_player_pairs.add(
-            (_normalized_kit_color(player["kit_color"]), player["jersey_number"])
+        player_pair = (
+            _normalized_kit_color(player["kit_color"]),
+            player["jersey_number"],
         )
+        if player_pair in present_player_pairs:
+            raise ValueError(
+                "player_notes contains duplicate normalized pair: "
+                f"{player_pair[0]} #{player_pair[1]}"
+            )
+        present_player_pairs.add(player_pair)
     missing_player_pairs = (required_player_pairs or set()) - present_player_pairs
     if missing_player_pairs:
         rendered = ", ".join(

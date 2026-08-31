@@ -249,6 +249,22 @@ def test_schema_validation_rejects_missing_recurring_player_pair():
         )
 
 
+def test_schema_validation_rejects_duplicate_normalized_player_pair():
+    analysis = _good_analysis()
+    analysis["player_notes"].append(
+        {
+            **analysis["player_notes"][0],
+            "kit_color": " BLUE ",
+        }
+    )
+
+    with pytest.raises(ValueError, match=r"duplicate normalized pair: blue #8"):
+        validate_analysis_schema(
+            analysis,
+            required_player_pairs={("blue", 8)},
+        )
+
+
 def test_finalize_rejects_model_output_missing_a_recurring_pair():
     observations = [
         {"timestamp_s": 10, "observation": _good_observation()},
