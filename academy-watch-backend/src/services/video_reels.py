@@ -152,6 +152,25 @@ def merge_windows(windows, merge_gap_s=WINDOW_MERGE_GAP_S, min_window_s=MIN_WIND
     return [window for window in merged if window["end_s"] - window["start_s"] >= min_window_s]
 
 
+def rank_windows(windows, chains_by_id) -> list[dict]:
+    """Attach deterministic best-moment ranks while preserving playlist order."""
+    ranked = [dict(window) for window in windows]
+
+    def sort_key(index):
+        window = ranked[index]
+        chain = chains_by_id.get(window["tracklet_id"])
+        return (
+            bool(_value(chain, "contaminated")),
+            0 if _value(chain, "confidence") == "high" else 1,
+            -(window["end_s"] - window["start_s"]),
+            window["start_s"],
+        )
+
+    for rank, index in enumerate(sorted(range(len(ranked)), key=sort_key), start=1):
+        ranked[index]["rank"] = rank
+    return ranked
+
+
 def reel_confidence(tracklets) -> str:
     """Collapse chain confidence without overstating contaminated identities."""
     if tracklets and all(_value(tracklet, "confidence") == "high" for tracklet in tracklets):
@@ -195,7 +214,10 @@ def build_reel_payload(match, roster_entries, tracklets, fragment_spans=None) ->
         raw_windows = []
         for tracklet in bound:
             raw_windows.extend(tracklet_windows(tracklet, spans))
-        windows = merge_windows(raw_windows)
+        windows = rank_windows(
+            merge_windows(raw_windows),
+            {int(_value(tracklet, "id")): tracklet for tracklet in bound},
+        )
         clusters = [int(cluster) for tracklet in bound if (cluster := _value(tracklet, "team_cluster")) in (0, 1)]
         chains = []
         for tracklet in bound:
@@ -235,6 +257,7 @@ def build_reel_payload(match, roster_entries, tracklets, fragment_spans=None) ->
                         "start_s": round(window["start_s"], 2),
                         "end_s": round(window["end_s"], 2),
                         "tracklet_id": window["tracklet_id"],
+                        "rank": window["rank"],
                     }
                     for window in windows
                 ],

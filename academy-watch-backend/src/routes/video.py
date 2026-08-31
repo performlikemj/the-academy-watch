@@ -177,6 +177,9 @@ def update_video_match(match_id: int):
     if match is None:
         return jsonify({"error": "match not found"}), 404
     data = request.get_json() or {}
+    attack_direction = data.get("attack_direction_first_half")
+    if "attack_direction_first_half" in data and attack_direction not in ("left", "right"):
+        return _bad_request("attack_direction_first_half must be left or right")
     for field in ("opponent_name", "competition", "our_kit_color", "opponent_kit_color"):
         if field in data:
             setattr(match, field, data[field])
@@ -193,6 +196,10 @@ def update_video_match(match_id: int):
         match.our_team_cluster = data["our_team_cluster"]
     if "capture_meta" in data:
         match.capture_meta = data["capture_meta"]
+    if "attack_direction_first_half" in data:
+        capture_meta = dict(match.capture_meta) if isinstance(match.capture_meta, dict) else {}
+        capture_meta["attack_direction_first_half"] = attack_direction
+        match.capture_meta = capture_meta
     db.session.commit()
     if data.get("our_team_cluster") in (0, 1) and match.status in ("needs_tagging", "finalized"):
         from src.services.video_identity import auto_bind

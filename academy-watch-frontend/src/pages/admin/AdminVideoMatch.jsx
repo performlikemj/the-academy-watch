@@ -88,6 +88,34 @@ function Stat({ label, value, hint }) {
     )
 }
 
+function AttackDirectionChoice({ value, onChange, disabled }) {
+    return (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed bg-muted/25 px-3 py-2">
+            <div className="mr-auto">
+                <p className="text-xs font-medium">First half we attacked:</p>
+                <p className="text-[11px] text-muted-foreground">Optional — improves pitch analysis.</p>
+            </div>
+            <div className="inline-flex rounded-md border bg-background p-0.5">
+                {[
+                    ['left', '← left'],
+                    ['right', 'right →'],
+                ].map(([direction, label]) => (
+                    <button
+                        type="button"
+                        key={direction}
+                        disabled={disabled}
+                        aria-pressed={value === direction}
+                        onClick={() => onChange(direction)}
+                        className={`rounded px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${value === direction ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+        </div>
+    )
+}
+
 // automatic media-token re-mints per expanded tracklet before we give up (a
 // persistent 404 — retention-expired blob / missing local artifact — would
 // otherwise loop re-mint → src change → reload → error forever).
@@ -248,6 +276,8 @@ export function AdminVideoMatch() {
 
     const [uploadState, setUploadState] = useState({ phase: 'idle', progress: 0 })
     const [markers, setMarkers] = useState({ kickoff: '', halftime: '', secondHalf: '' })
+    const [attackDirection, setAttackDirection] = useState(null)
+    const [attackDirectionSaving, setAttackDirectionSaving] = useState(false)
     const fileRef = useRef(null)
     const uploadInfoRef = useRef(null)
 
@@ -387,6 +417,7 @@ export function AdminVideoMatch() {
                 halftime: match.halftime_s != null ? formatSeconds(match.halftime_s) : '',
                 secondHalf: match.second_half_kickoff_s != null ? formatSeconds(match.second_half_kickoff_s) : '',
             })
+            setAttackDirection(match.capture_meta?.attack_direction_first_half || null)
             if (!rosterText && match.roster?.length) {
                 setRosterText(match.roster.map((r) => `${r.jersey_number} ${r.player_name}`).join('\n'))
             }
@@ -472,6 +503,21 @@ export function AdminVideoMatch() {
             await load()
         } catch (err) {
             setError(err.message)
+        }
+    }
+
+    const handleAttackDirection = async (direction) => {
+        setAttackDirectionSaving(true)
+        setError(null)
+        try {
+            await APIService.updateVideoMatch(matchId, { attack_direction_first_half: direction })
+            setAttackDirection(direction)
+            setNotice(`First-half attack direction saved: ${direction}.`)
+            await load()
+        } catch (err) {
+            setError(err.message)
+        } finally {
+            setAttackDirectionSaving(false)
         }
     }
 
@@ -671,6 +717,7 @@ export function AdminVideoMatch() {
                                         <Input id="vm-second" placeholder="78:00" value={markers.secondHalf} onChange={(e) => setMarkers({ ...markers, secondHalf: e.target.value })} />
                                     </div>
                                 </div>
+                                <AttackDirectionChoice value={attackDirection} onChange={handleAttackDirection} disabled={attackDirectionSaving} />
                                 <Button onClick={handleConfirmUpload}><CheckCircle2 className="h-4 w-4 mr-1" /> Confirm upload</Button>
                             </div>
                         )}
@@ -707,6 +754,7 @@ export function AdminVideoMatch() {
                                 <Input id="vm-second2" placeholder="78:00" value={markers.secondHalf} onChange={(e) => setMarkers({ ...markers, secondHalf: e.target.value })} />
                             </div>
                         </div>
+                        <AttackDirectionChoice value={attackDirection} onChange={handleAttackDirection} disabled={attackDirectionSaving} />
                         <Button variant="outline" size="sm" onClick={handleSaveMarkers}>Save markers</Button>
                     </CardContent>
                 </Card>

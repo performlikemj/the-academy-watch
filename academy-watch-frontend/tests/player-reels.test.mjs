@@ -35,7 +35,15 @@ const identityHelpers = new Function(`
   return { formatVoteSummary, mismatchBadge }
 `)()
 
+const reelHelpers = new Function(`
+  ${extractFunction('orderReelWindows')}
+  ${extractFunction('matchCaptionToWindow')}
+  ${extractFunction('captionPresentation')}
+  return { orderReelWindows, matchCaptionToWindow, captionPresentation }
+`)()
+
 const { formatVoteSummary, mismatchBadge } = identityHelpers
+const { orderReelWindows, matchCaptionToWindow, captionPresentation } = reelHelpers
 
 test('getVideoReel calls the admin reel endpoint', async () => {
   const originalRequest = APIService.request
@@ -70,6 +78,54 @@ test('nextWindowIndex handles empty and invalid playlist state', () => {
   assert.equal(nextWindowIndex(5, [], 0), -1)
   assert.equal(nextWindowIndex(5, windows, -1), 0)
   assert.equal(nextWindowIndex(5, windows, 99), 0)
+})
+
+test('orderReelWindows keeps chronological default and ranks top moments without mutation', () => {
+  const windows = [
+    { start_s: 30, end_s: 35, tracklet_id: 3, rank: 1 },
+    { start_s: 10, end_s: 15, tracklet_id: 1, rank: 3 },
+    { start_s: 20, end_s: 25, tracklet_id: 2, rank: 2 },
+  ]
+
+  assert.deepEqual(orderReelWindows(windows).map((window) => window.tracklet_id), [1, 2, 3])
+  assert.deepEqual(orderReelWindows(windows, 'ranked').map((window) => window.tracklet_id), [3, 2, 1])
+  assert.deepEqual(windows.map((window) => window.tracklet_id), [3, 1, 2])
+})
+
+test('matchCaptionToWindow requires roster identity, tracklet, and 50% overlap', () => {
+  const window = { tracklet_id: 7, start_s: 10, end_s: 20 }
+  const player = { roster_entry_id: 12 }
+  const wrongTracklet = { roster_entry_id: 12, tracklet_id: 8, start_s: 10, end_s: 20, caption: 'wrong' }
+  const underHalf = { roster_entry_id: 12, tracklet_id: 7, start_s: 19, end_s: 22, caption: 'too short' }
+  const half = { roster_entry_id: 12, tracklet_id: 7, start_s: 18, end_s: 22, caption: 'matched' }
+
+  assert.equal(matchCaptionToWindow(window, [wrongTracklet, underHalf, half], player), half)
+  assert.equal(matchCaptionToWindow(window, [wrongTracklet, underHalf], player), null)
+})
+
+test('matchCaptionToWindow invalidates rebound and legacy captions', () => {
+  const window = { tracklet_id: 7, start_s: 10, end_s: 20 }
+  const player = { roster_entry_id: 12 }
+  const rebound = { roster_entry_id: 99, tracklet_id: 7, start_s: 10, end_s: 20 }
+  const legacy = { tracklet_id: 7, start_s: 10, end_s: 20 }
+  const current = { roster_entry_id: 12, tracklet_id: 7, start_s: 10, end_s: 20 }
+
+  assert.equal(matchCaptionToWindow(window, [rebound], player), null)
+  assert.equal(matchCaptionToWindow(window, [legacy], player), null)
+  assert.equal(matchCaptionToWindow(window, [rebound, legacy, current], player), current)
+})
+
+test('captionPresentation demotes unconfirmed-player captions without an action chip', () => {
+  assert.deepEqual(captionPresentation({ player_visible: true }), {
+    kind: 'player',
+    label: 'AI clip notes — qualitative',
+    showActionType: true,
+  })
+  assert.deepEqual(captionPresentation({ player_visible: false }), {
+    kind: 'context',
+    label: 'clip context — player not confirmed in frame',
+    showActionType: false,
+  })
 })
 
 test('formatVoteSummary orders model reads by strength and includes honest suggestions', () => {

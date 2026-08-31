@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
     AlertTriangle,
     Check,
@@ -70,6 +70,50 @@ export function mismatchBadge(player) {
         .filter((number) => number !== null && number !== jerseyNumber)
         .sort((a, b) => a - b)[0]
     return suggested === undefined ? null : `model suggests #${suggested}`
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function orderReelWindows(windows, ordering = 'chronological') {
+    const copy = Array.isArray(windows) ? [...windows] : []
+    if (ordering === 'ranked') {
+        return copy.sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER)
+            || a.start_s - b.start_s
+            || a.tracklet_id - b.tracklet_id)
+    }
+    return copy.sort((a, b) => a.start_s - b.start_s || a.end_s - b.end_s || a.tracklet_id - b.tracklet_id)
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function matchCaptionToWindow(window, captions, player) {
+    if (!window || !Array.isArray(captions) || player?.roster_entry_id == null) return null
+    for (const caption of captions) {
+        if (caption?.tracklet_id !== window.tracklet_id) continue
+        if (caption.roster_entry_id == null || caption.roster_entry_id !== player.roster_entry_id) continue
+        const windowDuration = window.end_s - window.start_s
+        const captionDuration = caption.end_s - caption.start_s
+        const shorter = Math.min(windowDuration, captionDuration)
+        if (!(shorter > 0)) continue
+        const overlap = Math.max(0, Math.min(window.end_s, caption.end_s) - Math.max(window.start_s, caption.start_s))
+        if (overlap / shorter >= 0.5) return caption
+    }
+    return null
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function captionPresentation(caption) {
+    if (!caption) return null
+    if (caption.player_visible === false) {
+        return {
+            kind: 'context',
+            label: 'clip context — player not confirmed in frame',
+            showActionType: false,
+        }
+    }
+    return {
+        kind: 'player',
+        label: 'AI clip notes — qualitative',
+        showActionType: true,
+    }
 }
 
 function evidenceEntry(matchId, trackletId) {
@@ -354,7 +398,7 @@ function VerifyIdentityPanel({ match, player, mediaToken, onAction, savingTrackl
     )
 }
 
-function ReelPlayer({ matchId, player, mediaToken, onMediaError }) {
+function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError }) {
     const videoRef = useRef(null)
     const canvasRef = useRef(null)
     const boxesRef = useRef([])
@@ -364,8 +408,11 @@ function ReelPlayer({ matchId, player, mediaToken, onMediaError }) {
     const [playing, setPlaying] = useState(false)
     const [bbox, setBbox] = useState({ available: false, count: 0, loading: true })
     const [mediaFailed, setMediaFailed] = useState(false)
-    const windows = player.windows
+    const [ordering, setOrdering] = useState('chronological')
+    const windows = useMemo(() => orderReelWindows(player.windows, ordering), [ordering, player.windows])
     const activeWindow = windows[activeIdx]
+    const activeCaption = matchCaptionToWindow(activeWindow, captions, player)
+    const activeCaptionPresentation = captionPresentation(activeCaption)
     const footageUrl = mediaToken ? APIService.videoFootageUrl(matchId, mediaToken) : null
     const overlayLabel = `#${player.jersey_number} ${player.player_name}`
 
@@ -395,6 +442,16 @@ function ReelPlayer({ matchId, player, mediaToken, onMediaError }) {
         video.currentTime = window.start_s
         setPosition(window.start_s)
         if (shouldPlay) video.play().then(() => setPlaying(true)).catch(() => {})
+    }
+    const changeOrdering = (nextOrdering) => {
+        if (nextOrdering === ordering) return
+        const nextWindows = orderReelWindows(player.windows, nextOrdering)
+        setOrdering(nextOrdering)
+        setActiveIdx(0)
+        if (nextWindows[0] && videoRef.current) {
+            videoRef.current.currentTime = nextWindows[0].start_s
+            setPosition(nextWindows[0].start_s)
+        }
     }
 
     const handleLoadedMetadata = () => jumpTo(activeIdx)
@@ -498,23 +555,61 @@ function ReelPlayer({ matchId, player, mediaToken, onMediaError }) {
                 </div>
 
                 <div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">On-camera playlist</p>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">On-camera playlist</p>
+                        <div className="inline-flex rounded border border-white/10 bg-white/[0.04] p-0.5" aria-label="Playlist ordering">
+                            {[
+                                ['chronological', 'Chronological'],
+                                ['ranked', 'Top moments'],
+                            ].map(([value, label]) => (
+                                <button
+                                    type="button"
+                                    key={value}
+                                    onClick={() => changeOrdering(value)}
+                                    aria-pressed={ordering === value}
+                                    className={`rounded-sm px-2 py-1 text-[10px] font-medium transition-colors ${ordering === value ? 'bg-cyan-300 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                     <div className="space-y-1.5">
-                        {windows.map((window, index) => (
-                            <button
-                                type="button"
-                                key={`${window.start_s}-${window.tracklet_id}`}
-                                onClick={() => jumpTo(index)}
-                                aria-current={activeIdx === index ? 'true' : undefined}
-                                className={`flex w-full items-center justify-between rounded border px-3 py-2 text-left text-xs tabular-nums transition-colors ${activeIdx === index ? 'border-cyan-300 bg-cyan-300/15 text-white' : 'border-white/10 text-slate-400 hover:border-white/30 hover:text-white'}`}
-                            >
-                                <span>{String(index + 1).padStart(2, '0')} · {formatSeconds(window.start_s)}</span>
-                                <span>{formatSeconds(window.end_s - window.start_s)}</span>
-                            </button>
-                        ))}
+                        {windows.map((window, index) => {
+                            const caption = matchCaptionToWindow(window, captions, player)
+                            const presentation = captionPresentation(caption)
+                            return (
+                                <button
+                                    type="button"
+                                    key={`${window.start_s}-${window.tracklet_id}`}
+                                    onClick={() => jumpTo(index)}
+                                    aria-current={activeIdx === index ? 'true' : undefined}
+                                    className={`w-full rounded border px-3 py-2 text-left text-xs tabular-nums transition-colors ${activeIdx === index ? 'border-cyan-300 bg-cyan-300/15 text-white' : 'border-white/10 text-slate-400 hover:border-white/30 hover:text-white'}`}
+                                >
+                                    <span className="flex items-center justify-between gap-2">
+                                        <span>
+                                            {ordering === 'ranked' ? `#${window.rank ?? '—'}` : `${window.rank <= 3 ? '★ ' : ''}${String(index + 1).padStart(2, '0')}`} · {formatSeconds(window.start_s)}
+                                        </span>
+                                        <span>{formatSeconds(window.end_s - window.start_s)}</span>
+                                    </span>
+                                    {caption && presentation ? (
+                                        <span className="mt-1.5 flex flex-wrap gap-1 text-[9px] font-semibold uppercase tracking-wide">
+                                            {presentation.showActionType ? <span className="rounded-sm bg-cyan-300/15 px-1.5 py-0.5 text-cyan-200">{caption.action_type?.replace('_', ' ')}</span> : <span className="rounded-sm bg-white/[0.06] px-1.5 py-0.5 text-slate-500">clip context</span>}
+                                            {caption.visible_pitch_zone ? <span className="rounded-sm bg-white/10 px-1.5 py-0.5 text-slate-300">{caption.visible_pitch_zone} zone</span> : null}
+                                        </span>
+                                    ) : null}
+                                </button>
+                            )
+                        })}
                     </div>
                 </div>
             </div>
+            {activeCaption && activeCaptionPresentation ? (
+                <div className={`mt-4 border-l-2 px-3 py-2.5 ${activeCaptionPresentation.kind === 'context' ? 'border-slate-600 bg-white/[0.03]' : 'border-cyan-300 bg-cyan-300/[0.07]'}`}>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.17em] ${activeCaptionPresentation.kind === 'context' ? 'text-slate-500' : 'text-cyan-300'}`}>{activeCaptionPresentation.label}</p>
+                    <p className={`mt-1 text-sm ${activeCaptionPresentation.kind === 'context' ? 'text-slate-400' : 'text-slate-200'}`}>{activeCaption.caption}</p>
+                </div>
+            ) : null}
         </div>
     )
 }
@@ -661,7 +756,7 @@ export function PlayerReels({
                                             <ShieldCheck className="mr-1 h-4 w-4" /> Verify identity
                                         </Button>
                                     </div>
-                                    {reelOpen ? <ReelPlayer matchId={match.id} player={player} mediaToken={mediaToken} onMediaError={onMediaError} /> : null}
+                                    {reelOpen ? <ReelPlayer matchId={match.id} player={player} mediaToken={mediaToken} captions={match.capture_meta?.qwen_analysis?.window_captions || []} onMediaError={onMediaError} /> : null}
                                     {verifyOpen ? (
                                         <VerifyIdentityPanel
                                             match={match}
