@@ -353,14 +353,17 @@ export function PlayerPage() {
     }
 
     useEffect(() => {
+        let cancelled = false
         if (playerId) {
-            loadPlayerData()
+            loadPlayerData(() => cancelled)
         }
+        return () => { cancelled = true }
     }, [playerId, selectedSeason])
 
-    const loadPlayerData = async () => {
+    const loadPlayerData = async (isCancelled) => {
         setLoading(true)
         setError(null)
+        let journeyNeedsSync = false
         try {
             const [profileData, statsData, seasonData, commentariesData, journeyMapData, academyData] = await Promise.all([
                 APIService.getPublicPlayerProfile(playerId).catch(() => null),
@@ -370,6 +373,8 @@ export function PlayerPage() {
                 APIService.getPlayerJourneyMap(playerId).catch(() => null),
                 APIService.getPlayerAcademyStats(playerId).catch(() => null),
             ])
+
+            if (isCancelled()) return
 
             const statRows = Array.isArray(statsData) ? statsData : statsData?.matches ?? []
             setProfile(profileData)
@@ -390,17 +395,9 @@ export function PlayerPage() {
                 setPosition(mapped)
             }
 
-            // Journey: use cached data, or trigger on-demand sync if missing
-            if (journeyMapData) {
-                setJourneyData(journeyMapData)
-            } else {
-                try {
-                    const synced = await APIService.request(`/players/${playerId}/journey/map?sync=true`)
-                    if (synced) setJourneyData(synced)
-                } catch {
-                    // Sync failed — MiniProgressBar will just not render
-                }
-            }
+            // Journey: render cached data now; hydrate asynchronously if missing
+            setJourneyData(journeyMapData)
+            journeyNeedsSync = !journeyMapData
 
             // Infer position from stats
             if (statRows.length > 0) {
@@ -424,10 +421,21 @@ export function PlayerPage() {
                 }
             }
         } catch (err) {
+            if (isCancelled()) return
             console.error('Failed to fetch player data', err)
             setError('Failed to load player data.')
         } finally {
-            setLoading(false)
+            if (!isCancelled()) setLoading(false)
+        }
+
+        if (journeyNeedsSync && !isCancelled()) {
+            void APIService.request(`/players/${playerId}/journey/map?sync=true`)
+                .then((synced) => {
+                    if (!isCancelled() && synced) setJourneyData(synced)
+                })
+                .catch(() => {
+                    // Sync failed — MiniProgressBar will just not render
+                })
         }
     }
     

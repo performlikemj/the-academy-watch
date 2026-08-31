@@ -20,12 +20,25 @@ export default async function scoutDesk({ journey, step, goto }) {
       return { search_interacted: searched }
     })
 
-    await step('open-player', 'a player page with stats or profile sections', async (page) => {
+    await step('open-player', 'the player page has finished loading and shows player profile or stats content', async (page) => {
       const firstPlayer = page.locator('a[href^="/players/"]').first()
       await firstPlayer.waitFor({ state: 'visible', timeout: 10_000 })
+      const startedAt = Date.now()
       await firstPlayer.click()
       await page.waitForURL(/\/players\/[^/?#]+/, { timeout: 20_000 })
-      await page.getByRole('heading').first().waitFor({ state: 'visible', timeout: 15_000 })
+      const playerUrl = page.url()
+      try {
+        const contentState = await Promise.race([
+          page.getByTitle('Report incorrect data').waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'loaded'),
+          page.getByText('Failed to load player data.', { exact: true }).waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'error'),
+        ])
+        if (contentState === 'error') throw new Error('Player page entered its load-error state.')
+      } catch (error) {
+        const failure = new Error(`Player content did not reach its loaded state: ${error.message}`)
+        failure.payload = { player_url: playerUrl, load_ms: Date.now() - startedAt }
+        throw failure
+      }
+      return { player_url: playerUrl, load_ms: Date.now() - startedAt }
     })
   })
 }
