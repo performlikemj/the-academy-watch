@@ -73,6 +73,7 @@ def main() -> None:
         if job_id is None:
             job = VideoAnalysisJob(
                 video_match_id=match.id,
+                pipeline_kind="cv",
                 status="running",
                 stage="persist",
                 pipeline_version="phase-a-v1-concierge",

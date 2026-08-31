@@ -345,18 +345,33 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
     assert complete.call_args.kwargs["gpu_seconds"] >= 0
 
 
-def test_qwen_analysis_requires_pinned_job_and_never_claims_loop_job(app, monkeypatch, caplog):
+def test_qwen_analysis_loop_claims_only_its_kind(app, monkeypatch):
     monkeypatch.setenv("VIDEO_PIPELINE_KIND", "qwen_analysis")
     monkeypatch.delenv("VIDEO_JOB_ID", raising=False)
+    monkeypatch.setattr("src.workers.vision_worker.IDLE_EXIT_AFTER_POLLS", 1)
 
     with (
         patch("src.main.app", app),
-        patch("src.services.video_queue.claim_next_job") as claim_next,
-        pytest.raises(SystemExit) as exited,
+        patch("src.services.video_queue.claim_next_job", return_value=None) as claim_next,
+        patch("src.workers.vision_worker.time.sleep"),
     ):
         main()
 
-    assert exited.value.code != 0
-    claim_next.assert_not_called()
-    assert "requires VIDEO_JOB_ID" in caplog.text
-    assert "ordinary CV job" in caplog.text
+    assert claim_next.call_count == 1
+    assert claim_next.call_args.args[1] == "qwen_analysis"
+
+
+def test_pinned_worker_passes_kind_to_defensive_claim(app, monkeypatch):
+    monkeypatch.setenv("VIDEO_PIPELINE_KIND", "cv")
+    monkeypatch.setenv("VIDEO_JOB_ID", "qwen-job")
+
+    with (
+        patch("src.main.app", app),
+        patch("src.services.video_queue.claim_job", return_value=False) as claim,
+        patch("src.workers.vision_worker.process_job") as process,
+    ):
+        main()
+
+    assert claim.call_args.args[0] == "qwen-job"
+    assert claim.call_args.args[2] == "cv"
+    process.assert_not_called()

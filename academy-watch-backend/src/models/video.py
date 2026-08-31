@@ -162,6 +162,7 @@ class VideoAnalysisJob(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     video_match_id = db.Column(db.Integer, db.ForeignKey("video_matches.id"), nullable=False, index=True)
 
+    pipeline_kind = db.Column(db.String(30), nullable=False, default="cv", server_default="cv")
     status = db.Column(db.String(20), nullable=False, default="queued", index=True)
     stage = db.Column(db.String(30))  # one of VIDEO_JOB_STAGES while running
     progress = db.Column(db.Integer, default=0)  # 0..100 within the current stage
@@ -182,6 +183,7 @@ class VideoAnalysisJob(db.Model):
         return {
             "id": self.id,
             "video_match_id": self.video_match_id,
+            "pipeline_kind": self.pipeline_kind,
             "status": self.status,
             "stage": self.stage,
             "progress": self.progress,
