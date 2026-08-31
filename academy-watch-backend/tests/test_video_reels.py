@@ -6,7 +6,14 @@ import pytest
 from flask import Flask
 from src.models.league import db
 from src.routes.video import update_video_match
-from src.services.video_reels import aggregate_votes, build_reel_payload, merge_windows, rank_windows, reel_confidence
+from src.services.video_reels import (
+    aggregate_votes,
+    build_reel_payload,
+    merge_windows,
+    rank_windows,
+    reel_confidence,
+    select_card_thumbnail_tracklet_id,
+)
 
 
 def _window(start, end, tracklet_id=1):
@@ -31,6 +38,7 @@ def _chain(
     member_spans=None,
     suggested_number=None,
     votes=None,
+    strong=None,
     dismissed=False,
 ):
     return {
@@ -46,6 +54,7 @@ def _chain(
         "visible_s": visible,
         "evidence": {
             "member_fragment_ids": members or [],
+            **({"strong_fragment_ids": strong} if strong is not None else {}),
             **({"member_spans": member_spans} if member_spans is not None else {}),
             **({"votes": votes} if votes is not None else {}),
         },
@@ -258,6 +267,24 @@ def test_player_total_visible_comes_from_merged_windows_not_chain_span():
     ]
     assert player["total_visible_s"] == 8
     assert player["total_visible_s"] != 100
+
+
+def test_card_thumbnail_prefers_tracklet_with_available_strong_fragment_crop():
+    tracklets = [
+        _chain(11, first=0, last=5, members=[101], strong=[]),
+        _chain(12, first=10, last=15, members=[202, 203], strong=[202]),
+    ]
+
+    assert select_card_thumbnail_tracklet_id(tracklets, {202, 999}) == 12
+    assert select_card_thumbnail_tracklet_id(tracklets, {999}) == 11
+
+    payload = build_reel_payload(
+        {"our_team_cluster": 0, "capture_meta": {}},
+        [_roster()],
+        tracklets,
+        crop_entity_ids={202},
+    )
+    assert payload["players"][0]["thumbnail_tracklet_id"] == 12
 
 
 def test_player_chains_include_identity_evidence_shape():

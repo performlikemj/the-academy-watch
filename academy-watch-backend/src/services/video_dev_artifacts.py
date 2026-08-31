@@ -72,6 +72,11 @@ def fragment_spans(art: dict) -> dict:
     return _spans_by_entity(art["fragments"])
 
 
+def crop_entity_ids(art: dict) -> set[int]:
+    """Entity ids with at least one retained crop in the local crops index."""
+    return set(_crops_by_entity(art["crops_index"]))
+
+
 @lru_cache(maxsize=2)
 def _tracks(tracks_dir: str):
     """Concatenated (tid, t, xyxy) across all chunk*/tracks.npz. t is absolute match

@@ -411,6 +411,7 @@ def get_match_reel(match_id: int):
         .all()
     )
     spans = {}
+    crop_entity_ids = None
     art = video_dev_artifacts.local_artifacts(match)
     if art:
         try:
@@ -419,7 +420,22 @@ def get_match_reel(match_id: int):
             spans = video_dev_artifacts.fragment_spans(art)
         except (KeyError, OSError, TypeError, ValueError):
             logger.warning("video match %s reel could not read fragment spans; using stored chain spans", match.id)
-    return jsonify(video_reels.build_reel_payload(match, list(match.roster_entries), tracklets, spans))
+        try:
+            crop_entity_ids = video_dev_artifacts.crop_entity_ids(art)
+        except (KeyError, OSError, TypeError, ValueError):
+            logger.warning(
+                "video match %s reel could not read crop entities; using the first bound tracklet thumbnail",
+                match.id,
+            )
+    return jsonify(
+        video_reels.build_reel_payload(
+            match,
+            list(match.roster_entries),
+            tracklets,
+            spans,
+            crop_entity_ids=crop_entity_ids,
+        )
+    )
 
 
 @video_bp.route("/admin/video/matches/<int:match_id>/tags", methods=["POST"])
