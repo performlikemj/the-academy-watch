@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+    AlertTriangle,
+    Check,
     ChevronDown,
     Clock3,
     Crosshair,
     Loader2,
     Pause,
     Play,
+    ShieldCheck,
     SkipBack,
     SkipForward,
+    Unlink,
+    UserX,
     Users,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +26,51 @@ import { formatSeconds } from '@/lib/video-utils'
 const EVIDENCE_CACHE = new Map()
 const EVIDENCE_CACHE_MAX = 40
 const MAX_MEDIA_REMINTS = 2
+
+function realNumber(value) {
+    return Number.isInteger(value) && value >= 0 ? value : null
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function formatVoteSummary(chains) {
+    if (!Array.isArray(chains)) return 'model reads: no usable number'
+    const reads = new Map()
+    const suggestions = new Set()
+    for (const chain of chains) {
+        const voted = realNumber(chain?.voted_number)
+        const suggested = realNumber(chain?.suggested_number)
+        const total = Number.isInteger(chain?.vote_total) && chain.vote_total > 0 ? chain.vote_total : 0
+        if (voted !== null && total) reads.set(voted, (reads.get(voted) || 0) + total)
+        if (suggested !== null && suggested !== voted) suggestions.add(suggested)
+    }
+    const parts = [...reads]
+        .sort(([numberA, countA], [numberB, countB]) => countB - countA || numberA - numberB)
+        .map(([number, count]) => `#${number} × ${count}`)
+    for (const number of [...suggestions].sort((a, b) => a - b)) {
+        if (!reads.has(number)) parts.push(`#${number} suggested`)
+    }
+    return `model reads: ${parts.length ? parts.join(' · ') : 'no usable number'}`
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function mismatchBadge(player) {
+    if (!player?.number_mismatch) return null
+    const jerseyNumber = realNumber(player.jersey_number)
+    const voted = (player.chains || [])
+        .map((chain) => ({
+            number: realNumber(chain?.voted_number),
+            total: Number.isInteger(chain?.vote_total) && chain.vote_total > 0 ? chain.vote_total : 0,
+        }))
+        .filter((candidate) => candidate.number !== null && candidate.number !== jerseyNumber)
+        .sort((a, b) => b.total - a.total || a.number - b.number)[0]
+    if (voted) return `reads say #${voted.number}`
+
+    const suggested = (player.chains || [])
+        .map((chain) => realNumber(chain?.suggested_number))
+        .filter((number) => number !== null && number !== jerseyNumber)
+        .sort((a, b) => a - b)[0]
+    return suggested === undefined ? null : `model suggests #${suggested}`
+}
 
 function evidenceEntry(matchId, trackletId) {
     const key = `${matchId}:${trackletId}`
@@ -161,6 +211,147 @@ function ConfidenceBadge({ confidence }) {
             ? 'border-amber-400/50 bg-amber-400/10 text-amber-700 dark:text-amber-300'
             : 'border-slate-400/50 bg-slate-400/10 text-slate-600 dark:text-slate-300'
     return <Badge variant="outline" className={classes}>{confidence}</Badge>
+}
+
+function ChainCropStrip({ matchId, trackletId, mediaToken, playerName }) {
+    const [crops, setCrops] = useState(null)
+
+    useEffect(() => {
+        let alive = true
+        loadTrackletCrops(matchId, trackletId).then((result) => {
+            if (alive) setCrops(result.slice(0, 4))
+        })
+        return () => { alive = false }
+    }, [matchId, trackletId])
+
+    if (crops === null) {
+        return <div className="flex h-20 items-center gap-2 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> loading crops…</div>
+    }
+    if (!crops.length) return <p className="py-3 text-xs text-slate-400">No retained crops for this tracklet.</p>
+    if (!mediaToken) return <p className="py-3 text-xs text-slate-400">media token…</p>
+
+    return (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+            {crops.map((crop) => (
+                <img
+                    key={crop.file}
+                    src={APIService.videoCropUrl(matchId, crop.file, mediaToken)}
+                    alt={`${playerName} identity crop`}
+                    className="h-24 w-auto shrink-0 rounded-md border border-white/10 bg-black object-contain"
+                    loading="lazy"
+                />
+            ))}
+        </div>
+    )
+}
+
+function VerifyIdentityPanel({ match, player, mediaToken, onAction, savingTrackletId }) {
+    const [confirmDismissId, setConfirmDismissId] = useState(null)
+    const roster = [...(match.roster || [])].sort((a, b) => a.jersey_number - b.jersey_number || a.id - b.id)
+    const chains = player.chains || []
+
+    return (
+        <div className="border-t border-amber-400/25 bg-slate-950 p-3 text-slate-100 sm:p-5">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+                <div>
+                    <p className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="h-4 w-4 text-amber-300" /> Verify identity</p>
+                    <p className="mt-1 text-xs text-slate-400">Check the crops and number reads, then correct this chain without leaving the reel.</p>
+                </div>
+                <Badge variant="outline" className="border-white/20 text-slate-300">{chains.length} chain{chains.length === 1 ? '' : 's'}</Badge>
+            </div>
+
+            <div className="space-y-4">
+                {chains.map((chain) => {
+                    const saving = savingTrackletId === chain.tracklet_id
+                    const anySaving = savingTrackletId != null
+                    return (
+                        <section key={chain.tracklet_id} className="rounded-lg border border-white/10 bg-white/[0.035] p-3 sm:p-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">tracklet {chain.tracklet_id}</span>
+                                <ConfidenceBadge confidence={chain.confidence || 'unknown'} />
+                                {chain.contaminated ? (
+                                    <Badge variant="outline" className="border-amber-400/50 bg-amber-400/10 text-amber-200"><AlertTriangle className="mr-1 h-3 w-3" />mixed identity?</Badge>
+                                ) : null}
+                            </div>
+                            <p className="mt-2 text-sm font-medium text-amber-100">{formatVoteSummary([chain])}</p>
+                            <p className="mt-1 text-xs text-slate-400">Currently bound to <span className="text-slate-200">#{player.jersey_number} {player.player_name}</span></p>
+
+                            <div className="mt-3">
+                                <p className="mb-1.5 text-xs font-medium text-slate-300">Top crops</p>
+                                <ChainCropStrip matchId={match.id} trackletId={chain.tracklet_id} mediaToken={mediaToken} playerName={player.player_name} />
+                            </div>
+
+                            <div className="mt-4 border-t border-white/10 pt-3">
+                                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Rebind to roster number</p>
+                                <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                                    {roster.map((entry) => {
+                                        const current = entry.id === player.roster_entry_id
+                                        const suggested = entry.jersey_number === chain.voted_number
+                                        return (
+                                            <button
+                                                type="button"
+                                                key={entry.id}
+                                                disabled={anySaving || current}
+                                                onClick={() => onAction(
+                                                    { tracklet_id: chain.tracklet_id, roster_entry_id: entry.id, dismissed: false },
+                                                    `Rebound tracklet ${chain.tracklet_id} to #${entry.jersey_number}.`,
+                                                )}
+                                                className={`relative min-h-14 rounded-md border px-2 py-2 text-left transition-colors disabled:cursor-not-allowed ${suggested ? 'border-amber-300 bg-amber-300/15 text-amber-50 hover:bg-amber-300/25' : current ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-100' : 'border-white/15 text-slate-200 hover:border-white/35 hover:bg-white/10'} ${anySaving && !current ? 'opacity-50' : ''}`}
+                                            >
+                                                <span className="block text-base font-bold tabular-nums">#{entry.jersey_number}</span>
+                                                <span className="block truncate text-[10px] text-current/70">{current && suggested ? 'current · suggested' : current ? 'current' : suggested ? 'suggested' : entry.player_name}</span>
+                                                {current ? <Check className="absolute right-1.5 top-1.5 h-3 w-3" /> : null}
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="mt-4 flex flex-wrap items-center gap-2">
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={anySaving}
+                                    className="border-white/20 bg-transparent hover:bg-white/10 hover:text-white"
+                                    onClick={() => onAction(
+                                        { tracklet_id: chain.tracklet_id, roster_entry_id: null },
+                                        `Unbound tracklet ${chain.tracklet_id}.`,
+                                    )}
+                                >
+                                    {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Unlink className="mr-1 h-4 w-4" />}
+                                    Unbind
+                                </Button>
+                                <span className="text-xs text-slate-400">keeps the tracklet, removes the name</span>
+                                <span className="hidden h-4 w-px bg-white/15 sm:block" aria-hidden="true" />
+                                {confirmDismissId === chain.tracklet_id ? (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="destructive"
+                                        disabled={anySaving}
+                                        onClick={() => onAction(
+                                            { tracklet_id: chain.tracklet_id, dismissed: true },
+                                            `Marked tracklet ${chain.tracklet_id} as not a player.`,
+                                        )}
+                                    >
+                                        {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <UserX className="mr-1 h-4 w-4" />}
+                                        Confirm — not a player
+                                    </Button>
+                                ) : (
+                                    <Button type="button" size="sm" variant="ghost" disabled={anySaving} className="text-rose-300 hover:bg-rose-400/10 hover:text-rose-200" onClick={() => setConfirmDismissId(chain.tracklet_id)}>
+                                        <UserX className="mr-1 h-4 w-4" /> Not a player
+                                    </Button>
+                                )}
+                                <span className="text-xs text-slate-400">for referees or sideline people</span>
+                            </div>
+                        </section>
+                    )
+                })}
+                {!chains.length ? <p className="text-sm text-slate-400">No bound chain evidence is available for this reel.</p> : null}
+            </div>
+        </div>
+    )
 }
 
 function ReelPlayer({ matchId, player, mediaToken, onMediaError }) {
@@ -377,7 +568,19 @@ function TeamOverview({ match, overview }) {
     )
 }
 
-export function PlayerReels({ match, reel, mediaToken, openPlayerId, onTogglePlayer, onMediaError, onReviewUnassigned }) {
+export function PlayerReels({
+    match,
+    reel,
+    mediaToken,
+    openPlayerId,
+    openVerifyPlayerId,
+    onTogglePlayer,
+    onToggleVerify,
+    onIdentityAction,
+    identitySavingTrackletId,
+    onMediaError,
+    onReviewUnassigned,
+}) {
     const players = reel?.players || []
     const unassigned = reel?.unassigned || { count: 0, visible_s: 0 }
 
@@ -411,20 +614,30 @@ export function PlayerReels({ match, reel, mediaToken, openPlayerId, onTogglePla
                 {players.length ? (
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {players.map((player) => {
-                            const open = openPlayerId === player.roster_entry_id
+                            const reelOpen = openPlayerId === player.roster_entry_id
+                            const verifyOpen = openVerifyPlayerId === player.roster_entry_id
+                            const open = reelOpen || verifyOpen
+                            const mismatch = mismatchBadge(player)
                             return (
                                 <article key={player.roster_entry_id} className={`overflow-hidden rounded-lg border transition-shadow ${open ? 'border-cyan-500 shadow-lg shadow-cyan-500/10 sm:col-span-2 lg:col-span-3' : 'hover:shadow-md'}`}>
                                     <button
                                         type="button"
                                         onClick={() => onTogglePlayer(player.roster_entry_id)}
-                                        aria-expanded={open}
+                                        aria-expanded={reelOpen}
                                         className={`grid w-full text-left ${open ? 'sm:grid-cols-[10rem_1fr]' : ''}`}
                                     >
                                         <PlayerThumbnail matchId={match.id} trackletId={player.tracklet_ids[0]} mediaToken={mediaToken} playerName={player.player_name} />
                                         <div className="p-3">
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="min-w-0">
-                                                    <p className="truncate font-semibold">#{player.jersey_number} {player.player_name}</p>
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        <p className="truncate font-semibold">#{player.jersey_number} {player.player_name}</p>
+                                                        {mismatch ? (
+                                                            <Badge variant="outline" className="border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                                                                <AlertTriangle className="mr-1 h-3 w-3" />{mismatch}
+                                                            </Badge>
+                                                        ) : null}
+                                                    </div>
                                                     {player.position && <p className="text-xs text-muted-foreground">{player.position}</p>}
                                                 </div>
                                                 <ConfidenceBadge confidence={player.confidence} />
@@ -435,7 +648,29 @@ export function PlayerReels({ match, reel, mediaToken, openPlayerId, onTogglePla
                                             </div>
                                         </div>
                                     </button>
-                                    {open && <ReelPlayer matchId={match.id} player={player} mediaToken={mediaToken} onMediaError={onMediaError} />}
+                                    <div className="flex items-center justify-between gap-3 border-t bg-muted/20 px-3 py-2">
+                                        <span className="text-[11px] text-muted-foreground">Open the reel to watch · verify to inspect each chain</span>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant={verifyOpen ? 'secondary' : 'outline'}
+                                            onClick={() => onToggleVerify(player.roster_entry_id)}
+                                            aria-expanded={verifyOpen}
+                                            className={mismatch && !verifyOpen ? 'border-amber-500/50 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300' : ''}
+                                        >
+                                            <ShieldCheck className="mr-1 h-4 w-4" /> Verify identity
+                                        </Button>
+                                    </div>
+                                    {reelOpen ? <ReelPlayer matchId={match.id} player={player} mediaToken={mediaToken} onMediaError={onMediaError} /> : null}
+                                    {verifyOpen ? (
+                                        <VerifyIdentityPanel
+                                            match={match}
+                                            player={player}
+                                            mediaToken={mediaToken}
+                                            onAction={onIdentityAction}
+                                            savingTrackletId={identitySavingTrackletId}
+                                        />
+                                    ) : null}
                                 </article>
                             )
                         })}

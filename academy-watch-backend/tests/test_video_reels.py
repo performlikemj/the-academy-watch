@@ -1,7 +1,7 @@
 """Pure contract tests for Film Room player-reel aggregation."""
 
 import pytest
-from src.services.video_reels import build_reel_payload, merge_windows, reel_confidence
+from src.services.video_reels import aggregate_votes, build_reel_payload, merge_windows, reel_confidence
 
 
 def _window(start, end, tracklet_id=1):
@@ -20,6 +20,8 @@ def _chain(
     visible=10,
     members=None,
     member_spans=None,
+    suggested_number=None,
+    votes=None,
     dismissed=False,
 ):
     return {
@@ -27,6 +29,7 @@ def _chain(
         "kind": "chain",
         "pipeline_key": f"T{cluster}#{tracklet_id}",
         "team_cluster": cluster,
+        "suggested_number": suggested_number,
         "confidence": confidence,
         "contaminated": contaminated,
         "first_s": first,
@@ -35,6 +38,7 @@ def _chain(
         "evidence": {
             "member_fragment_ids": members or [],
             **({"member_spans": member_spans} if member_spans is not None else {}),
+            **({"votes": votes} if votes is not None else {}),
         },
         "roster_entry_id": roster_entry_id,
         "dismissed": dismissed,
@@ -48,6 +52,39 @@ def _roster(roster_id=1, number=8, name="Alex Morgan"):
         "jersey_number": number,
         "position": "midfielder",
     }
+
+
+def test_aggregate_votes_sums_fragments_and_returns_winning_read_count():
+    assert aggregate_votes(
+        {
+            "votes": {
+                "101": {"12": 20, "17": 2},
+                "102": {"12": 23},
+                "103": None,
+            }
+        }
+    ) == (12, 43)
+
+
+def test_aggregate_votes_skips_malformed_values_and_numbers():
+    assert aggregate_votes(
+        {
+            "votes": {
+                "101": {"12": None, "13": "4", "bad": 8},
+                "102": {"9": 3, "10": -2, "11": True},
+                "103": ["not", "votes"],
+            }
+        }
+    ) == (9, 3)
+
+
+def test_aggregate_votes_tie_uses_lower_number():
+    assert aggregate_votes({"votes": {"101": {"12": 4}, "102": {"7": 4}}}) == (7, 4)
+
+
+@pytest.mark.parametrize("evidence", [{}, {"votes": None}, {"votes": {}}, None])
+def test_aggregate_votes_empty(evidence):
+    assert aggregate_votes(evidence) == (None, 0)
 
 
 def test_same_tracklet_window_merge_uses_strictly_less_than_three_second_gap_and_orders():
@@ -171,6 +208,75 @@ def test_player_total_visible_comes_from_merged_windows_not_chain_span():
     assert player["windows"] == [_window(0, 2, 11), _window(5, 7, 11), _window(30, 34, 11)]
     assert player["total_visible_s"] == 8
     assert player["total_visible_s"] != 100
+
+
+def test_player_chains_include_identity_evidence_shape():
+    fragment = {
+        **_chain(13, suggested_number=99, votes={"1": {"99": 50}}),
+        "kind": "fragment",
+        "pipeline_key": "E13",
+    }
+    payload = build_reel_payload(
+        {"our_team_cluster": 0, "capture_meta": {}},
+        [_roster(number=12)],
+        [
+            _chain(
+                11,
+                suggested_number=17,
+                votes={"101": {"12": 20, "17": 2}, "102": {"12": 23}},
+                confidence="high",
+            ),
+            _chain(
+                12,
+                suggested_number=4,
+                votes=None,
+                confidence="low",
+                contaminated=True,
+                first=20,
+                last=30,
+            ),
+            fragment,
+        ],
+    )
+
+    assert payload["players"][0]["chains"] == [
+        {
+            "tracklet_id": 11,
+            "suggested_number": 17,
+            "voted_number": 12,
+            "vote_total": 43,
+            "confidence": "high",
+            "contaminated": False,
+        },
+        {
+            "tracklet_id": 12,
+            "suggested_number": 4,
+            "voted_number": None,
+            "vote_total": 0,
+            "confidence": "low",
+            "contaminated": True,
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    ("chain", "expected"),
+    [
+        (_chain(1, suggested_number=8, votes={"1": {"12": 6}}), True),
+        (_chain(1, suggested_number=17, votes={"1": {"8": 6}}), False),
+        (_chain(1, suggested_number=12, votes=None), True),
+        (_chain(1, suggested_number=None, votes=None), False),
+        (_chain(1, suggested_number=None, votes={"1": None}), False),
+    ],
+)
+def test_player_number_mismatch_uses_votes_then_suggestion_and_is_none_safe(chain, expected):
+    payload = build_reel_payload(
+        {"our_team_cluster": 0, "capture_meta": {}},
+        [_roster(number=8)],
+        [chain],
+    )
+
+    assert payload["players"][0]["number_mismatch"] is expected
 
 
 @pytest.mark.parametrize(
