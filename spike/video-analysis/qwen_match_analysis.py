@@ -371,9 +371,20 @@ def build_aggregation_prompt(
     observations_json = json.dumps(
         observations, separators=(",", ":"), ensure_ascii=False
     )
+    recurring_pairs_json = json.dumps(
+        [
+            {"kit_color": kit_color, "jersey_number": jersey_number}
+            for kit_color, jersey_number in sorted(
+                recurring_jersey_evidence(observations)
+            )
+        ],
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
     return f"""Aggregate these sampled football-frame observations into one honest match analysis JSON object.
 Optional match context: {context_json}
 Timestamped observations: {observations_json}
+Required recurring player-note pairs (each was readable in at least two distinct sampled frames): {recurring_pairs_json}
 
 Return exactly this shape:
 {{"schema_version":"qwen-analysis-v1","model":str,"generated_at":str,
@@ -384,8 +395,12 @@ Return exactly this shape:
 "player_notes":[{{"kit_color":str,"jersey_number":int,"observations":[str],"times_seen":int,
 "confidence":"low|medium"}}],"honest_limits":[str]}}
 Use no player names. A player may appear only when that jersey number was explicitly readable in the supplied
-frame observations. Do not invent events, players, statistics, formations, or certainty. Distinguish the uploader's
-side only when the supplied kit-color context supports it. Empty player_notes is valid."""
+frame observations. Include exactly one player_notes entry for every required recurring pair above. Pairs evidenced
+in only one frame may be omitted; player_notes may be empty only when the required recurring-pair list is empty.
+Do not invent events, players, statistics, formations, or certainty. Distinguish the uploader's side only when the
+supplied kit-color context supports it. Every non-empty team_analysis style, strength, or weakness must cite a
+phase_of_play actually present in the supplied observations and ground it in an observed timestamp, visible pitch
+zone, or concrete supplied moment; otherwise use an empty style string and empty strengths/weaknesses lists."""
 
 
 def ollama_chat(
@@ -521,7 +536,10 @@ def validate_window_caption_schema(caption: object) -> None:
 
 
 def validate_analysis_schema(
-    analysis: object, *, require_computed: bool = True
+    analysis: object,
+    *,
+    require_computed: bool = True,
+    required_player_pairs: set[tuple[str, int]] | None = None,
 ) -> None:
     """Raise ``ValueError`` unless all required qwen-analysis-v1 fields have valid types."""
     if not isinstance(analysis, dict):
@@ -611,6 +629,7 @@ def validate_analysis_schema(
             raise ValueError("team strengths and weaknesses must be string lists")
     if not isinstance(analysis["player_notes"], list):
         raise ValueError("player_notes must be a list")
+    present_player_pairs = set()
     for player in analysis["player_notes"]:
         if not isinstance(player, dict):
             raise ValueError("each player_note must be an object")
@@ -641,6 +660,25 @@ def validate_analysis_schema(
             raise ValueError("player_note.times_seen must be an integer")
         if player["confidence"] not in ("low", "medium"):
             raise ValueError("player_note.confidence must be low or medium")
+        player_pair = (
+            _normalized_kit_color(player["kit_color"]),
+            player["jersey_number"],
+        )
+        if player_pair in present_player_pairs:
+            raise ValueError(
+                "player_notes contains duplicate normalized pair: "
+                f"{player_pair[0]} #{player_pair[1]}"
+            )
+        present_player_pairs.add(player_pair)
+    missing_player_pairs = (required_player_pairs or set()) - present_player_pairs
+    if missing_player_pairs:
+        rendered = ", ".join(
+            f"{kit_color} #{jersey_number}"
+            for kit_color, jersey_number in sorted(missing_player_pairs)
+        )
+        raise ValueError(
+            f"player_notes is missing recurring evidenced pairs: {rendered}"
+        )
     if not _is_str_list(analysis["honest_limits"]):
         raise ValueError("honest_limits must be a string list")
     if require_computed:
@@ -718,6 +756,17 @@ def jersey_evidence_counts(
         for evidence in _frame_jersey_evidence(wrapped):
             counts[evidence] = counts.get(evidence, 0) + 1
     return counts
+
+
+def recurring_jersey_evidence(
+    observations: list[dict], min_count: int = 2
+) -> set[tuple[str, int]]:
+    """Return normalized kit/number pairs readable in at least ``min_count`` frames."""
+    return {
+        evidence
+        for evidence, count in jersey_evidence_counts(observations).items()
+        if count >= min_count
+    }
 
 
 def zone_coverage_counts(observations: list[dict]) -> dict[str, int]:
@@ -806,7 +855,10 @@ def finalize_analysis(
         player["times_seen"] = evidence_counts[evidence]
     result["player_notes"] = compute_player_confidence(filtered)
     result = append_honest_limits(result, sampling["interval_s"])
-    validate_analysis_schema(result)
+    validate_analysis_schema(
+        result,
+        required_player_pairs=recurring_jersey_evidence(observations),
+    )
     return result
 
 

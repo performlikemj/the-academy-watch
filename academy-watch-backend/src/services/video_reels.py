@@ -181,7 +181,35 @@ def reel_confidence(tracklets) -> str:
     return "mixed"
 
 
-def build_reel_payload(match, roster_entries, tracklets, fragment_spans=None) -> dict:
+def select_card_thumbnail_tracklet_id(tracklets, crop_entity_ids=None) -> int | None:
+    """Prefer a bound chain with an available crop from one of its strong fragments."""
+    tracklets = list(tracklets)
+    if not tracklets:
+        return None
+    fallback = int(_value(tracklets[0], "id"))
+    if crop_entity_ids is None:
+        return fallback
+
+    available = set()
+    for raw_id in crop_entity_ids:
+        try:
+            available.add(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    for tracklet in tracklets:
+        evidence = _value(tracklet, "evidence")
+        evidence = evidence if isinstance(evidence, dict) else {}
+        for raw_id in evidence.get("strong_fragment_ids") or []:
+            try:
+                strong_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if strong_id in available:
+                return int(_value(tracklet, "id"))
+    return fallback
+
+
+def build_reel_payload(match, roster_entries, tracklets, fragment_spans=None, crop_entity_ids=None) -> dict:
     """Build the JSON-ready reel response from ORM-like rows or plain dicts."""
     tracklets = list(tracklets)
     roster_entries = list(roster_entries)
@@ -236,6 +264,7 @@ def build_reel_payload(match, roster_entries, tracklets, fragment_spans=None) ->
                 }
             )
         jersey_number = int(_value(entry, "jersey_number"))
+        thumbnail_tracklet_id = select_card_thumbnail_tracklet_id(bound, crop_entity_ids)
         players.append(
             {
                 "roster_entry_id": roster_id,
@@ -244,6 +273,7 @@ def build_reel_payload(match, roster_entries, tracklets, fragment_spans=None) ->
                 "position": _value(entry, "position"),
                 "team_cluster": clusters[0] if clusters and len(set(clusters)) == 1 else None,
                 "tracklet_ids": [int(_value(tracklet, "id")) for tracklet in bound],
+                "thumbnail_tracklet_id": thumbnail_tracklet_id,
                 "chains": chains,
                 "number_mismatch": any(
                     (chain["voted_number"] if chain["voted_number"] is not None else chain["suggested_number"])

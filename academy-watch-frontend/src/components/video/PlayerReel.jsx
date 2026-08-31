@@ -774,7 +774,7 @@ export function PlayerReels({
                                         aria-expanded={reelOpen}
                                         className={`grid w-full text-left ${open ? 'sm:grid-cols-[10rem_1fr]' : ''}`}
                                     >
-                                        <PlayerThumbnail matchId={match.id} trackletId={player.tracklet_ids[0]} mediaToken={mediaToken} playerName={player.player_name} mediaSource={mediaSource} />
+                                        <PlayerThumbnail matchId={match.id} trackletId={player.thumbnail_tracklet_id ?? player.tracklet_ids[0]} mediaToken={mediaToken} playerName={player.player_name} mediaSource={mediaSource} />
                                         <div className="p-3">
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="min-w-0">

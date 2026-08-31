@@ -12,6 +12,7 @@ import qwen_match_analysis as qwen_analysis  # noqa: E402
 
 from qwen_match_analysis import (  # noqa: E402
     append_honest_limits,
+    build_aggregation_prompt,
     build_caption_prompt,
     build_sampling_plan,
     build_sandbox_argv,
@@ -23,6 +24,7 @@ from qwen_match_analysis import (  # noqa: E402
     parse_observation,
     parse_window_caption,
     readable_jersey_evidence,
+    recurring_jersey_evidence,
     too_many_frame_failures,
     validate_analysis_schema,
     zone_coverage_counts,
@@ -183,6 +185,102 @@ def test_player_filter_binds_number_evidence_to_normalized_kit_color():
         {"kit_color": "red", "jersey_number": 8},
         {"kit_color": " RED ", "jersey_number": 8},
     ]
+
+
+def test_recurring_jersey_evidence_requires_two_distinct_frames():
+    observations = [
+        {
+            "observation": {
+                **_good_observation(),
+                "teams": [
+                    {
+                        "kit_color": " Blue ",
+                        "visible_players": 2,
+                        "readable_jersey_numbers": [8, 8, 11],
+                    }
+                ],
+            }
+        },
+        {
+            "observation": {
+                **_good_observation(),
+                "teams": [
+                    {
+                        "kit_color": "blue",
+                        "visible_players": 1,
+                        "readable_jersey_numbers": [8],
+                    }
+                ],
+            }
+        },
+    ]
+
+    assert recurring_jersey_evidence(observations) == {("blue", 8)}
+
+
+def test_aggregation_prompt_lists_required_pairs_and_trims_boilerplate():
+    observations = [
+        {"timestamp_s": 10, "observation": _good_observation()},
+        {"timestamp_s": 40, "observation": _good_observation()},
+    ]
+
+    prompt = build_aggregation_prompt(observations)
+
+    assert '"kit_color":"blue","jersey_number":8' in prompt
+    assert '"kit_color":"blue","jersey_number":11' in prompt
+    assert (
+        "Include exactly one player_notes entry for every required recurring pair"
+        in prompt
+    )
+    assert "phase_of_play actually present" in prompt
+    assert (
+        "otherwise use an empty style string and empty strengths/weaknesses lists"
+        in prompt
+    )
+
+
+def test_schema_validation_rejects_missing_recurring_player_pair():
+    analysis = _good_analysis()
+
+    with pytest.raises(ValueError, match=r"missing recurring evidenced pairs: red #11"):
+        validate_analysis_schema(
+            analysis,
+            required_player_pairs={("blue", 8), ("red", 11)},
+        )
+
+
+def test_schema_validation_rejects_duplicate_normalized_player_pair():
+    analysis = _good_analysis()
+    analysis["player_notes"].append(
+        {
+            **analysis["player_notes"][0],
+            "kit_color": " BLUE ",
+        }
+    )
+
+    with pytest.raises(ValueError, match=r"duplicate normalized pair: blue #8"):
+        validate_analysis_schema(
+            analysis,
+            required_player_pairs={("blue", 8)},
+        )
+
+
+def test_finalize_rejects_model_output_missing_a_recurring_pair():
+    observations = [
+        {"timestamp_s": 10, "observation": _good_observation()},
+        {"timestamp_s": 40, "observation": _good_observation()},
+    ]
+
+    with pytest.raises(
+        ValueError, match=r"missing recurring evidenced pairs: blue #11"
+    ):
+        finalize_analysis(
+            _good_analysis(),
+            observations,
+            model="vision-model",
+            sampling={"interval_s": 30, "in_play_windows": [[0, 60]]},
+            frames_failed=0,
+        )
 
 
 def test_finalize_overwrites_model_times_seen_from_frame_evidence():
