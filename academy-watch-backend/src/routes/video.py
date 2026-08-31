@@ -21,9 +21,10 @@ import math
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
+from functools import wraps
 
 from flask import Blueprint, Response, g, jsonify, redirect, request, send_file
-from src.auth import media_token_remaining_seconds, mint_media_token, verify_media_token
+from src.auth import media_token_claims, media_token_remaining_seconds, mint_media_token, verify_media_token
 from src.models.funding import ClubRosterMember
 from src.models.league import Team, db
 from src.models.showcase import LocalPlayer
@@ -319,6 +320,7 @@ def process_match(match_id: int):
 
     job = VideoAnalysisJob(
         video_match_id=match.id,
+        pipeline_kind="cv",
         status="queued",
         pipeline_version=PIPELINE_VERSION,
     )
@@ -348,22 +350,64 @@ def requeue_match(match_id: int):
     match = db.session.get(VideoMatch, match_id, with_for_update=True)
     if match is None:
         return jsonify({"error": "match not found"}), 404
-    last = match.latest_job()
+    retry_kind = "qwen_analysis" if match.status in ("needs_tagging", "finalized") else "cv"
+    last = match.jobs.filter(
+        VideoAnalysisJob.pipeline_kind == retry_kind,
+        VideoAnalysisJob.status.in_(("failed", "cancelled")),
+    ).first()
     if last is None or last.status not in ("failed", "cancelled"):
-        return _bad_request("requeue requires a failed or cancelled job")
+        return _bad_request(f"requeue requires a failed or cancelled {retry_kind} job")
     integrity = video_storage.verify_expected_blob(match.blob_path, match.blob_etag)
     if not integrity["ok"]:
         return jsonify({"error": integrity["error"]}), 422
     job = VideoAnalysisJob(
         video_match_id=match.id,
+        pipeline_kind=last.pipeline_kind,
         status="queued",
         attempt=last.attempt + 1,
-        pipeline_version=PIPELINE_VERSION,
+        pipeline_version=last.pipeline_version if last.pipeline_kind == "qwen_analysis" else PIPELINE_VERSION,
     )
     db.session.add(job)
-    match.status = "queued"
+    if last.pipeline_kind == "cv":
+        match.status = "queued"
     db.session.commit()
     mode = video_queue.enqueue(job.id)
+    return jsonify({"job": job.to_dict(), "dispatch": mode}), 202
+
+
+@video_bp.route("/admin/video/matches/<int:match_id>/analyze", methods=["POST"])
+@require_api_key
+def analyze_match(match_id: int):
+    """Queue analysis over completed CV artifacts without debiting a credit."""
+    match = db.session.get(VideoMatch, match_id, with_for_update=True)
+    if match is None:
+        return jsonify({"error": "match not found"}), 404
+    if match.status not in ("needs_tagging", "finalized"):
+        return _bad_request(f"cannot analyze in status '{match.status}' (completed CV artifacts required)")
+
+    active = (
+        db.session.query(VideoAnalysisJob.id)
+        .filter(
+            VideoAnalysisJob.video_match_id == match.id,
+            VideoAnalysisJob.pipeline_kind == "qwen_analysis",
+            VideoAnalysisJob.status.in_(("queued", "running")),
+        )
+        .first()
+    )
+    if active is not None:
+        db.session.rollback()
+        return jsonify({"error": "qwen analysis is already queued or running"}), 409
+
+    job = VideoAnalysisJob(
+        video_match_id=match.id,
+        pipeline_kind="qwen_analysis",
+        status="queued",
+        pipeline_version="qwen-analysis-v1",
+    )
+    db.session.add(job)
+    db.session.commit()
+    mode = video_queue.enqueue(job.id)
+    logger.info("video match %s queued for qwen analysis as job %s via %s", match.id, job.id, mode)
     return jsonify({"job": job.to_dict(), "dispatch": mode}), 202
 
 
@@ -405,6 +449,11 @@ def get_match_reel(match_id: int):
     if match is None:
         return jsonify({"error": "match not found"}), 404
 
+    return jsonify(_reel_payload(match))
+
+
+def _reel_payload(match: VideoMatch, roster_entries=None) -> dict:
+    """Load reel evidence once for both the admin and club-scoped surfaces."""
     tracklets = list(
         db.session.query(VideoTracklet)
         .filter(VideoTracklet.video_match_id == match.id, VideoTracklet.kind != "tombstone")
@@ -427,14 +476,12 @@ def get_match_reel(match_id: int):
                 "video match %s reel could not read crop entities; using the first bound tracklet thumbnail",
                 match.id,
             )
-    return jsonify(
-        video_reels.build_reel_payload(
-            match,
-            list(match.roster_entries),
-            tracklets,
-            spans,
-            crop_entity_ids=crop_entity_ids,
-        )
+    return video_reels.build_reel_payload(
+        match,
+        list(match.roster_entries) if roster_entries is None else list(roster_entries),
+        tracklets,
+        spans,
+        crop_entity_ids=crop_entity_ids,
     )
 
 
@@ -514,8 +561,8 @@ def finalize_match(match_id: int):
     if match.status not in ("needs_tagging", "finalized"):
         return _bad_request(f"cannot finalize in status '{match.status}'")
 
-    job = match.latest_job()
-    model_version = (job.pipeline_version if job else None) or PIPELINE_VERSION
+    cv_job = match.jobs.filter(VideoAnalysisJob.pipeline_kind == "cv").first()
+    model_version = (cv_job.pipeline_version if cv_job else None) or PIPELINE_VERSION
 
     db.session.query(VideoPlayerReport).filter(VideoPlayerReport.video_match_id == match.id).delete(
         synchronize_session=False
@@ -744,12 +791,61 @@ def media_token(match_id: int):
 
 def _media_match_or_error(match_id: int):
     """Validate ?token= then load the match. Returns (match, None) or (None, resp)."""
-    if not verify_media_token(request.args.get("token", ""), match_id):
+    token = request.args.get("token", "")
+    if not verify_media_token(token, match_id):
         return None, (jsonify({"error": "invalid or expired media token"}), 403)
+    # Keep the legacy boolean verifier as the compatibility seam for existing
+    # callers/tests; real tokens always produce the same validated claims here.
+    claims = media_token_claims(token, match_id) or {}
     match = _get_match_or_404(match_id)
     if match is None:
         return None, (jsonify({"error": "match not found"}), 404)
+    club_program_id = claims.get("club_program_id")
+    if club_program_id is not None:
+        try:
+            club_program_id = int(club_program_id)
+        except (TypeError, ValueError):
+            return None, (jsonify({"error": "match not found"}), 404)
+        if match.club_program_id != club_program_id:
+            return None, (jsonify({"error": "match not found"}), 404)
     return match, None
+
+
+def _admin_or_media_token(f):
+    """Allow current admin dual auth, or a match-scoped media token.
+
+    Invalid admin credentials fall through to the existing decorator so its
+    status codes and response contract remain unchanged.
+    """
+
+    @wraps(f)
+    def decorated(match_id: int, *args, **kwargs):
+        admin_result = None
+        admin_granted = False
+        if request.headers.get("X-API-Key") or request.headers.get("X-Admin-Key"):
+
+            def admin_probe(*_args, **_kwargs):
+                nonlocal admin_granted
+                admin_granted = True
+
+            admin_result = require_api_key(admin_probe)(match_id, *args, **kwargs)
+            if admin_granted:
+                return f(match_id, *args, **kwargs)
+
+        token = request.args.get("token", "")
+        if token:
+            _match, err = _media_match_or_error(match_id)
+            if err is None:
+                return f(match_id, *args, **kwargs)
+            # A valid token carrying a stale club claim must remain a neutral
+            # 404; do not turn reassignment into an auth oracle.
+            if media_token_claims(token, match_id) is not None:
+                return err
+        if admin_result is not None:
+            return admin_result
+        return require_api_key(f)(match_id, *args, **kwargs)
+
+    return decorated
 
 
 @video_bp.route("/admin/video/matches/<int:match_id>/footage", methods=["GET"])
@@ -809,7 +905,7 @@ def _tracklet_in_match_or_404(match_id: int, tracklet_id: int):
 
 
 @video_bp.route("/admin/video/matches/<int:match_id>/tracklets/<int:tracklet_id>/crops", methods=["GET"])
-@require_api_key
+@_admin_or_media_token
 def list_tracklet_crops(match_id: int, tracklet_id: int):
     """Sharpest-first crop list for one tracklet (URLs built client-side with the media token)."""
     t, err = _tracklet_in_match_or_404(match_id, tracklet_id)
@@ -824,7 +920,7 @@ def list_tracklet_crops(match_id: int, tracklet_id: int):
 
 
 @video_bp.route("/admin/video/matches/<int:match_id>/tracklets/<int:tracklet_id>/bbox-track", methods=["GET"])
-@require_api_key
+@_admin_or_media_token
 def get_tracklet_bbox(match_id: int, tracklet_id: int):
     """Per-frame [t, x1, y1, x2, y2] (absolute seconds, source pixels) to overlay a box
     on the exact player. DEV-only (built from local tracks.npz); empty in prod."""

@@ -285,6 +285,7 @@ export function AdminVideoMatch() {
     const [rosterSaving, setRosterSaving] = useState(false)
 
     const [processing, setProcessing] = useState(false)
+    const [analysisSubmitting, setAnalysisSubmitting] = useState(false)
 
     const [tracklets, setTracklets] = useState([])
     const [reel, setReel] = useState(null)
@@ -302,6 +303,9 @@ export function AdminVideoMatch() {
     const [manifest, setManifest] = useState(null)
     const [splitHighlight, setSplitHighlight] = useState([])  // ids of just-split segments to surface
     const tagReviewRef = useRef(null)
+    const analysisJobActive = match?.job?.pipeline_kind === 'qwen_analysis'
+        && (match.job.status === 'queued' || match.job.status === 'running')
+    const analysisJobFailed = match?.job?.pipeline_kind === 'qwen_analysis' && match.job.status === 'failed'
 
     const load = useCallback(async () => {
         try {
@@ -333,10 +337,10 @@ export function AdminVideoMatch() {
 
     // poll while the pipeline owns the match
     useEffect(() => {
-        if (!match || !POLL_STATUSES.has(match.status)) return undefined
+        if (!match || (!POLL_STATUSES.has(match.status) && !analysisJobActive)) return undefined
         const id = setInterval(load, 5000)
         return () => clearInterval(id)
-    }, [match, load])
+    }, [match, analysisJobActive, load])
 
     // mint a media token once the match has reviewable tracklets (covers all rows)
     useEffect(() => {
@@ -551,6 +555,21 @@ export function AdminVideoMatch() {
         }
     }
 
+    const handleRunAnalysis = async () => {
+        setAnalysisSubmitting(true)
+        setError(null)
+        setNotice(null)
+        try {
+            await APIService.analyzeVideoMatch(matchId)
+            setNotice('AI analysis queued — this page polls automatically.')
+            await load()
+        } catch (err) {
+            setError(err.message)
+        } finally {
+            setAnalysisSubmitting(false)
+        }
+    }
+
     const handlePickSide = async (cluster) => {
         setError(null)
         try {
@@ -646,6 +665,8 @@ export function AdminVideoMatch() {
     }
 
     const job = match.job
+    const analysisRunning = analysisSubmitting || analysisJobActive
+    const visibleNotice = analysisJobFailed ? null : notice
     // surface just-split pieces at the top of the review list
     const reviewTracklets = splitHighlight.length
         ? [...tracklets].sort((a, b) => (splitHighlight.includes(b.id) ? 1 : 0) - (splitHighlight.includes(a.id) ? 1 : 0))
@@ -676,7 +697,7 @@ export function AdminVideoMatch() {
             <FilmRoomGuide defaultOpen={false} />
 
             {error && <p className="text-sm text-destructive">{error}</p>}
-            {notice && <p className="text-sm text-emerald-600">{notice}</p>}
+            {visibleNotice && <p className="text-sm text-emerald-600">{visibleNotice}</p>}
 
             {match.status === 'created' && (
                 <Card>
@@ -828,6 +849,21 @@ export function AdminVideoMatch() {
                 </Card>
             )}
 
+            {analysisJobFailed && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2 text-destructive"><AlertTriangle className="h-4 w-4" /> AI analysis failed</CardTitle>
+                        <CardDescription className="break-words">{job.error || 'Unknown error'}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Button variant="outline" size="sm" onClick={handleRunAnalysis} disabled={analysisSubmitting}>
+                            {analysisSubmitting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Brain className="h-4 w-4 mr-1" />}
+                            Retry AI analysis
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
+
             {(match.status === 'needs_tagging' || match.status === 'finalized') && reel && (
                 <PlayerReels
                     match={match}
@@ -845,6 +881,8 @@ export function AdminVideoMatch() {
                         setOpenVerifyPlayerId(null)
                         tagReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                     }}
+                    onRunAnalysis={handleRunAnalysis}
+                    analysisRunning={analysisRunning}
                 />
             )}
 

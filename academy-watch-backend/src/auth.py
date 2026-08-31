@@ -244,22 +244,36 @@ def _media_serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(secret_key=secret or "change-me", salt="video-media")
 
 
-def mint_media_token(match_id: int, email: str | None = None, ttl_seconds: int = MEDIA_TOKEN_TTL) -> dict:
+def mint_media_token(
+    match_id: int,
+    email: str | None = None,
+    ttl_seconds: int = MEDIA_TOKEN_TTL,
+    club_program_id: int | None = None,
+) -> dict:
     """Mint a media token scoped to one match. Called from an admin-authed JSON
     endpoint; the token then rides ?token= on media URLs."""
     payload = {"match_id": int(match_id), "scope": "media", "email": email, "iat": int(time.time())}
+    if club_program_id is not None:
+        payload["club_program_id"] = int(club_program_id)
     return {"token": _media_serializer().dumps(payload), "expires_in": ttl_seconds}
+
+
+def media_token_claims(token: str, match_id: int, max_age: int = MEDIA_TOKEN_TTL) -> dict | None:
+    """Return valid, unexpired media claims for THIS match, otherwise None."""
+    if not token:
+        return None
+    try:
+        data = _media_serializer().loads(token, max_age=max_age)
+        if data.get("scope") != "media" or int(data.get("match_id", -1)) != int(match_id):
+            return None
+    except Exception:  # bad signature, expired, malformed — all mean "deny"
+        return None
+    return data
 
 
 def verify_media_token(token: str, match_id: int, max_age: int = MEDIA_TOKEN_TTL) -> bool:
     """True iff token is a valid, unexpired media token for THIS match."""
-    if not token:
-        return False
-    try:
-        data = _media_serializer().loads(token, max_age=max_age)
-    except Exception:  # bad signature, expired, malformed — all mean "deny"
-        return False
-    return data.get("scope") == "media" and int(data.get("match_id", -1)) == int(match_id)
+    return media_token_claims(token, match_id, max_age=max_age) is not None
 
 
 # ---------------------------------------------------------------------------

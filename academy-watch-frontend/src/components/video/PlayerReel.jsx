@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
     AlertTriangle,
+    Brain,
     Check,
     ChevronDown,
     Clock3,
@@ -116,8 +117,8 @@ export function captionPresentation(caption) {
     }
 }
 
-function evidenceEntry(matchId, trackletId) {
-    const key = `${matchId}:${trackletId}`
+function evidenceEntry(matchId, trackletId, sourceKey = 'admin') {
+    const key = `${sourceKey}:${matchId}:${trackletId}`
     let entry = EVIDENCE_CACHE.get(key)
     if (!entry) {
         if (EVIDENCE_CACHE.size >= EVIDENCE_CACHE_MAX) {
@@ -149,6 +150,32 @@ export function loadTrackletBbox(matchId, trackletId) {
             .catch(() => ({ boxes: [], available: false }))
     }
     return entry.bbox
+}
+
+function loadEvidenceCrops(mediaSource, matchId, trackletId, mediaToken) {
+    if (mediaSource?.loadTrackletCrops) {
+        const entry = evidenceEntry(matchId, trackletId, mediaSource.cacheKey || 'custom')
+        if (!entry.crops) {
+            entry.crops = mediaSource.loadTrackletCrops(matchId, trackletId, mediaToken)
+                .then((response) => response.crops || [])
+                .catch(() => [])
+        }
+        return entry.crops
+    }
+    return loadTrackletCrops(matchId, trackletId)
+}
+
+function loadEvidenceBbox(mediaSource, matchId, trackletId, mediaToken) {
+    if (mediaSource?.loadTrackletBbox) {
+        const entry = evidenceEntry(matchId, trackletId, mediaSource.cacheKey || 'custom')
+        if (!entry.bbox) {
+            entry.bbox = mediaSource.loadTrackletBbox(matchId, trackletId, mediaToken)
+                .then((response) => ({ boxes: response.boxes || [], available: !!response.available }))
+                .catch(() => ({ boxes: [], available: false }))
+        }
+        return entry.bbox
+    }
+    return loadTrackletBbox(matchId, trackletId)
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -219,17 +246,17 @@ export function useBboxOverlay(videoRef, canvasRef, boxesRef, label) {
     }, [boxesRef, canvasRef, label, videoRef])
 }
 
-function PlayerThumbnail({ matchId, trackletId, mediaToken, playerName }) {
+function PlayerThumbnail({ matchId, trackletId, mediaToken, playerName, mediaSource }) {
     const [crop, setCrop] = useState(null)
 
     useEffect(() => {
         let alive = true
         if (!trackletId) return () => { alive = false }
-        loadTrackletCrops(matchId, trackletId).then((crops) => {
+        loadEvidenceCrops(mediaSource, matchId, trackletId, mediaToken).then((crops) => {
             if (alive) setCrop(crops[0] || false)
         })
         return () => { alive = false }
-    }, [matchId, trackletId])
+    }, [matchId, mediaSource, mediaToken, trackletId])
 
     if (!crop || !mediaToken) {
         return (
@@ -240,7 +267,7 @@ function PlayerThumbnail({ matchId, trackletId, mediaToken, playerName }) {
     }
     return (
         <img
-            src={APIService.videoCropUrl(matchId, crop.file, mediaToken)}
+            src={mediaSource?.cropUrl?.(matchId, crop.file, mediaToken) || APIService.videoCropUrl(matchId, crop.file, mediaToken)}
             alt={`${playerName} on-camera crop`}
             className="h-28 w-full bg-slate-950 object-cover object-top"
             loading="lazy"
@@ -398,7 +425,7 @@ function VerifyIdentityPanel({ match, player, mediaToken, onAction, savingTrackl
     )
 }
 
-function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError }) {
+function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError, mediaSource }) {
     const videoRef = useRef(null)
     const canvasRef = useRef(null)
     const boxesRef = useRef([])
@@ -413,7 +440,9 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError }) {
     const activeWindow = windows[activeIdx]
     const activeCaption = matchCaptionToWindow(activeWindow, captions, player)
     const activeCaptionPresentation = captionPresentation(activeCaption)
-    const footageUrl = mediaToken ? APIService.videoFootageUrl(matchId, mediaToken) : null
+    const footageUrl = mediaToken
+        ? mediaSource?.footageUrl?.(matchId, mediaToken) || APIService.videoFootageUrl(matchId, mediaToken)
+        : null
     const overlayLabel = `#${player.jersey_number} ${player.player_name}`
 
     useBboxOverlay(videoRef, canvasRef, boxesRef, overlayLabel)
@@ -422,13 +451,13 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError }) {
         let alive = true
         boxesRef.current = []
         if (!activeWindow) return () => { alive = false }
-        loadTrackletBbox(matchId, activeWindow.tracklet_id).then((track) => {
+        loadEvidenceBbox(mediaSource, matchId, activeWindow.tracklet_id, mediaToken).then((track) => {
             if (!alive) return
             boxesRef.current = track.boxes
             setBbox({ available: track.available, count: track.boxes.length, loading: false })
         })
         return () => { alive = false }
-    }, [activeWindow, matchId])
+    }, [activeWindow, matchId, mediaSource, mediaToken])
 
     const jumpTo = (index, shouldPlay = true) => {
         const window = windows[index]
@@ -614,7 +643,7 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError }) {
     )
 }
 
-function TeamOverview({ match, overview }) {
+function TeamOverview({ match, overview, onRunAnalysis, analysisRunning }) {
     const clusters = overview?.clusters || []
     const analysis = match.capture_meta?.qwen_analysis
     return (
@@ -636,6 +665,19 @@ function TeamOverview({ match, overview }) {
                     )
                 })}
             </div>
+
+            {onRunAnalysis ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2.5">
+                    <div>
+                        <p className="text-sm font-medium">AI match read</p>
+                        <p className="text-xs text-muted-foreground">Qualitative analysis from sampled player windows.</p>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" onClick={onRunAnalysis} disabled={analysisRunning}>
+                        {analysisRunning ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Brain className="mr-1 h-4 w-4" />}
+                        {analysisRunning ? 'AI analysis queued' : 'Run AI analysis'}
+                    </Button>
+                </div>
+            ) : null}
 
             {overview?.qwen_analysis_present && analysis && (
                 <details className="group rounded-md border bg-muted/20">
@@ -675,6 +717,10 @@ export function PlayerReels({
     identitySavingTrackletId,
     onMediaError,
     onReviewUnassigned,
+    readOnly = false,
+    mediaSource,
+    onRunAnalysis,
+    analysisRunning,
 }) {
     const players = reel?.players || []
     const unassigned = reel?.unassigned || { count: 0, visible_s: 0 }
@@ -692,27 +738,34 @@ export function PlayerReels({
             </div>
 
             <div className="space-y-5 p-4 sm:p-6">
-                <TeamOverview match={match} overview={reel?.team_overview} />
+                <TeamOverview
+                    match={match}
+                    overview={reel?.team_overview}
+                    onRunAnalysis={onRunAnalysis}
+                    analysisRunning={analysisRunning}
+                />
 
-                <button
-                    type="button"
-                    onClick={onReviewUnassigned}
-                    className="flex w-full items-center gap-3 rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 px-3 py-3 text-left transition-colors hover:bg-amber-500/10"
-                >
-                    <Users className="h-5 w-5 text-amber-600" />
-                    <span className="text-sm">
-                        <strong>{unassigned.count} unassigned identities · {formatSeconds(unassigned.visible_s)}</strong>
-                        <span className="text-muted-foreground"> — tag them in review below</span>
-                    </span>
-                </button>
+                {!readOnly ? (
+                    <button
+                        type="button"
+                        onClick={onReviewUnassigned}
+                        className="flex w-full items-center gap-3 rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 px-3 py-3 text-left transition-colors hover:bg-amber-500/10"
+                    >
+                        <Users className="h-5 w-5 text-amber-600" />
+                        <span className="text-sm">
+                            <strong>{unassigned.count} unassigned identities · {formatSeconds(unassigned.visible_s)}</strong>
+                            <span className="text-muted-foreground"> — tag them in review below</span>
+                        </span>
+                    </button>
+                ) : null}
 
                 {players.length ? (
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {players.map((player) => {
                             const reelOpen = openPlayerId === player.roster_entry_id
-                            const verifyOpen = openVerifyPlayerId === player.roster_entry_id
+                            const verifyOpen = !readOnly && openVerifyPlayerId === player.roster_entry_id
                             const open = reelOpen || verifyOpen
-                            const mismatch = mismatchBadge(player)
+                            const mismatch = readOnly ? null : mismatchBadge(player)
                             return (
                                 <article key={player.roster_entry_id} className={`overflow-hidden rounded-lg border transition-shadow ${open ? 'border-cyan-500 shadow-lg shadow-cyan-500/10 sm:col-span-2 lg:col-span-3' : 'hover:shadow-md'}`}>
                                     <button
@@ -721,7 +774,7 @@ export function PlayerReels({
                                         aria-expanded={reelOpen}
                                         className={`grid w-full text-left ${open ? 'sm:grid-cols-[10rem_1fr]' : ''}`}
                                     >
-                                        <PlayerThumbnail matchId={match.id} trackletId={player.thumbnail_tracklet_id ?? player.tracklet_ids[0]} mediaToken={mediaToken} playerName={player.player_name} />
+                                        <PlayerThumbnail matchId={match.id} trackletId={player.thumbnail_tracklet_id ?? player.tracklet_ids[0]} mediaToken={mediaToken} playerName={player.player_name} mediaSource={mediaSource} />
                                         <div className="p-3">
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="min-w-0">
@@ -744,19 +797,21 @@ export function PlayerReels({
                                         </div>
                                     </button>
                                     <div className="flex items-center justify-between gap-3 border-t bg-muted/20 px-3 py-2">
-                                        <span className="text-[11px] text-muted-foreground">Open the reel to watch · verify to inspect each chain</span>
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            variant={verifyOpen ? 'secondary' : 'outline'}
-                                            onClick={() => onToggleVerify(player.roster_entry_id)}
-                                            aria-expanded={verifyOpen}
-                                            className={mismatch && !verifyOpen ? 'border-amber-500/50 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300' : ''}
-                                        >
-                                            <ShieldCheck className="mr-1 h-4 w-4" /> Verify identity
-                                        </Button>
+                                        <span className="text-[11px] text-muted-foreground">{readOnly ? 'Open the reel to watch this player’s on-camera windows' : 'Open the reel to watch · verify to inspect each chain'}</span>
+                                        {!readOnly ? (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant={verifyOpen ? 'secondary' : 'outline'}
+                                                onClick={() => onToggleVerify(player.roster_entry_id)}
+                                                aria-expanded={verifyOpen}
+                                                className={mismatch && !verifyOpen ? 'border-amber-500/50 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300' : ''}
+                                            >
+                                                <ShieldCheck className="mr-1 h-4 w-4" /> Verify identity
+                                            </Button>
+                                        ) : null}
                                     </div>
-                                    {reelOpen ? <ReelPlayer matchId={match.id} player={player} mediaToken={mediaToken} captions={match.capture_meta?.qwen_analysis?.window_captions || []} onMediaError={onMediaError} /> : null}
+                                    {reelOpen ? <ReelPlayer matchId={match.id} player={player} mediaToken={mediaToken} captions={match.capture_meta?.qwen_analysis?.window_captions || []} onMediaError={onMediaError} mediaSource={mediaSource} /> : null}
                                     {verifyOpen ? (
                                         <VerifyIdentityPanel
                                             match={match}
