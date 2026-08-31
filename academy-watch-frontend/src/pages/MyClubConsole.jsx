@@ -638,10 +638,14 @@ function ClubPlayerReels({ programId, match, onAccessDenied }) {
   const [openPlayerId, setOpenPlayerId] = useState(null)
   const [error, setError] = useState(null)
 
-  const load = useCallback(async () => {
+  const loadFresh = useCallback(async () => {
     if (loading) return
     setLoading(true)
     setError(null)
+    setOpened(false)
+    setReel(null)
+    setMediaToken(null)
+    setOpenPlayerId(null)
     try {
       const [reelResponse, tokenResponse] = await Promise.all([
         APIService.getClubMatchReel(programId, match.id),
@@ -663,14 +667,6 @@ function ClubPlayerReels({ programId, match, onAccessDenied }) {
     }
   }, [loading, match.id, onAccessDenied, programId])
 
-  const refreshMediaToken = useCallback(() => {
-    APIService.clubVideoMediaToken(programId, match.id)
-      .then((response) => setMediaToken(response?.token || null))
-      .catch((requestError) => {
-        if (requestError?.status === 403) onAccessDenied()
-      })
-  }, [match.id, onAccessDenied, programId])
-
   if (!REEL_MATCH_STATUSES.has(match.status)) return null
 
   return (
@@ -684,8 +680,7 @@ function ClubPlayerReels({ programId, match, onAccessDenied }) {
           variant={opened ? 'secondary' : 'outline'}
           onClick={() => {
             if (opened) setOpened(false)
-            else if (reel && mediaToken) setOpened(true)
-            else load()
+            else loadFresh()
           }}
           disabled={loading}
         >
@@ -701,7 +696,7 @@ function ClubPlayerReels({ programId, match, onAccessDenied }) {
           mediaToken={mediaToken}
           openPlayerId={openPlayerId}
           onTogglePlayer={(rosterEntryId) => setOpenPlayerId((current) => current === rosterEntryId ? null : rosterEntryId)}
-          onMediaError={refreshMediaToken}
+          onMediaError={loadFresh}
           readOnly
           mediaSource={CLUB_REEL_MEDIA_SOURCE}
         />

@@ -83,8 +83,10 @@ const reel = {
   },
 }
 
-async function installClubMocks(page, { denyReel = false } = {}) {
+async function installClubMocks(page, { denyReel = false, reelResponses = [reel] } = {}) {
   const adminMediaHeaders = []
+  let reelRequestCount = 0
+  let tokenRequestCount = 0
   await page.addInitScript(() => {
     localStorage.setItem('academy_watch_user_token', 'mock-club-manager-token')
     localStorage.setItem('academy_watch_display_name', 'Club Manager')
@@ -103,11 +105,14 @@ async function installClubMocks(page, { denyReel = false } = {}) {
     }
     if (url.pathname === '/api/club/7/matches/41') return route.fulfill({ json: matchPayload() })
     if (url.pathname === '/api/club/7/matches/41/reel') {
+      const response = reelResponses[Math.min(reelRequestCount, reelResponses.length - 1)]
+      reelRequestCount += 1
       return denyReel
         ? route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Match not found' }) })
-        : route.fulfill({ json: reel })
+        : route.fulfill({ json: response })
     }
     if (url.pathname === '/api/club/7/matches/41/media-token') {
+      tokenRequestCount += 1
       return denyReel
         ? route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Match not found' }) })
         : route.fulfill({ json: { token: 'scoped-club-media-token', expires_in: 1800 } })
@@ -120,11 +125,17 @@ async function installClubMocks(page, { denyReel = false } = {}) {
     }
     return route.fulfill({ json: {} })
   })
-  return adminMediaHeaders
+  return {
+    adminMediaHeaders,
+    reelRequestCount: () => reelRequestCount,
+    tokenRequestCount: () => tokenRequestCount,
+  }
 }
 
 test('club manager opens a read-only player reel without admin credentials', async ({ page }) => {
-  const adminMediaHeaders = await installClubMocks(page)
+  const requests = await installClubMocks(page, {
+    reelResponses: [reel, { ...reel, players: [] }],
+  })
   await page.goto('/my-club')
   await page.getByRole('tab', { name: 'Matches & reports' }).click()
   await page.getByRole('button', { name: 'View player reels' }).click()
@@ -134,10 +145,17 @@ test('club manager opens a read-only player reel without admin credentials', asy
   await expect(page.getByRole('button', { name: /Verify identity/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Unbind/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Not a player/i })).toHaveCount(0)
-  await expect.poll(() => adminMediaHeaders.length).toBeGreaterThan(0)
-  expect(adminMediaHeaders.every((headers) => !headers['x-api-key'] && !headers['x-admin-key'])).toBe(true)
+  await expect.poll(() => requests.adminMediaHeaders.length).toBeGreaterThan(0)
+  expect(requests.adminMediaHeaders.every((headers) => !headers['x-api-key'] && !headers['x-admin-key'])).toBe(true)
 
   await page.screenshot({ path: 'test-results/club-reels-allowed.png', fullPage: true })
+
+  await page.getByRole('button', { name: 'Hide player reels' }).click()
+  await page.getByRole('button', { name: 'View player reels' }).click()
+  await expect.poll(requests.reelRequestCount).toBe(2)
+  await expect.poll(requests.tokenRequestCount).toBe(2)
+  await expect(page.getByText('No player reels yet — bind identities in Tag review below.')).toBeVisible()
+  await expect(page.getByText('#8 Mina Sato')).toHaveCount(0)
 })
 
 test('foreign reel denial renders the same neutral unavailable state', async ({ page }) => {
