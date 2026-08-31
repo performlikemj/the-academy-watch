@@ -53,11 +53,19 @@ def enqueue(job_id: str) -> str:
         return "db-poll"
 
 
-def claim_job(job_id: str, worker_id: str) -> bool:
-    """Atomically claim a specific job. False means someone else owns it."""
+def claim_job(job_id: str, worker_id: str, pipeline_kind: str) -> bool:
+    """Atomically claim a specific job of the worker's kind.
+
+    False means someone else owns it or the pinned job belongs to a different
+    pipeline. The kind predicate is defense in depth for queue deliveries.
+    """
     claimed = (
         db.session.query(VideoAnalysisJob)
-        .filter(VideoAnalysisJob.id == job_id, VideoAnalysisJob.status == "queued")
+        .filter(
+            VideoAnalysisJob.id == job_id,
+            VideoAnalysisJob.status == "queued",
+            VideoAnalysisJob.pipeline_kind == pipeline_kind,
+        )
         .update(
             {
                 "status": "running",
@@ -72,12 +80,15 @@ def claim_job(job_id: str, worker_id: str) -> bool:
     return bool(claimed)
 
 
-def claim_next_job(worker_id: str) -> "VideoAnalysisJob | None":
-    """DB-poll path: claim the oldest queued job. Safe under concurrency via
-    row-level locking (skip_locked keeps idle workers from queueing on the row)."""
+def claim_next_job(worker_id: str, pipeline_kind: str) -> "VideoAnalysisJob | None":
+    """DB-poll path: claim the oldest queued job of the worker's kind.
+
+    Safe under concurrency via row-level locking (skip_locked keeps idle
+    workers from queueing on the row).
+    """
     job = (
         db.session.query(VideoAnalysisJob)
-        .filter(VideoAnalysisJob.status == "queued")
+        .filter(VideoAnalysisJob.status == "queued", VideoAnalysisJob.pipeline_kind == pipeline_kind)
         .order_by(VideoAnalysisJob.created_at)
         .with_for_update(skip_locked=True)
         .first()
