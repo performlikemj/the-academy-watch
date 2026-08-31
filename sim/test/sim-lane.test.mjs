@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { computeExitCode, computeTotals, shapeStepRecord } from '../lib/driver.mjs'
 import { normalizeGrade, parseGradeJSON, validateProposal } from '../lib/grade.mjs'
-import { resolveCredentials } from '../run.mjs'
+import { createTeardownController, resolveCredentials, signalExitCode } from '../run.mjs'
 
 function journeys(...steps) {
   return [{ name: 'sample', steps }]
@@ -115,4 +115,47 @@ test('missing credential override and backend dotenv value is an error', () => {
     () => resolveCredentials({ SECRET_KEY: 'file-secret' }, {}),
     /ADMIN_API_KEY is required via SIM_ADMIN_API_KEY or the backend \.env\./,
   )
+})
+
+test('teardown is ordered and once-only across repeated callers', async () => {
+  const calls = []
+  const controller = createTeardownController({
+    stop: async () => { calls.push('stop') },
+    close: async () => { calls.push('close') },
+    exit: () => assert.fail('normal teardown must not exit'),
+  })
+
+  await Promise.all([controller.teardown(), controller.teardown()])
+  await controller.teardown()
+
+  assert.deepEqual(calls, ['stop', 'close'])
+})
+
+test('signal teardown uses conventional exit codes and a second signal exits immediately', async () => {
+  const calls = []
+  const exits = []
+  let releaseStop
+  const stopGate = new Promise((resolve) => { releaseStop = resolve })
+  const controller = createTeardownController({
+    stop: async () => {
+      calls.push('stop')
+      await stopGate
+    },
+    close: async () => { calls.push('close') },
+    exit: (code) => { exits.push(code) },
+  })
+
+  const firstSignal = controller.handleSignal('SIGINT')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(calls, ['stop'])
+
+  await controller.handleSignal('SIGTERM')
+  assert.deepEqual(exits, [143])
+
+  releaseStop()
+  await firstSignal
+  assert.deepEqual(calls, ['stop', 'close'])
+  assert.deepEqual(exits, [143, 130])
+  assert.equal(signalExitCode('SIGINT'), 130)
+  assert.equal(signalExitCode('SIGTERM'), 143)
 })

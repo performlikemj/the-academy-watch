@@ -16,6 +16,8 @@ By default the runner starts the Flask backend and Vite frontend, waits for both
 node sim/run.mjs
 ```
 
+`SIGINT` and `SIGTERM` use that same managed-process teardown path, then close Chromium best-effort and exit `130` or `143`. A second signal exits immediately, while normal completion keeps the `finally` teardown authoritative.
+
 The backend needs its normal database configuration and `SECRET_KEY` / `ADMIN_API_KEY` in `academy-watch-backend/.env`. To override those two values explicitly, use `SIM_SECRET_KEY` and `SIM_ADMIN_API_KEY`. For each credential, precedence is the explicit `SIM_*` override first, then the backend `.env`, then a clear error when neither exists. Ambient `SECRET_KEY` and `ADMIN_API_KEY` variables are deliberately ignored: shell profiles often retain stale values, and silently accepting one would make the simulated app differ between machines. The run header says which source was selected without printing credential values.
 
 The runner forces `API_USE_STUB_DATA=true` and `SKIP_API_HANDSHAKE=1`. It mints the admin bearer through `SIM_PYTHON` using the backend's `itsdangerous` implementation and keeps all auth values in memory.

@@ -180,46 +180,88 @@ async function waitForHealth(url, managed, timeoutMs = 120_000) {
   throw new Error(`Timed out waiting for ${url}: ${lastError}${tail}`)
 }
 
-async function bootServers({ baseUrl, python, backendEnv, secrets }) {
+async function bootServers({ baseUrl, python, backendEnv, secrets, processes }) {
   const parsedBase = new URL(baseUrl)
   if (parsedBase.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(parsedBase.hostname)) {
     throw new Error('Self-boot requires SIM_BASE_URL to use http://localhost or http://127.0.0.1; use SIM_EXTERNAL=1 otherwise.')
   }
   const frontendPort = parsedBase.port || '80'
-  const processes = []
-  try {
-    const backend = spawnManaged(
-      'backend',
-      python,
-      ['src/main.py'],
-      {
-        cwd: backendDir,
-        env: {
-          ...backendEnv,
-          API_USE_STUB_DATA: 'true',
-          SKIP_API_HANDSHAKE: '1',
-          FLASK_DEBUG: 'false',
-        },
+  const backend = spawnManaged(
+    'backend',
+    python,
+    ['src/main.py'],
+    {
+      cwd: backendDir,
+      env: {
+        ...backendEnv,
+        API_USE_STUB_DATA: 'true',
+        SKIP_API_HANDSHAKE: '1',
+        FLASK_DEBUG: 'false',
       },
-      secrets,
-    )
-    processes.push(backend)
-    await waitForHealth('http://127.0.0.1:5001/api/health', backend)
+    },
+    secrets,
+  )
+  processes.push(backend)
+  await waitForHealth('http://127.0.0.1:5001/api/health', backend)
 
-    const frontend = spawnManaged(
-      'frontend',
-      'pnpm',
-      ['dev', '--host', parsedBase.hostname, '--port', frontendPort, '--strictPort'],
-      { cwd: frontendDir, env: { ...process.env, E2E_DISABLE_HMR_OVERLAY: 'true' } },
-      secrets,
-    )
-    processes.push(frontend)
-    await waitForHealth(baseUrl, frontend)
-    return processes
-  } catch (error) {
-    await stopManaged(processes)
-    throw error
+  const frontend = spawnManaged(
+    'frontend',
+    'pnpm',
+    ['dev', '--host', parsedBase.hostname, '--port', frontendPort, '--strictPort'],
+    { cwd: frontendDir, env: { ...process.env, E2E_DISABLE_HMR_OVERLAY: 'true' } },
+    secrets,
+  )
+  processes.push(frontend)
+  await waitForHealth(baseUrl, frontend)
+}
+
+export function signalExitCode(signal) {
+  if (signal === 'SIGINT') return 130
+  if (signal === 'SIGTERM') return 143
+  throw new Error(`Unsupported shutdown signal: ${signal}`)
+}
+
+export function createTeardownController({ stop, close, exit }) {
+  let teardownPromise = null
+  let signalReceived = false
+
+  function teardown() {
+    if (!teardownPromise) {
+      teardownPromise = (async () => {
+        let firstError = null
+        try {
+          await stop()
+        } catch (error) {
+          firstError = error
+        }
+        try {
+          await close()
+        } catch (error) {
+          firstError ||= error
+        }
+        if (firstError) throw firstError
+      })()
+    }
+    return teardownPromise
   }
+
+  async function handleSignal(signal) {
+    const exitCode = signalExitCode(signal)
+    if (signalReceived) {
+      exit(exitCode)
+      return exitCode
+    }
+    signalReceived = true
+    try {
+      await teardown()
+    } catch {
+      // Signal teardown is best-effort; the requested non-zero exit is authoritative.
+    }
+    exit(exitCode)
+    return exitCode
+  }
+
+  return { teardown, handleSignal }
 }
 
 function publicStep(step) {
@@ -288,6 +330,19 @@ async function main() {
   const managed = []
   let browser = null
   let fatalError = null
+  const teardownController = createTeardownController({
+    stop: () => stopManaged(managed),
+    close: async () => {
+      const activeBrowser = browser
+      browser = null
+      if (activeBrowser) await activeBrowser.close()
+    },
+    exit: (code) => process.exit(code),
+  })
+  const handleSigint = () => { void teardownController.handleSignal('SIGINT') }
+  const handleSigterm = () => { void teardownController.handleSignal('SIGTERM') }
+  process.on('SIGINT', handleSigint)
+  process.on('SIGTERM', handleSigterm)
 
   try {
     const backend = await backendEnvironment()
@@ -304,7 +359,7 @@ async function main() {
     if (external) {
       await waitForHealth(baseUrl, null, 30_000)
     } else {
-      managed.push(...await bootServers({ baseUrl, python, backendEnv: env, secrets }))
+      await bootServers({ baseUrl, python, backendEnv: env, secrets, processes: managed })
     }
 
     const chromium = loadChromium(frontendDir)
@@ -326,8 +381,11 @@ async function main() {
   } catch (error) {
     fatalError = error
   } finally {
-    if (browser) await browser.close().catch(() => {})
-    await stopManaged(managed)
+    try {
+      await teardownController.teardown()
+    } catch (error) {
+      fatalError ||= error
+    }
   }
 
   await fs.writeFile(path.join(reportDir, 'steps.json'), `${JSON.stringify(records, null, 2)}\n`)
@@ -357,6 +415,8 @@ async function main() {
   } else {
     process.exitCode = computeExitCode(journeys)
   }
+  process.off('SIGINT', handleSigint)
+  process.off('SIGTERM', handleSigterm)
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
