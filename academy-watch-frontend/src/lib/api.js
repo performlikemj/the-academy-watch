@@ -1348,6 +1348,22 @@ export class APIService {
         return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}`)
     }
 
+    static async getClubMatchReel(programId, matchId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}/reel`)
+    }
+
+    static async clubVideoMediaToken(programId, matchId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}/media-token`)
+    }
+
+    static async getClubVideoTrackletCrops(matchId, trackletId, token) {
+        return this.request(`/admin/video/matches/${encodeURIComponent(matchId)}/tracklets/${encodeURIComponent(trackletId)}/crops?token=${encodeURIComponent(token)}`)
+    }
+
+    static async getClubVideoTrackletBbox(matchId, trackletId, token) {
+        return this.request(`/admin/video/matches/${encodeURIComponent(matchId)}/tracklets/${encodeURIComponent(trackletId)}/bbox-track?token=${encodeURIComponent(token)}`)
+    }
+
     static async setMatchRoster(programId, matchId, entries) {
         return this.request(`/club/${encodeURIComponent(programId)}/matches/${encodeURIComponent(matchId)}/roster`, {
             method: 'PUT',
