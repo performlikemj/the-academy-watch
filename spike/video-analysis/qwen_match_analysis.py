@@ -372,13 +372,63 @@ def ollama_chat(
 
 def parse_observation(content: str) -> dict:
     observation = json.loads(content)
-    if not isinstance(observation, dict):
-        raise ValueError("frame observation must be a JSON object")
+    validate_observation_schema(observation)
     return observation
 
 
 def _is_str_list(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def validate_observation_schema(observation: object) -> None:
+    """Reject parsed frame rows that cannot provide trustworthy aggregation evidence."""
+    if not isinstance(observation, dict):
+        raise ValueError("frame observation must be a JSON object")
+    required = {
+        "teams",
+        "ball_visible",
+        "phase_of_play",
+        "observation",
+        "notable_actions",
+    }
+    missing = required - observation.keys()
+    if missing:
+        raise ValueError(
+            f"frame observation is missing required keys: {', '.join(sorted(missing))}"
+        )
+    teams = observation["teams"]
+    if not isinstance(teams, list):
+        raise ValueError("frame observation.teams must be a list")
+    for team in teams:
+        if not isinstance(team, dict):
+            raise ValueError("each frame observation team must be an object")
+        if "kit_color" not in team or "readable_jersey_numbers" not in team:
+            raise ValueError("frame observation team is missing required keys")
+        if not isinstance(team["kit_color"], str):
+            raise ValueError("frame observation team.kit_color must be a string")
+        numbers = team["readable_jersey_numbers"]
+        if not isinstance(numbers, list) or not all(
+            isinstance(number, int) and not isinstance(number, bool)
+            for number in numbers
+        ):
+            raise ValueError(
+                "frame observation team.readable_jersey_numbers must be a list of integers"
+            )
+        if "visible_players" in team and (
+            not isinstance(team["visible_players"], int)
+            or isinstance(team["visible_players"], bool)
+        ):
+            raise ValueError(
+                "frame observation team.visible_players must be an integer"
+            )
+    if not isinstance(observation["ball_visible"], bool):
+        raise ValueError("frame observation.ball_visible must be a boolean")
+    if not isinstance(observation["phase_of_play"], str):
+        raise ValueError("frame observation.phase_of_play must be a string")
+    if not isinstance(observation["observation"], str):
+        raise ValueError("frame observation.observation must be a string")
+    if not _is_str_list(observation["notable_actions"]):
+        raise ValueError("frame observation.notable_actions must be a string list")
 
 
 def validate_analysis_schema(analysis: object) -> None:
@@ -487,32 +537,62 @@ def validate_analysis_schema(analysis: object) -> None:
         raise ValueError("honest_limits must be a string list")
 
 
-def readable_jersey_numbers(observations: list[dict]) -> set[int]:
-    seen: set[int] = set()
+def _normalized_kit_color(value: str) -> str:
+    return value.strip().lower()
+
+
+def _frame_jersey_evidence(wrapped: dict) -> set[tuple[str, int]]:
+    evidence: set[tuple[str, int]] = set()
+    observation = wrapped.get("observation", wrapped)
+    if not isinstance(observation, dict):
+        return evidence
+    teams = observation.get("teams")
+    if not isinstance(teams, list):
+        return evidence
+    for team in teams:
+        if not isinstance(team, dict) or not isinstance(team.get("kit_color"), str):
+            continue
+        numbers = team.get("readable_jersey_numbers")
+        if not isinstance(numbers, list):
+            continue
+        kit_color = _normalized_kit_color(team["kit_color"])
+        for number in numbers:
+            if isinstance(number, int) and not isinstance(number, bool):
+                evidence.add((kit_color, number))
+    return evidence
+
+
+def readable_jersey_evidence(observations: list[dict]) -> set[tuple[str, int]]:
+    seen: set[tuple[str, int]] = set()
     for wrapped in observations:
-        observation = wrapped.get("observation", wrapped)
-        if not isinstance(observation, dict):
-            continue
-        teams = observation.get("teams")
-        if not isinstance(teams, list):
-            continue
-        for team in teams:
-            if not isinstance(team, dict):
-                continue
-            numbers = team.get("readable_jersey_numbers")
-            if not isinstance(numbers, list):
-                continue
-            for number in numbers:
-                if isinstance(number, int) and not isinstance(number, bool):
-                    seen.add(number)
+        seen.update(_frame_jersey_evidence(wrapped))
     return seen
 
 
-def filter_player_notes(player_notes: list[dict], seen_numbers: set[int]) -> list[dict]:
+def jersey_evidence_counts(
+    observations: list[dict],
+) -> dict[tuple[str, int], int]:
+    counts: dict[tuple[str, int], int] = {}
+    for wrapped in observations:
+        for evidence in _frame_jersey_evidence(wrapped):
+            counts[evidence] = counts.get(evidence, 0) + 1
+    return counts
+
+
+def filter_player_notes(
+    player_notes: list[dict], seen_evidence: set[tuple[str, int]]
+) -> list[dict]:
     return [
         dict(player)
         for player in player_notes
-        if player.get("jersey_number") in seen_numbers
+        if isinstance(player.get("kit_color"), str)
+        and isinstance(player.get("jersey_number"), int)
+        and not isinstance(player.get("jersey_number"), bool)
+        and (
+            _normalized_kit_color(player["kit_color"]),
+            player.get("jersey_number"),
+        )
+        in seen_evidence
     ]
 
 
@@ -560,9 +640,14 @@ def finalize_analysis(
         "frames_failed": frames_failed,
         "in_play_windows": sampling["in_play_windows"],
     }
-    filtered = filter_player_notes(
-        result.get("player_notes", []), readable_jersey_numbers(observations)
-    )
+    evidence_counts = jersey_evidence_counts(observations)
+    filtered = filter_player_notes(result.get("player_notes", []), set(evidence_counts))
+    for player in filtered:
+        evidence = (
+            _normalized_kit_color(player["kit_color"]),
+            player["jersey_number"],
+        )
+        player["times_seen"] = evidence_counts[evidence]
     result["player_notes"] = compute_player_confidence(filtered)
     result = append_honest_limits(result, sampling["interval_s"])
     validate_analysis_schema(result)

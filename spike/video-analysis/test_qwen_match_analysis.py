@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -13,6 +14,9 @@ from qwen_match_analysis import (  # noqa: E402
     build_sandbox_argv,
     compute_player_confidence,
     filter_player_notes,
+    finalize_analysis,
+    parse_observation,
+    readable_jersey_evidence,
     too_many_frame_failures,
     validate_analysis_schema,
 )
@@ -90,12 +94,93 @@ def test_confidence_is_computed_from_times_seen():
     assert [note["confidence"] for note in result] == ["low", "medium"]
 
 
-def test_player_filter_drops_numbers_never_seen_in_frames():
-    notes = [{"jersey_number": 4}, {"jersey_number": 8}, {"jersey_number": 12}]
-    assert filter_player_notes(notes, {4, 12}) == [
-        {"jersey_number": 4},
-        {"jersey_number": 12},
+def test_observation_validation_rejects_empty_object():
+    with pytest.raises(ValueError, match="missing required keys"):
+        parse_observation("{}")
+
+
+def test_observation_validation_rejects_wrong_typed_jersey_list():
+    observation = _good_observation()
+    observation["teams"][0]["readable_jersey_numbers"] = [8, "11"]
+    with pytest.raises(ValueError, match="readable_jersey_numbers"):
+        parse_observation(json.dumps(observation))
+
+
+def test_observation_validation_accepts_known_good_shape():
+    observation = _good_observation()
+    assert parse_observation(json.dumps(observation)) == observation
+
+
+def _good_observation():
+    return {
+        "teams": [
+            {
+                "kit_color": "blue",
+                "visible_players": 7,
+                "readable_jersey_numbers": [8, 11],
+            },
+            {
+                "kit_color": "red",
+                "visible_players": 6,
+                "readable_jersey_numbers": [],
+            },
+        ],
+        "ball_visible": True,
+        "phase_of_play": "build-up",
+        "observation": "The blue-kit side has possession in its own half.",
+        "notable_actions": ["Blue #8 offers a short passing option."],
+    }
+
+
+def test_player_filter_binds_number_evidence_to_normalized_kit_color():
+    observations = [
+        {
+            "observation": {
+                **_good_observation(),
+                "teams": [
+                    {
+                        "kit_color": "  Red ",
+                        "visible_players": 1,
+                        "readable_jersey_numbers": [8],
+                    }
+                ],
+            }
+        }
     ]
+    notes = [
+        {"kit_color": "blue", "jersey_number": 8},
+        {"kit_color": "red", "jersey_number": 8},
+        {"kit_color": " RED ", "jersey_number": 8},
+    ]
+    evidence = readable_jersey_evidence(observations)
+
+    assert filter_player_notes(notes, evidence) == [
+        {"kit_color": "red", "jersey_number": 8},
+        {"kit_color": " RED ", "jersey_number": 8},
+    ]
+
+
+def test_finalize_overwrites_model_times_seen_from_frame_evidence():
+    analysis = _good_analysis()
+    analysis["player_notes"][0]["times_seen"] = 5
+    observations = [
+        {"timestamp_s": 30, "observation": _good_observation()},
+    ]
+    sampling = {
+        "interval_s": 30,
+        "in_play_windows": [[0, 60]],
+    }
+
+    final = finalize_analysis(
+        analysis,
+        observations,
+        model="vision-model",
+        sampling=sampling,
+        frames_failed=0,
+    )
+
+    assert final["player_notes"][0]["times_seen"] == 1
+    assert final["player_notes"][0]["confidence"] == "low"
 
 
 def test_honest_limits_are_always_appended():

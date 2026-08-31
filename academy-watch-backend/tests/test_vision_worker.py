@@ -12,7 +12,13 @@ from flask import Flask
 from src.models.league import db
 from src.models.video import VideoAnalysisJob, VideoMatch
 from src.services.video_storage import verify_expected_blob
-from src.workers.vision_worker import _build_pipeline_cmd, _download_footage, _local_video_path, process_job
+from src.workers.vision_worker import (
+    _build_pipeline_cmd,
+    _download_footage,
+    _local_video_path,
+    main,
+    process_job,
+)
 
 TEMPLATE = "python /app/run_spike.py --device cuda"
 VIDEO = Path("/tmp/match.mp4")
@@ -253,3 +259,20 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
     complete.assert_called_once()
     assert complete.call_args.args[:2] == ("job-1", analysis)
     assert complete.call_args.kwargs["gpu_seconds"] >= 0
+
+
+def test_qwen_analysis_requires_pinned_job_and_never_claims_loop_job(app, monkeypatch, caplog):
+    monkeypatch.setenv("VIDEO_PIPELINE_KIND", "qwen_analysis")
+    monkeypatch.delenv("VIDEO_JOB_ID", raising=False)
+
+    with (
+        patch("src.main.app", app),
+        patch("src.services.video_queue.claim_next_job") as claim_next,
+        pytest.raises(SystemExit) as exited,
+    ):
+        main()
+
+    assert exited.value.code != 0
+    claim_next.assert_not_called()
+    assert "requires VIDEO_JOB_ID" in caplog.text
+    assert "ordinary CV job" in caplog.text

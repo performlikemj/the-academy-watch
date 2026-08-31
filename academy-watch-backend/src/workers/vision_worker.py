@@ -23,7 +23,10 @@ kind is persisted through its fenced completion service.
 
 Modes:
   one-shot (VIDEO_JOB_ID set)  process exactly that job, exit — ACA Jobs path
-  loop (default)               poll-claim queued jobs until idle-timeout
+  loop (default)               poll-claim queued CV jobs until idle-timeout
+
+Loop mode is CV-only until jobs carry a persisted pipeline kind. Non-CV workers
+must use one-shot pinning so they cannot claim an ordinary CV job.
 
 Job state is DB-authoritative: claims are conditional UPDATEs, heartbeats let
 the stale-reaper recover from evictions, and a re-delivered queue message
@@ -247,13 +250,21 @@ def process_job(app, job_id: str) -> bool:
 
 
 def main() -> None:
+    pipeline_kind = os.getenv("VIDEO_PIPELINE_KIND", "cv")
+    pinned = os.getenv("VIDEO_JOB_ID")
+    if pipeline_kind != "cv" and not pinned:
+        log.error(
+            "VIDEO_PIPELINE_KIND=%s requires VIDEO_JOB_ID: loop mode could claim an ordinary CV job; exiting",
+            pipeline_kind,
+        )
+        raise SystemExit(2)
+
     from src.main import app
 
     worker_id = os.getenv("CONTAINER_APP_REPLICA_NAME") or socket.gethostname()
     with app.app_context():
         from src.services.video_queue import claim_job, claim_next_job
 
-        pinned = os.getenv("VIDEO_JOB_ID")
         if pinned:
             if not claim_job(pinned, worker_id):
                 log.info("job %s already claimed elsewhere — exiting (duplicate delivery)", pinned)
