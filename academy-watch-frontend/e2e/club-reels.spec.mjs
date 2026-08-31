@@ -145,6 +145,7 @@ test('club manager opens a read-only player reel without admin credentials', asy
   await expect(page.getByRole('button', { name: /Verify identity/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Unbind/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Not a player/i })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Run AI analysis/i })).toHaveCount(0)
   await expect.poll(() => requests.adminMediaHeaders.length).toBeGreaterThan(0)
   expect(requests.adminMediaHeaders.every((headers) => !headers['x-api-key'] && !headers['x-admin-key'])).toBe(true)
 

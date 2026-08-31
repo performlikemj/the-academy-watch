@@ -23,10 +23,10 @@ kind is persisted through its fenced completion service.
 
 Modes:
   one-shot (VIDEO_JOB_ID set)  process exactly that job, exit — ACA Jobs path
-  loop (default)               poll-claim queued CV jobs until idle-timeout
+  loop (default)               poll-claim queued jobs of VIDEO_PIPELINE_KIND
 
-Loop mode is CV-only until jobs carry a persisted pipeline kind. Non-CV workers
-must use one-shot pinning so they cannot claim an ordinary CV job.
+The persisted job kind fences both modes: CV workers cannot claim analysis jobs,
+analysis workers cannot claim CV jobs, and a mismatched one-shot delivery no-ops.
 
 Job state is DB-authoritative: claims are conditional UPDATEs, heartbeats let
 the stale-reaper recover from evictions, and a re-delivered queue message
@@ -364,12 +364,6 @@ def process_job(app, job_id: str) -> bool:
 def main() -> None:
     pipeline_kind = os.getenv("VIDEO_PIPELINE_KIND", "cv")
     pinned = os.getenv("VIDEO_JOB_ID")
-    if pipeline_kind != "cv" and not pinned:
-        log.error(
-            "VIDEO_PIPELINE_KIND=%s requires VIDEO_JOB_ID: loop mode could claim an ordinary CV job; exiting",
-            pipeline_kind,
-        )
-        raise SystemExit(2)
 
     from src.main import app
 
@@ -378,15 +372,15 @@ def main() -> None:
         from src.services.video_queue import claim_job, claim_next_job
 
         if pinned:
-            if not claim_job(pinned, worker_id):
-                log.info("job %s already claimed elsewhere — exiting (duplicate delivery)", pinned)
+            if not claim_job(pinned, worker_id, pipeline_kind):
+                log.info("job %s unavailable or kind-mismatched — exiting", pinned)
                 return
             ok = process_job(app, pinned)
             sys.exit(0 if ok else 1)
 
         idle = 0
         while idle < IDLE_EXIT_AFTER_POLLS:
-            job = claim_next_job(worker_id)
+            job = claim_next_job(worker_id, pipeline_kind)
             if job is None:
                 idle += 1
                 time.sleep(IDLE_POLL_SECONDS)

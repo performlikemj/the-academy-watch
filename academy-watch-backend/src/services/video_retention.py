@@ -8,9 +8,9 @@ tracklets, reports, or jobs.
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, exists, func, or_
 from src.models.league import db
-from src.models.video import VideoMatch
+from src.models.video import VideoAnalysisJob, VideoMatch
 from src.services import video_storage
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,16 @@ def _still_eligible(match: VideoMatch, now: datetime) -> bool:
     """The in-loop re-check: the same rule as due_matches(), evaluated on a freshly re-read row."""
     if not match.blob_path:
         return False
+    active_job = (
+        db.session.query(VideoAnalysisJob.id)
+        .filter(
+            VideoAnalysisJob.video_match_id == match.id,
+            VideoAnalysisJob.status.in_(("queued", "running")),
+        )
+        .first()
+    )
+    if active_job is not None:
+        return False
     cutoff = now - UPLOAD_GRANT_GRACE
     if match.status in EXPIRABLE_STATUSES:
         return match.expires_at is not None and match.expires_at <= cutoff
@@ -75,9 +85,14 @@ def due_matches(now: datetime | None = None) -> list[VideoMatch]:
     uploads (status created, blob path set, older than ABANDONED_UPLOAD_DAYS)."""
     now = now or _utcnow_naive()
     cutoff = now - UPLOAD_GRANT_GRACE  # one grant-lifetime past the deadline: every issued write SAS is dead by then
+    active_job = exists().where(
+        VideoAnalysisJob.video_match_id == VideoMatch.id,
+        VideoAnalysisJob.status.in_(("queued", "running")),
+    )
     return (
         VideoMatch.query.filter(
             VideoMatch.blob_path.isnot(None),
+            ~active_job,
             or_(
                 and_(
                     VideoMatch.expires_at.isnot(None),
@@ -113,8 +128,9 @@ def expire_raw_footage(now: datetime | None = None, *, dry_run: bool = False) ->
             # configured run. Forgetting the path would strand the footage in Azure forever.
             failed += 1
             continue
-        # Re-read the row under lock right before acting: a /process call may have claimed the match
-        # (uploaded -> queued) after due_matches() ran, and deleting its input would strand a queued job.
+        # Re-read the row under lock right before acting, then check active jobs while holding the same match lock.
+        # /process and /analyze take the match lock before creating a job, so they cannot race a delete past this
+        # point; if they won the lock first, _still_eligible sees their queued/running job and skips the match.
         db.session.refresh(match, with_for_update=True)
         if not _still_eligible(match, now):
             db.session.rollback()

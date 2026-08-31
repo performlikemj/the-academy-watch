@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
     AlertTriangle,
+    Brain,
     Check,
     ChevronDown,
     Clock3,
@@ -642,7 +643,7 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError, media
     )
 }
 
-function TeamOverview({ match, overview }) {
+function TeamOverview({ match, overview, onRunAnalysis, analysisRunning }) {
     const clusters = overview?.clusters || []
     const analysis = match.capture_meta?.qwen_analysis
     return (
@@ -664,6 +665,19 @@ function TeamOverview({ match, overview }) {
                     )
                 })}
             </div>
+
+            {onRunAnalysis ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2.5">
+                    <div>
+                        <p className="text-sm font-medium">AI match read</p>
+                        <p className="text-xs text-muted-foreground">Qualitative analysis from sampled player windows.</p>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" onClick={onRunAnalysis} disabled={analysisRunning}>
+                        {analysisRunning ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Brain className="mr-1 h-4 w-4" />}
+                        {analysisRunning ? 'AI analysis queued' : 'Run AI analysis'}
+                    </Button>
+                </div>
+            ) : null}
 
             {overview?.qwen_analysis_present && analysis && (
                 <details className="group rounded-md border bg-muted/20">
@@ -705,6 +719,8 @@ export function PlayerReels({
     onReviewUnassigned,
     readOnly = false,
     mediaSource,
+    onRunAnalysis,
+    analysisRunning,
 }) {
     const players = reel?.players || []
     const unassigned = reel?.unassigned || { count: 0, visible_s: 0 }
@@ -722,7 +738,12 @@ export function PlayerReels({
             </div>
 
             <div className="space-y-5 p-4 sm:p-6">
-                <TeamOverview match={match} overview={reel?.team_overview} />
+                <TeamOverview
+                    match={match}
+                    overview={reel?.team_overview}
+                    onRunAnalysis={onRunAnalysis}
+                    analysisRunning={analysisRunning}
+                />
 
                 {!readOnly ? (
                     <button

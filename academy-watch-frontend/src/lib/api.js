@@ -2992,6 +2992,10 @@ export class APIService {
         return this.request(`/admin/video/matches/${matchId}/process`, { method: 'POST' }, { admin: true })
     }
 
+    static async analyzeVideoMatch(matchId) {
+        return this.request(`/admin/video/matches/${matchId}/analyze`, { method: 'POST' }, { admin: true })
+    }
+
     static async requeueVideoMatch(matchId) {
         return this.request(`/admin/video/matches/${matchId}/requeue`, { method: 'POST' }, { admin: true })
     }

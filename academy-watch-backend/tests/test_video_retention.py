@@ -12,7 +12,7 @@ from src.models.league import db
 from src.models.player_suppression import PlayerSuppression  # noqa: F401
 from src.models.showcase import LocalPlayer  # noqa: F401
 from src.models.tracked_player import TrackedPlayer  # noqa: F401
-from src.models.video import VideoMatch
+from src.models.video import VideoAnalysisJob, VideoMatch
 from src.routes.club import club_bp
 from src.routes.player_suppression import player_suppression_bp
 from src.routes.showcase import showcase_bp
@@ -70,6 +70,22 @@ def test_due_matches_selects_only_past_expirable_rows_with_blobs(video_app):
         due_finalized.id,
         due_failed.id,
     ]
+
+
+@pytest.mark.parametrize("job_status", ["queued", "running"])
+def test_due_matches_excludes_any_match_with_an_active_job(video_app, job_status):
+    guarded = _match(status="needs_tagging", expires_at=PAST)
+    due = _match(status="finalized", expires_at=PAST)
+    db.session.add(
+        VideoAnalysisJob(
+            video_match_id=guarded.id,
+            pipeline_kind="qwen_analysis",
+            status=job_status,
+        )
+    )
+    db.session.commit()
+
+    assert [match.id for match in video_retention.due_matches(NOW)] == [due.id]
 
 
 def test_expire_deletes_blob_then_flips_row(video_app, monkeypatch):
@@ -192,6 +208,35 @@ def test_row_claimed_by_process_after_the_snapshot_is_skipped_not_expired(video_
     assert result == {"due": 1, "expired": 0, "failed": 0, "skipped": 1, "dry_run": False}
     fresh = db.session.get(VideoMatch, row.id)
     assert fresh.status == "queued"
+    assert fresh.blob_path == "matches/x.mp4"
+
+
+def test_active_job_created_after_sweep_snapshot_is_skipped_under_match_lock(video_app, monkeypatch):
+    row = _match(status="needs_tagging", expires_at=PAST)
+    snapshot = video_retention.due_matches(NOW)
+    assert [match.id for match in snapshot] == [row.id]
+    db.session.add(
+        VideoAnalysisJob(
+            video_match_id=row.id,
+            pipeline_kind="qwen_analysis",
+            status="queued",
+        )
+    )
+    db.session.commit()
+    db.session.expire_all()
+    monkeypatch.setattr(video_retention, "due_matches", lambda now=None: snapshot)
+    monkeypatch.setattr(video_storage, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        video_storage,
+        "delete_blob",
+        lambda path: pytest.fail("must not delete footage needed by an active analysis job"),
+    )
+
+    result = video_retention.expire_raw_footage(NOW)
+
+    assert result == {"due": 1, "expired": 0, "failed": 0, "skipped": 1, "dry_run": False}
+    fresh = db.session.get(VideoMatch, row.id)
+    assert fresh.status == "needs_tagging"
     assert fresh.blob_path == "matches/x.mp4"
 
 
