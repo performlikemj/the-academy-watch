@@ -402,7 +402,7 @@ def validate_observation_schema(observation: object) -> None:
     for team in teams:
         if not isinstance(team, dict):
             raise ValueError("each frame observation team must be an object")
-        if "kit_color" not in team or "readable_jersey_numbers" not in team:
+        if {"kit_color", "visible_players", "readable_jersey_numbers"} - team.keys():
             raise ValueError("frame observation team is missing required keys")
         if not isinstance(team["kit_color"], str):
             raise ValueError("frame observation team.kit_color must be a string")
@@ -414,9 +414,8 @@ def validate_observation_schema(observation: object) -> None:
             raise ValueError(
                 "frame observation team.readable_jersey_numbers must be a list of integers"
             )
-        if "visible_players" in team and (
-            not isinstance(team["visible_players"], int)
-            or isinstance(team["visible_players"], bool)
+        if not isinstance(team["visible_players"], int) or isinstance(
+            team["visible_players"], bool
         ):
             raise ValueError(
                 "frame observation team.visible_players must be an integer"

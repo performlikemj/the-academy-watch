@@ -10,6 +10,8 @@ from src.models.video import VideoMatch
 def complete_job_with_analysis(job_id: str, analysis: dict, gpu_seconds: float | None = None) -> dict:
     """Persist Qwen analysis and mark a running job succeeded, fenced against reap/requeue.
 
+    The analysis write and final running-to-succeeded compare-and-swap commit atomically;
+    a failed CAS rolls back the analysis so fenced results are discarded.
     Analysis-only jobs produce no tracklets, so this deliberately leaves ``match.status``
     unchanged; the CV/tagging lifecycle statuses remain honest.
     """
@@ -32,7 +34,6 @@ def complete_job_with_analysis(job_id: str, analysis: dict, gpu_seconds: float |
     capture_meta = dict(match.capture_meta) if isinstance(match.capture_meta, dict) else {}
     capture_meta["qwen_analysis"] = analysis
     match.capture_meta = capture_meta
-    db.session.commit()
 
     done = db.session.execute(
         update(VideoAnalysisJob)
@@ -47,7 +48,8 @@ def complete_job_with_analysis(job_id: str, analysis: dict, gpu_seconds: float |
         )
         .execution_options(synchronize_session=False)
     ).rowcount
-    db.session.commit()
     if done != 1:
+        db.session.rollback()
         raise JobFenced(f"job {job_id} was moved during persistence; not marked succeeded")
+    db.session.commit()
     return analysis

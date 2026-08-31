@@ -65,3 +65,32 @@ def test_capture_meta_merge_preserves_existing_local_keys(app):
     assert saved.capture_meta["camera"] == "high-wide"
     assert saved.capture_meta["qwen_analysis"] == analysis
     assert saved.status == "processing"
+
+
+def test_mid_persistence_fence_rolls_back_analysis(app, monkeypatch):
+    match, job = _match_and_job(capture_meta={"local": {"video": "/private/tmp/match.mp4"}})
+    original_get = db.session.get
+    fenced = False
+
+    def get_with_cancel(model, ident, **kwargs):
+        nonlocal fenced
+        if model is VideoMatch and not fenced:
+            fenced = True
+            moved_job = original_get(VideoAnalysisJob, job.id)
+            moved_job.status = "cancelled"
+            db.session.commit()
+        return original_get(model, ident, **kwargs)
+
+    monkeypatch.setattr(db.session, "get", get_with_cancel)
+
+    with pytest.raises(JobFenced):
+        complete_job_with_analysis(
+            job.id,
+            {"schema_version": "qwen-analysis-v1", "match_summary": "Discarded result."},
+        )
+
+    db.session.expire_all()
+    saved_match = original_get(VideoMatch, match.id)
+    saved_job = original_get(VideoAnalysisJob, job.id)
+    assert saved_job.status == "cancelled"
+    assert "qwen_analysis" not in saved_match.capture_meta

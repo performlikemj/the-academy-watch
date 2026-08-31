@@ -111,6 +111,13 @@ def test_observation_validation_accepts_known_good_shape():
     assert parse_observation(json.dumps(observation)) == observation
 
 
+def test_observation_validation_rejects_team_missing_visible_players():
+    observation = _good_observation()
+    del observation["teams"][0]["visible_players"]
+    with pytest.raises(ValueError, match="team is missing required keys"):
+        parse_observation(json.dumps(observation))
+
+
 def _good_observation():
     return {
         "teams": [
