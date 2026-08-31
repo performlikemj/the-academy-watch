@@ -37,7 +37,7 @@ from src.models.video import (
     VideoTracklet,
 )
 from src.routes.api import require_api_key
-from src.services import video_dev_artifacts, video_queue, video_retention, video_storage
+from src.services import video_dev_artifacts, video_queue, video_reels, video_retention, video_storage
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.video_feedback import build_feedback_labels
 from src.services.video_identity import NUMBER_AGREEMENT_MIN, split_chain
@@ -388,6 +388,31 @@ def list_tracklets(match_id: int):
         VideoTracklet.visible_s.desc().nulls_last(),
     ).all()
     return jsonify({"tracklets": [t.to_dict() for t in rows], "count": len(rows)})
+
+
+@video_bp.route("/admin/video/matches/<int:match_id>/reel", methods=["GET"])
+@require_api_key
+def get_match_reel(match_id: int):
+    """Per-player on-camera windows plus an honest two-cluster overview."""
+    match = _get_match_or_404(match_id)
+    if match is None:
+        return jsonify({"error": "match not found"}), 404
+
+    tracklets = list(
+        db.session.query(VideoTracklet)
+        .filter(VideoTracklet.video_match_id == match.id, VideoTracklet.kind != "tombstone")
+        .all()
+    )
+    spans = {}
+    art = video_dev_artifacts.local_artifacts(match)
+    if art:
+        try:
+            # Same linkage as split_tracklet: member_fragment_ids are entity ids
+            # keyed directly into the dev artifact's fragment span map.
+            spans = video_dev_artifacts.fragment_spans(art)
+        except (KeyError, OSError, TypeError, ValueError):
+            logger.warning("video match %s reel could not read fragment spans; using stored chain spans", match.id)
+    return jsonify(video_reels.build_reel_payload(match, list(match.roster_entries), tracklets, spans))
 
 
 @video_bp.route("/admin/video/matches/<int:match_id>/tags", methods=["POST"])

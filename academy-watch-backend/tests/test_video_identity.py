@@ -3,7 +3,9 @@ spike) and the worker-artifact persistence + credit ledger flows."""
 
 import pytest
 from flask import Flask
+from src.models.funding import ClubProgram  # noqa: F401
 from src.models.league import Team, db
+from src.models.showcase import LocalPlayer  # noqa: F401
 from src.models.video import (
     VideoCreditLedger,
     VideoMatch,
@@ -179,6 +181,42 @@ class TestPersistArtifacts:
         assert ("E4", "fragment") in kinds
         assert ("E5", "fragment") not in kinds  # too short for human time
         assert result["chains"] == 2
+
+    def test_chain_evidence_persists_member_spans(self, match):
+        persist_artifacts(match, _artifacts())
+
+        chain = db.session.query(VideoTracklet).filter_by(pipeline_key="T0#10").one()
+        assert chain.evidence["member_spans"] == {
+            "1": [0, 100, 90],
+            "2": [200, 300, 80],
+        }
+
+    def test_chain_member_spans_keep_500_longest_fragments(self, match):
+        fragments = [_frag(fid, 0, fid * 2, fid * 2 + 1, fid) for fid in range(1, 502)]
+        persist_artifacts(
+            match,
+            {
+                "fragments": fragments,
+                "chains": [
+                    {
+                        "player_key": "T0#10",
+                        "team": 0,
+                        "jersey_number": 10,
+                        "confidence": "high",
+                        "member_fragment_ids": list(range(1, 502)),
+                        "strong_fragment_ids": list(range(1, 502)),
+                        "first_s": 2,
+                        "last_s": 1003,
+                        "visible_s_total": sum(range(1, 502)),
+                    }
+                ],
+            },
+        )
+
+        chain = db.session.query(VideoTracklet).filter_by(pipeline_key="T0#10").one()
+        assert len(chain.evidence["member_spans"]) == 500
+        assert "501" in chain.evidence["member_spans"]
+        assert "1" not in chain.evidence["member_spans"]
 
     def test_auto_bind_after_side_confirmation(self, match):
         persist_artifacts(match, _artifacts())

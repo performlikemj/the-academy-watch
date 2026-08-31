@@ -37,6 +37,12 @@ import { formatSeconds, parseRosterText, parseTimeInput } from '@/lib/video-util
 import { VideoStatusBadge } from './AdminVideo'
 import { FilmRoomGuide, MatchProgress } from '@/components/admin/FilmRoomGuide'
 import { HelpHint } from '@/components/ui/help-hint'
+import {
+    loadTrackletBbox,
+    loadTrackletCrops,
+    PlayerReels,
+    useBboxOverlay,
+} from '@/components/video/PlayerReel'
 
 const POLL_STATUSES = new Set(['queued', 'processing', 'preflight'])
 
@@ -82,11 +88,6 @@ function Stat({ label, value, hint }) {
     )
 }
 
-// session cache of per-tracklet crops + bbox, so re-expanding a row (single-open
-// collapses others) doesn't refetch — the bbox payload can be thousands of rows.
-// Capped with oldest-first eviction so it can't grow unboundedly across matches.
-const EVIDENCE_CACHE = new Map()
-const EVIDENCE_CACHE_MAX = 40
 // automatic media-token re-mints per expanded tracklet before we give up (a
 // persistent 404 — retention-expired blob / missing local artifact — would
 // otherwise loop re-mint → src change → reload → error forever).
@@ -112,78 +113,23 @@ function TrackletEvidencePanel({ matchId, tracklet, mediaToken, onAffirm, onMedi
 
     useEffect(() => {
         let alive = true
-        const key = `${matchId}:${tracklet.id}`
         const apply = ({ crops: cr, bbox: bx }) => {
             if (!alive) return
             setCrops(cr)
             boxesRef.current = bx.boxes
             setBbox({ available: bx.available, count: bx.boxes.length })
         }
-        const cached = EVIDENCE_CACHE.get(key)
-        if (cached) { apply(cached); return () => { alive = false } }
         Promise.all([
-            APIService.getVideoTrackletCrops(matchId, tracklet.id).then((r) => r.crops || []).catch(() => []),
-            APIService.getVideoTrackletBbox(matchId, tracklet.id)
-                .then((r) => ({ boxes: r.boxes || [], available: !!r.available }))
-                .catch(() => ({ boxes: [], available: false })),
+            loadTrackletCrops(matchId, tracklet.id),
+            loadTrackletBbox(matchId, tracklet.id),
         ]).then(([cr, bx]) => {
-            if (EVIDENCE_CACHE.size >= EVIDENCE_CACHE_MAX) {
-                EVIDENCE_CACHE.delete(EVIDENCE_CACHE.keys().next().value)  // evict oldest (insertion order)
-            }
-            EVIDENCE_CACHE.set(key, { crops: cr, bbox: bx })
             apply({ crops: cr, bbox: bx })
         })
         return () => { alive = false }
     }, [matchId, tracklet.id])
 
-    // rAF loop: draw the detection nearest the playhead, scaling source px → displayed px
-    useEffect(() => {
-        const label = tracklet.suggested_number != null ? `#${tracklet.suggested_number}` : tracklet.pipeline_key
-        let raf = 0, lastT = -1, lastW = 0, lastH = 0
-        function loop() {
-            const v = videoRef.current
-            const c = canvasRef.current
-            if (v && c) {
-                const w = v.clientWidth, h = v.clientHeight
-                const t = v.currentTime
-                if (w && h && (t !== lastT || w !== lastW || h !== lastH)) {  // skip redraw while idle
-                    lastT = t; lastW = w; lastH = h
-                    if (c.width !== w) c.width = w
-                    if (c.height !== h) c.height = h
-                    const ctx = c.getContext('2d')
-                    ctx.clearRect(0, 0, w, h)
-                    const boxes = boxesRef.current
-                    const vw = v.videoWidth, vh = v.videoHeight
-                    if (boxes.length && vw && vh) {
-                        let lo = 0, hi = boxes.length - 1, best = -1, bd = Infinity
-                        while (lo <= hi) {
-                            const mid = (lo + hi) >> 1
-                            const d = Math.abs(boxes[mid][0] - t)
-                            if (d < bd) { bd = d; best = mid }
-                            if (boxes[mid][0] < t) lo = mid + 1; else hi = mid - 1
-                        }
-                        if (best >= 0 && bd <= 0.25) {  // gate: don't interpolate across gaps
-                            const [, x1, y1, x2, y2] = boxes[best]
-                            const sx = w / vw, sy = h / vh
-                            const bx = x1 * sx, by = y1 * sy, bw = (x2 - x1) * sx, bh = (y2 - y1) * sy
-                            ctx.lineWidth = 3
-                            ctx.strokeStyle = '#22d3ee'
-                            ctx.strokeRect(bx, by, bw, bh)
-                            ctx.font = '600 13px ui-sans-serif, system-ui'
-                            const tw = ctx.measureText(label).width + 8
-                            ctx.fillStyle = '#22d3ee'
-                            ctx.fillRect(bx, Math.max(0, by - 18), tw, 18)
-                            ctx.fillStyle = '#04222a'
-                            ctx.fillText(label, bx + 4, Math.max(12, by - 5))
-                        }
-                    }
-                }
-            }
-            raf = requestAnimationFrame(loop)
-        }
-        raf = requestAnimationFrame(loop)
-        return () => cancelAnimationFrame(raf)
-    }, [tracklet.suggested_number, tracklet.pipeline_key])
+    const overlayLabel = tracklet.suggested_number != null ? `#${tracklet.suggested_number}` : tracklet.pipeline_key
+    useBboxOverlay(videoRef, canvasRef, boxesRef, overlayLabel)
 
     const onLoadedMetadata = () => {
         const v = videoRef.current
@@ -311,6 +257,8 @@ export function AdminVideoMatch() {
     const [processing, setProcessing] = useState(false)
 
     const [tracklets, setTracklets] = useState([])
+    const [reel, setReel] = useState(null)
+    const [openPlayerId, setOpenPlayerId] = useState(null)
     const [pendingTags, setPendingTags] = useState({})
     const [tagsSaving, setTagsSaving] = useState(false)
     const [report, setReport] = useState(null)
@@ -328,13 +276,19 @@ export function AdminVideoMatch() {
             const data = await APIService.getVideoMatch(matchId)
             setMatch(data)
             if (data.status === 'needs_tagging' || data.status === 'finalized') {
-                const t = await APIService.getVideoTracklets(matchId)
+                const [t, reelData, reportData] = await Promise.all([
+                    APIService.getVideoTracklets(matchId),
+                    APIService.getVideoReel(matchId),
+                    data.status === 'finalized' ? APIService.getVideoReport(matchId) : Promise.resolve(null),
+                ])
                 setTracklets(t.tracklets || [])
-            }
-            if (data.status === 'finalized') {
-                const r = await APIService.getVideoReport(matchId)
-                setReport(r)
-                APIService.getVideoAccuracy(matchId).then(setLearning).catch(() => {})
+                setReel(reelData)
+                setReport(reportData)
+                if (data.status === 'finalized') {
+                    APIService.getVideoAccuracy(matchId).then(setLearning).catch(() => {})
+                } else {
+                    setLearning(null)
+                }
             }
             return data
         } catch (err) {
@@ -367,7 +321,15 @@ export function AdminVideoMatch() {
     }, [match])
 
     // one panel open at a time — avoids many <video> elements each Range-streaming the match file
-    const toggleExpand = (id) => setExpanded((p) => (p[id] ? {} : { [id]: true }))
+    const toggleExpand = (id) => {
+        setOpenPlayerId(null)
+        setExpanded((previous) => (previous[id] ? {} : { [id]: true }))
+    }
+
+    const togglePlayerReel = (rosterEntryId) => {
+        setExpanded({})
+        setOpenPlayerId((previous) => previous === rosterEntryId ? null : rosterEntryId)
+    }
 
     const handleSplit = async (trackletId, atS) => {
         setError(null)
@@ -770,6 +732,21 @@ export function AdminVideoMatch() {
                         <Button variant="outline" size="sm" onClick={async () => { await APIService.refundVideoMatch(matchId); setNotice('Refunded.'); load() }}>Refund credit</Button>
                     </CardContent>
                 </Card>
+            )}
+
+            {(match.status === 'needs_tagging' || match.status === 'finalized') && reel && (
+                <PlayerReels
+                    match={match}
+                    reel={reel}
+                    mediaToken={mediaToken}
+                    openPlayerId={openPlayerId}
+                    onTogglePlayer={togglePlayerReel}
+                    onMediaError={refreshMediaToken}
+                    onReviewUnassigned={() => {
+                        setOpenPlayerId(null)
+                        tagReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }}
+                />
             )}
 
             {(match.status === 'needs_tagging' || match.status === 'finalized') && (
