@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
 
 import { computeExitCode, computeTotals, shapeStepRecord } from '../lib/driver.mjs'
-import { normalizeGrade, parseGradeJSON, validateProposal } from '../lib/grade.mjs'
+import { gradeRecords, normalizeGrade, parseGradeJSON, validateProposal } from '../lib/grade.mjs'
 import { createTeardownController, resolveCredentials, signalExitCode } from '../run.mjs'
 
 function journeys(...steps) {
@@ -70,6 +73,48 @@ test('invalid grader JSON becomes ungraded', () => {
     note: 'The grader returned invalid JSON.',
   })
   assert.equal(normalizeGrade({ verdict: 'maybe', note: 'No.' }).verdict, 'ungraded')
+})
+
+test('mechanical failure caps a passing model grade and preserves both notes', async (t) => {
+  const reportDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sim-grade-'))
+  t.after(() => fs.rm(reportDir, { recursive: true, force: true }))
+  await fs.mkdir(path.join(reportDir, 'shots'))
+  await fs.writeFile(path.join(reportDir, 'shots', 'reel-playback.png'), 'screenshot')
+
+  const mechanicalError = 'The reel playhead did not advance.'
+  const modelNote = 'The video player is shown with the play button and is ready to play.'
+  const grading = await gradeRecords([{
+    journey: 'player-reels',
+    id: 'reel-playback',
+    expectation: 'The reel should be playing.',
+    ok: false,
+    error: mechanicalError,
+    shot: 'shots/reel-playback.png',
+  }], {
+    enabled: true,
+    reportDir,
+    ollamaUrl: 'http://stubbed-model.invalid',
+    model: 'stubbed-model',
+    chat: async ({ prompt }) => prompt.includes('Expectation:')
+      ? JSON.stringify({ verdict: 'pass', note: modelNote })
+      : JSON.stringify({
+          persona: 'Academy scout',
+          journey: 'Review a player reel',
+          first_step: 'Open the player page',
+        }),
+  })
+
+  const [record] = grading.records
+  assert.equal(record.verdict, 'fail')
+  assert.ok(record.note.indexOf(mechanicalError) < record.note.indexOf(modelNote))
+  assert.deepEqual(computeTotals(journeys(record)), {
+    steps: 1,
+    ok: 0,
+    pass: 0,
+    concern: 0,
+    fail: 1,
+    ungraded: 0,
+  })
 })
 
 test('proposal validation accepts only the complete shape', () => {
