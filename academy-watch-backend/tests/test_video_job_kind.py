@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from src.auth import issue_user_token
 from src.models.league import db
-from src.models.video import VideoAnalysisJob, VideoCreditLedger, VideoMatch
+from src.models.video import VideoAnalysisJob, VideoCreditLedger, VideoMatch, VideoPlayerReport, VideoRosterEntry
 from src.routes.video import video_bp
 from src.services import video_queue
 
@@ -150,3 +150,45 @@ def test_requeue_preserves_pipeline_kind_and_cv_lifecycle_status(video_client):
     assert jobs[-1].pipeline_version == "qwen-analysis-v1"
     assert db.session.get(VideoMatch, match.id).status == "needs_tagging"
     assert VideoCreditLedger.query.count() == 0
+
+
+def test_requeue_failed_cv_ignores_newer_completed_analysis(video_client):
+    match = VideoMatch(status="failed", blob_path="matches/cv.mp4")
+    db.session.add(match)
+    db.session.commit()
+    failed_cv = _job(match, "cv", status="failed", age_seconds=2, attempt=2)
+    failed_cv.pipeline_version = "cv-v2"
+    completed_analysis = _job(match, "qwen_analysis", status="succeeded", age_seconds=1)
+    completed_analysis.pipeline_version = "qwen-analysis-v1"
+    db.session.commit()
+
+    verified = {"ok": True, "etag": "etag-cv", "size_bytes": 2048}
+    with (
+        patch("src.routes.video.video_storage.verify_expected_blob", return_value=verified),
+        patch("src.routes.video.video_queue.enqueue", return_value="fixture"),
+    ):
+        response = video_client.post(f"/api/admin/video/matches/{match.id}/requeue", headers=_admin_headers())
+
+    assert response.status_code == 202
+    retried = VideoAnalysisJob.query.filter_by(video_match_id=match.id, status="queued").one()
+    assert retried.pipeline_kind == "cv"
+    assert retried.attempt == 3
+    assert db.session.get(VideoMatch, match.id).status == "queued"
+
+
+def test_finalize_uses_latest_cv_version_when_analysis_job_is_newer(video_client):
+    match = VideoMatch(status="needs_tagging")
+    db.session.add(match)
+    db.session.commit()
+    cv_job = _job(match, "cv", status="succeeded", age_seconds=2)
+    cv_job.pipeline_version = "cv-artifacts-v7"
+    analysis_job = _job(match, "qwen_analysis", status="succeeded", age_seconds=1)
+    analysis_job.pipeline_version = "qwen-analysis-v1"
+    db.session.add(VideoRosterEntry(video_match_id=match.id, player_name="Player One", jersey_number=8))
+    db.session.commit()
+
+    response = video_client.post(f"/api/admin/video/matches/{match.id}/finalize", headers=_admin_headers())
+
+    assert response.status_code == 200
+    report = VideoPlayerReport.query.filter_by(video_match_id=match.id).one()
+    assert report.model_version == "cv-artifacts-v7"

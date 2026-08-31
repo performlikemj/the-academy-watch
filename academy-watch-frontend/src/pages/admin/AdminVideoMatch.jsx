@@ -305,6 +305,7 @@ export function AdminVideoMatch() {
     const tagReviewRef = useRef(null)
     const analysisJobActive = match?.job?.pipeline_kind === 'qwen_analysis'
         && (match.job.status === 'queued' || match.job.status === 'running')
+    const analysisJobFailed = match?.job?.pipeline_kind === 'qwen_analysis' && match.job.status === 'failed'
 
     const load = useCallback(async () => {
         try {
@@ -557,6 +558,7 @@ export function AdminVideoMatch() {
     const handleRunAnalysis = async () => {
         setAnalysisSubmitting(true)
         setError(null)
+        setNotice(null)
         try {
             await APIService.analyzeVideoMatch(matchId)
             setNotice('AI analysis queued — this page polls automatically.')
@@ -664,6 +666,7 @@ export function AdminVideoMatch() {
 
     const job = match.job
     const analysisRunning = analysisSubmitting || analysisJobActive
+    const visibleNotice = analysisJobFailed ? null : notice
     // surface just-split pieces at the top of the review list
     const reviewTracklets = splitHighlight.length
         ? [...tracklets].sort((a, b) => (splitHighlight.includes(b.id) ? 1 : 0) - (splitHighlight.includes(a.id) ? 1 : 0))
@@ -694,7 +697,7 @@ export function AdminVideoMatch() {
             <FilmRoomGuide defaultOpen={false} />
 
             {error && <p className="text-sm text-destructive">{error}</p>}
-            {notice && <p className="text-sm text-emerald-600">{notice}</p>}
+            {visibleNotice && <p className="text-sm text-emerald-600">{visibleNotice}</p>}
 
             {match.status === 'created' && (
                 <Card>
@@ -842,6 +845,21 @@ export function AdminVideoMatch() {
                     <CardContent className="flex gap-2">
                         <Button variant="outline" size="sm" onClick={async () => { await APIService.requeueVideoMatch(matchId); load() }}>Requeue (no charge)</Button>
                         <Button variant="outline" size="sm" onClick={async () => { await APIService.refundVideoMatch(matchId); setNotice('Refunded.'); load() }}>Refund credit</Button>
+                    </CardContent>
+                </Card>
+            )}
+
+            {analysisJobFailed && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2 text-destructive"><AlertTriangle className="h-4 w-4" /> AI analysis failed</CardTitle>
+                        <CardDescription className="break-words">{job.error || 'Unknown error'}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Button variant="outline" size="sm" onClick={handleRunAnalysis} disabled={analysisSubmitting}>
+                            {analysisSubmitting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Brain className="h-4 w-4 mr-1" />}
+                            Retry AI analysis
+                        </Button>
                     </CardContent>
                 </Card>
             )}
