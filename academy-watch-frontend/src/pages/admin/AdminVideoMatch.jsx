@@ -259,6 +259,8 @@ export function AdminVideoMatch() {
     const [tracklets, setTracklets] = useState([])
     const [reel, setReel] = useState(null)
     const [openPlayerId, setOpenPlayerId] = useState(null)
+    const [openVerifyPlayerId, setOpenVerifyPlayerId] = useState(null)
+    const [identitySavingTrackletId, setIdentitySavingTrackletId] = useState(null)
     const [pendingTags, setPendingTags] = useState({})
     const [tagsSaving, setTagsSaving] = useState(false)
     const [report, setReport] = useState(null)
@@ -323,12 +325,20 @@ export function AdminVideoMatch() {
     // one panel open at a time — avoids many <video> elements each Range-streaming the match file
     const toggleExpand = (id) => {
         setOpenPlayerId(null)
+        setOpenVerifyPlayerId(null)
         setExpanded((previous) => (previous[id] ? {} : { [id]: true }))
     }
 
     const togglePlayerReel = (rosterEntryId) => {
         setExpanded({})
+        setOpenVerifyPlayerId(null)
         setOpenPlayerId((previous) => previous === rosterEntryId ? null : rosterEntryId)
+    }
+
+    const togglePlayerVerify = (rosterEntryId) => {
+        setExpanded({})
+        setOpenPlayerId(null)
+        setOpenVerifyPlayerId((previous) => previous === rosterEntryId ? null : rosterEntryId)
     }
 
     const handleSplit = async (trackletId, atS) => {
@@ -536,6 +546,42 @@ export function AdminVideoMatch() {
         }
     }
 
+    const handleReelIdentityAction = async (tag, successNotice) => {
+        setIdentitySavingTrackletId(tag.tracklet_id)
+        setError(null)
+        try {
+            await APIService.bindVideoTags(matchId, [tag])
+            const [trackletData, reelData] = await Promise.all([
+                APIService.getVideoTracklets(matchId),
+                APIService.getVideoReel(matchId),
+            ])
+            setTracklets(trackletData.tracklets || [])
+            setReel(reelData)
+            setPendingTags((previous) => {
+                if (!(tag.tracklet_id in previous)) return previous
+                const next = { ...previous }
+                delete next[tag.tracklet_id]
+                return next
+            })
+            setExpanded((previous) => {
+                if (!(tag.tracklet_id in previous)) return previous
+                const next = { ...previous }
+                delete next[tag.tracklet_id]
+                return next
+            })
+            setOpenPlayerId((previous) => {
+                const openPlayer = reel?.players?.find((player) => player.roster_entry_id === previous)
+                return openPlayer?.tracklet_ids?.includes(tag.tracklet_id) ? null : previous
+            })
+            setOpenVerifyPlayerId(null)
+            setNotice(successNotice)
+        } catch (err) {
+            setError(err.message)
+        } finally {
+            setIdentitySavingTrackletId(null)
+        }
+    }
+
     const handleFinalize = async () => {
         setError(null)
         try {
@@ -740,10 +786,15 @@ export function AdminVideoMatch() {
                     reel={reel}
                     mediaToken={mediaToken}
                     openPlayerId={openPlayerId}
+                    openVerifyPlayerId={openVerifyPlayerId}
                     onTogglePlayer={togglePlayerReel}
+                    onToggleVerify={togglePlayerVerify}
+                    onIdentityAction={handleReelIdentityAction}
+                    identitySavingTrackletId={identitySavingTrackletId}
                     onMediaError={refreshMediaToken}
                     onReviewUnassigned={() => {
                         setOpenPlayerId(null)
+                        setOpenVerifyPlayerId(null)
                         tagReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                     }}
                 />

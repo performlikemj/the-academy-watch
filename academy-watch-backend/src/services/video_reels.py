@@ -22,6 +22,37 @@ def _value(item, name, default=None):
     return getattr(item, name, default)
 
 
+def aggregate_votes(evidence: dict) -> tuple[int | None, int]:
+    """Return the strongest jersey number and its read count across fragments."""
+    if not isinstance(evidence, dict) or not isinstance(evidence.get("votes"), dict):
+        return None, 0
+
+    totals = defaultdict(int)
+    for fragment_votes in evidence["votes"].values():
+        if not isinstance(fragment_votes, dict):
+            continue
+        for raw_number, raw_count in fragment_votes.items():
+            try:
+                number = int(raw_number)
+            except (TypeError, ValueError):
+                continue
+            if number < 0 or isinstance(raw_count, bool):
+                continue
+            if isinstance(raw_count, int):
+                count = raw_count
+            elif isinstance(raw_count, float) and math.isfinite(raw_count) and raw_count.is_integer():
+                count = int(raw_count)
+            else:
+                continue
+            if count > 0:
+                totals[number] += count
+
+    if not totals:
+        return None, 0
+    winner = min(totals, key=lambda number: (-totals[number], number))
+    return winner, totals[winner]
+
+
 def _finite_span(first_s, last_s):
     try:
         first = float(first_s)
@@ -166,14 +197,37 @@ def build_reel_payload(match, roster_entries, tracklets, fragment_spans=None) ->
             raw_windows.extend(tracklet_windows(tracklet, spans))
         windows = merge_windows(raw_windows)
         clusters = [int(cluster) for tracklet in bound if (cluster := _value(tracklet, "team_cluster")) in (0, 1)]
+        chains = []
+        for tracklet in bound:
+            if _value(tracklet, "kind") != "chain":
+                continue
+            voted_number, vote_total = aggregate_votes(_value(tracklet, "evidence"))
+            suggested_number = _value(tracklet, "suggested_number")
+            chains.append(
+                {
+                    "tracklet_id": int(_value(tracklet, "id")),
+                    "suggested_number": int(suggested_number) if suggested_number is not None else None,
+                    "voted_number": voted_number,
+                    "vote_total": vote_total,
+                    "confidence": _value(tracklet, "confidence"),
+                    "contaminated": bool(_value(tracklet, "contaminated")),
+                }
+            )
+        jersey_number = int(_value(entry, "jersey_number"))
         players.append(
             {
                 "roster_entry_id": roster_id,
                 "player_name": _value(entry, "player_name"),
-                "jersey_number": int(_value(entry, "jersey_number")),
+                "jersey_number": jersey_number,
                 "position": _value(entry, "position"),
                 "team_cluster": clusters[0] if clusters and len(set(clusters)) == 1 else None,
                 "tracklet_ids": [int(_value(tracklet, "id")) for tracklet in bound],
+                "chains": chains,
+                "number_mismatch": any(
+                    (chain["voted_number"] if chain["voted_number"] is not None else chain["suggested_number"])
+                    not in (None, jersey_number)
+                    for chain in chains
+                ),
                 "total_visible_s": round(sum(w["end_s"] - w["start_s"] for w in windows), 2),
                 "confidence": reel_confidence(bound),
                 "windows": [
