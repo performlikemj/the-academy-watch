@@ -422,6 +422,18 @@ def persist_artifacts(match: VideoMatch, artifacts: dict) -> dict:
         chained_fragment_ids.update(ch["member_fragment_ids"])
         if ch["player_key"] in prior:
             continue
+        member_fragments = [frag_by_id[fid] for fid in ch["member_fragment_ids"] if fid in frag_by_id]
+        # Keep persisted evidence bounded for pathological chains while retaining
+        # the 500 fragments that contribute the most actual on-camera time.
+        member_fragments.sort(key=lambda fragment: fragment.get("visible_s") or 0, reverse=True)
+        member_spans = {
+            str(fragment["entity_id"]): [
+                fragment.get("first_s"),
+                fragment.get("last_s"),
+                fragment.get("visible_s"),
+            ]
+            for fragment in member_fragments[:500]
+        }
         agreement = ch.get("number_agreement", 1.0)
         db.session.add(
             VideoTracklet(
@@ -441,6 +453,7 @@ def persist_artifacts(match: VideoMatch, artifacts: dict) -> dict:
                 thumbnail_paths=thumbnails.get(ch["player_key"]),
                 evidence={
                     "member_fragment_ids": ch["member_fragment_ids"],
+                    "member_spans": member_spans,
                     "strong_fragment_ids": ch.get("strong_fragment_ids", []),
                     "number_agreement": agreement,
                     "modal_shirt_color": ch.get("modal_shirt_color"),

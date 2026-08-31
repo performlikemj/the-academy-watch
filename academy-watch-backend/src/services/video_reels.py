@@ -1,9 +1,10 @@
 """Pure aggregation for Film Room per-player highlight reels.
 
 The identity pipeline stores a chain's underlying entity ids in
-``evidence.member_fragment_ids``.  Those ids are the same keys exposed by
+``evidence.member_fragment_ids`` and their production-safe windows in
+``evidence.member_spans``. Those ids are also the keys exposed by
 ``video_dev_artifacts.fragment_spans`` and encoded by leftover fragment rows as
-``pipeline_key='E<entity_id>'``.  Keeping that linkage here makes reel windows
+``pipeline_key='E<entity_id>'``. Keeping that linkage here makes reel windows
 match the split-tracklet workflow instead of treating a chain's broad span as
 continuous visibility.
 """
@@ -33,12 +34,11 @@ def _finite_span(first_s, last_s):
 
 
 def fragment_spans_from_tracklets(tracklets) -> dict[int, tuple[float, float, float]]:
-    """Recover entity-id spans from persisted ``E<id>`` fragment rows.
+    """Recover entity-id spans from legacy persisted ``E<id>`` fragment rows.
 
-    Production currently has no local artifact map, so this is a best-effort
-    version of the same entity-id linkage used by the split endpoint.  Chained
-    fragments are normally absent as standalone rows; unresolved chains still
-    fall back honestly to their own stored span.
+    This is a best-effort version of the same entity-id linkage used by the
+    split endpoint. Chained fragments are normally absent as standalone rows;
+    current chain rows instead carry ``member_spans`` in their evidence.
     """
     spans = {}
     for tracklet in tracklets:
@@ -57,22 +57,30 @@ def fragment_spans_from_tracklets(tracklets) -> dict[int, tuple[float, float, fl
 def tracklet_windows(tracklet, fragment_spans) -> list[dict]:
     """Resolve one tracklet to honest on-camera windows.
 
-    Chain member ids are resolved exactly like ``split_tracklet``: cast the
-    evidence values to integers and look them up in the entity-id span map.  If
-    none resolve, the tracklet's own span is the only safe fallback.
+    Persisted member spans use the same entity ids as ``member_fragment_ids``.
+    Older/dev rows then resolve missing members exactly like ``split_tracklet``:
+    cast the evidence values to integers and look them up in the entity-id span
+    map. If none resolve, the tracklet's own span is the only safe fallback.
     """
     tracklet_id = int(_value(tracklet, "id"))
     evidence = _value(tracklet, "evidence")
     evidence = evidence if isinstance(evidence, dict) else {}
     members = evidence.get("member_fragment_ids") or []
+    member_spans = evidence.get("member_spans")
+    member_spans = member_spans if isinstance(member_spans, dict) else {}
     resolved = []
     for raw_id in members:
         try:
             member_id = int(raw_id)
         except (TypeError, ValueError):
             continue
-        span = fragment_spans.get(member_id)
-        valid = _finite_span(span[0], span[1]) if span and len(span) >= 2 else None
+        member_key = str(member_id)
+        has_persisted_span = member_key in member_spans or member_id in member_spans
+        if has_persisted_span:
+            span = member_spans.get(member_key, member_spans.get(member_id))
+        else:
+            span = fragment_spans.get(member_id)
+        valid = _finite_span(span[0], span[1]) if isinstance(span, (list, tuple)) and len(span) >= 2 else None
         if valid is not None:
             resolved.append({"start_s": valid[0], "end_s": valid[1], "tracklet_id": tracklet_id})
     if resolved:
@@ -102,7 +110,11 @@ def merge_windows(windows, merge_gap_s=WINDOW_MERGE_GAP_S, min_window_s=MIN_WIND
 
     merged = []
     for window in ordered:
-        if merged and window["start_s"] - merged[-1]["end_s"] < merge_gap_s:
+        if (
+            merged
+            and window["tracklet_id"] == merged[-1]["tracklet_id"]
+            and window["start_s"] - merged[-1]["end_s"] < merge_gap_s
+        ):
             merged[-1]["end_s"] = max(merged[-1]["end_s"], window["end_s"])
         else:
             merged.append(window.copy())

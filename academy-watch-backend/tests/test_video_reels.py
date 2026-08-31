@@ -19,6 +19,7 @@ def _chain(
     last=10,
     visible=10,
     members=None,
+    member_spans=None,
     dismissed=False,
 ):
     return {
@@ -31,7 +32,10 @@ def _chain(
         "first_s": first,
         "last_s": last,
         "visible_s": visible,
-        "evidence": {"member_fragment_ids": members or []},
+        "evidence": {
+            "member_fragment_ids": members or [],
+            **({"member_spans": member_spans} if member_spans is not None else {}),
+        },
         "roster_entry_id": roster_entry_id,
         "dismissed": dismissed,
     }
@@ -46,21 +50,32 @@ def _roster(roster_id=1, number=8, name="Alex Morgan"):
     }
 
 
-def test_window_merge_uses_strictly_less_than_three_second_gap_and_orders():
+def test_same_tracklet_window_merge_uses_strictly_less_than_three_second_gap_and_orders():
     merged = merge_windows(
         [
-            _window(20, 22, 3),
+            _window(20, 22, 1),
             _window(0, 2, 1),
-            _window(4.99, 7, 2),
-            _window(10, 12, 4),
+            _window(4.99, 7, 1),
+            _window(10, 12, 1),
         ]
     )
 
     assert merged == [
-        _window(0, 7, 1),  # 2.99s gap merges and keeps the first window's bbox tracklet
-        _window(10, 12, 4),  # exactly 3.0s does not merge
-        _window(20, 22, 3),
+        _window(0, 7, 1),  # 2.99s gap merges for the same bbox owner
+        _window(10, 12, 1),  # exactly 3.0s does not merge
+        _window(20, 22, 1),
     ]
+
+
+def test_different_tracklets_do_not_merge_even_when_gap_is_short():
+    merged = merge_windows(
+        [
+            _window(4, 6, 22),
+            _window(0, 2, 11),
+        ]
+    )
+
+    assert merged == [_window(0, 2, 11), _window(4, 6, 22)]
 
 
 def test_short_windows_are_dropped_only_after_merging():
@@ -84,6 +99,48 @@ def test_chain_uses_own_span_when_no_member_fragment_resolves():
     )
 
     assert payload["players"][0]["windows"] == [_window(40, 45, 11)]
+
+
+def test_chain_uses_persisted_member_spans_without_fragment_map():
+    payload = build_reel_payload(
+        {"our_team_cluster": 0, "capture_meta": {}},
+        [_roster()],
+        [
+            _chain(
+                11,
+                first=0,
+                last=100,
+                members=[901, 902],
+                member_spans={"901": [20, 25, 5], "902": [5, 8, 3]},
+            )
+        ],
+    )
+
+    assert payload["players"][0]["windows"] == [_window(5, 8, 11), _window(20, 25, 11)]
+
+
+def test_malformed_persisted_member_spans_are_skipped():
+    payload = build_reel_payload(
+        {"our_team_cluster": 0, "capture_meta": {}},
+        [_roster()],
+        [
+            _chain(
+                11,
+                first=0,
+                last=100,
+                members=[901, 902, 903, 904],
+                member_spans={
+                    "901": ["bad", 5, 5],
+                    "902": [8, 7, 1],
+                    "903": [20, 24, 4],
+                    "904": "not-a-span",
+                },
+            )
+        ],
+        {901: (30, 35, 5), 902: (40, 45, 5)},
+    )
+
+    assert payload["players"][0]["windows"] == [_window(20, 24, 11)]
 
 
 def test_chain_member_ids_resolve_through_persisted_fragment_pipeline_keys():
