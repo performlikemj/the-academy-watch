@@ -18,6 +18,7 @@ from src.workers.vision_worker import (
     _local_video_path,
     main,
     process_job,
+    select_caption_windows,
 )
 
 TEMPLATE = "python /app/run_spike.py --device cuda"
@@ -77,6 +78,77 @@ def test_context_path_is_forwarded_after_markers():
         context,
     )
     assert command[-2:] == ["--context-json", str(context)]
+
+
+def _caption_chain(tracklet_id, roster_id, start, end, *, confidence="high", contaminated=False, cluster=0):
+    return {
+        "id": tracklet_id,
+        "kind": "chain",
+        "roster_entry_id": roster_id,
+        "first_s": start,
+        "last_s": end,
+        "evidence": {},
+        "confidence": confidence,
+        "contaminated": contaminated,
+        "team_cluster": cluster,
+        "dismissed": False,
+    }
+
+
+def test_caption_window_selection_uses_rank_top_k_duration_and_kit_mapping():
+    match = SimpleNamespace(our_team_cluster=1, our_kit_color="blue", opponent_kit_color="red")
+    roster = [SimpleNamespace(id=1, jersey_number=8), SimpleNamespace(id=2, jersey_number=11)]
+    tracklets = [
+        _caption_chain(1, 1, 0, 20, confidence="low", cluster=1),
+        _caption_chain(2, 1, 30, 35, confidence="high", cluster=1),
+        _caption_chain(3, 1, 40, 42.9, confidence="high", cluster=1),
+        _caption_chain(4, 2, 50, 58, confidence="high", cluster=0),
+        _caption_chain(5, 2, 60, 70, confidence="high", contaminated=True, cluster=0),
+    ]
+
+    assert select_caption_windows(match, roster, tracklets, top_k=2) == [
+        {
+            "tracklet_id": 2,
+            "roster_jersey_number": 8,
+            "kit_color": "blue",
+            "start_s": 30.0,
+            "end_s": 35.0,
+        },
+        {
+            "tracklet_id": 4,
+            "roster_jersey_number": 11,
+            "kit_color": "red",
+            "start_s": 50.0,
+            "end_s": 58.0,
+        },
+        {
+            "tracklet_id": 5,
+            "roster_jersey_number": 11,
+            "kit_color": "red",
+            "start_s": 60.0,
+            "end_s": 70.0,
+        },
+        {
+            "tracklet_id": 1,
+            "roster_jersey_number": 8,
+            "kit_color": "blue",
+            "start_s": 0.0,
+            "end_s": 20.0,
+        },
+    ]
+
+
+def test_caption_window_selection_caps_total_and_is_null_safe_for_kit():
+    match = SimpleNamespace(our_team_cluster=None, our_kit_color="blue", opponent_kit_color="red")
+    roster = [SimpleNamespace(id=index, jersey_number=index) for index in range(1, 82)]
+    tracklets = [_caption_chain(index, index, index * 10, index * 10 + 4) for index in range(1, 82)]
+
+    selected = select_caption_windows(match, roster, tracklets)
+
+    assert len(selected) == 80
+    assert [window["roster_jersey_number"] for window in selected[:2]] == [1, 2]
+    assert selected[-1]["roster_jersey_number"] == 80
+    assert all(window["kit_color"] is None for window in selected)
 
 
 def test_download_is_pinned_to_verified_etag():
@@ -207,6 +279,7 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
     video.write_bytes(b"test footage")
     job = SimpleNamespace(video_match_id=1)
     match = SimpleNamespace(
+        id=1,
         blob_path=None,
         blob_etag=None,
         capture_meta={"local": {"video": str(video)}},
@@ -218,6 +291,8 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
         our_kit_color="blue",
         opponent_kit_color="red",
         competition="Academy fixture",
+        our_team_cluster=0,
+        roster_entries=[],
         status="queued",
     )
 
@@ -236,6 +311,8 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
             "our_kit_color": "blue",
             "opponent_kit_color": "red",
             "competition": "Academy fixture",
+            "attack_direction_first_half": None,
+            "caption_windows": [],
         }
         out_dir = Path(command[command.index("--out") + 1])
         (out_dir / "analysis.json").write_text(__import__("json").dumps(analysis))
@@ -247,11 +324,14 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
             patch.object(db.session, "get", side_effect=fake_get),
             patch("src.services.video_storage.is_configured", return_value=False),
             patch("src.services.video_storage.verify_expected_blob") as verify,
+            patch("src.services.video_dev_artifacts.local_artifacts", return_value=None),
             patch("src.workers.vision_worker._download_footage") as download,
             patch("src.services.video_queue.heartbeat", return_value=True),
+            patch.object(db.session, "query") as query,
             patch("src.workers.vision_worker.subprocess.run", side_effect=fake_pipeline),
             patch("src.services.video_analysis_store.complete_job_with_analysis") as complete,
         ):
+            query.return_value.filter.return_value.all.return_value = []
             assert process_job(app, "job-1") is True
 
     verify.assert_not_called()

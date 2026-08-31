@@ -1,11 +1,20 @@
 """Pure contract tests for Film Room player-reel aggregation."""
 
+from unittest.mock import patch
+
 import pytest
-from src.services.video_reels import aggregate_votes, build_reel_payload, merge_windows, reel_confidence
+from flask import Flask
+from src.models.league import db
+from src.routes.video import update_video_match
+from src.services.video_reels import aggregate_votes, build_reel_payload, merge_windows, rank_windows, reel_confidence
 
 
 def _window(start, end, tracklet_id=1):
     return {"start_s": start, "end_s": end, "tracklet_id": tracklet_id}
+
+
+def _ranked_window(start, end, tracklet_id, rank):
+    return _window(start, end, tracklet_id) | {"rank": rank}
 
 
 def _chain(
@@ -127,6 +136,40 @@ def test_short_windows_are_dropped_only_after_merging():
     assert merged == [_window(0, 1.2)]
 
 
+def test_rank_windows_uses_contamination_confidence_duration_then_start():
+    windows = [
+        _window(40, 60, 4),
+        _window(30, 34, 3),
+        _window(20, 30, 2),
+        _window(10, 15, 1),
+        _window(0, 30, 5),
+    ]
+    chains = {
+        1: _chain(1, confidence="high"),
+        2: _chain(2, confidence="high"),
+        3: _chain(3, confidence="high"),
+        4: _chain(4, confidence="low"),
+        5: _chain(5, confidence="high", contaminated=True),
+    }
+
+    assert rank_windows(windows, chains) == [
+        _ranked_window(40, 60, 4, 4),
+        _ranked_window(30, 34, 3, 3),
+        _ranked_window(20, 30, 2, 1),
+        _ranked_window(10, 15, 1, 2),
+        _ranked_window(0, 30, 5, 5),
+    ]
+
+
+def test_rank_windows_duration_dominates_only_within_same_confidence_class():
+    ranked = rank_windows(
+        [_window(0, 30, 1), _window(40, 45, 2)],
+        {1: _chain(1, confidence="low"), 2: _chain(2, confidence="high")},
+    )
+
+    assert ranked == [_ranked_window(0, 30, 1, 2), _ranked_window(40, 45, 2, 1)]
+
+
 def test_chain_uses_own_span_when_no_member_fragment_resolves():
     payload = build_reel_payload(
         {"our_team_cluster": 0, "capture_meta": {}},
@@ -135,7 +178,7 @@ def test_chain_uses_own_span_when_no_member_fragment_resolves():
         {902: (1, 2, 1)},
     )
 
-    assert payload["players"][0]["windows"] == [_window(40, 45, 11)]
+    assert payload["players"][0]["windows"] == [_ranked_window(40, 45, 11, 1)]
 
 
 def test_chain_uses_persisted_member_spans_without_fragment_map():
@@ -153,7 +196,10 @@ def test_chain_uses_persisted_member_spans_without_fragment_map():
         ],
     )
 
-    assert payload["players"][0]["windows"] == [_window(5, 8, 11), _window(20, 25, 11)]
+    assert payload["players"][0]["windows"] == [
+        _ranked_window(5, 8, 11, 2),
+        _ranked_window(20, 25, 11, 1),
+    ]
 
 
 def test_malformed_persisted_member_spans_are_skipped():
@@ -177,7 +223,7 @@ def test_malformed_persisted_member_spans_are_skipped():
         {901: (30, 35, 5), 902: (40, 45, 5)},
     )
 
-    assert payload["players"][0]["windows"] == [_window(20, 24, 11)]
+    assert payload["players"][0]["windows"] == [_ranked_window(20, 24, 11, 1)]
 
 
 def test_chain_member_ids_resolve_through_persisted_fragment_pipeline_keys():
@@ -193,7 +239,7 @@ def test_chain_member_ids_resolve_through_persisted_fragment_pipeline_keys():
         [_chain(11, first=0, last=100, members=["901"]), fragment],
     )
 
-    assert payload["players"][0]["windows"] == [_window(7, 9, 11)]
+    assert payload["players"][0]["windows"] == [_ranked_window(7, 9, 11, 1)]
 
 
 def test_player_total_visible_comes_from_merged_windows_not_chain_span():
@@ -205,7 +251,11 @@ def test_player_total_visible_comes_from_merged_windows_not_chain_span():
     )
 
     player = payload["players"][0]
-    assert player["windows"] == [_window(0, 2, 11), _window(5, 7, 11), _window(30, 34, 11)]
+    assert player["windows"] == [
+        _ranked_window(0, 2, 11, 2),
+        _ranked_window(5, 7, 11, 3),
+        _ranked_window(30, 34, 11, 1),
+    ]
     assert player["total_visible_s"] == 8
     assert player["total_visible_s"] != 100
 
@@ -358,3 +408,45 @@ def test_empty_roster_has_no_players_and_counts_unassigned_chains_only():
 
     assert payload["players"] == []
     assert payload["unassigned"] == {"count": 2, "visible_s": 20.0}
+
+
+@pytest.mark.parametrize("direction", ["left", "right"])
+def test_markers_patch_accepts_attack_direction_and_merges_capture_meta(direction):
+    app = Flask(__name__)
+    app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI="sqlite:///:memory:")
+    db.init_app(app)
+    match = type(
+        "Match",
+        (),
+        {
+            "capture_meta": {"camera": "touchline", "qwen_analysis": {"match_summary": "kept"}},
+            "status": "uploaded",
+            "to_dict": lambda self: {"capture_meta": self.capture_meta},
+        },
+    )()
+
+    with app.test_request_context(json={"attack_direction_first_half": direction}):
+        with patch.object(db.session, "get", return_value=match), patch.object(db.session, "commit"):
+            response = update_video_match.__wrapped__(1)
+
+    assert response.json["capture_meta"] == {
+        "camera": "touchline",
+        "qwen_analysis": {"match_summary": "kept"},
+        "attack_direction_first_half": direction,
+    }
+
+
+def test_markers_patch_rejects_unknown_attack_direction_without_committing():
+    app = Flask(__name__)
+    app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI="sqlite:///:memory:")
+    db.init_app(app)
+    match = type("Match", (), {"capture_meta": {"camera": "touchline"}})()
+
+    with app.test_request_context(json={"attack_direction_first_half": "upfield"}):
+        with patch.object(db.session, "get", return_value=match), patch.object(db.session, "commit") as commit:
+            response, status = update_video_match.__wrapped__(1)
+
+    assert status == 400
+    assert response.json == {"error": "attack_direction_first_half must be left or right"}
+    assert match.capture_meta == {"camera": "touchline"}
+    commit.assert_not_called()

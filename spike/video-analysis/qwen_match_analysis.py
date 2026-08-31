@@ -34,11 +34,24 @@ PHASES = (
     "stoppage",
     "unclear",
 )
+PITCH_ZONES = ("left", "central", "right", "unclear")
+ACTION_TYPES = (
+    "pass",
+    "carry",
+    "duel",
+    "shot",
+    "defensive_action",
+    "set_piece",
+    "off_ball",
+    "goalkeeping",
+    "unclear",
+)
 
 HONEST_LIMIT_TEMPLATES = (
     "Single-camera sampled-frame analysis.",
     "Players are identified by jersey number only.",
     "Observations are qualitative, not measured statistics.",
+    "Pitch zones are camera-relative thirds, not calibrated positions.",
 )
 
 
@@ -306,10 +319,49 @@ def build_observation_prompt(timestamp_s: float) -> str:
 Return one JSON object only, with this shape:
 {{"teams":[{{"kit_color":str,"visible_players":int,"readable_jersey_numbers":[int]}}],
  "ball_visible":bool,"phase_of_play":"build-up|attack|defending|transition|set-piece|stoppage|unclear",
- "observation":str,"notable_actions":[str]}}
+ "visible_pitch_zone":"left|central|right|unclear","observation":str,"notable_actions":[str]}}
 Use kit colors and CLEARLY readable jersey numbers only. Never infer a number from an unclear shirt and never
 identify or guess a player name. Empty jersey-number lists are correct when no number is clear. Count only visible
-players. Keep the observation to one sentence and describe only evidence visible in this frame."""
+players. visible_pitch_zone means which camera-relative third of the PITCH is mainly in frame, not an attacking or
+defensive zone. Keep the observation to one sentence and describe only evidence visible in this frame."""
+
+
+def build_caption_prompt(window: dict) -> str:
+    kit_color = window.get("kit_color")
+    kit_description = (
+        f"wearing {kit_color}"
+        if isinstance(kit_color, str) and kit_color
+        else "in the target kit"
+    )
+    return f"""These are consecutive sampled frames from one football clip, ordered from earliest to latest.
+Describe in ONE sentence what the player {kit_description} #{int(window["roster_jersey_number"])} is doing across
+the frames. Never name any player. Describe only actions and outcomes visibly supported by these frames: never say
+a shot scores or becomes a goal unless the goal is visibly scored. If the numbered player cannot be located, set
+player_visible=false and make the caption a general description of what the clip shows.
+Return one JSON object only with this exact shape:
+{{"caption":str,"action_type":"pass|carry|duel|shot|defensive_action|set_piece|off_ball|goalkeeping|unclear",
+"player_visible":bool,"visible_pitch_zone":"left|central|right|unclear"}}
+visible_pitch_zone is the camera-relative third of the PITCH mainly in frame, never an inferred attacking or
+defensive zone."""
+
+
+def caption_frame_timestamps(
+    start_s: float, end_s: float, max_frames: int = 3
+) -> list[float]:
+    """Return up to ``max_frames`` timestamps evenly spaced across a caption window."""
+    start = float(start_s)
+    end = float(end_s)
+    if (
+        not math.isfinite(start)
+        or not math.isfinite(end)
+        or end <= start
+        or max_frames <= 0
+    ):
+        return []
+    if max_frames == 1:
+        return [round((start + end) / 2, 3)]
+    step = (end - start) / (max_frames - 1)
+    return [round(start + index * step, 3) for index in range(max_frames)]
 
 
 def build_aggregation_prompt(
@@ -343,11 +395,21 @@ def ollama_chat(
     model: str,
     timeout_s: float,
     image_path: Path | None = None,
+    image_paths: list[Path] | None = None,
 ) -> str:
     """Make the one permitted network call shape, using only urllib."""
+    if image_path is not None and image_paths is not None:
+        raise ValueError("pass image_path or image_paths, not both")
     message: dict[str, object] = {"role": "user", "content": prompt}
-    if image_path is not None:
-        message["images"] = [base64.b64encode(image_path.read_bytes()).decode("ascii")]
+    paths = (
+        image_paths
+        if image_paths is not None
+        else ([image_path] if image_path is not None else [])
+    )
+    if paths:
+        message["images"] = [
+            base64.b64encode(path.read_bytes()).decode("ascii") for path in paths
+        ]
     body = {
         "model": model,
         "think": False,
@@ -376,6 +438,12 @@ def parse_observation(content: str) -> dict:
     return observation
 
 
+def parse_window_caption(content: str) -> dict:
+    caption = json.loads(content)
+    validate_window_caption_schema(caption)
+    return caption
+
+
 def _is_str_list(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
@@ -388,6 +456,7 @@ def validate_observation_schema(observation: object) -> None:
         "teams",
         "ball_visible",
         "phase_of_play",
+        "visible_pitch_zone",
         "observation",
         "notable_actions",
     }
@@ -424,13 +493,36 @@ def validate_observation_schema(observation: object) -> None:
         raise ValueError("frame observation.ball_visible must be a boolean")
     if not isinstance(observation["phase_of_play"], str):
         raise ValueError("frame observation.phase_of_play must be a string")
+    if observation["visible_pitch_zone"] not in PITCH_ZONES:
+        raise ValueError("frame observation.visible_pitch_zone is invalid")
     if not isinstance(observation["observation"], str):
         raise ValueError("frame observation.observation must be a string")
     if not _is_str_list(observation["notable_actions"]):
         raise ValueError("frame observation.notable_actions must be a string list")
 
 
-def validate_analysis_schema(analysis: object) -> None:
+def validate_window_caption_schema(caption: object) -> None:
+    if not isinstance(caption, dict):
+        raise ValueError("window caption must be a JSON object")
+    required = {"caption", "action_type", "player_visible", "visible_pitch_zone"}
+    missing = required - caption.keys()
+    if missing:
+        raise ValueError(
+            f"window caption is missing required keys: {', '.join(sorted(missing))}"
+        )
+    if not isinstance(caption["caption"], str) or not caption["caption"].strip():
+        raise ValueError("window caption.caption must be a non-empty string")
+    if caption["action_type"] not in ACTION_TYPES:
+        raise ValueError("window caption.action_type is invalid")
+    if not isinstance(caption["player_visible"], bool):
+        raise ValueError("window caption.player_visible must be a boolean")
+    if caption["visible_pitch_zone"] not in PITCH_ZONES:
+        raise ValueError("window caption.visible_pitch_zone is invalid")
+
+
+def validate_analysis_schema(
+    analysis: object, *, require_computed: bool = True
+) -> None:
     """Raise ``ValueError`` unless all required qwen-analysis-v1 fields have valid types."""
     if not isinstance(analysis, dict):
         raise ValueError("analysis must be a JSON object")
@@ -463,6 +555,23 @@ def validate_analysis_schema(analysis: object) -> None:
     for key in ("frames_analyzed", "frames_failed"):
         if not isinstance(sampling[key], int) or isinstance(sampling[key], bool):
             raise ValueError(f"sampling.{key} must be an integer")
+    if require_computed:
+        if "zone_coverage" not in sampling:
+            raise ValueError("sampling is missing zone_coverage")
+        coverage = sampling["zone_coverage"]
+        if not isinstance(coverage, dict) or set(coverage) != set(PITCH_ZONES):
+            raise ValueError("sampling.zone_coverage must contain all pitch zones")
+        if not all(
+            isinstance(count, int) and not isinstance(count, bool) and count >= 0
+            for count in coverage.values()
+        ):
+            raise ValueError(
+                "sampling.zone_coverage counts must be non-negative integers"
+            )
+        if not isinstance(sampling.get("captions_failed"), int) or isinstance(
+            sampling.get("captions_failed"), bool
+        ):
+            raise ValueError("sampling.captions_failed must be an integer")
     windows = sampling["in_play_windows"]
     if not isinstance(windows, list) or not all(
         isinstance(window, list)
@@ -534,6 +643,23 @@ def validate_analysis_schema(analysis: object) -> None:
             raise ValueError("player_note.confidence must be low or medium")
     if not _is_str_list(analysis["honest_limits"]):
         raise ValueError("honest_limits must be a string list")
+    if require_computed:
+        if not isinstance(analysis.get("window_captions"), list):
+            raise ValueError("window_captions must be a list")
+        for window_caption in analysis["window_captions"]:
+            if not isinstance(window_caption, dict):
+                raise ValueError("each window_caption must be an object")
+            if {"tracklet_id", "start_s", "end_s"} - window_caption.keys():
+                raise ValueError("window_caption is missing window identity fields")
+            if not isinstance(window_caption["tracklet_id"], int) or isinstance(
+                window_caption["tracklet_id"], bool
+            ):
+                raise ValueError("window_caption.tracklet_id must be an integer")
+            if not _number(window_caption["start_s"]) or not _number(
+                window_caption["end_s"]
+            ):
+                raise ValueError("window_caption bounds must be numeric")
+            validate_window_caption_schema(window_caption)
 
 
 def _normalized_kit_color(value: str) -> str:
@@ -575,6 +701,18 @@ def jersey_evidence_counts(
     for wrapped in observations:
         for evidence in _frame_jersey_evidence(wrapped):
             counts[evidence] = counts.get(evidence, 0) + 1
+    return counts
+
+
+def zone_coverage_counts(observations: list[dict]) -> dict[str, int]:
+    counts = {zone: 0 for zone in PITCH_ZONES}
+    for wrapped in observations:
+        observation = wrapped.get("observation", wrapped)
+        if (
+            isinstance(observation, dict)
+            and observation.get("visible_pitch_zone") in counts
+        ):
+            counts[observation["visible_pitch_zone"]] += 1
     return counts
 
 
@@ -638,7 +776,10 @@ def finalize_analysis(
         "frames_analyzed": len(observations),
         "frames_failed": frames_failed,
         "in_play_windows": sampling["in_play_windows"],
+        "zone_coverage": zone_coverage_counts(observations),
+        "captions_failed": 0,
     }
+    result["window_captions"] = []
     evidence_counts = jersey_evidence_counts(observations)
     filtered = filter_player_notes(result.get("player_notes", []), set(evidence_counts))
     for player in filtered:
@@ -665,8 +806,54 @@ def _load_context(path: Path | None) -> dict:
     context = json.loads(path.read_text())
     if not isinstance(context, dict):
         raise ValueError("--context-json must contain a JSON object")
-    allowed = ("opponent_name", "our_kit_color", "opponent_kit_color", "competition")
-    return {key: context[key] for key in allowed if isinstance(context.get(key), str)}
+    allowed = (
+        "opponent_name",
+        "our_kit_color",
+        "opponent_kit_color",
+        "competition",
+        "attack_direction_first_half",
+    )
+    cleaned = {
+        key: context[key] for key in allowed if isinstance(context.get(key), str)
+    }
+    if cleaned.get("attack_direction_first_half") not in (None, "left", "right"):
+        cleaned.pop("attack_direction_first_half")
+    caption_windows = []
+    raw_caption_windows = context.get("caption_windows")
+    for window in raw_caption_windows if isinstance(raw_caption_windows, list) else []:
+        if not isinstance(window, dict):
+            continue
+        try:
+            tracklet_id = window["tracklet_id"]
+            jersey_number = window["roster_jersey_number"]
+            start_s = float(window["start_s"])
+            end_s = float(window["end_s"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (
+            not isinstance(tracklet_id, int)
+            or isinstance(tracklet_id, bool)
+            or not isinstance(jersey_number, int)
+            or isinstance(jersey_number, bool)
+            or not math.isfinite(start_s)
+            or not math.isfinite(end_s)
+            or start_s < 0
+            or end_s <= start_s
+        ):
+            continue
+        caption_windows.append(
+            {
+                "tracklet_id": tracklet_id,
+                "roster_jersey_number": jersey_number,
+                "kit_color": window.get("kit_color")
+                if isinstance(window.get("kit_color"), str)
+                else None,
+                "start_s": start_s,
+                "end_s": end_s,
+            }
+        )
+    cleaned["caption_windows"] = caption_windows
+    return cleaned
 
 
 def _parse_bool_env(name: str, default: str) -> bool:
@@ -688,6 +875,92 @@ def _args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def generate_window_captions(
+    caption_windows: list[dict],
+    *,
+    video_path: Path,
+    out_dir: Path,
+    ffmpeg_path: Path,
+    ffmpeg_dir: Path,
+    profile_path: Path,
+    sandboxed: bool,
+    sandbox_exec: Path | None,
+    ollama_url: str,
+    model: str,
+    timeout_s: float,
+) -> tuple[list[dict], int]:
+    """Caption windows independently; no one window can fail the analysis job."""
+    captions_dir = out_dir / "frames" / "captions"
+    captions_dir.mkdir(parents=True, exist_ok=True)
+    captions = []
+    failed = 0
+    for window_index, window in enumerate(caption_windows, start=1):
+        try:
+            frame_paths = []
+            for frame_index, timestamp_s in enumerate(
+                caption_frame_timestamps(window["start_s"], window["end_s"]),
+                start=1,
+            ):
+                frame_path = captions_dir / (
+                    f"caption_{window_index:04d}_t{window['tracklet_id']}_{frame_index}_{timestamp_s:010.3f}.jpg"
+                )
+                extract_frame(
+                    video_path,
+                    frame_path,
+                    timestamp_s,
+                    ffmpeg_path,
+                    ffmpeg_dir,
+                    profile_path,
+                    sandboxed,
+                    sandbox_exec,
+                )
+                frame_paths.append(frame_path)
+            if not frame_paths:
+                raise ValueError("caption window produced no frame timestamps")
+
+            parsed = None
+            last_error: Exception | None = None
+            for attempt in range(2):
+                try:
+                    content = ollama_chat(
+                        build_caption_prompt(window),
+                        ollama_url=ollama_url,
+                        model=model,
+                        timeout_s=timeout_s,
+                        image_paths=frame_paths,
+                    )
+                    parsed = parse_window_caption(content)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    if attempt == 0:
+                        log.warning(
+                            "invalid caption for tracklet %s at %ss; retrying once: %s",
+                            window["tracklet_id"],
+                            window["start_s"],
+                            exc,
+                        )
+            if parsed is None:
+                raise ValueError(f"caption remained invalid after retry: {last_error}")
+            captions.append(
+                {
+                    "tracklet_id": window["tracklet_id"],
+                    "start_s": _clean_number(window["start_s"]),
+                    "end_s": _clean_number(window["end_s"]),
+                    **parsed,
+                }
+            )
+        except Exception as exc:
+            failed += 1
+            log.warning(
+                "caption window failed for tracklet %s at %ss: %s",
+                window.get("tracklet_id"),
+                window.get("start_s"),
+                exc,
+            )
+    return captions, failed
+
+
 def run(argv: list[str] | None = None) -> int:
     args = _args(argv)
     video_path = args.video.resolve()
@@ -704,6 +977,7 @@ def run(argv: list[str] | None = None) -> int:
     ollama_url = os.getenv("OLLAMA_URL", DEFAULT_OLLAMA_URL)
     model = os.getenv("QWEN_VISION_MODEL", DEFAULT_MODEL)
     sandboxed = _parse_bool_env("VIDEO_DECODE_SANDBOX", "1")
+    captions_enabled = _parse_bool_env("QWEN_CAPTIONS", "1")
 
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
@@ -813,7 +1087,10 @@ def run(argv: list[str] | None = None) -> int:
         )
 
     context = _load_context(args.context_json)
-    aggregation_prompt = build_aggregation_prompt(observations, context)
+    aggregation_prompt = build_aggregation_prompt(
+        observations,
+        {key: value for key, value in context.items() if key != "caption_windows"},
+    )
     last_error: Exception | None = None
     final = None
     for attempt in range(3):
@@ -825,7 +1102,7 @@ def run(argv: list[str] | None = None) -> int:
                 timeout_s=timeout_s,
             )
             candidate = json.loads(content)
-            validate_analysis_schema(candidate)
+            validate_analysis_schema(candidate, require_computed=False)
             final = finalize_analysis(
                 candidate,
                 observations,
@@ -844,6 +1121,29 @@ def run(argv: list[str] | None = None) -> int:
         raise RuntimeError(
             f"aggregation remained invalid after 3 attempts: {last_error}"
         )
+
+    if captions_enabled and context.get("caption_windows"):
+        try:
+            captions, captions_failed = generate_window_captions(
+                context["caption_windows"],
+                video_path=video_path,
+                out_dir=out_dir,
+                ffmpeg_path=ffmpeg_path,
+                ffmpeg_dir=ffmpeg_dir,
+                profile_path=profile_path,
+                sandboxed=sandboxed,
+                sandbox_exec=sandbox_exec,
+                ollama_url=ollama_url,
+                model=model,
+                timeout_s=timeout_s,
+            )
+        except Exception as exc:
+            log.warning("caption stage failed without failing analysis: %s", exc)
+            captions = []
+            captions_failed = len(context["caption_windows"])
+        final["window_captions"] = captions
+        final["sampling"]["captions_failed"] = captions_failed
+        validate_analysis_schema(final)
 
     (out_dir / "analysis.json").write_text(
         json.dumps(final, indent=2, ensure_ascii=False) + "\n"

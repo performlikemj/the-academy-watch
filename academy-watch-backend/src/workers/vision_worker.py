@@ -51,6 +51,90 @@ log = logging.getLogger("vision_worker")
 
 IDLE_POLL_SECONDS = 30
 IDLE_EXIT_AFTER_POLLS = 10  # loop mode: exit after ~5 idle minutes (KEDA rescales)
+DEFAULT_QWEN_CAPTION_TOP_K = 5
+MAX_QWEN_CAPTION_WINDOWS = 80
+
+
+def _row_value(row, name, default=None):
+    if isinstance(row, dict):
+        return row.get(name, default)
+    return getattr(row, name, default)
+
+
+def select_caption_windows(
+    match,
+    roster_entries,
+    tracklets,
+    fragment_spans=None,
+    *,
+    top_k=DEFAULT_QWEN_CAPTION_TOP_K,
+    total_cap=MAX_QWEN_CAPTION_WINDOWS,
+) -> list[dict]:
+    """Select the same ranked merged windows shown in reels for Qwen captions."""
+    from src.services import video_reels
+
+    if top_k <= 0 or total_cap <= 0:
+        return []
+    tracklets = list(tracklets)
+    spans = video_reels.fragment_spans_from_tracklets(tracklets)
+    spans.update(fragment_spans or {})
+    active = [
+        tracklet
+        for tracklet in tracklets
+        if not bool(_row_value(tracklet, "dismissed")) and _row_value(tracklet, "kind") != "tombstone"
+    ]
+    by_roster = {}
+    for tracklet in active:
+        roster_id = _row_value(tracklet, "roster_entry_id")
+        if roster_id is not None:
+            by_roster.setdefault(int(roster_id), []).append(tracklet)
+
+    selected = []
+    roster_entries = sorted(
+        roster_entries,
+        key=lambda entry: (int(_row_value(entry, "jersey_number")), int(_row_value(entry, "id"))),
+    )
+    our_cluster = _row_value(match, "our_team_cluster")
+    for roster in roster_entries:
+        bound = by_roster.get(int(_row_value(roster, "id")), [])
+        raw_windows = []
+        for tracklet in bound:
+            raw_windows.extend(video_reels.tracklet_windows(tracklet, spans))
+        chains_by_id = {int(_row_value(tracklet, "id")): tracklet for tracklet in bound}
+        windows = video_reels.rank_windows(video_reels.merge_windows(raw_windows), chains_by_id)
+        eligible = [window for window in windows if window["end_s"] - window["start_s"] >= 3]
+        for window in sorted(eligible, key=lambda item: item["rank"])[:top_k]:
+            chain = chains_by_id.get(window["tracklet_id"])
+            cluster = _row_value(chain, "team_cluster")
+            kit_color = None
+            if cluster in (0, 1) and our_cluster in (0, 1):
+                kit_color = (
+                    _row_value(match, "our_kit_color")
+                    if cluster == our_cluster
+                    else _row_value(match, "opponent_kit_color")
+                )
+            selected.append(
+                {
+                    "tracklet_id": window["tracklet_id"],
+                    "roster_jersey_number": int(_row_value(roster, "jersey_number")),
+                    "kit_color": kit_color,
+                    "start_s": window["start_s"],
+                    "end_s": window["end_s"],
+                    "_rank": window["rank"],
+                    "_roster_id": int(_row_value(roster, "id")),
+                }
+            )
+
+    selected.sort(
+        key=lambda window: (
+            window["_rank"],
+            window["roster_jersey_number"],
+            window["_roster_id"],
+            window["start_s"],
+            window["tracklet_id"],
+        )
+    )
+    return [{key: value for key, value in window.items() if not key.startswith("_")} for window in selected[:total_cap]]
 
 
 def _download_footage(blob_path: str, dest: Path, expected_etag: str) -> None:
@@ -153,7 +237,7 @@ def process_job(app, job_id: str) -> bool:
     import json
 
     from src.models.league import db
-    from src.models.video import VideoAnalysisJob, VideoMatch
+    from src.models.video import VideoAnalysisJob, VideoMatch, VideoTracklet
     from src.services import video_storage
     from src.services.video_analysis_store import complete_job_with_analysis
     from src.services.video_identity import complete_job_with_artifacts
@@ -192,7 +276,26 @@ def process_job(app, job_id: str) -> bool:
             out_dir.mkdir()
             context_path = None
             if pipeline_kind == "qwen_analysis":
+                from src.services import video_dev_artifacts
+
                 context_path = tmp_path / "context.json"
+                spans = {}
+                artifacts = video_dev_artifacts.local_artifacts(match)
+                if artifacts:
+                    try:
+                        spans = video_dev_artifacts.fragment_spans(artifacts)
+                    except (KeyError, OSError, TypeError, ValueError):
+                        log.warning(
+                            "video match %s captions could not read fragment spans; using stored chain spans",
+                            match.id,
+                        )
+                tracklets = list(
+                    db.session.query(VideoTracklet)
+                    .filter(VideoTracklet.video_match_id == match.id, VideoTracklet.kind != "tombstone")
+                    .all()
+                )
+                top_k = int(os.getenv("QWEN_CAPTION_TOP_K", str(DEFAULT_QWEN_CAPTION_TOP_K)))
+                capture_meta = match.capture_meta if isinstance(match.capture_meta, dict) else {}
                 context_path.write_text(
                     json.dumps(
                         {
@@ -200,6 +303,14 @@ def process_job(app, job_id: str) -> bool:
                             "our_kit_color": match.our_kit_color,
                             "opponent_kit_color": match.opponent_kit_color,
                             "competition": match.competition,
+                            "attack_direction_first_half": capture_meta.get("attack_direction_first_half"),
+                            "caption_windows": select_caption_windows(
+                                match,
+                                list(match.roster_entries),
+                                tracklets,
+                                spans,
+                                top_k=top_k,
+                            ),
                         }
                     )
                 )

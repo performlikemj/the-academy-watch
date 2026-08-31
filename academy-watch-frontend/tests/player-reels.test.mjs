@@ -35,7 +35,14 @@ const identityHelpers = new Function(`
   return { formatVoteSummary, mismatchBadge }
 `)()
 
+const reelHelpers = new Function(`
+  ${extractFunction('orderReelWindows')}
+  ${extractFunction('matchCaptionToWindow')}
+  return { orderReelWindows, matchCaptionToWindow }
+`)()
+
 const { formatVoteSummary, mismatchBadge } = identityHelpers
+const { orderReelWindows, matchCaptionToWindow } = reelHelpers
 
 test('getVideoReel calls the admin reel endpoint', async () => {
   const originalRequest = APIService.request
@@ -70,6 +77,28 @@ test('nextWindowIndex handles empty and invalid playlist state', () => {
   assert.equal(nextWindowIndex(5, [], 0), -1)
   assert.equal(nextWindowIndex(5, windows, -1), 0)
   assert.equal(nextWindowIndex(5, windows, 99), 0)
+})
+
+test('orderReelWindows keeps chronological default and ranks top moments without mutation', () => {
+  const windows = [
+    { start_s: 30, end_s: 35, tracklet_id: 3, rank: 1 },
+    { start_s: 10, end_s: 15, tracklet_id: 1, rank: 3 },
+    { start_s: 20, end_s: 25, tracklet_id: 2, rank: 2 },
+  ]
+
+  assert.deepEqual(orderReelWindows(windows).map((window) => window.tracklet_id), [1, 2, 3])
+  assert.deepEqual(orderReelWindows(windows, 'ranked').map((window) => window.tracklet_id), [3, 2, 1])
+  assert.deepEqual(windows.map((window) => window.tracklet_id), [3, 1, 2])
+})
+
+test('matchCaptionToWindow requires the same tracklet and 50% overlap of the shorter interval', () => {
+  const window = { tracklet_id: 7, start_s: 10, end_s: 20 }
+  const wrongTracklet = { tracklet_id: 8, start_s: 10, end_s: 20, caption: 'wrong' }
+  const underHalf = { tracklet_id: 7, start_s: 19, end_s: 22, caption: 'too short' }
+  const half = { tracklet_id: 7, start_s: 18, end_s: 22, caption: 'matched' }
+
+  assert.equal(matchCaptionToWindow(window, [wrongTracklet, underHalf, half]), half)
+  assert.equal(matchCaptionToWindow(window, [wrongTracklet, underHalf]), null)
 })
 
 test('formatVoteSummary orders model reads by strength and includes honest suggestions', () => {
