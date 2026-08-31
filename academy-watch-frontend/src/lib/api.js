@@ -6,6 +6,15 @@ import {
 // API configuration
 const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE) || '/api'
 
+// Return the playlist index that should own the playhead. A -1 result means the
+// final window has completed (or there is no playable window).
+export function nextWindowIndex(currentTime, windows, currentIdx) {
+    if (!Array.isArray(windows) || windows.length === 0) return -1
+    if (!Number.isInteger(currentIdx) || currentIdx < 0 || currentIdx >= windows.length) return 0
+    if (currentTime < windows[currentIdx].end_s) return currentIdx
+    return currentIdx + 1 < windows.length ? currentIdx + 1 : -1
+}
+
 export class APIService {
     static adminKey = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_admin_key')) || null
     static userToken = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_user_token')) || null
@@ -2974,6 +2983,10 @@ export class APIService {
     static async getVideoTracklets(matchId, params = {}) {
         const query = new URLSearchParams(params).toString()
         return this.request(`/admin/video/matches/${matchId}/tracklets${query ? '?' + query : ''}`, {}, { admin: true })
+    }
+
+    static async getVideoReel(matchId) {
+        return this.request(`/admin/video/matches/${matchId}/reel`, {}, { admin: true })
     }
 
     static async bindVideoTags(matchId, tags) {
