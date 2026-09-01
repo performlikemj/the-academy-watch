@@ -55,6 +55,7 @@ basecamp after the model is installed.
   spike/video-analysis/bench/run_bench.py \
   --adapter qwen3vl_ollama --clips all \
   --anchor-mode first \
+  --box-space normalized_1000 \
   --ollama-url http://127.0.0.1:11434 \
   --model qwen3-vl:8b \
   --num-predict 400 --repeat-penalty 1.15
@@ -70,21 +71,34 @@ echo-prone control run.
 
 `BENCH_NUM_CTX` controls Ollama context for both adapters, falling back to `QWEN_NUM_CTX` and then `65536`; set it to `0` or empty to omit `num_ctx`.
 
+`--box-space normalized_1000|image_pixels` declares the model's box convention
+and can also be set with `BENCH_BOX_SPACE`. Qwen3-VL defaults to
+`normalized_1000`, where each axis is an integer on a 0-1000 grid relative to
+the image. `image_pixels` requests coordinates in the exact sent-image pixel
+dimensions.
+
 `--clips` accepts `all` or comma-separated clip IDs. Each result is written
 immediately to `report/<timestamp>/claims/<clip_id>.json`. An interrupted run
 automatically resumes the newest matching incomplete directory, or use
 `--run-id <id>` explicitly. Existing claim files are skipped unless `--force`
 is passed. `run.json` records a fingerprint over the adapter, resolved model
 (including environment fallback), Ollama URL, timeout, anchor mode,
-`num_predict`, repeat penalty, frozen-set ID, and selected clips. A run resumes
-only when that complete fingerprint matches; an explicit mismatched run ID is
-refused unless `--force` is used.
+box space, `num_predict`, repeat penalty, frozen-set ID, and selected clips. A
+run resumes only when that complete fingerprint matches; an explicit
+mismatched run ID is refused unless `--force` is used.
 
 Each claims file records `sent_frames` entries with the extracted image path,
 absolute timestamp, and exact `sent_w`/`sent_h` dimensions observed after
-extraction. Qwen is asked for boxes in that sent-image coordinate space. Each
-claim preserves that response as `box_model_space`; `box` is the bench's
-axis-by-axis conversion into source-video pixels used for scoring.
+extraction. Each claim records its declared `box_space`, preserves the response
+as `box_model_space`, and stores the bench's axis-by-axis conversion into
+source-video pixels as `box` for scoring. Normalized boxes convert with
+`x * source_w / 1000` and `y * source_h / 1000`; image-pixel boxes use the
+sent-to-source axis scales.
+
+After conversion, a wholly out-of-frame box, a box larger than the source
+frame, or an `image_pixels` box whose coordinates all remain at or below 1000
+despite a larger sent image is explicitly malformed. The claim records a
+`box_sanity_reason`, and reports count these under `box_sanity_guard_count`.
 
 `qwen3vl_mlx` is intentionally a fail-fast E0 stub. It documents the native
 video model/path but never substitutes another backend.
@@ -107,8 +121,9 @@ overall `untracked_gap` metric.
 `supported_rate_unboxed` is the headline E1 number. It measures supported
 claims citing unlabelled frames where the model had to locate the player
 itself. `supported_rate_boxed` is the echo-prone control. `echo_suspect_count`
-counts boxed-frame claims whose raw model-space box matches the exact
-sent-image-space drawn rectangle within two pixels on all four sides. The
+counts boxed-frame claims whose declared-space box matches the exact
+sent-image-space drawn rectangle within two pixels on all four sides. A
+normalized box is converted to sent-image pixels for this comparison. The
 report also splits raw box-grounding rates into boxed and unboxed claims.
 
 `time_only_rate` counts claims whose time is grounded but box is not. `hollow`

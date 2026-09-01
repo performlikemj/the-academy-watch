@@ -172,18 +172,26 @@ def _normalize_adapter_claim(claim: dict) -> dict:
         model_box = None
     else:
         model_box = [float(value) for value in model_box]
+    box_space = claim.get("box_space")
+    if box_space not in {"normalized_1000", "image_pixels"}:
+        box_space = None
+    box_sanity_reason = claim.get("box_sanity_reason")
+    if not isinstance(box_sanity_reason, str) or not box_sanity_reason:
+        box_sanity_reason = None
     return {
         **normalized,
         "box_model_space": model_box,
+        "box_space": box_space,
+        "box_sanity_reason": box_sanity_reason,
         "malformed": malformed,
         "malformed_fields": malformed_fields,
         "boxed_frame": claim.get("boxed_frame") is True,
     }
 
 
-def _drawn_anchor_box(
+def _drawn_anchor_frame(
     claim_t0: float | None, anchored_frames: list[dict]
-) -> list[float] | None:
+) -> dict | None:
     if claim_t0 is None:
         return None
     candidates = []
@@ -200,16 +208,37 @@ def _drawn_anchor_box(
                 for value in box
             )
         ):
-            candidates.append(
-                (
-                    abs(float(claim_t0) - float(timestamp)),
-                    [float(value) for value in box],
-                )
-            )
+            candidates.append((abs(float(claim_t0) - float(timestamp)), frame))
     if not candidates:
         return None
-    distance, box = min(candidates, key=lambda item: item[0])
-    return box if distance <= TIME_TOLERANCE_S else None
+    distance, frame = min(candidates, key=lambda item: item[0])
+    return frame if distance <= TIME_TOLERANCE_S else None
+
+
+def _echo_comparison_box(
+    model_box: list[float] | None, box_space: str | None, anchor: dict | None
+) -> list[float] | None:
+    if model_box is None or anchor is None:
+        return None
+    if box_space != "normalized_1000":
+        return model_box
+    sent_w = anchor.get("sent_w")
+    sent_h = anchor.get("sent_h")
+    if not (
+        isinstance(sent_w, (int, float))
+        and not isinstance(sent_w, bool)
+        and sent_w > 0
+        and isinstance(sent_h, (int, float))
+        and not isinstance(sent_h, bool)
+        and sent_h > 0
+    ):
+        return None
+    return [
+        model_box[0] * float(sent_w) / 1000,
+        model_box[1] * float(sent_h) / 1000,
+        model_box[2] * float(sent_w) / 1000,
+        model_box[3] * float(sent_h) / 1000,
+    ]
 
 
 def _matches_drawn_box(
@@ -256,13 +285,21 @@ def score_claim(
     fabricated_classes = fabricated_event_classes(
         normalized["claim"], truth.get("human_note")
     )
-    drawn_anchor_box = (
-        _drawn_anchor_box(normalized["t0"], anchored_frames or [])
+    drawn_anchor_frame = (
+        _drawn_anchor_frame(normalized["t0"], anchored_frames or [])
         if normalized["boxed_frame"]
         else None
     )
+    drawn_anchor_box = (
+        [float(value) for value in drawn_anchor_frame["box"]]
+        if drawn_anchor_frame is not None
+        else None
+    )
+    echo_comparison_box = _echo_comparison_box(
+        normalized["box_model_space"], normalized["box_space"], drawn_anchor_frame
+    )
     echo_suspect = normalized["boxed_frame"] and _matches_drawn_box(
-        normalized["box_model_space"], drawn_anchor_box
+        echo_comparison_box, drawn_anchor_box
     )
 
     return {
@@ -307,6 +344,9 @@ def _clip_metrics(scored_claims: list[dict]) -> dict:
     )
     hollow = sum(bool(claim["hollow"]) for claim in scored_claims)
     malformed = sum(bool(claim["malformed"]) for claim in scored_claims)
+    box_sanity_guard_count = sum(
+        claim["box_sanity_reason"] is not None for claim in scored_claims
+    )
     untracked_gap = sum(bool(claim["no_truth_at_time"]) for claim in scored_claims)
     fabricated_evaluated = [
         claim for claim in scored_claims if claim["fabricated"] is not None
@@ -338,6 +378,7 @@ def _clip_metrics(scored_claims: list[dict]) -> dict:
         "echo_suspect_count": sum(
             bool(claim["echo_suspect"]) for claim in scored_claims
         ),
+        "box_sanity_guard_count": box_sanity_guard_count,
         "untracked_gap": untracked_gap,
         "untracked_gap_rate": _rate(untracked_gap, total),
         "time_only_rate": _rate(time_only, total),
@@ -356,6 +397,7 @@ def score_clip(result: dict, truth: dict | None) -> dict:
         "wall_s": result.get("wall_s"),
         "tokens": result.get("tokens"),
         "anchor_mode": result.get("anchor_mode"),
+        "box_space": result.get("box_space"),
         "error": result.get("error"),
     }
     if result.get("error"):
@@ -418,13 +460,19 @@ def score_run(
     anchor_modes = {
         clip["anchor_mode"] for clip in clips if clip.get("anchor_mode") is not None
     }
+    box_spaces = {
+        clip["box_space"] for clip in clips if clip.get("box_space") is not None
+    }
     return {
-        "schema_version": "film-room-evidence-report-v3",
+        "schema_version": "film-room-evidence-report-v4",
         "generated_at": datetime.now(UTC).isoformat(),
         "adapter": adapter,
         "anchor_mode": next(iter(anchor_modes))
         if len(anchor_modes) == 1
         else ("mixed" if anchor_modes else None),
+        "box_space": next(iter(box_spaces))
+        if len(box_spaces) == 1
+        else ("mixed" if box_spaces else None),
         "overall": metrics,
         "clips": clips,
         "scoring_rules": {
@@ -434,6 +482,7 @@ def score_run(
             "headline": "supported_rate_unboxed; claims whose cited frame did not carry a drawn truth rectangle",
             "boxed_control": "supported_rate_boxed; echo-prone control claims citing an anchored frame",
             "echo_suspect": f"boxed-frame claim whose returned box matches the drawn rectangle within {ECHO_BOX_TOLERANCE_PX:g}px on all four sides",
+            "box_sanity_guard": "declared-space conversion flags physically impossible or suspicious boxes as malformed",
             "truth_interpolation": f"adjacent samples only when separated by <= max({MIN_INTERPOLATION_GAP_S:g}s, {TRACKING_GAP_MULTIPLIER:g}x the truth track's median cadence)",
             "no_truth_at_time": "claim midpoint lies inside a larger tracking gap; the claim is unsupported and counted as untracked_gap",
             "time_only": "time_grounded AND NOT box_grounded",
@@ -457,12 +506,13 @@ def render_markdown(report: dict) -> str:
         f"Generated: {report['generated_at']}",
         f"Adapter: `{report.get('adapter') or 'unspecified'}`",
         f"Anchor mode: `{report.get('anchor_mode') or 'none'}`",
+        f"Box space: `{report.get('box_space') or 'unspecified'}`",
         "",
         "## Overall",
         "",
-        "| Scored clips | Failed | Observed | Claims/clip | **Supported unboxed (E1 headline)** | Supported boxed (control) | Echo suspects | Untracked gap | Time-only | Unsupported | Hollow | Wall s/clip | Tokens/clip |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-        "| {scored_clips} | {failed_clips} | {observed_clips} | {claims_per_clip} | **{supported_unboxed}** | {supported_boxed} | {echo_suspect} | {untracked_gap} | {time_only} | {unsupported} | {hollow} | {wall} | {tokens} |".format(
+        "| Scored clips | Failed | Observed | Claims/clip | **Supported unboxed (E1 headline)** | Supported boxed (control) | Echo suspects | Box guards | Untracked gap | Time-only | Unsupported | Hollow | Wall s/clip | Tokens/clip |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| {scored_clips} | {failed_clips} | {observed_clips} | {claims_per_clip} | **{supported_unboxed}** | {supported_boxed} | {echo_suspect} | {box_guards} | {untracked_gap} | {time_only} | {unsupported} | {hollow} | {wall} | {tokens} |".format(
             scored_clips=overall["scored_clips"],
             failed_clips=overall["failed_clips"],
             observed_clips=overall["observed_clips"],
@@ -472,6 +522,7 @@ def render_markdown(report: dict) -> str:
             supported_unboxed=percent(overall["supported_rate_unboxed"]),
             supported_boxed=percent(overall["supported_rate_boxed"]),
             echo_suspect=overall["echo_suspect_count"],
+            box_guards=overall["box_sanity_guard_count"],
             untracked_gap=overall["untracked_gap"],
             time_only=percent(overall["time_only_rate"]),
             unsupported=percent(overall["unsupported_rate"]),
@@ -486,19 +537,20 @@ def render_markdown(report: dict) -> str:
         "",
         "## Per clip",
         "",
-        "| Clip | Status | Claims | Supported unboxed | Supported boxed | Echo suspects | Untracked gap | Time-only | Unsupported | Hollow | Fabricated | Wall s | Tokens |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Clip | Status | Claims | Supported unboxed | Supported boxed | Echo suspects | Box guards | Untracked gap | Time-only | Unsupported | Hollow | Fabricated | Wall s | Tokens |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for clip in report["clips"]:
         metrics = clip.get("metrics") or {}
         lines.append(
-            "| {clip_id} | {status} | {count} | {supported_unboxed} | {supported_boxed} | {echo_suspect} | {untracked_gap} | {time_only} | {unsupported} | {hollow} | {fabricated} | {wall} | {tokens} |".format(
+            "| {clip_id} | {status} | {count} | {supported_unboxed} | {supported_boxed} | {echo_suspect} | {box_guards} | {untracked_gap} | {time_only} | {unsupported} | {hollow} | {fabricated} | {wall} | {tokens} |".format(
                 clip_id=clip["clip_id"],
                 status=clip["status"],
                 count=metrics.get("claim_count", "—"),
                 supported_unboxed=percent(metrics.get("supported_rate_unboxed")),
                 supported_boxed=percent(metrics.get("supported_rate_boxed")),
                 echo_suspect=metrics.get("echo_suspect_count", "—"),
+                box_guards=metrics.get("box_sanity_guard_count", "—"),
                 untracked_gap=metrics.get("untracked_gap", "—"),
                 time_only=percent(metrics.get("time_only_rate")),
                 unsupported=percent(metrics.get("unsupported_rate")),
@@ -518,6 +570,7 @@ def render_markdown(report: dict) -> str:
             f"- Truth boxes interpolate only across adjacent samples no more than max({MIN_INTERPOLATION_GAP_S:g}s, {TRACKING_GAP_MULTIPLIER:g}× median cadence) apart. Claims inside larger gaps are `no_truth_at_time`, counted under `untracked_gap`, and unsupported.",
             "- `supported_rate_unboxed` is the E1 headline; it excludes claims citing images that carried a drawn truth rectangle.",
             "- `supported_rate_boxed` is the echo-prone control. `echo_suspect_count` flags returned boxes within 2px of the drawn rectangle on all sides.",
+            "- `box_sanity_guard_count` counts declared-space boxes marked malformed because conversion made them physically impossible or exposed a likely normalized/pixel mismatch.",
             "- A malformed claim cannot be supported. A hollow claim lacks a valid time interval or box.",
             "- Fabrication is a deliberately conservative explicit keyword-class comparison and is omitted when `human_note` is null.",
             "- Mechanical adapter errors are `failed`; clips without truth are `observed` and excluded from grounding aggregates.",
