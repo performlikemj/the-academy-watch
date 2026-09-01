@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
+import math
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +21,13 @@ BENCH_DIR = Path(__file__).resolve().parent
 DEFAULT_MANIFEST = BENCH_DIR / "frozen" / "manifest.json"
 DEFAULT_REPORT_ROOT = BENCH_DIR / "report"
 ADAPTERS = ("baseline", "qwen3vl_ollama", "qwen3vl_mlx")
+MODEL_ENVIRONMENT = {
+    "baseline": "BENCH_BASELINE_MODEL",
+    "qwen3vl_ollama": "BENCH_MODEL",
+    "qwen3vl_mlx": "BENCH_MLX_MODEL",
+}
+MAX_NUM_PREDICT = 400
+DEFAULT_REPEAT_PENALTY = 1.15
 
 
 def _load_json(path: Path) -> dict:
@@ -38,15 +47,64 @@ def _requested_clips(raw: str, manifest: dict) -> list[str]:
     return requested
 
 
-def _run_metadata(
-    adapter: str, model: str | None, clips: list[str], anchor_mode: str
-) -> dict:
+def _resolved_model(adapter_name: str, requested_model: str | None) -> str:
+    adapter = _adapter_module(adapter_name)
+    resolved = (
+        requested_model
+        or os.getenv(MODEL_ENVIRONMENT[adapter_name])
+        or adapter.DEFAULT_MODEL
+    )
+    if not isinstance(resolved, str) or not resolved.strip():
+        raise ValueError("resolved model must be a non-empty string")
+    return resolved
+
+
+def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dict:
+    frozen_set_id = manifest.get("frozen_set_id")
+    if not isinstance(frozen_set_id, str) or not frozen_set_id:
+        raise ValueError("manifest must contain a non-empty frozen_set_id")
+    timeout_s = float(args.timeout)
+    repeat_penalty = float(args.repeat_penalty)
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ValueError("--timeout must be a positive finite number")
+    if not math.isfinite(repeat_penalty) or repeat_penalty <= 0:
+        raise ValueError("--repeat-penalty must be a positive finite number")
     return {
-        "adapter": adapter,
-        "model": model,
-        "clips": clips,
-        "anchor_mode": anchor_mode if adapter == "qwen3vl_ollama" else None,
+        "adapter": args.adapter,
+        "model": _resolved_model(args.adapter, args.model),
+        "ollama_url": str(args.ollama_url),
+        "timeout_s": timeout_s,
+        "anchor_mode": args.anchor_mode,
+        "num_predict": max(1, min(int(args.num_predict), MAX_NUM_PREDICT)),
+        "repeat_penalty": repeat_penalty,
+        "frozen_set_id": frozen_set_id,
     }
+
+
+def _settings_fingerprint(settings: dict, clips: list[str]) -> str:
+    canonical = json.dumps(
+        {"settings": settings, "clips": clips},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _run_metadata(settings: dict, clips: list[str]) -> dict:
+    return {
+        "schema_version": "film-room-evidence-run-v2",
+        **settings,
+        "fingerprint": _settings_fingerprint(settings, clips),
+        "clips": clips,
+    }
+
+
+def _metadata_matches(existing: object, expected: dict) -> bool:
+    return bool(
+        isinstance(existing, dict)
+        and existing.get("fingerprint") == expected["fingerprint"]
+        and existing == expected
+    )
 
 
 def _find_resume_dir(report_root: Path, metadata: dict) -> Path | None:
@@ -59,9 +117,10 @@ def _find_resume_dir(report_root: Path, metadata: dict) -> Path | None:
         if not run_path.is_file() or (directory / "report.json").is_file():
             continue
         try:
-            if _load_json(run_path) == metadata:
+            existing = _load_json(run_path)
+            if _metadata_matches(existing, metadata):
                 return directory
-        except (OSError, ValueError):
+        except (KeyError, OSError, TypeError, ValueError):
             continue
     return None
 
@@ -81,13 +140,18 @@ def _output_dir(args: argparse.Namespace, metadata: dict) -> Path:
     return candidate
 
 
-def _write_run_metadata(output_dir: Path, metadata: dict) -> None:
+def _write_run_metadata(
+    output_dir: Path, metadata: dict, *, force: bool = False
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     run_path = output_dir / "run.json"
-    if run_path.is_file() and _load_json(run_path) != metadata:
-        raise ValueError(
-            f"run metadata mismatch in {output_dir}; choose a new --run-id instead of mixing anchor modes"
-        )
+    if run_path.is_file():
+        existing = _load_json(run_path)
+        if not _metadata_matches(existing, metadata) and not force:
+            raise ValueError(
+                f"resume fingerprint mismatch in {output_dir}; use --force or choose "
+                "a new --run-id"
+            )
     run_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 
@@ -105,18 +169,21 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         for clip in manifest["clips"]
         if clip["clip_id"] in selected_ids
     }
-    metadata = _run_metadata(args.adapter, args.model, selected_ids, args.anchor_mode)
+    settings = _resolve_inference_settings(args, manifest)
+    metadata = _run_metadata(settings, selected_ids)
     output_dir = _output_dir(args, metadata)
-    _write_run_metadata(output_dir, metadata)
+    _write_run_metadata(output_dir, metadata, force=args.force)
     claims_dir = output_dir / "claims"
     claims_dir.mkdir(parents=True, exist_ok=True)
 
     adapter = _adapter_module(args.adapter)
     cfg = {
-        "ollama_url": args.ollama_url,
-        "model": args.model,
-        "timeout_s": args.timeout,
-        "anchor_mode": args.anchor_mode,
+        "ollama_url": settings["ollama_url"],
+        "model": settings["model"],
+        "timeout_s": settings["timeout_s"],
+        "anchor_mode": settings["anchor_mode"],
+        "num_predict": settings["num_predict"],
+        "repeat_penalty": settings["repeat_penalty"],
     }
     results = []
     truths = {}
@@ -144,9 +211,9 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
 
 def print_summary(report: dict, output_dir: Path) -> None:
     print(
-        "\nclip_id                                      status    claims  unboxed  boxed  echo  unsupported  hollow  wall_s"
+        "\nclip_id                                      status    claims  unboxed  boxed  echo  gap  unsupported  hollow  wall_s"
     )
-    print("-" * 117)
+    print("-" * 122)
     for clip in report["clips"]:
         metrics = clip.get("metrics") or {}
 
@@ -158,6 +225,7 @@ def print_summary(report: dict, output_dir: Path) -> None:
             f"{str(clip['clip_id']):44} {clip['status']:9} {str(metrics.get('claim_count', '—')):>6} "
             f"{pct('supported_rate_unboxed'):>7} {pct('supported_rate_boxed'):>6} "
             f"{str(metrics.get('echo_suspect_count', '—')):>5} "
+            f"{str(metrics.get('untracked_gap', '—')):>4} "
             f"{pct('unsupported_rate'):>12} {pct('hollow_rate'):>7} "
             f"{str(clip.get('wall_s') if clip.get('wall_s') is not None else '—'):>7}"
         )
@@ -165,6 +233,7 @@ def print_summary(report: dict, output_dir: Path) -> None:
     print(
         f"overall: supported_unboxed={overall['supported_rate_unboxed']} "
         f"supported_boxed={overall['supported_rate_boxed']} echo_suspect={overall['echo_suspect_count']} "
+        f"untracked_gap={overall['untracked_gap']} "
         f"unsupported={overall['unsupported_rate']} hollow={overall['hollow_rate']} failed={overall['failed_clips']}"
     )
     print(f"report: {output_dir / 'report.json'}")
@@ -192,6 +261,13 @@ def _parser() -> argparse.ArgumentParser:
         "--run-id", help="stable report directory name for explicit resume"
     )
     parser.add_argument("--timeout", type=float, default=300.0)
+    parser.add_argument(
+        "--num-predict",
+        type=int,
+        default=MAX_NUM_PREDICT,
+        help=f"generation-token cap (maximum {MAX_NUM_PREDICT})",
+    )
+    parser.add_argument("--repeat-penalty", type=float, default=DEFAULT_REPEAT_PENALTY)
     parser.add_argument(
         "--force", action="store_true", help="overwrite existing per-clip claims files"
     )

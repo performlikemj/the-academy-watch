@@ -137,7 +137,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
                 image_paths=[path for path, _absolute_s in frames],
                 options={
                     "num_predict": max(1, min(int(cfg.get("num_predict", 400)), 400)),
-                    "repeat_penalty": 1.15,
+                    "repeat_penalty": float(cfg.get("repeat_penalty", 1.15)),
                 },
             )
             claims = tag_boxed_frames(parse_claims(raw), anchored_frames)

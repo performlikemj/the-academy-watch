@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import statistics
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,6 +18,8 @@ TIME_TOLERANCE_S = 0.5
 IOU_THRESHOLD = 0.5
 CONTAINMENT_THRESHOLD = 0.8
 ECHO_BOX_TOLERANCE_PX = 2.0
+TRACKING_GAP_MULTIPLIER = 2.0
+MIN_INTERPOLATION_GAP_S = 0.25
 
 # Intentionally narrow: an event is fabricated only when an explicit event
 # keyword appears in the claim and no synonym for that class occurs in the note.
@@ -65,29 +68,61 @@ def box_matches(
     return grounded, round(iou, 4), round(containment, 4)
 
 
-def interpolate_truth_box(
+def tracking_cadence_s(box_track: list[list]) -> float | None:
+    """Return the median positive interval between truth-box samples."""
+    timestamps = sorted(float(row[0]) for row in box_track)
+    gaps = [
+        right - left for left, right in zip(timestamps, timestamps[1:]) if right > left
+    ]
+    return float(statistics.median(gaps)) if gaps else None
+
+
+def max_interpolation_gap_s(box_track: list[list]) -> float:
+    """Return the largest adjacent sample gap safe to interpolate."""
+    cadence = tracking_cadence_s(box_track)
+    return max(
+        MIN_INTERPOLATION_GAP_S,
+        TRACKING_GAP_MULTIPLIER * cadence if cadence is not None else 0.0,
+    )
+
+
+def _truth_box_at_time(
     box_track: list[list], timestamp_s: float
-) -> list[float] | None:
-    """Linearly interpolate the source-pixel truth box at an absolute time."""
+) -> tuple[list[float] | None, bool]:
+    """Return a truth box and whether the requested time is in a tracking gap."""
     if not box_track or not math.isfinite(timestamp_s):
-        return None
+        return None, False
     rows = sorted(box_track, key=lambda row: float(row[0]))
     if timestamp_s < float(rows[0][0]) or timestamp_s > float(rows[-1][0]):
-        return None
+        return None, False
+    interpolation_limit = max_interpolation_gap_s(rows)
     for index, row in enumerate(rows):
         row_t = float(row[0])
         if math.isclose(timestamp_s, row_t, abs_tol=1e-9):
-            return [float(value) for value in row[1:5]]
+            return [float(value) for value in row[1:5]], False
         if row_t > timestamp_s:
             left = rows[index - 1]
             left_t = float(left[0])
+            if row_t - left_t > interpolation_limit:
+                return None, True
             fraction = (timestamp_s - left_t) / (row_t - left_t)
-            return [
-                float(left[column])
-                + fraction * (float(row[column]) - float(left[column]))
-                for column in range(1, 5)
-            ]
-    return [float(value) for value in rows[-1][1:5]]
+            return (
+                [
+                    float(left[column])
+                    + fraction * (float(row[column]) - float(left[column]))
+                    for column in range(1, 5)
+                ],
+                False,
+            )
+    return [float(value) for value in rows[-1][1:5]], False
+
+
+def interpolate_truth_box(
+    box_track: list[list], timestamp_s: float
+) -> list[float] | None:
+    """Interpolate a truth box only across samples at the normal cadence."""
+    truth_box, _untracked_gap = _truth_box_at_time(box_track, timestamp_s)
+    return truth_box
 
 
 def _event_classes(text: str) -> set[str]:
@@ -192,10 +227,10 @@ def score_claim(
         and normalized["t1"] <= float(window["end_s"]) + TIME_TOLERANCE_S
     )
     midpoint = (normalized["t0"] + normalized["t1"]) / 2 if has_time else None
-    truth_box = (
-        interpolate_truth_box(truth.get("box_track") or [], midpoint)
+    truth_box, no_truth_at_time = (
+        _truth_box_at_time(truth.get("box_track") or [], midpoint)
         if midpoint is not None
-        else None
+        else (None, False)
     )
     if has_box and truth_box is not None:
         box_grounded, iou, containment = box_matches(normalized["box"], truth_box)
@@ -224,6 +259,7 @@ def score_claim(
         "hollow": hollow,
         "supported": supported,
         "unsupported": not supported,
+        "no_truth_at_time": no_truth_at_time,
         "truth_box_at_midpoint": [round(value, 3) for value in truth_box]
         if truth_box is not None
         else None,
@@ -256,6 +292,7 @@ def _clip_metrics(scored_claims: list[dict]) -> dict:
     )
     hollow = sum(bool(claim["hollow"]) for claim in scored_claims)
     malformed = sum(bool(claim["malformed"]) for claim in scored_claims)
+    untracked_gap = sum(bool(claim["no_truth_at_time"]) for claim in scored_claims)
     fabricated_evaluated = [
         claim for claim in scored_claims if claim["fabricated"] is not None
     ]
@@ -286,6 +323,8 @@ def _clip_metrics(scored_claims: list[dict]) -> dict:
         "echo_suspect_count": sum(
             bool(claim["echo_suspect"]) for claim in scored_claims
         ),
+        "untracked_gap": untracked_gap,
+        "untracked_gap_rate": _rate(untracked_gap, total),
         "time_only_rate": _rate(time_only, total),
         "unsupported_rate": _rate(total - supported, total),
         "hollow_rate": _rate(hollow, total),
@@ -365,7 +404,7 @@ def score_run(
         clip["anchor_mode"] for clip in clips if clip.get("anchor_mode") is not None
     }
     return {
-        "schema_version": "film-room-evidence-report-v2",
+        "schema_version": "film-room-evidence-report-v3",
         "generated_at": datetime.now(UTC).isoformat(),
         "adapter": adapter,
         "anchor_mode": next(iter(anchor_modes))
@@ -380,6 +419,8 @@ def score_run(
             "headline": "supported_rate_unboxed; claims whose cited frame did not carry a drawn truth rectangle",
             "boxed_control": "supported_rate_boxed; echo-prone control claims citing an anchored frame",
             "echo_suspect": f"boxed-frame claim whose returned box matches the drawn rectangle within {ECHO_BOX_TOLERANCE_PX:g}px on all four sides",
+            "truth_interpolation": f"adjacent samples only when separated by <= max({MIN_INTERPOLATION_GAP_S:g}s, {TRACKING_GAP_MULTIPLIER:g}x the truth track's median cadence)",
+            "no_truth_at_time": "claim midpoint lies inside a larger tracking gap; the claim is unsupported and counted as untracked_gap",
             "time_only": "time_grounded AND NOT box_grounded",
             "hollow": "missing/invalid time interval OR box is null/invalid",
             "fabricated": "conservative explicit keyword-class mismatch; evaluated only when human_note is non-null",
@@ -404,9 +445,9 @@ def render_markdown(report: dict) -> str:
         "",
         "## Overall",
         "",
-        "| Scored clips | Failed | Observed | Claims/clip | **Supported unboxed (E1 headline)** | Supported boxed (control) | Echo suspects | Time-only | Unsupported | Hollow | Wall s/clip | Tokens/clip |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-        "| {scored_clips} | {failed_clips} | {observed_clips} | {claims_per_clip} | **{supported_unboxed}** | {supported_boxed} | {echo_suspect} | {time_only} | {unsupported} | {hollow} | {wall} | {tokens} |".format(
+        "| Scored clips | Failed | Observed | Claims/clip | **Supported unboxed (E1 headline)** | Supported boxed (control) | Echo suspects | Untracked gap | Time-only | Unsupported | Hollow | Wall s/clip | Tokens/clip |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| {scored_clips} | {failed_clips} | {observed_clips} | {claims_per_clip} | **{supported_unboxed}** | {supported_boxed} | {echo_suspect} | {untracked_gap} | {time_only} | {unsupported} | {hollow} | {wall} | {tokens} |".format(
             scored_clips=overall["scored_clips"],
             failed_clips=overall["failed_clips"],
             observed_clips=overall["observed_clips"],
@@ -416,6 +457,7 @@ def render_markdown(report: dict) -> str:
             supported_unboxed=percent(overall["supported_rate_unboxed"]),
             supported_boxed=percent(overall["supported_rate_boxed"]),
             echo_suspect=overall["echo_suspect_count"],
+            untracked_gap=overall["untracked_gap"],
             time_only=percent(overall["time_only_rate"]),
             unsupported=percent(overall["unsupported_rate"]),
             hollow=percent(overall["hollow_rate"]),
@@ -429,19 +471,20 @@ def render_markdown(report: dict) -> str:
         "",
         "## Per clip",
         "",
-        "| Clip | Status | Claims | Supported unboxed | Supported boxed | Echo suspects | Time-only | Unsupported | Hollow | Fabricated | Wall s | Tokens |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Clip | Status | Claims | Supported unboxed | Supported boxed | Echo suspects | Untracked gap | Time-only | Unsupported | Hollow | Fabricated | Wall s | Tokens |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for clip in report["clips"]:
         metrics = clip.get("metrics") or {}
         lines.append(
-            "| {clip_id} | {status} | {count} | {supported_unboxed} | {supported_boxed} | {echo_suspect} | {time_only} | {unsupported} | {hollow} | {fabricated} | {wall} | {tokens} |".format(
+            "| {clip_id} | {status} | {count} | {supported_unboxed} | {supported_boxed} | {echo_suspect} | {untracked_gap} | {time_only} | {unsupported} | {hollow} | {fabricated} | {wall} | {tokens} |".format(
                 clip_id=clip["clip_id"],
                 status=clip["status"],
                 count=metrics.get("claim_count", "—"),
                 supported_unboxed=percent(metrics.get("supported_rate_unboxed")),
                 supported_boxed=percent(metrics.get("supported_rate_boxed")),
                 echo_suspect=metrics.get("echo_suspect_count", "—"),
+                untracked_gap=metrics.get("untracked_gap", "—"),
                 time_only=percent(metrics.get("time_only_rate")),
                 unsupported=percent(metrics.get("unsupported_rate")),
                 hollow=percent(metrics.get("hollow_rate")),
@@ -457,6 +500,7 @@ def render_markdown(report: dict) -> str:
             "",
             f"- Time grounding requires the complete claim interval inside the truth window ± {TIME_TOLERANCE_S:.1f}s.",
             f"- Box grounding requires IoU ≥ {IOU_THRESHOLD:.1f} or at least {CONTAINMENT_THRESHOLD * 100:.0f}% of the claim box inside the interpolated truth box.",
+            f"- Truth boxes interpolate only across adjacent samples no more than max({MIN_INTERPOLATION_GAP_S:g}s, {TRACKING_GAP_MULTIPLIER:g}× median cadence) apart. Claims inside larger gaps are `no_truth_at_time`, counted under `untracked_gap`, and unsupported.",
             "- `supported_rate_unboxed` is the E1 headline; it excludes claims citing images that carried a drawn truth rectangle.",
             "- `supported_rate_boxed` is the echo-prone control. `echo_suspect_count` flags returned boxes within 2px of the drawn rectangle on all sides.",
             "- A malformed claim cannot be supported. A hollow claim lacks a valid time interval or box.",

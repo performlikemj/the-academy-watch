@@ -1,6 +1,7 @@
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,15 +14,22 @@ from adapters import qwen3vl_ollama as qwen_adapter  # noqa: E402
 from adapters.common import sample_timestamps  # noqa: E402
 from adapters.qwen3vl_mlx import STUB_ERROR, run as run_mlx  # noqa: E402
 from contract import parse_claims  # noqa: E402
-from run_bench import _write_run_metadata  # noqa: E402
+from run_bench import (  # noqa: E402
+    _find_resume_dir,
+    _resolve_inference_settings,
+    _run_metadata,
+    _write_run_metadata,
+)
 from score import (  # noqa: E402
     box_matches,
     fabricated_event_classes,
     interpolate_truth_box,
+    max_interpolation_gap_s,
     render_markdown,
     score_claim,
     score_clip,
     score_run,
+    tracking_cadence_s,
     write_report,
 )
 
@@ -98,6 +106,59 @@ def test_truth_box_is_interpolated_at_claim_midpoint():
         250.0,
     ]
     assert interpolate_truth_box(_truth()["box_track"], 9.99) is None
+
+
+def test_tracking_cadence_uses_median_positive_sample_gap():
+    track = [
+        [10.0, 0, 0, 10, 10],
+        [10.1, 0, 0, 10, 10],
+        [10.2, 0, 0, 10, 10],
+        [13.2, 0, 0, 10, 10],
+        [13.3, 0, 0, 10, 10],
+    ]
+
+    assert tracking_cadence_s(track) == pytest.approx(0.1)
+    assert max_interpolation_gap_s(track) == 0.25
+
+
+def test_tracking_gap_has_no_truth_and_cannot_support_claim():
+    truth = {
+        "clip_id": "gap-clip",
+        "window": {"start_s": 10.0, "end_s": 14.0},
+        "box_track": [
+            [10.0, 100, 100, 200, 200],
+            [10.1, 100, 100, 200, 200],
+            [10.2, 100, 100, 200, 200],
+            [13.2, 100, 100, 200, 200],
+            [13.3, 100, 100, 200, 200],
+        ],
+        "human_note": None,
+    }
+    in_gap = score_claim(_claim(t0=11.7, t1=11.7, box=[100, 100, 200, 200]), truth)
+    just_outside = score_claim(
+        _claim(t0=13.25, t1=13.25, box=[100, 100, 200, 200]), truth
+    )
+
+    assert interpolate_truth_box(truth["box_track"], 11.7) is None
+    assert in_gap["truth_box_at_midpoint"] is None
+    assert in_gap["no_truth_at_time"] is True
+    assert in_gap["supported"] is False
+    assert just_outside["no_truth_at_time"] is False
+    assert just_outside["supported"] is True
+
+    result = {
+        "clip_id": "gap-clip",
+        "claims": [
+            _claim(t0=11.7, t1=11.7, box=[100, 100, 200, 200]),
+            _claim(t0=13.25, t1=13.25, box=[100, 100, 200, 200]),
+        ],
+        "error": None,
+    }
+    report = score_run([result], {"gap-clip": truth})
+    assert report["clips"][0]["metrics"]["untracked_gap"] == 1
+    assert report["overall"]["untracked_gap"] == 1
+    assert report["overall"]["untracked_gap_rate"] == 0.5
+    assert report["overall"]["unsupported_rate"] == 0.5
 
 
 def test_sampling_starts_where_the_truth_track_actually_begins():
@@ -219,13 +280,51 @@ def test_boxed_frame_tagging_uses_t0_and_half_second_tolerance():
     assert [claim["boxed_frame"] for claim in tagged] == [True, True, False, False]
 
 
-def test_resume_refuses_to_mix_anchor_modes(tmp_path):
-    _write_run_metadata(tmp_path, {"adapter": "qwen3vl_ollama", "anchor_mode": "first"})
+def test_resume_fingerprint_mismatch_is_not_resumed_and_is_refused(tmp_path):
+    first_settings = {
+        "adapter": "qwen3vl_ollama",
+        "model": "qwen3-vl:8b",
+        "ollama_url": "http://ollama.test",
+        "timeout_s": 300.0,
+        "anchor_mode": "first",
+        "num_predict": 400,
+        "repeat_penalty": 1.15,
+        "frozen_set_id": "frozen-1",
+    }
+    first = _run_metadata(first_settings, ["clip-1"])
+    changed = _run_metadata({**first_settings, "timeout_s": 301.0}, ["clip-1"])
+    run_dir = tmp_path / "run-1"
+    _write_run_metadata(run_dir, first)
 
-    with pytest.raises(ValueError, match="instead of mixing anchor modes"):
-        _write_run_metadata(
-            tmp_path, {"adapter": "qwen3vl_ollama", "anchor_mode": "all"}
-        )
+    assert _find_resume_dir(tmp_path, changed) is None
+    with pytest.raises(ValueError, match="fingerprint mismatch.*--force.*--run-id"):
+        _write_run_metadata(run_dir, changed)
+
+
+def test_run_metadata_records_model_resolved_from_environment(monkeypatch):
+    monkeypatch.setenv("BENCH_MODEL", "qwen3-vl:env-fallback")
+    args = SimpleNamespace(
+        adapter="qwen3vl_ollama",
+        model=None,
+        ollama_url="http://ollama.test",
+        timeout=123.0,
+        anchor_mode="first",
+        num_predict=350,
+        repeat_penalty=1.2,
+    )
+
+    settings = _resolve_inference_settings(args, {"frozen_set_id": "frozen-1"})
+    metadata = _run_metadata(settings, ["clip-1"])
+
+    assert metadata["model"] == "qwen3-vl:env-fallback"
+    assert metadata["model"] is not None
+    assert metadata["ollama_url"] == "http://ollama.test"
+    assert metadata["timeout_s"] == 123.0
+    assert metadata["anchor_mode"] == "first"
+    assert metadata["num_predict"] == 350
+    assert metadata["repeat_penalty"] == 1.2
+    assert metadata["adapter"] == "qwen3vl_ollama"
+    assert metadata["frozen_set_id"] == "frozen-1"
 
 
 def test_box_grounding_accepts_iou_threshold():

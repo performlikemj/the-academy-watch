@@ -56,7 +56,8 @@ basecamp after the model is installed.
   --adapter qwen3vl_ollama --clips all \
   --anchor-mode first \
   --ollama-url http://127.0.0.1:11434 \
-  --model qwen3-vl:8b
+  --model qwen3-vl:8b \
+  --num-predict 400 --repeat-penalty 1.15
 ```
 
 The Qwen3-VL adapter supports `--anchor-mode first|all` and defaults to
@@ -65,14 +66,17 @@ identity rectangle. The remaining images are unlabelled, and the model must
 find the same player and return its own evidence box. This prevents a model
 from inflating E1 grounding by simply copying a truth rectangle drawn on every
 frame. `all` preserves the original all-frames-boxed behavior as an explicitly
-echo-prone control run. Anchor mode is included in run metadata, so resumable
-runs cannot mix the two modes.
+echo-prone control run.
 
 `--clips` accepts `all` or comma-separated clip IDs. Each result is written
 immediately to `report/<timestamp>/claims/<clip_id>.json`. An interrupted run
 automatically resumes the newest matching incomplete directory, or use
 `--run-id <id>` explicitly. Existing claim files are skipped unless `--force`
-is passed.
+is passed. `run.json` records a fingerprint over the adapter, resolved model
+(including environment fallback), Ollama URL, timeout, anchor mode,
+`num_predict`, repeat penalty, frozen-set ID, and selected clips. A run resumes
+only when that complete fingerprint matches; an explicit mismatched run ID is
+refused unless `--force` is used.
 
 `qwen3vl_mlx` is intentionally a fail-fast E0 stub. It documents the native
 video model/path but never substitutes another backend.
@@ -85,6 +89,12 @@ ground its returned source-pixel box at the claim midpoint with either IoU ≥
 0.5 or at least 80% of the claim box inside the interpolated truth box. Claims
 also carry `boxed_frame`, computed by whether `t0` is within ±0.5 seconds of an
 anchored image.
+
+Truth boxes are interpolated only between adjacent samples no more than twice
+the track's median sampling cadence apart, with a minimum 0.25-second
+tolerance. A midpoint inside a larger disjoint tracking gap is marked
+`no_truth_at_time`, cannot be supported, and increments the per-clip and
+overall `untracked_gap` metric.
 
 `supported_rate_unboxed` is the headline E1 number. It measures supported
 claims citing unlabelled frames where the model had to locate the player
