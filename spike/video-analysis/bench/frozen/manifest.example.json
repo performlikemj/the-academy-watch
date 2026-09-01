@@ -1,0 +1,34 @@
+{
+  "schema_version": "film-room-evidence-manifest-v1",
+  "match_id": 4,
+  "selection_seed": 20260901,
+  "frozen_set_id": "<sha256-of-sorted-truth-files>",
+  "footage_sha256_prefix": "<16-hex-chars>",
+  "git_commit": "<git-commit>",
+  "clip_count": 20,
+  "player_count": 8,
+  "total_clip_s": 600.0,
+  "clips": [
+    {
+      "clip_id": "m04-n12-t1411-237107-242145",
+      "clip": "clips/m04-n12-t1411-237107-242145.mp4",
+      "truth": "truth/m04-n12-t1411-237107-242145.json",
+      "roster_entry_id": 59,
+      "jersey_number": 12,
+      "tracklet_id": 1411,
+      "window": {
+        "start_s": 2371.07,
+        "end_s": 2421.45
+      },
+      "duration_s": 50.38,
+      "selection_reason": "required human-corrected chain 1411 bound to uploader roster #12"
+    }
+  ],
+  "external": {
+    "soccertrack_v2": {
+      "video": "<local-path>/117093_calibrated_1st.mp4",
+      "homography": "<local-path>/117093_homography.npy",
+      "keypoints": "<local-path>/117093_keypoints.json"
+    }
+  }
+}
