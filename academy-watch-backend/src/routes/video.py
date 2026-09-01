@@ -38,7 +38,7 @@ from src.models.video import (
     VideoTracklet,
 )
 from src.routes.api import require_api_key
-from src.services import video_dev_artifacts, video_queue, video_reels, video_retention, video_storage
+from src.services import video_boxes, video_dev_artifacts, video_queue, video_reels, video_retention, video_storage
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.video_feedback import build_feedback_labels
 from src.services.video_identity import NUMBER_AGREEMENT_MIN, split_chain
@@ -923,15 +923,13 @@ def list_tracklet_crops(match_id: int, tracklet_id: int):
 @_admin_or_media_token
 def get_tracklet_bbox(match_id: int, tracklet_id: int):
     """Per-frame [t, x1, y1, x2, y2] (absolute seconds, source pixels) to overlay a box
-    on the exact player. DEV-only (built from local tracks.npz); empty in prod."""
+    on the exact player, sourced from local artifacts or the persisted production blob."""
     t, err = _tracklet_in_match_or_404(match_id, tracklet_id)
     if err:
         return err
     match = db.session.get(VideoMatch, match_id)
-    art = video_dev_artifacts.local_artifacts(match) if match else None
-    if not art:
-        return jsonify({"boxes": [], "available": False})
-    return jsonify({"boxes": video_dev_artifacts.tracklet_bbox_track(t, art), "available": True})
+    boxes = video_boxes.box_track_for(match, t) if match else []
+    return jsonify({"boxes": boxes, "available": bool(boxes)})
 
 
 def _clamp_pipeline_key(key: str, limit: int = 40) -> str:

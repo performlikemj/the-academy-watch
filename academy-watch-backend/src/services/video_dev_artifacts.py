@@ -23,7 +23,6 @@ from src.services import video_storage
 logger = logging.getLogger(__name__)
 
 CROP_CAP = 8  # sharpest crops surfaced per tracklet row
-BBOX_MAX_POINTS = 8000  # safety cap on a returned bbox track
 _CROP_NAME = re.compile(r"e\d+_\d+\.jpg")
 
 
@@ -95,18 +94,6 @@ def _tracks(tracks_dir: str):
     return np.concatenate(tids), np.concatenate(ts), np.concatenate(xys)
 
 
-def _member_entity_ids(tracklet) -> list[int]:
-    """The fragment entity_ids a tracklet is built from (chain: stored member ids;
-    fragment: parsed from the 'E<id>' pipeline_key)."""
-    if tracklet.kind == "chain":
-        ev = tracklet.evidence or {}
-        return [int(x) for x in (ev.get("member_fragment_ids") or [])]
-    pk = tracklet.pipeline_key or ""
-    if pk[:1] in ("E", "e") and pk[1:].isdigit():
-        return [int(pk[1:])]
-    return []
-
-
 def tracklet_crops(tracklet, art: dict) -> list[dict]:
     """Sharpest-first crop rows for a tracklet: [{file, t, frame, laplacian_var}], capped.
 
@@ -117,7 +104,9 @@ def tracklet_crops(tracklet, art: dict) -> list[dict]:
     ev = tracklet.evidence if isinstance(tracklet.evidence, dict) else {}
     strong = {int(x) for x in (ev.get("strong_fragment_ids") or [])}
     rows: list[tuple[int, dict]] = []
-    for eid in _member_entity_ids(tracklet):
+    from src.services.video_boxes import member_entity_ids
+
+    for eid in member_entity_ids(tracklet):
         tier = 0 if eid in strong else 1  # strong fragments first
         for c in by_ent.get(eid, []):
             rows.append((tier, c))
@@ -152,28 +141,12 @@ def crop_path(art: dict, crop_file: str) -> str | None:
 
 
 def tracklet_bbox_track(tracklet, art: dict) -> list[list]:
-    """Per-frame [t, x1, y1, x2, y2] (absolute seconds, source pixels), time-sorted."""
-    import numpy as np
+    """At-most-4Hz [t, x1, y1, x2, y2] rows in source pixels and absolute seconds."""
+    from src.services.video_boxes import box_track_from_arrays
 
     tracks = _tracks(art["tracks_dir"])
     if tracks is None:
         return []
     tid_arr, t_arr, xy_arr = tracks
     frag_map = _member_tids_by_entity(art["fragments"])
-    member_tids: list[int] = []
-    for eid in _member_entity_ids(tracklet):
-        member_tids.extend(frag_map.get(eid, []))
-    if not member_tids:
-        return []
-    mask = np.isin(tid_arr, np.array(sorted(set(member_tids)), dtype=tid_arr.dtype))
-    idx = np.nonzero(mask)[0]
-    if idx.size == 0:
-        return []
-    idx = idx[np.argsort(t_arr[idx])]
-    if idx.size > BBOX_MAX_POINTS:  # downsample huge tracks (keeps box smooth enough)
-        idx = idx[:: int(np.ceil(idx.size / BBOX_MAX_POINTS))]
-    out = []
-    for i in idx:
-        x1, y1, x2, y2 = xy_arr[i]
-        out.append([round(float(t_arr[i]), 2), int(x1), int(y1), int(x2), int(y2)])
-    return out
+    return box_track_from_arrays(tracklet, frag_map, tid_arr, t_arr, xy_arr)
