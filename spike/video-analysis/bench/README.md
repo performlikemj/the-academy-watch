@@ -80,6 +80,12 @@ is passed. `run.json` records a fingerprint over the adapter, resolved model
 only when that complete fingerprint matches; an explicit mismatched run ID is
 refused unless `--force` is used.
 
+Each claims file records `sent_frames` entries with the extracted image path,
+absolute timestamp, and exact `sent_w`/`sent_h` dimensions observed after
+extraction. Qwen is asked for boxes in that sent-image coordinate space. Each
+claim preserves that response as `box_model_space`; `box` is the bench's
+axis-by-axis conversion into source-video pixels used for scoring.
+
 `qwen3vl_mlx` is intentionally a fail-fast E0 stub. It documents the native
 video model/path but never substitutes another backend.
 
@@ -101,9 +107,9 @@ overall `untracked_gap` metric.
 `supported_rate_unboxed` is the headline E1 number. It measures supported
 claims citing unlabelled frames where the model had to locate the player
 itself. `supported_rate_boxed` is the echo-prone control. `echo_suspect_count`
-counts boxed-frame claims whose returned source-pixel box matches the exact
-drawn rectangle within two pixels on all four sides. The report also splits
-raw box-grounding rates into boxed and unboxed claims.
+counts boxed-frame claims whose raw model-space box matches the exact
+sent-image-space drawn rectangle within two pixels on all four sides. The
+report also splits raw box-grounding rates into boxed and unboxed claims.
 
 `time_only_rate` counts claims whose time is grounded but box is not. `hollow`
 means the claim lacks a valid time interval or box. Adapter errors mechanically

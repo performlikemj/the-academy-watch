@@ -158,8 +158,23 @@ def _normalize_adapter_claim(claim: dict) -> dict:
     )
     malformed_fields = sorted(set(normalized["malformed_fields"] + inherited_fields))
     malformed = normalized["malformed"] or inherited_malformed
+    model_box = claim.get("box_model_space", normalized["box"])
+    if not (
+        isinstance(model_box, (list, tuple))
+        and len(model_box) == 4
+        and all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            for value in model_box
+        )
+    ):
+        model_box = None
+    else:
+        model_box = [float(value) for value in model_box]
     return {
         **normalized,
+        "box_model_space": model_box,
         "malformed": malformed,
         "malformed_fields": malformed_fields,
         "boxed_frame": claim.get("boxed_frame") is True,
@@ -247,7 +262,7 @@ def score_claim(
         else None
     )
     echo_suspect = normalized["boxed_frame"] and _matches_drawn_box(
-        normalized["box"], drawn_anchor_box
+        normalized["box_model_space"], drawn_anchor_box
     )
 
     return {

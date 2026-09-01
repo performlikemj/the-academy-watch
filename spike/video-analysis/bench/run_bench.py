@@ -92,7 +92,7 @@ def _settings_fingerprint(settings: dict, clips: list[str]) -> str:
 
 def _run_metadata(settings: dict, clips: list[str]) -> dict:
     return {
-        "schema_version": "film-room-evidence-run-v2",
+        "schema_version": "film-room-evidence-run-v3",
         **settings,
         "fingerprint": _settings_fingerprint(settings, clips),
         "clips": clips,

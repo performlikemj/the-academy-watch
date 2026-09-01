@@ -11,7 +11,7 @@ if str(HERE) not in sys.path:
 
 from adapters import common as adapter_common  # noqa: E402
 from adapters import qwen3vl_ollama as qwen_adapter  # noqa: E402
-from adapters.common import sample_timestamps  # noqa: E402
+from adapters.common import sample_timestamps, scale_box  # noqa: E402
 from adapters.qwen3vl_mlx import STUB_ERROR, run as run_mlx  # noqa: E402
 from contract import parse_claims  # noqa: E402
 from run_bench import (  # noqa: E402
@@ -19,6 +19,7 @@ from run_bench import (  # noqa: E402
     _resolve_inference_settings,
     _run_metadata,
     _write_run_metadata,
+    run_benchmark,
 )
 from score import (  # noqa: E402
     box_matches,
@@ -170,6 +171,62 @@ def test_sampling_starts_where_the_truth_track_actually_begins():
     assert sample_timestamps(truth)[0] == (0.1, 10.1)
 
 
+def test_box_conversion_scales_x_and_y_independently_and_preserves_raw_box():
+    claims = [{"box": [100.0, 200.0, 300.0, 400.0]}]
+
+    converted = qwen_adapter.convert_claim_boxes(
+        claims, source_size=(1920, 1080), sent_size=(1280, 800)
+    )
+
+    assert converted[0]["box_model_space"] == [100.0, 200.0, 300.0, 400.0]
+    assert converted[0]["box"] == [150.0, 270.0, 450.0, 540.0]
+
+
+def test_box_conversion_is_unchanged_when_sent_size_equals_source_size():
+    box = [101.25, 202.5, 303.75, 405.0]
+
+    assert scale_box(box, (1920, 1080), (1920, 1080)) == box
+    converted = qwen_adapter.convert_claim_boxes(
+        [{"box": box.copy()}], source_size=(1920, 1080), sent_size=(1920, 1080)
+    )
+    assert converted[0]["box_model_space"] == box
+    assert converted[0]["box"] == box
+
+
+def test_extracted_frames_record_exact_sent_dimensions(monkeypatch, tmp_path):
+    image_module = pytest.importorskip("PIL.Image")
+
+    monkeypatch.setattr(
+        adapter_common.shutil,
+        "which",
+        lambda command: f"/usr/bin/{command}",
+    )
+
+    def fake_extract(_clip, output, *_args):
+        image_module.new("RGB", (1280, 720)).save(output)
+
+    monkeypatch.setattr(
+        adapter_common.qwen_match_analysis, "extract_frame", fake_extract
+    )
+    truth = {
+        "window": {"start_s": 10.0, "end_s": 11.0},
+        "box_track": [[10.0, 0, 0, 1, 1], [11.0, 0, 0, 1, 1]],
+    }
+
+    frames = adapter_common.extract_sample_frames(
+        tmp_path / "clip.mp4", truth, tmp_path / "frames"
+    )
+
+    assert frames == [
+        {
+            "path": str(tmp_path / "frames" / "frame-00.jpg"),
+            "t": 10.05,
+            "sent_w": 1280,
+            "sent_h": 720,
+        }
+    ]
+
+
 def test_shared_ollama_call_receives_capped_generation_options(monkeypatch, tmp_path):
     captured = {}
 
@@ -279,7 +336,9 @@ def test_qwen_adapter_parses_claims_from_thinking_and_records_origin(
     frame = tmp_path / "frame.jpg"
     frame.write_bytes(b"frame")
     monkeypatch.setattr(
-        qwen_adapter, "extract_sample_frames", lambda *_args: [(frame, 10.0)]
+        qwen_adapter,
+        "extract_sample_frames",
+        lambda *_args: [{"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}],
     )
     monkeypatch.setattr(
         qwen_adapter,
@@ -307,6 +366,75 @@ def test_qwen_adapter_parses_claims_from_thinking_and_records_origin(
     assert len(result["claims"]) == 1
     assert result["claims"][0]["claim"] == claim["claim"]
     assert result["claims"][0]["malformed"] is False
+    assert result["claims"][0]["box_model_space"] == [100.0, 100.0, 200.0, 200.0]
+    assert result["claims"][0]["box"] == [150.0, 150.0, 300.0, 300.0]
+    assert result["sent_frames"] == [
+        {"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}
+    ]
+
+
+def test_claims_file_carries_model_and_source_space_boxes(monkeypatch, tmp_path):
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(b"frame")
+    truth = {
+        "clip_id": "clip-1",
+        "jersey_number": 12,
+        "frame_size": [1920, 1080],
+        "window": {"start_s": 10.0, "end_s": 20.0},
+        "box_track": [
+            [10.0, 150, 150, 300, 300],
+            [20.0, 150, 150, 300, 300],
+        ],
+        "human_note": None,
+    }
+    manifest = {
+        "frozen_set_id": "frozen-1",
+        "clips": [{"clip_id": "clip-1", "clip": "clip.mp4", "truth": "truth.json"}],
+    }
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+    (tmp_path / "truth.json").write_text(json.dumps(truth))
+    monkeypatch.setattr(
+        qwen_adapter,
+        "extract_sample_frames",
+        lambda *_args: [{"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}],
+    )
+    monkeypatch.setattr(qwen_adapter, "apply_anchors", lambda *_args: [])
+    monkeypatch.setattr(
+        qwen_adapter,
+        "ollama_chat_with_options",
+        lambda *_args, **_kwargs: json.dumps(
+            {"claims": [_claim(t0=10.0, t1=10.0, box=[100, 100, 200, 200])]}
+        ),
+    )
+    args = SimpleNamespace(
+        adapter="qwen3vl_ollama",
+        clips="all",
+        ollama_url="http://ollama.test",
+        model="qwen3-vl:8b",
+        anchor_mode="first",
+        manifest=manifest_path,
+        report_root=tmp_path / "report",
+        run_id="coordinate-test",
+        timeout=12.0,
+        num_predict=400,
+        repeat_penalty=1.15,
+        force=False,
+    )
+
+    report, output_dir = run_benchmark(args)
+    persisted = json.loads((output_dir / "claims" / "clip-1.json").read_text())[
+        "claims"
+    ][0]
+
+    assert persisted["box_model_space"] == [100.0, 100.0, 200.0, 200.0]
+    assert persisted["box"] == [150.0, 150.0, 300.0, 300.0]
+    assert report["clips"][0]["claims"][0]["box_model_space"] == [
+        100.0,
+        100.0,
+        200.0,
+        200.0,
+    ]
 
 
 @pytest.mark.parametrize(
@@ -321,7 +449,9 @@ def test_qwen_adapter_flags_responses_with_no_parseable_claims(
 ):
     frame = tmp_path / "frame.jpg"
     monkeypatch.setattr(
-        qwen_adapter, "extract_sample_frames", lambda *_args: [(frame, 10.0)]
+        qwen_adapter,
+        "extract_sample_frames",
+        lambda *_args: [{"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}],
     )
     monkeypatch.setattr(qwen_adapter, "apply_anchors", lambda *_args: [])
     monkeypatch.setattr(
@@ -346,9 +476,24 @@ def test_qwen_adapter_flags_responses_with_no_parseable_claims(
 
 def test_anchor_first_draws_only_on_frame_zero(monkeypatch, tmp_path):
     frames = [
-        (tmp_path / "frame-0.jpg", 10.0),
-        (tmp_path / "frame-1.jpg", 15.0),
-        (tmp_path / "frame-2.jpg", 20.0),
+        {
+            "path": str(tmp_path / "frame-0.jpg"),
+            "t": 10.0,
+            "sent_w": 1280,
+            "sent_h": 720,
+        },
+        {
+            "path": str(tmp_path / "frame-1.jpg"),
+            "t": 15.0,
+            "sent_w": 1280,
+            "sent_h": 720,
+        },
+        {
+            "path": str(tmp_path / "frame-2.jpg"),
+            "t": 20.0,
+            "sent_w": 1280,
+            "sent_h": 720,
+        },
     ]
     truth = {
         "jersey_number": 12,
@@ -362,18 +507,25 @@ def test_anchor_first_draws_only_on_frame_zero(monkeypatch, tmp_path):
     monkeypatch.setattr(
         qwen_adapter,
         "draw_truth_box",
-        lambda frame, box, frame_size, jersey: drawn.append(
-            (frame, box, frame_size, jersey)
-        ),
+        lambda frame, box, jersey: drawn.append((frame, box, jersey)),
     )
 
     anchors = qwen_adapter.apply_anchors(frames, truth, "first")
 
-    assert [call[0] for call in drawn] == [frames[0][0]]
-    assert anchors == [{"t": 10.0, "box": [100.0, 100.0, 200.0, 200.0]}]
+    assert [call[0] for call in drawn] == [Path(frames[0]["path"])]
+    assert anchors == [
+        {
+            "t": 10.0,
+            "box": pytest.approx([66.667, 66.667, 133.333, 133.333], abs=0.001),
+            "box_source_space": [100.0, 100.0, 200.0, 200.0],
+            "sent_w": 1280,
+            "sent_h": 720,
+        }
+    ]
     prompt = qwen_adapter.build_prompt(
         {**truth, "window": {"start_s": 10, "end_s": 20}},
         [10.0, 15.0, 20.0],
+        (1280, 720),
         "first",
     )
     assert (
@@ -384,16 +536,46 @@ def test_anchor_first_draws_only_on_frame_zero(monkeypatch, tmp_path):
     all_prompt = qwen_adapter.build_prompt(
         {**truth, "window": {"start_s": 10, "end_s": 20}},
         [10.0, 15.0, 20.0],
+        (1280, 720),
         "all",
     )
     assert (
         "Every frame contains a thin red\nrectangle labelled #12. Describe ONLY the boxed player."
         in all_prompt
     )
+    assert "images provided are exactly\n1280x720 pixels" in prompt
+    assert "SOURCE pixel coordinates" not in prompt
     drawn.clear()
     all_anchors = qwen_adapter.apply_anchors(frames, truth, "all")
-    assert [call[0] for call in drawn] == [frame[0] for frame in frames]
+    assert [call[0] for call in drawn] == [Path(frame["path"]) for frame in frames]
     assert [anchor["t"] for anchor in all_anchors] == [10.0, 15.0, 20.0]
+
+
+def test_anchor_is_drawn_at_scaled_location_on_resized_frame(tmp_path):
+    image_module = pytest.importorskip("PIL.Image")
+    frame_path = tmp_path / "frame.png"
+    image_module.new("RGB", (1280, 720), (0, 0, 0)).save(frame_path)
+    frames = [
+        {
+            "path": str(frame_path),
+            "t": 10.0,
+            "sent_w": 1280,
+            "sent_h": 720,
+        }
+    ]
+    truth = {
+        "jersey_number": 12,
+        "frame_size": [1920, 1080],
+        "box_track": [[10.0, 960, 270, 1440, 810]],
+    }
+
+    anchors = qwen_adapter.apply_anchors(frames, truth, "first")
+
+    assert anchors[0]["box"] == [640.0, 180.0, 960.0, 540.0]
+    with image_module.open(frame_path) as image:
+        assert image.getpixel((640, 400)) == (255, 40, 40)
+        assert image.getpixel((639, 400)) == (0, 0, 0)
+        assert image.getpixel((960, 400)) == (255, 40, 40)
 
 
 def test_boxed_frame_tagging_uses_t0_and_half_second_tolerance():
@@ -659,6 +841,35 @@ def test_echo_suspect_requires_boxed_frame_and_all_sides_within_two_pixels():
     assert boundary["echo_suspect"] is True
     assert outside["echo_suspect"] is False
     assert unboxed["echo_suspect"] is False
+
+
+def test_echo_suspect_compares_model_box_with_sent_space_anchor():
+    truth = {
+        "clip_id": "clip-1",
+        "window": {"start_s": 10.0, "end_s": 20.0},
+        "box_track": [
+            [10.0, 150, 150, 300, 300],
+            [20.0, 150, 150, 300, 300],
+        ],
+        "human_note": None,
+    }
+    claim = _claim(
+        t0=10.0,
+        t1=10.0,
+        box=[150, 150, 300, 300],
+        box_model_space=[100, 100, 200, 200],
+        boxed_frame=True,
+    )
+
+    scored = score_claim(
+        claim,
+        truth,
+        [{"t": 10.0, "box": [100, 100, 200, 200]}],
+    )
+
+    assert scored["box_grounded"] is True
+    assert scored["echo_suspect"] is True
+    assert scored["drawn_anchor_box"] == [100.0, 100.0, 200.0, 200.0]
 
 
 def test_time_only_and_hollow_rates_capture_boxless_baseline():

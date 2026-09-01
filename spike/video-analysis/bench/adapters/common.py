@@ -40,9 +40,7 @@ def sample_timestamps(
     return [(round(local, 3), round(start + local, 3)) for local in local_times]
 
 
-def extract_sample_frames(
-    clip: Path, truth: dict, output_dir: Path
-) -> list[tuple[Path, float]]:
+def extract_sample_frames(clip: Path, truth: dict, output_dir: Path) -> list[dict]:
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
@@ -50,7 +48,7 @@ def extract_sample_frames(
     # Use both shared argv helpers up front so adapter media handling stays tied
     # to the current spike primitives rather than growing a second command shape.
     qwen_match_analysis.ffprobe_argv(ffprobe, clip)
-    frames: list[tuple[Path, float]] = []
+    frames: list[dict] = []
     output_dir.mkdir(parents=True, exist_ok=True)
     for index, (local_s, absolute_s) in enumerate(sample_timestamps(truth)):
         output = output_dir / f"frame-{index:02d}.jpg"
@@ -64,8 +62,71 @@ def extract_sample_frames(
             False,
             None,
         )
-        frames.append((output, absolute_s))
+        sent_width, sent_height = image_dimensions(output)
+        frames.append(
+            {
+                "path": str(output),
+                "t": absolute_s,
+                "sent_w": sent_width,
+                "sent_h": sent_height,
+            }
+        )
     return frames
+
+
+def image_dimensions(path: Path) -> tuple[int, int]:
+    """Read the exact dimensions of an extracted image."""
+    try:
+        from PIL import Image
+    except ImportError:
+        ffprobe = shutil.which("ffprobe")
+        if not ffprobe:
+            raise RuntimeError(
+                "Pillow is unavailable and ffprobe is not on PATH to read image size"
+            )
+        probe = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        stream = json.loads(probe.stdout)["streams"][0]
+        width, height = int(stream["width"]), int(stream["height"])
+    else:
+        with Image.open(path) as image:
+            width, height = image.size
+    if width <= 0 or height <= 0:
+        raise RuntimeError(f"invalid extracted image size: {width}x{height}")
+    return width, height
+
+
+def scale_box(
+    box: list[float], from_size: tuple[int, int], to_size: tuple[int, int]
+) -> list[float]:
+    """Scale one xyxy box independently on the x and y axes."""
+    from_width, from_height = from_size
+    to_width, to_height = to_size
+    if min(from_width, from_height, to_width, to_height) <= 0:
+        raise ValueError("box coordinate spaces must have positive dimensions")
+    scale_x = to_width / from_width
+    scale_y = to_height / from_height
+    return [
+        float(box[0]) * scale_x,
+        float(box[1]) * scale_y,
+        float(box[2]) * scale_x,
+        float(box[3]) * scale_y,
+    ]
 
 
 def ollama_chat_with_options(
@@ -139,29 +200,18 @@ def interpolated_box(box_track: list[list], timestamp_s: float) -> list[float] |
     return [float(value) for value in rows[-1][1:5]]
 
 
-def draw_truth_box(
-    frame: Path, box: list[float], frame_size: list[int], jersey_number: int
-) -> None:
-    """Draw a thin labelled box, preserving the extracted frame dimensions."""
+def draw_truth_box(frame: Path, box: list[float], jersey_number: int) -> None:
+    """Draw a sent-image-space box, preserving the extracted dimensions."""
     try:
         from PIL import Image, ImageDraw
 
         image = Image.open(frame).convert("RGB")
-        source_width, source_height = frame_size
-        scale_x = image.width / source_width
-        scale_y = image.height / source_height
-        scaled = [
-            box[0] * scale_x,
-            box[1] * scale_y,
-            box[2] * scale_x,
-            box[3] * scale_y,
-        ]
         draw = ImageDraw.Draw(image)
-        draw.rectangle(scaled, outline=(255, 40, 40), width=3)
+        draw.rectangle(box, outline=(255, 40, 40), width=3)
         label = f"#{jersey_number}"
-        label_box = draw.textbbox((scaled[0], scaled[1]), label)
+        label_box = draw.textbbox((box[0], box[1]), label)
         draw.rectangle(label_box, fill=(255, 40, 40))
-        draw.text((scaled[0], scaled[1]), label, fill=(255, 255, 255))
+        draw.text((box[0], box[1]), label, fill=(255, 255, 255))
         image.save(frame, quality=94)
         return
     except ImportError:
@@ -172,33 +222,11 @@ def draw_truth_box(
         raise RuntimeError(
             "Pillow is unavailable and ffmpeg is not on PATH for drawbox fallback"
         )
-    # ffmpeg sees the 1280px-wide extracted image, so scale source coordinates.
-    probe = subprocess.run(
-        [
-            shutil.which("ffprobe") or "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "json",
-            str(frame),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    stream = json.loads(probe.stdout)["streams"][0]
-    scale_x = int(stream["width"]) / frame_size[0]
-    scale_y = int(stream["height"]) / frame_size[1]
-    scaled = [box[0] * scale_x, box[1] * scale_y, box[2] * scale_x, box[3] * scale_y]
     output = frame.with_name(f"{frame.stem}-boxed.jpg")
     drawbox = (
-        f"drawbox=x={scaled[0]:.3f}:y={scaled[1]:.3f}:"
-        f"w={scaled[2] - scaled[0]:.3f}:h={scaled[3] - scaled[1]:.3f}:color=red:t=3,"
-        f"drawtext=text='#{jersey_number}':x={scaled[0]:.3f}:y={scaled[1]:.3f}:"
+        f"drawbox=x={box[0]:.3f}:y={box[1]:.3f}:"
+        f"w={box[2] - box[0]:.3f}:h={box[3] - box[1]:.3f}:color=red:t=3,"
+        f"drawtext=text='#{jersey_number}':x={box[0]:.3f}:y={box[1]:.3f}:"
         "fontcolor=white:fontsize=22:box=1:boxcolor=red"
     )
     subprocess.run(

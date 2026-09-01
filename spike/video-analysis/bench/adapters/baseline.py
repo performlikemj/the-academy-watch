@@ -21,14 +21,16 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
     clip = Path(clip)
     model = cfg.get("model") or os.getenv("BENCH_BASELINE_MODEL") or DEFAULT_MODEL
     started = time.monotonic()
+    sent_frames = []
     raw_frames = []
     claims = []
     error = None
     try:
         with temp_directory("evidence-baseline-") as temp_dir:
-            for frame_path, absolute_s in extract_sample_frames(
-                clip, truth, Path(temp_dir) / "frames"
-            ):
+            sent_frames = extract_sample_frames(clip, truth, Path(temp_dir) / "frames")
+            for frame in sent_frames:
+                frame_path = Path(frame["path"])
+                absolute_s = float(frame["t"])
                 raw = ollama_chat_with_options(
                     qwen_match_analysis.build_observation_prompt(absolute_s),
                     ollama_url=cfg.get(
@@ -84,5 +86,6 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
         "wall_s": round(time.monotonic() - started, 3),
         "tokens": None,
         "model": model,
+        "sent_frames": sent_frames,
         "error": error,
     }
