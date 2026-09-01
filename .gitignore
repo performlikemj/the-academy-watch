@@ -41,6 +41,7 @@ loan-army-backend/newsletter*
 .venv/
 .venv-test/
 loan-army-frontend/test-results
+academy-watch-frontend/test-results/
 playwright-report
 settings.local.json
 CONTINUITY*.md
