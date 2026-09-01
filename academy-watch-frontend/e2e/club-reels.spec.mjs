@@ -32,6 +32,50 @@ const roster = {
   count: 1,
 }
 
+const qwenAnalysis = {
+  match_summary: 'Harbour build through midfield in the sampled windows.',
+  team_analysis: [],
+  player_notes: [{
+    kit_color: 'teal',
+    jersey_number: 8,
+    observations: ['Offers a passing option.', 'Turns into the open channel.'],
+    evidence: [
+      { t: 21.25, box: [180, 90, 310, 430], iou: 0.72 },
+      { t: 31.5, box: [210, 100, 340, 440], iou: 0.66 },
+    ],
+    read_model: 'qwen3-vl:8b',
+  }],
+  window_captions: [{
+    roster_entry_id: 61,
+    tracklet_id: 91,
+    start_s: 20,
+    end_s: 24,
+    caption: 'Checks into space before receiving.',
+    player_visible: true,
+    action_type: 'off_ball_move',
+    visible_pitch_zone: 'central',
+    grounded: true,
+    box_t: 21.25,
+    box: [180, 90, 310, 430],
+    evidence_iou: 0.72,
+    caption_model: 'qwen3-vl:8b',
+  }, {
+    roster_entry_id: 61,
+    tracklet_id: 92,
+    start_s: 30,
+    end_s: 34,
+    caption: 'Unsupported claim that must be withheld.',
+    player_visible: false,
+    action_type: null,
+    visible_pitch_zone: null,
+    grounded: false,
+    box_t: null,
+    box: null,
+    evidence_iou: null,
+    caption_model: 'qwen3-vl:8b',
+  }],
+}
+
 function matchPayload(id = 41) {
   return {
     id,
@@ -41,7 +85,7 @@ function matchPayload(id = 41) {
     competition: 'Kanto Academy League',
     our_kit_color: '#0e7490',
     opponent_kit_color: '#e11d48',
-    capture_meta: {},
+    capture_meta: { qwen_analysis: qwenAnalysis },
     duration_s: 5400,
     kickoff_s: 12,
     halftime_s: 2712,
@@ -69,17 +113,23 @@ const reel = {
     jersey_number: 8,
     position: 'Midfielder',
     team_cluster: 0,
-    tracklet_ids: [91],
-    chains: [{ tracklet_id: 91, confidence: 'high', contaminated: false }],
+    tracklet_ids: [91, 92],
+    chains: [
+      { tracklet_id: 91, confidence: 'high', contaminated: false },
+      { tracklet_id: 92, confidence: 'high', contaminated: false },
+    ],
     number_mismatch: false,
     total_visible_s: 12,
     confidence: 'high',
-    windows: [{ start_s: 20, end_s: 32, tracklet_id: 91, rank: 1 }],
+    windows: [
+      { start_s: 20, end_s: 24, tracklet_id: 91, rank: 1 },
+      { start_s: 30, end_s: 34, tracklet_id: 92, rank: 2 },
+    ],
   }],
   unassigned: { count: 3, visible_s: 19 },
   team_overview: {
     clusters: [{ cluster: 0, is_ours: true, players: [61], total_visible_s: 12 }],
-    qwen_analysis_present: false,
+    qwen_analysis_present: true,
   },
 }
 
@@ -115,12 +165,12 @@ async function installClubMocks(page, { denyReel = false, reelResponses = [reel]
       tokenRequestCount += 1
       return denyReel
         ? route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Match not found' }) })
-        : route.fulfill({ json: { token: 'scoped-club-media-token', expires_in: 1800 } })
+        : route.fulfill({ json: { token: null, expires_in: 1800 } })
     }
     if (url.pathname.startsWith('/api/admin/video/')) {
       adminMediaHeaders.push(request.headers())
       if (url.pathname.endsWith('/crops')) return route.fulfill({ json: { crops: [] } })
-      if (url.pathname.endsWith('/bbox-track')) return route.fulfill({ json: { boxes: [], available: false } })
+      if (url.pathname.endsWith('/bbox-track')) return route.fulfill({ json: { boxes: [[20, 180, 90, 310, 430]], available: true } })
       return route.fulfill({ status: 404, body: '' })
     }
     return route.fulfill({ json: {} })
@@ -130,6 +180,67 @@ async function installClubMocks(page, { denyReel = false, reelResponses = [reel]
     reelRequestCount: () => reelRequestCount,
     tokenRequestCount: () => tokenRequestCount,
   }
+}
+
+async function installAdminMocks(page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('academy_watch_user_token', 'mock-admin-token')
+    localStorage.setItem('academy_watch_is_admin', 'true')
+    localStorage.setItem('academy_watch_admin_key', 'mock-admin-key')
+    localStorage.setItem('academy_watch_display_name', 'Admin Reviewer')
+  })
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === '/api/admin/auth-check') return route.fulfill({ json: { ok: true } })
+    if (url.pathname === '/api/admin/video/matches/41') return route.fulfill({ json: matchPayload() })
+    if (url.pathname === '/api/admin/video/matches/41/tracklets') return route.fulfill({ json: { tracklets: [] } })
+    if (url.pathname === '/api/admin/video/matches/41/reel') return route.fulfill({ json: reel })
+    if (url.pathname === '/api/admin/video/matches/41/report') return route.fulfill({ json: { reports: [] } })
+    if (url.pathname === '/api/admin/video/matches/41/accuracy') {
+      return route.fulfill({
+        json: {
+          accuracy: {
+            reviewed: 0,
+            chains_total: 0,
+            auto_tag_precision: null,
+            number_read_accuracy: null,
+            confirmed: 0,
+            reassigned: 0,
+            dismissed: 0,
+            splits: 0,
+            unreviewed: 0,
+          },
+          recalibration: { suggestions: [] },
+        },
+      })
+    }
+    if (url.pathname === '/api/admin/video/matches/41/media-token') return route.fulfill({ json: { token: null, expires_in: 1800 } })
+    if (url.pathname.endsWith('/crops')) return route.fulfill({ json: { crops: [] } })
+    if (url.pathname.endsWith('/bbox-track')) return route.fulfill({ json: { boxes: [[20, 180, 90, 310, 430]], available: true } })
+    return route.fulfill({ json: {} })
+  })
+}
+
+async function expectVerifiedAndWithheldReel(page, screenshotPaths) {
+  await page.getByRole('button', { name: /#8 Mina Sato/ }).click()
+
+  await expect(page.getByText('Checks into space before receiving.')).toBeVisible()
+  await expect(page.getByText('verified on player').last()).toBeVisible()
+  await expect(page.getByLabel('checked against tracking at t=21.25s (overlap 0.72)').last()).toBeVisible()
+  await expect(page.getByText('box follows this player (1 detections)')).toBeVisible()
+  await expect(page.locator('canvas[aria-hidden="true"]').last()).toBeVisible()
+
+  await page.getByText('AI match read (qualitative)', { exact: true }).click()
+  await expect(page.getByText('2 of 2 observations verified')).toBeVisible()
+  await expect(page.getByText('Offers a passing option.')).toBeVisible()
+  await expect(page.getByLabel('checked against tracking at t=31.5s (overlap 0.66)')).toBeVisible()
+  await page.screenshot({ path: `test-results/${screenshotPaths.verified}`, fullPage: true })
+
+  await page.getByRole('button', { name: /02 · 0:30/ }).click()
+  await expect(page.getByText('No verified note for this clip')).toBeVisible()
+  await expect(page.getByText('Checks into space before receiving.')).toHaveCount(0)
+  await expect(page.getByText('Unsupported claim that must be withheld.')).toHaveCount(0)
+  await page.screenshot({ path: `test-results/${screenshotPaths.withheld}`, fullPage: true })
 }
 
 test('club manager opens a read-only player reel without admin credentials', async ({ page }) => {
@@ -149,7 +260,10 @@ test('club manager opens a read-only player reel without admin credentials', asy
   await expect.poll(() => requests.adminMediaHeaders.length).toBeGreaterThan(0)
   expect(requests.adminMediaHeaders.every((headers) => !headers['x-api-key'] && !headers['x-admin-key'])).toBe(true)
 
-  await page.screenshot({ path: 'test-results/club-reels-allowed.png', fullPage: true })
+  await expectVerifiedAndWithheldReel(page, {
+    verified: 'club-reels-allowed.png',
+    withheld: 'club-reels-withheld.png',
+  })
 
   await page.getByRole('button', { name: 'Hide player reels' }).click()
   await page.getByRole('button', { name: 'View player reels' }).click()
@@ -157,6 +271,17 @@ test('club manager opens a read-only player reel without admin credentials', asy
   await expect.poll(requests.tokenRequestCount).toBe(2)
   await expect(page.getByText('No player reels yet — bind identities in Tag review below.')).toBeVisible()
   await expect(page.getByText('#8 Mina Sato')).toHaveCount(0)
+})
+
+test('admin reel shows verified notes and honestly withholds ungrounded prose', async ({ page }) => {
+  await installAdminMocks(page)
+  await page.goto('/admin/video/41')
+
+  await expect(page.getByRole('heading', { name: 'Player reels' })).toBeVisible()
+  await expectVerifiedAndWithheldReel(page, {
+    verified: 'admin-reels-verified.png',
+    withheld: 'admin-reels-withheld.png',
+  })
 })
 
 test('foreign reel denial renders the same neutral unavailable state', async ({ page }) => {

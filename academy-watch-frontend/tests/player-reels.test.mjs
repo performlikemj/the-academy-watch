@@ -39,11 +39,12 @@ const reelHelpers = new Function(`
   ${extractFunction('orderReelWindows')}
   ${extractFunction('matchCaptionToWindow')}
   ${extractFunction('captionPresentation')}
-  return { orderReelWindows, matchCaptionToWindow, captionPresentation }
+  ${extractFunction('playerReadEvidence')}
+  return { orderReelWindows, matchCaptionToWindow, captionPresentation, playerReadEvidence }
 `)()
 
 const { formatVoteSummary, mismatchBadge } = identityHelpers
-const { orderReelWindows, matchCaptionToWindow, captionPresentation } = reelHelpers
+const { orderReelWindows, matchCaptionToWindow, captionPresentation, playerReadEvidence } = reelHelpers
 
 test('getVideoReel calls the admin reel endpoint', async () => {
   const originalRequest = APIService.request
@@ -139,7 +140,55 @@ test('matchCaptionToWindow invalidates rebound and legacy captions', () => {
   assert.equal(matchCaptionToWindow(window, [rebound, legacy, current], player), current)
 })
 
-test('captionPresentation demotes unconfirmed-player captions without an action chip', () => {
+test('captionPresentation marks a tracking-grounded note as verified', () => {
+  assert.deepEqual(captionPresentation({
+    caption: 'Checks into space before receiving.',
+    grounded: true,
+    box_t: 21.25,
+    box: [100, 120, 220, 420],
+    evidence_iou: 0.72,
+    caption_model: 'qwen3-vl:8b',
+  }), {
+    kind: 'verified',
+    label: 'AI clip notes — qualitative',
+    showActionType: true,
+    verificationLabel: 'verified on player',
+    verificationDetail: 'checked against tracking at t=21.25s (overlap 0.72)',
+  })
+})
+
+test('captionPresentation withholds an explicitly ungrounded note', () => {
+  assert.deepEqual(captionPresentation({
+    caption: 'This unsupported prose must never render.',
+    grounded: false,
+    box_t: 25,
+    box: [50, 50, 75, 100],
+    evidence_iou: 0.18,
+    caption_model: 'qwen3-vl:8b',
+  }), {
+    kind: 'withheld',
+    label: 'Tracking verification',
+    showActionType: false,
+    message: 'No verified note for this clip',
+  })
+})
+
+test('captionPresentation withholds null prose whenever the new grounding fields are present', () => {
+  assert.deepEqual(captionPresentation({
+    caption: null,
+    box_t: null,
+    box: null,
+    evidence_iou: null,
+    caption_model: 'qwen3-vl:8b',
+  }), {
+    kind: 'withheld',
+    label: 'Tracking verification',
+    showActionType: false,
+    message: 'No verified note for this clip',
+  })
+})
+
+test('captionPresentation preserves legacy player and context payload behavior', () => {
   assert.deepEqual(captionPresentation({ player_visible: true }), {
     kind: 'player',
     label: 'AI clip notes — qualitative',
@@ -150,6 +199,15 @@ test('captionPresentation demotes unconfirmed-player captions without an action 
     label: 'clip context — player not confirmed in frame',
     showActionType: false,
   })
+  assert.equal(captionPresentation(null), null)
+})
+
+test('playerReadEvidence counts index-aligned evidence and leaves legacy notes unchanged', () => {
+  assert.deepEqual(playerReadEvidence({
+    observations: ['First read', 'Second read', 'Third read'],
+    evidence: [{ t: 20, box: [1, 2, 3, 4], iou: 0.8 }, null, { t: 28, box: [5, 6, 7, 8], iou: 0.6 }],
+  }), { verified: 2, total: 3 })
+  assert.equal(playerReadEvidence({ observations: ['Legacy read'] }), null)
 })
 
 test('formatVoteSummary orders model reads by strength and includes honest suggestions', () => {
