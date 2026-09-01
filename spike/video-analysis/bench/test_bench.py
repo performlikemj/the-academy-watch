@@ -172,25 +172,117 @@ def test_sampling_starts_where_the_truth_track_actually_begins():
 
 
 def test_box_conversion_scales_x_and_y_independently_and_preserves_raw_box():
-    claims = [{"box": [100.0, 200.0, 300.0, 400.0]}]
+    claims = [{"box": [100.0, 200.0, 1100.0, 400.0]}]
 
     converted = qwen_adapter.convert_claim_boxes(
-        claims, source_size=(1920, 1080), sent_size=(1280, 800)
+        claims,
+        source_size=(1920, 1080),
+        sent_size=(1280, 800),
+        box_space="image_pixels",
     )
 
-    assert converted[0]["box_model_space"] == [100.0, 200.0, 300.0, 400.0]
-    assert converted[0]["box"] == [150.0, 270.0, 450.0, 540.0]
+    assert converted[0]["box_model_space"] == [100.0, 200.0, 1100.0, 400.0]
+    assert converted[0]["box"] == [150.0, 270.0, 1650.0, 540.0]
+    assert converted[0]["box_space"] == "image_pixels"
+    assert converted[0].get("box_sanity_reason") is None
 
 
 def test_box_conversion_is_unchanged_when_sent_size_equals_source_size():
     box = [101.25, 202.5, 303.75, 405.0]
 
-    assert scale_box(box, (1920, 1080), (1920, 1080)) == box
+    assert scale_box(box, (800, 800), (800, 800)) == box
     converted = qwen_adapter.convert_claim_boxes(
-        [{"box": box.copy()}], source_size=(1920, 1080), sent_size=(1920, 1080)
+        [{"box": box.copy()}],
+        source_size=(800, 800),
+        sent_size=(800, 800),
+        box_space="image_pixels",
     )
     assert converted[0]["box_model_space"] == box
     assert converted[0]["box"] == box
+
+
+def test_normalized_1000_conversion_uses_source_dimensions():
+    converted = qwen_adapter.convert_claim_boxes(
+        [{"box": [100, 200, 300, 400]}],
+        source_size=(1920, 1080),
+        sent_size=(1280, 720),
+        box_space="normalized_1000",
+    )[0]
+
+    assert converted["box_model_space"] == [100, 200, 300, 400]
+    assert converted["box"] == [192.0, 216.0, 576.0, 432.0]
+    assert converted["box_space"] == "normalized_1000"
+
+
+def test_worked_normalized_example_is_grounded_against_truth():
+    converted = qwen_adapter.convert_claim_boxes(
+        [_claim(t0=10.0, t1=10.0, box=[942, 481, 999, 663])],
+        source_size=(1920, 1080),
+        sent_size=(1280, 720),
+        box_space="normalized_1000",
+    )[0]
+    truth = {
+        "clip_id": "worked-example",
+        "window": {"start_s": 10.0, "end_s": 10.0},
+        "box_track": [[10.0, 1828, 519, 1919, 735]],
+        "human_note": None,
+    }
+
+    scored = score_claim(converted, truth)
+
+    assert converted["box"] == pytest.approx([1808.64, 519.48, 1918.08, 716.04])
+    assert scored["box_grounded"] is True
+    assert scored["supported"] is True
+
+
+def test_out_of_frame_box_is_malformed_and_counted():
+    claim = qwen_adapter.convert_claim_boxes(
+        [_claim(t0=10.0, t1=10.0, box=[1100, 100, 1200, 200])],
+        source_size=(1920, 1080),
+        sent_size=(1280, 720),
+        box_space="normalized_1000",
+    )[0]
+    reason = "box outside frame after conversion (space=normalized_1000)"
+
+    assert claim["malformed"] is True
+    assert claim["box_sanity_reason"] == reason
+    assert reason in claim["malformed_fields"]
+    report = score_run(
+        [{"clip_id": "clip-1", "claims": [claim], "error": None}],
+        {"clip-1": _truth()},
+    )
+    assert report["overall"]["box_sanity_guard_count"] == 1
+    assert report["clips"][0]["metrics"]["box_sanity_guard_count"] == 1
+
+
+@pytest.mark.parametrize(
+    ("model_box", "box_space", "expected_reason"),
+    [
+        (
+            [0, 0, 1001, 1001],
+            "normalized_1000",
+            "box area exceeds source frame after conversion (space=normalized_1000)",
+        ),
+        (
+            [100, 100, 200, 200],
+            "image_pixels",
+            "image-pixel box uses only coordinates <=1000 while sent image is "
+            "larger (space=image_pixels)",
+        ),
+    ],
+)
+def test_other_box_sanity_guards_mark_claim_malformed(
+    model_box, box_space, expected_reason
+):
+    converted = qwen_adapter.convert_claim_boxes(
+        [{"box": model_box, "malformed": False, "malformed_fields": []}],
+        source_size=(1920, 1080),
+        sent_size=(1280, 720),
+        box_space=box_space,
+    )[0]
+
+    assert converted["malformed"] is True
+    assert converted["box_sanity_reason"] == expected_reason
 
 
 def test_extracted_frames_record_exact_sent_dimensions(monkeypatch, tmp_path):
@@ -367,7 +459,8 @@ def test_qwen_adapter_parses_claims_from_thinking_and_records_origin(
     assert result["claims"][0]["claim"] == claim["claim"]
     assert result["claims"][0]["malformed"] is False
     assert result["claims"][0]["box_model_space"] == [100.0, 100.0, 200.0, 200.0]
-    assert result["claims"][0]["box"] == [150.0, 150.0, 300.0, 300.0]
+    assert result["claims"][0]["box_space"] == "normalized_1000"
+    assert result["claims"][0]["box"] == [192.0, 108.0, 384.0, 216.0]
     assert result["sent_frames"] == [
         {"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}
     ]
@@ -428,13 +521,16 @@ def test_claims_file_carries_model_and_source_space_boxes(monkeypatch, tmp_path)
     ][0]
 
     assert persisted["box_model_space"] == [100.0, 100.0, 200.0, 200.0]
-    assert persisted["box"] == [150.0, 150.0, 300.0, 300.0]
+    assert persisted["box_space"] == "normalized_1000"
+    assert persisted["box"] == [192.0, 108.0, 384.0, 216.0]
     assert report["clips"][0]["claims"][0]["box_model_space"] == [
         100.0,
         100.0,
         200.0,
         200.0,
     ]
+    metadata = json.loads((output_dir / "run.json").read_text())
+    assert metadata["box_space"] == "normalized_1000"
 
 
 @pytest.mark.parametrize(
@@ -527,6 +623,7 @@ def test_anchor_first_draws_only_on_frame_zero(monkeypatch, tmp_path):
         [10.0, 15.0, 20.0],
         (1280, 720),
         "first",
+        "normalized_1000",
     )
     assert (
         "the first image identifies the player with a red rectangle; the other images are "
@@ -538,12 +635,15 @@ def test_anchor_first_draws_only_on_frame_zero(monkeypatch, tmp_path):
         [10.0, 15.0, 20.0],
         (1280, 720),
         "all",
+        "image_pixels",
     )
     assert (
         "Every frame contains a thin red\nrectangle labelled #12. Describe ONLY the boxed player."
         in all_prompt
     )
     assert "images provided are exactly\n1280x720 pixels" in prompt
+    assert "integers from 0 to 1000 relative to the image" in prompt
+    assert "coordinates of the IMAGE PROVIDED (1280x720)" in all_prompt
     assert "SOURCE pixel coordinates" not in prompt
     drawn.clear()
     all_anchors = qwen_adapter.apply_anchors(frames, truth, "all")
@@ -600,12 +700,13 @@ def test_resume_fingerprint_mismatch_is_not_resumed_and_is_refused(tmp_path):
         "ollama_url": "http://ollama.test",
         "timeout_s": 300.0,
         "anchor_mode": "first",
+        "box_space": "normalized_1000",
         "num_predict": 400,
         "repeat_penalty": 1.15,
         "frozen_set_id": "frozen-1",
     }
     first = _run_metadata(first_settings, ["clip-1"])
-    changed = _run_metadata({**first_settings, "timeout_s": 301.0}, ["clip-1"])
+    changed = _run_metadata({**first_settings, "box_space": "image_pixels"}, ["clip-1"])
     run_dir = tmp_path / "run-1"
     _write_run_metadata(run_dir, first)
 
@@ -616,6 +717,7 @@ def test_resume_fingerprint_mismatch_is_not_resumed_and_is_refused(tmp_path):
 
 def test_run_metadata_records_model_resolved_from_environment(monkeypatch):
     monkeypatch.setenv("BENCH_MODEL", "qwen3-vl:env-fallback")
+    monkeypatch.delenv("BENCH_BOX_SPACE", raising=False)
     args = SimpleNamespace(
         adapter="qwen3vl_ollama",
         model=None,
@@ -634,10 +736,35 @@ def test_run_metadata_records_model_resolved_from_environment(monkeypatch):
     assert metadata["ollama_url"] == "http://ollama.test"
     assert metadata["timeout_s"] == 123.0
     assert metadata["anchor_mode"] == "first"
+    assert metadata["box_space"] == "normalized_1000"
     assert metadata["num_predict"] == 350
     assert metadata["repeat_penalty"] == 1.2
     assert metadata["adapter"] == "qwen3vl_ollama"
     assert metadata["frozen_set_id"] == "frozen-1"
+
+
+def test_box_space_resolves_from_environment_and_cli_wins(monkeypatch):
+    monkeypatch.setenv("BENCH_BOX_SPACE", "image_pixels")
+    args = SimpleNamespace(
+        adapter="qwen3vl_ollama",
+        model="qwen3-vl:8b",
+        ollama_url="http://ollama.test",
+        timeout=123.0,
+        anchor_mode="first",
+        box_space=None,
+        num_predict=350,
+        repeat_penalty=1.2,
+    )
+
+    assert (
+        _resolve_inference_settings(args, {"frozen_set_id": "frozen-1"})["box_space"]
+        == "image_pixels"
+    )
+    args.box_space = "normalized_1000"
+    assert (
+        _resolve_inference_settings(args, {"frozen_set_id": "frozen-1"})["box_space"]
+        == "normalized_1000"
+    )
 
 
 def test_box_grounding_accepts_iou_threshold():
@@ -870,6 +997,28 @@ def test_echo_suspect_compares_model_box_with_sent_space_anchor():
     assert scored["box_grounded"] is True
     assert scored["echo_suspect"] is True
     assert scored["drawn_anchor_box"] == [100.0, 100.0, 200.0, 200.0]
+
+
+def test_echo_suspect_converts_normalized_box_to_sent_image_pixels():
+    claim = _claim(
+        t0=10.0,
+        t1=10.0,
+        box=[150, 150, 300, 300],
+        box_model_space=[100, 100, 200, 200],
+        box_space="normalized_1000",
+        boxed_frame=True,
+    )
+    anchor = {
+        "t": 10.0,
+        "box": [128, 72, 256, 144],
+        "sent_w": 1280,
+        "sent_h": 720,
+    }
+
+    scored = score_claim(claim, _truth(), [anchor])
+
+    assert scored["echo_suspect"] is True
+    assert scored["drawn_anchor_box"] == [128.0, 72.0, 256.0, 144.0]
 
 
 def test_time_only_and_hollow_rates_capture_boxless_baseline():

@@ -28,6 +28,7 @@ MODEL_ENVIRONMENT = {
 }
 MAX_NUM_PREDICT = 400
 DEFAULT_REPEAT_PENALTY = 1.15
+BOX_SPACES = ("normalized_1000", "image_pixels")
 
 
 def _load_json(path: Path) -> dict:
@@ -69,12 +70,24 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
         raise ValueError("--timeout must be a positive finite number")
     if not math.isfinite(repeat_penalty) or repeat_penalty <= 0:
         raise ValueError("--repeat-penalty must be a positive finite number")
+    requested_box_space = getattr(args, "box_space", None) or os.getenv(
+        "BENCH_BOX_SPACE"
+    )
+    default_box_space = (
+        "normalized_1000"
+        if str(args.adapter).startswith("qwen3vl_")
+        else "image_pixels"
+    )
+    box_space = requested_box_space or default_box_space
+    if box_space not in BOX_SPACES:
+        raise ValueError(f"--box-space must be one of {', '.join(BOX_SPACES)}")
     return {
         "adapter": args.adapter,
         "model": _resolved_model(args.adapter, args.model),
         "ollama_url": str(args.ollama_url),
         "timeout_s": timeout_s,
         "anchor_mode": args.anchor_mode,
+        "box_space": box_space,
         "num_predict": max(1, min(int(args.num_predict), MAX_NUM_PREDICT)),
         "repeat_penalty": repeat_penalty,
         "frozen_set_id": frozen_set_id,
@@ -92,7 +105,7 @@ def _settings_fingerprint(settings: dict, clips: list[str]) -> str:
 
 def _run_metadata(settings: dict, clips: list[str]) -> dict:
     return {
-        "schema_version": "film-room-evidence-run-v3",
+        "schema_version": "film-room-evidence-run-v4",
         **settings,
         "fingerprint": _settings_fingerprint(settings, clips),
         "clips": clips,
@@ -182,6 +195,7 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         "model": settings["model"],
         "timeout_s": settings["timeout_s"],
         "anchor_mode": settings["anchor_mode"],
+        "box_space": settings["box_space"],
         "num_predict": settings["num_predict"],
         "repeat_penalty": settings["repeat_penalty"],
     }
@@ -211,9 +225,9 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
 
 def print_summary(report: dict, output_dir: Path) -> None:
     print(
-        "\nclip_id                                      status    claims  unboxed  boxed  echo  gap  unsupported  hollow  wall_s"
+        "\nclip_id                                      status    claims  unboxed  boxed  echo  guard  gap  unsupported  hollow  wall_s"
     )
-    print("-" * 122)
+    print("-" * 129)
     for clip in report["clips"]:
         metrics = clip.get("metrics") or {}
 
@@ -225,6 +239,7 @@ def print_summary(report: dict, output_dir: Path) -> None:
             f"{str(clip['clip_id']):44} {clip['status']:9} {str(metrics.get('claim_count', '—')):>6} "
             f"{pct('supported_rate_unboxed'):>7} {pct('supported_rate_boxed'):>6} "
             f"{str(metrics.get('echo_suspect_count', '—')):>5} "
+            f"{str(metrics.get('box_sanity_guard_count', '—')):>6} "
             f"{str(metrics.get('untracked_gap', '—')):>4} "
             f"{pct('unsupported_rate'):>12} {pct('hollow_rate'):>7} "
             f"{str(clip.get('wall_s') if clip.get('wall_s') is not None else '—'):>7}"
@@ -233,6 +248,7 @@ def print_summary(report: dict, output_dir: Path) -> None:
     print(
         f"overall: supported_unboxed={overall['supported_rate_unboxed']} "
         f"supported_boxed={overall['supported_rate_boxed']} echo_suspect={overall['echo_suspect_count']} "
+        f"box_sanity_guard={overall['box_sanity_guard_count']} "
         f"untracked_gap={overall['untracked_gap']} "
         f"unsupported={overall['unsupported_rate']} hollow={overall['hollow_rate']} failed={overall['failed_clips']}"
     )
@@ -254,6 +270,15 @@ def _parser() -> argparse.ArgumentParser:
         choices=("first", "all"),
         default="first",
         help="qwen3vl_ollama identity anchors: first image only (default) or every image",
+    )
+    parser.add_argument(
+        "--box-space",
+        choices=BOX_SPACES,
+        default=None,
+        help=(
+            "model box coordinates (env BENCH_BOX_SPACE; qwen3-vl default: "
+            "normalized_1000)"
+        ),
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--report-root", type=Path, default=DEFAULT_REPORT_ROOT)
