@@ -52,6 +52,7 @@ No basecamp-specific paths are needed when its Python is at the default location
 | `SIM_ADMIN_API_KEY` | unset | Explicit `ADMIN_API_KEY` override; otherwise the backend `.env` value is used. |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama HTTP origin. |
 | `SIM_VISION_MODEL` | `qwen3.8:27b-obliterated-q8` | Ollama vision model used for grading and the proposal. |
+| `SIM_NUM_CTX` | `65536` | Ollama context for grading and proposals; set to `0` to omit `num_ctx`. |
 | `SIM_GRADE` | `1` | Set to `0` to skip all Ollama calls; expected steps become `ungraded`. |
 | `SIM_MATCH_ID` | `4` | Seeded Film Room match exercised by the player-reels journey. |
 

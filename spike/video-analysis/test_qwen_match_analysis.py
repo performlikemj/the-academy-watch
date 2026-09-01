@@ -769,6 +769,7 @@ def test_ollama_chat_passes_num_predict_and_repeat_penalty(monkeypatch):
         assert timeout == 17
         return FakeResponse()
 
+    monkeypatch.delenv("QWEN_NUM_CTX", raising=False)
     monkeypatch.setattr(qwen_analysis.urllib.request, "urlopen", fake_urlopen)
 
     qwen_analysis.ollama_chat(
@@ -782,8 +783,39 @@ def test_ollama_chat_passes_num_predict_and_repeat_penalty(monkeypatch):
     assert request_bodies[0]["options"] == {
         "temperature": 0,
         "repeat_penalty": 1.15,
+        "num_ctx": 65536,
         "num_predict": 123,
     }
+
+
+def test_ollama_chat_omits_num_ctx_when_disabled(monkeypatch):
+    request_bodies = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return json.dumps({"message": {"content": "{}"}}).encode()
+
+    def fake_urlopen(request, timeout):
+        request_bodies.append(json.loads(request.data))
+        return FakeResponse()
+
+    monkeypatch.setenv("QWEN_NUM_CTX", "0")
+    monkeypatch.setattr(qwen_analysis.urllib.request, "urlopen", fake_urlopen)
+
+    qwen_analysis.ollama_chat(
+        "prompt",
+        ollama_url="http://ollama.invalid",
+        model="vision-model",
+        timeout_s=17,
+    )
+
+    assert "num_ctx" not in request_bodies[0]["options"]
 
 
 def test_ollama_chat_retries_connection_refused_then_succeeds(monkeypatch, caplog):

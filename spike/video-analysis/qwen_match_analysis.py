@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Sample a match video and produce honest, jersey-number-only Qwen analysis."""
+"""Sample a match video and produce honest, jersey-number-only Qwen analysis.
+
+QWEN_NUM_CTX defaults to 65536; set it to 0 or empty to omit Ollama num_ctx.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +29,7 @@ log = logging.getLogger("qwen_match_analysis")
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "qwen3.8:27b-obliterated-q8"
+DEFAULT_NUM_CTX = 65536
 DEFAULT_SAMPLE_S = 30.0
 DEFAULT_MAX_CALLS = 240
 DEFAULT_TIMEOUT_S = 300.0
@@ -516,6 +520,24 @@ def _transient_retry_delays() -> tuple[float, ...]:
     return (delay_s,) * len(DEFAULT_TRANSIENT_RETRY_DELAYS_S)
 
 
+def resolve_num_ctx(*env_names: str) -> int | None:
+    """Resolve the first configured num_ctx override, or the shared default."""
+    for env_name in env_names:
+        override = os.getenv(env_name)
+        if override is None:
+            continue
+        if not override.strip():
+            return None
+        try:
+            num_ctx = int(override)
+        except ValueError as exc:
+            raise ValueError(f"{env_name} must be a non-negative integer") from exc
+        if num_ctx < 0:
+            raise ValueError(f"{env_name} must be a non-negative integer")
+        return num_ctx or None
+    return DEFAULT_NUM_CTX
+
+
 def _is_transient_ollama_error(error: Exception) -> bool:
     if isinstance(error, urllib.error.HTTPError):
         return error.code in (502, 503)
@@ -557,6 +579,9 @@ def ollama_chat(
         "temperature": 0,
         "repeat_penalty": 1.15,
     }
+    num_ctx = resolve_num_ctx("QWEN_NUM_CTX")
+    if num_ctx is not None:
+        options["num_ctx"] = num_ctx
     if num_predict is not None:
         if (
             not isinstance(num_predict, int)

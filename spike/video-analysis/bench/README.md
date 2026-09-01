@@ -68,6 +68,8 @@ from inflating E1 grounding by simply copying a truth rectangle drawn on every
 frame. `all` preserves the original all-frames-boxed behavior as an explicitly
 echo-prone control run.
 
+`BENCH_NUM_CTX` controls Ollama context for both adapters, falling back to `QWEN_NUM_CTX` and then `65536`; set it to `0` or empty to omit `num_ctx`.
+
 `--clips` accepts `all` or comma-separated clip IDs. Each result is written
 immediately to `report/<timestamp>/claims/<clip_id>.json`. An interrupted run
 automatically resumes the newest matching incomplete directory, or use

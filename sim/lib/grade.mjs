@@ -3,6 +3,18 @@ import path from 'node:path'
 
 const GRADE_PROMPT = `Does this screenshot satisfy the expectation? Reply {"verdict":"pass|concern|fail", "note":str}. 'concern' = partially satisfied or something looks broken/odd; note one sentence.`
 const EXPLORATION_PROMPT = `This app is a football academy scouting platform: scouts, players, clubs. Review these screenshots and propose ONE useful new persona and journey idea. Reply {"persona":str,"journey":str,"first_step":str}. Do not execute it.`
+const DEFAULT_NUM_CTX = 65536
+
+function ollamaOptions() {
+  const options = { temperature: 0 }
+  const configured = process.env.SIM_NUM_CTX
+  const raw = configured === undefined ? String(DEFAULT_NUM_CTX) : configured.trim()
+  if (!/^\d+$/.test(raw)) throw new Error('SIM_NUM_CTX must be a non-negative integer')
+  const numCtx = Number(raw)
+  if (!Number.isSafeInteger(numCtx)) throw new Error('SIM_NUM_CTX must be a non-negative integer')
+  if (numCtx > 0) options.num_ctx = numCtx
+  return options
+}
 
 export function normalizeGrade(value) {
   if (!value || typeof value !== 'object') {
@@ -54,7 +66,7 @@ async function ollamaChat({ ollamaUrl, model, prompt, images }) {
       think: false,
       stream: false,
       format: 'json',
-      options: { temperature: 0 },
+      options: ollamaOptions(),
     }),
     signal: AbortSignal.timeout(120_000),
   })
