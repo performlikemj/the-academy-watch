@@ -74,8 +74,9 @@ def ollama_chat_with_options(
     ollama_url: str,
     model: str,
     timeout_s: float,
-    image_paths: list[Path],
     options: dict,
+    image_path: Path | None = None,
+    image_paths: list[Path] | None = None,
 ) -> str:
     """Call the shared Ollama primitive while adding adapter-only options.
 
@@ -88,7 +89,15 @@ def ollama_chat_with_options(
     def request_with_options(url, *args, data=None, **kwargs):
         if data is not None:
             body = json.loads(data.decode("utf-8"))
-            body.setdefault("options", {}).update(options)
+            body_options = body.setdefault("options", {})
+            body_options.update(options)
+            num_ctx = qwen_match_analysis.resolve_num_ctx(
+                "BENCH_NUM_CTX", "QWEN_NUM_CTX"
+            )
+            if num_ctx is None:
+                body_options.pop("num_ctx", None)
+            else:
+                body_options["num_ctx"] = num_ctx
             data = json.dumps(body).encode("utf-8")
         return original_request(url, *args, data=data, **kwargs)
 
@@ -100,6 +109,7 @@ def ollama_chat_with_options(
                 ollama_url=ollama_url,
                 model=model,
                 timeout_s=timeout_s,
+                image_path=image_path,
                 image_paths=image_paths,
             )
         finally:

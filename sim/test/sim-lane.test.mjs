@@ -75,6 +75,51 @@ test('invalid grader JSON becomes ungraded', () => {
   assert.equal(normalizeGrade({ verdict: 'maybe', note: 'No.' }).verdict, 'ungraded')
 })
 
+test('vision grading requests pin the Ollama context', async (t) => {
+  const reportDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sim-num-ctx-'))
+  t.after(() => fs.rm(reportDir, { recursive: true, force: true }))
+  await fs.mkdir(path.join(reportDir, 'shots'))
+  await fs.writeFile(path.join(reportDir, 'shots', 'scout.png'), 'screenshot')
+
+  const originalFetch = globalThis.fetch
+  const originalNumCtx = process.env.SIM_NUM_CTX
+  const requestBodies = []
+  delete process.env.SIM_NUM_CTX
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body)
+    requestBodies.push(body)
+    const content = body.messages[0].content.includes('Expectation:')
+      ? JSON.stringify({ verdict: 'pass', note: 'The page is ready.' })
+      : JSON.stringify({
+          persona: 'Academy scout',
+          journey: 'Review a prospect',
+          first_step: 'Open the Scout Desk',
+        })
+    return { ok: true, json: async () => ({ message: { content } }) }
+  }
+  t.after(() => {
+    globalThis.fetch = originalFetch
+    if (originalNumCtx === undefined) delete process.env.SIM_NUM_CTX
+    else process.env.SIM_NUM_CTX = originalNumCtx
+  })
+
+  await gradeRecords([{
+    journey: 'scout-desk',
+    id: 'browse',
+    expectation: 'The Scout Desk should load.',
+    ok: true,
+    shot: 'shots/scout.png',
+  }], {
+    enabled: true,
+    reportDir,
+    ollamaUrl: 'http://stubbed-model.invalid',
+    model: 'stubbed-model',
+  })
+
+  assert.equal(requestBodies.length, 2)
+  for (const body of requestBodies) assert.equal(body.options.num_ctx, 65536)
+})
+
 test('mechanical failure caps a passing model grade and preserves both notes', async (t) => {
   const reportDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sim-grade-'))
   t.after(() => fs.rm(reportDir, { recursive: true, force: true }))

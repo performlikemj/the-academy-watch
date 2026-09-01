@@ -7,7 +7,12 @@ import os
 import time
 from pathlib import Path
 
-from .common import extract_sample_frames, qwen_match_analysis, temp_directory
+from .common import (
+    extract_sample_frames,
+    ollama_chat_with_options,
+    qwen_match_analysis,
+    temp_directory,
+)
 
 DEFAULT_MODEL = qwen_match_analysis.DEFAULT_MODEL
 
@@ -24,7 +29,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
             for frame_path, absolute_s in extract_sample_frames(
                 clip, truth, Path(temp_dir) / "frames"
             ):
-                raw = qwen_match_analysis.ollama_chat(
+                raw = ollama_chat_with_options(
                     qwen_match_analysis.build_observation_prompt(absolute_s),
                     ollama_url=cfg.get(
                         "ollama_url", qwen_match_analysis.DEFAULT_OLLAMA_URL
@@ -32,6 +37,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
                     model=model,
                     timeout_s=float(cfg.get("timeout_s", 300)),
                     image_path=frame_path,
+                    options={},
                 )
                 raw_frames.append({"t": absolute_s, "response": raw})
                 try:

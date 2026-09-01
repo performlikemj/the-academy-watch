@@ -188,6 +188,8 @@ def test_shared_ollama_call_receives_capped_generation_options(monkeypatch, tmp_
         captured["timeout"] = timeout
         return Response()
 
+    monkeypatch.delenv("BENCH_NUM_CTX", raising=False)
+    monkeypatch.delenv("QWEN_NUM_CTX", raising=False)
     monkeypatch.setattr(
         adapter_common.qwen_match_analysis.urllib.request, "urlopen", fake_urlopen
     )
@@ -210,7 +212,45 @@ def test_shared_ollama_call_receives_capped_generation_options(monkeypatch, tmp_
         "temperature": 0,
         "num_predict": 400,
         "repeat_penalty": 1.15,
+        "num_ctx": 65536,
     }
+
+
+def test_shared_ollama_call_omits_num_ctx_when_disabled(monkeypatch, tmp_path):
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"message":{"content":"{}"}}'
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data)
+        return Response()
+
+    monkeypatch.setenv("BENCH_NUM_CTX", "0")
+    monkeypatch.setenv("QWEN_NUM_CTX", "32768")
+    monkeypatch.setattr(
+        adapter_common.qwen_match_analysis.urllib.request, "urlopen", fake_urlopen
+    )
+    image = tmp_path / "frame.jpg"
+    image.write_bytes(b"frame")
+
+    adapter_common.ollama_chat_with_options(
+        "prompt",
+        ollama_url="http://ollama.test",
+        model="qwen3-vl:8b",
+        timeout_s=12,
+        image_paths=[image],
+        options={"num_predict": 400},
+    )
+
+    assert "num_ctx" not in captured["body"]["options"]
 
 
 def test_anchor_first_draws_only_on_frame_zero(monkeypatch, tmp_path):
