@@ -13,9 +13,12 @@ from src.models.league import db
 from src.models.video import VideoAnalysisJob, VideoMatch
 from src.services.video_storage import verify_expected_blob
 from src.workers.vision_worker import (
+    _analysis_context,
     _build_pipeline_cmd,
     _download_footage,
+    _encode_analysis_context,
     _local_video_path,
+    _probe_frame_size,
     main,
     process_job,
     select_caption_windows,
@@ -114,6 +117,7 @@ def test_caption_window_selection_uses_rank_top_k_duration_and_kit_mapping():
             "kit_color": "blue",
             "start_s": 30.0,
             "end_s": 35.0,
+            "box_track": [],
         },
         {
             "tracklet_id": 4,
@@ -122,6 +126,7 @@ def test_caption_window_selection_uses_rank_top_k_duration_and_kit_mapping():
             "kit_color": "red",
             "start_s": 50.0,
             "end_s": 58.0,
+            "box_track": [],
         },
         {
             "tracklet_id": 5,
@@ -130,6 +135,7 @@ def test_caption_window_selection_uses_rank_top_k_duration_and_kit_mapping():
             "kit_color": "red",
             "start_s": 60.0,
             "end_s": 70.0,
+            "box_track": [],
         },
         {
             "tracklet_id": 1,
@@ -138,6 +144,7 @@ def test_caption_window_selection_uses_rank_top_k_duration_and_kit_mapping():
             "kit_color": "blue",
             "start_s": 0.0,
             "end_s": 20.0,
+            "box_track": [],
         },
     ]
 
@@ -153,6 +160,66 @@ def test_caption_window_selection_caps_total_and_is_null_safe_for_kit():
     assert [window["roster_jersey_number"] for window in selected[:2]] == [1, 2]
     assert selected[-1]["roster_jersey_number"] == 80
     assert all(window["kit_color"] is None for window in selected)
+
+
+def test_caption_windows_clip_box_tracks_and_context_unions_tracks_by_roster():
+    match = SimpleNamespace(
+        opponent_name="Visitors",
+        our_kit_color="blue",
+        opponent_kit_color="red",
+        competition="League",
+        capture_meta={"attack_direction_first_half": "left"},
+        our_team_cluster=0,
+    )
+    roster = [SimpleNamespace(id=7, jersey_number=8), SimpleNamespace(id=9, jersey_number=11)]
+    tracklets = [
+        _caption_chain(1, 7, 10, 14),
+        _caption_chain(2, 7, 20, 24),
+    ]
+    box_tracks = {
+        1: [[9.75, 1, 2, 3, 4], [10.0, 2, 3, 4, 5], [10.25, 3, 4, 5, 6], [14.25, 4, 5, 6, 7]],
+        2: [[20.0, 8, 9, 10, 11]],
+    }
+
+    context = _analysis_context(match, roster, tracklets, {}, [1920, 1080], box_tracks)
+
+    assert context["frame_size"] == [1920, 1080]
+    assert context["caption_windows"][0]["box_track"] == [
+        [10.0, 2, 3, 4, 5],
+        [10.25, 3, 4, 5, 6],
+    ]
+    assert context["player_tracks"] == {
+        "7": [
+            [9.75, 1, 2, 3, 4],
+            [10.0, 2, 3, 4, 5],
+            [10.25, 3, 4, 5, 6],
+            [14.25, 4, 5, 6, 7],
+            [20.0, 8, 9, 10, 11],
+        ],
+        "9": [],
+    }
+
+
+def test_oversize_context_downsamples_tracks_to_two_hz(monkeypatch):
+    context = {
+        "caption_windows": [{"box_track": [[0.0, 0, 0, 1, 1], [0.25, 1, 1, 2, 2], [0.5, 2, 2, 3, 3]]}],
+        "player_tracks": {"7": [[0.0, 0, 0, 1, 1], [0.25, 1, 1, 2, 2], [0.5, 2, 2, 3, 3]]},
+    }
+    monkeypatch.setattr("src.workers.vision_worker.MAX_ANALYSIS_CONTEXT_BYTES", 1)
+
+    encoded = _encode_analysis_context(context)
+    decoded = __import__("json").loads(encoded)
+
+    assert decoded["caption_windows"][0]["box_track"] == [[0.0, 0, 0, 1, 1], [0.5, 2, 2, 3, 3]]
+    assert decoded["player_tracks"]["7"] == [[0.0, 0, 0, 1, 1], [0.5, 2, 2, 3, 3]]
+
+
+def test_probe_frame_size_reads_first_video_stream():
+    completed = SimpleNamespace(stdout='{"streams":[{"width":1920,"height":1080}]}')
+    with patch("src.workers.vision_worker.subprocess.run", return_value=completed) as run:
+        assert _probe_frame_size(VIDEO) == [1920, 1080]
+
+    assert run.call_args.args[0][0] == "ffprobe"
 
 
 def test_download_is_pinned_to_verified_etag():
@@ -286,7 +353,7 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
         id=1,
         blob_path=None,
         blob_etag=None,
-        capture_meta={"local": {"video": str(video)}},
+        capture_meta={"local": {"video": str(video)}, "resolution": [1920, 1080]},
         kickoff_s=0,
         halftime_s=1800,
         second_half_kickoff_s=2100,
@@ -316,7 +383,9 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
             "opponent_kit_color": "red",
             "competition": "Academy fixture",
             "attack_direction_first_half": None,
+            "frame_size": [1920, 1080],
             "caption_windows": [],
+            "player_tracks": {},
         }
         out_dir = Path(command[command.index("--out") + 1])
         (out_dir / "analysis.json").write_text(__import__("json").dumps(analysis))
@@ -343,6 +412,65 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
     complete.assert_called_once()
     assert complete.call_args.args[:2] == ("job-1", analysis)
     assert complete.call_args.kwargs["gpu_seconds"] >= 0
+
+
+def test_cv_kind_hands_tracks_to_box_persistence_after_artifact_completion(tmp_path, monkeypatch):
+    app = Flask(__name__)
+    app.config.update(
+        TESTING=True,
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+    video = tmp_path / "match.mp4"
+    video.write_bytes(b"test footage")
+    job = SimpleNamespace(video_match_id=1)
+    match = SimpleNamespace(
+        id=1,
+        blob_path=None,
+        blob_etag=None,
+        capture_meta={"local": {"video": str(video)}},
+        kickoff_s=None,
+        halftime_s=None,
+        second_half_kickoff_s=None,
+        duration_s=None,
+    )
+    events = []
+
+    def fake_get(model, _identifier):
+        return job if model is VideoAnalysisJob else match
+
+    def fake_pipeline(command, check):
+        assert check is True
+        out_dir = Path(command[command.index("--out") + 1])
+        (out_dir / "fragments.json").write_text('[{"entity_id":101,"member_tids":[7]}]')
+        (out_dir / "votes.json").write_text('{"entities":[]}')
+        (out_dir / "tracks.npz").write_bytes(b"npz-placeholder")
+
+    def fake_complete(*_args, **_kwargs):
+        events.append("complete")
+
+    def fake_persist(loaded_match, job_id, tracks_path, fragments):
+        assert loaded_match is match
+        assert job_id == "job-1"
+        assert tracks_path.name == "tracks.npz" and tracks_path.exists()
+        assert fragments == [{"entity_id": 101, "member_tids": [7]}]
+        events.append("boxes")
+
+    monkeypatch.setenv("VIDEO_PIPELINE_KIND", "cv")
+    monkeypatch.setenv("VIDEO_PIPELINE_CMD", "python run_spike.py")
+    with app.app_context():
+        with (
+            patch.object(db.session, "get", side_effect=fake_get),
+            patch("src.services.video_storage.is_configured", return_value=False),
+            patch("src.services.video_queue.heartbeat", return_value=True),
+            patch("src.workers.vision_worker.subprocess.run", side_effect=fake_pipeline),
+            patch("src.services.video_identity.complete_job_with_artifacts", side_effect=fake_complete),
+            patch("src.workers.vision_worker._persist_box_tracks", side_effect=fake_persist),
+        ):
+            assert process_job(app, "job-1") is True
+
+    assert events == ["complete", "boxes"]
 
 
 def test_qwen_analysis_loop_claims_only_its_kind(app, monkeypatch):

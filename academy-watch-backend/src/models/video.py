@@ -88,6 +88,7 @@ class VideoMatch(db.Model):
     # Footage
     blob_path = db.Column(db.String(500))  # container-relative path of the raw upload
     blob_etag = db.Column(db.String(100))  # recorded at upload-complete, verified at job start
+    boxes_blob_path = db.Column(db.String(255))  # persisted per-tracklet source-pixel box tracks
     duration_s = db.Column(db.Float)
     # Uploader-marked timeline points (10s of human input beats fragile inference)
     kickoff_s = db.Column(db.Float)

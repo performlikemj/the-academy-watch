@@ -33,6 +33,7 @@ the stale-reaper recover from evictions, and a re-delivered queue message
 no-ops against an already-claimed job.
 """
 
+import json
 import logging
 import os
 import shlex
@@ -53,6 +54,8 @@ IDLE_POLL_SECONDS = 30
 IDLE_EXIT_AFTER_POLLS = 10  # loop mode: exit after ~5 idle minutes (KEDA rescales)
 DEFAULT_QWEN_CAPTION_TOP_K = 5
 MAX_QWEN_CAPTION_WINDOWS = 80
+MAX_ANALYSIS_CONTEXT_BYTES = 20 * 1024 * 1024
+OVERSIZE_CONTEXT_HZ = 2
 
 
 def _row_value(row, name, default=None):
@@ -69,9 +72,10 @@ def select_caption_windows(
     *,
     top_k=DEFAULT_QWEN_CAPTION_TOP_K,
     total_cap=MAX_QWEN_CAPTION_WINDOWS,
+    box_tracks=None,
 ) -> list[dict]:
     """Select the same ranked merged windows shown in reels for Qwen captions."""
-    from src.services import video_reels
+    from src.services import video_boxes, video_reels
 
     if top_k <= 0 or total_cap <= 0:
         return []
@@ -121,6 +125,13 @@ def select_caption_windows(
                     "kit_color": kit_color,
                     "start_s": window["start_s"],
                     "end_s": window["end_s"],
+                    "box_track": video_boxes.clip_box_track(
+                        (box_tracks or {}).get(window["tracklet_id"])
+                        or (box_tracks or {}).get(str(window["tracklet_id"]))
+                        or [],
+                        window["start_s"],
+                        window["end_s"],
+                    ),
                     "_rank": window["rank"],
                     "_roster_id": int(_row_value(roster, "id")),
                 }
@@ -136,6 +147,157 @@ def select_caption_windows(
         )
     )
     return [{key: value for key, value in window.items() if not key.startswith("_")} for window in selected[:total_cap]]
+
+
+def _coerce_frame_size(value) -> list[int] | None:
+    if isinstance(value, dict):
+        value = [value.get("width", value.get("w")), value.get("height", value.get("h"))]
+    elif isinstance(value, str) and "x" in value.lower():
+        value = value.lower().split("x", 1)
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        width, height = (int(item) for item in value)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(value[0], bool) or isinstance(value[1], bool) or width <= 0 or height <= 0:
+        return None
+    return [width, height]
+
+
+def _stored_frame_size(match) -> list[int] | None:
+    capture_meta = _row_value(match, "capture_meta")
+    if not isinstance(capture_meta, dict):
+        return None
+    for value in (
+        capture_meta.get("frame_size"),
+        capture_meta.get("resolution"),
+        [capture_meta.get("source_width"), capture_meta.get("source_height")],
+        [capture_meta.get("width"), capture_meta.get("height")],
+    ):
+        if (size := _coerce_frame_size(value)) is not None:
+            return size
+    return None
+
+
+def _probe_frame_size(video_path: Path) -> list[int] | None:
+    """Probe the first video stream once; a missing/broken ffprobe degrades to null."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "json",
+                str(video_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        streams = json.loads(result.stdout).get("streams") or []
+        return _coerce_frame_size(streams[0]) if streams else None
+    except (OSError, subprocess.SubprocessError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        log.warning("could not probe source frame size for %s: %s", video_path, exc)
+        return None
+
+
+def _analysis_context(
+    match,
+    roster_entries,
+    tracklets,
+    fragment_spans,
+    frame_size,
+    box_tracks,
+    *,
+    top_k=DEFAULT_QWEN_CAPTION_TOP_K,
+) -> dict:
+    from src.services import video_boxes
+
+    active = [
+        tracklet
+        for tracklet in tracklets
+        if not bool(_row_value(tracklet, "dismissed")) and _row_value(tracklet, "kind") != "tombstone"
+    ]
+    by_roster = {}
+    for tracklet in active:
+        roster_id = _row_value(tracklet, "roster_entry_id")
+        if roster_id is not None:
+            by_roster.setdefault(int(roster_id), []).append(tracklet)
+    player_tracks = {}
+    for roster in roster_entries:
+        roster_id = int(_row_value(roster, "id"))
+        player_tracks[str(roster_id)] = video_boxes.union_box_tracks(
+            [box_tracks.get(int(_row_value(tracklet, "id")), []) for tracklet in by_roster.get(roster_id, [])]
+        )
+
+    capture_meta = _row_value(match, "capture_meta")
+    capture_meta = capture_meta if isinstance(capture_meta, dict) else {}
+    return {
+        "opponent_name": _row_value(match, "opponent_name"),
+        "our_kit_color": _row_value(match, "our_kit_color"),
+        "opponent_kit_color": _row_value(match, "opponent_kit_color"),
+        "competition": _row_value(match, "competition"),
+        "attack_direction_first_half": capture_meta.get("attack_direction_first_half"),
+        "frame_size": frame_size,
+        "caption_windows": select_caption_windows(
+            match,
+            roster_entries,
+            tracklets,
+            fragment_spans,
+            top_k=top_k,
+            box_tracks=box_tracks,
+        ),
+        "player_tracks": player_tracks,
+    }
+
+
+def _encode_analysis_context(context: dict) -> bytes:
+    from src.services.video_boxes import sample_box_track
+
+    encoded = json.dumps(context, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    log.info("analysis context size: %d bytes", len(encoded))
+    if len(encoded) <= MAX_ANALYSIS_CONTEXT_BYTES:
+        return encoded
+    for window in context.get("caption_windows") or []:
+        window["box_track"] = sample_box_track(window.get("box_track") or [], max_hz=OVERSIZE_CONTEXT_HZ)
+    context["player_tracks"] = {
+        roster_id: sample_box_track(track, max_hz=OVERSIZE_CONTEXT_HZ)
+        for roster_id, track in (context.get("player_tracks") or {}).items()
+    }
+    encoded = json.dumps(context, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    log.info("analysis context exceeded 20 MB; downsampled box tracks to 2 Hz (%d bytes)", len(encoded))
+    return encoded
+
+
+def _persist_box_tracks(match, job_id: str, tracks_path: Path, fragments: list[dict]) -> str | None:
+    """Best-effort production persistence after the fenced CV completion succeeds."""
+    from src.models.league import db
+    from src.models.video import VideoTracklet
+    from src.services import video_boxes, video_storage
+
+    if not video_storage.is_configured() or not tracks_path.exists():
+        return None
+    match_id = int(match.id)
+    try:
+        tracklets = list(db.session.query(VideoTracklet).filter(VideoTracklet.video_match_id == match_id).all())
+        payload = video_boxes.box_tracks_from_npz(tracklets, fragments, tracks_path)
+        blob_path = f"boxes/{match_id}/{job_id}.json"
+        video_storage.upload_json(blob_path, payload)
+        match.boxes_blob_path = blob_path
+        db.session.commit()
+        log.info("video match %s: persisted %d box tracks to %s", match_id, len(payload), blob_path)
+        return blob_path
+    except Exception:
+        db.session.rollback()
+        log.warning("video match %s completed but box tracks could not be persisted", match_id, exc_info=True)
+        return None
 
 
 def _download_footage(blob_path: str, dest: Path, expected_etag: str) -> None:
@@ -235,8 +397,6 @@ def _local_video_path(match) -> Path:
 
 def process_job(app, job_id: str) -> bool:
     """Run one claimed job to completion. Returns True on success."""
-    import json
-
     from src.models.league import db
     from src.models.video import VideoAnalysisJob, VideoMatch, VideoTracklet
     from src.services import video_storage
@@ -277,7 +437,7 @@ def process_job(app, job_id: str) -> bool:
             out_dir.mkdir()
             context_path = None
             if pipeline_kind == "qwen_analysis":
-                from src.services import video_dev_artifacts
+                from src.services import video_boxes, video_dev_artifacts
 
                 context_path = tmp_path / "context.json"
                 spans = {}
@@ -296,23 +456,20 @@ def process_job(app, job_id: str) -> bool:
                     .all()
                 )
                 top_k = int(os.getenv("QWEN_CAPTION_TOP_K", str(DEFAULT_QWEN_CAPTION_TOP_K)))
-                capture_meta = match.capture_meta if isinstance(match.capture_meta, dict) else {}
-                context_path.write_text(
-                    json.dumps(
-                        {
-                            "opponent_name": match.opponent_name,
-                            "our_kit_color": match.our_kit_color,
-                            "opponent_kit_color": match.opponent_kit_color,
-                            "competition": match.competition,
-                            "attack_direction_first_half": capture_meta.get("attack_direction_first_half"),
-                            "caption_windows": select_caption_windows(
-                                match,
-                                list(match.roster_entries),
-                                tracklets,
-                                spans,
-                                top_k=top_k,
-                            ),
-                        }
+                roster_entries = list(match.roster_entries)
+                box_tracks = {int(tracklet.id): video_boxes.box_track_for(match, tracklet) for tracklet in tracklets}
+                frame_size = _stored_frame_size(match) or _probe_frame_size(video_path)
+                context_path.write_bytes(
+                    _encode_analysis_context(
+                        _analysis_context(
+                            match,
+                            roster_entries,
+                            tracklets,
+                            spans,
+                            frame_size,
+                            box_tracks,
+                            top_k=top_k,
+                        )
                     )
                 )
             stop, fenced = threading.Event(), threading.Event()
@@ -344,6 +501,7 @@ def process_job(app, job_id: str) -> bool:
                     if p.exists():
                         artifacts[opt] = json.loads(p.read_text())
                 complete_job_with_artifacts(job_id, artifacts, gpu_seconds=gpu_seconds)
+                _persist_box_tracks(match, job_id, out_dir / "tracks.npz", artifacts["fragments"])
         log.info("job %s succeeded", job_id)
         return True
     except JobFenced as e:
