@@ -144,12 +144,15 @@ def fabricated_event_classes(claim: str, human_note: str | None) -> list[str] | 
 
 
 def _normalize_adapter_claim(claim: dict) -> dict:
-    normalized = normalize_claim(
-        {
-            key: claim.get(key)
-            for key in ("claim", "t0", "t1", "box", "confidence", "visibility")
-        }
-    )
+    contract_claim = {
+        key: claim.get(key)
+        for key in ("claim", "t0", "t1", "box", "confidence", "visibility")
+    }
+    if claim.get("box_t_source") != "fallback_t0" and "box_t" in claim:
+        contract_claim["box_t"] = claim.get("box_t")
+    normalized = normalize_claim(contract_claim)
+    if claim.get("box_t_source") == "fallback_t0":
+        normalized["box_t_source"] = "fallback_t0"
     inherited_malformed = bool(claim.get("malformed"))
     inherited_fields = (
         claim.get("malformed_fields")
@@ -190,9 +193,9 @@ def _normalize_adapter_claim(claim: dict) -> dict:
 
 
 def _drawn_anchor_frame(
-    claim_t0: float | None, anchored_frames: list[dict]
+    claim_box_t: float | None, anchored_frames: list[dict]
 ) -> dict | None:
-    if claim_t0 is None:
+    if claim_box_t is None:
         return None
     candidates = []
     for frame in anchored_frames:
@@ -208,7 +211,7 @@ def _drawn_anchor_frame(
                 for value in box
             )
         ):
-            candidates.append((abs(float(claim_t0) - float(timestamp)), frame))
+            candidates.append((abs(float(claim_box_t) - float(timestamp)), frame))
     if not candidates:
         return None
     distance, frame = min(candidates, key=lambda item: item[0])
@@ -270,23 +273,38 @@ def score_claim(
         and normalized["t0"] >= float(window["start_s"]) - TIME_TOLERANCE_S
         and normalized["t1"] <= float(window["end_s"]) + TIME_TOLERANCE_S
     )
-    midpoint = (normalized["t0"] + normalized["t1"]) / 2 if has_time else None
+    box_track = truth.get("box_track") or []
+    box_t = normalized["box_t"]
     truth_box, no_truth_at_time = (
-        _truth_box_at_time(truth.get("box_track") or [], midpoint)
-        if midpoint is not None
-        else (None, False)
+        _truth_box_at_time(box_track, box_t) if box_t is not None else (None, False)
     )
     if has_box and truth_box is not None:
         box_grounded, iou, containment = box_matches(normalized["box"], truth_box)
     else:
         box_grounded, iou, containment = False, None, None
+    midpoint = (normalized["t0"] + normalized["t1"]) / 2 if has_time else None
+    truth_box_at_midpoint, _no_truth_at_midpoint = (
+        _truth_box_at_time(box_track, midpoint)
+        if midpoint is not None
+        else (None, False)
+    )
+    if has_box and truth_box_at_midpoint is not None:
+        (
+            box_grounded_at_midpoint,
+            iou_at_midpoint,
+            containment_at_midpoint,
+        ) = box_matches(normalized["box"], truth_box_at_midpoint)
+    else:
+        box_grounded_at_midpoint = False
+        iou_at_midpoint = None
+        containment_at_midpoint = None
     hollow = not has_time or not has_box
     supported = not malformed and time_grounded and box_grounded
     fabricated_classes = fabricated_event_classes(
         normalized["claim"], truth.get("human_note")
     )
     drawn_anchor_frame = (
-        _drawn_anchor_frame(normalized["t0"], anchored_frames or [])
+        _drawn_anchor_frame(normalized["box_t"], anchored_frames or [])
         if normalized["boxed_frame"]
         else None
     )
@@ -308,15 +326,21 @@ def score_claim(
         "malformed_fields": malformed_fields,
         "time_grounded": time_grounded,
         "box_grounded": box_grounded,
+        "box_grounded_at_midpoint": box_grounded_at_midpoint,
         "hollow": hollow,
         "supported": supported,
         "unsupported": not supported,
         "no_truth_at_time": no_truth_at_time,
-        "truth_box_at_midpoint": [round(value, 3) for value in truth_box]
+        "truth_box_at_box_t": [round(value, 3) for value in truth_box]
         if truth_box is not None
+        else None,
+        "truth_box_at_midpoint": [round(value, 3) for value in truth_box_at_midpoint]
+        if truth_box_at_midpoint is not None
         else None,
         "iou": iou,
         "claim_box_containment": containment,
+        "iou_at_midpoint": iou_at_midpoint,
+        "claim_box_containment_at_midpoint": containment_at_midpoint,
         "drawn_anchor_box": [round(value, 3) for value in drawn_anchor_box]
         if drawn_anchor_box is not None
         else None,
@@ -367,12 +391,27 @@ def _clip_metrics(scored_claims: list[dict]) -> dict:
             sum(bool(claim["supported"]) for claim in boxed_claims),
             len(boxed_claims),
         ),
+        "box_grounded_rate": _rate(
+            sum(bool(claim["box_grounded"]) for claim in scored_claims), total
+        ),
+        "box_grounded_at_midpoint_rate": _rate(
+            sum(bool(claim["box_grounded_at_midpoint"]) for claim in scored_claims),
+            total,
+        ),
         "box_grounded_rate_unboxed": _rate(
             sum(bool(claim["box_grounded"]) for claim in unboxed_claims),
             len(unboxed_claims),
         ),
         "box_grounded_rate_boxed": _rate(
             sum(bool(claim["box_grounded"]) for claim in boxed_claims),
+            len(boxed_claims),
+        ),
+        "box_grounded_at_midpoint_rate_unboxed": _rate(
+            sum(bool(claim["box_grounded_at_midpoint"]) for claim in unboxed_claims),
+            len(unboxed_claims),
+        ),
+        "box_grounded_at_midpoint_rate_boxed": _rate(
+            sum(bool(claim["box_grounded_at_midpoint"]) for claim in boxed_claims),
             len(boxed_claims),
         ),
         "echo_suspect_count": sum(
@@ -464,7 +503,7 @@ def score_run(
         clip["box_space"] for clip in clips if clip.get("box_space") is not None
     }
     return {
-        "schema_version": "film-room-evidence-report-v4",
+        "schema_version": "film-room-evidence-report-v5",
         "generated_at": datetime.now(UTC).isoformat(),
         "adapter": adapter,
         "anchor_mode": next(iter(anchor_modes))
@@ -478,13 +517,14 @@ def score_run(
         "scoring_rules": {
             "time_tolerance_s": TIME_TOLERANCE_S,
             "box": f"IoU >= {IOU_THRESHOLD} OR claim-box containment >= {CONTAINMENT_THRESHOLD}",
+            "box_time": "box_grounded is evaluated against truth at box_t; box_grounded_at_midpoint preserves the former comparison definition",
             "supported": "well-formed AND time_grounded AND box_grounded",
             "headline": "supported_rate_unboxed; claims whose cited frame did not carry a drawn truth rectangle",
             "boxed_control": "supported_rate_boxed; echo-prone control claims citing an anchored frame",
             "echo_suspect": f"boxed-frame claim whose returned box matches the drawn rectangle within {ECHO_BOX_TOLERANCE_PX:g}px on all four sides",
             "box_sanity_guard": "declared-space conversion flags physically impossible or suspicious boxes as malformed",
             "truth_interpolation": f"adjacent samples only when separated by <= max({MIN_INTERPOLATION_GAP_S:g}s, {TRACKING_GAP_MULTIPLIER:g}x the truth track's median cadence)",
-            "no_truth_at_time": "claim midpoint lies inside a larger tracking gap; the claim is unsupported and counted as untracked_gap",
+            "no_truth_at_time": "box_t lies inside a larger tracking gap; the claim is unsupported and counted as untracked_gap",
             "time_only": "time_grounded AND NOT box_grounded",
             "hollow": "missing/invalid time interval OR box is null/invalid",
             "fabricated": "conservative explicit keyword-class mismatch; evaluated only when human_note is non-null",
@@ -510,15 +550,17 @@ def render_markdown(report: dict) -> str:
         "",
         "## Overall",
         "",
-        "| Scored clips | Failed | Observed | Claims/clip | **Supported unboxed (E1 headline)** | Supported boxed (control) | Echo suspects | Box guards | Untracked gap | Time-only | Unsupported | Hollow | Wall s/clip | Tokens/clip |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-        "| {scored_clips} | {failed_clips} | {observed_clips} | {claims_per_clip} | **{supported_unboxed}** | {supported_boxed} | {echo_suspect} | {box_guards} | {untracked_gap} | {time_only} | {unsupported} | {hollow} | {wall} | {tokens} |".format(
+        "| Scored clips | Failed | Observed | Claims/clip | Box grounded @ box_t | Box grounded @ midpoint | **Supported unboxed (E1 headline)** | Supported boxed (control) | Echo suspects | Box guards | Untracked gap | Time-only | Unsupported | Hollow | Wall s/clip | Tokens/clip |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| {scored_clips} | {failed_clips} | {observed_clips} | {claims_per_clip} | {box_grounded} | {box_grounded_midpoint} | **{supported_unboxed}** | {supported_boxed} | {echo_suspect} | {box_guards} | {untracked_gap} | {time_only} | {unsupported} | {hollow} | {wall} | {tokens} |".format(
             scored_clips=overall["scored_clips"],
             failed_clips=overall["failed_clips"],
             observed_clips=overall["observed_clips"],
             claims_per_clip=overall["claims_per_clip"]
             if overall["claims_per_clip"] is not None
             else "—",
+            box_grounded=percent(overall["box_grounded_rate"]),
+            box_grounded_midpoint=percent(overall["box_grounded_at_midpoint_rate"]),
             supported_unboxed=percent(overall["supported_rate_unboxed"]),
             supported_boxed=percent(overall["supported_rate_boxed"]),
             echo_suspect=overall["echo_suspect_count"],
@@ -537,16 +579,20 @@ def render_markdown(report: dict) -> str:
         "",
         "## Per clip",
         "",
-        "| Clip | Status | Claims | Supported unboxed | Supported boxed | Echo suspects | Box guards | Untracked gap | Time-only | Unsupported | Hollow | Fabricated | Wall s | Tokens |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Clip | Status | Claims | Box grounded @ box_t | Box grounded @ midpoint | Supported unboxed | Supported boxed | Echo suspects | Box guards | Untracked gap | Time-only | Unsupported | Hollow | Fabricated | Wall s | Tokens |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for clip in report["clips"]:
         metrics = clip.get("metrics") or {}
         lines.append(
-            "| {clip_id} | {status} | {count} | {supported_unboxed} | {supported_boxed} | {echo_suspect} | {box_guards} | {untracked_gap} | {time_only} | {unsupported} | {hollow} | {fabricated} | {wall} | {tokens} |".format(
+            "| {clip_id} | {status} | {count} | {box_grounded} | {box_grounded_midpoint} | {supported_unboxed} | {supported_boxed} | {echo_suspect} | {box_guards} | {untracked_gap} | {time_only} | {unsupported} | {hollow} | {fabricated} | {wall} | {tokens} |".format(
                 clip_id=clip["clip_id"],
                 status=clip["status"],
                 count=metrics.get("claim_count", "—"),
+                box_grounded=percent(metrics.get("box_grounded_rate")),
+                box_grounded_midpoint=percent(
+                    metrics.get("box_grounded_at_midpoint_rate")
+                ),
                 supported_unboxed=percent(metrics.get("supported_rate_unboxed")),
                 supported_boxed=percent(metrics.get("supported_rate_boxed")),
                 echo_suspect=metrics.get("echo_suspect_count", "—"),
@@ -566,8 +612,8 @@ def render_markdown(report: dict) -> str:
             "## Scoring notes",
             "",
             f"- Time grounding requires the complete claim interval inside the truth window ± {TIME_TOLERANCE_S:.1f}s.",
-            f"- Box grounding requires IoU ≥ {IOU_THRESHOLD:.1f} or at least {CONTAINMENT_THRESHOLD * 100:.0f}% of the claim box inside the interpolated truth box.",
-            f"- Truth boxes interpolate only across adjacent samples no more than max({MIN_INTERPOLATION_GAP_S:g}s, {TRACKING_GAP_MULTIPLIER:g}× median cadence) apart. Claims inside larger gaps are `no_truth_at_time`, counted under `untracked_gap`, and unsupported.",
+            f"- Box grounding compares the returned box with the interpolated truth box at `box_t`; it requires IoU ≥ {IOU_THRESHOLD:.1f} or at least {CONTAINMENT_THRESHOLD * 100:.0f}% claim-box containment. `box_grounded_at_midpoint` reports the former definition for comparison.",
+            f"- Truth boxes interpolate only across adjacent samples no more than max({MIN_INTERPOLATION_GAP_S:g}s, {TRACKING_GAP_MULTIPLIER:g}× median cadence) apart. A `box_t` inside a larger gap is `no_truth_at_time`, counted under `untracked_gap`, and unsupported.",
             "- `supported_rate_unboxed` is the E1 headline; it excludes claims citing images that carried a drawn truth rectangle.",
             "- `supported_rate_boxed` is the echo-prone control. `echo_suspect_count` flags returned boxes within 2px of the drawn rectangle on all sides.",
             "- `box_sanity_guard_count` counts declared-space boxes marked malformed because conversion made them physically impossible or exposed a likely normalized/pixel mismatch.",

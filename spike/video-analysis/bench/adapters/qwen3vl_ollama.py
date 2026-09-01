@@ -29,11 +29,15 @@ DEFAULT_BOX_SPACE = "normalized_1000"
 BOX_COORDINATE_INSTRUCTIONS = {
     "normalized_1000": (
         "Return the box as integers from 0 to 1000 relative to the image: x=0 is "
-        "left, x=1000 is right, y=0 is top, and y=1000 is bottom."
+        "left, x=1000 is right, y=0 is top, and y=1000 is bottom. box_t must be "
+        "the timestamp of the frame your box came from; t0..t1 may cover the whole "
+        "action."
     ),
     "image_pixels": (
         "Return the box of the visible evidence region for that claim in the "
-        "coordinates of the IMAGE PROVIDED ({frame_width}x{frame_height})."
+        "coordinates of the IMAGE PROVIDED ({frame_width}x{frame_height}). box_t "
+        "must be the timestamp of the frame your box came from; t0..t1 may cover "
+        "the whole action."
     ),
 }
 FIRST_CONTRACT_PROMPT = """You are reviewing sampled frames from one football clip.
@@ -43,7 +47,7 @@ infer a jersey number: #{jersey_number} is supplied only as a tracking label. Th
 {frame_width}x{frame_height} pixels, and their timestamps in absolute source seconds are: {timestamps}.
 
 Return one JSON object only with this exact shape:
-{{"claims":[{{"claim":str,"t0":number,"t1":number,"box":[x1,y1,x2,y2]|null,
+{{"claims":[{{"claim":str,"t0":number,"t1":number,"box_t":number,"box":[x1,y1,x2,y2]|null,
 "confidence":"low|medium|high","visibility":"clear|partial|unclear"}}]}}
 
 For every claim, t0 and t1 must be absolute source seconds inside [{window_start}, {window_end}].
@@ -58,7 +62,7 @@ infer a jersey number: #{jersey_number} is supplied only as a tracking label. Th
 {frame_width}x{frame_height} pixels, and their timestamps in absolute source seconds are: {timestamps}.
 
 Return one JSON object only with this exact shape:
-{{"claims":[{{"claim":str,"t0":number,"t1":number,"box":[x1,y1,x2,y2]|null,
+{{"claims":[{{"claim":str,"t0":number,"t1":number,"box_t":number,"box":[x1,y1,x2,y2]|null,
 "confidence":"low|medium|high","visibility":"clear|partial|unclear"}}]}}
 
 For every claim, t0 and t1 must be absolute source seconds inside [{window_start}, {window_end}].
@@ -212,14 +216,16 @@ def box_sanity_reason(
 
 
 def tag_boxed_frames(claims: list[dict], anchored_frames: list[dict]) -> list[dict]:
-    """Mark whether each claim's t0 cites an image carrying a drawn rectangle."""
+    """Mark whether each claim's box_t cites an image carrying a drawn rectangle."""
     anchored_times = [float(frame["t"]) for frame in anchored_frames]
     for claim in claims:
-        t0 = claim.get("t0")
+        box_t = claim.get("box_t")
         claim["boxed_frame"] = bool(
-            isinstance(t0, (int, float))
-            and not isinstance(t0, bool)
-            and any(abs(float(t0) - timestamp) <= 0.5 for timestamp in anchored_times)
+            isinstance(box_t, (int, float))
+            and not isinstance(box_t, bool)
+            and any(
+                abs(float(box_t) - timestamp) <= 0.5 for timestamp in anchored_times
+            )
         )
     return claims
 

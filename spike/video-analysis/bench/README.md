@@ -89,11 +89,14 @@ mismatched run ID is refused unless `--force` is used.
 
 Each claims file records `sent_frames` entries with the extracted image path,
 absolute timestamp, and exact `sent_w`/`sent_h` dimensions observed after
-extraction. Each claim records its declared `box_space`, preserves the response
-as `box_model_space`, and stores the bench's axis-by-axis conversion into
-source-video pixels as `box` for scoring. Normalized boxes convert with
-`x * source_w / 1000` and `y * source_h / 1000`; image-pixel boxes use the
-sent-to-source axis scales.
+extraction. Each claim requires `box_t`, the timestamp of the sampled frame in
+which its box was observed; `t0..t1` may cover the whole action. For transition
+compatibility, a missing `box_t` falls back to `t0` and records
+`box_t_source=fallback_t0`. Each claim also records its declared `box_space`,
+preserves the response as `box_model_space`, and stores the bench's axis-by-axis
+conversion into source-video pixels as `box` for scoring. Normalized boxes
+convert with `x * source_w / 1000` and `y * source_h / 1000`; image-pixel boxes
+use the sent-to-source axis scales.
 
 After conversion, a wholly out-of-frame box, a box larger than the source
 frame, or an `image_pixels` box whose coordinates all remain at or below 1000
@@ -105,16 +108,29 @@ video model/path but never substitutes another backend.
 
 ## Read the report
 
-Each run writes `report.json` and `report.md`. A supported claim must be
-well-formed, have its whole `[t0,t1]` inside the truth window ±0.5 seconds, and
-ground its returned source-pixel box at the claim midpoint with either IoU ≥
-0.5 or at least 80% of the claim box inside the interpolated truth box. Claims
-also carry `boxed_frame`, computed by whether `t0` is within ±0.5 seconds of an
-anchored image.
+Each run writes `report.json` and `report.md`.
+
+### What supported means
+
+A supported claim must be well-formed, have its whole `[t0,t1]` inside the
+truth window ±0.5 seconds, and ground its returned source-pixel box against the
+truth box interpolated at `box_t`, with either IoU ≥ 0.5 or at least 80% of the
+claim box inside the truth box. A provided `box_t` outside `[t0,t1]` ±0.5
+seconds is malformed. `box_grounded_at_midpoint` and its rates retain the old
+midpoint calculation for comparison only; they do not determine support.
+
+`box_t` exists because a box locates evidence in one observed frame while
+`t0..t1` describes the claim's full action. In the measured E1 v4 run, midpoint
+scoring grounded 0/29 claims, while scoring those same boxes at `t0` grounded
+14/29 (48%). Old claims therefore remain auditable through the explicit
+`fallback_t0` source rather than silently changing provenance.
+
+Claims also carry `boxed_frame`, computed by whether `box_t` is within ±0.5
+seconds of an anchored image.
 
 Truth boxes are interpolated only between adjacent samples no more than twice
 the track's median sampling cadence apart, with a minimum 0.25-second
-tolerance. A midpoint inside a larger disjoint tracking gap is marked
+tolerance. A `box_t` inside a larger disjoint tracking gap is marked
 `no_truth_at_time`, cannot be supported, and increments the per-clip and
 overall `untracked_gap` metric.
 
@@ -124,7 +140,8 @@ itself. `supported_rate_boxed` is the echo-prone control. `echo_suspect_count`
 counts boxed-frame claims whose declared-space box matches the exact
 sent-image-space drawn rectangle within two pixels on all four sides. A
 normalized box is converted to sent-image pixels for this comparison. The
-report also splits raw box-grounding rates into boxed and unboxed claims.
+report also splits raw box-grounding rates at `box_t` and at the midpoint into
+boxed and unboxed claims.
 
 `time_only_rate` counts claims whose time is grounded but box is not. `hollow`
 means the claim lacks a valid time interval or box. Adapter errors mechanically

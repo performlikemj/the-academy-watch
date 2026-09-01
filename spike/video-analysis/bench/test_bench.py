@@ -58,11 +58,28 @@ def _claim(**overrides):
 
 
 def test_contract_accepts_exact_valid_shape():
-    parsed = parse_claims(json.dumps({"claims": [_claim()]}))
+    parsed = parse_claims(json.dumps({"claims": [_claim(box_t=15.0)]}))
 
     assert len(parsed) == 1
     assert parsed[0]["malformed"] is False
     assert parsed[0]["t0"] == 14.0
+    assert parsed[0]["box_t"] == 15.0
+    assert parsed[0]["box_t_source"] == "provided"
+
+
+def test_missing_box_t_falls_back_to_t0_with_source_recorded():
+    parsed = parse_claims({"claims": [_claim(t0=12.25, t1=13.0)]})
+
+    assert parsed[0]["malformed"] is False
+    assert parsed[0]["box_t"] == 12.25
+    assert parsed[0]["box_t_source"] == "fallback_t0"
+
+
+def test_box_t_outside_claim_span_is_malformed():
+    parsed = parse_claims({"claims": [_claim(box_t=16.51)]})
+
+    assert parsed[0]["malformed"] is True
+    assert "box_t outside claim span" in parsed[0]["malformed_fields"]
 
 
 def test_contract_keeps_missing_and_invalid_fields_as_malformed():
@@ -160,6 +177,30 @@ def test_tracking_gap_has_no_truth_and_cannot_support_claim():
     assert report["overall"]["untracked_gap"] == 1
     assert report["overall"]["untracked_gap_rate"] == 0.5
     assert report["overall"]["unsupported_rate"] == 0.5
+
+
+def test_box_t_in_tracking_gap_has_no_truth_at_time():
+    truth = {
+        "clip_id": "gap-clip",
+        "window": {"start_s": 10.0, "end_s": 14.0},
+        "box_track": [
+            [10.0, 100, 100, 200, 200],
+            [10.1, 100, 100, 200, 200],
+            [10.2, 100, 100, 200, 200],
+            [13.2, 100, 100, 200, 200],
+            [13.3, 100, 100, 200, 200],
+        ],
+        "human_note": None,
+    }
+
+    scored = score_claim(
+        _claim(t0=10.0, t1=13.3, box_t=11.7, box=[100, 100, 200, 200]),
+        truth,
+    )
+
+    assert scored["truth_box_at_box_t"] is None
+    assert scored["no_truth_at_time"] is True
+    assert scored["supported"] is False
 
 
 def test_sampling_starts_where_the_truth_track_actually_begins():
@@ -644,6 +685,12 @@ def test_anchor_first_draws_only_on_frame_zero(monkeypatch, tmp_path):
     assert "images provided are exactly\n1280x720 pixels" in prompt
     assert "integers from 0 to 1000 relative to the image" in prompt
     assert "coordinates of the IMAGE PROVIDED (1280x720)" in all_prompt
+    box_t_instruction = (
+        "box_t must be the timestamp of the frame your box came from; t0..t1 may "
+        "cover the whole action"
+    )
+    assert box_t_instruction in prompt
+    assert box_t_instruction in all_prompt
     assert "SOURCE pixel coordinates" not in prompt
     drawn.clear()
     all_anchors = qwen_adapter.apply_anchors(frames, truth, "all")
@@ -678,12 +725,12 @@ def test_anchor_is_drawn_at_scaled_location_on_resized_frame(tmp_path):
         assert image.getpixel((960, 400)) == (255, 40, 40)
 
 
-def test_boxed_frame_tagging_uses_t0_and_half_second_tolerance():
+def test_boxed_frame_tagging_uses_box_t_and_half_second_tolerance():
     claims = [
-        _claim(t0=9.5),
-        _claim(t0=10.5),
-        _claim(t0=10.501),
-        _claim(t0=None),
+        _claim(box_t=9.5),
+        _claim(box_t=10.5),
+        _claim(box_t=10.501),
+        _claim(box_t=None),
     ]
 
     tagged = qwen_adapter.tag_boxed_frames(
@@ -791,11 +838,49 @@ def test_box_grounding_rejects_low_iou_and_containment():
 
 
 def test_time_grounding_allows_half_second_window_tolerance():
-    scored = score_claim(_claim(t0=9.5, t1=10.5, box=[95, 95, 205, 205]), _truth())
+    scored = score_claim(
+        _claim(t0=9.5, t1=10.5, box_t=10.0, box=[95, 95, 205, 205]),
+        _truth(),
+    )
 
     assert scored["time_grounded"] is True
     assert scored["box_grounded"] is True
     assert scored["supported"] is True
+
+
+def test_long_claim_is_supported_at_box_t_but_not_at_midpoint():
+    truth = {
+        "clip_id": "moving-player",
+        "window": {"start_s": 10.0, "end_s": 35.0},
+        "box_track": [
+            [10.0, 100, 100, 200, 200],
+            [35.0, 600, 100, 700, 200],
+        ],
+        "human_note": None,
+    }
+    scored = score_claim(
+        _claim(
+            t0=10.0,
+            t1=35.0,
+            box_t=10.0,
+            box=[100, 100, 200, 200],
+        ),
+        truth,
+    )
+
+    assert scored["time_grounded"] is True
+    assert scored["box_grounded"] is True
+    assert scored["box_grounded_at_midpoint"] is False
+    assert scored["supported"] is True
+    assert scored["truth_box_at_box_t"] == [100.0, 100.0, 200.0, 200.0]
+    assert scored["truth_box_at_midpoint"] == [350.0, 100.0, 450.0, 200.0]
+
+    report = score_run(
+        [{"clip_id": "moving-player", "claims": [scored], "error": None}],
+        {"moving-player": truth},
+    )
+    assert report["overall"]["box_grounded_rate"] == 1.0
+    assert report["overall"]["box_grounded_at_midpoint_rate"] == 0.0
 
 
 def test_time_grounding_rejects_interval_beyond_tolerance():
@@ -928,6 +1013,8 @@ def test_metrics_split_boxed_and_unboxed_grounding():
     assert metrics["supported_rate_unboxed"] == 0.5
     assert metrics["box_grounded_rate_boxed"] == 1.0
     assert metrics["box_grounded_rate_unboxed"] == 0.5
+    assert metrics["box_grounded_rate"] == pytest.approx(2 / 3, abs=0.0001)
+    assert metrics["box_grounded_at_midpoint_rate"] == pytest.approx(2 / 3, abs=0.0001)
     assert metrics["echo_suspect_count"] == 1
 
 

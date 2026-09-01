@@ -8,7 +8,13 @@ from typing import Any
 
 CONFIDENCE_VALUES = frozenset({"low", "medium", "high"})
 VISIBILITY_VALUES = frozenset({"clear", "partial", "unclear"})
-CLAIM_FIELDS = frozenset({"claim", "t0", "t1", "box", "confidence", "visibility"})
+CLAIM_FIELDS = frozenset(
+    {"claim", "t0", "t1", "box_t", "box", "confidence", "visibility"}
+)
+# box_t is required by the current prompt contract, but deliberately omitted
+# here so pre-box_t runs fall back to t0 instead of becoming unscorable.
+REQUIRED_CLAIM_FIELDS = CLAIM_FIELDS - {"box_t"}
+BOX_T_SPAN_TOLERANCE_S = 0.5
 
 
 def _number(value: object) -> bool:
@@ -26,6 +32,12 @@ def _malformed_claim(value: object, fields: list[str]) -> dict:
         box = list(raw_box) if isinstance(raw_box, (list, tuple)) else None
         t0 = value.get("t0") if _number(value.get("t0")) else None
         t1 = value.get("t1") if _number(value.get("t1")) else None
+        if "box_t" in value:
+            box_t = value.get("box_t") if _number(value.get("box_t")) else None
+            box_t_source = "provided"
+        else:
+            box_t = t0
+            box_t_source = "fallback_t0"
         confidence = (
             value.get("confidence")
             if value.get("confidence") in CONFIDENCE_VALUES
@@ -45,12 +57,16 @@ def _malformed_claim(value: object, fields: list[str]) -> dict:
         box = None
         t0 = None
         t1 = None
+        box_t = None
+        box_t_source = "fallback_t0"
         confidence = None
         visibility = None
     return {
         "claim": text if isinstance(text, str) else str(text or ""),
         "t0": t0,
         "t1": t1,
+        "box_t": float(box_t) if box_t is not None else None,
+        "box_t_source": box_t_source,
         "box": box,
         "confidence": confidence,
         "visibility": visibility,
@@ -64,7 +80,9 @@ def normalize_claim(value: object) -> dict:
     if not isinstance(value, dict):
         return _malformed_claim(value, ["claim_object"])
 
-    problems = [f"missing:{field}" for field in sorted(CLAIM_FIELDS - value.keys())]
+    problems = [
+        f"missing:{field}" for field in sorted(REQUIRED_CLAIM_FIELDS - value.keys())
+    ]
     problems.extend(
         f"unexpected:{field}" for field in sorted(value.keys() - CLAIM_FIELDS)
     )
@@ -87,6 +105,25 @@ def normalize_claim(value: object) -> dict:
         t1 = float(t1)
     if t0 is not None and t1 is not None and t1 < t0:
         problems.append("time_order")
+
+    if "box_t" in value:
+        box_t_source = "provided"
+        box_t = value.get("box_t")
+        if not _number(box_t):
+            problems.append("box_t")
+            box_t = None
+        else:
+            box_t = float(box_t)
+    else:
+        box_t_source = "fallback_t0"
+        box_t = t0
+    if (
+        box_t is not None
+        and t0 is not None
+        and t1 is not None
+        and (box_t < t0 - BOX_T_SPAN_TOLERANCE_S or box_t > t1 + BOX_T_SPAN_TOLERANCE_S)
+    ):
+        problems.append("box_t outside claim span")
 
     raw_box = value.get("box")
     box = None
@@ -115,6 +152,8 @@ def normalize_claim(value: object) -> dict:
         "claim": claim if isinstance(claim, str) else str(claim or ""),
         "t0": t0,
         "t1": t1,
+        "box_t": box_t,
+        "box_t_source": box_t_source,
         "box": box,
         "confidence": confidence,
         "visibility": visibility,
