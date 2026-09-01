@@ -38,7 +38,7 @@ Jinja2==3.1.6
 jiter==0.16.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
-kiwisolver==1.5.0
+kiwisolver==1.5.1
 limits==5.8.0
 linkify-it-py==2.1.0
 Mako==1.4.1
