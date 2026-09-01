@@ -103,6 +103,25 @@ export function matchCaptionToWindow(window, captions, player) {
 // eslint-disable-next-line react-refresh/only-export-components
 export function captionPresentation(caption) {
     if (!caption) return null
+    const hasGroundingFields = ['grounded', 'box_t', 'box', 'evidence_iou', 'caption_model']
+        .some((field) => Object.prototype.hasOwnProperty.call(caption, field))
+    if (hasGroundingFields) {
+        if (caption.grounded === true && typeof caption.caption === 'string' && caption.caption.trim()) {
+            return {
+                kind: 'verified',
+                label: 'AI clip notes — qualitative',
+                showActionType: true,
+                verificationLabel: 'verified on player',
+                verificationDetail: `checked against tracking at t=${caption.box_t}s (overlap ${caption.evidence_iou})`,
+            }
+        }
+        return {
+            kind: 'withheld',
+            label: 'Tracking verification',
+            showActionType: false,
+            message: 'No verified note for this clip',
+        }
+    }
     if (caption.player_visible === false) {
         return {
             kind: 'context',
@@ -114,6 +133,17 @@ export function captionPresentation(caption) {
         kind: 'player',
         label: 'AI clip notes — qualitative',
         showActionType: true,
+    }
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function playerReadEvidence(note) {
+    if (!note || !Object.prototype.hasOwnProperty.call(note, 'evidence')) return null
+    const observations = Array.isArray(note.observations) ? note.observations : []
+    const evidence = Array.isArray(note.evidence) ? note.evidence : []
+    return {
+        verified: observations.reduce((count, _observation, index) => count + (evidence[index] ? 1 : 0), 0),
+        total: observations.length,
     }
 }
 
@@ -462,14 +492,15 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError, media
     const jumpTo = (index, shouldPlay = true) => {
         const window = windows[index]
         const video = videoRef.current
-        if (!window || !video) return
+        if (!window) return
         if (index !== activeIdx) {
             boxesRef.current = []
             setBbox({ available: false, count: 0, loading: true })
         }
         setActiveIdx(index)
-        video.currentTime = window.start_s
         setPosition(window.start_s)
+        if (!video) return
+        video.currentTime = window.start_s
         if (shouldPlay) video.play().then(() => setPlaying(true)).catch(() => {})
     }
     const changeOrdering = (nextOrdering) => {
@@ -623,8 +654,13 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError, media
                                     </span>
                                     {caption && presentation ? (
                                         <span className="mt-1.5 flex flex-wrap gap-1 text-[9px] font-semibold uppercase tracking-wide">
-                                            {presentation.showActionType ? <span className="rounded-sm bg-cyan-300/15 px-1.5 py-0.5 text-cyan-200">{caption.action_type?.replace('_', ' ')}</span> : <span className="rounded-sm bg-white/[0.06] px-1.5 py-0.5 text-slate-500">clip context</span>}
-                                            {caption.visible_pitch_zone ? <span className="rounded-sm bg-white/10 px-1.5 py-0.5 text-slate-300">{caption.visible_pitch_zone} zone</span> : null}
+                                            {presentation.showActionType ? <span className="rounded-sm bg-cyan-300/15 px-1.5 py-0.5 text-cyan-200">{caption.action_type?.replace('_', ' ')}</span> : <span className="rounded-sm bg-white/[0.06] px-1.5 py-0.5 text-slate-500">{presentation.kind === 'withheld' ? 'no verified note' : 'clip context'}</span>}
+                                            {presentation.kind !== 'withheld' && caption.visible_pitch_zone ? <span className="rounded-sm bg-white/10 px-1.5 py-0.5 text-slate-300">{caption.visible_pitch_zone} zone</span> : null}
+                                            {presentation.verificationLabel ? (
+                                                <span className="inline-flex items-center gap-1 rounded-sm bg-emerald-300/15 px-1.5 py-0.5 text-emerald-200" title={presentation.verificationDetail} aria-label={presentation.verificationDetail}>
+                                                    <ShieldCheck className="h-2.5 w-2.5" /> {presentation.verificationLabel}
+                                                </span>
+                                            ) : null}
                                         </span>
                                     ) : null}
                                 </button>
@@ -634,9 +670,16 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError, media
                 </div>
             </div>
             {activeCaption && activeCaptionPresentation ? (
-                <div className={`mt-4 border-l-2 px-3 py-2.5 ${activeCaptionPresentation.kind === 'context' ? 'border-slate-600 bg-white/[0.03]' : 'border-cyan-300 bg-cyan-300/[0.07]'}`}>
-                    <p className={`text-[10px] font-semibold uppercase tracking-[0.17em] ${activeCaptionPresentation.kind === 'context' ? 'text-slate-500' : 'text-cyan-300'}`}>{activeCaptionPresentation.label}</p>
-                    <p className={`mt-1 text-sm ${activeCaptionPresentation.kind === 'context' ? 'text-slate-400' : 'text-slate-200'}`}>{activeCaption.caption}</p>
+                <div className={`mt-4 border-l-2 px-3 py-2.5 ${activeCaptionPresentation.kind === 'context' || activeCaptionPresentation.kind === 'withheld' ? 'border-slate-600 bg-white/[0.03]' : 'border-cyan-300 bg-cyan-300/[0.07]'}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <p className={`text-[10px] font-semibold uppercase tracking-[0.17em] ${activeCaptionPresentation.kind === 'context' || activeCaptionPresentation.kind === 'withheld' ? 'text-slate-500' : 'text-cyan-300'}`}>{activeCaptionPresentation.label}</p>
+                        {activeCaptionPresentation.verificationLabel ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-300/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-200" title={activeCaptionPresentation.verificationDetail} aria-label={activeCaptionPresentation.verificationDetail}>
+                                <ShieldCheck className="h-3 w-3" /> {activeCaptionPresentation.verificationLabel}
+                            </span>
+                        ) : null}
+                    </div>
+                    <p className={`mt-1 text-sm ${activeCaptionPresentation.kind === 'context' || activeCaptionPresentation.kind === 'withheld' ? 'text-slate-400' : 'text-slate-200'}`}>{activeCaptionPresentation.message || activeCaption.caption}</p>
                 </div>
             ) : null}
         </div>
@@ -698,6 +741,38 @@ function TeamOverview({ match, overview, onRunAnalysis, analysisRunning }) {
                                 {team.weaknesses?.length ? <p className="mt-1"><span className="font-medium">Weaknesses:</span> {team.weaknesses.join(' · ')}</p> : null}
                             </div>
                         ))}
+                        {(analysis.player_notes || []).map((note, noteIndex) => {
+                            const evidenceSummary = playerReadEvidence(note)
+                            const observations = Array.isArray(note.observations) ? note.observations : []
+                            return (
+                                <div key={`${note.kit_color || 'player'}-${note.jersey_number ?? noteIndex}`} className="rounded border bg-background p-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <p className="font-medium">Player #{note.jersey_number ?? '—'}{note.kit_color ? ` · ${note.kit_color} kit` : ''}</p>
+                                        {evidenceSummary ? <span className="text-xs text-muted-foreground">{evidenceSummary.verified} of {evidenceSummary.total} observations verified</span> : null}
+                                    </div>
+                                    {observations.length ? (
+                                        <ul className="mt-2 space-y-1.5">
+                                            {observations.map((observation, observationIndex) => {
+                                                const evidence = Array.isArray(note.evidence) ? note.evidence[observationIndex] : null
+                                                const evidenceDetail = evidence
+                                                    ? `checked against tracking at t=${evidence.t}s (overlap ${evidence.iou})`
+                                                    : null
+                                                return (
+                                                    <li key={`${observationIndex}-${observation}`} className="flex items-start gap-1.5 text-muted-foreground">
+                                                        {evidenceDetail ? (
+                                                            <span className="mt-0.5 inline-flex shrink-0 items-center text-emerald-600 dark:text-emerald-400" title={evidenceDetail} aria-label={evidenceDetail}>
+                                                                <ShieldCheck className="h-3.5 w-3.5" />
+                                                            </span>
+                                                        ) : null}
+                                                        <span>{observation}</span>
+                                                    </li>
+                                                )
+                                            })}
+                                        </ul>
+                                    ) : null}
+                                </div>
+                            )
+                        })}
                     </div>
                 </details>
             )}
