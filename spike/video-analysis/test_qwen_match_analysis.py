@@ -232,6 +232,9 @@ def test_aggregation_prompt_lists_required_pairs_and_trims_boilerplate():
         "Include exactly one player_notes entry for every required recurring pair"
         in prompt
     )
+    assert "at least one concrete, frame-grounded observation" in prompt
+    assert "An entry with no observations" in prompt
+    assert '"seen at t=X in zone Y"' in prompt
     assert "phase_of_play actually present" in prompt
     assert (
         "otherwise use an empty style string and empty strengths/weaknesses lists"
@@ -247,6 +250,37 @@ def test_schema_validation_rejects_missing_recurring_player_pair():
             analysis,
             required_player_pairs={("blue", 8), ("red", 11)},
         )
+
+
+def test_schema_validation_rejects_hollow_required_player_note():
+    analysis = _good_analysis()
+    analysis["player_notes"][0]["observations"] = []
+
+    with pytest.raises(ValueError, match=r"hollow pairs .*blue #8"):
+        validate_analysis_schema(
+            analysis,
+            required_player_pairs={("blue", 8)},
+        )
+
+
+def test_schema_validation_rejects_hollow_optional_player_note():
+    analysis = _good_analysis()
+    analysis["player_notes"][0]["observations"] = ["", "   "]
+
+    with pytest.raises(ValueError, match=r"hollow pairs .*blue #8"):
+        validate_analysis_schema(analysis)
+
+
+def test_schema_validation_accepts_one_grounded_player_observation():
+    analysis = _good_analysis()
+    analysis["player_notes"][0]["observations"] = [
+        "Seen at t=40 in the central zone offering a passing option."
+    ]
+
+    validate_analysis_schema(
+        analysis,
+        required_player_pairs={("blue", 8)},
+    )
 
 
 def test_schema_validation_rejects_duplicate_normalized_player_pair():

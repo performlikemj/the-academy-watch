@@ -397,6 +397,10 @@ Return exactly this shape:
 Use no player names. A player may appear only when that jersey number was explicitly readable in the supplied
 frame observations. Include exactly one player_notes entry for every required recurring pair above. Pairs evidenced
 in only one frame may be omitted; player_notes may be empty only when the required recurring-pair list is empty.
+Each required note, and any other note included, must contain at least one concrete, frame-grounded observation of
+what the player was seen doing or where they were seen. An entry with no observations, or only empty observation
+strings, is invalid. Do not invent: if nothing beyond "seen at t=X in zone Y" is supportable from a supplied frame,
+that grounded fact is a valid observation.
 Do not invent events, players, statistics, formations, or certainty. Distinguish the uploader's side only when the
 supplied kit-color context supports it. Every non-empty team_analysis style, strength, or weakness must cite a
 phase_of_play actually present in the supplied observations and ground it in an observed timestamp, visible pitch
@@ -630,6 +634,7 @@ def validate_analysis_schema(
     if not isinstance(analysis["player_notes"], list):
         raise ValueError("player_notes must be a list")
     present_player_pairs = set()
+    hollow_player_pairs = set()
     for player in analysis["player_notes"]:
         if not isinstance(player, dict):
             raise ValueError("each player_note must be an object")
@@ -670,6 +675,17 @@ def validate_analysis_schema(
                 f"{player_pair[0]} #{player_pair[1]}"
             )
         present_player_pairs.add(player_pair)
+        if not any(observation.strip() for observation in player["observations"]):
+            hollow_player_pairs.add(player_pair)
+    if hollow_player_pairs:
+        rendered = ", ".join(
+            f"{kit_color} #{jersey_number}"
+            for kit_color, jersey_number in sorted(hollow_player_pairs)
+        )
+        raise ValueError(
+            "player_notes contains hollow pairs (no non-empty observations): "
+            f"{rendered}"
+        )
     missing_player_pairs = (required_player_pairs or set()) - present_player_pairs
     if missing_player_pairs:
         rendered = ", ".join(
