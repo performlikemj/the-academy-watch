@@ -77,6 +77,7 @@ def ollama_chat_with_options(
     options: dict,
     image_path: Path | None = None,
     image_paths: list[Path] | None = None,
+    response_metadata: dict[str, object] | None = None,
 ) -> str:
     """Call the shared Ollama primitive while adding adapter-only options.
 
@@ -111,6 +112,7 @@ def ollama_chat_with_options(
                 timeout_s=timeout_s,
                 image_path=image_path,
                 image_paths=image_paths,
+                response_metadata=response_metadata,
             )
         finally:
             qwen_match_analysis.urllib.request.Request = original_request

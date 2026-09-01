@@ -788,6 +788,85 @@ def test_ollama_chat_passes_num_predict_and_repeat_penalty(monkeypatch):
     }
 
 
+def test_ollama_chat_uses_thinking_when_content_is_empty(monkeypatch, caplog):
+    answer = '{"claims":[{"claim":"Visible movement"}]}'
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return json.dumps(
+                {"message": {"content": "  ", "thinking": answer}}
+            ).encode()
+
+    monkeypatch.setattr(
+        qwen_analysis.urllib.request, "urlopen", lambda *_a, **_k: FakeResponse()
+    )
+    monkeypatch.setattr(qwen_analysis, "_thinking_fallback_warning_emitted", False)
+    metadata = {}
+
+    with caplog.at_level("WARNING", logger="qwen_match_analysis"):
+        first = qwen_analysis.ollama_chat(
+            "prompt",
+            ollama_url="http://ollama.invalid",
+            model="qwen3-vl:8b",
+            timeout_s=17,
+            response_metadata=metadata,
+        )
+        second = qwen_analysis.ollama_chat(
+            "prompt",
+            ollama_url="http://ollama.invalid",
+            model="qwen3-vl:8b",
+            timeout_s=17,
+        )
+
+    assert first == answer
+    assert second == answer
+    assert metadata == {"from_thinking": True}
+    assert [record.message for record in caplog.records] == [
+        "ollama returned the answer in the thinking field for model qwen3-vl:8b; using it"
+    ]
+
+
+def test_ollama_chat_prefers_nonempty_content_over_thinking(monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return json.dumps(
+                {
+                    "message": {
+                        "content": "content answer",
+                        "thinking": "thinking answer",
+                    }
+                }
+            ).encode()
+
+    monkeypatch.setattr(
+        qwen_analysis.urllib.request, "urlopen", lambda *_a, **_k: FakeResponse()
+    )
+    metadata = {}
+
+    result = qwen_analysis.ollama_chat(
+        "prompt",
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=17,
+        response_metadata=metadata,
+    )
+
+    assert result == "content answer"
+    assert metadata == {"from_thinking": False}
+
+
 def test_ollama_chat_omits_num_ctx_when_disabled(monkeypatch):
     request_bodies = []
 

@@ -117,6 +117,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
     claims = []
     anchored_frames = []
     error = None
+    response_metadata: dict[str, object] = {}
     try:
         with temp_directory("evidence-qwen3vl-") as temp_dir:
             frames = extract_sample_frames(clip, truth, Path(temp_dir) / "frames")
@@ -139,8 +140,11 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
                     "num_predict": max(1, min(int(cfg.get("num_predict", 400)), 400)),
                     "repeat_penalty": float(cfg.get("repeat_penalty", 1.15)),
                 },
+                response_metadata=response_metadata,
             )
             claims = tag_boxed_frames(parse_claims(raw), anchored_frames)
+            if not any(not claim["malformed"] for claim in claims):
+                error = "no parseable claims"
     except Exception as exc:  # run_bench/scorer applies the mechanical-failure rule
         error = f"{type(exc).__name__}: {exc}"
     return {
@@ -151,5 +155,6 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
         "model": model,
         "anchor_mode": anchor_mode,
         "anchored_frames": anchored_frames,
+        "from_thinking": bool(response_metadata.get("from_thinking", False)),
         "error": error,
     }

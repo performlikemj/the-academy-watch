@@ -22,10 +22,14 @@ import urllib.error
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Lock
 
 from game_time import in_play_plan
 
 log = logging.getLogger("qwen_match_analysis")
+
+_THINKING_FALLBACK_WARNING_LOCK = Lock()
+_thinking_fallback_warning_emitted = False
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "qwen3.8:27b-obliterated-q8"
@@ -561,6 +565,7 @@ def ollama_chat(
     num_predict: int | None = None,
     image_path: Path | None = None,
     image_paths: list[Path] | None = None,
+    response_metadata: dict[str, object] | None = None,
 ) -> str:
     """Make the one permitted network call shape, using only urllib."""
     if image_path is not None and image_paths is not None:
@@ -622,9 +627,26 @@ def ollama_chat(
                 exc,
             )
             time.sleep(delay_s)
-    content = payload.get("message", {}).get("content")
+    message_payload = payload.get("message", {})
+    content = message_payload.get("content")
     if not isinstance(content, str):
         raise ValueError("ollama response is missing message.content")
+    from_thinking = False
+    thinking = message_payload.get("thinking")
+    if not content.strip() and isinstance(thinking, str) and thinking.strip():
+        content = thinking
+        from_thinking = True
+        global _thinking_fallback_warning_emitted
+        with _THINKING_FALLBACK_WARNING_LOCK:
+            if not _thinking_fallback_warning_emitted:
+                log.warning(
+                    "ollama returned the answer in the thinking field for model %s; "
+                    "using it",
+                    model,
+                )
+                _thinking_fallback_warning_emitted = True
+    if response_metadata is not None:
+        response_metadata["from_thinking"] = from_thinking
     return content
 
 
