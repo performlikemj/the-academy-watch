@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
-import statistics
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -14,12 +14,23 @@ try:
 except ImportError:  # pragma: no cover - direct script/import from bench directory
     from contract import normalize_claim, parse_claims
 
+VIDEO_ANALYSIS_DIR = Path(__file__).resolve().parent.parent
+if str(VIDEO_ANALYSIS_DIR) not in sys.path:
+    sys.path.insert(0, str(VIDEO_ANALYSIS_DIR))
+
+from grounding import (  # noqa: E402
+    CONTAINMENT_THRESHOLD,
+    IOU_THRESHOLD,
+    MIN_INTERPOLATION_GAP_S,
+    TRACKING_GAP_MULTIPLIER,
+    box_matches,
+    max_interpolation_gap_s as max_interpolation_gap_s,
+    tracking_cadence_s as tracking_cadence_s,
+    truth_box_at_time,
+)
+
 TIME_TOLERANCE_S = 0.5
-IOU_THRESHOLD = 0.5
-CONTAINMENT_THRESHOLD = 0.8
 ECHO_BOX_TOLERANCE_PX = 2.0
-TRACKING_GAP_MULTIPLIER = 2.0
-MIN_INTERPOLATION_GAP_S = 0.25
 
 # Intentionally narrow: an event is fabricated only when an explicit event
 # keyword appears in the claim and no synonym for that class occurs in the note.
@@ -44,77 +55,11 @@ def _rate(count: int, total: int) -> float | None:
     return round(count / total, 4) if total else None
 
 
-def _box_area(box: list[float]) -> float:
-    return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
-
-
-def _intersection(a: list[float], b: list[float]) -> float:
-    return max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(
-        0.0, min(a[3], b[3]) - max(a[1], b[1])
-    )
-
-
-def box_matches(
-    claim_box: list[float], truth_box: list[float]
-) -> tuple[bool, float, float]:
-    """Return grounded, IoU, and fraction of the claim box inside truth."""
-    intersection = _intersection(claim_box, truth_box)
-    claim_area = _box_area(claim_box)
-    truth_area = _box_area(truth_box)
-    union = claim_area + truth_area - intersection
-    iou = intersection / union if union > 0 else 0.0
-    containment = intersection / claim_area if claim_area > 0 else 0.0
-    grounded = iou >= IOU_THRESHOLD or containment >= CONTAINMENT_THRESHOLD
-    return grounded, round(iou, 4), round(containment, 4)
-
-
-def tracking_cadence_s(box_track: list[list]) -> float | None:
-    """Return the median positive interval between truth-box samples."""
-    timestamps = sorted(float(row[0]) for row in box_track)
-    gaps = [
-        right - left for left, right in zip(timestamps, timestamps[1:]) if right > left
-    ]
-    return float(statistics.median(gaps)) if gaps else None
-
-
-def max_interpolation_gap_s(box_track: list[list]) -> float:
-    """Return the largest adjacent sample gap safe to interpolate."""
-    cadence = tracking_cadence_s(box_track)
-    return max(
-        MIN_INTERPOLATION_GAP_S,
-        TRACKING_GAP_MULTIPLIER * cadence if cadence is not None else 0.0,
-    )
-
-
 def _truth_box_at_time(
     box_track: list[list], timestamp_s: float
 ) -> tuple[list[float] | None, bool]:
-    """Return a truth box and whether the requested time is in a tracking gap."""
-    if not box_track or not math.isfinite(timestamp_s):
-        return None, False
-    rows = sorted(box_track, key=lambda row: float(row[0]))
-    if timestamp_s < float(rows[0][0]) or timestamp_s > float(rows[-1][0]):
-        return None, False
-    interpolation_limit = max_interpolation_gap_s(rows)
-    for index, row in enumerate(rows):
-        row_t = float(row[0])
-        if math.isclose(timestamp_s, row_t, abs_tol=1e-9):
-            return [float(value) for value in row[1:5]], False
-        if row_t > timestamp_s:
-            left = rows[index - 1]
-            left_t = float(left[0])
-            if row_t - left_t > interpolation_limit:
-                return None, True
-            fraction = (timestamp_s - left_t) / (row_t - left_t)
-            return (
-                [
-                    float(left[column])
-                    + fraction * (float(row[column]) - float(left[column]))
-                    for column in range(1, 5)
-                ],
-                False,
-            )
-    return [float(value) for value in rows[-1][1:5]], False
+    """Compatibility wrapper around the shared truth lookup."""
+    return truth_box_at_time(box_track, timestamp_s)
 
 
 def interpolate_truth_box(

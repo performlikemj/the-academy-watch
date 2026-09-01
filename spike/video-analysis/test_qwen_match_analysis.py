@@ -54,6 +54,14 @@ def _good_analysis():
             "zone_coverage": {"left": 1, "central": 1, "right": 0, "unclear": 0},
             "captions_failed": 0,
             "notes_scope": "ours",
+            "grounding": {
+                "caption_windows": 0,
+                "caption_grounded": 0,
+                "read_observations": 0,
+                "read_grounded": 0,
+                "iou_threshold": 0.5,
+                "containment_threshold": 0.8,
+            },
         },
         "match_summary": "The blue-kit side attacks while the red-kit side recovers.",
         "team_analysis": [
@@ -71,6 +79,7 @@ def _good_analysis():
                 "kit_color": "blue",
                 "jersey_number": 8,
                 "observations": ["Offers a passing option."],
+                "read_model": "qwen3-vl:8b",
                 "times_seen": 3,
                 "confidence": "medium",
             }
@@ -473,6 +482,147 @@ def test_hollow_player_read_retries_once_then_is_omitted_with_honest_limit(
     assert limits[0].startswith("no read produced for blue #8:")
 
 
+def test_grounded_player_read_keeps_only_tracking_verified_observations(
+    monkeypatch, tmp_path
+):
+    observations = [
+        {
+            "timestamp_s": timestamp,
+            "filename": f"frame_{timestamp}.jpg",
+            "observation": _good_observation(),
+        }
+        for timestamp in (10, 40)
+    ]
+    response = {
+        "observations": [
+            {
+                "observation": "Checks into the central lane.",
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+            },
+            {
+                "observation": "Runs beyond the back line.",
+                "box_t": 40,
+                "box": [800, 800, 900, 900],
+            },
+        ],
+        "confidence": "medium",
+    }
+    monkeypatch.setattr(
+        qwen_analysis, "ollama_chat", lambda *args, **kwargs: json.dumps(response)
+    )
+    monkeypatch.setattr(qwen_analysis.shutil, "copyfile", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    counts = {"read_observations": 0, "read_grounded": 0}
+
+    notes, limits, omitted = generate_player_reads(
+        {("blue", 8)},
+        observations,
+        frames_dir=tmp_path,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=17,
+        frame_size=(1000, 1000),
+        player_tracks={
+            "42": [
+                [10.0, 100, 100, 200, 200],
+                [40.0, 100, 100, 200, 200],
+            ]
+        },
+        player_roster_ids={("blue", 8): 42},
+        grounding_counts=counts,
+    )
+
+    assert limits == []
+    assert omitted == set()
+    assert counts == {"read_observations": 2, "read_grounded": 1}
+    assert notes[0]["observations"] == ["Checks into the central lane."]
+    assert notes[0]["evidence"] == [
+        {"t": 10, "box": [100, 100, 200, 200], "iou": 1.0}
+    ]
+    assert notes[0]["read_model"] == "qwen3-vl:8b"
+
+
+def test_player_read_with_no_grounded_observation_is_failed(monkeypatch, tmp_path):
+    observations = [
+        {
+            "timestamp_s": 10,
+            "filename": "frame_10.jpg",
+            "observation": _good_observation(),
+        }
+    ]
+    response = {
+        "observations": [
+            {
+                "observation": "The player shoots.",
+                "box_t": 10,
+                "box": [800, 800, 900, 900],
+            }
+        ],
+        "confidence": "low",
+    }
+    monkeypatch.setattr(
+        qwen_analysis, "ollama_chat", lambda *args, **kwargs: json.dumps(response)
+    )
+    monkeypatch.setattr(qwen_analysis.shutil, "copyfile", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+
+    notes, limits, omitted = generate_player_reads(
+        {("blue", 8)},
+        observations,
+        frames_dir=tmp_path,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=17,
+        frame_size=(1000, 1000),
+        player_tracks={"42": [[10.0, 100, 100, 200, 200]]},
+        player_roster_ids={("blue", 8): 42},
+    )
+
+    assert notes == []
+    assert omitted == {("blue", 8)}
+    assert limits == [
+        "no read produced for blue #8: no observation could be verified against tracking"
+    ]
+
+
+def test_legacy_player_read_keeps_text_but_omits_grounding_evidence(
+    monkeypatch, tmp_path
+):
+    observations = [
+        {
+            "timestamp_s": 10,
+            "filename": "frame_10.jpg",
+            "observation": _good_observation(),
+        }
+    ]
+    monkeypatch.setattr(
+        qwen_analysis,
+        "ollama_chat",
+        lambda *args, **kwargs: json.dumps(
+            {
+                "observations": ["Seen at t=10 in the central zone."],
+                "confidence": "low",
+            }
+        ),
+    )
+
+    notes, limits, omitted = generate_player_reads(
+        {("blue", 8)},
+        observations,
+        frames_dir=tmp_path,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=17,
+    )
+
+    assert limits == []
+    assert omitted == set()
+    assert notes[0]["observations"] == ["Seen at t=10 in the central zone."]
+    assert notes[0]["read_model"] == "qwen3-vl:8b"
+    assert "evidence" not in notes[0]
+
+
 def test_schema_validation_rejects_duplicate_normalized_player_pair():
     analysis = _good_analysis()
     analysis["player_notes"].append(
@@ -714,10 +864,142 @@ def test_caption_output_copies_roster_identity_without_model_involvement(
             "roster_jersey_number": 8,
             "start_s": 10,
             "end_s": 20,
-            **model_caption,
+            "caption": None,
+            "action_type": "carry",
+            "player_visible": False,
+            "visible_pitch_zone": "central",
+            "grounded": False,
+            "box_t": None,
+            "box": None,
+            "evidence_iou": None,
+            "caption_model": "vision-model",
         }
     ]
     assert calls[0]["num_predict"] == qwen_analysis.CAPTION_NUM_PREDICT
+
+
+def test_grounded_caption_keeps_best_supported_claim_and_withholds_rejected_one(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    model_caption = {
+        "claims": [
+            {
+                "claim": "Blue #8 checks toward the ball.",
+                "t0": 10,
+                "t1": 20,
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+                "confidence": "high",
+                "visibility": "clear",
+            },
+            {
+                "claim": "Blue #8 makes a run.",
+                "t0": 10,
+                "t1": 20,
+                "box_t": 20,
+                "box": [800, 800, 900, 900],
+                "confidence": "medium",
+                "visibility": "partial",
+            },
+        ],
+        "action_type": "off_ball",
+        "visible_pitch_zone": "central",
+    }
+    monkeypatch.setattr(
+        qwen_analysis, "ollama_chat", lambda *args, **kwargs: json.dumps(model_caption)
+    )
+    counts = {"caption_grounded": 0}
+
+    captions, failed = generate_window_captions(
+        [
+            {
+                "tracklet_id": 10,
+                "roster_entry_id": 42,
+                "roster_jersey_number": 8,
+                "kit_color": "blue",
+                "start_s": 10.0,
+                "end_s": 20.0,
+                "box_track": [
+                    [10.0, 100, 100, 200, 200],
+                    [20.0, 100, 100, 200, 200],
+                ],
+            }
+        ],
+        video_path=tmp_path / "match.mp4",
+        out_dir=tmp_path / "out",
+        ffmpeg_path=tmp_path / "ffmpeg",
+        ffmpeg_dir=tmp_path,
+        profile_path=tmp_path / "decode.sb",
+        sandboxed=False,
+        sandbox_exec=None,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=30,
+        frame_size=(1000, 1000),
+        grounding_counts=counts,
+    )
+
+    assert failed == 0
+    assert counts == {"caption_grounded": 1}
+    assert captions[0]["caption"] == "Blue #8 checks toward the ball."
+    assert captions[0]["grounded"] is True
+    assert captions[0]["box"] == [100, 100, 200, 200]
+    assert captions[0]["evidence_iou"] == 1.0
+    assert captions[0]["caption_model"] == "qwen3-vl:8b"
+
+
+def test_tracked_caption_with_only_unsupported_claim_is_withheld(monkeypatch, tmp_path):
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    response = {
+        "claims": [
+            {
+                "claim": "The player shoots.",
+                "t0": 10,
+                "t1": 20,
+                "box_t": 10,
+                "box": [800, 800, 900, 900],
+                "confidence": "high",
+                "visibility": "clear",
+            }
+        ],
+        "action_type": "shot",
+        "visible_pitch_zone": "right",
+    }
+    monkeypatch.setattr(
+        qwen_analysis, "ollama_chat", lambda *args, **kwargs: json.dumps(response)
+    )
+
+    captions, failed = generate_window_captions(
+        [
+            {
+                "tracklet_id": 10,
+                "roster_entry_id": 42,
+                "roster_jersey_number": 8,
+                "start_s": 10.0,
+                "end_s": 20.0,
+                "box_track": [[10.0, 100, 100, 200, 200]],
+            }
+        ],
+        video_path=tmp_path / "match.mp4",
+        out_dir=tmp_path / "out",
+        ffmpeg_path=tmp_path / "ffmpeg",
+        ffmpeg_dir=tmp_path,
+        profile_path=tmp_path / "decode.sb",
+        sandboxed=False,
+        sandbox_exec=None,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=30,
+        frame_size=(1000, 1000),
+    )
+
+    assert failed == 0
+    assert captions[0]["caption"] is None
+    assert captions[0]["player_visible"] is False
+    assert captions[0]["grounded"] is False
 
 
 def test_caption_context_preserves_roster_identity(tmp_path):
@@ -747,7 +1029,42 @@ def test_caption_context_preserves_roster_identity(tmp_path):
             "kit_color": "blue",
             "start_s": 10.0,
             "end_s": 20.0,
+            "box_track": [],
         }
+    ]
+
+
+def test_context_preserves_frame_size_caption_tracks_and_player_tracks(tmp_path):
+    context_path = tmp_path / "context.json"
+    context_path.write_text(
+        json.dumps(
+            {
+                "frame_size": [1920, 1080],
+                "caption_windows": [
+                    {
+                        "tracklet_id": 10,
+                        "roster_entry_id": 42,
+                        "roster_jersey_number": 8,
+                        "start_s": 10,
+                        "end_s": 20,
+                        "box_track": [[10, 100, 100, 200, 200]],
+                    }
+                ],
+                "player_tracks": {
+                    "42": [[10, 100, 100, 200, 200]],
+                },
+            }
+        )
+    )
+
+    context = qwen_analysis._load_context(context_path)
+
+    assert context["frame_size"] == [1920, 1080]
+    assert context["caption_windows"][0]["box_track"] == [
+        [10.0, 100.0, 100.0, 200.0, 200.0]
+    ]
+    assert context["player_tracks"]["42"] == [
+        [10.0, 100.0, 100.0, 200.0, 200.0]
     ]
 
 
@@ -1039,6 +1356,20 @@ def test_run_passes_frame_and_team_caps_with_separate_timeouts(monkeypatch, tmp_
         qwen_analysis.FRAME_NUM_PREDICT,
         qwen_analysis.TEAM_NUM_PREDICT,
     ]
+    analysis = json.loads((out_dir / "analysis.json").read_text())
+    assert analysis["sampling"]["grounding"] == {
+        "caption_windows": 0,
+        "caption_grounded": 0,
+        "read_observations": 0,
+        "read_grounded": 0,
+        "iou_threshold": 0.5,
+        "containment_threshold": 0.8,
+    }
+    assert (
+        "0 of 0 clip notes and 0 of 0 read observations were verified against "
+        "player tracking; unverified ones were withheld."
+        in analysis["honest_limits"]
+    )
 
 
 def test_run_fails_when_more_than_half_of_required_player_reads_fail(
