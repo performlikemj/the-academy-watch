@@ -207,6 +207,7 @@ def test_shared_ollama_call_receives_capped_generation_options(monkeypatch, tmp_
 
     assert content == '{"claims":[]}'
     assert captured["timeout"] == 12
+    assert captured["body"]["think"] is False
     assert captured["body"]["format"] == "json"
     assert captured["body"]["options"] == {
         "temperature": 0,
@@ -251,6 +252,96 @@ def test_shared_ollama_call_omits_num_ctx_when_disabled(monkeypatch, tmp_path):
     )
 
     assert "num_ctx" not in captured["body"]["options"]
+
+
+def test_qwen_adapter_parses_claims_from_thinking_and_records_origin(
+    monkeypatch, tmp_path
+):
+    claim = _claim(t0=10.0, t1=10.0, box=[100, 100, 200, 200])
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "message": {
+                        "content": "",
+                        "thinking": json.dumps({"claims": [claim]}),
+                    }
+                }
+            ).encode()
+
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(b"frame")
+    monkeypatch.setattr(
+        qwen_adapter, "extract_sample_frames", lambda *_args: [(frame, 10.0)]
+    )
+    monkeypatch.setattr(
+        qwen_adapter,
+        "apply_anchors",
+        lambda *_args: [{"t": 10.0, "box": [100, 100, 200, 200]}],
+    )
+    monkeypatch.setattr(
+        adapter_common.qwen_match_analysis.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response(),
+    )
+
+    result = qwen_adapter.run(
+        tmp_path / "clip.mp4",
+        {
+            **_truth(),
+            "jersey_number": 12,
+            "frame_size": [1920, 1080],
+        },
+        {"model": "qwen3-vl:8b"},
+    )
+
+    assert result["error"] is None
+    assert result["from_thinking"] is True
+    assert len(result["claims"]) == 1
+    assert result["claims"][0]["claim"] == claim["claim"]
+    assert result["claims"][0]["malformed"] is False
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"claims":[]}',
+        '{"claims":[{"claim":"missing contract fields"}]}',
+    ],
+)
+def test_qwen_adapter_flags_responses_with_no_parseable_claims(
+    monkeypatch, tmp_path, raw
+):
+    frame = tmp_path / "frame.jpg"
+    monkeypatch.setattr(
+        qwen_adapter, "extract_sample_frames", lambda *_args: [(frame, 10.0)]
+    )
+    monkeypatch.setattr(qwen_adapter, "apply_anchors", lambda *_args: [])
+    monkeypatch.setattr(
+        qwen_adapter,
+        "ollama_chat_with_options",
+        lambda *_args, **_kwargs: raw,
+    )
+
+    result = qwen_adapter.run(
+        tmp_path / "clip.mp4",
+        {
+            **_truth(),
+            "jersey_number": 12,
+            "frame_size": [1920, 1080],
+        },
+        {"model": "qwen3-vl:8b"},
+    )
+
+    assert result["error"] == "no parseable claims"
+    assert result["from_thinking"] is False
 
 
 def test_anchor_first_draws_only_on_frame_zero(monkeypatch, tmp_path):
