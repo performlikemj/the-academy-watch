@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import urllib.request
@@ -25,6 +26,10 @@ DEFAULT_SAMPLE_S = 30.0
 DEFAULT_MAX_CALLS = 240
 DEFAULT_TIMEOUT_S = 300.0
 DEFAULT_AGGREGATION_TIMEOUT_S = 1200.0
+FRAME_NUM_PREDICT = 600
+CAPTION_NUM_PREDICT = 300
+PLAYER_NUM_PREDICT = 500
+TEAM_NUM_PREDICT = 1500
 SCHEMA_VERSION = "qwen-analysis-v1"
 PHASES = (
     "build-up",
@@ -365,47 +370,130 @@ def caption_frame_timestamps(
     return [round(start + index * step, 3) for index in range(max_frames)]
 
 
-def build_aggregation_prompt(
-    observations: list[dict], context: dict | None = None
-) -> str:
-    context_json = json.dumps(context or {}, separators=(",", ":"), ensure_ascii=False)
-    observations_json = json.dumps(
-        observations, separators=(",", ":"), ensure_ascii=False
-    )
-    recurring_pairs_json = json.dumps(
+def scoped_recurring_jersey_evidence(
+    observations: list[dict],
+    context: dict | None = None,
+    requested_scope: str = "ours",
+) -> tuple[set[tuple[str, int]], str]:
+    """Return recurring pairs in the effective uploader-side notes scope."""
+    if requested_scope not in ("ours", "all"):
+        raise ValueError("QWEN_NOTES_SCOPE must be ours or all")
+    recurring = recurring_jersey_evidence(observations)
+    our_kit_color = (context or {}).get("our_kit_color")
+    if requested_scope == "ours" and isinstance(our_kit_color, str):
+        normalized_ours = _normalized_kit_color(our_kit_color)
+        if normalized_ours:
+            return {pair for pair in recurring if pair[0] == normalized_ours}, "ours"
+    return recurring, "all"
+
+
+def player_evidence_frames(
+    observations: list[dict], player_pair: tuple[str, int]
+) -> list[dict]:
+    """Return only frames where the normalized kit/number pair was readable."""
+    normalized_pair = (_normalized_kit_color(player_pair[0]), player_pair[1])
+    return sorted(
         [
-            {"kit_color": kit_color, "jersey_number": jersey_number}
-            for kit_color, jersey_number in sorted(
-                recurring_jersey_evidence(observations)
-            )
+            wrapped
+            for wrapped in observations
+            if normalized_pair in _frame_jersey_evidence(wrapped)
         ],
+        key=lambda wrapped: float(wrapped.get("timestamp_s", 0)),
+    )
+
+
+def spread_evidence_frames(
+    evidence_frames: list[dict], max_frames: int = 3
+) -> list[dict]:
+    """Select up to ``max_frames`` evidence rows, spread from first to last."""
+    if max_frames <= 0 or not evidence_frames:
+        return []
+    ordered = sorted(
+        evidence_frames, key=lambda wrapped: float(wrapped.get("timestamp_s", 0))
+    )
+    count = min(max_frames, len(ordered))
+    if count == 1:
+        return [ordered[len(ordered) // 2]]
+    indices = [
+        round(index * (len(ordered) - 1) / (count - 1)) for index in range(count)
+    ]
+    return [ordered[index] for index in indices]
+
+
+def build_player_prompt(
+    player_pair: tuple[str, int], evidence_frames: list[dict]
+) -> str:
+    kit_color, jersey_number = player_pair
+    compact_evidence = []
+    for wrapped in evidence_frames:
+        observation = wrapped["observation"]
+        compact_evidence.append(
+            {
+                "t": wrapped["timestamp_s"],
+                "phase_of_play": observation["phase_of_play"],
+                "visible_pitch_zone": observation["visible_pitch_zone"],
+                "observation": observation["observation"],
+                "notable_actions": observation["notable_actions"],
+            }
+        )
+    evidence_json = json.dumps(
+        compact_evidence, separators=(",", ":"), ensure_ascii=False
+    )
+    return f"""Write a trustworthy scout's read for the football player wearing {kit_color} #{jersey_number}.
+The attached images are up to three of that player's readable-number evidence frames, ordered across time.
+All readable evidence frames for this player: {evidence_json}
+
+Return one JSON object only with this exact shape:
+{{"observations":[str],"confidence":"low|medium"}}
+Provide 1 to 3 concrete observations about what #{jersey_number} was seen doing or where #{jersey_number} was
+seen. Tie every observation to an evidence timestamp using "t=<seconds>". Never name or identify any player, and
+never invent an event, action, statistic, location, or certainty. Use only the supplied evidence for this player.
+Prefer a concise scout's read over a sighting log. If no action is safely supportable, "Seen at t=X in zone Y" is
+the honest floor."""
+
+
+def compact_team_evidence(observations: list[dict]) -> list[dict]:
+    """Drop prose and jersey lists from the evidence supplied to the team pass."""
+    compacted = []
+    for wrapped in observations:
+        observation = wrapped["observation"]
+        compacted.append(
+            {
+                "t": wrapped["timestamp_s"],
+                "phase_of_play": observation["phase_of_play"],
+                "visible_pitch_zone": observation["visible_pitch_zone"],
+                "ball_visible": observation["ball_visible"],
+                "kits": [
+                    {
+                        "kit_color": team["kit_color"],
+                        "visible_players": team["visible_players"],
+                    }
+                    for team in observation["teams"]
+                ],
+                "notable_actions": observation["notable_actions"],
+            }
+        )
+    return compacted
+
+
+def build_team_prompt(observations: list[dict], context: dict | None = None) -> str:
+    context_json = json.dumps(context or {}, separators=(",", ":"), ensure_ascii=False)
+    evidence_json = json.dumps(
+        compact_team_evidence(observations),
         separators=(",", ":"),
         ensure_ascii=False,
     )
-    return f"""Aggregate these sampled football-frame observations into one honest match analysis JSON object.
+    return f"""Produce an honest team-level analysis from compact sampled football-frame evidence.
 Optional match context: {context_json}
-Timestamped observations: {observations_json}
-Required recurring player-note pairs (each was readable in at least two distinct sampled frames): {recurring_pairs_json}
+Compacted timestamped evidence: {evidence_json}
 
-Return exactly this shape:
-{{"schema_version":"qwen-analysis-v1","model":str,"generated_at":str,
-"sampling":{{"interval_s":number,"frames_analyzed":int,"frames_failed":int,
-"in_play_windows":[[number,number]]}},"match_summary":str,
-"team_analysis":[{{"kit_color":str,"is_ours":bool|null,"style":str,"strengths":[str],
-"weaknesses":[str],"shape_notes":str}}],
-"player_notes":[{{"kit_color":str,"jersey_number":int,"observations":[str],"times_seen":int,
-"confidence":"low|medium"}}],"honest_limits":[str]}}
-Use no player names. A player may appear only when that jersey number was explicitly readable in the supplied
-frame observations. Include exactly one player_notes entry for every required recurring pair above. Pairs evidenced
-in only one frame may be omitted; player_notes may be empty only when the required recurring-pair list is empty.
-Each required note, and any other note included, must contain at least one concrete, frame-grounded observation of
-what the player was seen doing or where they were seen. An entry with no observations, or only empty observation
-strings, is invalid. Do not invent: if nothing beyond "seen at t=X in zone Y" is supportable from a supplied frame,
-that grounded fact is a valid observation.
-Do not invent events, players, statistics, formations, or certainty. Distinguish the uploader's side only when the
-supplied kit-color context supports it. Every non-empty team_analysis style, strength, or weakness must cite a
-phase_of_play actually present in the supplied observations and ground it in an observed timestamp, visible pitch
-zone, or concrete supplied moment; otherwise use an empty style string and empty strengths/weaknesses lists."""
+Return one JSON object only with this exact shape:
+{{"match_summary":str,"team_analysis":[{{"kit_color":str,"is_ours":bool|null,"style":str,
+"strengths":[str],"weaknesses":[str],"shape_notes":str}}],"honest_limits":[str]}}
+Use no player names and invent no events, statistics, formations, or certainty. Distinguish the uploader's side only
+when the supplied kit-color context supports it. Every non-empty style, strength, or weakness must cite a
+phase_of_play present in the compacted evidence and ground it in an observed timestamp, visible pitch zone, or
+concrete notable action; otherwise use an empty style string and empty strengths/weaknesses lists."""
 
 
 def ollama_chat(
@@ -414,6 +502,7 @@ def ollama_chat(
     ollama_url: str,
     model: str,
     timeout_s: float,
+    num_predict: int | None = None,
     image_path: Path | None = None,
     image_paths: list[Path] | None = None,
 ) -> str:
@@ -430,12 +519,24 @@ def ollama_chat(
         message["images"] = [
             base64.b64encode(path.read_bytes()).decode("ascii") for path in paths
         ]
+    options: dict[str, int | float] = {
+        "temperature": 0,
+        "repeat_penalty": 1.15,
+    }
+    if num_predict is not None:
+        if (
+            not isinstance(num_predict, int)
+            or isinstance(num_predict, bool)
+            or num_predict <= 0
+        ):
+            raise ValueError("num_predict must be a positive integer")
+        options["num_predict"] = num_predict
     body = {
         "model": model,
         "think": False,
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0},
+        "options": options,
         "messages": [message],
     }
     request = urllib.request.Request(
@@ -462,6 +563,18 @@ def parse_window_caption(content: str) -> dict:
     caption = json.loads(content)
     validate_window_caption_schema(caption)
     return caption
+
+
+def parse_player_read(content: str, evidence_frames: list[dict] | None = None) -> dict:
+    player_read = json.loads(content)
+    validate_player_read_schema(player_read, evidence_frames)
+    return player_read
+
+
+def parse_team_pass(content: str) -> dict:
+    team_pass = json.loads(content)
+    validate_team_pass_schema(team_pass)
+    return team_pass
 
 
 def _is_str_list(value: object) -> bool:
@@ -540,6 +653,74 @@ def validate_window_caption_schema(caption: object) -> None:
         raise ValueError("window caption.visible_pitch_zone is invalid")
 
 
+def validate_player_read_schema(
+    player_read: object, evidence_frames: list[dict] | None = None
+) -> None:
+    if not isinstance(player_read, dict):
+        raise ValueError("player read must be a JSON object")
+    if {"observations", "confidence"} - player_read.keys():
+        raise ValueError("player read is missing required keys")
+    observations = player_read["observations"]
+    if (
+        not _is_str_list(observations)
+        or not 1 <= len(observations) <= 3
+        or not all(observation.strip() for observation in observations)
+    ):
+        raise ValueError("player read must contain 1 to 3 non-empty observations")
+    if player_read["confidence"] not in ("low", "medium"):
+        raise ValueError("player read confidence must be low or medium")
+    if evidence_frames is not None:
+        evidence_timestamps = {
+            round(float(frame["timestamp_s"]), 3) for frame in evidence_frames
+        }
+        for observation in observations:
+            cited_timestamps = {
+                round(float(match), 3)
+                for match in re.findall(
+                    r"\bt\s*=\s*(-?\d+(?:\.\d+)?)", observation, re.IGNORECASE
+                )
+            }
+            if not cited_timestamps & evidence_timestamps:
+                raise ValueError(
+                    "each player observation must cite an evidence timestamp as t=<seconds>"
+                )
+
+
+def validate_team_pass_schema(team_pass: object) -> None:
+    if not isinstance(team_pass, dict):
+        raise ValueError("team pass must be a JSON object")
+    required = {"match_summary", "team_analysis", "honest_limits"}
+    if required - team_pass.keys():
+        raise ValueError("team pass is missing required keys")
+    if not isinstance(team_pass["match_summary"], str):
+        raise ValueError("team pass match_summary must be a string")
+    if not _is_str_list(team_pass["honest_limits"]):
+        raise ValueError("team pass honest_limits must be a string list")
+    if not isinstance(team_pass["team_analysis"], list):
+        raise ValueError("team pass team_analysis must be a list")
+    for team in team_pass["team_analysis"]:
+        if not isinstance(team, dict):
+            raise ValueError("each team pass entry must be an object")
+        required_team = {
+            "kit_color",
+            "is_ours",
+            "style",
+            "strengths",
+            "weaknesses",
+            "shape_notes",
+        }
+        if required_team - team.keys():
+            raise ValueError("team pass entry is missing required keys")
+        if not all(
+            isinstance(team[key], str) for key in ("kit_color", "style", "shape_notes")
+        ):
+            raise ValueError("team pass string fields must be strings")
+        if team["is_ours"] is not None and not isinstance(team["is_ours"], bool):
+            raise ValueError("team pass is_ours must be boolean or null")
+        if not _is_str_list(team["strengths"]) or not _is_str_list(team["weaknesses"]):
+            raise ValueError("team pass strengths and weaknesses must be string lists")
+
+
 def validate_analysis_schema(
     analysis: object,
     *,
@@ -595,6 +776,8 @@ def validate_analysis_schema(
             sampling.get("captions_failed"), bool
         ):
             raise ValueError("sampling.captions_failed must be an integer")
+        if sampling.get("notes_scope") not in ("ours", "all"):
+            raise ValueError("sampling.notes_scope must be ours or all")
     windows = sampling["in_play_windows"]
     if not isinstance(windows, list) or not all(
         isinstance(window, list)
@@ -847,6 +1030,9 @@ def finalize_analysis(
     model: str,
     sampling: dict,
     frames_failed: int,
+    notes_scope: str = "all",
+    required_player_pairs: set[tuple[str, int]] | None = None,
+    omitted_player_pairs: set[tuple[str, int]] | None = None,
 ) -> dict:
     """Apply non-negotiable provenance, player filtering, confidence, and limits."""
     result = dict(analysis)
@@ -860,6 +1046,7 @@ def finalize_analysis(
         "in_play_windows": sampling["in_play_windows"],
         "zone_coverage": zone_coverage_counts(observations),
         "captions_failed": 0,
+        "notes_scope": notes_scope,
     }
     result["window_captions"] = []
     evidence_counts = jersey_evidence_counts(observations)
@@ -872,9 +1059,17 @@ def finalize_analysis(
         player["times_seen"] = evidence_counts[evidence]
     result["player_notes"] = compute_player_confidence(filtered)
     result = append_honest_limits(result, sampling["interval_s"])
+    required_pairs = (
+        recurring_jersey_evidence(observations)
+        if required_player_pairs is None
+        else required_player_pairs
+    )
+    omitted_pairs = omitted_player_pairs or set()
+    if not omitted_pairs <= required_pairs:
+        raise ValueError("omitted player pairs must belong to the required scoped set")
     validate_analysis_schema(
         result,
-        required_player_pairs=recurring_jersey_evidence(observations),
+        required_player_pairs=required_pairs - omitted_pairs,
     )
     return result
 
@@ -883,6 +1078,12 @@ def too_many_frame_failures(total_frames: int, failed_frames: int) -> bool:
     if total_frames <= 0:
         return True
     return failed_frames / total_frames > 0.5
+
+
+def too_many_player_read_failures(total_players: int, failed_players: int) -> bool:
+    if total_players <= 0:
+        return False
+    return failed_players / total_players > 0.5
 
 
 def _load_context(path: Path | None) -> dict:
@@ -964,6 +1165,107 @@ def _args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def player_image_paths(
+    evidence_frames: list[dict], frames_dir: Path, max_images: int = 3
+) -> list[Path]:
+    rows_with_images = [
+        wrapped
+        for wrapped in evidence_frames
+        if isinstance(wrapped.get("filename"), str)
+    ]
+    return [
+        frames_dir / wrapped["filename"]
+        for wrapped in spread_evidence_frames(rows_with_images, max_images)
+    ]
+
+
+def generate_player_reads(
+    required_player_pairs: set[tuple[str, int]],
+    observations: list[dict],
+    *,
+    frames_dir: Path,
+    ollama_url: str,
+    model: str,
+    timeout_s: float,
+) -> tuple[list[dict], list[str], set[tuple[str, int]]]:
+    """Generate independent reads; a twice-failed player is honestly omitted."""
+    player_notes = []
+    failure_limits = []
+    omitted_pairs = set()
+    for player_pair in sorted(required_player_pairs):
+        evidence_frames = player_evidence_frames(observations, player_pair)
+        image_paths = player_image_paths(evidence_frames, frames_dir)
+        parsed = None
+        last_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                content = ollama_chat(
+                    build_player_prompt(player_pair, evidence_frames),
+                    ollama_url=ollama_url,
+                    model=model,
+                    timeout_s=timeout_s,
+                    num_predict=PLAYER_NUM_PREDICT,
+                    image_paths=image_paths,
+                )
+                parsed = parse_player_read(content, evidence_frames)
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt == 0:
+                    log.warning(
+                        "invalid player read for %s #%s; retrying once: %s",
+                        player_pair[0],
+                        player_pair[1],
+                        exc,
+                    )
+        if parsed is None:
+            omitted_pairs.add(player_pair)
+            reason = "unknown error" if last_error is None else str(last_error)
+            reason = " ".join(reason.split())[:300]
+            failure_limits.append(
+                f"no read produced for {player_pair[0]} #{player_pair[1]}: {reason}"
+            )
+            continue
+        player_notes.append(
+            {
+                "kit_color": player_pair[0],
+                "jersey_number": player_pair[1],
+                "observations": parsed["observations"],
+                "times_seen": len(evidence_frames),
+                "confidence": parsed["confidence"],
+            }
+        )
+    return player_notes, failure_limits, omitted_pairs
+
+
+def generate_team_pass(
+    observations: list[dict],
+    context: dict,
+    *,
+    ollama_url: str,
+    model: str,
+    timeout_s: float,
+) -> dict:
+    """Generate team analysis from compact evidence, retrying once."""
+    prompt = build_team_prompt(observations, context)
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            content = ollama_chat(
+                prompt,
+                ollama_url=ollama_url,
+                model=model,
+                timeout_s=timeout_s,
+                num_predict=TEAM_NUM_PREDICT,
+            )
+            return parse_team_pass(content)
+        except Exception as exc:
+            last_error = exc
+            if attempt == 0:
+                log.warning("invalid team analysis; retrying once: %s", exc)
+    raise RuntimeError(f"team analysis remained invalid after 2 attempts: {last_error}")
+
+
 def generate_window_captions(
     caption_windows: list[dict],
     *,
@@ -1016,6 +1318,7 @@ def generate_window_captions(
                         ollama_url=ollama_url,
                         model=model,
                         timeout_s=timeout_s,
+                        num_predict=CAPTION_NUM_PREDICT,
                         image_paths=frame_paths,
                     )
                     parsed = parse_window_caption(content)
@@ -1068,6 +1371,9 @@ def run(argv: list[str] | None = None) -> int:
     aggregation_timeout_s = float(
         os.getenv("QWEN_AGGREGATION_TIMEOUT_S", str(DEFAULT_AGGREGATION_TIMEOUT_S))
     )
+    requested_notes_scope = os.getenv("QWEN_NOTES_SCOPE", "ours").strip().lower()
+    if requested_notes_scope not in ("ours", "all"):
+        raise ValueError("QWEN_NOTES_SCOPE must be ours or all")
     ollama_url = os.getenv("OLLAMA_URL", DEFAULT_OLLAMA_URL)
     model = os.getenv("QWEN_VISION_MODEL", DEFAULT_MODEL)
     sandboxed = _parse_bool_env("VIDEO_DECODE_SANDBOX", "1")
@@ -1144,11 +1450,16 @@ def run(argv: list[str] | None = None) -> int:
                     ollama_url=ollama_url,
                     model=model,
                     timeout_s=timeout_s,
+                    num_predict=FRAME_NUM_PREDICT,
                     image_path=frame_path,
                 )
                 observation = parse_observation(content)
                 observations.append(
-                    {"timestamp_s": row["timestamp_s"], "observation": observation}
+                    {
+                        "timestamp_s": row["timestamp_s"],
+                        "filename": row["filename"],
+                        "observation": observation,
+                    }
                 )
                 row["status"] = "ok"
                 error = None
@@ -1181,40 +1492,70 @@ def run(argv: list[str] | None = None) -> int:
         )
 
     context = _load_context(args.context_json)
-    aggregation_prompt = build_aggregation_prompt(
+    analysis_context = {
+        key: value for key, value in context.items() if key != "caption_windows"
+    }
+    required_player_pairs, effective_notes_scope = scoped_recurring_jersey_evidence(
         observations,
-        {key: value for key, value in context.items() if key != "caption_windows"},
+        analysis_context,
+        requested_notes_scope,
     )
-    last_error: Exception | None = None
-    final = None
-    for attempt in range(3):
-        try:
-            content = ollama_chat(
-                aggregation_prompt,
-                ollama_url=ollama_url,
-                model=model,
-                timeout_s=aggregation_timeout_s,
-            )
-            candidate = json.loads(content)
-            validate_analysis_schema(candidate, require_computed=False)
-            final = finalize_analysis(
-                candidate,
-                observations,
-                model=model,
-                sampling=plan,
-                frames_failed=failed,
-            )
-            break
-        except Exception as exc:
-            last_error = exc
-            if attempt < 2:
-                log.warning(
-                    "invalid aggregate analysis; retrying (%d/2): %s", attempt + 1, exc
-                )
-    if final is None:
+    player_notes, player_failure_limits, omitted_player_pairs = generate_player_reads(
+        required_player_pairs,
+        observations,
+        frames_dir=frames_dir,
+        ollama_url=ollama_url,
+        model=model,
+        timeout_s=timeout_s,
+    )
+    if too_many_player_read_failures(
+        len(required_player_pairs), len(omitted_player_pairs)
+    ):
         raise RuntimeError(
-            f"aggregation remained invalid after 3 attempts: {last_error}"
+            f"{len(omitted_player_pairs)} of {len(required_player_pairs)} required "
+            "player reads failed (>50%); refusing analysis"
         )
+
+    team_pass = generate_team_pass(
+        observations,
+        analysis_context,
+        ollama_url=ollama_url,
+        model=model,
+        timeout_s=aggregation_timeout_s,
+    )
+    candidate = {
+        "schema_version": SCHEMA_VERSION,
+        "model": model,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "sampling": {
+            "interval_s": plan["interval_s"],
+            "frames_analyzed": len(observations),
+            "frames_failed": failed,
+            "in_play_windows": plan["in_play_windows"],
+        },
+        "match_summary": team_pass["match_summary"],
+        "team_analysis": team_pass["team_analysis"],
+        "player_notes": player_notes,
+        "honest_limits": [
+            *team_pass["honest_limits"],
+            *player_failure_limits,
+        ],
+    }
+    validate_analysis_schema(
+        candidate,
+        require_computed=False,
+        required_player_pairs=required_player_pairs - omitted_player_pairs,
+    )
+    final = finalize_analysis(
+        candidate,
+        observations,
+        model=model,
+        sampling=plan,
+        frames_failed=failed,
+        notes_scope=effective_notes_scope,
+        required_player_pairs=required_player_pairs,
+        omitted_player_pairs=omitted_player_pairs,
+    )
 
     if captions_enabled and context.get("caption_windows"):
         try:
