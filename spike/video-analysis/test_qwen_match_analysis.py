@@ -490,6 +490,49 @@ def test_caption_context_preserves_roster_identity(tmp_path):
     ]
 
 
+def test_run_passes_separate_timeout_to_aggregation(monkeypatch, tmp_path):
+    video_path = tmp_path / "match.mp4"
+    video_path.write_bytes(b"video")
+    out_dir = tmp_path / "out"
+    calls = []
+
+    monkeypatch.setenv("VIDEO_DECODE_SANDBOX", "0")
+    monkeypatch.setenv("QWEN_CAPTIONS", "0")
+    monkeypatch.setenv("QWEN_ANALYSIS_TIMEOUT_S", "17")
+    monkeypatch.setenv("QWEN_AGGREGATION_TIMEOUT_S", "1201")
+    monkeypatch.setattr(
+        qwen_analysis.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"ffmpeg", "ffprobe"} else None,
+    )
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args: None)
+
+    def fake_ollama_chat(*args, **kwargs):
+        calls.append(kwargs)
+        if "image_path" in kwargs:
+            return json.dumps(_good_observation())
+        return json.dumps(_good_analysis())
+
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    assert (
+        qwen_analysis.run(
+            [
+                "--video",
+                str(video_path),
+                "--out",
+                str(out_dir),
+                "--kickoff-s",
+                "0",
+                "--end-s",
+                "30",
+            ]
+        )
+        == 0
+    )
+    assert [call["timeout_s"] for call in calls] == [17.0, 1201.0]
+
+
 def test_honest_limits_are_always_appended():
     result = append_honest_limits({"honest_limits": ["Camera view was distant."]}, 45)
     joined = " ".join(result["honest_limits"])

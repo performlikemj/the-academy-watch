@@ -24,6 +24,7 @@ DEFAULT_MODEL = "qwen3.8:27b-obliterated-q8"
 DEFAULT_SAMPLE_S = 30.0
 DEFAULT_MAX_CALLS = 240
 DEFAULT_TIMEOUT_S = 300.0
+DEFAULT_AGGREGATION_TIMEOUT_S = 1200.0
 SCHEMA_VERSION = "qwen-analysis-v1"
 PHASES = (
     "build-up",
@@ -1064,6 +1065,9 @@ def run(argv: list[str] | None = None) -> int:
     sample_s = float(os.getenv("QWEN_ANALYSIS_SAMPLE_S", str(DEFAULT_SAMPLE_S)))
     max_calls = int(os.getenv("QWEN_ANALYSIS_MAX_CALLS", str(DEFAULT_MAX_CALLS)))
     timeout_s = float(os.getenv("QWEN_ANALYSIS_TIMEOUT_S", str(DEFAULT_TIMEOUT_S)))
+    aggregation_timeout_s = float(
+        os.getenv("QWEN_AGGREGATION_TIMEOUT_S", str(DEFAULT_AGGREGATION_TIMEOUT_S))
+    )
     ollama_url = os.getenv("OLLAMA_URL", DEFAULT_OLLAMA_URL)
     model = os.getenv("QWEN_VISION_MODEL", DEFAULT_MODEL)
     sandboxed = _parse_bool_env("VIDEO_DECODE_SANDBOX", "1")
@@ -1189,7 +1193,7 @@ def run(argv: list[str] | None = None) -> int:
                 aggregation_prompt,
                 ollama_url=ollama_url,
                 model=model,
-                timeout_s=timeout_s,
+                timeout_s=aggregation_timeout_s,
             )
             candidate = json.loads(content)
             validate_analysis_schema(candidate, require_computed=False)
