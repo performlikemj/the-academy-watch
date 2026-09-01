@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import shutil
 import subprocess
 import sys
@@ -16,6 +15,11 @@ if str(VIDEO_ANALYSIS_DIR) not in sys.path:
     sys.path.insert(0, str(VIDEO_ANALYSIS_DIR))
 
 import qwen_match_analysis  # noqa: E402
+from grounding import (  # noqa: E402
+    draw_anchor_box,
+    interpolated_box as interpolated_box,
+    scale_box as scale_box,
+)
 
 _REQUEST_PATCH_LOCK = threading.Lock()
 
@@ -111,24 +115,6 @@ def image_dimensions(path: Path) -> tuple[int, int]:
     return width, height
 
 
-def scale_box(
-    box: list[float], from_size: tuple[int, int], to_size: tuple[int, int]
-) -> list[float]:
-    """Scale one xyxy box independently on the x and y axes."""
-    from_width, from_height = from_size
-    to_width, to_height = to_size
-    if min(from_width, from_height, to_width, to_height) <= 0:
-        raise ValueError("box coordinate spaces must have positive dimensions")
-    scale_x = to_width / from_width
-    scale_y = to_height / from_height
-    return [
-        float(box[0]) * scale_x,
-        float(box[1]) * scale_y,
-        float(box[2]) * scale_x,
-        float(box[3]) * scale_y,
-    ]
-
-
 def ollama_chat_with_options(
     prompt: str,
     *,
@@ -179,61 +165,9 @@ def ollama_chat_with_options(
             qwen_match_analysis.urllib.request.Request = original_request
 
 
-def interpolated_box(box_track: list[list], timestamp_s: float) -> list[float] | None:
-    if not box_track:
-        return None
-    rows = sorted(box_track, key=lambda row: float(row[0]))
-    if timestamp_s < float(rows[0][0]) or timestamp_s > float(rows[-1][0]):
-        return None
-    for index, row in enumerate(rows):
-        row_t = float(row[0])
-        if math.isclose(timestamp_s, row_t, abs_tol=1e-9):
-            return [float(value) for value in row[1:5]]
-        if row_t > timestamp_s:
-            left = rows[index - 1]
-            fraction = (timestamp_s - float(left[0])) / (row_t - float(left[0]))
-            return [
-                float(left[column])
-                + fraction * (float(row[column]) - float(left[column]))
-                for column in range(1, 5)
-            ]
-    return [float(value) for value in rows[-1][1:5]]
-
-
 def draw_truth_box(frame: Path, box: list[float], jersey_number: int) -> None:
-    """Draw a sent-image-space box, preserving the extracted dimensions."""
-    try:
-        from PIL import Image, ImageDraw
-
-        image = Image.open(frame).convert("RGB")
-        draw = ImageDraw.Draw(image)
-        draw.rectangle(box, outline=(255, 40, 40), width=3)
-        label = f"#{jersey_number}"
-        label_box = draw.textbbox((box[0], box[1]), label)
-        draw.rectangle(label_box, fill=(255, 40, 40))
-        draw.text((box[0], box[1]), label, fill=(255, 255, 255))
-        image.save(frame, quality=94)
-        return
-    except ImportError:
-        pass
-
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise RuntimeError(
-            "Pillow is unavailable and ffmpeg is not on PATH for drawbox fallback"
-        )
-    output = frame.with_name(f"{frame.stem}-boxed.jpg")
-    drawbox = (
-        f"drawbox=x={box[0]:.3f}:y={box[1]:.3f}:"
-        f"w={box[2] - box[0]:.3f}:h={box[3] - box[1]:.3f}:color=red:t=3,"
-        f"drawtext=text='#{jersey_number}':x={box[0]:.3f}:y={box[1]:.3f}:"
-        "fontcolor=white:fontsize=22:box=1:boxcolor=red"
-    )
-    subprocess.run(
-        [ffmpeg, "-y", "-v", "error", "-i", str(frame), "-vf", drawbox, str(output)],
-        check=True,
-    )
-    output.replace(frame)
+    """Compatibility wrapper around the one shared anchor renderer."""
+    draw_anchor_box(frame, box, f"#{jersey_number}")
 
 
 def temp_directory(prefix: str):

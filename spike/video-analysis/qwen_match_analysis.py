@@ -25,6 +25,14 @@ from pathlib import Path
 from threading import Lock
 
 from game_time import in_play_plan
+from grounding import (
+    CONTAINMENT_THRESHOLD,
+    IOU_THRESHOLD,
+    draw_anchor_box,
+    ground_normalized_box,
+    interpolated_box,
+    scale_box,
+)
 
 log = logging.getLogger("qwen_match_analysis")
 
@@ -33,6 +41,8 @@ _thinking_fallback_warning_emitted = False
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "qwen3.8:27b-obliterated-q8"
+DEFAULT_CAPTION_MODEL = "qwen3-vl:8b"
+DEFAULT_READ_MODEL = "qwen3-vl:8b"
 DEFAULT_NUM_CTX = 65536
 DEFAULT_SAMPLE_S = 30.0
 DEFAULT_MAX_CALLS = 240
@@ -345,13 +355,29 @@ players. visible_pitch_zone means which camera-relative third of the PITCH is ma
 defensive zone. Keep the observation to one sentence and describe only evidence visible in this frame."""
 
 
-def build_caption_prompt(window: dict) -> str:
+def build_caption_prompt(window: dict, *, grounded_contract: bool = False) -> str:
     kit_color = window.get("kit_color")
     kit_description = (
         f"wearing {kit_color}"
         if isinstance(kit_color, str) and kit_color
         else "in the target kit"
     )
+    if grounded_contract:
+        return f"""These are up to three time-spread frames from one football clip, ordered earliest to latest.
+The first image identifies the tracked player {kit_description} #{int(window["roster_jersey_number"])} with a red
+rectangle. The other images are unlabelled: find that same player yourself and box the evidence for each claim.
+Never name any player or infer a jersey number. Describe only actions and outcomes visibly supported by these
+frames; never say a shot scores or becomes a goal unless the goal is visibly scored.
+Return one JSON object only with this exact shape:
+{{"claims":[{{"claim":str,"t0":number,"t1":number,"box_t":number,
+"box":[x1,y1,x2,y2],"confidence":"low|medium|high","visibility":"clear|partial|unclear"}}],
+"action_type":"pass|carry|duel|shot|defensive_action|set_piece|off_ball|goalkeeping|unclear",
+"visible_pitch_zone":"left|central|right|unclear"}}
+Times must be absolute source seconds inside [{float(window["start_s"]):.3f}, {float(window["end_s"]):.3f}].
+Return each box in Qwen normalized_1000 coordinates: integer axes from 0 to 1000 relative to the cited image.
+box_t must be the timestamp of the frame containing that box. The evidence box must cover only the tracked player
+region supporting the sentence. Omit a claim when the player or action is not visible enough. visible_pitch_zone
+is the camera-relative third of the PITCH mainly in frame, never an inferred attacking or defensive zone."""
     return f"""These are consecutive sampled frames from one football clip, ordered from earliest to latest.
 Describe in ONE sentence what the player {kit_description} #{int(window["roster_jersey_number"])} is doing across
 the frames. Never name any player. Describe only actions and outcomes visibly supported by these frames: never say
@@ -434,7 +460,10 @@ def spread_evidence_frames(
 
 
 def build_player_prompt(
-    player_pair: tuple[str, int], evidence_frames: list[dict]
+    player_pair: tuple[str, int],
+    evidence_frames: list[dict],
+    *,
+    grounded_contract: bool = False,
 ) -> str:
     kit_color, jersey_number = player_pair
     compact_evidence = []
@@ -452,6 +481,19 @@ def build_player_prompt(
     evidence_json = json.dumps(
         compact_evidence, separators=(",", ":"), ensure_ascii=False
     )
+    if grounded_contract:
+        return f"""Write a trustworthy scout's read for the football player wearing {kit_color} #{jersey_number}.
+The first attached image identifies the tracked player with a red rectangle. Other images are unlabelled: find the
+same player yourself. The images are ordered across time. Evidence timestamps and sampled context: {evidence_json}
+
+Return one JSON object only with this exact shape:
+{{"observations":[{{"observation":str,"box_t":number,"box":[x1,y1,x2,y2]}}],
+"confidence":"low|medium"}}
+Provide 1 to 3 concrete observations. Each box must cover only the tracked player region supporting its observation
+and use Qwen normalized_1000 coordinates (integer axes 0 to 1000) in the image at box_t. box_t must equal one of
+the supplied evidence timestamps. Never name or identify a player and never invent an event, action, statistic,
+location, readable number, or certainty. If no observation is safely supportable, return an empty observations
+list."""
     return f"""Write a trustworthy scout's read for the football player wearing {kit_color} #{jersey_number}.
 The attached images are up to three of that player's readable-number evidence frames, ordered across time.
 All readable evidence frames for this player: {evidence_json}
@@ -656,15 +698,26 @@ def parse_observation(content: str) -> dict:
     return observation
 
 
-def parse_window_caption(content: str) -> dict:
+def parse_window_caption(
+    content: str, window: dict | None = None, *, grounded_contract: bool = False
+) -> dict:
     caption = json.loads(content)
-    validate_window_caption_schema(caption)
+    validate_window_caption_schema(
+        caption, window=window, grounded_contract=grounded_contract
+    )
     return caption
 
 
-def parse_player_read(content: str, evidence_frames: list[dict] | None = None) -> dict:
+def parse_player_read(
+    content: str,
+    evidence_frames: list[dict] | None = None,
+    *,
+    grounded_contract: bool = False,
+) -> dict:
     player_read = json.loads(content)
-    validate_player_read_schema(player_read, evidence_frames)
+    validate_player_read_schema(
+        player_read, evidence_frames, grounded_contract=grounded_contract
+    )
     return player_read
 
 
@@ -731,9 +784,58 @@ def validate_observation_schema(observation: object) -> None:
         raise ValueError("frame observation.notable_actions must be a string list")
 
 
-def validate_window_caption_schema(caption: object) -> None:
+def _validate_grounded_claim(claim: object, window: dict | None = None) -> None:
+    if not isinstance(claim, dict):
+        raise ValueError("each grounded claim must be an object")
+    required = {"claim", "t0", "t1", "box_t", "box", "confidence", "visibility"}
+    if required - claim.keys():
+        raise ValueError("grounded claim is missing required keys")
+    if not isinstance(claim["claim"], str) or not claim["claim"].strip():
+        raise ValueError("grounded claim text must be non-empty")
+    if not all(_number(claim[key]) for key in ("t0", "t1", "box_t")):
+        raise ValueError("grounded claim times must be numeric")
+    if float(claim["t1"]) < float(claim["t0"]):
+        raise ValueError("grounded claim time range is reversed")
+    if not float(claim["t0"]) <= float(claim["box_t"]) <= float(claim["t1"]):
+        raise ValueError("grounded claim box_t must fall inside t0..t1")
+    if window is not None and (
+        float(claim["t0"]) < float(window["start_s"])
+        or float(claim["t1"]) > float(window["end_s"])
+    ):
+        raise ValueError("grounded claim times must fall inside the clip window")
+    box = claim["box"]
+    if not isinstance(box, list) or len(box) != 4 or not all(_number(v) for v in box):
+        raise ValueError("grounded claim box must contain four numbers")
+    if claim["confidence"] not in ("low", "medium", "high"):
+        raise ValueError("grounded claim confidence is invalid")
+    if claim["visibility"] not in ("clear", "partial", "unclear"):
+        raise ValueError("grounded claim visibility is invalid")
+
+
+def validate_window_caption_schema(
+    caption: object,
+    *,
+    window: dict | None = None,
+    grounded_contract: bool = False,
+) -> None:
     if not isinstance(caption, dict):
         raise ValueError("window caption must be a JSON object")
+    if grounded_contract:
+        required = {"claims", "action_type", "visible_pitch_zone"}
+        missing = required - caption.keys()
+        if missing:
+            raise ValueError(
+                "window caption is missing required keys: " + ", ".join(sorted(missing))
+            )
+        if not isinstance(caption["claims"], list):
+            raise ValueError("window caption.claims must be a list")
+        for claim in caption["claims"]:
+            _validate_grounded_claim(claim, window)
+        if caption["action_type"] not in ACTION_TYPES:
+            raise ValueError("window caption.action_type is invalid")
+        if caption["visible_pitch_zone"] not in PITCH_ZONES:
+            raise ValueError("window caption.visible_pitch_zone is invalid")
+        return
     required = {"caption", "action_type", "player_visible", "visible_pitch_zone"}
     missing = required - caption.keys()
     if missing:
@@ -751,14 +853,41 @@ def validate_window_caption_schema(caption: object) -> None:
 
 
 def validate_player_read_schema(
-    player_read: object, evidence_frames: list[dict] | None = None
+    player_read: object,
+    evidence_frames: list[dict] | None = None,
+    *,
+    grounded_contract: bool = False,
 ) -> None:
     if not isinstance(player_read, dict):
         raise ValueError("player read must be a JSON object")
     if {"observations", "confidence"} - player_read.keys():
         raise ValueError("player read is missing required keys")
     observations = player_read["observations"]
-    if (
+    if grounded_contract:
+        if not isinstance(observations, list) or len(observations) > 3:
+            raise ValueError("grounded player read must contain at most 3 observations")
+        for observation in observations:
+            if not isinstance(observation, dict):
+                raise ValueError("each grounded player observation must be an object")
+            if {"observation", "box_t", "box"} - observation.keys():
+                raise ValueError("grounded player observation is missing required keys")
+            if (
+                not isinstance(observation["observation"], str)
+                or not observation["observation"].strip()
+            ):
+                raise ValueError("grounded player observation text must be non-empty")
+            if not _number(observation["box_t"]):
+                raise ValueError("grounded player observation box_t must be numeric")
+            box = observation["box"]
+            if (
+                not isinstance(box, list)
+                or len(box) != 4
+                or not all(_number(value) for value in box)
+            ):
+                raise ValueError(
+                    "grounded player observation box must contain four numbers"
+                )
+    elif (
         not _is_str_list(observations)
         or not 1 <= len(observations) <= 3
         or not all(observation.strip() for observation in observations)
@@ -771,6 +900,12 @@ def validate_player_read_schema(
             round(float(frame["timestamp_s"]), 3) for frame in evidence_frames
         }
         for observation in observations:
+            if grounded_contract:
+                if round(float(observation["box_t"]), 3) not in evidence_timestamps:
+                    raise ValueError(
+                        "each player observation box_t must cite an evidence timestamp"
+                    )
+                continue
             cited_timestamps = {
                 round(float(match), 3)
                 for match in re.findall(
@@ -875,6 +1010,37 @@ def validate_analysis_schema(
             raise ValueError("sampling.captions_failed must be an integer")
         if sampling.get("notes_scope") not in ("ours", "all"):
             raise ValueError("sampling.notes_scope must be ours or all")
+        grounding_counts = sampling.get("grounding")
+        grounding_keys = {
+            "caption_windows",
+            "caption_grounded",
+            "read_observations",
+            "read_grounded",
+            "iou_threshold",
+            "containment_threshold",
+        }
+        if (
+            not isinstance(grounding_counts, dict)
+            or grounding_keys - grounding_counts.keys()
+        ):
+            raise ValueError(
+                "sampling.grounding is missing required grounding counters"
+            )
+        for key in (
+            "caption_windows",
+            "caption_grounded",
+            "read_observations",
+            "read_grounded",
+        ):
+            if not isinstance(grounding_counts[key], int) or isinstance(
+                grounding_counts[key], bool
+            ):
+                raise ValueError(f"sampling.grounding.{key} must be an integer")
+        if (
+            grounding_counts["iou_threshold"] != IOU_THRESHOLD
+            or grounding_counts["containment_threshold"] != CONTAINMENT_THRESHOLD
+        ):
+            raise ValueError("sampling.grounding thresholds do not match the contract")
     windows = sampling["in_play_windows"]
     if not isinstance(windows, list) or not all(
         isinstance(window, list)
@@ -925,6 +1091,7 @@ def validate_analysis_schema(
                     "kit_color",
                     "jersey_number",
                     "observations",
+                    "read_model",
                     "times_seen",
                     "confidence",
                 )
@@ -936,6 +1103,24 @@ def validate_analysis_schema(
             player["observations"]
         ):
             raise ValueError("player_note kit_color/observations have invalid types")
+        if not isinstance(player["read_model"], str) or not player["read_model"]:
+            raise ValueError("player_note.read_model must be a non-empty string")
+        if "evidence" in player:
+            evidence = player["evidence"]
+            if not isinstance(evidence, list) or len(evidence) != len(
+                player["observations"]
+            ):
+                raise ValueError("player_note evidence must align with observations")
+            for item in evidence:
+                if (
+                    not isinstance(item, dict)
+                    or not _number(item.get("t"))
+                    or not _number(item.get("iou"))
+                    or not isinstance(item.get("box"), list)
+                    or len(item["box"]) != 4
+                    or not all(_number(value) for value in item["box"])
+                ):
+                    raise ValueError("player_note evidence entry is invalid")
         if not isinstance(player["jersey_number"], int) or isinstance(
             player["jersey_number"], bool
         ):
@@ -990,8 +1175,17 @@ def validate_analysis_schema(
                 "roster_jersey_number",
                 "start_s",
                 "end_s",
+                "grounded",
+                "box_t",
+                "box",
+                "evidence_iou",
+                "caption_model",
+                "caption",
+                "player_visible",
+                "action_type",
+                "visible_pitch_zone",
             } - window_caption.keys():
-                raise ValueError("window_caption is missing window identity fields")
+                raise ValueError("window_caption is missing required output fields")
             if not isinstance(window_caption["tracklet_id"], int) or isinstance(
                 window_caption["tracklet_id"], bool
             ):
@@ -1010,7 +1204,33 @@ def validate_analysis_schema(
                 window_caption["end_s"]
             ):
                 raise ValueError("window_caption bounds must be numeric")
-            validate_window_caption_schema(window_caption)
+            if not isinstance(window_caption["grounded"], bool):
+                raise ValueError("window_caption.grounded must be a boolean")
+            if not isinstance(window_caption["caption_model"], str):
+                raise ValueError("window_caption.caption_model must be a string")
+            if window_caption["grounded"]:
+                if (
+                    not isinstance(window_caption["caption"], str)
+                    or not window_caption["caption"].strip()
+                    or window_caption["player_visible"] is not True
+                    or not _number(window_caption["box_t"])
+                    or not _number(window_caption["evidence_iou"])
+                    or not isinstance(window_caption["box"], list)
+                    or len(window_caption["box"]) != 4
+                ):
+                    raise ValueError("grounded window_caption evidence is invalid")
+            elif (
+                window_caption["caption"] is not None
+                or window_caption["player_visible"] is not False
+                or window_caption["box_t"] is not None
+                or window_caption["box"] is not None
+                or window_caption["evidence_iou"] is not None
+            ):
+                raise ValueError("ungrounded window_caption must withhold its caption")
+            if window_caption["action_type"] not in ACTION_TYPES:
+                raise ValueError("window_caption.action_type is invalid")
+            if window_caption["visible_pitch_zone"] not in PITCH_ZONES:
+                raise ValueError("window_caption.visible_pitch_zone is invalid")
 
 
 def _normalized_kit_color(value: str) -> str:
@@ -1144,6 +1364,14 @@ def finalize_analysis(
         "zone_coverage": zone_coverage_counts(observations),
         "captions_failed": 0,
         "notes_scope": notes_scope,
+        "grounding": {
+            "caption_windows": 0,
+            "caption_grounded": 0,
+            "read_observations": 0,
+            "read_grounded": 0,
+            "iou_threshold": IOU_THRESHOLD,
+            "containment_threshold": CONTAINMENT_THRESHOLD,
+        },
     }
     result["window_captions"] = []
     evidence_counts = jersey_evidence_counts(observations)
@@ -1183,6 +1411,23 @@ def too_many_player_read_failures(total_players: int, failed_players: int) -> bo
     return failed_players / total_players > 0.5
 
 
+def _clean_box_track(value: object) -> list[list[float]]:
+    if not isinstance(value, list):
+        return []
+    cleaned = []
+    for row in value:
+        if (
+            isinstance(row, list)
+            and len(row) == 5
+            and all(_number(item) and math.isfinite(float(item)) for item in row)
+            and float(row[0]) >= 0
+            and float(row[3]) > float(row[1])
+            and float(row[4]) > float(row[2])
+        ):
+            cleaned.append([float(item) for item in row])
+    return sorted(cleaned, key=lambda row: row[0])
+
+
 def _load_context(path: Path | None) -> dict:
     if path is None:
         return {}
@@ -1201,6 +1446,17 @@ def _load_context(path: Path | None) -> dict:
     }
     if cleaned.get("attack_direction_first_half") not in (None, "left", "right"):
         cleaned.pop("attack_direction_first_half")
+    frame_size = context.get("frame_size")
+    if (
+        isinstance(frame_size, list)
+        and len(frame_size) == 2
+        and all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in frame_size
+        )
+        and min(frame_size) > 0
+    ):
+        cleaned["frame_size"] = frame_size
     caption_windows = []
     raw_caption_windows = context.get("caption_windows")
     for window in raw_caption_windows if isinstance(raw_caption_windows, list) else []:
@@ -1237,9 +1493,16 @@ def _load_context(path: Path | None) -> dict:
                 else None,
                 "start_s": start_s,
                 "end_s": end_s,
+                "box_track": _clean_box_track(window.get("box_track")),
             }
         )
     cleaned["caption_windows"] = caption_windows
+    if isinstance(context.get("player_tracks"), dict):
+        cleaned["player_tracks"] = {
+            str(roster_entry_id): _clean_box_track(track)
+            for roster_entry_id, track in context["player_tracks"].items()
+            if isinstance(roster_entry_id, (str, int))
+        }
     return cleaned
 
 
@@ -1276,6 +1539,77 @@ def player_image_paths(
     ]
 
 
+def tracked_frame_timestamps(window: dict, max_frames: int = 3) -> list[float]:
+    """Choose time-spread actual track samples, guaranteeing anchor truth exists."""
+    rows = [
+        row
+        for row in window.get("box_track", [])
+        if float(window["start_s"]) <= float(row[0]) <= float(window["end_s"])
+    ]
+    if not rows or max_frames <= 0:
+        return []
+    selected = spread_evidence_frames(
+        [{"timestamp_s": float(row[0])} for row in rows], max_frames
+    )
+    return [round(float(row["timestamp_s"]), 3) for row in selected]
+
+
+def _image_dimensions(path: Path) -> tuple[int, int]:
+    try:
+        from PIL import Image
+    except ImportError as exc:  # production image already carries Pillow
+        raise RuntimeError("Pillow is required to draw tracking anchors") from exc
+    with Image.open(path) as image:
+        return image.size
+
+
+def _draw_first_anchor(
+    image_paths: list[Path],
+    timestamps: list[float],
+    box_track: list[list],
+    frame_size: tuple[int, int],
+    label: str,
+) -> None:
+    if not image_paths or not timestamps:
+        raise ValueError("grounded model call requires at least one frame")
+    truth_box = interpolated_box(box_track, timestamps[0])
+    if truth_box is None:
+        raise ValueError("tracking anchor is unavailable at the first frame")
+    sent_box = scale_box(truth_box, frame_size, _image_dimensions(image_paths[0]))
+    draw_anchor_box(image_paths[0], sent_box, label)
+
+
+def _gate_model_items(
+    items: list[dict], box_track: list[list], frame_size: tuple[int, int]
+) -> list[tuple[dict, dict]]:
+    grounded = []
+    for item in items:
+        result = ground_normalized_box(
+            item["box"], float(item["box_t"]), box_track, frame_size
+        )
+        if result["grounded"]:
+            grounded.append((item, result))
+    return grounded
+
+
+def _player_roster_ids(caption_windows: list[dict]) -> dict[tuple[str, int], int]:
+    mapping = {}
+    ambiguous = set()
+    for window in caption_windows:
+        kit_color = window.get("kit_color")
+        if not isinstance(kit_color, str):
+            continue
+        pair = (_normalized_kit_color(kit_color), window["roster_jersey_number"])
+        roster_id = window["roster_entry_id"]
+        if pair in mapping and mapping[pair] != roster_id:
+            ambiguous.add(pair)
+        else:
+            mapping[pair] = roster_id
+    for pair in ambiguous:
+        mapping.pop(pair, None)
+    return mapping
+
+
 def generate_player_reads(
     required_player_pairs: set[tuple[str, int]],
     observations: list[dict],
@@ -1284,27 +1618,85 @@ def generate_player_reads(
     ollama_url: str,
     model: str,
     timeout_s: float,
+    frame_size: tuple[int, int] | None = None,
+    player_tracks: dict[str, list[list]] | None = None,
+    player_roster_ids: dict[tuple[str, int], int] | None = None,
+    grounding_counts: dict[str, int] | None = None,
 ) -> tuple[list[dict], list[str], set[tuple[str, int]]]:
     """Generate independent reads; a twice-failed player is honestly omitted."""
     player_notes = []
     failure_limits = []
     omitted_pairs = set()
+    tracking_contract_present = player_tracks is not None
     for player_pair in sorted(required_player_pairs):
         evidence_frames = player_evidence_frames(observations, player_pair)
         image_paths = player_image_paths(evidence_frames, frames_dir)
+        track = None
+        roster_entry_id = (player_roster_ids or {}).get(player_pair)
+        if tracking_contract_present and roster_entry_id is not None:
+            track = player_tracks.get(str(roster_entry_id))
+        grounded_contract = bool(frame_size and track)
+        call_image_paths = image_paths
+        if grounded_contract:
+            eligible_rows = [
+                row
+                for row in evidence_frames
+                if interpolated_box(track, float(row["timestamp_s"])) is not None
+                and isinstance(row.get("filename"), str)
+            ]
+            grounded_rows = spread_evidence_frames(eligible_rows, 3)
+            call_image_paths = []
+            read_dir = frames_dir / "reads" / f"{roster_entry_id}"
+            read_dir.mkdir(parents=True, exist_ok=True)
+            for index, row in enumerate(grounded_rows):
+                source = frames_dir / row["filename"]
+                target = read_dir / f"frame-{index:02d}{source.suffix or '.jpg'}"
+                shutil.copyfile(source, target)
+                call_image_paths.append(target)
+            evidence_frames = grounded_rows
+            if call_image_paths:
+                _draw_first_anchor(
+                    call_image_paths,
+                    [float(row["timestamp_s"]) for row in evidence_frames],
+                    track,
+                    frame_size,
+                    f"#{player_pair[1]}",
+                )
+            else:
+                omitted_pairs.add(player_pair)
+                failure_limits.append(
+                    f"no read produced for {player_pair[0]} #{player_pair[1]}: "
+                    "no observation could be verified against tracking"
+                )
+                continue
+        if tracking_contract_present and not grounded_contract:
+            omitted_pairs.add(player_pair)
+            failure_limits.append(
+                f"no read produced for {player_pair[0]} #{player_pair[1]}: "
+                "no observation could be verified against tracking"
+            )
+            continue
         parsed = None
         last_error: Exception | None = None
         for attempt in range(2):
             try:
                 content = ollama_chat(
-                    build_player_prompt(player_pair, evidence_frames),
+                    build_player_prompt(
+                        player_pair,
+                        evidence_frames,
+                        grounded_contract=grounded_contract,
+                    ),
                     ollama_url=ollama_url,
                     model=model,
                     timeout_s=timeout_s,
                     num_predict=PLAYER_NUM_PREDICT,
-                    image_paths=image_paths,
+                    image_paths=call_image_paths,
                 )
-                parsed = parse_player_read(content, evidence_frames)
+                parsed = parse_player_read(
+                    content,
+                    evidence_frames,
+                    grounded_contract=grounded_contract,
+                )
                 break
             except Exception as exc:
                 last_error = exc
@@ -1323,13 +1715,39 @@ def generate_player_reads(
                 f"no read produced for {player_pair[0]} #{player_pair[1]}: {reason}"
             )
             continue
+        note_observations = parsed["observations"]
+        note_evidence = None
+        if grounded_contract:
+            if grounding_counts is not None:
+                grounding_counts["read_observations"] += len(note_observations)
+            gated = _gate_model_items(note_observations, track, frame_size)
+            if grounding_counts is not None:
+                grounding_counts["read_grounded"] += len(gated)
+            if not gated:
+                omitted_pairs.add(player_pair)
+                failure_limits.append(
+                    f"no read produced for {player_pair[0]} #{player_pair[1]}: "
+                    "no observation could be verified against tracking"
+                )
+                continue
+            note_observations = [item["observation"] for item, _result in gated]
+            note_evidence = [
+                {
+                    "t": _clean_number(float(item["box_t"])),
+                    "box": [_clean_number(value) for value in result["box"]],
+                    "iou": result["iou"],
+                }
+                for item, result in gated
+            ]
         player_notes.append(
             {
                 "kit_color": player_pair[0],
                 "jersey_number": player_pair[1],
-                "observations": parsed["observations"],
+                "observations": note_observations,
                 "times_seen": len(evidence_frames),
                 "confidence": parsed["confidence"],
+                "read_model": model,
+                **({"evidence": note_evidence} if note_evidence is not None else {}),
             }
         )
     return player_notes, failure_limits, omitted_pairs
@@ -1376,6 +1794,8 @@ def generate_window_captions(
     ollama_url: str,
     model: str,
     timeout_s: float,
+    frame_size: tuple[int, int] | None = None,
+    grounding_counts: dict[str, int] | None = None,
 ) -> tuple[list[dict], int]:
     """Caption windows independently; no one window can fail the analysis job."""
     captions_dir = out_dir / "frames" / "captions"
@@ -1384,11 +1804,17 @@ def generate_window_captions(
     failed = 0
     for window_index, window in enumerate(caption_windows, start=1):
         try:
+            box_track = window.get("box_track") or []
+            grounded_contract = bool(box_track)
+            if grounded_contract and frame_size is None:
+                raise ValueError("tracked caption window is missing source frame_size")
             frame_paths = []
-            for frame_index, timestamp_s in enumerate(
-                caption_frame_timestamps(window["start_s"], window["end_s"]),
-                start=1,
-            ):
+            timestamps = (
+                tracked_frame_timestamps(window)
+                if grounded_contract
+                else caption_frame_timestamps(window["start_s"], window["end_s"])
+            )
+            for frame_index, timestamp_s in enumerate(timestamps, start=1):
                 frame_path = captions_dir / (
                     f"caption_{window_index:04d}_t{window['tracklet_id']}_{frame_index}_{timestamp_s:010.3f}.jpg"
                 )
@@ -1405,20 +1831,34 @@ def generate_window_captions(
                 frame_paths.append(frame_path)
             if not frame_paths:
                 raise ValueError("caption window produced no frame timestamps")
+            if grounded_contract:
+                _draw_first_anchor(
+                    frame_paths,
+                    timestamps,
+                    box_track,
+                    frame_size,
+                    f"#{window['roster_jersey_number']}",
+                )
 
             parsed = None
             last_error: Exception | None = None
             for attempt in range(2):
                 try:
                     content = ollama_chat(
-                        build_caption_prompt(window),
+                        build_caption_prompt(
+                            window, grounded_contract=grounded_contract
+                        ),
                         ollama_url=ollama_url,
                         model=model,
                         timeout_s=timeout_s,
                         num_predict=CAPTION_NUM_PREDICT,
                         image_paths=frame_paths,
                     )
-                    parsed = parse_window_caption(content)
+                    parsed = parse_window_caption(
+                        content,
+                        window,
+                        grounded_contract=grounded_contract,
+                    )
                     break
                 except Exception as exc:
                     last_error = exc
@@ -1431,6 +1871,20 @@ def generate_window_captions(
                         )
             if parsed is None:
                 raise ValueError(f"caption remained invalid after retry: {last_error}")
+            best = None
+            if grounded_contract:
+                grounded_claims = _gate_model_items(
+                    parsed["claims"], box_track, frame_size
+                )
+                if grounded_claims:
+                    best = min(
+                        grounded_claims,
+                        key=lambda item: (-float(item[1]["iou"]), item[0]["box_t"]),
+                    )
+            is_grounded = best is not None
+            if is_grounded and grounding_counts is not None:
+                grounding_counts["caption_grounded"] += 1
+            best_claim, best_result = best if best is not None else (None, None)
             captions.append(
                 {
                     "tracklet_id": window["tracklet_id"],
@@ -1438,7 +1892,19 @@ def generate_window_captions(
                     "roster_jersey_number": window["roster_jersey_number"],
                     "start_s": _clean_number(window["start_s"]),
                     "end_s": _clean_number(window["end_s"]),
-                    **parsed,
+                    "caption": best_claim["claim"] if is_grounded else None,
+                    "action_type": parsed["action_type"],
+                    "player_visible": is_grounded,
+                    "visible_pitch_zone": parsed["visible_pitch_zone"],
+                    "grounded": is_grounded,
+                    "box_t": _clean_number(float(best_claim["box_t"]))
+                    if is_grounded
+                    else None,
+                    "box": [_clean_number(value) for value in best_result["box"]]
+                    if is_grounded
+                    else None,
+                    "evidence_iou": best_result["iou"] if is_grounded else None,
+                    "caption_model": model,
                 }
             )
         except Exception as exc:
@@ -1473,6 +1939,8 @@ def run(argv: list[str] | None = None) -> int:
         raise ValueError("QWEN_NOTES_SCOPE must be ours or all")
     ollama_url = os.getenv("OLLAMA_URL", DEFAULT_OLLAMA_URL)
     model = os.getenv("QWEN_VISION_MODEL", DEFAULT_MODEL)
+    caption_model = os.getenv("QWEN_CAPTION_MODEL", DEFAULT_CAPTION_MODEL)
+    read_model = os.getenv("QWEN_READ_MODEL", DEFAULT_READ_MODEL)
     sandboxed = _parse_bool_env("VIDEO_DECODE_SANDBOX", "1")
     captions_enabled = _parse_bool_env("QWEN_CAPTIONS", "1")
 
@@ -1590,21 +2058,40 @@ def run(argv: list[str] | None = None) -> int:
 
     context = _load_context(args.context_json)
     analysis_context = {
-        key: value for key, value in context.items() if key != "caption_windows"
+        key: value
+        for key, value in context.items()
+        if key not in {"caption_windows", "frame_size", "player_tracks"}
     }
     required_player_pairs, effective_notes_scope = scoped_recurring_jersey_evidence(
         observations,
         analysis_context,
         requested_notes_scope,
     )
+    grounding_counts = {
+        "caption_windows": len(context.get("caption_windows", []))
+        if captions_enabled
+        else 0,
+        "caption_grounded": 0,
+        "read_observations": 0,
+        "read_grounded": 0,
+    }
+    frame_size = tuple(context["frame_size"]) if "frame_size" in context else None
     player_notes, player_failure_limits, omitted_player_pairs = generate_player_reads(
         required_player_pairs,
         observations,
         frames_dir=frames_dir,
         ollama_url=ollama_url,
-        model=model,
+        model=read_model,
         timeout_s=timeout_s,
+        frame_size=frame_size,
+        player_tracks=context.get("player_tracks"),
+        player_roster_ids=_player_roster_ids(context.get("caption_windows", [])),
+        grounding_counts=grounding_counts,
     )
+    if "player_tracks" not in context and required_player_pairs:
+        player_failure_limits.append(
+            "Player reads were not tracking-verified because player_tracks was absent."
+        )
     if too_many_player_read_failures(
         len(required_player_pairs), len(omitted_player_pairs)
     ):
@@ -1653,6 +2140,7 @@ def run(argv: list[str] | None = None) -> int:
         required_player_pairs=required_player_pairs,
         omitted_player_pairs=omitted_player_pairs,
     )
+    final["sampling"]["grounding"].update(grounding_counts)
 
     if captions_enabled and context.get("caption_windows"):
         try:
@@ -1666,8 +2154,10 @@ def run(argv: list[str] | None = None) -> int:
                 sandboxed=sandboxed,
                 sandbox_exec=sandbox_exec,
                 ollama_url=ollama_url,
-                model=model,
+                model=caption_model,
                 timeout_s=timeout_s,
+                frame_size=frame_size,
+                grounding_counts=grounding_counts,
             )
         except Exception as exc:
             log.warning("caption stage failed without failing analysis: %s", exc)
@@ -1675,7 +2165,17 @@ def run(argv: list[str] | None = None) -> int:
             captions_failed = len(context["caption_windows"])
         final["window_captions"] = captions
         final["sampling"]["captions_failed"] = captions_failed
-        validate_analysis_schema(final)
+    final["sampling"]["grounding"].update(grounding_counts)
+    grounding_limit = (
+        f"{grounding_counts['caption_grounded']} of "
+        f"{grounding_counts['caption_windows']} clip notes and "
+        f"{grounding_counts['read_grounded']} of "
+        f"{grounding_counts['read_observations']} read observations were verified "
+        "against player tracking; unverified ones were withheld."
+    )
+    if grounding_limit not in final["honest_limits"]:
+        final["honest_limits"].append(grounding_limit)
+    validate_analysis_schema(final)
 
     (out_dir / "analysis.json").write_text(
         json.dumps(final, indent=2, ensure_ascii=False) + "\n"
