@@ -1,0 +1,372 @@
+"""Deterministic scoring and report generation for Film Room evidence claims."""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+from datetime import UTC, datetime
+from pathlib import Path
+
+try:
+    from .contract import normalize_claim, parse_claims
+except ImportError:  # pragma: no cover - direct script/import from bench directory
+    from contract import normalize_claim, parse_claims
+
+TIME_TOLERANCE_S = 0.5
+IOU_THRESHOLD = 0.5
+CONTAINMENT_THRESHOLD = 0.8
+
+# Intentionally narrow: an event is fabricated only when an explicit event
+# keyword appears in the claim and no synonym for that class occurs in the note.
+EVENT_KEYWORDS = {
+    "goal": ("goal", "scores", "scored"),
+    "shot": ("shot", "shoots", "strikes at goal"),
+    "pass": ("pass", "passes", "passed"),
+    "cross": ("cross", "crosses", "crossed"),
+    "carry": ("carry", "carries", "dribble", "dribbles"),
+    "duel": ("duel", "challenge", "tackle", "tackles"),
+    "save": ("save", "saves", "saved"),
+    "foul": ("foul", "fouled"),
+    "corner": ("corner",),
+    "free_kick": ("free kick", "free-kick"),
+    "penalty": ("penalty",),
+    "throw_in": ("throw in", "throw-in"),
+    "offside": ("offside",),
+}
+
+
+def _rate(count: int, total: int) -> float | None:
+    return round(count / total, 4) if total else None
+
+
+def _box_area(box: list[float]) -> float:
+    return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
+
+
+def _intersection(a: list[float], b: list[float]) -> float:
+    return max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(
+        0.0, min(a[3], b[3]) - max(a[1], b[1])
+    )
+
+
+def box_matches(
+    claim_box: list[float], truth_box: list[float]
+) -> tuple[bool, float, float]:
+    """Return grounded, IoU, and fraction of the claim box inside truth."""
+    intersection = _intersection(claim_box, truth_box)
+    claim_area = _box_area(claim_box)
+    truth_area = _box_area(truth_box)
+    union = claim_area + truth_area - intersection
+    iou = intersection / union if union > 0 else 0.0
+    containment = intersection / claim_area if claim_area > 0 else 0.0
+    grounded = iou >= IOU_THRESHOLD or containment >= CONTAINMENT_THRESHOLD
+    return grounded, round(iou, 4), round(containment, 4)
+
+
+def interpolate_truth_box(
+    box_track: list[list], timestamp_s: float
+) -> list[float] | None:
+    """Linearly interpolate the source-pixel truth box at an absolute time."""
+    if not box_track or not math.isfinite(timestamp_s):
+        return None
+    rows = sorted(box_track, key=lambda row: float(row[0]))
+    if timestamp_s < float(rows[0][0]) or timestamp_s > float(rows[-1][0]):
+        return None
+    for index, row in enumerate(rows):
+        row_t = float(row[0])
+        if math.isclose(timestamp_s, row_t, abs_tol=1e-9):
+            return [float(value) for value in row[1:5]]
+        if row_t > timestamp_s:
+            left = rows[index - 1]
+            left_t = float(left[0])
+            fraction = (timestamp_s - left_t) / (row_t - left_t)
+            return [
+                float(left[column])
+                + fraction * (float(row[column]) - float(left[column]))
+                for column in range(1, 5)
+            ]
+    return [float(value) for value in rows[-1][1:5]]
+
+
+def _event_classes(text: str) -> set[str]:
+    normalized = re.sub(r"\s+", " ", text.casefold())
+    return {
+        event_class
+        for event_class, keywords in EVENT_KEYWORDS.items()
+        if any(
+            re.search(rf"(?<!\w){re.escape(keyword)}(?!\w)", normalized)
+            for keyword in keywords
+        )
+    }
+
+
+def fabricated_event_classes(claim: str, human_note: str | None) -> list[str] | None:
+    if human_note is None:
+        return None
+    return sorted(_event_classes(claim) - _event_classes(human_note))
+
+
+def _normalize_adapter_claim(claim: dict) -> dict:
+    normalized = normalize_claim(
+        {
+            key: claim.get(key)
+            for key in ("claim", "t0", "t1", "box", "confidence", "visibility")
+        }
+    )
+    inherited_malformed = bool(claim.get("malformed"))
+    inherited_fields = (
+        claim.get("malformed_fields")
+        if isinstance(claim.get("malformed_fields"), list)
+        else []
+    )
+    malformed_fields = sorted(set(normalized["malformed_fields"] + inherited_fields))
+    malformed = normalized["malformed"] or inherited_malformed
+    return {
+        **normalized,
+        "malformed": malformed,
+        "malformed_fields": malformed_fields,
+    }
+
+
+def score_claim(claim: dict, truth: dict) -> dict:
+    normalized = _normalize_adapter_claim(claim)
+    malformed_fields = normalized["malformed_fields"]
+    malformed = normalized["malformed"]
+
+    window = truth["window"]
+    has_time = normalized["t0"] is not None and normalized["t1"] is not None
+    has_box = normalized["box"] is not None
+    time_grounded = bool(
+        has_time
+        and normalized["t0"] <= normalized["t1"]
+        and normalized["t0"] >= float(window["start_s"]) - TIME_TOLERANCE_S
+        and normalized["t1"] <= float(window["end_s"]) + TIME_TOLERANCE_S
+    )
+    midpoint = (normalized["t0"] + normalized["t1"]) / 2 if has_time else None
+    truth_box = (
+        interpolate_truth_box(truth.get("box_track") or [], midpoint)
+        if midpoint is not None
+        else None
+    )
+    if has_box and truth_box is not None:
+        box_grounded, iou, containment = box_matches(normalized["box"], truth_box)
+    else:
+        box_grounded, iou, containment = False, None, None
+    hollow = not has_time or not has_box
+    supported = not malformed and time_grounded and box_grounded
+    fabricated_classes = fabricated_event_classes(
+        normalized["claim"], truth.get("human_note")
+    )
+
+    return {
+        **normalized,
+        "malformed": malformed,
+        "malformed_fields": malformed_fields,
+        "time_grounded": time_grounded,
+        "box_grounded": box_grounded,
+        "hollow": hollow,
+        "supported": supported,
+        "unsupported": not supported,
+        "truth_box_at_midpoint": [round(value, 3) for value in truth_box]
+        if truth_box is not None
+        else None,
+        "iou": iou,
+        "claim_box_containment": containment,
+        "fabricated": bool(fabricated_classes)
+        if fabricated_classes is not None
+        else None,
+        "fabricated_event_classes": fabricated_classes,
+    }
+
+
+def _claims_from_result(result: dict) -> list[dict]:
+    claims = result.get("claims")
+    if isinstance(claims, list):
+        return claims
+    return parse_claims(result.get("claims_raw", ""))
+
+
+def _clip_metrics(scored_claims: list[dict]) -> dict:
+    total = len(scored_claims)
+    supported = sum(bool(claim["supported"]) for claim in scored_claims)
+    time_only = sum(
+        bool(claim["time_grounded"] and not claim["box_grounded"])
+        for claim in scored_claims
+    )
+    hollow = sum(bool(claim["hollow"]) for claim in scored_claims)
+    malformed = sum(bool(claim["malformed"]) for claim in scored_claims)
+    fabricated_evaluated = [
+        claim for claim in scored_claims if claim["fabricated"] is not None
+    ]
+    fabricated = sum(bool(claim["fabricated"]) for claim in fabricated_evaluated)
+    return {
+        "claim_count": total,
+        "supported_rate": _rate(supported, total),
+        "time_only_rate": _rate(time_only, total),
+        "unsupported_rate": _rate(total - supported, total),
+        "hollow_rate": _rate(hollow, total),
+        "malformed_rate": _rate(malformed, total),
+        "fabricated_rate": _rate(fabricated, len(fabricated_evaluated)),
+    }
+
+
+def score_clip(result: dict, truth: dict | None) -> dict:
+    """Score one adapter result, applying mechanical and no-truth honesty rules."""
+    base = {
+        "clip_id": result.get("clip_id") or (truth or {}).get("clip_id"),
+        "model": result.get("model"),
+        "wall_s": result.get("wall_s"),
+        "tokens": result.get("tokens"),
+        "error": result.get("error"),
+    }
+    if result.get("error"):
+        return {**base, "status": "failed", "claims": [], "metrics": _clip_metrics([])}
+    if truth is None:
+        return {
+            **base,
+            "status": "observed",
+            "claims": [
+                _normalize_adapter_claim(claim) for claim in _claims_from_result(result)
+            ],
+            "metrics": None,
+        }
+    scored_claims = [score_claim(claim, truth) for claim in _claims_from_result(result)]
+    return {
+        **base,
+        "status": "scored",
+        "claims": scored_claims,
+        "metrics": _clip_metrics(scored_claims),
+    }
+
+
+def score_run(
+    results: list[dict], truths: dict[str, dict], *, adapter: str | None = None
+) -> dict:
+    clips = [
+        score_clip(result, truths.get(str(result.get("clip_id")))) for result in results
+    ]
+    scored_clips = [clip for clip in clips if clip["status"] == "scored"]
+    aggregate_claims = [claim for clip in scored_clips for claim in clip["claims"]]
+    metrics = _clip_metrics(aggregate_claims)
+    metrics["claims_per_clip"] = (
+        round(len(aggregate_claims) / len(scored_clips), 3) if scored_clips else None
+    )
+    walls = [
+        float(clip["wall_s"])
+        for clip in clips
+        if isinstance(clip.get("wall_s"), (int, float))
+    ]
+    tokens = [
+        int(clip["tokens"])
+        for clip in clips
+        if isinstance(clip.get("tokens"), int)
+        and not isinstance(clip.get("tokens"), bool)
+    ]
+    metrics.update(
+        {
+            "wall_s_per_clip": round(sum(walls) / len(walls), 3) if walls else None,
+            "tokens_per_clip": round(sum(tokens) / len(tokens), 3) if tokens else None,
+            "failed_clips": sum(clip["status"] == "failed" for clip in clips),
+            "observed_clips": sum(clip["status"] == "observed" for clip in clips),
+            "scored_clips": len(scored_clips),
+        }
+    )
+    return {
+        "schema_version": "film-room-evidence-report-v1",
+        "generated_at": datetime.now(UTC).isoformat(),
+        "adapter": adapter,
+        "overall": metrics,
+        "clips": clips,
+        "scoring_rules": {
+            "time_tolerance_s": TIME_TOLERANCE_S,
+            "box": f"IoU >= {IOU_THRESHOLD} OR claim-box containment >= {CONTAINMENT_THRESHOLD}",
+            "supported": "well-formed AND time_grounded AND box_grounded",
+            "time_only": "time_grounded AND NOT box_grounded",
+            "hollow": "missing/invalid time interval OR box is null/invalid",
+            "fabricated": "conservative explicit keyword-class mismatch; evaluated only when human_note is non-null",
+            "failed": "adapter error mechanically forces failed and discards any claims text",
+            "observed": "missing truth is reported but excluded from grounding aggregates",
+        },
+    }
+
+
+def render_markdown(report: dict) -> str:
+    overall = report["overall"]
+
+    def percent(value: float | None) -> str:
+        return "—" if value is None else f"{value * 100:.1f}%"
+
+    lines = [
+        "# Film Room Evidence Bench Report",
+        "",
+        f"Generated: {report['generated_at']}",
+        f"Adapter: `{report.get('adapter') or 'unspecified'}`",
+        "",
+        "## Overall",
+        "",
+        "| Scored clips | Failed | Observed | Claims/clip | Supported | Time-only | Unsupported | Hollow | Wall s/clip | Tokens/clip |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| {scored_clips} | {failed_clips} | {observed_clips} | {claims_per_clip} | {supported} | {time_only} | {unsupported} | {hollow} | {wall} | {tokens} |".format(
+            scored_clips=overall["scored_clips"],
+            failed_clips=overall["failed_clips"],
+            observed_clips=overall["observed_clips"],
+            claims_per_clip=overall["claims_per_clip"]
+            if overall["claims_per_clip"] is not None
+            else "—",
+            supported=percent(overall["supported_rate"]),
+            time_only=percent(overall["time_only_rate"]),
+            unsupported=percent(overall["unsupported_rate"]),
+            hollow=percent(overall["hollow_rate"]),
+            wall=overall["wall_s_per_clip"]
+            if overall["wall_s_per_clip"] is not None
+            else "—",
+            tokens=overall["tokens_per_clip"]
+            if overall["tokens_per_clip"] is not None
+            else "—",
+        ),
+        "",
+        "## Per clip",
+        "",
+        "| Clip | Status | Claims | Supported | Time-only | Unsupported | Hollow | Fabricated | Wall s | Tokens |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for clip in report["clips"]:
+        metrics = clip.get("metrics") or {}
+        lines.append(
+            "| {clip_id} | {status} | {count} | {supported} | {time_only} | {unsupported} | {hollow} | {fabricated} | {wall} | {tokens} |".format(
+                clip_id=clip["clip_id"],
+                status=clip["status"],
+                count=metrics.get("claim_count", "—"),
+                supported=percent(metrics.get("supported_rate")),
+                time_only=percent(metrics.get("time_only_rate")),
+                unsupported=percent(metrics.get("unsupported_rate")),
+                hollow=percent(metrics.get("hollow_rate")),
+                fabricated=percent(metrics.get("fabricated_rate")),
+                wall=clip.get("wall_s") if clip.get("wall_s") is not None else "—",
+                tokens=clip.get("tokens") if clip.get("tokens") is not None else "—",
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Scoring notes",
+            "",
+            f"- Time grounding requires the complete claim interval inside the truth window ± {TIME_TOLERANCE_S:.1f}s.",
+            f"- Box grounding requires IoU ≥ {IOU_THRESHOLD:.1f} or at least {CONTAINMENT_THRESHOLD * 100:.0f}% of the claim box inside the interpolated truth box.",
+            "- A malformed claim cannot be supported. A hollow claim lacks a valid time interval or box.",
+            "- Fabrication is a deliberately conservative explicit keyword-class comparison and is omitted when `human_note` is null.",
+            "- Mechanical adapter errors are `failed`; clips without truth are `observed` and excluded from grounding aggregates.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def write_report(report: dict, output_dir: Path) -> tuple[Path, Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / "report.json"
+    markdown_path = output_dir / "report.md"
+    json_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    markdown_path.write_text(render_markdown(report))
+    return json_path, markdown_path
