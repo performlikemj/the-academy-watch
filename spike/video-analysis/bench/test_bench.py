@@ -9,9 +9,11 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from adapters import common as adapter_common  # noqa: E402
+from adapters import qwen3vl_ollama as qwen_adapter  # noqa: E402
 from adapters.common import sample_timestamps  # noqa: E402
 from adapters.qwen3vl_mlx import STUB_ERROR, run as run_mlx  # noqa: E402
 from contract import parse_claims  # noqa: E402
+from run_bench import _write_run_metadata  # noqa: E402
 from score import (  # noqa: E402
     box_matches,
     fabricated_event_classes,
@@ -150,6 +152,82 @@ def test_shared_ollama_call_receives_capped_generation_options(monkeypatch, tmp_
     }
 
 
+def test_anchor_first_draws_only_on_frame_zero(monkeypatch, tmp_path):
+    frames = [
+        (tmp_path / "frame-0.jpg", 10.0),
+        (tmp_path / "frame-1.jpg", 15.0),
+        (tmp_path / "frame-2.jpg", 20.0),
+    ]
+    truth = {
+        "jersey_number": 12,
+        "frame_size": [1920, 1080],
+        "box_track": [
+            [10.0, 100, 100, 200, 200],
+            [20.0, 200, 200, 300, 300],
+        ],
+    }
+    drawn = []
+    monkeypatch.setattr(
+        qwen_adapter,
+        "draw_truth_box",
+        lambda frame, box, frame_size, jersey: drawn.append(
+            (frame, box, frame_size, jersey)
+        ),
+    )
+
+    anchors = qwen_adapter.apply_anchors(frames, truth, "first")
+
+    assert [call[0] for call in drawn] == [frames[0][0]]
+    assert anchors == [{"t": 10.0, "box": [100.0, 100.0, 200.0, 200.0]}]
+    prompt = qwen_adapter.build_prompt(
+        {**truth, "window": {"start_s": 10, "end_s": 20}},
+        [10.0, 15.0, 20.0],
+        "first",
+    )
+    assert (
+        "the first image identifies the player with a red rectangle; the other images are "
+        "unlabelled — find that same player yourself and box the evidence region in those frames"
+        in prompt
+    )
+    all_prompt = qwen_adapter.build_prompt(
+        {**truth, "window": {"start_s": 10, "end_s": 20}},
+        [10.0, 15.0, 20.0],
+        "all",
+    )
+    assert (
+        "Every frame contains a thin red\nrectangle labelled #12. Describe ONLY the boxed player."
+        in all_prompt
+    )
+    drawn.clear()
+    all_anchors = qwen_adapter.apply_anchors(frames, truth, "all")
+    assert [call[0] for call in drawn] == [frame[0] for frame in frames]
+    assert [anchor["t"] for anchor in all_anchors] == [10.0, 15.0, 20.0]
+
+
+def test_boxed_frame_tagging_uses_t0_and_half_second_tolerance():
+    claims = [
+        _claim(t0=9.5),
+        _claim(t0=10.5),
+        _claim(t0=10.501),
+        _claim(t0=None),
+    ]
+
+    tagged = qwen_adapter.tag_boxed_frames(
+        claims, [{"t": 10.0, "box": [100, 100, 200, 200]}]
+    )
+
+    assert [claim["boxed_frame"] for claim in tagged] == [True, True, False, False]
+
+
+def test_resume_refuses_to_mix_anchor_modes(tmp_path):
+    _write_run_metadata(tmp_path, {"adapter": "qwen3vl_ollama", "anchor_mode": "first"})
+
+    with pytest.raises(ValueError, match="instead of mixing anchor modes"):
+        _write_run_metadata(
+            tmp_path, {"adapter": "qwen3vl_ollama", "anchor_mode": "all"}
+        )
+
+
 def test_box_grounding_accepts_iou_threshold():
     grounded, iou, containment = box_matches([100, 100, 200, 200], [100, 100, 200, 200])
 
@@ -277,6 +355,80 @@ def test_overall_rates_exclude_failed_and_observed_clips():
     assert report["overall"]["observed_clips"] == 1
     assert report["overall"]["wall_s_per_clip"] == 4.0
     assert report["overall"]["tokens_per_clip"] == 15.0
+
+
+def test_metrics_split_boxed_and_unboxed_grounding():
+    truth = {
+        "clip_id": "clip-1",
+        "window": {"start_s": 10.0, "end_s": 20.0},
+        "box_track": [
+            [10.0, 100, 100, 200, 200],
+            [20.0, 100, 100, 200, 200],
+        ],
+        "human_note": None,
+    }
+    result = {
+        "clip_id": "clip-1",
+        "claims": [
+            _claim(t0=10.0, t1=10.0, box=[100, 100, 200, 200], boxed_frame=True),
+            _claim(t0=15.0, t1=15.0, box=[100, 100, 200, 200], boxed_frame=False),
+            _claim(t0=18.0, t1=18.0, box=[0, 0, 20, 20], boxed_frame=False),
+        ],
+        "anchored_frames": [{"t": 10.0, "box": [100, 100, 200, 200]}],
+        "error": None,
+        "wall_s": 1,
+        "tokens": None,
+    }
+
+    report = score_run([result], {"clip-1": truth}, adapter="qwen3vl_ollama")
+    metrics = report["overall"]
+
+    assert metrics["boxed_claim_count"] == 1
+    assert metrics["unboxed_claim_count"] == 2
+    assert metrics["supported_rate_boxed"] == 1.0
+    assert metrics["supported_rate_unboxed"] == 0.5
+    assert metrics["box_grounded_rate_boxed"] == 1.0
+    assert metrics["box_grounded_rate_unboxed"] == 0.5
+    assert metrics["echo_suspect_count"] == 1
+
+
+def test_echo_suspect_requires_boxed_frame_and_all_sides_within_two_pixels():
+    anchors = [{"t": 10.0, "box": [100, 100, 200, 200]}]
+
+    boundary = score_claim(
+        _claim(
+            t0=10,
+            t1=10,
+            box=[98, 102, 202, 198],
+            boxed_frame=True,
+        ),
+        _truth(),
+        anchors,
+    )
+    outside = score_claim(
+        _claim(
+            t0=10,
+            t1=10,
+            box=[97.99, 102, 202, 198],
+            boxed_frame=True,
+        ),
+        _truth(),
+        anchors,
+    )
+    unboxed = score_claim(
+        _claim(
+            t0=10,
+            t1=10,
+            box=[100, 100, 200, 200],
+            boxed_frame=False,
+        ),
+        _truth(),
+        anchors,
+    )
+
+    assert boundary["echo_suspect"] is True
+    assert outside["echo_suspect"] is False
+    assert unboxed["echo_suspect"] is False
 
 
 def test_time_only_and_hollow_rates_capture_boxless_baseline():

@@ -38,8 +38,15 @@ def _requested_clips(raw: str, manifest: dict) -> list[str]:
     return requested
 
 
-def _run_metadata(adapter: str, model: str | None, clips: list[str]) -> dict:
-    return {"adapter": adapter, "model": model, "clips": clips}
+def _run_metadata(
+    adapter: str, model: str | None, clips: list[str], anchor_mode: str
+) -> dict:
+    return {
+        "adapter": adapter,
+        "model": model,
+        "clips": clips,
+        "anchor_mode": anchor_mode if adapter == "qwen3vl_ollama" else None,
+    }
 
 
 def _find_resume_dir(report_root: Path, metadata: dict) -> Path | None:
@@ -74,6 +81,16 @@ def _output_dir(args: argparse.Namespace, metadata: dict) -> Path:
     return candidate
 
 
+def _write_run_metadata(output_dir: Path, metadata: dict) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    run_path = output_dir / "run.json"
+    if run_path.is_file() and _load_json(run_path) != metadata:
+        raise ValueError(
+            f"run metadata mismatch in {output_dir}; choose a new --run-id instead of mixing anchor modes"
+        )
+    run_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+
+
 def _adapter_module(name: str):
     package = f"{__package__}.adapters" if __package__ else "adapters"
     return importlib.import_module(f"{package}.{name}")
@@ -88,19 +105,18 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         for clip in manifest["clips"]
         if clip["clip_id"] in selected_ids
     }
-    metadata = _run_metadata(args.adapter, args.model, selected_ids)
+    metadata = _run_metadata(args.adapter, args.model, selected_ids, args.anchor_mode)
     output_dir = _output_dir(args, metadata)
+    _write_run_metadata(output_dir, metadata)
     claims_dir = output_dir / "claims"
     claims_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "run.json").write_text(
-        json.dumps(metadata, indent=2, sort_keys=True) + "\n"
-    )
 
     adapter = _adapter_module(args.adapter)
     cfg = {
         "ollama_url": args.ollama_url,
         "model": args.model,
         "timeout_s": args.timeout,
+        "anchor_mode": args.anchor_mode,
     }
     results = []
     truths = {}
@@ -128,9 +144,9 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
 
 def print_summary(report: dict, output_dir: Path) -> None:
     print(
-        "\nclip_id                                      status    claims  supported  unsupported  hollow  wall_s"
+        "\nclip_id                                      status    claims  unboxed  boxed  echo  unsupported  hollow  wall_s"
     )
-    print("-" * 104)
+    print("-" * 117)
     for clip in report["clips"]:
         metrics = clip.get("metrics") or {}
 
@@ -140,13 +156,16 @@ def print_summary(report: dict, output_dir: Path) -> None:
 
         print(
             f"{str(clip['clip_id']):44} {clip['status']:9} {str(metrics.get('claim_count', '—')):>6} "
-            f"{pct('supported_rate'):>10} {pct('unsupported_rate'):>12} {pct('hollow_rate'):>7} "
+            f"{pct('supported_rate_unboxed'):>7} {pct('supported_rate_boxed'):>6} "
+            f"{str(metrics.get('echo_suspect_count', '—')):>5} "
+            f"{pct('unsupported_rate'):>12} {pct('hollow_rate'):>7} "
             f"{str(clip.get('wall_s') if clip.get('wall_s') is not None else '—'):>7}"
         )
     overall = report["overall"]
     print(
-        f"overall: supported={overall['supported_rate']} unsupported={overall['unsupported_rate']} "
-        f"hollow={overall['hollow_rate']} failed={overall['failed_clips']}"
+        f"overall: supported_unboxed={overall['supported_rate_unboxed']} "
+        f"supported_boxed={overall['supported_rate_boxed']} echo_suspect={overall['echo_suspect_count']} "
+        f"unsupported={overall['unsupported_rate']} hollow={overall['hollow_rate']} failed={overall['failed_clips']}"
     )
     print(f"report: {output_dir / 'report.json'}")
 
@@ -161,6 +180,12 @@ def _parser() -> argparse.ArgumentParser:
         "--ollama-url", default=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
     )
     parser.add_argument("--model")
+    parser.add_argument(
+        "--anchor-mode",
+        choices=("first", "all"),
+        default="first",
+        help="qwen3vl_ollama identity anchors: first image only (default) or every image",
+    )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--report-root", type=Path, default=DEFAULT_REPORT_ROOT)
     parser.add_argument(

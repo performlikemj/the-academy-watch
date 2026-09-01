@@ -45,6 +45,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
                             "box": None,
                             "confidence": "low",
                             "visibility": "unclear",
+                            "boxed_frame": False,
                             "malformed": True,
                             "malformed_fields": ["baseline_observation"],
                         }
@@ -64,6 +65,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
                                 "box": None,
                                 "confidence": "medium",
                                 "visibility": "clear",
+                                "boxed_frame": False,
                                 "malformed": False,
                                 "malformed_fields": [],
                             }
