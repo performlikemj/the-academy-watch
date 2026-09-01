@@ -1,5 +1,7 @@
+import errno
 import json
 import sys
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -782,6 +784,97 @@ def test_ollama_chat_passes_num_predict_and_repeat_penalty(monkeypatch):
         "repeat_penalty": 1.15,
         "num_predict": 123,
     }
+
+
+def test_ollama_chat_retries_connection_refused_then_succeeds(monkeypatch, caplog):
+    attempts = 0
+    sleeps = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return json.dumps({"message": {"content": "result"}}).encode()
+
+    def fake_urlopen(request, timeout):
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 2:
+            raise urllib.error.URLError(
+                OSError(errno.ECONNREFUSED, "Connection refused")
+            )
+        return FakeResponse()
+
+    monkeypatch.setenv("QWEN_TRANSIENT_RETRY_S", "0.25")
+    monkeypatch.setattr(qwen_analysis.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(qwen_analysis.time, "sleep", sleeps.append)
+
+    with caplog.at_level("WARNING", logger="qwen_match_analysis"):
+        result = qwen_analysis.ollama_chat(
+            "prompt",
+            ollama_url="http://ollama.invalid",
+            model="vision-model",
+            timeout_s=17,
+        )
+
+    assert result == "result"
+    assert attempts == 3
+    assert sleeps == [0.25, 0.25]
+    assert [record.levelname for record in caplog.records] == ["WARNING", "WARNING"]
+
+
+def test_ollama_chat_raises_after_transient_retries_are_exhausted(monkeypatch):
+    attempts = 0
+    sleeps = []
+
+    def fake_urlopen(request, timeout):
+        nonlocal attempts
+        attempts += 1
+        raise urllib.error.URLError(
+            OSError(errno.ECONNRESET, "Connection reset by peer")
+        )
+
+    monkeypatch.setattr(qwen_analysis.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(qwen_analysis.time, "sleep", sleeps.append)
+
+    with pytest.raises(urllib.error.URLError, match="Connection reset by peer"):
+        qwen_analysis.ollama_chat(
+            "prompt",
+            ollama_url="http://ollama.invalid",
+            model="vision-model",
+            timeout_s=17,
+        )
+
+    assert attempts == 6
+    assert sleeps == [5.0, 15.0, 30.0, 60.0, 60.0]
+
+
+def test_ollama_chat_does_not_retry_timeout(monkeypatch):
+    attempts = 0
+    sleeps = []
+
+    def fake_urlopen(request, timeout):
+        nonlocal attempts
+        attempts += 1
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(qwen_analysis.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(qwen_analysis.time, "sleep", sleeps.append)
+
+    with pytest.raises(TimeoutError, match="timed out"):
+        qwen_analysis.ollama_chat(
+            "prompt",
+            ollama_url="http://ollama.invalid",
+            model="vision-model",
+            timeout_s=17,
+        )
+
+    assert attempts == 1
+    assert sleeps == []
 
 
 def test_run_passes_frame_and_team_caps_with_separate_timeouts(monkeypatch, tmp_path):

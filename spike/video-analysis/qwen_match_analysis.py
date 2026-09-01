@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import errno
+import http.client
 import json
 import logging
 import math
@@ -12,6 +14,8 @@ import os
 import re
 import shutil
 import subprocess
+import time
+import urllib.error
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +30,7 @@ DEFAULT_SAMPLE_S = 30.0
 DEFAULT_MAX_CALLS = 240
 DEFAULT_TIMEOUT_S = 300.0
 DEFAULT_AGGREGATION_TIMEOUT_S = 1200.0
+DEFAULT_TRANSIENT_RETRY_DELAYS_S = (5.0, 15.0, 30.0, 60.0, 60.0)
 FRAME_NUM_PREDICT = 600
 CAPTION_NUM_PREDICT = 300
 PLAYER_NUM_PREDICT = 500
@@ -496,6 +501,35 @@ phase_of_play present in the compacted evidence and ground it in an observed tim
 concrete notable action; otherwise use an empty style string and empty strengths/weaknesses lists."""
 
 
+def _transient_retry_delays() -> tuple[float, ...]:
+    override = os.getenv("QWEN_TRANSIENT_RETRY_S")
+    if override is None:
+        return DEFAULT_TRANSIENT_RETRY_DELAYS_S
+    try:
+        delay_s = float(override)
+    except ValueError as exc:
+        raise ValueError(
+            "QWEN_TRANSIENT_RETRY_S must be a non-negative number"
+        ) from exc
+    if not math.isfinite(delay_s) or delay_s < 0:
+        raise ValueError("QWEN_TRANSIENT_RETRY_S must be a non-negative number")
+    return (delay_s,) * len(DEFAULT_TRANSIENT_RETRY_DELAYS_S)
+
+
+def _is_transient_ollama_error(error: Exception) -> bool:
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code in (502, 503)
+    reason = error.reason if isinstance(error, urllib.error.URLError) else error
+    if isinstance(reason, http.client.RemoteDisconnected):
+        return True
+    if isinstance(reason, OSError) and reason.errno in (
+        errno.ECONNREFUSED,
+        errno.ECONNRESET,
+    ):
+        return True
+    return "remote end closed connection" in str(reason).lower()
+
+
 def ollama_chat(
     prompt: str,
     *,
@@ -545,8 +579,24 @@ def ollama_chat(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout_s) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    retry_delays = _transient_retry_delays()
+    for attempt in range(len(retry_delays) + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_s) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except Exception as exc:
+            if not _is_transient_ollama_error(exc) or attempt == len(retry_delays):
+                raise
+            delay_s = retry_delays[attempt]
+            log.warning(
+                "transient Ollama connection failure; retrying in %gs (%d/%d): %s",
+                delay_s,
+                attempt + 1,
+                len(retry_delays),
+                exc,
+            )
+            time.sleep(delay_s)
     content = payload.get("message", {}).get("content")
     if not isinstance(content, str):
         raise ValueError("ollama response is missing message.content")
