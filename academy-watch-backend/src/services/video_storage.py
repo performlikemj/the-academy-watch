@@ -12,6 +12,7 @@ Env:
   VIDEO_MAX_UPLOAD_GB               server-side size cap, default 12
 """
 
+import json
 import logging
 import os
 from datetime import UTC, datetime, timedelta
@@ -22,6 +23,7 @@ try:
     from azure.storage.blob import (
         BlobSasPermissions,
         BlobServiceClient,
+        ContentSettings,
         generate_blob_sas,
     )
 
@@ -131,6 +133,23 @@ def verify_expected_blob(blob_path: str, expected_etag: str | None) -> dict:
             "error": "footage blob changed since upload-complete (ETag mismatch)",
         }
     return check
+
+
+def upload_json(blob_path: str, obj) -> None:
+    """Upload a JSON object to the video container, replacing any prior blob."""
+    payload = json.dumps(obj, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    blob = _service_client().get_blob_client(_container(), blob_path)
+    blob.upload_blob(
+        payload,
+        overwrite=True,
+        content_settings=ContentSettings(content_type="application/json"),
+    )
+
+
+def download_json(blob_path: str):
+    """Download and decode one JSON blob from the video container."""
+    blob = _service_client().get_blob_client(_container(), blob_path)
+    return json.loads(blob.download_blob().readall())
 
 
 def delete_blob(blob_path: str) -> bool:

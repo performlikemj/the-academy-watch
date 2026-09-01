@@ -21,6 +21,7 @@ from .common import (
     scale_box,
     temp_directory,
 )
+from grounding import impossible_box_reason, normalized_1000_to_source
 
 DEFAULT_MODEL = "qwen3-vl:8b"
 ANCHOR_MODES = frozenset({"first", "all"})
@@ -167,8 +168,11 @@ def convert_claim_boxes(
                 for value in model_box
             )
         ):
-            from_size = (1000, 1000) if box_space == "normalized_1000" else sent_size
-            converted_box = scale_box(model_box, from_size, source_size)
+            converted_box = (
+                normalized_1000_to_source(model_box, source_size)
+                if box_space == "normalized_1000"
+                else scale_box(model_box, sent_size, source_size)
+            )
             claim["box"] = converted_box
             reason = box_sanity_reason(
                 model_box,
@@ -195,14 +199,14 @@ def box_sanity_reason(
     sent_size: tuple[int, int],
 ) -> str | None:
     """Return an explicit reason when a converted box is physically implausible."""
-    source_w, source_h = source_size
-    x1, y1, x2, y2 = converted_box
     suffix = f"(space={box_space})"
-    if x2 <= 0 or y2 <= 0 or x1 >= source_w or y1 >= source_h:
+    shared_reason = impossible_box_reason(converted_box, source_size)
+    if shared_reason == "box outside frame":
         return f"box outside frame after conversion {suffix}"
-    box_area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
-    if box_area > source_w * source_h:
+    if shared_reason == "box area exceeds source frame":
         return f"box area exceeds source frame after conversion {suffix}"
+    if shared_reason is not None:
+        return f"{shared_reason} after conversion {suffix}"
     if (
         box_space == "image_pixels"
         and (sent_size[0] > 1000 or sent_size[1] > 1000)
