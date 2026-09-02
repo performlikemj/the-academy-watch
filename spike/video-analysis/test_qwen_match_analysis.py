@@ -11,7 +11,6 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import qwen_match_analysis as qwen_analysis  # noqa: E402
-
 from qwen_match_analysis import (  # noqa: E402
     append_honest_limits,
     build_caption_prompt,
@@ -318,6 +317,16 @@ def test_player_prompt_contains_only_that_players_evidence_frames():
     assert "Never name or identify any player" in prompt
 
 
+def test_grounded_player_prompt_bounds_observations_by_importance():
+    prompt = build_player_prompt(
+        ("blue", 8),
+        [{"timestamp_s": 10, "observation": _good_observation()}],
+        grounded_contract=True,
+    )
+
+    assert "Return at most 3 observations, most important first." in prompt
+
+
 def test_player_images_are_limited_to_three_and_spread_across_time(tmp_path):
     evidence = [
         {"timestamp_s": timestamp, "filename": f"{index}.jpg"}
@@ -508,9 +517,15 @@ def test_grounded_player_read_keeps_only_tracking_verified_observations(
         ],
         "confidence": "medium",
     }
-    monkeypatch.setattr(
-        qwen_analysis, "ollama_chat", lambda *args, **kwargs: json.dumps(response)
-    )
+    calls = []
+
+    def fake_ollama_chat(*args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise qwen_analysis.OllamaOutputTruncated("truncated")
+        return json.dumps(response)
+
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
     monkeypatch.setattr(qwen_analysis.shutil, "copyfile", lambda *args: None)
     monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
     counts = {"read_observations": 0, "read_grounded": 0}
@@ -537,10 +552,12 @@ def test_grounded_player_read_keeps_only_tracking_verified_observations(
     assert omitted == set()
     assert counts == {"read_observations": 2, "read_grounded": 1}
     assert notes[0]["observations"] == ["Checks into the central lane."]
-    assert notes[0]["evidence"] == [
-        {"t": 10, "box": [100, 100, 200, 200], "iou": 1.0}
-    ]
+    assert notes[0]["evidence"] == [{"t": 10, "box": [100, 100, 200, 200], "iou": 1.0}]
     assert notes[0]["read_model"] == "qwen3-vl:8b"
+    assert [call["num_predict"] for call in calls] == [
+        qwen_analysis.GROUNDED_PLAYER_NUM_PREDICT,
+        qwen_analysis.GROUNDED_PLAYER_NUM_PREDICT * 2,
+    ]
 
 
 def test_player_read_with_no_grounded_observation_is_failed(monkeypatch, tmp_path):
@@ -787,6 +804,19 @@ def test_caption_prompt_is_number_only_multi_frame_and_outcome_guarded():
     assert "Never name any player" in prompt
     assert "never say" in prompt and "goal unless the goal is visibly scored" in prompt
     assert "player_visible=false" in prompt
+    assert "at most 3 claims" not in prompt
+
+    grounded_prompt = build_caption_prompt(
+        {
+            "roster_jersey_number": 8,
+            "kit_color": "blue",
+            "tracklet_id": 10,
+            "start_s": 10,
+            "end_s": 20,
+        },
+        grounded_contract=True,
+    )
+    assert "Return at most 3 claims, most important first." in grounded_prompt
 
 
 def test_caption_validation_accepts_good_shape_and_rejects_bad_fields():
@@ -878,6 +908,47 @@ def test_caption_output_copies_roster_identity_without_model_involvement(
     assert calls[0]["num_predict"] == qwen_analysis.CAPTION_NUM_PREDICT
 
 
+def test_legacy_caption_truncation_retries_without_doubling_cap(monkeypatch, tmp_path):
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_ollama_chat(*args, **kwargs):
+        calls.append(kwargs)
+        raise qwen_analysis.OllamaOutputTruncated("truncated")
+
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    captions, failed = generate_window_captions(
+        [
+            {
+                "tracklet_id": 10,
+                "roster_entry_id": 42,
+                "roster_jersey_number": 8,
+                "kit_color": "blue",
+                "start_s": 10.0,
+                "end_s": 20.0,
+            }
+        ],
+        video_path=tmp_path / "match.mp4",
+        out_dir=tmp_path / "out",
+        ffmpeg_path=tmp_path / "ffmpeg",
+        ffmpeg_dir=tmp_path,
+        profile_path=tmp_path / "decode.sb",
+        sandboxed=False,
+        sandbox_exec=None,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=30,
+    )
+
+    assert captions == []
+    assert failed == 1
+    assert [call["num_predict"] for call in calls] == [
+        qwen_analysis.CAPTION_NUM_PREDICT,
+        qwen_analysis.CAPTION_NUM_PREDICT,
+    ]
+
+
 def test_grounded_caption_keeps_best_supported_claim_and_withholds_rejected_one(
     monkeypatch, tmp_path
 ):
@@ -948,6 +1019,179 @@ def test_grounded_caption_keeps_best_supported_claim_and_withholds_rejected_one(
     assert captions[0]["box"] == [100, 100, 200, 200]
     assert captions[0]["evidence_iou"] == 1.0
     assert captions[0]["caption_model"] == "qwen3-vl:8b"
+
+
+def test_grounded_caption_retries_truncation_with_doubled_cap(
+    monkeypatch, tmp_path, caplog
+):
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    response = {
+        "claims": [
+            {
+                "claim": "Blue #8 checks toward the ball.",
+                "t0": 10,
+                "t1": 20,
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+                "confidence": "high",
+                "visibility": "clear",
+            }
+        ],
+        "action_type": "off_ball",
+        "visible_pitch_zone": "central",
+    }
+    calls = []
+
+    def fake_ollama_chat(*args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise qwen_analysis.OllamaOutputTruncated("truncated")
+        return json.dumps(response)
+
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    with caplog.at_level("WARNING", logger="qwen_match_analysis"):
+        captions, failed = generate_window_captions(
+            [
+                {
+                    "tracklet_id": 10,
+                    "roster_entry_id": 42,
+                    "roster_jersey_number": 8,
+                    "kit_color": "blue",
+                    "start_s": 10.0,
+                    "end_s": 20.0,
+                    "box_track": [[10.0, 100, 100, 200, 200]],
+                }
+            ],
+            video_path=tmp_path / "match.mp4",
+            out_dir=tmp_path / "out",
+            ffmpeg_path=tmp_path / "ffmpeg",
+            ffmpeg_dir=tmp_path,
+            profile_path=tmp_path / "decode.sb",
+            sandboxed=False,
+            sandbox_exec=None,
+            ollama_url="http://ollama.invalid",
+            model="qwen3-vl:8b",
+            timeout_s=30,
+            frame_size=(1000, 1000),
+        )
+
+    assert failed == 0
+    assert captions[0]["caption"] == "Blue #8 checks toward the ball."
+    assert [call["num_predict"] for call in calls] == [
+        qwen_analysis.GROUNDED_CAPTION_NUM_PREDICT,
+        qwen_analysis.GROUNDED_CAPTION_NUM_PREDICT * 2,
+    ]
+    assert "caption output truncated at 900 tokens; retrying with 1800" in caplog.text
+    assert "tracklet 10 at 10.0s" in caplog.text
+
+
+def test_grounded_caption_schema_error_retries_without_doubling_cap(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    response = {
+        "claims": [
+            {
+                "claim": "Blue #8 checks toward the ball.",
+                "t0": 10,
+                "t1": 20,
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+                "confidence": "high",
+                "visibility": "clear",
+            }
+        ],
+        "action_type": "off_ball",
+        "visible_pitch_zone": "central",
+    }
+    calls = []
+
+    def fake_ollama_chat(*args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise ValueError("schema mismatch")
+        return json.dumps(response)
+
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    captions, failed = generate_window_captions(
+        [
+            {
+                "tracklet_id": 10,
+                "roster_entry_id": 42,
+                "roster_jersey_number": 8,
+                "kit_color": "blue",
+                "start_s": 10.0,
+                "end_s": 20.0,
+                "box_track": [[10.0, 100, 100, 200, 200]],
+            }
+        ],
+        video_path=tmp_path / "match.mp4",
+        out_dir=tmp_path / "out",
+        ffmpeg_path=tmp_path / "ffmpeg",
+        ffmpeg_dir=tmp_path,
+        profile_path=tmp_path / "decode.sb",
+        sandboxed=False,
+        sandbox_exec=None,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=30,
+        frame_size=(1000, 1000),
+    )
+
+    assert failed == 0
+    assert captions[0]["caption"] == "Blue #8 checks toward the ball."
+    assert [call["num_predict"] for call in calls] == [
+        qwen_analysis.GROUNDED_CAPTION_NUM_PREDICT,
+        qwen_analysis.GROUNDED_CAPTION_NUM_PREDICT,
+    ]
+
+
+def test_grounded_caption_second_truncation_marks_window_failed(monkeypatch, tmp_path):
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    calls = []
+
+    def fake_ollama_chat(*args, **kwargs):
+        calls.append(kwargs)
+        raise qwen_analysis.OllamaOutputTruncated("truncated")
+
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    captions, failed = generate_window_captions(
+        [
+            {
+                "tracklet_id": 10,
+                "roster_entry_id": 42,
+                "roster_jersey_number": 8,
+                "kit_color": "blue",
+                "start_s": 10.0,
+                "end_s": 20.0,
+                "box_track": [[10.0, 100, 100, 200, 200]],
+            }
+        ],
+        video_path=tmp_path / "match.mp4",
+        out_dir=tmp_path / "out",
+        ffmpeg_path=tmp_path / "ffmpeg",
+        ffmpeg_dir=tmp_path,
+        profile_path=tmp_path / "decode.sb",
+        sandboxed=False,
+        sandbox_exec=None,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=30,
+        frame_size=(1000, 1000),
+    )
+
+    assert captions == []
+    assert failed == 1
+    assert [call["num_predict"] for call in calls] == [
+        qwen_analysis.GROUNDED_CAPTION_NUM_PREDICT,
+        qwen_analysis.GROUNDED_CAPTION_NUM_PREDICT * 2,
+    ]
 
 
 def test_tracked_caption_with_only_unsupported_claim_is_withheld(monkeypatch, tmp_path):
@@ -1063,9 +1307,7 @@ def test_context_preserves_frame_size_caption_tracks_and_player_tracks(tmp_path)
     assert context["caption_windows"][0]["box_track"] == [
         [10.0, 100.0, 100.0, 200.0, 200.0]
     ]
-    assert context["player_tracks"]["42"] == [
-        [10.0, 100.0, 100.0, 200.0, 200.0]
-    ]
+    assert context["player_tracks"]["42"] == [[10.0, 100.0, 100.0, 200.0, 200.0]]
 
 
 def test_ollama_chat_passes_num_predict_and_repeat_penalty(monkeypatch):
@@ -1103,6 +1345,84 @@ def test_ollama_chat_passes_num_predict_and_repeat_penalty(monkeypatch):
         "num_ctx": 65536,
         "num_predict": 123,
     }
+
+
+def test_ollama_chat_returns_complete_json_at_length_cap(monkeypatch, caplog):
+    answer = '{"claims": []}\n\n'
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return json.dumps(
+                {
+                    "message": {"content": answer},
+                    "done_reason": "length",
+                }
+            ).encode()
+
+    monkeypatch.setattr(
+        qwen_analysis.urllib.request, "urlopen", lambda *_a, **_k: FakeResponse()
+    )
+    metadata = {}
+
+    with caplog.at_level("WARNING", logger="qwen_match_analysis"):
+        result = qwen_analysis.ollama_chat(
+            "prompt",
+            ollama_url="http://ollama.invalid",
+            model="qwen3-vl:8b",
+            timeout_s=17,
+            num_predict=321,
+            response_metadata=metadata,
+        )
+
+    assert result == answer
+    assert metadata == {"done_reason": "length", "from_thinking": False}
+    assert (
+        "ollama hit num_predict=321 for model qwen3-vl:8b but the JSON is complete; "
+        "using it"
+    ) in caplog.text
+
+
+def test_ollama_chat_raises_output_truncated_for_length_done_reason(monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return json.dumps(
+                {
+                    "message": {"content": '{"claims":['},
+                    "done_reason": "length",
+                }
+            ).encode()
+
+    monkeypatch.setattr(
+        qwen_analysis.urllib.request, "urlopen", lambda *_a, **_k: FakeResponse()
+    )
+    metadata = {}
+
+    with pytest.raises(
+        qwen_analysis.OllamaOutputTruncated,
+        match=r"qwen3-vl:8b.*num_predict=321",
+    ):
+        qwen_analysis.ollama_chat(
+            "prompt",
+            ollama_url="http://ollama.invalid",
+            model="qwen3-vl:8b",
+            timeout_s=17,
+            num_predict=321,
+            response_metadata=metadata,
+        )
+
+    assert metadata == {"done_reason": "length"}
 
 
 def test_ollama_chat_uses_thinking_when_content_is_empty(monkeypatch, caplog):
@@ -1143,7 +1463,7 @@ def test_ollama_chat_uses_thinking_when_content_is_empty(monkeypatch, caplog):
 
     assert first == answer
     assert second == answer
-    assert metadata == {"from_thinking": True}
+    assert metadata == {"done_reason": None, "from_thinking": True}
     assert [record.message for record in caplog.records] == [
         "ollama returned the answer in the thinking field for model qwen3-vl:8b; using it"
     ]
@@ -1160,10 +1480,11 @@ def test_ollama_chat_prefers_nonempty_content_over_thinking(monkeypatch):
         def read(self):
             return json.dumps(
                 {
+                    "done_reason": "stop",
                     "message": {
                         "content": "content answer",
                         "thinking": "thinking answer",
-                    }
+                    },
                 }
             ).encode()
 
@@ -1181,7 +1502,7 @@ def test_ollama_chat_prefers_nonempty_content_over_thinking(monkeypatch):
     )
 
     assert result == "content answer"
-    assert metadata == {"from_thinking": False}
+    assert metadata == {"done_reason": "stop", "from_thinking": False}
 
 
 def test_ollama_chat_omits_num_ctx_when_disabled(monkeypatch):
@@ -1367,8 +1688,7 @@ def test_run_passes_frame_and_team_caps_with_separate_timeouts(monkeypatch, tmp_
     }
     assert (
         "0 of 0 clip notes and 0 of 0 read observations were verified against "
-        "player tracking; unverified ones were withheld."
-        in analysis["honest_limits"]
+        "player tracking; unverified ones were withheld." in analysis["honest_limits"]
     )
 
 

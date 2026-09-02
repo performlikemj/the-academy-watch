@@ -52,6 +52,11 @@ DEFAULT_TRANSIENT_RETRY_DELAYS_S = (5.0, 15.0, 30.0, 60.0, 60.0)
 FRAME_NUM_PREDICT = 600
 CAPTION_NUM_PREDICT = 300
 PLAYER_NUM_PREDICT = 500
+# Grounded captions: 3 items × ~220 tokens + 150 tokens of headroom = 810.
+# Grounded reads: 3 items × ~100 tokens plus generous headroom. Use 900 for both;
+# one doubled retry reaches 1800, so the 2000 ceiling only guards future cap changes.
+GROUNDED_CAPTION_NUM_PREDICT = 900
+GROUNDED_PLAYER_NUM_PREDICT = 900
 TEAM_NUM_PREDICT = 1500
 SCHEMA_VERSION = "qwen-analysis-v1"
 PHASES = (
@@ -82,6 +87,10 @@ HONEST_LIMIT_TEMPLATES = (
     "Observations are qualitative, not measured statistics.",
     "Pitch zones are camera-relative thirds, not calibrated positions.",
 )
+
+
+class OllamaOutputTruncated(ValueError):
+    """Raised when Ollama stops generation at the requested output-token cap."""
 
 
 def _number(value: object) -> bool:
@@ -368,6 +377,7 @@ The first image identifies the tracked player {kit_description} #{int(window["ro
 rectangle. The other images are unlabelled: find that same player yourself and box the evidence for each claim.
 Never name any player or infer a jersey number. Describe only actions and outcomes visibly supported by these
 frames; never say a shot scores or becomes a goal unless the goal is visibly scored.
+Return at most 3 claims, most important first.
 Return one JSON object only with this exact shape:
 {{"claims":[{{"claim":str,"t0":number,"t1":number,"box_t":number,
 "box":[x1,y1,x2,y2],"confidence":"low|medium|high","visibility":"clear|partial|unclear"}}],
@@ -489,8 +499,9 @@ same player yourself. The images are ordered across time. Evidence timestamps an
 Return one JSON object only with this exact shape:
 {{"observations":[{{"observation":str,"box_t":number,"box":[x1,y1,x2,y2]}}],
 "confidence":"low|medium"}}
-Provide 1 to 3 concrete observations. Each box must cover only the tracked player region supporting its observation
-and use Qwen normalized_1000 coordinates (integer axes 0 to 1000) in the image at box_t. box_t must equal one of
+Return at most 3 observations, most important first. Each box must cover only the tracked player region supporting
+its observation and use Qwen normalized_1000 coordinates (integer axes 0 to 1000) in the image at box_t. box_t
+must equal one of
 the supplied evidence timestamps. Never name or identify a player and never invent an event, action, statistic,
 location, readable number, or certainty. If no observation is safely supportable, return an empty observations
 list."""
@@ -669,6 +680,9 @@ def ollama_chat(
                 exc,
             )
             time.sleep(delay_s)
+    done_reason = payload.get("done_reason")
+    if response_metadata is not None:
+        response_metadata["done_reason"] = done_reason
     message_payload = payload.get("message", {})
     content = message_payload.get("content")
     if not isinstance(content, str):
@@ -687,6 +701,18 @@ def ollama_chat(
                     model,
                 )
                 _thinking_fallback_warning_emitted = True
+    if done_reason == "length":
+        try:
+            json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise OllamaOutputTruncated(
+                f"Ollama output truncated for model {model} at num_predict={num_predict}"
+            ) from exc
+        log.warning(
+            "ollama hit num_predict=%s for model %s but the JSON is complete; using it",
+            num_predict,
+            model,
+        )
     if response_metadata is not None:
         response_metadata["from_thinking"] = from_thinking
     return content
@@ -1678,6 +1704,9 @@ def generate_player_reads(
             continue
         parsed = None
         last_error: Exception | None = None
+        num_predict = (
+            GROUNDED_PLAYER_NUM_PREDICT if grounded_contract else PLAYER_NUM_PREDICT
+        )
         for attempt in range(2):
             try:
                 content = ollama_chat(
@@ -1689,7 +1718,7 @@ def generate_player_reads(
                     ollama_url=ollama_url,
                     model=model,
                     timeout_s=timeout_s,
-                    num_predict=PLAYER_NUM_PREDICT,
+                    num_predict=num_predict,
                     image_paths=call_image_paths,
                 )
                 parsed = parse_player_read(
@@ -1701,12 +1730,24 @@ def generate_player_reads(
             except Exception as exc:
                 last_error = exc
                 if attempt == 0:
-                    log.warning(
-                        "invalid player read for %s #%s; retrying once: %s",
-                        player_pair[0],
-                        player_pair[1],
-                        exc,
-                    )
+                    if grounded_contract and isinstance(exc, OllamaOutputTruncated):
+                        retry_num_predict = min(num_predict * 2, 2000)
+                        log.warning(
+                            "player read output truncated at %s tokens; "
+                            "retrying with %s for %s #%s",
+                            num_predict,
+                            retry_num_predict,
+                            player_pair[0],
+                            player_pair[1],
+                        )
+                        num_predict = retry_num_predict
+                    else:
+                        log.warning(
+                            "invalid player read for %s #%s; retrying once: %s",
+                            player_pair[0],
+                            player_pair[1],
+                            exc,
+                        )
         if parsed is None:
             omitted_pairs.add(player_pair)
             reason = "unknown error" if last_error is None else str(last_error)
@@ -1842,6 +1883,11 @@ def generate_window_captions(
 
             parsed = None
             last_error: Exception | None = None
+            num_predict = (
+                GROUNDED_CAPTION_NUM_PREDICT
+                if grounded_contract
+                else CAPTION_NUM_PREDICT
+            )
             for attempt in range(2):
                 try:
                     content = ollama_chat(
@@ -1851,7 +1897,7 @@ def generate_window_captions(
                         ollama_url=ollama_url,
                         model=model,
                         timeout_s=timeout_s,
-                        num_predict=CAPTION_NUM_PREDICT,
+                        num_predict=num_predict,
                         image_paths=frame_paths,
                     )
                     parsed = parse_window_caption(
@@ -1863,12 +1909,25 @@ def generate_window_captions(
                 except Exception as exc:
                     last_error = exc
                     if attempt == 0:
-                        log.warning(
-                            "invalid caption for tracklet %s at %ss; retrying once: %s",
-                            window["tracklet_id"],
-                            window["start_s"],
-                            exc,
-                        )
+                        if grounded_contract and isinstance(exc, OllamaOutputTruncated):
+                            retry_num_predict = min(num_predict * 2, 2000)
+                            log.warning(
+                                "caption output truncated at %s tokens; "
+                                "retrying with %s (tracklet %s at %ss)",
+                                num_predict,
+                                retry_num_predict,
+                                window["tracklet_id"],
+                                window["start_s"],
+                            )
+                            num_predict = retry_num_predict
+                        else:
+                            log.warning(
+                                "invalid caption for tracklet %s at %ss; "
+                                "retrying once: %s",
+                                window["tracklet_id"],
+                                window["start_s"],
+                                exc,
+                            )
             if parsed is None:
                 raise ValueError(f"caption remained invalid after retry: {last_error}")
             best = None

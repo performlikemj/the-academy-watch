@@ -21,6 +21,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 ## State
 
 ### Done
+- Grounded Qwen caption/read truncation fix complete (2026-09-02): complete JSON returned at `done_reason=length` is accepted with a warning, while invalid JSON raises an explicit truncation error; grounded caption/read contracts use 900-token initial caps and one bounded 1800-token retry; prompts request at most three prioritized items; legacy caps and ordinary retries remain unchanged. Mock-only spike suite: 127 passed. Both changed spike files pass bare `ruff check` and bare `ruff format --check`. See `ledgers/CONTINUITY_grounded-num-predict.md`.
 - Full Circle incident-response runbook FC-TF3 complete (2026-07-23): added the operator playbook at `docs/runbooks/incident-response.md` with FC-B1/B2/B3/TF1/TF2 scenario coverage, PII-safe evidence queries, Azure containment/immutable rollback, suppression gap and reactivation handling, controlled recovery, and known operational gaps. Validation: 95 focused backend tests, Ruff check/format, one Alembic `tf02` head, shell syntax, Markdown links, and adversarial account/suppression/operations reviews all pass.
 - iOS crash/cold-start diagnostic complete (2026-07-15): no AcademyWatch crash artifact exists locally, in synced phone reports, or in the connected device crash-log domain; the prior Xcode device run also completed successfully. Confirmed UX cause was the known 29.716s first-run backend wait presented as generic loading, amplified under LLDB (1.516s standalone-cached versus 5.180s debug-cached). Added delayed server-wake/elapsed feedback including the empty-cache edge; schema-mismatch cache and unavailable-Keychain regressions pass; XcodeGen/build and all 55 tests pass; fresh-install waiting screenshot captured; signed device reinstall succeeded, with best-effort launch blocked only because MJ's iPhone was locked. PR #634 delivery follows from `ledgers/CONTINUITY_ios-coldstart-diagnostic.md`.
 - iOS P4b branding + device refresh complete (2026-07-15): replaced the placeholder with a cropped full-bleed winged-boot icon; added the matching storyboard-free launch screen; fixed decision-free standard-XXL truncation; XcodeGen/build and all 51 tests pass; simulator icon/launch evidence captured; signed physical-device build/install succeeded, with launch blocked only because MJ's iPhone was locked. This closes iOS P4 implementation for PR #634.
@@ -200,6 +201,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ```
 CONTINUITY.md
+  └─ ledgers/CONTINUITY_grounded-num-predict.md (complete; 127 tests + both spike files bare-Ruff clean, @owner:/root)
   └─ ledgers/CONTINUITY_plan-incident-response-runbook.md (complete)
        ├─ ledgers/CONTINUITY_runbook-account-incidents.md (@owner:account-audit)
        ├─ ledgers/CONTINUITY_runbook-suppression-incidents.md (@owner:suppression-audit)
@@ -220,6 +222,7 @@ CONTINUITY.md
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|
+| CONTINUITY_grounded-num-predict.md | complete; both spike files bare-Ruff clean | /root | none |
 | CONTINUITY_plan-incident-response-runbook.md | complete | /root | none |
 | ACADEMY_WATCH_REFACTOR_PLAN.md | complete | — | Phases 1-4 done |
 | ACADEMY_WATCH_IMPLEMENTATION_PLAN.md | in-progress | — | Phases 1-5 done, Phase 6 ready |
