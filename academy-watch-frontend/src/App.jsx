@@ -136,6 +136,7 @@ import { UniversalDatePicker } from '@/components/ui/UniversalDatePicker'
 import { AuthContext, AuthUIContext, useAuth, useAuthUI, buildAuthSnapshot } from '@/context/AuthContext'
 import { GlobalSearchContext, useGlobalSearchContext } from '@/context/GlobalSearchContext'
 import { AuthModal } from '@/components/auth/AuthModal'
+import { AccountDataControls } from '@/components/AccountDataControls'
 import './App.css'
 import { useQueryParam } from '@/hooks/useQueryParam'
 
@@ -3731,6 +3732,8 @@ function SettingsPage() {
                 </Button>
               </CardFooter>
             </Card>
+
+            <AccountDataControls />
           </div>
         )}
       </div>

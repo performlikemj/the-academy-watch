@@ -28,6 +28,7 @@ import {
 import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, PenTool, ChevronRight, ChevronDown, Users, ExternalLink, MapPin, Flag, Star } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import FlagDataDialog from '@/components/FlagDataDialog'
+import ContentReportDialog from '@/components/ContentReportDialog'
 import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { format } from 'date-fns'
@@ -641,6 +642,7 @@ export function PlayerPage() {
                             >
                                 <Flag className="h-4 w-4" />
                             </Button>
+                            <ContentReportDialog subjectId={playerApiId} />
                             <Button
                                 variant="ghost"
                                 size="sm"

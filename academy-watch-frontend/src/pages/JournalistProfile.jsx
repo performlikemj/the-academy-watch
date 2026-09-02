@@ -9,7 +9,6 @@ import { Loader2, UserPlus, UserCheck, ArrowLeft, Calendar, Users, Trophy, Lock,
 
 
 import { APIService } from '@/lib/api'
-import SubscribeToJournalist from '@/components/SubscribeToJournalist.jsx'
 
 export function JournalistProfile() {
     const { id } = useParams()
@@ -213,14 +212,6 @@ export function JournalistProfile() {
                         )}
                     </div>
                 </div>
-            </div>
-
-            <div className="bg-card border border-border rounded-lg p-6">
-                <SubscribeToJournalist
-                    journalistId={journalist.id}
-                    journalistName={journalist.display_name}
-                    onSubscribed={loadData}
-                />
             </div>
 
             {/* Content Tabs */}

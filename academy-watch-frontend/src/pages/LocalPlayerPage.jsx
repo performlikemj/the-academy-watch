@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowRight, MapPin, ShieldAlert, UserPlus } from 'lucide-react'
 import { APIService } from '@/lib/api'
+import { ContentReportDialog } from '@/components/ContentReportDialog'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
 import { useAuth } from '@/context/AuthContext'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -125,13 +126,17 @@ function LocalPlayerProfile({ numericPlayerId, onRetry }) {
         <header className="relative overflow-hidden rounded-2xl border border-border/70 bg-card px-5 py-7 shadow-sm sm:px-8 sm:py-9">
           <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-amber-200/25 blur-3xl" />
           <div className="relative space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-800">Community player</p>
-              {player.status === 'pending' ? (
-                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
-                  Pending review
-                </Badge>
-              ) : null}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-800">Community player</p>
+                {player.status === 'pending' ? (
+                  <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+                    Pending review
+                  </Badge>
+                ) : null}
+              </div>
+              {/* Web-only local:<canonical id> subject_id; backend accepts free text (≤200 chars), disambiguating the two ID spaces. */}
+              <ContentReportDialog subjectId={`local:${player.id}`} />
             </div>
             <h1 className="break-words text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
               {player.display_name}

@@ -253,6 +253,17 @@ export class APIService {
         return res
     }
 
+    static async exportAccountData() {
+        return this.request('/account/export')
+    }
+
+    static async deleteAccount() {
+        return this.request('/account/delete', {
+            method: 'POST',
+            body: JSON.stringify({ confirm: 'DELETE' }),
+        })
+    }
+
     static async request(endpoint, options = {}, extra = {}) {
         try {
             const admin = extra && extra.admin
@@ -878,6 +889,10 @@ export class APIService {
     // Legacy /admin/loans endpoints removed — use /admin/tracked-players instead
     static async submitFlag(payload) {
         return this.request('/flags/submit', { method: 'POST', body: JSON.stringify(payload) })
+    }
+
+    static async submitContentReport(payload) {
+        return this.request('/reports', { method: 'POST', body: JSON.stringify(payload) })
     }
     static async adminFlags(params = {}) {
         const q = new URLSearchParams(params)
