@@ -1006,9 +1006,23 @@ def _approved_revision(program):
     )
 
 
+def _public_program_by_slug(slug):
+    """Return only programs admitted through an approved public league."""
+    return (
+        ClubProgram.query.join(FundingLeague, ClubProgram.funding_league_id == FundingLeague.id)
+        .filter(
+            ClubProgram.slug == slug,
+            ClubProgram.platform_status == "approved",
+            ClubProgram.emergency_hidden.is_(False),
+            FundingLeague.registry_status == "approved",
+        )
+        .first()
+    )
+
+
 @funding_bp.route("/programs/<string:slug>", methods=["GET"])
 def public_program(slug):
-    program = ClubProgram.query.filter_by(slug=slug, platform_status="approved", emergency_hidden=False).first()
+    program = _public_program_by_slug(slug)
     if program is None:
         return jsonify({"error": "program not found"}), 404
     payload = program.public_dict()
@@ -1046,7 +1060,7 @@ def save_program(slug):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        program = ClubProgram.query.filter_by(slug=slug, platform_status="approved", emergency_hidden=False).first()
+        program = _public_program_by_slug(slug)
         if program is None:
             return jsonify({"error": "program not found"}), 404
         payload = request.get_json(silent=True) or {}
