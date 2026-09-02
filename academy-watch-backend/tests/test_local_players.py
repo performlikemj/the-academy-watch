@@ -7,7 +7,7 @@ from an API player that happens to have the same positive integer id.
 """
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from urllib.parse import urlsplit
 
@@ -15,6 +15,7 @@ import pytest
 from flask import Flask
 from PIL import Image
 from src.auth import _ensure_user_account, issue_user_token
+from src.models.funding import ClubProgram  # noqa: F401 - registers the FK target for db.create_all()
 from src.models.league import PlayerLink, db
 from src.models.showcase import (
     LocalClub,
@@ -30,6 +31,14 @@ from src.services import social_proof
 ADMIN_KEY = "test-admin-key"
 CODE_PATTERN = re.compile(r"^AW-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$")
 DEFAULT_ADULT_BIRTH_YEAR = datetime.now(UTC).year - 19
+
+
+def _birth_date_years_ago(years):
+    today = datetime.now(UTC).date()
+    try:
+        return today.replace(year=today.year - years)
+    except ValueError:
+        return today.replace(year=today.year - years, day=28)
 
 
 @pytest.fixture
@@ -222,7 +231,7 @@ def _seed_media(
 def _create_local_player(client, email="creator@example.com", **overrides):
     payload = {
         "display_name": "Northside Prospect",
-        "birth_year": 2008,
+        "birth_year": DEFAULT_ADULT_BIRTH_YEAR,
         "position": "Midfielder",
         "country": "England",
         "city": "Leeds",
@@ -316,12 +325,11 @@ class TestLocalPlayerCreation:
             "/api/local-players",
             json={
                 "display_name": " <b>North   Star Prospect</b> ",
-                "birth_year": 2009,
+                "birth_year": 2005,
                 "position": f"<i>{'M' * 60}</i>",
                 "country": f"<script>{'E' * 110}</script>",
                 "city": f"<b>{'C' * 130}</b>",
                 "club_name": f" <em>Northside {'F' * 210}</em> ",
-                "birth_date": "2009-04-03",
             },
             headers=_user_headers("creator@example.com"),
         )
@@ -343,7 +351,7 @@ class TestLocalPlayerCreation:
         assert player == {
             "id": player["id"],
             "display_name": "North   Star Prospect",
-            "birth_year": 2009,
+            "birth_year": 2005,
             "position": "M" * 50,
             "country": "E" * 100,
             "city": "C" * 120,
@@ -372,6 +380,75 @@ class TestLocalPlayerCreation:
             stored.display_name = "  Renamed\n  Prospect  "
             db.session.flush()
             assert stored.normalized_name == "renamed prospect"
+
+    def test_self_claim_with_2009_birth_year_is_rejected(self, app, client):
+        response = client.post(
+            "/api/local-players",
+            json={"display_name": "Minor Prospect", "birth_year": 2009},
+            headers=_user_headers("creator@example.com"),
+        )
+
+        assert response.status_code == 400, response.get_json()
+        assert response.get_json()["error"] == "The platform is 18+ for self-managed profiles"
+        with app.app_context():
+            assert LocalPlayer.query.count() == 0
+            assert PlayerProfileClaim.query.count() == 0
+
+    def test_self_claim_birth_date_exactly_18_passes_and_derives_year(self, client):
+        birth_date = _birth_date_years_ago(18)
+
+        response = client.post(
+            "/api/local-players",
+            json={"display_name": "Adult Prospect", "birth_date": birth_date.isoformat()},
+            headers=_user_headers("creator@example.com"),
+        )
+
+        assert response.status_code == 201, response.get_json()
+        assert response.get_json()["player"]["birth_year"] == birth_date.year
+
+    def test_self_claim_birth_date_one_day_short_of_18_is_rejected(self, app, client):
+        birth_date = _birth_date_years_ago(18) + timedelta(days=1)
+
+        response = client.post(
+            "/api/local-players",
+            json={"display_name": "Minor Prospect", "birth_date": birth_date.isoformat()},
+            headers=_user_headers("creator@example.com"),
+        )
+
+        assert response.status_code == 400, response.get_json()
+        assert response.get_json()["error"] == "The platform is 18+ for self-managed profiles"
+        with app.app_context():
+            assert LocalPlayer.query.count() == 0
+            assert PlayerProfileClaim.query.count() == 0
+
+    def test_self_claim_without_birth_evidence_is_rejected(self, app, client):
+        response = client.post(
+            "/api/local-players",
+            json={"display_name": "Unknown Age Prospect"},
+            headers=_user_headers("creator@example.com"),
+        )
+
+        assert response.status_code == 400, response.get_json()
+        assert response.get_json()["error"] == "The platform is 18+ for self-managed profiles"
+        with app.app_context():
+            assert LocalPlayer.query.count() == 0
+            assert PlayerProfileClaim.query.count() == 0
+
+    def test_guardian_claim_with_2009_birth_year_still_passes(self, client):
+        response = client.post(
+            "/api/local-players",
+            json={
+                "display_name": "Guardian Managed Prospect",
+                "birth_year": 2009,
+                "relationship_type": "guardian",
+            },
+            headers=_user_headers("guardian@example.com"),
+        )
+
+        assert response.status_code == 201, response.get_json()
+        body = response.get_json()
+        assert body["player"]["birth_year"] == 2009
+        assert body["claim"]["relationship_type"] == "guardian"
 
     @pytest.mark.parametrize("relationship_type", ["agent", "guardian"])
     def test_supported_relationship_types_round_trip(self, client, relationship_type):
@@ -418,7 +495,11 @@ class TestLocalPlayerCreation:
     def test_birth_year_boundaries(self, client, birth_year):
         response = client.post(
             "/api/local-players",
-            json={"display_name": f"Boundary Prospect {birth_year}", "birth_year": birth_year},
+            json={
+                "display_name": f"Boundary Prospect {birth_year}",
+                "birth_year": birth_year,
+                "relationship_type": "guardian",
+            },
             headers=_user_headers("creator@example.com"),
         )
 
@@ -428,13 +509,17 @@ class TestLocalPlayerCreation:
     @pytest.mark.parametrize("existing_status", ["pending", "approved"])
     def test_active_duplicate_echoes_existing(self, app, client, existing_status):
         with app.app_context():
-            existing = _seed_local_player("North Star Prospect", birth_year=2008, status=existing_status)
+            existing = _seed_local_player(
+                "North Star Prospect",
+                birth_year=DEFAULT_ADULT_BIRTH_YEAR,
+                status=existing_status,
+            )
             db.session.commit()
             existing_id = existing.id
 
         response = client.post(
             "/api/local-players",
-            json={"display_name": " NORTH\n star prospect ", "birth_year": 2008},
+            json={"display_name": " NORTH\n star prospect ", "birth_year": DEFAULT_ADULT_BIRTH_YEAR},
             headers=_user_headers("creator@example.com"),
         )
 
@@ -459,7 +544,7 @@ class TestLocalPlayerCreation:
             creator = _make_user("creator@example.com")
             existing = _seed_local_player(
                 "North Star Prospect",
-                birth_year=2008,
+                birth_year=DEFAULT_ADULT_BIRTH_YEAR,
                 status="pending",
                 created_by_user_id=creator.id,
             )
@@ -468,7 +553,7 @@ class TestLocalPlayerCreation:
 
         response = client.post(
             "/api/local-players",
-            json={"display_name": " NORTH\n star prospect ", "birth_year": 2008},
+            json={"display_name": " NORTH\n star prospect ", "birth_year": DEFAULT_ADULT_BIRTH_YEAR},
             headers=_user_headers("creator@example.com"),
         )
 
@@ -492,7 +577,7 @@ class TestLocalPlayerCreation:
 
         response = client.post(
             "/api/local-players",
-            json={"display_name": " no  birth year prospect "},
+            json={"display_name": " no  birth year prospect ", "relationship_type": "guardian"},
             headers=_user_headers("creator@example.com"),
         )
 
