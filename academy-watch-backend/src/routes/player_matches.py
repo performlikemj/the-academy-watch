@@ -6,16 +6,14 @@ from datetime import UTC, date, datetime, timedelta
 from flask import Blueprint, g, jsonify, request
 from itsdangerous import BadSignature, SignatureExpired
 from sqlalchemy.exc import IntegrityError
-from src.auth import _user_serializer, require_user_auth
+from src.auth import require_user_auth, resolve_bearer_user
 from src.extensions import limiter
-from src.models.follow import PlayerShadow
 from src.models.funding import ClubRosterMember
 from src.models.league import UserAccount, db
 from src.models.player_match_entry import PlayerMatchEntry
-from src.models.showcase import LocalPlayer, PlayerProfileClaim, local_player_is_minor
-from src.models.tracked_player import TrackedPlayer
+from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.services import season_rollup_service
-from src.services.club_registry import _is_manager_of_approved_program
+from src.services.club_registry import is_manager_of_approved_program
 from src.services.player_suppression import (
     is_local_player_suppressed,
     is_player_suppressed,
@@ -59,102 +57,28 @@ def _user_rate_limit_key() -> str:
 
 def _optional_authenticated_user() -> UserAccount | None:
     """Read-only optional auth; invalid credentials degrade to anonymous."""
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        return None
-    token = auth.split(" ", 1)[1].strip()
-    if not token:
-        return None
     try:
-        data = _user_serializer().loads(token, max_age=60 * 60 * 24 * 30)
-        if not isinstance(data, dict):
-            return None
-        email = (data.get("email") or "").strip()
-        if not email:
-            return None
-        token_user_id = data.get("user_id")
-        if token_user_id is None:
-            user = UserAccount.query.filter_by(email=email).first()
-            token_iat = data.get("iat")
-            if user is not None and user.created_at is not None and isinstance(token_iat, int):
-                created_at = user.created_at
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=UTC)
-                if int(created_at.timestamp()) > token_iat:
-                    user = None
-        else:
-            if isinstance(token_user_id, bool):
-                return None
-            try:
-                token_user_id = int(token_user_id)
-            except (TypeError, ValueError):
-                return None
-            user = db.session.get(UserAccount, token_user_id)
-            if user is not None and (user.email or "").strip().lower() != email.lower():
-                return None
-            account_created_at = data.get("account_created_at")
-            if account_created_at is not None and (
-                user is None or user.created_at is None or user.created_at.isoformat() != account_created_at
-            ):
-                return None
-        if user is None or getattr(user, "is_tombstone", False):
-            return None
-        return user
-    except (BadSignature, SignatureExpired, TypeError, ValueError):
+        return resolve_bearer_user()
+    except (BadSignature, SignatureExpired, LookupError, TypeError, ValueError):
         return None
-
-
-def _positive_subject_is_minor(
-    player_api_id: int, tracked_rows: list[TrackedPlayer], shadow: PlayerShadow | None
-) -> bool:
-    """Conservative persisted-age rule for tracked/shadow identities."""
-    return season_rollup_service.positive_subject_is_minor(
-        player_api_id,
-        tracked_rows,
-        shadow,
-        session=db.session,
-        today=datetime.now(UTC).date(),
-    )
 
 
 def _resolve_subject(player_api_id: int) -> dict | None:
     """Resolve one signed player identity without any upstream API call."""
-    if player_api_id == 0:
+    subject = season_rollup_service.resolve_reported_subject(player_api_id, db.session)
+    if subject is None or is_player_suppressed(player_api_id):
         return None
-    if player_api_id < 0:
-        local_player_id = -player_api_id
-        local = db.session.get(LocalPlayer, local_player_id)
-        if (
-            local is None
-            or local.status != "approved"
-            or (local.api_player_id is not None and local.api_player_id != player_api_id)
-            or local.merged_into_local_player_id is not None
-            or is_local_player_suppressed(local_player_id)
-            or is_player_suppressed(player_api_id)
-        ):
+    local_player_id = subject["local_player_id"]
+    if local_player_id is not None:
+        if is_local_player_suppressed(local_player_id):
             return None
-        return {
-            "player_api_id": player_api_id,
-            "local_player_id": local_player_id,
-            "is_minor": local_player_is_minor(local),
-        }
-
-    if is_player_suppressed(player_api_id):
-        return None
-    bridged_local_ids = [
-        row[0] for row in db.session.query(LocalPlayer.id).filter(LocalPlayer.api_player_id == player_api_id).all()
-    ]
-    if any(is_local_player_suppressed(local_id) for local_id in bridged_local_ids):
-        return None
-    tracked_rows = TrackedPlayer.query.filter_by(player_api_id=player_api_id).order_by(TrackedPlayer.id.asc()).all()
-    shadow = PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True).first()
-    if not tracked_rows and shadow is None:
-        return None
-    return {
-        "player_api_id": player_api_id,
-        "local_player_id": None,
-        "is_minor": _positive_subject_is_minor(player_api_id, tracked_rows, shadow),
-    }
+    else:
+        bridged_local_ids = [
+            row[0] for row in db.session.query(LocalPlayer.id).filter(LocalPlayer.api_player_id == player_api_id).all()
+        ]
+        if any(is_local_player_suppressed(bridged_id) for bridged_id in bridged_local_ids):
+            return None
+    return subject
 
 
 def _claim_for_user(subject: dict, user_id: int, relationships: frozenset[str]) -> PlayerProfileClaim | None:
@@ -185,7 +109,7 @@ def _manager_can_read_subject(subject: dict, user_id: int) -> bool:
     program_ids = [
         row[0] for row in db.session.query(ClubRosterMember.program_id).filter(subject_filter).distinct().all()
     ]
-    return any(_is_manager_of_approved_program(user_id, program_id) for program_id in program_ids)
+    return any(is_manager_of_approved_program(user_id, program_id) for program_id in program_ids)
 
 
 def _json_object() -> dict:

@@ -716,6 +716,44 @@ def test_team_delete_rolls_back_when_rollup_refresh_fails(client, admin_headers,
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player).count() == 1
 
 
+def test_team_delete_refreshes_affected_players_in_sorted_lock_order(client, admin_headers, monkeypatch):
+    team = Team(
+        team_id=3970,
+        name="Ordered Refresh FC",
+        country="England",
+        season=2025,
+        is_tracked=True,
+        newsletters_active=True,
+    )
+    db.session.add(team)
+    db.session.flush()
+    player_api_ids = [1000, 1, 500]
+    db.session.add_all(
+        [
+            TrackedPlayer(
+                player_api_id=player_api_id,
+                player_name=f"Ordered Player {player_api_id}",
+                team_id=team.id,
+            )
+            for player_api_id in player_api_ids
+        ]
+    )
+    db.session.commit()
+    team_id = team.id
+    refreshes = []
+
+    def capture_refresh(player_api_id, season=None):
+        refreshes.append((player_api_id, season))
+        return {"cells": 0, "totals": 0}
+
+    monkeypatch.setattr(admin_routes.season_rollup_service, "refresh_player", capture_refresh)
+
+    response = client.delete(f"/api/admin/teams/{team_id}/data", headers=admin_headers)
+
+    assert response.status_code == 200, response.get_json()
+    assert refreshes == [(1, None), (500, None), (1000, None)]
+
+
 def test_stale_cursor_above_all_work_terminates(client, admin_headers):
     # A caller resuming with a cursor above every remaining id has, by the
     # forward-only keyset contract, already scanned that work: the sweep

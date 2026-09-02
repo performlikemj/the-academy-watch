@@ -552,32 +552,42 @@ def record_club_result(program_id: int):
 
         season = current_stats_season(header["match_date"])
         _lock_result_players(seen_player_ids)
-        identity_rows = (
-            PlayerMatchEntry.query.filter(
-                PlayerMatchEntry.match_date == header["match_date"],
-                PlayerMatchEntry.opponent == header["opponent"],
-                PlayerMatchEntry.source == "club",
-                or_(
-                    PlayerMatchEntry.club_program_id == program_id,
-                    PlayerMatchEntry.player_api_id.in_(seen_player_ids),
-                ),
-            )
+        identity_query = PlayerMatchEntry.query.filter(
+            PlayerMatchEntry.match_date == header["match_date"],
+            func.lower(PlayerMatchEntry.opponent) == func.lower(header["opponent"]),
+            PlayerMatchEntry.source == "club",
+        )
+        fixture_rows = (
+            identity_query.filter(PlayerMatchEntry.club_program_id == program_id)
             .order_by(PlayerMatchEntry.id)
             .with_for_update()
             .all()
         )
-        existing = {}
-        fixture_rows = []
-        for row in identity_rows:
-            if row.club_program_id == program_id:
-                fixture_rows.append(row)
-            if row.player_api_id not in seen_player_ids:
-                continue
-            if row.club_program_id != program_id:
-                raise _ClubResultConflict("A matching result entry already belongs to another club program")
-            if row.player_api_id in existing:
-                raise _ClubResultConflict("Multiple matching result entries already exist for this club program")
-            existing[row.player_api_id] = row
+        foreign_rows = (
+            identity_query.filter(
+                PlayerMatchEntry.player_api_id.in_(seen_player_ids),
+                or_(
+                    PlayerMatchEntry.club_program_id.is_(None),
+                    PlayerMatchEntry.club_program_id != program_id,
+                ),
+            )
+            .order_by(PlayerMatchEntry.id)
+            .all()
+        )
+        if foreign_rows:
+            raise _ClubResultConflict("A matching result entry already belongs to another club program")
+
+        fixture_by_player = {}
+        for row in fixture_rows:
+            if row.player_api_id in fixture_by_player:
+                raise _ClubResultConflict(
+                    "Multiple matching result entries already exist for this club program "
+                    f"(player_api_id={row.player_api_id})"
+                )
+            fixture_by_player[row.player_api_id] = row
+        existing = {
+            player_api_id: row for player_api_id, row in fixture_by_player.items() if player_api_id in seen_player_ids
+        }
 
         for entry in fixture_rows:
             for field, value in header.items():
@@ -685,7 +695,7 @@ def list_club_results(program_id: int):
             key = (
                 entry.season,
                 entry.match_date,
-                entry.opponent,
+                entry.opponent.lower(),
             )
             group = grouped.get(key)
             if group is None:
