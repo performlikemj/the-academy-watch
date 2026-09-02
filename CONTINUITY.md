@@ -96,6 +96,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
+- **2026-09-02 grounded caption enum prompt review fix applied; PR #970 awaiting merge:** grounded-only placeholder examples/instructions plus set-based deterministic single-choice recovery; 138 spike tests and both bare Ruff checks pass. See `ledgers/CONTINUITY_grounded-caption-enum-prompt.md`.
 - **2026-09-02 S1 STARTED (MJ: "go S1, show the stats with the chip").** Ledger `ledgers/CONTINUITY_dream-s1.md`; decisions D1 negative synthetic ids / D2 show with chip / D3 minors never public. Codex recon re-verifying the Aug-23 directive anchors on origin/main c764f10; then 3–4 codex packages (grain + migration pm01, identity union, web, trust tiers).
 - **2026-09-02 DREAM SCORECARD + S0 SHIPPED (Fable orchestrating; codex ultra builds; Fable-subagent adversarial checks; bot reviews read).**
   Scorecard `ledgers/GRADING_dream-scorecard-2026-09-02.md`: baseline **Built 51.9% / Lived ~0%** (prod: 9 accounts [5 team], 1 claim, 0 clubs,
@@ -200,6 +201,14 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   `validate_analysis_schema` rejects a missing fault counter; fault counters can exceed persisted captions when a window fails
   AFTER parse — informational). Deploy 33592961596. **Regen 11 RUNNING** (job `e0c2a6c6`, 14:01 JST, `~/regen11-launch.sh`, log
   `~/regen11-grounded.log`) — expect 0 truncations, 0 validation failures, new `sampling.captions_*_coerced/claims_dropped` counters;
+  **Regen 11 SUCCEEDED 16:41 JST (2h40m): 0 caption failures, 0 truncations, 7 labels coerced, 2 claims dropped singly → 32/56 captions
+  + 9/15 reads verified, ALL 56 windows persisted (regen 9: 33 + 10 with 4 windows lost).** The 'invalid' labels were the model
+  ECHOING the prompt's option string ('pass|carry|duel|…', 'carry|pass') → PR #970 (vocabularies as prose from the constants,
+  concrete example values, exact-one-token recovery + `captions_action_type_recovered`). Laptop match 4 = regen 11; review page
+  rebuilt with regens 9/10/11: https://claude.ai/code/artifact/f8dc710a-b4ba-495b-9665-da5cde7882c9. **Coach's-brief directive
+  MERGED #966** (`ledgers/DIRECTIVE_coach-brief.md`, revised after a codex critique: 21 findings/11 blockers); decisions B1–B5
+  pending MJ; nothing built yet. Ollama tax root cause (local-flows-20): a laptop-side image caller at num_ctx=16384 ~8/h
+  alternated the qwen3.8 runner with ours (28 reloads/2h45m) → portfolio rule in ~/Projects/CLAUDE.md (omit num_ctx or pin 65536).
   then load into laptop match 4 + refresh the review artifact. Review page REBUILT from regen 9/10 (generator
   `scratchpad/mj-review/build_review.py <latest.json> [older.json]`): the old artifact ab0a131b was DELETED — new URL
   https://claude.ai/code/artifact/f8dc710a-b4ba-495b-9665-da5cde7882c9 (republish same path to update).
@@ -963,6 +972,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ```
 CONTINUITY.md
+  └─ ledgers/CONTINUITY_grounded-caption-enum-prompt.md (verified; PR delivery next, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-caption-lenient-enums.md (complete; 131 tests + both spike files bare-Ruff clean, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-num-predict.md (complete; 127 tests + both spike files bare-Ruff clean, @owner:/root)
   └─ ledgers/CONTINUITY_plan-incident-response-runbook.md (complete)
@@ -981,6 +991,7 @@ CONTINUITY.md
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|
+| CONTINUITY_grounded-caption-enum-prompt.md | verified; PR delivery next | /root | none |
 | CONTINUITY_grounded-caption-lenient-enums.md | complete; both spike files bare-Ruff clean | /root | none |
 | CONTINUITY_grounded-num-predict.md | complete; both spike files bare-Ruff clean | /root | none |
 | CONTINUITY_plan-incident-response-runbook.md | complete | /root | none |
