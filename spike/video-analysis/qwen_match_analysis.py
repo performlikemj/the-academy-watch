@@ -102,6 +102,41 @@ class OllamaOutputTruncated(ValueError):
     """Raised when Ollama stops generation at the requested output-token cap."""
 
 
+def inline_local_json_schema_refs(schema: dict) -> dict:
+    """Inline local Pydantic definitions for providers that reject JSON Schema refs."""
+    definitions = schema.get("$defs", {})
+
+    def resolve(value, active_refs=frozenset()):
+        if isinstance(value, list):
+            return [resolve(item, active_refs) for item in value]
+        if not isinstance(value, dict):
+            return value
+        if "$ref" in value:
+            ref = value["$ref"]
+            prefix = "#/$defs/"
+            if not isinstance(ref, str) or not ref.startswith(prefix):
+                raise ValueError(f"unsupported JSON Schema reference: {ref!r}")
+            name = ref.removeprefix(prefix)
+            if name in active_refs:
+                raise ValueError(f"circular JSON Schema reference: {ref}")
+            if name not in definitions:
+                raise ValueError(f"missing JSON Schema definition: {ref}")
+            resolved = resolve(definitions[name], active_refs | {name})
+            siblings = {
+                key: resolve(item, active_refs)
+                for key, item in value.items()
+                if key != "$ref"
+            }
+            return {**resolved, **siblings}
+        return {
+            key: resolve(item, active_refs)
+            for key, item in value.items()
+            if key != "$defs"
+        }
+
+    return resolve(schema)
+
+
 def _grounded_models():
     from typing import Literal
 
@@ -144,13 +179,13 @@ def _grounded_models():
 def grounded_caption_schema() -> dict:
     """Build the grounded-caption Ollama response schema lazily."""
     GroundedWindowCaption, _ = _grounded_models()
-    return GroundedWindowCaption.model_json_schema()
+    return inline_local_json_schema_refs(GroundedWindowCaption.model_json_schema())
 
 
 def grounded_read_schema() -> dict:
     """Build the grounded player-read Ollama response schema lazily."""
     _, GroundedPlayerRead = _grounded_models()
-    return GroundedPlayerRead.model_json_schema()
+    return inline_local_json_schema_refs(GroundedPlayerRead.model_json_schema())
 
 
 def _number(value: object) -> bool:
@@ -1820,6 +1855,14 @@ def generate_player_reads(
     failure_limits = []
     omitted_pairs = set()
     tracking_contract_present = player_tracks is not None
+    has_grounded_read = False
+    if frame_size and tracking_contract_present:
+        for player_pair in required_player_pairs:
+            roster_entry_id = (player_roster_ids or {}).get(player_pair)
+            if roster_entry_id is not None and player_tracks.get(str(roster_entry_id)):
+                has_grounded_read = True
+                break
+    read_schema = grounded_read_schema() if has_grounded_read else None
     for player_pair in sorted(required_player_pairs):
         evidence_frames = player_evidence_frames(observations, player_pair)
         image_paths = player_image_paths(evidence_frames, frames_dir)
@@ -1886,9 +1929,7 @@ def generate_player_reads(
                     timeout_s=timeout_s,
                     num_predict=num_predict,
                     image_paths=call_image_paths,
-                    response_schema=(
-                        grounded_read_schema() if grounded_contract else None
-                    ),
+                    response_schema=read_schema if grounded_contract else None,
                 )
                 parsed = parse_player_read(
                     content,
@@ -1982,6 +2023,7 @@ def generate_team_pass(
                 model=model,
                 timeout_s=timeout_s,
                 num_predict=TEAM_NUM_PREDICT,
+                response_schema=None,
             )
             return parse_team_pass(content)
         except Exception as exc:
@@ -2009,6 +2051,11 @@ def generate_window_captions(
     fault_counts: dict[str, int] | None = None,
 ) -> tuple[list[dict], int]:
     """Caption windows independently; no one window can fail the analysis job."""
+    caption_schema = (
+        grounded_caption_schema()
+        if any(window.get("box_track") for window in caption_windows)
+        else None
+    )
     captions_dir = out_dir / "frames" / "captions"
     captions_dir.mkdir(parents=True, exist_ok=True)
     captions = []
@@ -2069,9 +2116,7 @@ def generate_window_captions(
                         timeout_s=timeout_s,
                         num_predict=num_predict,
                         image_paths=frame_paths,
-                        response_schema=(
-                            grounded_caption_schema() if grounded_contract else None
-                        ),
+                        response_schema=caption_schema if grounded_contract else None,
                     )
                     parsed = parse_window_caption(
                         content,
@@ -2250,6 +2295,7 @@ def run(argv: list[str] | None = None) -> int:
                     timeout_s=timeout_s,
                     num_predict=FRAME_NUM_PREDICT,
                     image_path=frame_path,
+                    response_schema=None,
                 )
                 observation = parse_observation(content)
                 observations.append(

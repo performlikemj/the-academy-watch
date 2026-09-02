@@ -409,16 +409,37 @@ def test_shared_ollama_call_receives_capped_generation_options(monkeypatch, tmp_
 
 def test_bench_claim_schema_matches_contract_and_serializes():
     schema = qwen_adapter.bench_claim_schema()
-    claim_schema = schema["$defs"]["BenchClaim"]
+    claim_schema = schema["properties"]["claims"]["items"]
 
     assert schema["additionalProperties"] is False
-    assert schema["properties"]["claims"]["maxItems"] == 3
+    assert "maxItems" not in schema["properties"]["claims"]
     assert claim_schema["additionalProperties"] is False
     assert claim_schema["properties"]["confidence"]["enum"] == sorted(CONFIDENCE_VALUES)
     assert claim_schema["properties"]["visibility"]["enum"] == sorted(VISIBILITY_VALUES)
     box_array = claim_schema["properties"]["box"]["anyOf"][0]
     assert box_array["minItems"] == box_array["maxItems"] == 4
     json.dumps(schema)
+
+
+def test_bench_claim_schema_inlines_refs_and_requires_every_object_property():
+    schema = qwen_adapter.bench_claim_schema()
+    serialized = json.dumps(schema)
+
+    assert "$ref" not in serialized
+    assert "$defs" not in serialized
+
+    def walk(value):
+        yield value
+        if isinstance(value, dict):
+            for item in value.values():
+                yield from walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                yield from walk(item)
+
+    for value in walk(schema):
+        if isinstance(value, dict) and value.get("type") == "object":
+            assert value["required"] == list(value["properties"])
 
 
 def test_shared_ollama_call_sends_schema_object_when_requested(monkeypatch, tmp_path):
@@ -840,7 +861,7 @@ def test_resume_fingerprint_mismatch_is_not_resumed_and_is_refused(tmp_path):
         "frozen_set_id": "frozen-1",
     }
     first = _run_metadata(first_settings, ["clip-1"])
-    changed = _run_metadata({**first_settings, "box_space": "image_pixels"}, ["clip-1"])
+    changed = _run_metadata({**first_settings, "format_mode": "schema"}, ["clip-1"])
     run_dir = tmp_path / "run-1"
     _write_run_metadata(run_dir, first)
 

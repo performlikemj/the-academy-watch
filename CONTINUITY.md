@@ -96,7 +96,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
-- **2026-09-02 grounded Ollama JSON Schema delivered in PR #972:** grounded-only schemas from validator constants; live HTTP 200/stop; frozen A/B passed (both 73.68% grounded, 0 malformed/hollow; schema 20.179s/clip vs JSON 20.276). See `ledgers/CONTINUITY_grounded-json-schema-format.md`.
+- **2026-09-02 grounded Ollama JSON Schema delivered in PR #972; review round complete:** schemas build once outside retries and inline definitions; bench schema is JSON-mode-parity; docs/tests/ledger tightened. Mock-only spike suite: 155 passed; six spike files pass bare Ruff check/format. See `ledgers/CONTINUITY_grounded-json-schema-format.md`.
 - **2026-09-02 grounded caption enum prompt review fix applied; PR #970 awaiting merge:** grounded-only placeholder examples/instructions plus set-based deterministic single-choice recovery; 138 spike tests and both bare Ruff checks pass. See `ledgers/CONTINUITY_grounded-caption-enum-prompt.md`.
 - **2026-09-02 S1 STARTED (MJ: "go S1, show the stats with the chip").** Ledger `ledgers/CONTINUITY_dream-s1.md`; decisions D1 negative synthetic ids / D2 show with chip / D3 minors never public. Codex recon re-verifying the Aug-23 directive anchors on origin/main c764f10; then 3–4 codex packages (grain + migration pm01, identity union, web, trust tiers).
 - **2026-09-02 DREAM SCORECARD + S0 SHIPPED (Fable orchestrating; codex ultra builds; Fable-subagent adversarial checks; bot reviews read).**
@@ -973,7 +973,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ```
 CONTINUITY.md
-  └─ ledgers/CONTINUITY_grounded-json-schema-format.md (complete; PR #972 open, @owner:/root)
+  └─ ledgers/CONTINUITY_grounded-json-schema-format.md (review round complete; PR #972 open, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-caption-enum-prompt.md (verified; PR delivery next, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-caption-lenient-enums.md (complete; 131 tests + both spike files bare-Ruff clean, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-num-predict.md (complete; 127 tests + both spike files bare-Ruff clean, @owner:/root)
@@ -993,7 +993,7 @@ CONTINUITY.md
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|
-| CONTINUITY_grounded-json-schema-format.md | complete; PR #972 open | /root | none |
+| CONTINUITY_grounded-json-schema-format.md | review round complete; PR #972 open | /root | none |
 | CONTINUITY_grounded-caption-enum-prompt.md | verified; PR delivery next | /root | none |
 | CONTINUITY_grounded-caption-lenient-enums.md | complete; both spike files bare-Ruff clean | /root | none |
 | CONTINUITY_grounded-num-predict.md | complete; both spike files bare-Ruff clean | /root | none |

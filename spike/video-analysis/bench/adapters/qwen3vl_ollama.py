@@ -95,9 +95,11 @@ def bench_claim_schema() -> dict:
     class BenchClaims(BaseModel):
         model_config = ConfigDict(extra="forbid")
 
-        claims: conlist(BenchClaim, max_length=3)
+        claims: list[BenchClaim]
 
-    return BenchClaims.model_json_schema()
+    return qwen_match_analysis.inline_local_json_schema_refs(
+        BenchClaims.model_json_schema()
+    )
 
 
 def build_prompt(

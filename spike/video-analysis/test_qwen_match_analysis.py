@@ -343,9 +343,20 @@ def test_grounded_player_prompt_bounds_observations_by_importance():
 
 
 def _schema_definition(schema, name):
-    if schema.get("title") == name:
-        return schema
-    return schema["$defs"][name]
+    for value in _walk_schema(schema):
+        if isinstance(value, dict) and value.get("title") == name:
+            return value
+    raise AssertionError(f"schema definition not found: {name}")
+
+
+def _walk_schema(value):
+    yield value
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _walk_schema(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _walk_schema(item)
 
 
 @pytest.mark.parametrize(
@@ -419,6 +430,154 @@ def test_grounded_schemas_forbid_extras_bound_items_and_serialize(
     box_schema = item_schema["properties"]["box"]
     assert box_schema["minItems"] == box_schema["maxItems"] == 4
     json.dumps(schema)
+
+
+@pytest.mark.parametrize("builder", (grounded_caption_schema, grounded_read_schema))
+def test_grounded_schemas_inline_refs_and_require_every_object_property(builder):
+    schema = builder()
+
+    assert "$ref" not in json.dumps(schema)
+    assert "$defs" not in json.dumps(schema)
+    for value in _walk_schema(schema):
+        if isinstance(value, dict) and value.get("type") == "object":
+            assert value["required"] == list(value["properties"])
+
+
+def test_grounded_schemas_raise_before_calls_when_pydantic_is_missing(
+    monkeypatch, tmp_path
+):
+    calls = []
+    monkeypatch.setitem(sys.modules, "pydantic", None)
+    monkeypatch.setattr(
+        qwen_analysis, "ollama_chat", lambda *args, **kwargs: calls.append(kwargs)
+    )
+
+    with pytest.raises(ImportError):
+        generate_window_captions(
+            [
+                {
+                    "tracklet_id": 10,
+                    "roster_entry_id": 42,
+                    "roster_jersey_number": 8,
+                    "kit_color": "blue",
+                    "start_s": 10.0,
+                    "end_s": 20.0,
+                    "box_track": [[10.0, 100, 100, 200, 200]],
+                }
+            ],
+            video_path=tmp_path / "match.mp4",
+            out_dir=tmp_path / "out",
+            ffmpeg_path=tmp_path / "ffmpeg",
+            ffmpeg_dir=tmp_path,
+            profile_path=tmp_path / "decode.sb",
+            sandboxed=False,
+            sandbox_exec=None,
+            ollama_url="http://ollama.invalid",
+            model="qwen3-vl:8b",
+            timeout_s=30,
+            frame_size=(1000, 1000),
+        )
+
+    with pytest.raises(ImportError):
+        generate_player_reads(
+            {("blue", 8)},
+            [
+                {
+                    "timestamp_s": 10,
+                    "filename": "frame_10.jpg",
+                    "observation": _good_observation(),
+                }
+            ],
+            frames_dir=tmp_path,
+            ollama_url="http://ollama.invalid",
+            model="qwen3-vl:8b",
+            timeout_s=30,
+            frame_size=(1000, 1000),
+            player_tracks={"42": [[10.0, 100, 100, 200, 200]]},
+            player_roster_ids={("blue", 8): 42},
+        )
+
+    assert calls == []
+
+
+def test_legacy_caption_and_read_do_not_import_pydantic(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setitem(sys.modules, "pydantic", None)
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args: None)
+
+    def fake_ollama_chat(*args, **kwargs):
+        calls.append(kwargs)
+        return json.dumps(
+            {
+                "caption": "Blue #8 carries through the central zone.",
+                "action_type": "carry",
+                "player_visible": True,
+                "visible_pitch_zone": "central",
+            }
+        )
+
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    captions, failed = generate_window_captions(
+        [
+            {
+                "tracklet_id": 10,
+                "roster_entry_id": 42,
+                "roster_jersey_number": 8,
+                "kit_color": "blue",
+                "start_s": 10.0,
+                "end_s": 20.0,
+            }
+        ],
+        video_path=tmp_path / "match.mp4",
+        out_dir=tmp_path / "out",
+        ffmpeg_path=tmp_path / "ffmpeg",
+        ffmpeg_dir=tmp_path,
+        profile_path=tmp_path / "decode.sb",
+        sandboxed=False,
+        sandbox_exec=None,
+        ollama_url="http://ollama.invalid",
+        model="vision-model",
+        timeout_s=30,
+    )
+
+    assert failed == 0
+    assert len(captions) == 1
+    assert len(calls) == 1
+    assert calls[0]["response_schema"] is None
+
+    calls.clear()
+
+    def fake_player_chat(*args, **kwargs):
+        calls.append(kwargs)
+        return json.dumps(
+            {
+                "observations": ["Seen at t=10 in the central zone."],
+                "confidence": "low",
+            }
+        )
+
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_player_chat)
+    notes, limits, omitted = generate_player_reads(
+        {("blue", 8)},
+        [
+            {
+                "timestamp_s": 10,
+                "filename": "frame_10.jpg",
+                "observation": _good_observation(),
+            }
+        ],
+        frames_dir=tmp_path,
+        ollama_url="http://ollama.invalid",
+        model="vision-model",
+        timeout_s=30,
+    )
+
+    assert len(notes) == 1
+    assert limits == []
+    assert omitted == set()
+    assert len(calls) == 1
+    assert calls[0]["response_schema"] is None
 
 
 def test_legacy_player_prompt_is_byte_identical_snapshot():
@@ -499,6 +658,7 @@ def test_team_pass_retries_once_with_team_cap(monkeypatch):
     assert len(calls) == 2
     assert all(call["timeout_s"] == 1201 for call in calls)
     assert all(call["num_predict"] == qwen_analysis.TEAM_NUM_PREDICT for call in calls)
+    assert all(call["response_schema"] is None for call in calls)
 
 
 def test_schema_validation_rejects_missing_recurring_player_pair():
@@ -2086,6 +2246,7 @@ def test_run_passes_frame_and_team_caps_with_separate_timeouts(monkeypatch, tmp_
         qwen_analysis.FRAME_NUM_PREDICT,
         qwen_analysis.TEAM_NUM_PREDICT,
     ]
+    assert all(call["response_schema"] is None for call in calls)
     analysis = json.loads((out_dir / "analysis.json").read_text())
     assert analysis["sampling"]["grounding"] == {
         "caption_windows": 0,
