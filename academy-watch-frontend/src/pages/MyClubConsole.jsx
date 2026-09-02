@@ -817,8 +817,14 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
               ) : (
                 <div className="grid gap-3 lg:grid-cols-2">
                   {seasonStats.map(([playerId, stats]) => {
-                    const member = memberByPlayerId.get(String(playerId))
-                    const playerName = stats?.player_name || member?.display_name || `Player ${playerId}`
+                    const rosterMemberId = Number(stats?.club_roster_member_id)
+                    const hasRosterMemberId = Number.isInteger(rosterMemberId) && rosterMemberId > 0
+                    const member = (hasRosterMemberId ? memberById.get(rosterMemberId) : null)
+                      || memberByPlayerId.get(String(playerId))
+                    const withheldMinor = stats?.withheld === 'minor'
+                    const playerName = stats?.player_name
+                      || member?.display_name
+                      || (withheldMinor ? 'Roster player' : `Player ${playerId}`)
                     const metrics = [
                       ['Apps', stats?.appearances ?? 0],
                       ['Minutes', stats?.minutes ?? 0],
@@ -830,19 +836,28 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
                     if (stats?.saves !== null && typeof stats?.saves !== 'undefined') metrics.push(['Saves', stats.saves])
                     if (stats?.goals_conceded !== null && typeof stats?.goals_conceded !== 'undefined') metrics.push(['Conceded', stats.goals_conceded])
                     return (
-                      <article key={playerId} className="rounded-xl border border-border bg-secondary/25 p-4">
+                      <article
+                        key={hasRosterMemberId ? `roster-${rosterMemberId}` : `player-${playerId}`}
+                        className="rounded-xl border border-border bg-secondary/25 p-4"
+                      >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <h4 className="font-semibold text-foreground">{playerName}</h4>
-                          {stats?.season ? <Badge variant="outline">{stats.season} season</Badge> : null}
+                          {!withheldMinor && stats?.season ? <Badge variant="outline">{stats.season} season</Badge> : null}
                         </div>
-                        <dl className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
-                          {metrics.map(([label, value]) => (
-                            <div key={label} className="rounded-lg bg-background px-2.5 py-2 ring-1 ring-border/70">
-                              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</dt>
-                              <dd className="mt-0.5 font-bold tabular-nums text-foreground">{value}</dd>
-                            </div>
-                          ))}
-                        </dl>
+                        {withheldMinor ? (
+                          <p className="mt-3 rounded-lg border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground">
+                            Totals withheld for this player
+                          </p>
+                        ) : (
+                          <dl className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                            {metrics.map(([label, value]) => (
+                              <div key={label} className="rounded-lg bg-background px-2.5 py-2 ring-1 ring-border/70">
+                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</dt>
+                                <dd className="mt-0.5 font-bold tabular-nums text-foreground">{value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
                       </article>
                     )
                   })}

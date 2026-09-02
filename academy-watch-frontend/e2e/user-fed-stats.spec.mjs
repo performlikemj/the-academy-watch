@@ -670,8 +670,19 @@ test('club manager records both video-linked and no-video results with roster st
         position: 'Goalkeeper',
         is_minor: false,
       },
+      {
+        id: 53,
+        program_id: 7,
+        available: true,
+        subject_type: 'tracked',
+        player_api_id: 7003,
+        local_player_id: null,
+        display_name: 'Noa Tanaka',
+        position: 'Defender',
+        is_minor: true,
+      },
     ],
-    count: 2,
+    count: 3,
   }
   const fullMatch = {
     id: 41,
@@ -721,14 +732,19 @@ test('club manager records both video-linked and no-video results with roster st
           },
           matches: body.entries.map((entry, index) => ({
             id: 1000 + index,
-            player_api_id: entry.club_roster_member_id === 51 ? 7001 : -11,
+            player_api_id: entry.club_roster_member_id === 51
+              ? 7001
+              : entry.club_roster_member_id === 52 ? -11 : 7003,
             ...entry,
             source: 'club',
             status: 'club_confirmed',
           })),
           season_stats_by_player: {
-            7001: { player_name: 'Mina Sato — verified', season: 2026, appearances: 4, minutes: 320, goals: 2, assists: 2, yellows: 1, reds: 0 },
-            [body.video_match_id == null ? '-11' : '711']: { season: 2026, appearances: 4, minutes: 320, goals: 0, assists: 0, yellows: 0, reds: 0, saves: 12, goals_conceded: 3 },
+            7001: { club_roster_member_id: 51, player_name: 'Mina Sato — verified', season: 2026, appearances: 4, minutes: 320, goals: 2, assists: 2, yellows: 1, reds: 0 },
+            [body.video_match_id == null ? '-11' : '711']: { club_roster_member_id: 52, season: 2026, appearances: 4, minutes: 320, goals: 0, assists: 0, yellows: 0, reds: 0, saves: 12, goals_conceded: 3 },
+            ...(body.video_match_id == null ? {
+              7003: { club_roster_member_id: 53, withheld: 'minor' },
+            } : {}),
           },
         },
       })
@@ -782,10 +798,17 @@ test('club manager records both video-linked and no-video results with roster st
   await dialog.getByLabel('Their score').fill('0')
   await dialog.getByLabel('Include Mina Sato in result').check()
   await dialog.getByLabel('Include Kai Mori in result').check()
+  await dialog.getByLabel('Include Noa Tanaka in result').check()
   await dialog.getByRole('button', { name: 'Save result' }).click()
   await expect.poll(() => resultBodies.length).toBe(2)
   await expect(dialog.getByRole('heading', { name: 'Season totals updated' })).toBeVisible()
-  await expect(dialog.locator('article').filter({ hasText: 'Kai Mori' })).toBeVisible()
+  const normalTotals = dialog.locator('article').filter({ hasText: 'Mina Sato' })
+  const withheldTotals = dialog.locator('article').filter({ hasText: 'Noa Tanaka' })
+  await expect(normalTotals.getByText('320', { exact: true })).toBeVisible()
+  await expect(withheldTotals.getByText('Totals withheld for this player', { exact: true })).toBeVisible()
+  await expect(withheldTotals.locator('dl')).toHaveCount(0)
+  await expect(withheldTotals).not.toContainText(/\d/)
+  await expect(dialog.getByText('No season totals were returned.', { exact: true })).toHaveCount(0)
 
   expect(resultBodies[0]).toEqual({
     video_match_id: 41,
@@ -811,6 +834,7 @@ test('club manager records both video-linked and no-video results with roster st
     entries: [
       { club_roster_member_id: 51, minutes: 0, goals: 0, assists: 0, yellows: 0, reds: 0, saves: null, goals_conceded: null, note: null },
       { club_roster_member_id: 52, minutes: 0, goals: 0, assists: 0, yellows: 0, reds: 0, saves: null, goals_conceded: null, note: null },
+      { club_roster_member_id: 53, minutes: 0, goals: 0, assists: 0, yellows: 0, reds: 0, saves: null, goals_conceded: null, note: null },
     ],
   })
 })
