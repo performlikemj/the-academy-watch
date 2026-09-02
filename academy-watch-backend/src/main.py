@@ -18,6 +18,7 @@ from werkzeug.exceptions import HTTPException
 # includes them even before a route/service imports the model directly.
 import src.models.account  # noqa: E402, F401
 import src.models.contact  # noqa: E402, F401
+import src.models.player_fan  # noqa: E402, F401
 import src.models.player_match_entry  # noqa: E402, F401
 import src.models.player_suppression  # noqa: E402, F401
 import src.models.season_rollup  # noqa: E402, F401

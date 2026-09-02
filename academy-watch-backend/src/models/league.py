@@ -517,6 +517,13 @@ class UserAccount(db.Model):
     email_delivery_preference = db.Column(
         db.String(20), default="individual", nullable=False
     )  # 'individual' | 'digest'
+    profile_activity_email_opt_in = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=db.false(),
+    )
+    profile_activity_email_last_sent_at = db.Column(db.DateTime, nullable=True)
 
     # Scout watchlist preferences
     scout_digest_opt_in = db.Column(db.Boolean, nullable=False, default=True, server_default="true")
