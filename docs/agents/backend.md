@@ -44,6 +44,16 @@ root are NOT in the container**. A runnable one-off (backfill, repair) must live
 `src/scripts/` to be invokable in prod (`az containerapp exec ... python src/scripts/<x>.py`).
 The image also bundles Pango/Cairo/fonts for WeasyPrint PDF newsletters.
 
+## Structured model outputs (standing rule)
+
+Follow `~/Projects/harness/docs/STRUCTURED_OUTPUT.md` and its reference implementation in
+`core/templates/model_io.py`: define a pydantic v2 model from the prompt vocabulary, send its JSON
+Schema as the provider `format`, and parse with `model_validate_json`. Reserve hand validators for
+cross-field rules, and retain a counted coercion safety net. First instance: the grounded Qwen3-VL
+calls in `spike/video-analysis/qwen_match_analysis.py` (PR #972) adopt the schema-as-`format` half;
+they deliberately keep `json.loads` + the existing hand validators + the counted coercion net as the
+parse step (do not "fix" that to `model_validate_json` without moving the cross-field rules too).
+
 ## Blueprints & routing
 
 19 blueprints register under `/api` in `main.py`; **order matters** — specific public

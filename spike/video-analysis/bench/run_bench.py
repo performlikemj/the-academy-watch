@@ -29,6 +29,7 @@ MODEL_ENVIRONMENT = {
 MAX_NUM_PREDICT = 400
 DEFAULT_REPEAT_PENALTY = 1.15
 BOX_SPACES = ("normalized_1000", "image_pixels")
+FORMAT_MODES = ("json", "schema")
 
 
 def _load_json(path: Path) -> dict:
@@ -81,6 +82,11 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
     box_space = requested_box_space or default_box_space
     if box_space not in BOX_SPACES:
         raise ValueError(f"--box-space must be one of {', '.join(BOX_SPACES)}")
+    format_mode = getattr(args, "format_mode", "json")
+    if format_mode not in FORMAT_MODES:
+        raise ValueError(f"--format-mode must be one of {', '.join(FORMAT_MODES)}")
+    if format_mode == "schema" and args.adapter != "qwen3vl_ollama":
+        raise ValueError("--format-mode schema is only supported by qwen3vl_ollama")
     return {
         "adapter": args.adapter,
         "model": _resolved_model(args.adapter, args.model),
@@ -88,6 +94,7 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
         "timeout_s": timeout_s,
         "anchor_mode": args.anchor_mode,
         "box_space": box_space,
+        "format_mode": format_mode,
         "num_predict": max(1, min(int(args.num_predict), MAX_NUM_PREDICT)),
         "repeat_penalty": repeat_penalty,
         "frozen_set_id": frozen_set_id,
@@ -196,6 +203,7 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         "timeout_s": settings["timeout_s"],
         "anchor_mode": settings["anchor_mode"],
         "box_space": settings["box_space"],
+        "format_mode": settings["format_mode"],
         "num_predict": settings["num_predict"],
         "repeat_penalty": settings["repeat_penalty"],
     }
@@ -279,6 +287,12 @@ def _parser() -> argparse.ArgumentParser:
             "model box coordinates (env BENCH_BOX_SPACE; qwen3-vl default: "
             "normalized_1000)"
         ),
+    )
+    parser.add_argument(
+        "--format-mode",
+        choices=FORMAT_MODES,
+        default="json",
+        help="Ollama response format: legacy json string (default) or JSON Schema",
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--report-root", type=Path, default=DEFAULT_REPORT_ROOT)

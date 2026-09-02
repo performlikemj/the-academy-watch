@@ -96,6 +96,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
+- **2026-09-02 grounded Ollama JSON Schema delivered in PR #972; review round complete:** schemas build once outside retries and inline definitions; bench schema is JSON-mode-parity; docs/tests/ledger tightened. Mock-only spike suite: 155 passed; six spike files pass bare Ruff check/format. See `ledgers/CONTINUITY_grounded-json-schema-format.md`.
 - **2026-09-02 grounded caption enum prompt review fix applied; PR #970 awaiting merge:** grounded-only placeholder examples/instructions plus set-based deterministic single-choice recovery; 138 spike tests and both bare Ruff checks pass. See `ledgers/CONTINUITY_grounded-caption-enum-prompt.md`.
 - **2026-09-02 S1 SHIPPED (evening) — "one player universe + a games grain" → 59.8%.** Five PRs live: #963 P1 games grain
   (`player_match_entries` + `showcase_moderation_events`, migration `pm01` pre-applied + stamped; owner CRUD; user/club rollup feeders),
@@ -978,6 +979,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ```
 CONTINUITY.md
+  └─ ledgers/CONTINUITY_grounded-json-schema-format.md (review round complete; PR #972 open, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-caption-enum-prompt.md (verified; PR delivery next, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-caption-lenient-enums.md (complete; 131 tests + both spike files bare-Ruff clean, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-num-predict.md (complete; 127 tests + both spike files bare-Ruff clean, @owner:/root)
@@ -997,6 +999,7 @@ CONTINUITY.md
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|
+| CONTINUITY_grounded-json-schema-format.md | review round complete; PR #972 open | /root | none |
 | CONTINUITY_grounded-caption-enum-prompt.md | verified; PR delivery next | /root | none |
 | CONTINUITY_grounded-caption-lenient-enums.md | complete; both spike files bare-Ruff clean | /root | none |
 | CONTINUITY_grounded-num-predict.md | complete; both spike files bare-Ruff clean | /root | none |
