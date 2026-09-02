@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
@@ -46,6 +47,10 @@ MAX_CAPTURE_META_BYTES = 8 * 1024
 MAX_CAPTURE_META_DEPTH = 4
 MAX_CAPTURE_META_KEYS = 50
 MAX_TIMELINE_SECONDS = 6 * 60 * 60
+MAX_BRIEF_CHARS = 2000
+MAX_BRIEF_LINES = 12
+MAX_BRIEF_LINE_CHARS = 240
+BRIEF_NAME_TOKEN_RE = re.compile(r"[^\W\d_]{3,}")
 CLUB_EDITABLE_MATCH_STATUSES = {"created", "uploaded"}
 RESULT_COUNT_FIELDS = ("goals", "assists", "yellows", "reds")
 RESULT_OPTIONAL_COUNT_FIELDS = ("saves", "goals_conceded")
@@ -295,12 +300,67 @@ def _member_dict(member: ClubRosterMember) -> dict:
         "program_id": member.program_id,
         "role": member.role,
         "note": member.note,
+        "brief": {
+            "body": member.coach_brief_body,
+            "updated_at": member.brief_updated_at.isoformat() if member.brief_updated_at else None,
+        },
         "created_at": member.created_at.isoformat() if member.created_at else None,
         "available": subject is not None,
     }
     if subject is not None:
         out.update(subject)
     return out
+
+
+def _brief_dict(body: str | None, updated_at: datetime | None) -> dict:
+    return {
+        "body": body,
+        "updated_at": updated_at.isoformat() if updated_at else None,
+    }
+
+
+def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
+    names = []
+    for member in program.roster_members:
+        display_name = _member_dict(member).get("display_name")
+        if display_name:
+            names.append(display_name)
+    names.extend(
+        player_name
+        for (player_name,) in db.session.query(VideoRosterEntry.player_name)
+        .join(VideoMatch, VideoRosterEntry.video_match_id == VideoMatch.id)
+        .filter(VideoMatch.club_program_id == program.id)
+        .all()
+        if player_name
+    )
+    tokens = {}
+    for name in names:
+        for token in BRIEF_NAME_TOKEN_RE.findall(name):
+            tokens.setdefault(token.casefold(), token)
+    return tokens
+
+
+def _clean_brief(body, program: ClubProgram) -> str | None:
+    if not isinstance(body, str):
+        raise ValueError("body must be a string")
+    cleaned = body.strip()
+    if len(cleaned) > MAX_BRIEF_CHARS:
+        raise ValueError(f"Brief must be at most {MAX_BRIEF_CHARS} characters")
+    lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+    if len(lines) > MAX_BRIEF_LINES:
+        raise ValueError(f"Brief must contain at most {MAX_BRIEF_LINES} non-empty lines")
+
+    name_tokens = _brief_name_tokens(program)
+    for line_number, line in enumerate(lines, start=1):
+        if len(line) > MAX_BRIEF_LINE_CHARS:
+            raise ValueError(f"Brief lines must be at most {MAX_BRIEF_LINE_CHARS} characters")
+        for candidate in BRIEF_NAME_TOKEN_RE.findall(line):
+            token = name_tokens.get(candidate.casefold())
+            if token:
+                raise ValueError(
+                    f'Briefs describe behaviours, not people — remove the name "{token}" from line {line_number}.'
+                )
+    return "\n".join(lines) or None
 
 
 def _result_player(member: ClubRosterMember) -> tuple[int, str | None, bool]:
@@ -403,12 +463,19 @@ def _resolve_team_id(program: ClubProgram) -> int | None:
 @club_bp.route("/club/<int:program_id>/roster", methods=["GET"])
 @require_club_manager()
 def list_club_roster(program_id: int):
+    program = db.session.get(ClubProgram, program_id)
     rows = (
         ClubRosterMember.query.filter_by(program_id=program_id)
         .order_by(ClubRosterMember.created_at.asc(), ClubRosterMember.id.asc())
         .all()
     )
-    return jsonify({"members": [_member_dict(row) for row in rows], "count": len(rows)})
+    return jsonify(
+        {
+            "members": [_member_dict(row) for row in rows],
+            "count": len(rows),
+            "system_brief": _brief_dict(program.system_brief_body, program.system_brief_updated_at),
+        }
+    )
 
 
 @club_bp.route("/club/<int:program_id>/roster", methods=["POST"])
@@ -467,6 +534,48 @@ def add_club_roster_member(program_id: int):
     except IntegrityError:
         db.session.rollback()
         return jsonify({"error": "Player is already on this club roster"}), 409
+
+
+@club_bp.route("/club/<int:program_id>/roster/<int:member_id>/brief", methods=["PUT"])
+@require_club_manager()
+def set_club_roster_member_brief(program_id: int, member_id: int):
+    member = ClubRosterMember.query.filter_by(id=member_id, program_id=program_id).first()
+    if member is None:
+        return jsonify({"error": "Member not found"}), 404
+    program = db.session.get(ClubProgram, program_id)
+    try:
+        body = _clean_brief(_payload().get("body"), program)
+    except ValueError as exc:
+        return _bad_request(str(exc))
+
+    member.coach_brief_body = body
+    member.brief_updated_at = datetime.now(UTC) if body is not None else None
+    member.brief_updated_by_user_id = g.user_id if body is not None else None
+    db.session.commit()
+    return jsonify({"member": _member_dict(member)})
+
+
+@club_bp.route("/club/<int:program_id>/system-brief", methods=["PUT"])
+@require_club_manager()
+def set_club_system_brief(program_id: int):
+    program = db.session.get(ClubProgram, program_id)
+    try:
+        body = _clean_brief(_payload().get("body"), program)
+    except ValueError as exc:
+        return _bad_request(str(exc))
+
+    program.system_brief_body = body
+    program.system_brief_updated_at = datetime.now(UTC) if body is not None else None
+    program.system_brief_updated_by_user_id = g.user_id if body is not None else None
+    db.session.commit()
+    return jsonify(
+        {
+            "system_brief": _brief_dict(
+                program.system_brief_body,
+                program.system_brief_updated_at,
+            )
+        }
+    )
 
 
 @club_bp.route("/club/<int:program_id>/roster/<int:member_id>", methods=["DELETE"])

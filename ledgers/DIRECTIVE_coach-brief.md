@@ -223,13 +223,18 @@ human-confirmed set; an embedding alone never merges. Kill: no precision gain �
 - **B1 — acceptance footage:** basecamp-only fixture bridge for match 4 (recommended: reuses the finished CV run;
   script lives outside prod) vs. a genuine MyClub upload of the same footage (slower, but exercises the whole
   club flow — worth doing once as the first "club actively using reels").
+  - **MJ decision (2026-09-02, "defaults work"):** basecamp-only fixture bridge for match 4.
 - **B2 — system brief in v1:** yes (recommended; three guarded columns on `club_programs`).
+  - **MJ decision (2026-09-02):** yes, system brief ships in v1.
 - **B3 — free text with roster-name screening + "behaviours, not people" (recommended)** vs. a structured
   expectation vocabulary (safer, less expressive; can come later from confirmed cards).
+  - **MJ decision (2026-09-02):** free text with roster-name screening.
 - **B4 — verdicts `evidence_found | no_evidence` with the identity/location-only disclosure (recommended);** no
   "seen", no "not done" in v1; coach confirm/reject on evidence cards is the path to "verified behaviour".
+  - **MJ decision (2026-09-02):** `evidence_found | no_evidence` with the identity/location disclosure.
 - **B5 — P2 truth:** annotate pitch landmarks on 50 match-4 frames (~1 h of clicks, MJ or a delegated labeller)
   once P2 shows feasibility on the SoccerTrack scene (recommended) vs. acquiring the gated full SoccerTrack v2 now.
+  - **MJ decision (2026-09-02):** annotate 50 match-4 frames later, after P2 shows feasibility.
 
 ## 9. Definition of done
 
@@ -251,3 +256,9 @@ gate/schema incompatibility → `gate_brief_checks` + zero-observation notes; bo
 fixture only; P1 form/PATCH surface + capture_meta replacement bug; P2 has no truth denominator → split
 reporting + B5; P3 scale → heatmaps/zones only; M1 truth impossible from feedback rows → M0; bench acceptance
 needs structured per-expectation truth; UI seek does not exist → timestamp only; rollout order made explicit.
+
+## 11. Future: Track S — system-player scouting (MJ 2026-09-02)
+
+The same expectation checks, aggregated across matches and players, become a scout query: “players who do X well
+in a system like ours”. This is parked until Track C ships and requires a consented cross-club data model. Briefs
+remain private; in v1, only a club's own checks feed that club's own scout queries.

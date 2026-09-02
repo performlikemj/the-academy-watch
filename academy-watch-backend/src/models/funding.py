@@ -159,6 +159,13 @@ class ClubProgram(db.Model):
     reviewed_at = db.Column(db.DateTime)
     verified_at = db.Column(db.DateTime)
     next_review_at = db.Column(db.DateTime)
+    system_brief_body = db.Column(db.Text)
+    system_brief_updated_at = db.Column(db.DateTime(timezone=True))
+    system_brief_updated_by_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
@@ -358,6 +365,13 @@ class ClubRosterMember(db.Model):
     added_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=False)
     role = db.Column(db.String(80))
     note = db.Column(db.String(500))
+    coach_brief_body = db.Column(db.Text)
+    brief_updated_at = db.Column(db.DateTime(timezone=True))
+    brief_updated_by_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
 
     program = db.relationship("ClubProgram", backref=db.backref("roster_members", lazy="dynamic"))
