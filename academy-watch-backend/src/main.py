@@ -54,6 +54,7 @@ from src.routes.players import players_bp
 from src.routes.scout import scout_bp
 from src.routes.season_rollup import season_rollup_bp
 from src.routes.seasons import seasons_bp
+from src.routes.share import share_bp
 from src.routes.showcase import showcase_bp
 from src.routes.teams import teams_bp
 from src.routes.trust import trust_bp
@@ -145,6 +146,7 @@ app.register_blueprint(curator_bp, url_prefix="/api")
 app.register_blueprint(video_bp, url_prefix="/api")
 app.register_blueprint(ops_bp, url_prefix="/api")
 app.register_blueprint(season_rollup_bp, url_prefix="/api")
+app.register_blueprint(share_bp)
 
 csp = {
     "default-src": ["'self'"],
