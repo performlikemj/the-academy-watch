@@ -1752,7 +1752,9 @@ def scout_watchlist_remove(player_api_id):
         entry = ScoutWatchlistEntry.query.filter_by(user_account_id=user.id, player_api_id=player_api_id).first()
         if entry is None:
             if player_api_id < 0:
-                return neutral_player_not_found()
+                subject = _resolve_subject(player_api_id)
+                if subject is None or not subject.is_public:
+                    return neutral_player_not_found()
             return jsonify({"removed": False})
         db.session.delete(entry)
         db.session.commit()

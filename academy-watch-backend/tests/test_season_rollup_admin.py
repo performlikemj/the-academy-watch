@@ -1,6 +1,6 @@
 """D3c admin rebuild surface and rows-behind gauge."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from flask import Flask
@@ -8,6 +8,7 @@ from sqlalchemy.dialects import postgresql
 from src.models.follow import PlayerShadowStats
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, Team, db
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
@@ -141,6 +142,26 @@ def _cell(
     return row
 
 
+def _match_entry(player: int, *, season: int, match_date: date, opponent: str):
+    row = PlayerMatchEntry(
+        player_api_id=player,
+        season=season,
+        source="self",
+        status="self_reported",
+        reported_by_user_id=1,
+        match_date=match_date,
+        opponent=opponent,
+        home_away="home",
+        minutes=90,
+        goals=0,
+        assists=0,
+        yellows=0,
+        reds=0,
+    )
+    db.session.add(row)
+    return row
+
+
 def _status(client, headers, *, exact: bool = False):
     url = f"{STATUS_URL}?exact=1" if exact else STATUS_URL
     response = client.get(url, headers=headers)
@@ -207,6 +228,26 @@ def test_season_scope_is_bounded_and_leaves_other_seasons_untouched(client, admi
     db.session.expire_all()
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2024).one().computed_at == old_computed_at
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025).count() == 1
+
+
+def test_season_scope_discovers_match_entry_only_player_once(client, admin_headers, monkeypatch):
+    _match_entry(205, season=2025, match_date=date(2025, 9, 1), opponent="First FC")
+    _match_entry(205, season=2025, match_date=date(2025, 9, 8), opponent="Second FC")
+    _match_entry(206, season=2024, match_date=date(2024, 9, 1), opponent="Old FC")
+    db.session.commit()
+    calls = []
+
+    def _record(player_api_id, season=None, session=None):
+        calls.append((player_api_id, season, session))
+        return {"cells": 0, "totals": 0}
+
+    monkeypatch.setattr(admin_routes.season_rollup_service, "refresh_player", _record)
+
+    response = client.post(f"{REBUILD_URL}?scope=season&season=2025", headers=admin_headers)
+
+    assert response.status_code == 200
+    assert response.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
+    assert calls == [(205, 2025, db.session)]
 
 
 def test_all_scope_pages_every_source_and_orphan_derived_rows(client, admin_headers, monkeypatch):
@@ -282,11 +323,12 @@ def test_bounded_candidate_query_is_postgresql_safe(app):
 
     # Source-local DISTINCT avoids PostgreSQL's rejection of a GROUP BY player
     # query whose correlated old-cell EXISTS also references source.season.
-    assert sql.count("SELECT DISTINCT") == 6
+    assert sql.count("SELECT DISTINCT") == 7
     assert "GROUP BY fixture_player_stats.player_api_id" not in sql
     assert "GROUP BY player_journeys.player_api_id" not in sql
     assert "GROUP BY academy_player_season_stats.player_api_id" not in sql
     assert "GROUP BY player_shadow_stats.player_api_id" not in sql
+    assert "FROM player_match_entries" in sql
 
 
 def test_all_scope_caps_batch_size_at_100(client, admin_headers, monkeypatch):

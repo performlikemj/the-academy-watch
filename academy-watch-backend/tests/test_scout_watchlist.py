@@ -310,7 +310,7 @@ class TestAddAndRemove:
         assert resp.status_code == 409
         assert "watchlist limit reached" in resp.get_json()["error"]
 
-    def test_delete_is_idempotent_for_positive_and_404_for_absent_negative(self, client, seeded):
+    def test_delete_is_idempotent_for_positive_and_404_for_unknown_negative(self, client, seeded):
         headers = _headers()
         client.post("/api/scout/watchlist", json={"player_api_id": 1001}, headers=headers)
         resp = client.delete("/api/scout/watchlist/1001", headers=headers)
@@ -321,6 +321,23 @@ class TestAddAndRemove:
         assert resp.get_json() == {"removed": False}
 
         resp = client.delete("/api/scout/watchlist/-3", headers=headers)
+        assert resp.status_code == 404
+        assert resp.get_json() == {"error": "Player not found"}
+
+    def test_delete_absent_public_negative_is_idempotent(self, client, seeded, local_watchlist_player):
+        resp = client.delete(f"/api/scout/watchlist/{local_watchlist_player}", headers=_headers())
+
+        assert resp.status_code == 200
+        assert resp.get_json() == {"removed": False}
+
+    def test_delete_absent_non_public_negative_remains_neutral_404(self, client, seeded, local_watchlist_player):
+        local = LocalPlayer.query.filter_by(api_player_id=local_watchlist_player).one()
+        local.birth_date = date(date.today().year - 12, 1, 1)
+        local.birth_year = local.birth_date.year
+        db.session.commit()
+
+        resp = client.delete(f"/api/scout/watchlist/{local_watchlist_player}", headers=_headers())
+
         assert resp.status_code == 404
         assert resp.get_json() == {"error": "Player not found"}
 

@@ -5,8 +5,9 @@ Product slice:
 - Public: a player's showcase (curated YouTube reel + self-reported card +
   club-verified appearance evidence from Film Room).
 - Users claim a player's profile; an admin approves; approved owners curate the
-  reel and profile. All owner-submitted content is pre-moderated (many players
-  are minors) — an edit reverts to ``pending`` and is hidden until re-approved.
+  reel and profile. Owner-submitted content is pre-moderated (many players are
+  minors); only configured, low-risk edits by trusted adult owners retain an
+  existing approval.
 
 Reuse decisions (see the build contract):
 - Reel storage is the existing ``PlayerLink`` (``link_type='highlight'``); the
@@ -53,6 +54,7 @@ from src.models.league import (
     UserAccount,
     db,
 )
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.player_suppression import PlayerSuppression
 from src.models.pulse import PlayerCardCache, PlayerPulse
 from src.models.scout_watchlist import ScoutWatchlistEntry
@@ -68,6 +70,7 @@ from src.models.showcase import (
     local_player_is_minor,
     without_minor_local_bridge,
 )
+from src.models.showcase_moderation import ShowcaseModerationEvent, record_moderation_event
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
 from src.services import season_rollup_service, showcase_media_storage, social_proof
@@ -100,6 +103,7 @@ from src.services.player_suppression import (
 )
 from src.services.user_blocks import blocked_user_ids
 from src.utils.academy_window import age_from_birth_date
+from src.utils.feature_flags import showcase_trust_min_account_age_days
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -175,6 +179,36 @@ MAX_PENDING_CLUB_CLAIMS_PER_USER = 5
 
 # The only identity gate strong enough for public display (see models/video.py).
 VERIFIED_IDENTITY = "human_confirmed"
+
+_AUTO_APPROVAL_PROFILE_FIELDS = frozenset(
+    {
+        "availability",
+        "bio",
+        "height_cm",
+        "languages",
+        "positions",
+        "preferred_foot",
+    }
+)
+_PROFILE_EDIT_FIELD_LABELS = {
+    "agent_contact_email": "agent_contact_email",
+    "agent_name": "agent_name",
+    "availability": "availability",
+    "bio": "bio",
+    "contract_status": "contract_status",
+    "contract_until": "contract_until",
+    "height_cm": "height_cm",
+    "languages": "languages",
+    "nationality_secondary": "nationality_secondary",
+    "pending_club_program_id": "club_program_id",
+    "pending_contract_claim_id": "contract_claim_id",
+    "pending_contract_status": "contract_status",
+    "pending_current_club_name": "current_club_name",
+    "pending_status_contradiction": "status_contradiction",
+    "positions": "positions",
+    "preferred_foot": "preferred_foot",
+}
+_TRUST_DISQUALIFYING_ACTIONS = frozenset({"rejected", "revoked", "suppressed"})
 
 
 @dataclass(frozen=True)
@@ -258,6 +292,49 @@ def _has_approved_subject_claim(subject: ShowcaseSubject, user_id: int) -> bool:
             PlayerProfileClaim.status == "approved",
         ).first()
         is not None
+    )
+
+
+def _profile_edit_values(profile: PlayerShowcaseProfile) -> dict[str, object]:
+    return {field: getattr(profile, field) for field in _PROFILE_EDIT_FIELD_LABELS}
+
+
+def _trusted_profile_edit_is_eligible(
+    *,
+    subject: ShowcaseSubject,
+    user: UserAccount,
+    was_approved: bool,
+    changed_fields: set[str],
+) -> bool:
+    """Fail-closed trust gate for low-risk edits to an approved profile."""
+    min_age_days = showcase_trust_min_account_age_days()
+    if min_age_days is None or not was_approved:
+        return False
+    if not changed_fields.issubset(_AUTO_APPROVAL_PROFILE_FIELDS):
+        return False
+    if not _has_approved_subject_claim(subject, user.id):
+        return False
+
+    created_at = user.created_at
+    if created_at is None:
+        return False
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
+    else:
+        created_at = created_at.astimezone(UTC)
+    try:
+        oldest_eligible = datetime.now(UTC) - timedelta(days=min_age_days)
+    except OverflowError:
+        return False
+    if created_at > oldest_eligible:
+        return False
+
+    return (
+        ShowcaseModerationEvent.query.filter(
+            ShowcaseModerationEvent.user_account_id == user.id,
+            ShowcaseModerationEvent.action.in_(_TRUST_DISQUALIFYING_ACTIONS),
+        ).first()
+        is None
     )
 
 
@@ -552,6 +629,16 @@ def _parse_contract_attestation(
         "club_program_id": club_program_id,
         "status_contradiction": has_status_contradiction(player_api_id, contract_status),
     }
+
+
+def _contract_attestation_matches_claim(attestation: dict, claim: PlayerProfileClaim) -> bool:
+    """Treat the frontend's complete contract payload as a no-op when unchanged."""
+    return (
+        attestation["contract_status"] == claim.contract_status
+        and attestation["current_club_name"] == claim.current_club_name
+        and attestation["club_program_id"] == claim.club_program_id
+        and bool(attestation["status_contradiction"]) == bool(claim.status_contradiction)
+    )
 
 
 def _claim_contract_payload(claim: PlayerProfileClaim, profile: PlayerShowcaseProfile | None = None) -> dict:
@@ -2533,8 +2620,7 @@ def _delete_subject_affiliation(subject: ShowcaseSubject, aff_id: int):
 @require_user_auth
 @limiter.limit("20 per hour", key_func=_user_rate_limit_key)
 def upsert_showcase_profile(player_api_id: int):
-    """Upsert the self-reported profile card. Any edit reverts to pending
-    (hidden from public until an admin re-approves)."""
+    """Upsert a card; only configured trusted low-risk edits retain approval."""
     return _upsert_subject_showcase_profile(_api_subject(player_api_id))
 
 
@@ -2604,6 +2690,9 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
                 subject.player_api_id,
                 existing_claim=contract_claim,
             )
+            if _contract_attestation_matches_claim(contract_attestation, contract_claim):
+                contract_attestation = None
+                profile_contract_update_requested = False
         bio = _clean_optional_text(payload.get("bio"), MAX_BIO_LENGTH)
         positions = _clean_optional_text(payload.get("positions"), MAX_POSITIONS_LENGTH)
 
@@ -2652,9 +2741,11 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
         languages = _clean_optional_text(payload.get("languages"), MAX_LANGUAGES_LENGTH)
 
         profile = PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, subject)).first()
+        was_approved = profile is not None and profile.status == "approved"
         if profile is None:
             profile = PlayerShowcaseProfile(**_subject_values(subject))
             db.session.add(profile)
+        before_values = _profile_edit_values(profile)
         profile.bio = bio
         profile.positions = positions
         profile.preferred_foot = preferred_foot
@@ -2667,7 +2758,6 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
         profile.agent_contact_email = agent_contact_email
         profile.nationality_secondary = nationality_secondary
         profile.languages = languages
-        profile.status = "pending"  # owner edit → pending; hidden until re-approved
         profile.updated_by_user_id = user.id
         if contract_attestation is not None:
             profile.pending_contract_claim_id = contract_claim.id
@@ -2675,6 +2765,29 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
             profile.pending_current_club_name = contract_attestation["current_club_name"]
             profile.pending_club_program_id = contract_attestation["club_program_id"]
             profile.pending_status_contradiction = contract_attestation["status_contradiction"]
+        after_values = _profile_edit_values(profile)
+        changed_fields = {
+            _PROFILE_EDIT_FIELD_LABELS[field]
+            for field, before_value in before_values.items()
+            if before_value != after_values[field]
+        }
+        auto_approved = _trusted_profile_edit_is_eligible(
+            subject=subject,
+            user=user,
+            was_approved=was_approved,
+            changed_fields=changed_fields,
+        )
+        profile.status = "approved" if auto_approved else "pending"
+        if auto_approved:
+            record_moderation_event(
+                user_account_id=user.id,
+                target_kind="profile",
+                target_id=profile.id,
+                action="approved",
+                actor_email=user.email,
+                metadata={"fields": sorted(changed_fields), "auto": True},
+                session=db.session,
+            )
         db.session.commit()
         response_profile = profile.owner_dict()
         owner_claim = (
@@ -3231,6 +3344,15 @@ def admin_review_club_claim(claim_id: int):
         claim.reviewed_by = getattr(g, "user_email", None)
         claim.reviewed_at = now
         claim.updated_at = now
+        if action in {"reject", "revoke"}:
+            record_moderation_event(
+                user_account_id=claim.user_account_id,
+                target_kind="club_claim",
+                target_id=claim.id,
+                action=target,
+                actor_email=claim.reviewed_by,
+                session=db.session,
+            )
         if action == "approve":
             grant_console_for_official_claim(claim, actor=claim.reviewed_by, now=now)
         elif action == "revoke":
@@ -3503,6 +3625,15 @@ def admin_review_local_player(lp_id: int):
             player.reviewed_by = getattr(g, "user_email", None)
             player.reviewed_at = now
             player.updated_at = now
+            if action == "reject":
+                record_moderation_event(
+                    user_account_id=player.created_by_user_id,
+                    target_kind="local_player",
+                    target_id=player.id,
+                    action="rejected",
+                    actor_email=player.reviewed_by,
+                    session=db.session,
+                )
         if action == "approve":
             if player.api_player_id is None:
                 player.api_player_id = -player.id
@@ -4365,29 +4496,70 @@ def _rekey_content_references(old_player_api_id: int, player_api_id: int) -> dic
 
 
 def _rekey_extra_tables(old_player_api_id: int, player_api_id: int, session) -> dict:
-    """Integration hook for tables owned by later S1 packages.
+    """Re-key user-entered match rows before refreshing derived totals."""
+    source_rows = session.query(PlayerMatchEntry).filter_by(player_api_id=old_player_api_id).with_for_update().all()
+    target_rows = session.query(PlayerMatchEntry).filter_by(player_api_id=player_api_id).with_for_update().all()
+    target_by_identity = {
+        (row.match_date, row.opponent, row.source, row.reported_by_user_id): row for row in target_rows
+    }
+    to_move = []
+    editable_fields = (
+        "season",
+        "status",
+        "club_program_id",
+        "competition",
+        "home_away",
+        "result_for",
+        "result_against",
+        "minutes",
+        "goals",
+        "assists",
+        "yellows",
+        "reds",
+        "saves",
+        "goals_conceded",
+        "note",
+    )
+    for source in source_rows:
+        identity = (source.match_date, source.opponent, source.source, source.reported_by_user_id)
+        target = target_by_identity.get(identity)
+        if target is None:
+            target_by_identity[identity] = source
+            to_move.append(source)
+            continue
 
-    TODO(S1-player-match-entries): re-key ``player_match_entries`` here before
-    refreshing the rollup once that model lands. P2 must not import a model
-    that does not exist in this worktree.
-    """
-    del old_player_api_id, player_api_id, session
-    return {}
+        source_is_newer = source.updated_at is not None and (
+            target.updated_at is None or _naive_utc(source.updated_at) > _naive_utc(target.updated_at)
+        )
+        target_was_disputed = target.status == "disputed"
+        if source_is_newer:
+            for field in editable_fields:
+                setattr(target, field, getattr(source, field))
+        if target_was_disputed or source.status == "disputed":
+            target.status = "disputed"
+        target.created_at = _earliest(target.created_at, source.created_at)
+        target.updated_at = _latest(target.updated_at, source.updated_at)
+        session.delete(source)
+
+    session.flush()
+    for source in to_move:
+        source.player_api_id = player_api_id
+    session.flush()
+    return {"player_match_entries": len(source_rows)} if source_rows else {}
 
 
 def _rekey_rollup_rows(old_player_api_id: int, player_api_id: int) -> dict:
     """Re-key derived rows collision-safely before rebuilding them from source.
 
-    This branch can rebuild only the shadow feeder after re-keying its source.
-    Fail closed if another source is present until its owning package wires the
-    source table into :func:`_rekey_extra_tables` and ``refresh_player``.
+    Shadow plus user/club match-entry sources are re-keyed before refresh. Fail
+    closed if API-derived rows somehow exist for a synthetic local identity.
     """
     source_cells = PlayerSeasonCell.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
     source_totals = PlayerSeasonTotal.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
-    # P2 can re-key only PlayerShadowStats. API fixture/journey/APSS rows should
-    # never exist for a synthetic local id; fail closed if malformed historical
-    # data says otherwise instead of refreshing those totals into zeros.
-    rebuildable_sources = {"shadow"}
+    # API fixture/journey/APSS rows should never exist for a synthetic local id;
+    # fail closed if malformed historical data says otherwise instead of
+    # refreshing those totals into zeros.
+    rebuildable_sources = {"club", "shadow", "user"}
     observed_sources = {row.source for row in source_cells} | {row.primary_source for row in source_totals}
     unsupported_sources = sorted(source for source in observed_sources if source not in rebuildable_sources)
     if unsupported_sources:
@@ -4678,6 +4850,15 @@ def admin_review_showcase_media(media_id: int):
         media.reviewed_by = getattr(g, "user_email", None)
         media.reviewed_at = datetime.now(UTC)
         media.updated_at = datetime.now(UTC)
+        if action == "reject":
+            record_moderation_event(
+                user_account_id=media.uploaded_by_user_id,
+                target_kind="media",
+                target_id=media.id,
+                action="rejected",
+                actor_email=media.reviewed_by,
+                session=db.session,
+            )
         db.session.commit()
         published_url = None
         return jsonify({"media": _media_dict(media, include_preview=action == "reject")})
@@ -4776,6 +4957,15 @@ def admin_review_claim(claim_id: int):
         claim.status = target
         claim.reviewed_by = getattr(g, "user_email", None)
         claim.reviewed_at = datetime.now(UTC)
+        if action in {"reject", "revoke"}:
+            record_moderation_event(
+                user_account_id=claim.user_account_id,
+                target_kind="claim",
+                target_id=claim.id,
+                action=target,
+                actor_email=claim.reviewed_by,
+                session=db.session,
+            )
         db.session.commit()
         if action in {"approve", "reject"}:
             try:
@@ -4875,6 +5065,15 @@ def _admin_review_subject_profile(subject: ShowcaseSubject):
         profile.status = "approved" if action == "approve" else "pending"
         profile.reviewed_by = getattr(g, "user_email", None)
         profile.reviewed_at = datetime.now(UTC)
+        if action == "reject":
+            record_moderation_event(
+                user_account_id=profile.updated_by_user_id,
+                target_kind="profile",
+                target_id=profile.id,
+                action="rejected",
+                actor_email=profile.reviewed_by,
+                session=db.session,
+            )
         db.session.commit()
         response_profile = profile.owner_dict()
         if contract_claim is None and not subject.is_local and profile.updated_by_user_id is not None:

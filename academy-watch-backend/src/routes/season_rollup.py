@@ -39,6 +39,7 @@ from src.auth import _safe_error_payload, require_api_key
 from src.models.follow import PlayerShadowStats
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, db
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services import season_rollup_service
@@ -137,6 +138,7 @@ def _candidate_player_ids(
             _had_source_cell(PlayerShadowStats.player_api_id, PlayerShadowStats.season, "shadow"),
         )
     )
+    match_entry_rows = select(PlayerMatchEntry.player_api_id.label("player_api_id"))
     cell_rows = select(PlayerSeasonCell.player_api_id.label("player_api_id"))
     total_rows = select(PlayerSeasonTotal.player_api_id.label("player_api_id"))
 
@@ -145,6 +147,7 @@ def _candidate_player_ids(
         journey_rows = journey_rows.where(PlayerJourneyEntry.season == season)
         apss_rows = apss_rows.where(AcademyPlayerSeasonStats.season == season)
         shadow_rows = shadow_rows.where(PlayerShadowStats.season == season)
+        match_entry_rows = match_entry_rows.where(PlayerMatchEntry.season == season)
         cell_rows = cell_rows.where(PlayerSeasonCell.season == season)
         total_rows = total_rows.where(PlayerSeasonTotal.season == season)
 
@@ -153,6 +156,7 @@ def _candidate_player_ids(
         (journey_rows, PlayerJourney.player_api_id),
         (apss_rows, AcademyPlayerSeasonStats.player_api_id),
         (shadow_rows, PlayerShadowStats.player_api_id),
+        (match_entry_rows, PlayerMatchEntry.player_api_id),
         (cell_rows, PlayerSeasonCell.player_api_id),
         (total_rows, PlayerSeasonTotal.player_api_id),
     )
@@ -172,7 +176,7 @@ def _candidate_player_ids(
         bounded_queries.append(query)
 
     # A page query reads at most ``per_source_limit`` ids from each indexed
-    # source, then merges/deduplicates at most 6N ids.
+    # source, then merges/deduplicates at most 7N ids.
     rows = union_all(*bounded_queries).subquery()
     return select(rows.c.player_api_id).where(rows.c.player_api_id.is_not(None)).group_by(rows.c.player_api_id)
 
@@ -493,7 +497,7 @@ def admin_rebuild_season_rollup():
 
     try:
         # Keyset-page a capped set from every source before any stale aggregate.
-        # The merged input to a rebuild is therefore at most 6N ids; stale scope
+        # The merged input to a rebuild is therefore at most 7N ids; stale scope
         # evaluates clocks only for that bounded candidate page. One extra id is
         # a bounded lookahead used to determine whether another page exists;
         # rebuild requests never run a platform-wide remainder count.
