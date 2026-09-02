@@ -16,18 +16,24 @@ from src.models.funding import (
     ClubProgram,
     ClubProgramClaim,
     ClubProgramManager,
+    ClubRosterMember,
     FundingLeague,
 )
 from src.models.league import League, Team, UserAccount, db
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.player_suppression import PlayerSuppression
+from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoAnalysisJob, VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
+from src.models.weekly import Fixture, FixturePlayerStats
+from src.routes import club as club_routes
 from src.routes.club import club_bp
+from src.routes.player_matches import player_matches_bp
 from src.routes.player_suppression import player_suppression_bp
 from src.routes.showcase import showcase_bp
 from src.routes.video import video_bp
-from src.services import video_storage
+from src.services import season_rollup_service, video_storage
 from src.services.contact import routing_mode_for_claim
 
 ADMIN_KEY = "club-console-admin-key"
@@ -52,6 +58,7 @@ def club_app(monkeypatch):
     limiter.init_app(app)
     app.register_blueprint(showcase_bp, url_prefix="/api")
     app.register_blueprint(player_suppression_bp, url_prefix="/api")
+    app.register_blueprint(player_matches_bp, url_prefix="/api")
     app.register_blueprint(club_bp, url_prefix="/api")
     app.register_blueprint(video_bp, url_prefix="/api")
 
@@ -176,6 +183,27 @@ def _headers(key: str) -> dict:
     return {"Authorization": f"Bearer {issue_user_token(email)['token']}"}
 
 
+def _grant_program_manager(program_id: int, user_id: int) -> None:
+    claim = ClubProgramClaim(
+        program_id=program_id,
+        user_account_id=user_id,
+        relationship_type="club_official",
+        status="approved",
+    )
+    db.session.add(claim)
+    db.session.flush()
+    db.session.add(
+        ClubProgramManager(
+            program_id=program_id,
+            user_account_id=user_id,
+            source_claim_id=claim.id,
+            status="active",
+            granted_by="club-console-test",
+        )
+    )
+    db.session.commit()
+
+
 def _admin_headers() -> dict:
     return {
         "Authorization": f"Bearer {issue_user_token('c2-admin@example.com', role='admin')['token']}",
@@ -208,6 +236,16 @@ def _add_api_member(client, program_id: int, player_api_id=7001, key="a") -> int
     return response.get_json()["member"]["id"]
 
 
+def _add_local_member(client, program_id: int, local_player_id: int, key="a") -> int:
+    response = client.post(
+        f"/api/club/{program_id}/roster",
+        json={"local_player_id": local_player_id},
+        headers=_headers(key),
+    )
+    assert response.status_code == 201, response.get_json()
+    return response.get_json()["member"]["id"]
+
+
 def _match(program_id: int, *, status="uploaded", kickoff_s=0) -> VideoMatch:
     row = VideoMatch(
         club_program_id=program_id,
@@ -219,6 +257,34 @@ def _match(program_id: int, *, status="uploaded", kickoff_s=0) -> VideoMatch:
     db.session.add(row)
     db.session.commit()
     return row
+
+
+def _result_payload(member_ids: list[int], **overrides) -> dict:
+    payload = {
+        "video_match_id": None,
+        "match_date": "2025-09-01",
+        "opponent": "Rivals FC",
+        "competition": "County League",
+        "home_away": "home",
+        "result_for": 2,
+        "result_against": 1,
+        "entries": [
+            {
+                "club_roster_member_id": member_id,
+                "minutes": 90,
+                "goals": 1,
+                "assists": 0,
+                "yellows": 0,
+                "reds": 0,
+                "saves": None,
+                "goals_conceded": None,
+                "note": "Full match",
+            }
+            for member_id in member_ids
+        ],
+    }
+    payload.update(overrides)
+    return payload
 
 
 def _active_suppression(*, player_api_id=None, local_player_id=None) -> PlayerSuppression:
@@ -292,9 +358,11 @@ def test_every_club_console_route_is_manager_gated_before_resource_access(club_a
     attacks = (
         ("GET", f"/api/club/{b}/roster", None),
         ("GET", f"/api/club/{b}/matches", None),
+        ("GET", f"/api/club/{b}/results", None),
         ("POST", f"/api/club/{b}/roster", {"player_api_id": 7001}),
         ("DELETE", f"/api/club/{b}/roster/{member}", None),
         ("POST", f"/api/club/{b}/matches", {}),
+        ("POST", f"/api/club/{b}/results", {}),
         ("POST", f"/api/club/{b}/matches/{match.id}/sas", None),
         ("POST", f"/api/club/{b}/matches/{match.id}/upload-complete", {}),
         ("PATCH", f"/api/club/{b}/matches/{match.id}", {"competition": "IDOR"}),
@@ -328,6 +396,478 @@ def test_active_manager_cannot_address_foreign_child_ids_through_own_program(clu
     for method, path, body in attacks:
         response = client.open(path, method=method, json=body, headers=_headers("a"))
         assert response.status_code == 404, (method, path, response.get_json())
+
+
+def test_club_manager_records_result_with_forced_provenance_and_one_commit(club_app, client, monkeypatch):
+    program_id = club_app.c2["program_a"]
+    manager_id = club_app.c2["users"]["a"]
+    api_member_id = _add_api_member(client, program_id)
+    local = _local(manager_id, birth_year=2000, status="approved")
+    local.api_player_id = -local.id
+    db.session.commit()
+    local_member_id = _add_local_member(client, program_id, local.id)
+    refreshes = []
+    commits = []
+    real_refresh = season_rollup_service.refresh_player
+    real_commit = db.session.commit
+
+    def recording_refresh(player_api_id, season=None, session=None):
+        stored = PlayerMatchEntry.query.filter_by(player_api_id=player_api_id).one()
+        refreshes.append((player_api_id, season, session is db.session, stored.source, stored.status))
+        return real_refresh(player_api_id, season, session=session)
+
+    def counting_commit():
+        commits.append("commit")
+        return real_commit()
+
+    monkeypatch.setattr(season_rollup_service, "refresh_player", recording_refresh)
+    monkeypatch.setattr(db.session, "commit", counting_commit)
+    payload = _result_payload([api_member_id, local_member_id])
+    payload.update(
+        {
+            "source": "self",
+            "status": "disputed",
+            "club_program_id": club_app.c2["program_b"],
+            "reported_by_user_id": club_app.c2["users"]["b"],
+        }
+    )
+
+    with (
+        patch.object(club_routes, "_lock_program_quota") as program_lock,
+        patch.object(club_routes, "_lock_result_players") as player_lock,
+    ):
+        response = client.post(f"/api/club/{program_id}/results", json=payload, headers=_headers("a"))
+
+    assert response.status_code == 201
+    body = response.get_json()
+    assert body["result"] == {
+        "video_match_id": None,
+        "match_date": "2025-09-01",
+        "opponent": "Rivals FC",
+        "competition": "County League",
+        "home_away": "home",
+        "result_for": 2,
+        "result_against": 1,
+    }
+    matches_by_member = {row["club_roster_member_id"]: row for row in body["matches"]}
+    assert matches_by_member[api_member_id]["player_api_id"] == 7001
+    assert matches_by_member[local_member_id]["player_api_id"] == -local.id
+    assert all(row["source"] == "club" and row["status"] == "club_confirmed" for row in body["matches"])
+    stats_by_player = body["season_stats_by_player"]
+    assert set(stats_by_player) == {"7001", str(-local.id)}
+    assert stats_by_player["7001"]["club_roster_member_id"] == api_member_id
+    assert stats_by_player[str(-local.id)]["club_roster_member_id"] == local_member_id
+    assert stats_by_player["7001"]["player_name"] == "Known Academy Player"
+    assert stats_by_player[str(-local.id)]["player_name"] == "Club Local Player"
+    assert all(
+        (row["source"], row["season"], row["appearances"], row["minutes"], row["goals"]) == ("club", 2025, 1, 90, 1)
+        for row in stats_by_player.values()
+    )
+    assert set(refreshes) == {
+        (7001, 2025, True, "club", "club_confirmed"),
+        (-local.id, 2025, True, "club", "club_confirmed"),
+    }
+    assert commits == ["commit"]
+    program_lock.assert_called_once_with(program_id)
+    player_lock.assert_called_once_with({7001, -local.id})
+    assert VideoMatch.query.filter_by(club_program_id=program_id).count() == 0
+    stored = PlayerMatchEntry.query.order_by(PlayerMatchEntry.player_api_id.desc()).all()
+    assert {(row.player_api_id, row.club_program_id, row.reported_by_user_id) for row in stored} == {
+        (7001, program_id, manager_id),
+        (-local.id, program_id, manager_id),
+    }
+
+
+def test_club_result_repost_updates_idempotently_and_refreshes_rollup(club_app, client):
+    program_id = club_app.c2["program_a"]
+    member_id = _add_api_member(client, program_id)
+    video_match = _match(program_id, status="created")
+    fixture = Fixture(
+        fixture_id_api=997001,
+        season=2025,
+        competition_name="County League",
+    )
+    db.session.add(fixture)
+    db.session.flush()
+    db.session.add(
+        FixturePlayerStats(
+            fixture_id=fixture.id,
+            player_api_id=7001,
+            team_api_id=9911,
+            minutes=900,
+            goals=9,
+            assists=4,
+            yellows=2,
+            reds=1,
+        )
+    )
+    db.session.commit()
+    first = client.post(
+        f"/api/club/{program_id}/results",
+        json=_result_payload([member_id], video_match_id=video_match.id),
+        headers=_headers("a"),
+    )
+    updated_payload = _result_payload([member_id], video_match_id=video_match.id, result_for=3)
+    updated_payload["entries"][0].update({"goals": 3, "note": "Corrected"})
+    repeated = client.post(
+        f"/api/club/{program_id}/results",
+        json=updated_payload,
+        headers=_headers("a"),
+    )
+
+    assert first.status_code == 201
+    assert repeated.status_code == 200
+    assert repeated.get_json()["result"]["video_match_id"] == video_match.id
+    assert repeated.get_json()["matches"][0]["id"] == first.get_json()["matches"][0]["id"]
+    assert repeated.get_json()["matches"][0]["goals"] == 3
+    assert repeated.get_json()["season_stats_by_player"] == {
+        "7001": {
+            "club_roster_member_id": member_id,
+            "player_name": "Known Academy Player",
+            "season": 2025,
+            "level_group": "senior",
+            "source": "club",
+            "appearances": 1,
+            "minutes": 90,
+            "goals": 3,
+            "assists": 0,
+            "yellows": 0,
+            "reds": 0,
+            "saves": None,
+            "goals_conceded": None,
+        }
+    }
+    assert PlayerMatchEntry.query.filter_by(player_api_id=7001, source="club").count() == 1
+    entry = PlayerMatchEntry.query.filter_by(player_api_id=7001, source="club").one()
+    assert (entry.result_for, entry.note) == (3, "Corrected")
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=7001, season=2025, level_group="senior").one()
+    assert (total.primary_source, total.appearances, total.minutes, total.goals) == ("fixtures", 1, 900, 9)
+    assert (total.source_breakdown["club"]["minutes"], total.source_breakdown["club"]["goals"]) == (90, 3)
+    history = client.get(f"/api/club/{program_id}/results?season=2025", headers=_headers("a"))
+    assert history.status_code == 200
+    assert history.get_json()["results"][0]["result"]["video_match_id"] is None
+
+
+def test_program_managers_share_one_fixture_identity_and_history_group(club_app, client):
+    program_id = club_app.c2["program_a"]
+    manager_a_id = club_app.c2["users"]["a"]
+    manager_b_id = club_app.c2["users"]["b"]
+    member_one = _add_api_member(client, program_id, 7001)
+    member_two = _add_api_member(client, program_id, 7002)
+    _grant_program_manager(program_id, manager_b_id)
+
+    first = client.post(
+        f"/api/club/{program_id}/results",
+        json=_result_payload([member_one]),
+        headers=_headers("a"),
+    )
+    corrected_payload = _result_payload([member_one], result_for=5)
+    corrected_payload["entries"][0]["goals"] = 2
+    corrected = client.post(
+        f"/api/club/{program_id}/results",
+        json=corrected_payload,
+        headers=_headers("b"),
+    )
+
+    assert first.status_code == 201
+    assert corrected.status_code == 200
+    assert corrected.get_json()["matches"][0]["id"] == first.get_json()["matches"][0]["id"]
+    rows = PlayerMatchEntry.query.filter_by(
+        player_api_id=7001,
+        match_date=date(2025, 9, 1),
+        opponent="Rivals FC",
+        source="club",
+        club_program_id=program_id,
+    ).all()
+    assert len(rows) == 1
+    assert (rows[0].reported_by_user_id, rows[0].result_for, rows[0].goals) == (manager_a_id, 5, 2)
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=7001, season=2025, level_group="senior").one()
+    assert total.source_breakdown["club"]["appearances"] == 1
+    assert total.source_breakdown["club"]["minutes"] == 90
+    assert total.source_breakdown["club"]["goals"] == 2
+    db.session.expunge(total)
+
+    added = client.post(
+        f"/api/club/{program_id}/results",
+        json=_result_payload([member_two], result_for=6),
+        headers=_headers("b"),
+    )
+    history = client.get(f"/api/club/{program_id}/results?season=2025", headers=_headers("a"))
+
+    assert added.status_code == 201
+    assert PlayerMatchEntry.query.filter_by(club_program_id=program_id, source="club").count() == 2
+    reporters = {
+        row.player_api_id: row.reported_by_user_id
+        for row in PlayerMatchEntry.query.filter_by(club_program_id=program_id, source="club").all()
+    }
+    assert reporters == {7001: manager_a_id, 7002: manager_b_id}
+    assert history.status_code == 200
+    assert history.get_json()["total"] == 1
+    assert history.get_json()["results"][0]["result"]["result_for"] == 6
+    assert {row["club_roster_member_id"] for row in history.get_json()["results"][0]["matches"]} == {
+        member_one,
+        member_two,
+    }
+
+
+@pytest.mark.parametrize("second_manager_key", ["b", "a"], ids=["different-manager", "same-manager"])
+def test_matching_player_fixture_is_rejected_in_another_program(club_app, client, second_manager_key):
+    program_a = club_app.c2["program_a"]
+    program_b = club_app.c2["program_b"]
+    member_a = _add_api_member(client, program_a, 7001, "a")
+    member_b = _add_api_member(client, program_b, 7001, "b")
+    if second_manager_key == "a":
+        _grant_program_manager(program_b, club_app.c2["users"]["a"])
+
+    first = client.post(
+        f"/api/club/{program_a}/results",
+        json=_result_payload([member_a]),
+        headers=_headers("a"),
+    )
+    conflict = client.post(
+        f"/api/club/{program_b}/results",
+        json=_result_payload([member_b]),
+        headers=_headers(second_manager_key),
+    )
+
+    assert first.status_code == 201
+    assert conflict.status_code == 409
+    assert conflict.get_json() == {"error": "A matching result entry already belongs to another club program"}
+    assert PlayerMatchEntry.query.filter_by(player_api_id=7001, source="club").count() == 1
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=7001, season=2025, level_group="senior").one()
+    assert (total.source_breakdown["club"]["appearances"], total.source_breakdown["club"]["minutes"]) == (1, 90)
+
+
+def test_club_result_rejects_foreign_roster_member_atomically(club_app, client, monkeypatch):
+    program_a = club_app.c2["program_a"]
+    own_member = _add_api_member(client, program_a)
+    foreign_member = _add_api_member(client, club_app.c2["program_b"], 7002, "b")
+    monkeypatch.setattr(
+        season_rollup_service,
+        "refresh_player",
+        lambda *args, **kwargs: pytest.fail("invalid roster must not refresh rollups"),
+    )
+
+    response = client.post(
+        f"/api/club/{program_a}/results",
+        json=_result_payload([own_member, foreign_member]),
+        headers=_headers("a"),
+    )
+
+    assert response.status_code == 409
+    assert response.get_json() == {"error": "Every result player must belong to this club program"}
+    assert PlayerMatchEntry.query.count() == 0
+
+
+def test_club_result_rejects_foreign_or_noneditable_video_match(club_app, client):
+    program_a = club_app.c2["program_a"]
+    member_id = _add_api_member(client, program_a)
+    foreign_match = _match(club_app.c2["program_b"], status="created")
+    own_finalized = _match(program_a, status="finalized")
+
+    foreign = client.post(
+        f"/api/club/{program_a}/results",
+        json=_result_payload([member_id], video_match_id=foreign_match.id),
+        headers=_headers("a"),
+    )
+    noneditable = client.post(
+        f"/api/club/{program_a}/results",
+        json=_result_payload([member_id], video_match_id=own_finalized.id),
+        headers=_headers("a"),
+    )
+
+    assert foreign.status_code == 409
+    assert foreign.get_json() == {"error": "Video match must belong to this club program and remain editable"}
+    assert noneditable.status_code == 409
+    assert noneditable.get_json() == {"error": "Video match must belong to this club program and remain editable"}
+    assert PlayerMatchEntry.query.count() == 0
+
+
+def test_club_result_rejects_local_member_without_approved_synthetic_id(club_app, client):
+    program_id = club_app.c2["program_a"]
+    local = _local(club_app.c2["users"]["a"], birth_year=2000, status="approved")
+    member_id = _add_local_member(client, program_id, local.id)
+
+    response = client.post(
+        f"/api/club/{program_id}/results",
+        json=_result_payload([member_id]),
+        headers=_headers("a"),
+    )
+
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "error": "Local roster members need an approved local player identity before stats can be recorded"
+    }
+    assert PlayerMatchEntry.query.count() == 0
+
+
+def test_positive_minor_roster_and_result_use_rollup_age_rule(club_app, client):
+    program_id = club_app.c2["program_a"]
+    minor = TrackedPlayer(
+        player_api_id=7003,
+        player_name="Youth Academy Player",
+        birth_date=f"{datetime.now(UTC).year - 15}-04-03",
+        position="Forward",
+        team_id=club_app.c2["team"],
+        status="academy",
+        is_active=True,
+    )
+    db.session.add(minor)
+    db.session.commit()
+    member_id = _add_api_member(client, program_id, minor.player_api_id)
+
+    roster = client.get(f"/api/club/{program_id}/roster", headers=_headers("a"))
+    response = client.post(
+        f"/api/club/{program_id}/results",
+        json=_result_payload([member_id]),
+        headers=_headers("a"),
+    )
+    public_history = client.get(f"/api/players/{minor.player_api_id}/matches")
+    private_history = client.get(
+        f"/api/players/{minor.player_api_id}/matches",
+        headers=_headers("a"),
+    )
+
+    assert roster.status_code == 200
+    roster_member = next(row for row in roster.get_json()["members"] if row["id"] == member_id)
+    assert roster_member["is_minor"] is True
+    assert response.status_code == 201
+    assert public_history.status_code == 404
+    assert private_history.status_code == 200
+    assert private_history.get_json()["total"] == 1
+    assert PlayerMatchEntry.query.filter_by(player_api_id=minor.player_api_id, source="club").count() == 1
+    assert PlayerSeasonCell.query.filter_by(player_api_id=minor.player_api_id, source="club").count() == 0
+    assert PlayerSeasonTotal.query.filter_by(player_api_id=minor.player_api_id, season=2025).count() == 0
+    assert response.get_json()["season_stats_by_player"] == {
+        "7003": {
+            "club_roster_member_id": member_id,
+            "player_name": "Youth Academy Player",
+            "season": 2025,
+            "level_group": "senior",
+            "source": "club",
+            "withheld": "minor",
+        }
+    }
+
+
+def test_list_club_results_groups_entries_and_filters_by_season(club_app, client):
+    program_a = club_app.c2["program_a"]
+    member_one = _add_api_member(client, program_a, 7001)
+    member_two = _add_api_member(client, program_a, 7002)
+    foreign_member = _add_api_member(client, club_app.c2["program_b"], 7001, "b")
+    created = client.post(
+        f"/api/club/{program_a}/results",
+        json=_result_payload([member_one, member_two]),
+        headers=_headers("a"),
+    )
+    assert created.status_code == 201
+    corrected = client.post(
+        f"/api/club/{program_a}/results",
+        json=_result_payload(
+            [member_one],
+            competition="U21 County League",
+            result_for=3,
+        ),
+        headers=_headers("a"),
+    )
+    assert corrected.status_code == 200
+    assert corrected.get_json()["season_stats_by_player"]["7001"]["level_group"] == "youth"
+    assert (
+        client.post(
+            f"/api/club/{program_a}/results",
+            json=_result_payload([member_one], match_date="2024-09-01", opponent="Older FC"),
+            headers=_headers("a"),
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post(
+            f"/api/club/{club_app.c2['program_b']}/results",
+            json=_result_payload([foreign_member], opponent="Foreign FC"),
+            headers=_headers("b"),
+        ).status_code
+        == 201
+    )
+
+    filtered = client.get(f"/api/club/{program_a}/results?season=2025", headers=_headers("a"))
+    all_results = client.get(f"/api/club/{program_a}/results", headers=_headers("a"))
+    invalid = client.get(f"/api/club/{program_a}/results?season=not-a-season", headers=_headers("a"))
+
+    assert filtered.status_code == 200
+    assert filtered.get_json()["total"] == 1
+    group = filtered.get_json()["results"][0]
+    assert group["result"] == {
+        "video_match_id": None,
+        "match_date": "2025-09-01",
+        "opponent": "Rivals FC",
+        "competition": "U21 County League",
+        "home_away": "home",
+        "result_for": 3,
+        "result_against": 1,
+    }
+    assert {row["club_roster_member_id"] for row in group["matches"]} == {member_one, member_two}
+    assert {row["competition"] for row in group["matches"]} == {"U21 County League"}
+    assert {row["result_for"] for row in group["matches"]} == {3}
+    assert PlayerSeasonTotal.query.filter_by(
+        player_api_id=7002,
+        season=2025,
+        level_group="youth",
+    ).one()
+    assert (
+        PlayerSeasonTotal.query.filter_by(
+            player_api_id=7002,
+            season=2025,
+            level_group="senior",
+        ).one_or_none()
+        is None
+    )
+    assert all_results.status_code == 200
+    assert [row["result"]["match_date"] for row in all_results.get_json()["results"]] == [
+        "2025-09-01",
+        "2024-09-01",
+    ]
+    assert invalid.status_code == 400
+    assert invalid.get_json() == {"error": "season must be an integer"}
+
+
+def test_shadow_only_positive_roster_member_remains_available(club_app, client):
+    program_id = club_app.c2["program_a"]
+    shadow = PlayerShadow(
+        player_api_id=7999,
+        player_name="Graduated Shadow Player",
+        position="Defender",
+        birth_date=date(2000, 1, 1),
+        is_active=True,
+    )
+    db.session.add(shadow)
+    db.session.flush()
+    member = ClubRosterMember(
+        program_id=program_id,
+        player_api_id=shadow.player_api_id,
+        added_by_user_id=club_app.c2["users"]["a"],
+    )
+    db.session.add(member)
+    db.session.commit()
+
+    response = client.get(f"/api/club/{program_id}/roster", headers=_headers("a"))
+
+    assert response.status_code == 200
+    assert response.get_json()["members"] == [
+        {
+            "id": member.id,
+            "program_id": program_id,
+            "role": None,
+            "note": None,
+            "created_at": response.get_json()["members"][0]["created_at"],
+            "available": True,
+            "subject_type": "tracked",
+            "player_api_id": 7999,
+            "local_player_id": None,
+            "display_name": "Graduated Shadow Player",
+            "position": "Defender",
+            "is_minor": False,
+        }
+    ]
 
 
 def test_roster_crud_is_program_scoped_and_local_must_be_manager_created(club_app, client):
