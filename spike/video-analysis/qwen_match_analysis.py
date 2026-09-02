@@ -57,6 +57,7 @@ PLAYER_NUM_PREDICT = 500
 # one doubled retry reaches 1800, so the 2000 ceiling only guards future cap changes.
 GROUNDED_CAPTION_NUM_PREDICT = 900
 GROUNDED_PLAYER_NUM_PREDICT = 900
+# Checks retry once at this same cap; unlike grounded reads, there is no doubling retry.
 BRIEF_CHECK_NUM_PREDICT = 600
 TEAM_NUM_PREDICT = 1500
 SCHEMA_VERSION = "qwen-analysis-v1"
@@ -107,6 +108,35 @@ COACHS_BRIEF_HONEST_LIMIT = (
 
 class OllamaOutputTruncated(ValueError):
     """Raised when Ollama stops generation at the requested output-token cap."""
+
+
+class PrivateBriefError(ValueError):
+    """A fixed-text error that is safe to persist or log outside the brief boundary."""
+
+
+def _brief_exception_details(exc: Exception) -> tuple[str, list[str] | None]:
+    """Return only non-sensitive exception metadata for private brief failures."""
+    from pydantic import ValidationError
+
+    error_types = (
+        [error["type"] for error in exc.errors()]
+        if isinstance(exc, ValidationError)
+        else None
+    )
+    return type(exc).__name__, error_types
+
+
+def _log_brief_exception(message: str, exc: Exception, *args) -> None:
+    error_type, validation_types = _brief_exception_details(exc)
+    if validation_types is None:
+        log.warning(f"{message}: %s", *args, error_type)
+    else:
+        log.warning(
+            f"{message}: %s validation_types=%s",
+            *args,
+            error_type,
+            validation_types,
+        )
 
 
 def inline_local_json_schema_refs(schema: dict) -> dict:
@@ -806,6 +836,7 @@ def ollama_chat(
     image_paths: list[Path] | None = None,
     response_metadata: dict[str, object] | None = None,
     response_schema: dict | None = None,
+    private_input: bool = False,
 ) -> str:
     """Make the one permitted network call shape, using only urllib."""
     if image_path is not None and image_paths is not None:
@@ -859,13 +890,22 @@ def ollama_chat(
             if not _is_transient_ollama_error(exc) or attempt == len(retry_delays):
                 raise
             delay_s = retry_delays[attempt]
-            log.warning(
-                "transient Ollama connection failure; retrying in %gs (%d/%d): %s",
-                delay_s,
-                attempt + 1,
-                len(retry_delays),
-                exc,
-            )
+            if private_input:
+                log.warning(
+                    "transient Ollama connection failure; retrying in %gs (%d/%d): %s",
+                    delay_s,
+                    attempt + 1,
+                    len(retry_delays),
+                    type(exc).__name__,
+                )
+            else:
+                log.warning(
+                    "transient Ollama connection failure; retrying in %gs (%d/%d): %s",
+                    delay_s,
+                    attempt + 1,
+                    len(retry_delays),
+                    exc,
+                )
             time.sleep(delay_s)
     done_reason = payload.get("done_reason")
     if response_metadata is not None:
@@ -883,8 +923,7 @@ def ollama_chat(
         with _THINKING_FALLBACK_WARNING_LOCK:
             if not _thinking_fallback_warning_emitted:
                 log.warning(
-                    "ollama returned the answer in the thinking field for model %s; "
-                    "using it",
+                    "ollama returned the answer in the thinking field for model %s; using it",
                     model,
                 )
                 _thinking_fallback_warning_emitted = True
@@ -932,14 +971,12 @@ def parse_player_read(
     evidence_frames: list[dict] | None = None,
     *,
     grounded_contract: bool = False,
-    brief_expectation_count: int = 0,
 ) -> dict:
     player_read = json.loads(content)
     validate_player_read_schema(
         player_read,
         evidence_frames,
         grounded_contract=grounded_contract,
-        brief_expectation_count=brief_expectation_count,
     )
     return player_read
 
@@ -1110,8 +1147,7 @@ def _normalize_grounded_window_caption(
         if recovered is not None and recovered != "unclear":
             _increment_caption_fault(fault_counts, "captions_action_type_recovered")
             log.warning(
-                "grounded caption action_type %r not in vocabulary; "
-                "single-choice recovered as %r (tracklet %s at %ss)",
+                "grounded caption action_type %r not in vocabulary; single-choice recovered as %r (tracklet %s at %ss)",
                 raw_value,
                 recovered,
                 tracklet_id,
@@ -1119,8 +1155,7 @@ def _normalize_grounded_window_caption(
             )
         else:
             log.warning(
-                "grounded caption action_type %r not in vocabulary; coerced to "
-                "'unclear' (tracklet %s at %ss)",
+                "grounded caption action_type %r not in vocabulary; coerced to 'unclear' (tracklet %s at %ss)",
                 raw_value,
                 tracklet_id,
                 start_s,
@@ -1130,8 +1165,7 @@ def _normalize_grounded_window_caption(
         caption["visible_pitch_zone"] = "unclear"
         _increment_caption_fault(fault_counts, "captions_zone_coerced")
         log.warning(
-            "grounded caption visible_pitch_zone %r not in vocabulary; coerced to "
-            "'unclear' (tracklet %s at %ss)",
+            "grounded caption visible_pitch_zone %r not in vocabulary; coerced to 'unclear' (tracklet %s at %ss)",
             raw_value,
             tracklet_id,
             start_s,
@@ -1196,7 +1230,6 @@ def validate_player_read_schema(
     evidence_frames: list[dict] | None = None,
     *,
     grounded_contract: bool = False,
-    brief_expectation_count: int = 0,
 ) -> None:
     if not isinstance(player_read, dict):
         raise ValueError("player read must be a JSON object")
@@ -1235,48 +1268,6 @@ def validate_player_read_schema(
         raise ValueError("player read must contain 1 to 3 non-empty observations")
     if player_read["confidence"] not in PLAYER_CONFIDENCE_LEVELS:
         raise ValueError("player read confidence must be low or medium")
-    expectation_checks = player_read.get("expectation_checks")
-    if brief_expectation_count:
-        if not grounded_contract:
-            raise ValueError("brief expectation checks require the grounded contract")
-        if not isinstance(expectation_checks, list):
-            raise ValueError("brief player read expectation_checks must be a list")
-        if len(expectation_checks) != brief_expectation_count:
-            raise ValueError(
-                "brief player read must contain exactly one check per expectation"
-            )
-        expected_indexes = set(range(1, brief_expectation_count + 1))
-        actual_indexes = set()
-        for check in expectation_checks:
-            if not isinstance(check, dict):
-                raise ValueError("each expectation check must be an object")
-            if {"expectation_index", "verdict", "box_t", "box"} - check.keys():
-                raise ValueError("expectation check is missing required keys")
-            expectation_index = check["expectation_index"]
-            if not isinstance(expectation_index, int) or isinstance(
-                expectation_index, bool
-            ):
-                raise ValueError("expectation_index must be an integer")
-            actual_indexes.add(expectation_index)
-            verdict = check["verdict"]
-            if verdict not in BRIEF_CHECK_VERDICTS:
-                raise ValueError("expectation check verdict is invalid")
-            if verdict == "evidence_found":
-                if not _number(check["box_t"]):
-                    raise ValueError("evidence_found requires numeric box_t")
-                box = check["box"]
-                if (
-                    not isinstance(box, list)
-                    or len(box) != 4
-                    or not all(_number(value) for value in box)
-                ):
-                    raise ValueError("evidence_found requires a four-number box")
-            elif check["box_t"] is not None or check["box"] is not None:
-                raise ValueError("no_evidence requires null box_t and box")
-        if actual_indexes != expected_indexes:
-            raise ValueError(
-                "expectation checks must use each supplied index exactly once"
-            )
     if evidence_frames is not None:
         evidence_timestamps = {
             round(float(frame["timestamp_s"]), 3) for frame in evidence_frames
@@ -1298,15 +1289,6 @@ def validate_player_read_schema(
                 raise ValueError(
                     "each player observation must cite an evidence timestamp as t=<seconds>"
                 )
-        if brief_expectation_count:
-            for check in expectation_checks:
-                if (
-                    check["verdict"] == "evidence_found"
-                    and round(float(check["box_t"]), 3) not in evidence_timestamps
-                ):
-                    raise ValueError(
-                        "each evidence_found box_t must cite an evidence timestamp"
-                    )
 
 
 def validate_team_pass_schema(team_pass: object) -> None:
@@ -1612,8 +1594,7 @@ def validate_analysis_schema(
         )
         if player_pair in present_player_pairs:
             raise ValueError(
-                "player_notes contains duplicate normalized pair: "
-                f"{player_pair[0]} #{player_pair[1]}"
+                f"player_notes contains duplicate normalized pair: {player_pair[0]} #{player_pair[1]}"
             )
         present_player_pairs.add(player_pair)
         if (
@@ -1627,8 +1608,7 @@ def validate_analysis_schema(
             for kit_color, jersey_number in sorted(hollow_player_pairs)
         )
         raise ValueError(
-            "player_notes contains hollow pairs (no non-empty observations): "
-            f"{rendered}"
+            f"player_notes contains hollow pairs (no non-empty observations): {rendered}"
         )
     missing_player_pairs = (required_player_pairs or set()) - present_player_pairs
     if missing_player_pairs:
@@ -2023,19 +2003,24 @@ def _load_brief_context(path: Path | None) -> dict | None:
 
     class RosterBriefPayload(BriefPayload):
         jersey_number: int = Field(strict=True)
-        kit_color: str = Field(min_length=1)
+        kit_color: str
 
         @field_validator("kit_color")
         @classmethod
         def kit_color_is_normalized(cls, kit_color):
             if kit_color != kit_color.strip():
-                raise ValueError("kit_color must be non-empty and trimmed")
+                raise ValueError("kit_color must be trimmed")
             return kit_color
+
+    class SkippedRosterPayload(Strict):
+        jersey_number: int = Field(strict=True)
+        reason: Literal["brief_longer_than_max_lines"]
 
     class BriefContext(Strict):
         schema_version: Literal["brief-context-v1"]
         max_lines: int = Field(ge=1, strict=True)
         roster: dict[str, RosterBriefPayload]
+        skipped_roster: dict[str, SkippedRosterPayload] = Field(default_factory=dict)
         system_brief: BriefPayload | None
 
         @model_validator(mode="after")
@@ -2047,13 +2032,21 @@ def _load_brief_context(path: Path | None) -> dict | None:
                 raise ValueError("brief lines exceed payload max_lines")
             return self
 
-    parsed = BriefContext.model_validate_json(path.read_text(encoding="utf-8"))
-    for roster_entry_id in parsed.roster:
-        if not roster_entry_id.isdigit() or int(roster_entry_id) <= 0:
+    try:
+        parsed = BriefContext.model_validate_json(path.read_text(encoding="utf-8"))
+        roster_ids = {*parsed.roster, *parsed.skipped_roster}
+        if any(
+            not roster_id.isdigit() or int(roster_id) <= 0 for roster_id in roster_ids
+        ):
             raise ValueError(
                 "--brief-json roster keys must be positive integer strings"
             )
-    return parsed.model_dump()
+        return parsed.model_dump()
+    except Exception as exc:
+        _log_brief_exception("brief context could not be loaded", exc)
+        raise PrivateBriefError(
+            "brief context could not be loaded: invalid brief input"
+        ) from None
 
 
 def _parse_bool_env(name: str, default: str) -> bool:
@@ -2184,7 +2177,14 @@ def eligible_brief_reads(
     if not brief_context:
         return {}, []
     eligible = {}
-    limits = []
+    limits = [
+        f"brief for roster entry {int(roster_entry_id)} "
+        f"(#{skipped['jersey_number']}) could not be checked: brief longer than 8 lines"
+        for roster_entry_id, skipped in sorted(
+            brief_context.get("skipped_roster", {}).items(),
+            key=lambda item: int(item[0]),
+        )
+    ]
     for roster_entry_id, brief in sorted(
         brief_context.get("roster", {}).items(), key=lambda item: int(item[0])
     ):
@@ -2193,10 +2193,14 @@ def eligible_brief_reads(
             _normalized_kit_color(brief["kit_color"]),
             brief["jersey_number"],
         )
-        if player_tracks is None or roster_entry_id not in player_tracks:
+        if not pair[0]:
             limits.append(
-                f"brief for roster entry {roster_id} (#{pair[1]}) could not be "
-                "checked: no tracked window"
+                f"brief for roster entry {roster_id} (#{pair[1]}) could not be checked: no kit colour on the match"
+            )
+            continue
+        if not (player_tracks or {}).get(roster_entry_id):
+            limits.append(
+                f"brief for roster entry {roster_id} (#{pair[1]}) could not be checked: no tracked window"
             )
             continue
         track = player_tracks[roster_entry_id]
@@ -2216,8 +2220,7 @@ def eligible_brief_reads(
             }
             continue
         limits.append(
-            f"brief for roster entry {roster_id} (#{pair[1]}) could not be checked: "
-            "no verified frames"
+            f"brief for roster entry {roster_id} (#{pair[1]}) could not be checked: no verified frames"
         )
     return eligible, limits
 
@@ -2377,8 +2380,7 @@ def generate_player_reads(
                     if grounded_contract and isinstance(exc, OllamaOutputTruncated):
                         retry_num_predict = min(num_predict * 2, 2000)
                         log.warning(
-                            "player read output truncated at %s tokens; "
-                            "retrying with %s for %s #%s",
+                            "player read output truncated at %s tokens; retrying with %s for %s #%s",
                             num_predict,
                             retry_num_predict,
                             player_pair[0],
@@ -2424,7 +2426,6 @@ def generate_player_reads(
                     grounded_brief_checks_schema(max_brief_expectations),
                 )
                 parsed_checks = None
-                checks_error: Exception | None = None
                 for attempt in range(2):
                     try:
                         content = ollama_chat(
@@ -2440,6 +2441,7 @@ def generate_player_reads(
                             num_predict=BRIEF_CHECK_NUM_PREDICT,
                             image_paths=call_image_paths,
                             response_schema=brief_schema,
+                            private_input=True,
                         )
                         parsed_checks = parse_brief_checks(
                             content,
@@ -2449,31 +2451,36 @@ def generate_player_reads(
                         )
                         break
                     except Exception as exc:
-                        checks_error = exc
                         if attempt == 0:
-                            log.warning(
-                                "invalid brief checks for %s #%s; retrying once: %s",
+                            _log_brief_exception(
+                                "invalid brief checks for %s #%s; retrying once at the same token cap",
+                                exc,
                                 player_pair[0],
                                 player_pair[1],
-                                exc,
                             )
                 if parsed_checks is None:
-                    reason = (
-                        "unknown error" if checks_error is None else str(checks_error)
-                    )
-                    reason = " ".join(reason.split())[:300]
                     failure_limits.append(
-                        f"brief checks not produced for {player_pair[0]} "
-                        f"#{player_pair[1]}: {reason}"
+                        f"brief checks not produced for {player_pair[0]} #{player_pair[1]}: invalid checks output"
                     )
                 else:
-                    brief_checks = gate_brief_checks(
-                        parsed_checks["expectation_checks"],
-                        brief["hash"],
-                        track,
-                        frame_size,
-                        brief_counts,
-                    )
+                    try:
+                        brief_checks = gate_brief_checks(
+                            parsed_checks["expectation_checks"],
+                            brief["hash"],
+                            track,
+                            frame_size,
+                            brief_counts,
+                        )
+                    except Exception as exc:
+                        _log_brief_exception(
+                            "brief checks gating failed for %s #%s",
+                            exc,
+                            player_pair[0],
+                            player_pair[1],
+                        )
+                        failure_limits.append(
+                            f"brief checks not produced for {player_pair[0]} #{player_pair[1]}: invalid checks output"
+                        )
             if not gated and not brief_checks:
                 omitted_pairs.add(player_pair)
                 if parsed_read is not None:
@@ -2632,8 +2639,7 @@ def generate_window_captions(
                         if grounded_contract and isinstance(exc, OllamaOutputTruncated):
                             retry_num_predict = min(num_predict * 2, 2000)
                             log.warning(
-                                "caption output truncated at %s tokens; "
-                                "retrying with %s (tracklet %s at %ss)",
+                                "caption output truncated at %s tokens; retrying with %s (tracklet %s at %ss)",
                                 num_predict,
                                 retry_num_predict,
                                 window["tracklet_id"],
@@ -2642,8 +2648,7 @@ def generate_window_captions(
                             num_predict = retry_num_predict
                         else:
                             log.warning(
-                                "invalid caption for tracklet %s at %ss; "
-                                "retrying once: %s",
+                                "invalid caption for tracklet %s at %ss; retrying once: %s",
                                 window["tracklet_id"],
                                 window["start_s"],
                                 exc,
@@ -2864,13 +2869,17 @@ def run(argv: list[str] | None = None) -> int:
     }
     frame_size = tuple(context["frame_size"]) if "frame_size" in context else None
     player_roster_ids = _player_roster_ids(context.get("caption_windows", []))
-    player_roster_ids.update(_brief_player_roster_ids(brief_context))
-    player_briefs, brief_failure_limits = eligible_brief_reads(
-        brief_context,
-        observations,
-        context.get("player_tracks"),
-        frame_size,
-    )
+    try:
+        player_roster_ids.update(_brief_player_roster_ids(brief_context))
+        player_briefs, brief_failure_limits = eligible_brief_reads(
+            brief_context,
+            observations,
+            context.get("player_tracks"),
+            frame_size,
+        )
+    except Exception as exc:
+        _log_brief_exception("brief eligibility failed", exc)
+        raise PrivateBriefError("brief context could not be applied") from None
     scheduled_player_pairs = required_player_pairs | set(player_briefs)
     player_notes, player_failure_limits, omitted_player_pairs = generate_player_reads(
         required_player_pairs,
@@ -2985,9 +2994,15 @@ def run(argv: list[str] | None = None) -> int:
         final["honest_limits"].append(grounding_limit)
     validate_analysis_schema(final)
 
-    (out_dir / "analysis.json").write_text(
-        json.dumps(final, indent=2, ensure_ascii=False) + "\n"
-    )
+    try:
+        (out_dir / "analysis.json").write_text(
+            json.dumps(final, indent=2, ensure_ascii=False) + "\n"
+        )
+    except Exception as exc:
+        if brief_context is None:
+            raise
+        _log_brief_exception("analysis persistence failed", exc)
+        raise PrivateBriefError("analysis persistence failed") from None
     return 0
 
 

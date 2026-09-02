@@ -30,6 +30,7 @@ from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services import season_rollup_service, video_retention, video_storage
 from src.services.club_registry import require_club_manager
+from src.services.coach_brief import MAX_BRIEF_CHARS, MAX_BRIEF_LINE_CHARS, MAX_BRIEF_LINES
 from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
@@ -48,9 +49,6 @@ MAX_CAPTURE_META_BYTES = 8 * 1024
 MAX_CAPTURE_META_DEPTH = 4
 MAX_CAPTURE_META_KEYS = 50
 MAX_TIMELINE_SECONDS = 6 * 60 * 60
-MAX_BRIEF_CHARS = 2000
-MAX_BRIEF_LINES = 8
-MAX_BRIEF_LINE_CHARS = 240
 BRIEF_NAME_TOKEN_RE = re.compile(r"[^\W\d_]{2,}")
 CLUB_EDITABLE_MATCH_STATUSES = {"created", "uploaded"}
 RESULT_COUNT_FIELDS = ("goals", "assists", "yellows", "reds")

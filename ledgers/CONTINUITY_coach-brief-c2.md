@@ -53,6 +53,7 @@ Owner: /root
 
 ## Notes
 
+- Review round 2: private checks failures now persist fixed text and log type-only metadata; missing-kit, empty-track, and overlength paths degrade honestly; spike 175, requested backend 121, backend Ruff 460 files and bare spike Ruff 2 files all pass.
 - Verified review round: `pytest spike/video-analysis -q` -> 170 passed.
 - Verified review round: backend requested suite -> 87 passed.
 - Verified review round: backend `ruff check .` + `ruff format --check .` pass (459 files); bare spike Ruff check/format pass (2 files).

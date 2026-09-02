@@ -274,6 +274,7 @@ def test_brief_context_is_separate_hash_only_and_sends_all_eight_lines():
                 "kit_color": "blue",
             }
         },
+        "skipped_roster": {},
         "system_brief": {
             "lines": ["Stay compact", "Counter-press together"],
             "hash": hashlib.sha256(b"Stay compact\nCounter-press together").hexdigest(),
@@ -291,10 +292,65 @@ def test_system_brief_without_roster_briefs_does_not_enable_flag():
         "schema_version": "brief-context-v1",
         "max_lines": 8,
         "roster": {},
+        "skipped_roster": {},
         "system_brief": {"lines": ["Press together"], "hash": "a" * 64},
     }
 
     assert _has_brief_entries(context) is False
+
+
+def test_brief_context_skips_overlong_roster_entry_with_structured_limit():
+    match = SimpleNamespace(
+        club_program_id=7,
+        our_kit_color="blue",
+        club_program=SimpleNamespace(id=7, system_brief_body=None),
+    )
+    roster = [SimpleNamespace(id=42, jersey_number=8, club_roster_member_id=5)]
+    members = [
+        SimpleNamespace(
+            id=5,
+            program_id=7,
+            coach_brief_body="\n".join(f"Expectation {index}" for index in range(1, 10)),
+        )
+    ]
+
+    context = _brief_context(match, roster, members)
+
+    assert context["roster"] == {}
+    assert context["skipped_roster"] == {
+        "42": {
+            "jersey_number": 8,
+            "reason": "brief_longer_than_max_lines",
+        }
+    }
+    assert _has_brief_entries(context) is True
+
+
+def test_brief_context_skips_all_roster_briefs_without_kit_colour(caplog):
+    match = SimpleNamespace(
+        id=12,
+        club_program_id=7,
+        our_kit_color=None,
+        club_program=SimpleNamespace(id=7, system_brief_body="Press together"),
+    )
+    roster = [
+        SimpleNamespace(id=42, jersey_number=8, club_roster_member_id=5),
+        SimpleNamespace(id=43, jersey_number=11, club_roster_member_id=6),
+    ]
+    members = [
+        SimpleNamespace(id=5, program_id=7, coach_brief_body="Hold width"),
+        SimpleNamespace(id=6, program_id=7, coach_brief_body="Recover inside"),
+    ]
+
+    with caplog.at_level("WARNING", logger="vision_worker"):
+        context = _brief_context(match, roster, members)
+
+    assert context["roster"] == {}
+    assert context["skipped_roster"] == {}
+    assert context["system_brief"] is None
+    assert _has_brief_entries(context) is False
+    warnings = [record.message for record in caplog.records if "roster briefs skipped" in record.message]
+    assert warnings == ["video match 12: roster briefs skipped because the match has no kit colour"]
 
 
 def test_admin_match_has_no_brief_context_or_pipeline_flag():
@@ -458,7 +514,12 @@ def test_local_video_path_requires_existing_absolute_path(tmp_path):
     assert _local_video_path(match) == video
 
 
-def test_club_program_without_roster_briefs_has_no_brief_flag(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "club_program_id",
+    [7, None],
+    ids=("club-program", "process-level-admin-match"),
+)
+def test_qwen_job_without_roster_briefs_has_no_brief_file_or_flag(tmp_path, monkeypatch, club_program_id):
     app = Flask(__name__)
     app.config.update(
         TESTING=True,
@@ -483,7 +544,7 @@ def test_club_program_without_roster_briefs_has_no_brief_flag(tmp_path, monkeypa
         opponent_kit_color="red",
         competition="Academy fixture",
         our_team_cluster=0,
-        club_program_id=7,
+        club_program_id=club_program_id,
         club_program=SimpleNamespace(id=7, system_brief_body=None),
         roster_entries=[],
         status="queued",
@@ -609,6 +670,7 @@ def test_club_qwen_job_writes_separate_brief_file_and_forwards_flag(tmp_path, mo
                     "kit_color": "blue",
                 }
             },
+            "skipped_roster": {},
             "system_brief": {
                 "lines": ["Press together"],
                 "hash": hashlib.sha256(b"Press together").hexdigest(),
@@ -633,6 +695,84 @@ def test_club_qwen_job_writes_separate_brief_file_and_forwards_flag(tmp_path, mo
             assert process_job(app, "job-1") is True
 
     complete.assert_called_once()
+
+
+def test_club_qwen_job_with_brief_and_no_kit_writes_no_brief_file(tmp_path, monkeypatch, caplog):
+    app = Flask(__name__)
+    app.config.update(
+        TESTING=True,
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+    video = tmp_path / "match.mp4"
+    video.write_bytes(b"test footage")
+    job = SimpleNamespace(video_match_id=1)
+    roster_entry = SimpleNamespace(
+        id=42,
+        jersey_number=8,
+        club_roster_member_id=5,
+    )
+    member = SimpleNamespace(
+        id=5,
+        program_id=7,
+        coach_brief_body="Hold width",
+    )
+    match = SimpleNamespace(
+        id=1,
+        blob_path=None,
+        blob_etag=None,
+        capture_meta={"local": {"video": str(video)}, "resolution": [1920, 1080]},
+        kickoff_s=0,
+        halftime_s=None,
+        second_half_kickoff_s=None,
+        duration_s=90,
+        opponent_name="Opposition",
+        our_kit_color=None,
+        opponent_kit_color="red",
+        competition="Academy fixture",
+        our_team_cluster=0,
+        club_program_id=7,
+        club_program=SimpleNamespace(id=7, system_brief_body="Press together"),
+        roster_entries=[roster_entry],
+        status="queued",
+    )
+
+    def fake_get(model, _identifier):
+        return job if model is VideoAnalysisJob else match
+
+    analysis = {
+        "schema_version": "qwen-analysis-v1",
+        "match_summary": "Sampled match analysis.",
+    }
+
+    def fake_pipeline(command, check):
+        assert check is True
+        assert "--brief-json" not in command
+        context_path = Path(command[command.index("--context-json") + 1])
+        assert not (context_path.parent / "brief.json").exists()
+        assert __import__("json").loads(context_path.read_text())["our_kit_color"] is None
+        out_dir = Path(command[command.index("--out") + 1])
+        (out_dir / "analysis.json").write_text(__import__("json").dumps(analysis))
+
+    monkeypatch.setenv("VIDEO_PIPELINE_KIND", "qwen_analysis")
+    monkeypatch.setenv("VIDEO_PIPELINE_CMD", "python qwen_match_analysis.py")
+    with app.app_context(), caplog.at_level("WARNING", logger="vision_worker"):
+        with (
+            patch.object(db.session, "get", side_effect=fake_get),
+            patch("src.services.video_storage.is_configured", return_value=False),
+            patch("src.services.video_dev_artifacts.local_artifacts", return_value=None),
+            patch("src.services.video_queue.heartbeat", return_value=True),
+            patch.object(db.session, "query") as query,
+            patch("src.workers.vision_worker.subprocess.run", side_effect=fake_pipeline),
+            patch("src.services.video_analysis_store.complete_job_with_analysis") as complete,
+        ):
+            query.return_value.filter.return_value.all.side_effect = [[], [member]]
+            assert process_job(app, "job-1") is True
+
+    complete.assert_called_once()
+    warnings = [record.message for record in caplog.records if "roster briefs skipped" in record.message]
+    assert warnings == ["video match 1: roster briefs skipped because the match has no kit colour"]
 
 
 def test_cv_kind_hands_tracks_to_box_persistence_after_artifact_completion(tmp_path, monkeypatch):

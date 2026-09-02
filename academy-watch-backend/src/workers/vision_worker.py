@@ -267,7 +267,7 @@ def _brief_payload(body, *, max_lines: int) -> dict | None:
     if not lines:
         return None
     if len(lines) > max_lines:
-        raise ValueError(f"stored brief exceeds {max_lines}-line context cap")
+        return None
     normalized_body = "\n".join(lines)
     return {
         "lines": lines,
@@ -277,7 +277,7 @@ def _brief_payload(body, *, max_lines: int) -> dict | None:
 
 def _brief_context(match, roster_entries, roster_members) -> dict | None:
     """Build private brief input separately from the team-visible analysis context."""
-    from src.routes.club import MAX_BRIEF_LINES
+    from src.services.coach_brief import MAX_BRIEF_LINES
 
     program_id = _row_value(match, "club_program_id")
     if program_id is None:
@@ -287,29 +287,54 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
         for member in roster_members
         if _row_value(member, "id") is not None and _row_value(member, "program_id") == program_id
     }
-    roster = {}
-    for entry in roster_entries:
-        member_id = _row_value(entry, "club_roster_member_id")
-        member = members_by_id.get(int(member_id)) if member_id is not None else None
-        payload = (
-            _brief_payload(
-                _row_value(member, "coach_brief_body"),
-                max_lines=MAX_BRIEF_LINES,
-            )
-            if member is not None
-            else None
+    kit_color = _row_value(match, "our_kit_color")
+    brief_entries = [
+        (entry, members_by_id.get(int(member_id)))
+        for entry in roster_entries
+        if (member_id := _row_value(entry, "club_roster_member_id")) is not None and int(member_id) in members_by_id
+    ]
+    if not isinstance(kit_color, str) or not kit_color.strip():
+        has_roster_brief = any(
+            isinstance(body := _row_value(member, "coach_brief_body"), str)
+            and any(line.strip() for line in body.splitlines())
+            for _, member in brief_entries
         )
+        if has_roster_brief:
+            log.warning(
+                "video match %s: roster briefs skipped because the match has no kit colour",
+                _row_value(match, "id", "unknown"),
+            )
+        return {
+            "schema_version": BRIEF_CONTEXT_SCHEMA_VERSION,
+            "max_lines": MAX_BRIEF_LINES,
+            "roster": {},
+            "skipped_roster": {},
+            "system_brief": None,
+        }
+
+    roster = {}
+    skipped_roster = {}
+    for entry, member in brief_entries:
+        body = _row_value(member, "coach_brief_body")
+        lines = [line.strip() for line in body.splitlines() if line.strip()] if isinstance(body, str) else []
+        payload = _brief_payload(body, max_lines=MAX_BRIEF_LINES)
         if payload is not None:
             roster[str(int(_row_value(entry, "id")))] = {
                 **payload,
                 "jersey_number": int(_row_value(entry, "jersey_number")),
-                "kit_color": _row_value(match, "our_kit_color"),
+                "kit_color": kit_color.strip(),
+            }
+        elif len(lines) > MAX_BRIEF_LINES:
+            skipped_roster[str(int(_row_value(entry, "id")))] = {
+                "jersey_number": int(_row_value(entry, "jersey_number")),
+                "reason": "brief_longer_than_max_lines",
             }
     program = _row_value(match, "club_program")
     return {
         "schema_version": BRIEF_CONTEXT_SCHEMA_VERSION,
         "max_lines": MAX_BRIEF_LINES,
         "roster": roster,
+        "skipped_roster": skipped_roster,
         "system_brief": _brief_payload(
             _row_value(program, "system_brief_body"),
             max_lines=MAX_BRIEF_LINES,
@@ -318,7 +343,7 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
 
 
 def _has_brief_entries(context: dict | None) -> bool:
-    return bool(context and context.get("roster"))
+    return bool(context and (context.get("roster") or context.get("skipped_roster")))
 
 
 def _encode_analysis_context(context: dict) -> bytes:
@@ -563,13 +588,25 @@ def process_job(app, job_id: str) -> bool:
                         )
                     )
                 )
-                brief_context = _brief_context(match, roster_entries, roster_members)
-                if _has_brief_entries(brief_context):
-                    brief_path = tmp_path / "brief.json"
-                    brief_path.write_text(
-                        json.dumps(brief_context, ensure_ascii=False, separators=(",", ":")),
-                        encoding="utf-8",
+                try:
+                    brief_context = _brief_context(match, roster_entries, roster_members)
+                    if _has_brief_entries(brief_context):
+                        brief_path = tmp_path / "brief.json"
+                        brief_path.write_text(
+                            json.dumps(
+                                brief_context,
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
+                            encoding="utf-8",
+                        )
+                except Exception as exc:
+                    log.warning(
+                        "video match %s: private brief input could not be prepared: %s",
+                        match.id,
+                        type(exc).__name__,
                     )
+                    raise RuntimeError("private brief input could not be prepared") from None
             stop, fenced = threading.Event(), threading.Event()
             keeper = threading.Thread(target=_keepalive, args=(app, job_id, stop, fenced), daemon=True)
             keeper.start()
