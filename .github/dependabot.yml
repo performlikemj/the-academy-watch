@@ -21,3 +21,6 @@ updates:
       # Drop this when openai-agents supports mcp>=2.
       - dependency-name: "mcp"
         update-types: ["version-update:semver-major"]
+      # pydantic pins pydantic-core exactly, so both must be bumped by hand.
+      # Standalone pydantic-core bumps broke the ACR build in #832 (and twice before).
+      - dependency-name: "pydantic-core"
