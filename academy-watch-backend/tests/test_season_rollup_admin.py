@@ -181,9 +181,9 @@ def test_endpoints_require_admin_dual_auth(client):
         ("?scope=unknown", "scope"),
         ("?scope=player", "player_api_id"),
         ("?scope=player&player_api_id=nope", "player_api_id"),
+        ("?scope=player&player_api_id=0", "player_api_id"),
         ("?scope=season", "season"),
         ("?scope=season&season=nope", "season"),
-        ("?scope=all&cursor=-1", "cursor"),
         ("?scope=stale&cursor=nope", "cursor"),
     ],
 )
@@ -207,6 +207,63 @@ def test_player_scope_rebuilds_and_is_idempotent(client, admin_headers):
     assert second.status_code == 200
     assert second.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player).count() == 1
+
+
+def test_negative_failed_player_can_be_retried_out_of_band(client, admin_headers, monkeypatch):
+    player = -101
+    _total(player)
+    db.session.commit()
+    calls = []
+
+    def _fail_once(player_api_id, **_kwargs):
+        calls.append(player_api_id)
+        raise RuntimeError("bad local player")
+
+    monkeypatch.setattr(admin_routes.season_rollup_service, "refresh_player", _fail_once)
+    swept = client.post(f"{REBUILD_URL}?scope=all", headers=admin_headers)
+    assert swept.status_code == 200
+    assert swept.get_json() == {"processed": 0, "failed": [player], "remaining": 0, "cursor": None}
+
+    monkeypatch.setattr(
+        admin_routes.season_rollup_service,
+        "refresh_player",
+        lambda player_api_id, **_kwargs: calls.append(player_api_id),
+    )
+    retried = client.post(
+        f"{REBUILD_URL}?scope=player&player_api_id={player}",
+        headers=admin_headers,
+    )
+    assert retried.status_code == 200
+    assert retried.get_json() == {"processed": 1, "failed": [], "remaining": 0, "cursor": None}
+    assert calls == [player, player]
+
+
+def test_all_scope_defaults_before_negative_ids_and_accepts_negative_cursor(
+    client,
+    admin_headers,
+    monkeypatch,
+):
+    for player in (-20, -10, 5):
+        _total(player)
+    db.session.commit()
+    calls = []
+    monkeypatch.setattr(
+        admin_routes.season_rollup_service,
+        "refresh_player",
+        lambda player_api_id, **_kwargs: calls.append(player_api_id),
+    )
+
+    first = client.post(f"{REBUILD_URL}?scope=all&batch_size=1", headers=admin_headers)
+    assert first.status_code == 200
+    assert first.get_json() == {"processed": 1, "failed": [], "remaining": 1, "cursor": -20}
+
+    second = client.post(
+        f"{REBUILD_URL}?scope=all&batch_size=1&cursor=-20",
+        headers=admin_headers,
+    )
+    assert second.status_code == 200
+    assert second.get_json() == {"processed": 1, "failed": [], "remaining": 1, "cursor": -10}
+    assert calls == [-20, -10]
 
 
 def test_season_scope_is_bounded_and_leaves_other_seasons_untouched(client, admin_headers):

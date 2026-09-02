@@ -605,7 +605,8 @@ def positive_subject_is_minor(
     if any(local_player_is_minor(local, today=today) for local in bridged_locals):
         return True
 
-    birth_dates = [row.birth_date for row in tracked_rows if row.birth_date]
+    birth_dates = [local.birth_date for local in bridged_locals if local.birth_date]
+    birth_dates.extend(row.birth_date for row in tracked_rows if row.birth_date)
     journey = session.query(PlayerJourney).filter_by(player_api_id=player_api_id).first()
     if journey is not None and journey.birth_date:
         birth_dates.append(journey.birth_date)
@@ -619,7 +620,15 @@ def positive_subject_is_minor(
     stored_ages = [row.age for row in tracked_rows if row.age is not None]
     if stored_ages:
         return any(age < 18 for age in stored_ages)
-    return True
+
+    # Year-only local identities use the same conservative boundary as the
+    # local-player read paths: the birth year is adult evidence only once every
+    # date in that year is at least 18 (current year - birth year >= 19).
+    adult_local_birth_year = any(
+        local.birth_date is None and local.birth_year is not None and today.year - local.birth_year >= 19
+        for local in bridged_locals
+    )
+    return not adult_local_birth_year
 
 
 def _reported_subject_is_minor(player_api_id: int, session) -> bool:

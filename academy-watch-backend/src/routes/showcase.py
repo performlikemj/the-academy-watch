@@ -284,15 +284,20 @@ def _current_user_account():
     return user
 
 
-def _has_approved_subject_claim(subject: ShowcaseSubject, user_id: int) -> bool:
-    return (
-        PlayerProfileClaim.query.filter(
-            *_subject_filters(PlayerProfileClaim, subject),
-            PlayerProfileClaim.user_account_id == user_id,
-            PlayerProfileClaim.status == "approved",
-        ).first()
-        is not None
+def _has_approved_subject_claim(
+    subject: ShowcaseSubject,
+    user_id: int,
+    *,
+    for_update: bool = False,
+) -> bool:
+    query = PlayerProfileClaim.query.filter(
+        *_subject_filters(PlayerProfileClaim, subject),
+        PlayerProfileClaim.user_account_id == user_id,
+        PlayerProfileClaim.status == "approved",
     )
+    if for_update:
+        query = query.with_for_update()
+    return query.first() is not None
 
 
 def _profile_edit_values(profile: PlayerShowcaseProfile) -> dict[str, object]:
@@ -312,7 +317,9 @@ def _trusted_profile_edit_is_eligible(
         return False
     if not changed_fields.issubset(_AUTO_APPROVAL_PROFILE_FIELDS):
         return False
-    if not _has_approved_subject_claim(subject, user.id):
+    # Serialize the final eligibility decision against admin claim review. The
+    # earlier owner gate is intentionally repeated under a row lock here.
+    if not _has_approved_subject_claim(subject, user.id, for_update=True):
         return False
 
     created_at = user.created_at
@@ -2690,9 +2697,6 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
                 subject.player_api_id,
                 existing_claim=contract_claim,
             )
-            if _contract_attestation_matches_claim(contract_attestation, contract_claim):
-                contract_attestation = None
-                profile_contract_update_requested = False
         bio = _clean_optional_text(payload.get("bio"), MAX_BIO_LENGTH)
         positions = _clean_optional_text(payload.get("positions"), MAX_POSITIONS_LENGTH)
 
@@ -2746,6 +2750,25 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
             profile = PlayerShowcaseProfile(**_subject_values(subject))
             db.session.add(profile)
         before_values = _profile_edit_values(profile)
+        if contract_attestation is not None and _contract_attestation_matches_claim(
+            contract_attestation,
+            contract_claim,
+        ):
+            staged_for_claim = (
+                profile.pending_contract_status is not None and profile.pending_contract_claim_id == contract_claim.id
+            )
+            contract_attestation = None
+            profile_contract_update_requested = False
+            if staged_for_claim:
+                # This is an explicit revert of a different staged
+                # attestation, not the frontend repeating an approved value.
+                # Clearing the staged fields makes the contract-field diff
+                # visible to moderation and therefore keeps the edit pending.
+                profile.pending_contract_claim_id = None
+                profile.pending_contract_status = None
+                profile.pending_current_club_name = None
+                profile.pending_club_program_id = None
+                profile.pending_status_contradiction = False
         profile.bio = bio
         profile.positions = positions
         profile.preferred_foot = preferred_foot
@@ -4599,9 +4622,29 @@ def _rekey_rollup_rows(old_player_api_id: int, player_api_id: int) -> dict:
 
 
 def _refresh_graduated_rollup(old_player_api_id: int, player_api_id: int) -> tuple[dict, dict]:
+    visible_reported_sources = {
+        row.source
+        for row in PlayerSeasonCell.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+        if row.source in {"club", "user"}
+    }
+    visible_reported_sources.update(
+        row.primary_source
+        for row in PlayerSeasonTotal.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+        if row.primary_source in {"club", "user"}
+    )
     extra_counts = _rekey_extra_tables(old_player_api_id, player_api_id, db.session)
     rollup_counts = _rekey_rollup_rows(old_player_api_id, player_api_id)
     rollup = season_rollup_service.refresh_player(player_api_id, session=db.session)
+    rebuilt_sources = {
+        row.source
+        for row in PlayerSeasonCell.query.filter(
+            PlayerSeasonCell.player_api_id == player_api_id,
+            PlayerSeasonCell.source.in_(visible_reported_sources),
+        ).all()
+    }
+    missing_sources = sorted(visible_reported_sources - rebuilt_sources)
+    if missing_sources:
+        raise _GraduationConflict("graduated rollup withheld previously visible sources: " + ", ".join(missing_sources))
     return {**rollup_counts, **extra_counts}, rollup
 
 
@@ -4653,11 +4696,12 @@ def admin_link_local_player_api(lp_id: int):
         rekeyed["contact_requests"] = _rekey_contacts(old_player_api_id, player_api_id)
         rekeyed["suppressions"] = _rekey_suppressions(player.id, old_player_api_id, player_api_id)
         rekeyed.update(_rekey_content_references(old_player_api_id, player_api_id))
+        player.api_player_id = player_api_id
+        player.updated_at = now
+        db.session.flush()
         rollup_counts, rollup = _refresh_graduated_rollup(old_player_api_id, player_api_id)
         rekeyed.update(rollup_counts)
 
-        player.api_player_id = player_api_id
-        player.updated_at = now
         db.session.commit()
         return jsonify(
             {

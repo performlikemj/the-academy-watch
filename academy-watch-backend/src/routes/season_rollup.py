@@ -368,16 +368,13 @@ def _stale_player_ids(player_ids: tuple[int, ...] | None = None):
     return select(stale_rows.c.player_api_id).group_by(stale_rows.c.player_api_id)
 
 
-def _page_ids(id_statement, cursor: int, batch_size: int) -> list[int]:
+def _page_ids(id_statement, cursor: int | None, batch_size: int) -> list[int]:
     ids = id_statement.subquery()
-    return list(
-        db.session.execute(
-            select(ids.c.player_api_id)
-            .where(ids.c.player_api_id > cursor)
-            .order_by(ids.c.player_api_id)
-            .limit(batch_size)
-        ).scalars()
-    )
+    statement = select(ids.c.player_api_id)
+    if cursor is not None:
+        statement = statement.where(ids.c.player_api_id > cursor)
+    statement = statement.order_by(ids.c.player_api_id).limit(batch_size)
+    return list(db.session.execute(statement).scalars())
 
 
 def _count_ids(id_statement) -> int:
@@ -431,13 +428,11 @@ def _cursor_arg() -> tuple[int | None, str | None]:
     """
     raw_cursor = request.args.get("cursor")
     if raw_cursor is None or raw_cursor == "":
-        return 0, None
+        return None, None
     try:
         cursor = int(raw_cursor)
     except (TypeError, ValueError):
-        return None, "cursor must be a non-negative integer player_api_id"
-    if cursor < 0:
-        return None, "cursor must be a non-negative integer player_api_id"
+        return None, "cursor must be an integer player_api_id"
     return cursor, None
 
 
@@ -448,13 +443,20 @@ def _positive_int_arg(name: str) -> int | None:
     return value
 
 
+def _nonzero_int_arg(name: str) -> int | None:
+    value = request.args.get(name, type=int)
+    if not isinstance(value, int) or value == 0:
+        return None
+    return value
+
+
 @season_rollup_bp.route("/admin/season-rollup/rebuild", methods=["POST"])
 @require_api_key
 def admin_rebuild_season_rollup():
     """Rebuild rollups for one player or a bounded player-id page.
 
     Query params:
-    - ``scope=player&player_api_id=<positive int>``
+    - ``scope=player&player_api_id=<non-zero int>``
     - ``scope=season&season=<start-year int>[&batch_size&cursor]``
     - ``scope=stale[&batch_size&cursor]``
     - ``scope=all[&batch_size&cursor]``
@@ -472,9 +474,9 @@ def admin_rebuild_season_rollup():
         return jsonify({"error": "scope must be one of: player, season, stale, all"}), 400
 
     if scope == "player":
-        player_api_id = _positive_int_arg("player_api_id")
+        player_api_id = _nonzero_int_arg("player_api_id")
         if player_api_id is None:
-            return jsonify({"error": "player_api_id must be a positive integer"}), 400
+            return jsonify({"error": "player_api_id must be a non-zero integer"}), 400
         try:
             season_rollup_service.refresh_player(player_api_id, season=None, session=db.session)
             db.session.commit()
