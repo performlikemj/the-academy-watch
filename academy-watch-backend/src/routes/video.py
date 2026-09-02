@@ -39,6 +39,7 @@ from src.models.video import (
 )
 from src.routes.api import require_api_key
 from src.services import video_boxes, video_dev_artifacts, video_queue, video_reels, video_retention, video_storage
+from src.services.capture_meta import merge_preflight
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.video_feedback import build_feedback_labels
 from src.services.video_identity import NUMBER_AGREEMENT_MIN, split_chain
@@ -88,6 +89,13 @@ def create_video_match():
         except ValueError:
             return _bad_request("match_date must be YYYY-MM-DD")
 
+    try:
+        capture_meta = data.get("capture_meta")
+        capture_meta = merge_preflight(capture_meta, capture_meta or {})
+        capture_meta = merge_preflight(capture_meta, data)
+    except ValueError as exc:
+        return _bad_request(str(exc))
+
     match = VideoMatch(
         team_id=team_id,
         opponent_name=data.get("opponent_name"),
@@ -95,7 +103,7 @@ def create_video_match():
         competition=data.get("competition"),
         our_kit_color=data.get("our_kit_color"),
         opponent_kit_color=data.get("opponent_kit_color"),
-        capture_meta=data.get("capture_meta"),
+        capture_meta=capture_meta,
         status="created",
     )
     db.session.add(match)
@@ -178,9 +186,6 @@ def update_video_match(match_id: int):
     if match is None:
         return jsonify({"error": "match not found"}), 404
     data = request.get_json() or {}
-    attack_direction = data.get("attack_direction_first_half")
-    if "attack_direction_first_half" in data and attack_direction not in ("left", "right"):
-        return _bad_request("attack_direction_first_half must be left or right")
     for field in ("opponent_name", "competition", "our_kit_color", "opponent_kit_color"):
         if field in data:
             setattr(match, field, data[field])
@@ -195,12 +200,15 @@ def update_video_match(match_id: int):
         if data["our_team_cluster"] not in (0, 1, None):
             return _bad_request("our_team_cluster must be 0, 1 or null")
         match.our_team_cluster = data["our_team_cluster"]
-    if "capture_meta" in data:
-        match.capture_meta = data["capture_meta"]
-    if "attack_direction_first_half" in data:
-        capture_meta = dict(match.capture_meta) if isinstance(match.capture_meta, dict) else {}
-        capture_meta["attack_direction_first_half"] = attack_direction
-        match.capture_meta = capture_meta
+    try:
+        if "capture_meta" in data:
+            incoming_meta = data["capture_meta"]
+            if incoming_meta is not None and not isinstance(incoming_meta, dict):
+                raise ValueError("capture_meta must be an object or null")
+            match.capture_meta = merge_preflight(match.capture_meta, incoming_meta or {})
+        match.capture_meta = merge_preflight(match.capture_meta, data)
+    except ValueError as exc:
+        return _bad_request(str(exc))
     db.session.commit()
     if data.get("our_team_cluster") in (0, 1) and match.status in ("needs_tagging", "finalized"):
         from src.services.video_identity import auto_bind

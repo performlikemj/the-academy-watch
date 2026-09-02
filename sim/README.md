@@ -45,7 +45,9 @@ No basecamp-specific paths are needed when its Python is at the default location
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SIM_BASE_URL` | `http://localhost:5173` | App origin under test. |
+| `SIM_BACKEND_PORT` | `5001` | Flask port used by self-boot; the Vite proxy is pointed at it. |
 | `SIM_EXTERNAL` | unset / `0` | Set to `1` to use existing servers and skip boot/teardown. |
+| `SIM_SEED_FIXTURE` | `1` | Seed the dedicated synthetic `-sim-fixture` club program before the run. |
 | `SIM_PYTHON` | `/Users/michaeljones/Projects/loanarmy/.loan/bin/python` | Python with the backend and `itsdangerous` installed. |
 | `SIM_ADMIN_EMAIL` | `mj@bywayofmj.com` | Email embedded in the in-memory admin bearer. |
 | `SIM_SECRET_KEY` | unset | Explicit `SECRET_KEY` override; otherwise the backend `.env` value is used. |

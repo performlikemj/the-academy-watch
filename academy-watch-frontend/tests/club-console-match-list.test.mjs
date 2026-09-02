@@ -32,3 +32,14 @@ test('the roster editor only renders a match fetched in full (list rows carry no
   const detail = panel.indexOf('<MatchDetail')
   assert.ok(guard !== -1 && detail !== -1 && guard < detail, 'MatchDetail renders only behind the hydration guard')
 })
+
+test('club match create and detail forms expose the three camera preflight selects', async () => {
+  const src = await fs.readFile(consoleFile, 'utf8')
+  for (const field of ['camera_view', 'camera_motion', 'pitch_lines_visible']) {
+    assert.ok(src.includes(`'${field}'`), `${field} must be part of MATCH_FORM_FIELDS`)
+    assert.ok(src.split(`field="${field}"`).length - 1 >= 2, `${field} must render in create and detail forms`)
+  }
+  for (const label of ['Camera view', 'Camera motion', 'Pitch lines visible']) {
+    assert.ok(src.split(`label="${label}"`).length - 1 >= 2, `${label} must be rendered as plain copy in both forms`)
+  }
+})

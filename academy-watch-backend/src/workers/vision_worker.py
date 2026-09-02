@@ -33,7 +33,6 @@ the stale-reaper recover from evictions, and a re-delivered queue message
 no-ops against an already-claimed job.
 """
 
-import hashlib
 import json
 import logging
 import os
@@ -261,21 +260,12 @@ def _analysis_context(
 
 
 def _brief_payload(body, *, max_lines: int) -> tuple[dict | None, int]:
+    from src.services.coach_brief import brief_payload
+
     if not isinstance(body, str):
         return None, 0
     lines = [line.strip() for line in body.splitlines() if line.strip()]
-    if not lines:
-        return None, 0
-    if len(lines) > max_lines:
-        return None, len(lines)
-    normalized_body = "\n".join(lines)
-    return (
-        {
-            "lines": lines,
-            "hash": hashlib.sha256(normalized_body.encode("utf-8")).hexdigest(),
-        },
-        len(lines),
-    )
+    return brief_payload(body, max_lines=max_lines), len(lines)
 
 
 def _brief_context(match, roster_entries, roster_members) -> dict | None:

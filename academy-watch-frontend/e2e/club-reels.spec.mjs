@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
 
+const SYNTHETIC_BRIEF = 'Maintain wide support before receiving\nRecover inside after possession changes.'
+const SYNTHETIC_BRIEF_HASH = '93c166d205e6ea0b4e1984af522912598458a6329bf60be454b0d5c93d4cb53a'
+
 const programClaim = {
   id: 301,
   status: 'approved',
@@ -27,9 +30,16 @@ const roster = {
     is_minor: false,
     role: null,
     note: null,
+    brief: {
+      body: SYNTHETIC_BRIEF,
+      updated_at: '2026-09-03T09:15:00Z',
+      hash: SYNTHETIC_BRIEF_HASH,
+      lines: SYNTHETIC_BRIEF.split('\n'),
+    },
     created_at: '2026-08-20T10:00:00Z',
   }],
   count: 1,
+  system_brief: { body: 'Synthetic compact possession structure.', updated_at: '2026-09-03T09:10:00Z', hash: 'system-hash' },
 }
 
 const qwenAnalysis = {
@@ -44,6 +54,18 @@ const qwenAnalysis = {
       { t: 31.5, box: [210, 100, 340, 440], iou: 0.66 },
     ],
     read_model: 'qwen3-vl:8b',
+    brief_checks: [{
+      expectation_index: 1,
+      brief_hash: SYNTHETIC_BRIEF_HASH,
+      verdict: 'evidence_found',
+      t: 21.25,
+      box: [180, 90, 310, 430],
+      iou: 0.72,
+    }, {
+      expectation_index: 2,
+      brief_hash: SYNTHETIC_BRIEF_HASH,
+      verdict: 'no_evidence',
+    }],
   }],
   window_captions: [{
     roster_entry_id: 61,
@@ -74,6 +96,7 @@ const qwenAnalysis = {
     evidence_iou: null,
     caption_model: 'qwen3-vl:8b',
   }],
+  honest_limits: ['Sampled frames cannot establish what happened between samples.'],
 }
 
 function matchPayload(id = 41) {
@@ -264,6 +287,12 @@ test('club manager opens a read-only player reel without admin credentials', asy
     verified: 'club-reels-allowed.png',
     withheld: 'club-reels-withheld.png',
   })
+  await expect(page.getByText("Coach's brief", { exact: true })).toBeVisible()
+  await expect(page.getByText('Maintain wide support before receiving')).toBeVisible()
+  await expect(page.getByText('Evidence at 0:21')).toBeVisible()
+  await expect(page.getByText('No evidence in sampled frames')).toBeVisible()
+  await expect(page.getByText("An evidence frame verifies the player's identity and location, not the behaviour itself.")).toBeVisible()
+  await expect(page.getByText('What this read cannot tell you')).toBeVisible()
 
   await page.getByRole('button', { name: 'Hide player reels' }).click()
   await page.getByRole('button', { name: 'View player reels' }).click()
@@ -282,6 +311,9 @@ test('admin reel shows verified notes and honestly withholds ungrounded prose', 
     verified: 'admin-reels-verified.png',
     withheld: 'admin-reels-withheld.png',
   })
+  await expect(page.getByText('Expectation 1 — evidence at 0:21')).toBeVisible()
+  await expect(page.getByText('Expectation 2 — no evidence in sampled frames')).toBeVisible()
+  await expect(page.locator('body')).not.toContainText(SYNTHETIC_BRIEF)
 })
 
 test('foreign reel denial renders the same neutral unavailable state', async ({ page }) => {

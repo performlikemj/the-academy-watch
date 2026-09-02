@@ -9,6 +9,7 @@ globalThis.localStorage = {
 }
 
 const { APIService, nextWindowIndex } = await import('../src/lib/api.js')
+const { formatSeconds } = await import('../src/lib/video-utils.js')
 
 const playerReelSource = readFileSync(new URL('../src/components/video/PlayerReel.jsx', import.meta.url), 'utf8')
 
@@ -35,16 +36,18 @@ const identityHelpers = new Function(`
   return { formatVoteSummary, mismatchBadge }
 `)()
 
-const reelHelpers = new Function(`
+const reelHelpers = new Function('formatSeconds', `
   ${extractFunction('orderReelWindows')}
   ${extractFunction('matchCaptionToWindow')}
   ${extractFunction('captionPresentation')}
   ${extractFunction('playerReadEvidence')}
-  return { orderReelWindows, matchCaptionToWindow, captionPresentation, playerReadEvidence }
-`)()
+  ${extractFunction('formatBriefEvidenceTime')}
+  ${extractFunction('briefChecksPresentation')}
+  return { orderReelWindows, matchCaptionToWindow, captionPresentation, playerReadEvidence, formatBriefEvidenceTime, briefChecksPresentation }
+`)(formatSeconds)
 
 const { formatVoteSummary, mismatchBadge } = identityHelpers
-const { orderReelWindows, matchCaptionToWindow, captionPresentation, playerReadEvidence } = reelHelpers
+const { orderReelWindows, matchCaptionToWindow, captionPresentation, playerReadEvidence, formatBriefEvidenceTime, briefChecksPresentation } = reelHelpers
 
 test('getVideoReel calls the admin reel endpoint', async () => {
   const originalRequest = APIService.request
@@ -76,11 +79,15 @@ test('club reel and evidence requests never opt into admin headers', async () =>
     await APIService.clubVideoMediaToken(7, 42)
     await APIService.getClubVideoTrackletCrops(42, 9, 'club-token')
     await APIService.getClubVideoTrackletBbox(42, 9, 'club-token')
+    await APIService.setRosterMemberBrief(7, 51, 'Hold width')
+    await APIService.setClubSystemBrief(7, 'Press together')
     assert.deepEqual(calls, [
       ['/club/7/matches/42/reel'],
       ['/club/7/matches/42/media-token'],
       ['/admin/video/matches/42/tracklets/9/crops?token=club-token'],
       ['/admin/video/matches/42/tracklets/9/bbox-track?token=club-token'],
+      ['/club/7/roster/51/brief', { method: 'PUT', body: JSON.stringify({ body: 'Hold width' }) }],
+      ['/club/7/system-brief', { method: 'PUT', body: JSON.stringify({ body: 'Press together' }) }],
     ])
   } finally {
     APIService.request = originalRequest
@@ -208,6 +215,77 @@ test('playerReadEvidence counts index-aligned evidence and leaves legacy notes u
     evidence: [{ t: 20, box: [1, 2, 3, 4], iou: 0.8 }, null, { t: 28, box: [5, 6, 7, 8], iou: 0.6 }],
   }), { verified: 2, total: 3 })
   assert.equal(playerReadEvidence({ observations: ['Legacy read'] }), null)
+})
+
+test('formatBriefEvidenceTime renders evidence timestamps as mm:ss', () => {
+  assert.equal(formatBriefEvidenceTime(2520.2), '42:00')
+  assert.equal(formatBriefEvidenceTime(65.6), '1:06')
+  assert.equal(formatBriefEvidenceTime(-1), null)
+  assert.equal(formatBriefEvidenceTime(null), null)
+})
+
+test('briefChecksPresentation joins current club lines only when the server hash matches', () => {
+  const note = {
+    jersey_number: 8,
+    brief_checks: [
+      { expectation_index: 1, brief_hash: 'matching-hash', verdict: 'evidence_found', t: 2520 },
+      { expectation_index: 2, brief_hash: 'matching-hash', verdict: 'no_evidence' },
+    ],
+  }
+  const matchRoster = [
+    { jersey_number: 8, club_roster_member_id: null },
+    { jersey_number: 8, club_roster_member_id: 51 },
+  ]
+  const clubRoster = [{
+    id: 51,
+    brief: { body: 'Hold width\nRecover inside', hash: 'matching-hash', lines: ['Hold width', 'Recover inside'] },
+  }]
+
+  assert.deepEqual(briefChecksPresentation(note, matchRoster, clubRoster), {
+    changed: false,
+    items: [
+      { expectationIndex: 1, expectation: 'Hold width', verdict: 'evidence_found', time: '42:00' },
+      { expectationIndex: 2, expectation: 'Recover inside', verdict: 'no_evidence', time: null },
+    ],
+  })
+  assert.deepEqual(briefChecksPresentation(note, matchRoster, [{
+    id: 51,
+    brief: { body: 'New brief', hash: 'new-hash', lines: ['New brief'] },
+  }]), {
+    changed: true,
+    items: [],
+  })
+})
+
+test('briefChecksPresentation keeps admin output text-blind', () => {
+  assert.deepEqual(briefChecksPresentation({
+    brief_checks: [{ expectation_index: 3, brief_hash: 'private-hash', verdict: 'evidence_found', t: 2520 }],
+  }), {
+    changed: false,
+    items: [{ expectationIndex: 3, label: 'Expectation 3 — evidence at 42:00', verdict: 'evidence_found' }],
+  })
+})
+
+test('evidence_found without a finite timestamp never renders the opposite verdict', () => {
+  const note = {
+    jersey_number: 8,
+    brief_checks: [{ expectation_index: 1, brief_hash: 'matching-hash', verdict: 'evidence_found' }],
+  }
+  const matchRoster = [{ jersey_number: 8, club_roster_member_id: 51 }]
+  const clubRoster = [{ id: 51, brief: { body: 'Hold width', hash: 'matching-hash', lines: ['Hold width'] } }]
+
+  assert.deepEqual(briefChecksPresentation(note, matchRoster, clubRoster), {
+    changed: false,
+    items: [{ expectationIndex: 1, expectation: 'Hold width', verdict: 'evidence_found', time: null }],
+  })
+  assert.deepEqual(briefChecksPresentation(note), {
+    changed: false,
+    items: [{
+      expectationIndex: 1,
+      label: 'Expectation 1 — evidence (time unavailable)',
+      verdict: 'evidence_found',
+    }],
+  })
 })
 
 test('formatVoteSummary orders model reads by strength and includes honest suggestions', () => {

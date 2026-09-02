@@ -61,6 +61,7 @@ const MAX_MATCH_MINUTES = 130
 const MAX_MATCH_COUNT = 20
 const MAX_RESULT_TEXT_LENGTH = 120
 const MAX_RESULT_NOTE_LENGTH = 500
+const MAX_BRIEF_CHARS = 2000
 const EDITABLE_MATCH_STATUSES = new Set(['created', 'uploaded'])
 const MATCH_STATUS = {
   created: { label: 'Awaiting upload', className: 'border-sky-200 bg-sky-50 text-sky-800' },
@@ -79,6 +80,9 @@ const EMPTY_MATCH_FORM = {
   our_kit_color: '',
   opponent_kit_color: '',
   match_date: '',
+  camera_view: '',
+  camera_motion: '',
+  pitch_lines_visible: '',
 }
 const EMPTY_RESULT_FORM = {
   match_date: '',
@@ -98,7 +102,16 @@ const MATCH_FORM_FIELDS = [
   'halftime_s',
   'second_half_kickoff_s',
   'duration_s',
+  'camera_view',
+  'camera_motion',
+  'pitch_lines_visible',
 ]
+const PREFLIGHT_FIELDS = ['camera_view', 'camera_motion', 'pitch_lines_visible']
+const PREFLIGHT_OPTIONS = {
+  camera_view: [['panoramic', 'Panoramic'], ['wide_fixed', 'Wide fixed'], ['broadcast', 'Broadcast']],
+  camera_motion: [['fixed', 'Fixed'], ['panning', 'Panning'], ['handheld', 'Handheld']],
+  pitch_lines_visible: [['all', 'All'], ['partial', 'Partial'], ['none', 'None']],
+}
 const TIMELINE_FIELDS = ['kickoff_s', 'halftime_s', 'second_half_kickoff_s', 'duration_s']
 const REEL_MATCH_STATUSES = new Set(['needs_tagging', 'finalized'])
 const CLUB_REEL_MEDIA_SOURCE = {
@@ -118,6 +131,19 @@ function formatTimestampDate(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function formatUpdatedTime(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 function formatBytes(value) {
@@ -151,6 +177,9 @@ function matchFormValues(match) {
     halftime_s: match.halftime_s ?? '',
     second_half_kickoff_s: match.second_half_kickoff_s ?? '',
     duration_s: match.duration_s ?? '',
+    camera_view: match.capture_meta?.camera_view || '',
+    camera_motion: match.capture_meta?.camera_motion || '',
+    pitch_lines_visible: match.capture_meta?.pitch_lines_visible || '',
   }
 }
 
@@ -292,6 +321,24 @@ function EmptyState({ icon: Icon, title, children }) {
       </span>
       <p className="font-semibold text-foreground">{title}</p>
       <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">{children}</p>
+    </div>
+  )
+}
+
+function PreflightSelect({ id, field, label, value, onChange, disabled = false }) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger id={id} aria-label={label}>
+          <SelectValue placeholder="Select" />
+        </SelectTrigger>
+        <SelectContent>
+          {PREFLIGHT_OPTIONS[field].map(([optionValue, optionLabel]) => (
+            <SelectItem key={optionValue} value={optionValue}>{optionLabel}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }
@@ -499,7 +546,63 @@ function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, onAcces
   )
 }
 
-function RosterPanel({ programId, members, loading, error, onMembersChange, onReload, onAccessDenied }) {
+function BriefEditor({ id, title, description, brief, onSave, onAccessDenied }) {
+  const [body, setBody] = useState(brief?.body || '')
+  const [busy, setBusy] = useState(false)
+  const [fieldError, setFieldError] = useState(null)
+  const updated = formatUpdatedTime(brief?.updated_at)
+
+  const submit = async (nextBody) => {
+    if (busy) return
+    setBusy(true)
+    setFieldError(null)
+    try {
+      const saved = await onSave(nextBody)
+      setBody(saved?.body || '')
+    } catch (requestError) {
+      if (requestError?.status === 403) {
+        onAccessDenied()
+        return
+      }
+      setFieldError(errorText(requestError, 'Could not save this brief.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <Label htmlFor={id} className="font-semibold">{title}</Label>
+        {updated ? <span className="text-xs text-muted-foreground">updated {updated}</span> : null}
+      </div>
+      <Textarea
+        id={id}
+        value={body}
+        onChange={(event) => { setBody(event.target.value); setFieldError(null) }}
+        maxLength={MAX_BRIEF_CHARS}
+        rows={4}
+        aria-invalid={Boolean(fieldError)}
+      />
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
+        <span className="text-xs tabular-nums text-muted-foreground">{body.length}/{MAX_BRIEF_CHARS}</span>
+      </div>
+      <InlineError>{fieldError}</InlineError>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" onClick={() => submit(body)} disabled={busy}>
+          {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
+          {busy ? 'Saving…' : 'Save'}
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => submit('')} disabled={busy || !body}>
+          Clear
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function RosterPanel({ programId, members, systemBrief, loading, error, onMembersChange, onSystemBriefChange, onReload, onAccessDenied }) {
   const [addOpen, setAddOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState(null)
   const [removing, setRemoving] = useState(false)
@@ -526,6 +629,29 @@ function RosterPanel({ programId, members, loading, error, onMembersChange, onRe
 
   return (
     <div className="space-y-4">
+      <Card className="border-border/80">
+        <CardHeader>
+          <CardTitle className="text-lg">How we play</CardTitle>
+          <CardDescription>Give the analysis the team context behind each player expectation.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <BriefEditor
+            key={`system-${systemBrief?.updated_at || 'empty'}`}
+            id="club-system-brief"
+            title="System brief"
+            description="one expectation per line, up to 8 lines — describe behaviours, not people"
+            brief={systemBrief}
+            onSave={async (body) => {
+              const response = await APIService.setClubSystemBrief(programId, body)
+              const saved = response?.system_brief || { body: null, updated_at: null, hash: null }
+              onSystemBriefChange(saved)
+              return saved
+            }}
+            onAccessDenied={onAccessDenied}
+          />
+        </CardContent>
+      </Card>
+
       <Card className="overflow-hidden border-border/80">
         <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border/60 bg-card">
           <div>
@@ -547,21 +673,37 @@ function RosterPanel({ programId, members, loading, error, onMembersChange, onRe
           ) : (
             <div className="divide-y divide-border/70">
               {members.map((member) => (
-                <div key={member.id} className="flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-muted/35 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate font-semibold text-foreground">{member.available ? member.display_name : 'Unavailable roster member'}</p>
-                      {member.is_minor ? <Badge className="border-amber-200 bg-amber-50 text-amber-900"><LockKeyhole className="mr-1 h-3 w-3" /> Minor — private</Badge> : null}
-                      {!member.available ? <Badge variant="outline">Unavailable</Badge> : null}
+                <div key={member.id} className="space-y-4 px-5 py-5 transition-colors hover:bg-muted/35">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate font-semibold text-foreground">{member.available ? member.display_name : 'Unavailable roster member'}</p>
+                        {member.is_minor ? <Badge className="border-amber-200 bg-amber-50 text-amber-900"><LockKeyhole className="mr-1 h-3 w-3" /> Minor — private</Badge> : null}
+                        {!member.available ? <Badge variant="outline">Unavailable</Badge> : null}
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {[member.position, member.role, member.subject_type === 'local' ? `Local player #${member.local_player_id}` : null].filter(Boolean).join(' · ') || 'Squad member'}
+                      </p>
+                      {member.note ? <p className="mt-1 max-w-2xl text-xs text-muted-foreground">{member.note}</p> : null}
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {[member.position, member.role, member.subject_type === 'local' ? `Local player #${member.local_player_id}` : null].filter(Boolean).join(' · ') || 'Squad member'}
-                    </p>
-                    {member.note ? <p className="mt-1 max-w-2xl text-xs text-muted-foreground">{member.note}</p> : null}
+                    <Button variant="ghost" size="sm" className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => { setRemoveTarget(member); setRemoveError(null) }}>
+                      <Trash2 className="mr-1.5 h-4 w-4" /> Remove
+                    </Button>
                   </div>
-                  <Button variant="ghost" size="sm" className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => { setRemoveTarget(member); setRemoveError(null) }}>
-                    <Trash2 className="mr-1.5 h-4 w-4" /> Remove
-                  </Button>
+                  <BriefEditor
+                    key={`${member.id}-${member.brief?.updated_at || 'empty'}`}
+                    id={`coach-brief-${member.id}`}
+                    title="Coach's brief"
+                    description="one expectation per line, up to 8 lines — describe behaviours, not people"
+                    brief={member.brief}
+                    onSave={async (body) => {
+                      const response = await APIService.setRosterMemberBrief(programId, member.id, body)
+                      const savedMember = response?.member
+                      if (savedMember) onMembersChange((current) => current.map((row) => row.id === savedMember.id ? savedMember : row))
+                      return savedMember?.brief
+                    }}
+                    onAccessDenied={onAccessDenied}
+                  />
                 </div>
               ))}
             </div>
@@ -642,7 +784,7 @@ function CreateMatchDialog({ open, onOpenChange, programId, onCreated, onAccessD
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) close() }}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Create a match workspace</DialogTitle>
           <DialogDescription>Add the match details now, then upload an MP4 and mark its timeline.</DialogDescription>
@@ -653,6 +795,9 @@ function CreateMatchDialog({ open, onOpenChange, programId, onCreated, onAccessD
           <div className="space-y-2"><Label htmlFor="new-match-date">Match date</Label><Input id="new-match-date" type="date" value={form.match_date} onChange={(event) => update('match_date', event.target.value)} /></div>
           <div className="space-y-2"><Label htmlFor="new-match-our-kit">Our kit color</Label><Input id="new-match-our-kit" value={form.our_kit_color} onChange={(event) => update('our_kit_color', event.target.value)} maxLength={50} placeholder="e.g. Red" /></div>
           <div className="space-y-2 sm:col-span-2"><Label htmlFor="new-match-opponent-kit">Opponent kit color</Label><Input id="new-match-opponent-kit" value={form.opponent_kit_color} onChange={(event) => update('opponent_kit_color', event.target.value)} maxLength={50} placeholder="e.g. Navy" /></div>
+          <PreflightSelect id="new-match-camera-view" field="camera_view" label="Camera view" value={form.camera_view} onChange={(value) => update('camera_view', value)} />
+          <PreflightSelect id="new-match-camera-motion" field="camera_motion" label="Camera motion" value={form.camera_motion} onChange={(value) => update('camera_motion', value)} />
+          <PreflightSelect id="new-match-pitch-lines" field="pitch_lines_visible" label="Pitch lines visible" value={form.pitch_lines_visible} onChange={(value) => update('pitch_lines_visible', value)} />
         </div>
         <InlineError>{error}</InlineError>
         <DialogFooter>
@@ -1076,7 +1221,7 @@ function MatchReport({ programId, match, onAccessDenied }) {
   )
 }
 
-function ClubPlayerReels({ programId, match, onAccessDenied }) {
+function ClubPlayerReels({ programId, match, rosterMembers, onAccessDenied }) {
   const [opened, setOpened] = useState(false)
   const [loading, setLoading] = useState(false)
   const [reel, setReel] = useState(null)
@@ -1145,6 +1290,7 @@ function ClubPlayerReels({ programId, match, onAccessDenied }) {
           onMediaError={loadFresh}
           readOnly
           mediaSource={CLUB_REEL_MEDIA_SOURCE}
+          clubRoster={rosterMembers}
         />
       ) : null}
     </section>
@@ -1209,6 +1355,7 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
         our_kit_color: form.our_kit_color.trim() || null,
         opponent_kit_color: form.opponent_kit_color.trim() || null,
         match_date: form.match_date || null,
+        ...Object.fromEntries(PREFLIGHT_FIELDS.filter((field) => form[field]).map((field) => [field, form[field]])),
         ...timelinePayload(form, { dirtyFields: dirtyFieldsRef.current }),
       }
       const updated = await APIService.patchClubMatch(programId, match.id, payload)
@@ -1365,6 +1512,9 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
             <div className="space-y-1.5"><Label htmlFor={`date-${match.id}`}>Match date</Label><Input id={`date-${match.id}`} type="date" value={form.match_date} onChange={(event) => updateForm('match_date', event.target.value)} disabled={!editable} /></div>
             <div className="space-y-1.5"><Label htmlFor={`our-kit-${match.id}`}>Our kit color</Label><Input id={`our-kit-${match.id}`} value={form.our_kit_color} onChange={(event) => updateForm('our_kit_color', event.target.value)} disabled={!editable} maxLength={50} /></div>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor={`their-kit-${match.id}`}>Opponent kit color</Label><Input id={`their-kit-${match.id}`} value={form.opponent_kit_color} onChange={(event) => updateForm('opponent_kit_color', event.target.value)} disabled={!editable} maxLength={50} /></div>
+            <PreflightSelect id={`camera-view-${match.id}`} field="camera_view" label="Camera view" value={form.camera_view} onChange={(value) => updateForm('camera_view', value)} disabled={!editable} />
+            <PreflightSelect id={`camera-motion-${match.id}`} field="camera_motion" label="Camera motion" value={form.camera_motion} onChange={(value) => updateForm('camera_motion', value)} disabled={!editable} />
+            <PreflightSelect id={`pitch-lines-${match.id}`} field="pitch_lines_visible" label="Pitch lines visible" value={form.pitch_lines_visible} onChange={(value) => updateForm('pitch_lines_visible', value)} disabled={!editable} />
           </div>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
@@ -1454,7 +1604,7 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
           <MatchReport programId={programId} match={match} onAccessDenied={onAccessDenied} />
         </section>
 
-        <ClubPlayerReels programId={programId} match={match} onAccessDenied={onAccessDenied} />
+        <ClubPlayerReels programId={programId} match={match} rosterMembers={rosterMembers} onAccessDenied={onAccessDenied} />
       </CardContent>
     </Card>
   )
@@ -1654,6 +1804,7 @@ export function MyClubConsole({
   const programId = program.id
   const contactRail = useContactRail()
   const [members, setMembers] = useState(() => (Array.isArray(initialRoster?.members) ? initialRoster.members : []))
+  const [systemBrief, setSystemBrief] = useState(() => initialRoster?.system_brief || { body: null, updated_at: null, hash: null })
   const [rosterLoading, setRosterLoading] = useState(false)
   const [rosterError, setRosterError] = useState(null)
   const [matches, setMatches] = useState([])
@@ -1673,7 +1824,10 @@ export function MyClubConsole({
     setRosterError(null)
     try {
       const response = await APIService.getClubRoster(programId)
-      if (mountedRef.current) setMembers(Array.isArray(response?.members) ? response.members : [])
+      if (mountedRef.current) {
+        setMembers(Array.isArray(response?.members) ? response.members : [])
+        setSystemBrief(response?.system_brief || { body: null, updated_at: null, hash: null })
+      }
     } catch (requestError) {
       if (requestError?.status === 403) {
         onAccessDenied()
@@ -1775,7 +1929,7 @@ export function MyClubConsole({
             ) : null}
           </TabsList>
           <TabsContent value="roster">
-            <RosterPanel programId={programId} members={members} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onReload={loadRoster} onAccessDenied={onAccessDenied} />
+            <RosterPanel programId={programId} members={members} systemBrief={systemBrief} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onSystemBriefChange={setSystemBrief} onReload={loadRoster} onAccessDenied={onAccessDenied} />
           </TabsContent>
           <TabsContent value="matches">
             <MatchesPanel programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
