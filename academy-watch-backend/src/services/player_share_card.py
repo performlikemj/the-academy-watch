@@ -60,6 +60,15 @@ def public_api_origin() -> str:
     return request.url_root.rstrip("/")
 
 
+def public_share_origin() -> str:
+    """Return the configured public share origin, falling back to the API origin."""
+
+    configured = os.getenv("PUBLIC_SHARE_BASE_URL")
+    if configured is not None and (normalized := configured.strip().rstrip("/")):
+        return normalized
+    return public_api_origin()
+
+
 def _public_origin() -> str:
     return (os.getenv("PUBLIC_BASE_URL") or _DEFAULT_PUBLIC_BASE_URL).rstrip("/")
 
@@ -95,7 +104,7 @@ def build_share_meta(subject: PlayerSubject) -> dict:
     else:
         canonical_path = f"/players/{subject.signed_id}"
 
-    share_url = f"{public_api_origin()}/p/{subject.signed_id}"
+    share_url = f"{public_share_origin()}/p/{subject.signed_id}"
     return {
         "title": f"{name} · The Academy Watch",
         "description": description,
@@ -212,5 +221,6 @@ __all__ = [
     "build_share_meta",
     "get_share_card_font_path",
     "public_api_origin",
+    "public_share_origin",
     "render_share_card",
 ]

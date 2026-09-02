@@ -121,6 +121,7 @@ def _post_follow(client, player_api_id: int, headers: dict[str, str]):
 
 
 def test_any_active_account_can_follow_tracked_adult_without_scout_verification(client, app, monkeypatch):
+    monkeypatch.delenv("PUBLIC_SHARE_BASE_URL", raising=False)
     monkeypatch.delenv("PUBLIC_API_BASE_URL", raising=False)
     player_id = 71_001
     _tracked(player_id, birth_date=_years_ago(22))
@@ -310,13 +311,34 @@ def test_share_url_uses_configured_api_origin_not_request_host(client, app, monk
     _tracked(player_id, birth_date=_years_ago(19))
     db.session.commit()
     monkeypatch.setenv("PUBLIC_API_BASE_URL", "https://api.theacademywatch.com/")
+    monkeypatch.delenv("PUBLIC_SHARE_BASE_URL", raising=False)
 
     response = client.get(
         f"/api/players/{player_id}/followers/count",
-        headers={"Host": "attacker.invalid"},
+        headers={"Host": "attacker.invalid", "X-Forwarded-Host": "forged.invalid"},
     )
     assert response.status_code == 200
     assert response.get_json()["share_url"] == f"https://api.theacademywatch.com/p/{player_id}"
+
+
+def test_followers_share_url_prefers_public_share_base_url_over_api_origin_mutation_guard(
+    client,
+    app,
+    monkeypatch,
+):
+    player_id = 71_602
+    _tracked(player_id, birth_date=_years_ago(19))
+    db.session.commit()
+    monkeypatch.setenv("PUBLIC_API_BASE_URL", "https://api.theacademywatch.com/")
+    monkeypatch.setenv("PUBLIC_SHARE_BASE_URL", "https://theacademywatch.com")
+
+    response = client.get(
+        f"/api/players/{player_id}/followers/count",
+        headers={"Host": "attacker.invalid", "X-Forwarded-Host": "forged.invalid"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["share_url"] == f"https://theacademywatch.com/p/{player_id}"
 
 
 def test_delete_is_idempotent_and_cleans_up_newly_suppressed_subject(client, app):
