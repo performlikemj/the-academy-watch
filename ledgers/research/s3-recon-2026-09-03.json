@@ -1,0 +1,1033 @@
+{
+ "head": "b220ea122a401c2739cb66364084d6798c70c63c",
+ "inventory": {
+  "A": [
+   "The Python Stripe SDK is pinned in academy-watch-backend/requirements.txt:80. The frontend declares @stripe/stripe-js but no source file imports it, so it is currently an unused dependency (academy-watch-frontend/package.json:45).",
+   "There are exactly two backend Stripe SDK imports. stripe_config.py assigns stripe.api_key, retrieves an account for validation, and catches AuthenticationError (academy-watch-backend/src/config/stripe_config.py:5-8,19-22,47-69). stripe_connect.py assigns stripe.api_key and calls Account.create, AccountLink.create, and Account.retrieve (academy-watch-backend/src/services/stripe_connect.py:11-15,49-108).",
+   "No Checkout Session, Billing Portal, Customer, Subscription, PaymentIntent, Charge, Refund, Transfer, or Webhook.construct_event implementation exists on main. The current Connect service explicitly excludes payments, Checkout, transfers, and live-mode operation (academy-watch-backend/src/services/stripe_connect.py:1-6), and main registers no Stripe or billing blueprint (academy-watch-backend/src/main.py:32-61,118-149).",
+   "stripe_config.py reads STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_PLATFORM_FEE_PERCENT and exposes getters, a fee calculator, and credential validation (academy-watch-backend/src/config/stripe_config.py:11-16,25-69). No live route or service calls those helpers.",
+   "env.template declares STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_PLATFORM_FEE_PERCENT (academy-watch-backend/env.template:15-22). The deployment workflow declares no Stripe environment name; its workflow environment block and backend deployment command contain only unrelated configuration/image settings (academy-watch-backend/.github/workflows/deploy.yml:45-65,203-217).",
+   "The Connect scaffold additionally reads STRIPE_CONNECT_TEST_MODE, STRIPE_CONNECT_REFRESH_URL, STRIPE_CONNECT_RETURN_URL, and PUBLIC_BASE_URL; these are absent from env.template and deploy.yml (academy-watch-backend/src/services/stripe_connect.py:26-43; academy-watch-backend/env.template:15-22; academy-watch-backend/.github/workflows/deploy.yml:45-65).",
+   "Four legacy Stripe ORM models are explicitly deprecated and retained only for data preservation: StripeConnectedAccount, StripeSubscriptionPlan, StripeSubscription, and StripePlatformRevenue (academy-watch-backend/src/models/league.py:999-1142).",
+   "The legacy migration creates stripe_connected_accounts, stripe_subscription_plans, stripe_subscriptions, and stripe_platform_revenue without RLS statements in that migration (academy-watch-backend/migrations/versions/s1t2r3i4p5e6_add_stripe_models.py:19-99). Its branch was later merged by 9ed6b55674a4_merge_stripe_and_commentary_heads.py (academy-watch-backend/migrations/versions/9ed6b55674a4_merge_stripe_and_commentary_heads.py:1-13). Actual production rows and RLS state were not verified.",
+   "stripe_connected_accounts is a legacy journalist one-to-one account/readiness record. No current Stripe route reads or writes it; account deletion is its only active service reference (academy-watch-backend/src/models/league.py:1006-1037; academy-watch-backend/src/services/account.py:28-30,830-845).",
+   "stripe_subscription_plans stores legacy journalist product/price IDs and amount metadata. No live route references it; account deletion removes its rows (academy-watch-backend/src/models/league.py:1040-1072; academy-watch-backend/src/services/account.py:840-842).",
+   "stripe_subscriptions stores legacy subscriber-to-journalist Stripe customer/subscription state. Its only reachable product route is the authenticated, read-only GET /api/user/all-subscriptions; no route creates, updates, cancels, or reconciles subscriptions (academy-watch-backend/src/models/league.py:1075-1115; academy-watch-backend/src/routes/api.py:674-747). Account deletion removes rows locally (academy-watch-backend/src/services/account.py:834-839).",
+   "stripe_platform_revenue has no source reference outside its ORM declaration and is therefore ORM-only/dead in the current application (academy-watch-backend/src/models/league.py:1118-1142).",
+   "user_subscriptions is not a paid-subscription table. It stores free newsletter email, team, frequency, unsubscribe, and bounce state and is exercised by live /subscriptions routes (academy-watch-backend/src/models/league.py:313-342; academy-watch-backend/src/routes/api.py:1071-1089,2166-2395,2416-2522,2580-2690,2807-2821,10301-10324).",
+   "journalist_subscriptions is also not billing: it is a free boolean follow relationship. Its live routes create/delete follows, use the relationship to reveal premium article content, and list current follows (academy-watch-backend/src/models/league.py:851-873; academy-watch-backend/src/routes/journalist.py:316-407,1371-1398).",
+   "The current journalist profile and journalist-list UIs expose free Follow/Following controls rather than Stripe checkout (academy-watch-frontend/src/pages/JournalistProfile.jsx:51-79; academy-watch-frontend/src/components/JournalistList.jsx:61-89). The account UI only reads legacy subscription rows and provides no billing action (academy-watch-frontend/src/App.jsx:3489-3555; academy-watch-backend/src/routes/api.py:702-747).",
+   "ClubConnectAccount is the current funding-side Connect record. It stores a ClubProgram association, Stripe account ID, account state, capability flags, requirements, and livemode; is_ready_for_test_funding requires non-live mode, transfers/details/payouts enabled, and no outstanding requirements (academy-watch-backend/src/models/funding.py:382-423).",
+   "gf01 creates the funding and ClubConnectAccount schema and enables RLS on all of its new tables (academy-watch-backend/migrations/versions/gf01_grassroots_identity.py:32-41,279-313,339-342).",
+   "The current Connect service is deliberately test-only: it requires an sk_test key, creates an Express US company account requesting only transfers, rejects live accounts, and creates onboarding links (academy-watch-backend/src/services/stripe_connect.py:26-37,49-108).",
+   "The live funding routes can create this test account while an administrator approves a claim and can later synchronize account status; both operations require the dual admin gate (academy-watch-backend/src/routes/funding.py:819-904,1021-1064). AdminFunding exposes those actions through the current frontend (academy-watch-frontend/src/pages/admin/AdminFunding.jsx:380-400,508-515; academy-watch-frontend/src/lib/api.js:1927-1932).",
+   "Funding routes are live because the funding blueprint is imported and registered in main (academy-watch-backend/src/main.py:45,126). This does not make payment movement live; the associated service remains a test-only onboarding/readiness scaffold (academy-watch-backend/src/services/stripe_connect.py:1-6,26-37).",
+   "The old Stripe documentation is stale. It describes removed writer onboarding, pricing, subscriber Checkout/customer/cancel/reactivate routes, webhook handlers, and revenue UI (academy-watch-backend/STRIPE_IMPLEMENTATION_SUMMARY.md:23-115,319-333; academy-watch-backend/STRIPE_QUICK_START.md:128-153). The refactor directive ordered those Stripe routes and frontend surfaces removed (ledgers/ACADEMY_WATCH_AGENT_DIRECTIVE.md:88-151).",
+   "The frontend E2E Stripe helper contains direct Checkout/customer/subscription utilities, but no current test calls it; it is an orphaned helper rather than application functionality (academy-watch-frontend/e2e/helpers/stripe.js:29-106; academy-watch-frontend/e2e/helpers/db.js:82-109).",
+   "VideoCreditLedger is money-adjacent and has a nullable unique stripe_session_id, but every live constructor leaves it unset; it currently records only service credits administered inside the app (academy-watch-backend/src/models/video.py:371-405; academy-watch-backend/src/routes/video.py:337-344,740-747,770-778).",
+   "Sponsor monetization is link-out only. Sponsor rows contain image, URL, description, active/order, and click-count fields but no contract, invoice, price, or payment state; public list/click and admin CRUD/reorder routes are live (academy-watch-backend/src/models/sponsor.py:6-42; academy-watch-backend/src/routes/api.py:10327-10501; academy-watch-frontend/src/components/SponsorSidebar.jsx:53-73,127-147).",
+   "The newsletter deadline UI says contributors will be charged, but the service only publishes, records contributors, and returns counts; no billing or usage ledger is written (academy-watch-frontend/src/pages/admin/AdminNewsletters.jsx:597,761,844,1601-1608; academy-watch-backend/src/services/newsletter_deadline_service.py:334-447; academy-watch-backend/src/routes/newsletter_deadline.py:17-31).",
+   "The scorecard independently records that there is no money path, Stripe Checkout, or webhook handler today (ledgers/GRADING_dream-scorecard-2026-09-02.md:106)."
+  ],
+  "B": [
+   "UserAccount.scout_tier is an unconstrained String(20) with Python and server defaults of free; the database does not enforce an enum (academy-watch-backend/src/models/league.py:493-530; academy-watch-backend/migrations/versions/aw15_add_scout_watchlist.py:43-50).",
+   "New-account creation omits scout_tier and relies on the free default (academy-watch-backend/src/auth.py:627-657). The only explicit current writer resets the field to free during account deletion/tombstoning (academy-watch-backend/src/services/account.py:640-654). No code promotes a user to pro.",
+   "The only runtime readers are the watchlist response and account-data export (academy-watch-backend/src/routes/scout.py:1630-1658; academy-watch-backend/src/services/account.py:264-269). UserAccount.to_dict and /auth/me omit scout_tier, so the normal authenticated user payload carries no entitlement (academy-watch-backend/src/models/league.py:584-610; academy-watch-backend/src/routes/auth_routes.py:408-435).",
+   "No paid-entitlement helper or comparison against scout_tier exists. is_verified_scout is a separate identity/trust attribute and must not be treated as a paid entitlement (academy-watch-backend/src/models/league.py:577-582; academy-watch-backend/src/services/trust.py:14-30).",
+   "Watchlist and notes require authentication but not Pro; the watchlist cap is 200 (academy-watch-backend/src/routes/scout.py:1630-1718,1769-1798).",
+   "CSV export requires authentication but not Pro and allows up to 1,000 rows or 200 requested IDs (academy-watch-backend/src/routes/scout.py:1858-1906).",
+   "Digest settings require authentication but not Pro; actual delivery filters on email, opt-in, and digest content rather than scout_tier (academy-watch-backend/src/routes/scout.py:1836-1851; academy-watch-backend/src/services/scout_digest_service.py:513-543).",
+   "Custom lists require authentication but not Pro and are limited to 10 lists and 50 follows (academy-watch-backend/src/routes/scout.py:71-75,2203-2268,2347-2374). Discovery, leaderboard, and four-player comparison are public (academy-watch-backend/src/routes/scout.py:936-946,1057-1064,1295-1310).",
+   "PricingPage offers The Stand as free forever and describes its included features (academy-watch-frontend/src/pages/PricingPage.jsx:7-21). It presents Scout Pro as free during beta with pricing to be announced, listing watchlists, notes, digest, CSV, and early access (academy-watch-frontend/src/pages/PricingPage.jsx:23-37,178-187).",
+   "The Scout Pro CTA does not create a checkout: signed-in users are sent to the watchlist and signed-out users are sent to sign-in (academy-watch-frontend/src/pages/PricingPage.jsx:69-91). Film Room is marked later/in development rather than purchasable (academy-watch-frontend/src/pages/PricingPage.jsx:39-52,93-97,190-196).",
+   "Pricing uses UI IDs stand, pro, and film, while persisted scout_tier only establishes free and has no documented mapping or validation for those UI IDs (academy-watch-frontend/src/pages/PricingPage.jsx:7-45; academy-watch-backend/src/models/league.py:528-530).",
+   "ListsPage and WatchlistPage display Pro/free-beta messaging but do not inspect scout_tier (academy-watch-frontend/src/pages/ListsPage.jsx:707-720; academy-watch-frontend/src/pages/WatchlistPage.jsx:194-209).",
+   "iOS decodes scout_tier from the watchlist response, defaults/resets it to free, and stores the returned string (academy-watch-ios/AcademyWatch/Models/WatchlistModels.swift:3-8; academy-watch-ios/AcademyWatch/ViewModels/WatchlistViewModel.swift:5-14,95-105,161-173).",
+   "No iOS view consumes scoutTier. WatchlistView gates only on authentication, the root tabs contain no pricing/billing destination, and APIClient exposes watchlist/settings calls rather than purchases (academy-watch-ios/AcademyWatch/Views/WatchlistView.swift:58-71; academy-watch-ios/AcademyWatch/Views/RootTabView.swift:140-194; academy-watch-ios/AcademyWatch/Services/APIClient.swift:569-607).",
+   "The scorecard therefore accurately rates Pay for Scout Pro at 1: pricing copy exists, but no paid flow or entitlement enforcement exists (ledgers/GRADING_dream-scorecard-2026-09-02.md:71)."
+  ],
+  "C": [
+   "The funding model module explicitly stops before money movement and keeps private rows default-deny (academy-watch-backend/src/models/funding.py:1-6).",
+   "FundingLeague is the registry/provider bridge and contains registry identity, provider, lifecycle, coverage, and projection fields (academy-watch-backend/src/models/funding.py:19-111).",
+   "ClubProgram models the future legal recipient and includes identity, currency, platform_status, donations_enabled, emergency_hidden, and approved revision state (academy-watch-backend/src/models/funding.py:114-170).",
+   "ClubProgram's internal test-readiness helper requires an approved, non-hidden program with an active manager and a US test Connect account (academy-watch-backend/src/models/funding.py:175-189). Its public serialization hardcodes is_fundable to false (academy-watch-backend/src/models/funding.py:191-216).",
+   "ClubProgramClaim models the claim lifecycle; private evidence stores encrypted adult, organization, safeguarding, eligibility, and payout attestations; ClubProgramManager is revocable and tied to the approved source claim (academy-watch-backend/src/models/funding.py:219-303).",
+   "ClubProgramProfileRevision already has summary, age range, activities, funding purpose, official URL, safeguarding URL, and media fields (academy-watch-backend/src/models/funding.py:305-335). There is no manager writer; routes only read the approved revision (academy-watch-backend/src/routes/funding.py:1067-1122), while account deletion handles revision ownership (academy-watch-backend/src/services/account.py:51-58,450-468).",
+   "The fc03 migration added club_programs.contact_email at raw-DDL level, but ClubProgram's ORM declaration does not expose that column. club_registry reads it through raw SQL (academy-watch-backend/migrations/versions/fc03_contract_status_routing.py:249-255; academy-watch-backend/src/services/club_registry.py:317-356; academy-watch-backend/src/models/funding.py:134-170).",
+   "Live public funding routes include GET /api/funding/leagues and exact-slug GET /api/programs/<slug>, with the program route requiring an approved, non-hidden program in an approved league (academy-watch-backend/src/routes/funding.py:382-389,1079-1122).",
+   "Authenticated claim routes include rate-limited claim submission and GET /api/funding/claims/mine (academy-watch-backend/src/routes/funding.py:563-605,619-782).",
+   "The live Save this program route creates a Follow and a notification/demand signal; it does not collect money and does not inspect is_fundable (academy-watch-backend/src/routes/funding.py:1125-1181). Admin demand aggregation reports those saves (academy-watch-backend/src/routes/funding.py:1184-1228).",
+   "Dual-admin routes manage leagues, list/review claims, provision the test Connect scaffold, reject/revoke claims, disable donations on revocation, synchronize Connect status, and view demand (academy-watch-backend/src/routes/funding.py:392-560,785-1064,1184-1228).",
+   "There is no manager profile/program-editing route. Current club-manager routes cover roster, results, matches, media, and processing requests (academy-watch-backend/src/routes/club.py:494-514,570-627,808-1167). Manager authorization requires an active manager backed by an approved claim/program and returns a neutral 403 on failure (academy-watch-backend/src/services/club_registry.py:138-190).",
+   "ProgramClaimPage submits the evidence workflow and explicitly promises that no funding or Stripe setup occurs until review (academy-watch-frontend/src/pages/ProgramClaimPage.jsx:93-121,153-203,224-250,280-321).",
+   "MyClub discovers approved claims and probes roster access (academy-watch-frontend/src/pages/MyClub.jsx:371-433). MyClubConsole exposes a Program tab with a read-only profile and no editor, supporter import, support link, or billing surface (academy-watch-frontend/src/pages/MyClubConsole.jsx:1762-1847,1918-1940).",
+   "ProgramPage loads the public program, exposes Save this program, renders approved profile fields, and says Support is not live yet; it never checks is_fundable (academy-watch-frontend/src/pages/ProgramPage.jsx:34-73,100,115-152). Its route is registered in the web app (academy-watch-frontend/src/App.jsx:4107-4115).",
+   "There is no public funding directory. ProgramPage links back to the claim flow, while the sitemap includes approved exact program pages and AdminFunding links demand rows to those pages (academy-watch-frontend/src/pages/ProgramPage.jsx:100; academy-watch-backend/src/services/sitemap_service.py:139-160; academy-watch-frontend/src/pages/admin/AdminFunding.jsx:410-425).",
+   "The frontend API wrapper explicitly describes the funding bridge as having no checkout and exposes only the existing registry/claim/save/admin calls (academy-watch-frontend/src/lib/api.js:1859-1936). AdminFunding repeatedly states that donations are not live (academy-watch-frontend/src/pages/admin/AdminFunding.jsx:362-545).",
+   "The existing Buy Me a Coffee integration supports The Academy Watch platform, not individual clubs. It uses the fixed TheAcademyWatch slug and is mounted globally in the app footer and newsletter templates (academy-watch-frontend/src/components/bmcButtonConfig.js:1-29; academy-watch-frontend/src/components/BuyMeCoffeeButton.jsx:1-130; academy-watch-frontend/src/App.jsx:4075-4093; academy-watch-backend/src/templates/newsletter_email.html:680-695; academy-watch-backend/src/templates/newsletter_digest_email.html:293-301; academy-watch-backend/src/templates/newsletter_web.html:1294-1295,1954-1955).",
+   "No Patreon field, club-specific BuyMeACoffee field, supporter-import model, or supporter-import route exists. The revision's only external URLs are official and safeguarding URLs, and the scorecard rates external platform connection at zero (academy-watch-backend/src/models/funding.py:319-325; ledgers/GRADING_dream-scorecard-2026-09-02.md:81).",
+   "is_fundable currently gates nothing: it is emitted only as a hardcoded false literal (academy-watch-backend/src/models/funding.py:191-216). donations_enabled is set or reset to false during bridge adoption, claim submission, and revocation, but no route consumes it to permit payment (academy-watch-backend/src/services/club_console_bridge.py:389-435,560-569; academy-watch-backend/src/routes/funding.py:695-704,986-997).",
+   "FundingAdminEvent is an administrative audit row and lacks amount, currency, donor, payment status, refund, and idempotency fields; it is not a donation ledger (academy-watch-backend/src/models/funding.py:426-442).",
+   "The scorecard records the current maturity as registry/program editing 2, money movement 1, external platform connection 0, and supporter-facing page 2 (ledgers/GRADING_dream-scorecard-2026-09-02.md:78-84)."
+  ],
+  "D": [
+   "VideoCreditLedger is an append-only, Team-keyed service-credit ledger. Supported reasons are purchase, debit, refund, and grant; each row has delta, note, optional match, optional unique stripe_session_id, and optional creating administrator, but no price, currency, customer, payment state, or ClubProgram foreign key (academy-watch-backend/src/models/video.py:7-16,53-54,371-405).",
+   "vid01 creates the video-analysis schema, including VideoCreditLedger, but contains no RLS statement in that migration; actual production RLS was not inspected (academy-watch-backend/migrations/versions/vid01_add_video_analysis_tables.py:1-19,157-170). Project invariants require every new public-schema table to receive explicit RLS treatment (docs/agents/invariants.md:22-29).",
+   "The video blueprint is live and registered in main (academy-watch-backend/src/main.py:61,146). GET credit-balance endpoints exist for administrator use (academy-watch-backend/src/routes/video.py:223-232,694-723).",
+   "Administrative processing locks the match, returns 402 when a Team lacks credit, and atomically appends a debit and creates the job (academy-watch-backend/src/routes/video.py:305-350).",
+   "A club manager can only request processing; that action does not create a job (academy-watch-backend/src/routes/club.py:1146-1164). When an administrator later processes a ClubProgram match, the route bypasses Team balance/debit logic, and such matches may have no team_id (academy-watch-backend/src/routes/video.py:318-345; academy-watch-backend/src/models/video.py:71-78).",
+   "The admin grant endpoint accepts any nonzero delta and caller-supplied reason, including purchase, even though it has no payment proof (academy-watch-backend/src/routes/video.py:726-750).",
+   "The refund endpoint prevents a second refund row for a match but does not require a prior debit, validate job state, lock the ledger, or refund external money; it only grants a service credit (academy-watch-backend/src/routes/video.py:753-781; academy-watch-backend/src/models/video.py:376-384).",
+   "Credit balance, grant, process, and refund routes use require_api_key with administrator-token support rather than club/user authentication (academy-watch-backend/src/routes/video.py:305-307,694-710,726-728,753-755; academy-watch-backend/src/auth.py:284-292,321-383).",
+   "The live admin frontend exposes balances, arbitrary grants, process, and refund controls through AdminVideo and AdminVideoMatch (academy-watch-frontend/src/App.jsx:4156-4174; academy-watch-frontend/src/components/layouts/AdminLayout.jsx:21-22,87-121; academy-watch-frontend/src/pages/admin/AdminVideo.jsx:71-79,123-155,295-315; academy-watch-frontend/src/pages/admin/AdminVideoMatch.jsx:544-555,805-847).",
+   "The frontend getTeamVideoCredits wrapper exists but has no current UI caller; the underlying backend route remains reachable to administrators (academy-watch-frontend/src/lib/api.js:3203-3215; academy-watch-backend/src/routes/video.py:694-723).",
+   "The generic AdminVideoMatch refund action can be shown for a ClubProgram match even though that path skipped a Team debit, creating a service-credit integrity risk (academy-watch-frontend/src/pages/admin/AdminVideoMatch.jsx:839-848; academy-watch-backend/src/routes/video.py:318-345,753-781).",
+   "Film Room pricing promises pay-per-match eventually but keeps the CTA disabled/in development; ScoutPage links users with missing coverage back to pricing rather than checkout (academy-watch-frontend/src/pages/PricingPage.jsx:39-52,93-97,190-196; academy-watch-frontend/src/pages/ScoutPage.jsx:1062-1070)."
+  ],
+  "E": [
+   "Terms are marked effective June 26, 2025 and describe sports information, newsletters, statistics, introductions, account obligations, adult participation, truthful claims, scout verification, content, informational use, liability, changes, and New York law (academy-watch-frontend/src/pages/LegalPages.jsx:4,13-87).",
+   "The Terms say introductions are not employment or representation and that information is not financial advice (academy-watch-frontend/src/pages/LegalPages.jsx:48-66). They contain no current subscription price, automatic-renewal, cancellation, refund, donor-tip, tax receipt, charitable-deduction, platform-fee, investment, or securities terms (academy-watch-frontend/src/pages/LegalPages.jsx:13-87).",
+   "Privacy discloses account, submitted, and log data and names processors, including a statement that Stripe is used for payments to contributing writers (academy-watch-frontend/src/pages/LegalPages.jsx:107-142). That writer-payment statement does not describe the current code and does not cover Scout Pro, club bundles, donations, supporter imports, receipts, or Connect KYC.",
+   "Privacy describes user rights and says the service is not intended for children under 13 (academy-watch-frontend/src/pages/LegalPages.jsx:145-156). Community rules say users must never pay to be scouted (academy-watch-frontend/src/pages/LegalPages.jsx:167-176).",
+   "Current customer-facing promises are free-beta Scout Pro, future Film Room pricing, Save this program without payment, and Support is not live yet (academy-watch-frontend/src/pages/PricingPage.jsx:23-52,178-196; academy-watch-frontend/src/pages/ProgramPage.jsx:115-152). AdminFunding likewise says no donations are live (academy-watch-frontend/src/pages/admin/AdminFunding.jsx:362-545).",
+   "The roadmap's paper work requires adults-only accounts/claims/contact/media/donations/manager grants and identifies California AB 488, roughly forty state registration regimes, charity-versus-for-profit wording, and paid API-data licensing as unresolved areas (ledgers/ROADMAP_vision-gaps.md:35-60).",
+   "The donor-tip proposal says the club should receive 100% less processing while an optional tip supports the platform; both that model and the Scout/club pricing decisions remain open (ledgers/ROADMAP_vision-gaps.md:82-99).",
+   "Phase-0 explicitly requires decisions on data licensing, account/claim/payment terms, donation regulatory scope and wording, the donation gate, Scout price, and grandfathering before rails are enabled (ledgers/ROADMAP_vision-gaps.md:131-142). The handoff repeats that S3 must begin with those paper decisions (ledgers/DIRECTIVE_dream-s2-handoff.md:108).",
+   "The prescribed rail order is link-out/import before native money movement, and accessibility is required before donation general availability (ledgers/ROADMAP_vision-gaps.md:193-203,216-218). A Stripe dispute runbook is also an explicit paper deliverable (ledgers/ROADMAP_vision-gaps.md:160-161).",
+   "The scorecard keeps community-ownership/securities work and legal maturity incomplete and says part-ownership paper work must precede implementation (ledgers/GRADING_dream-scorecard-2026-09-02.md:84,96,120).",
+   "The S3 stage text commits to Scout Pro and club bundles, but permits donation checkout only after regulatory scoping (ledgers/GRADING_dream-scorecard-2026-09-02.md:118).",
+   "iOS only opens hosted web Terms and Privacy pages; it contains no native payment, subscription, donation, or refund disclosures (academy-watch-ios/AcademyWatch/Views/LegalSafariLink.swift:4-32,46-67)."
+  ],
+  "F": [
+   "email_service provides Mailgun delivery with SMTP fallback, background execution, and a process-wide singleton reusable for receipts (academy-watch-backend/src/services/email_service.py:1-25,94-180,301-374,467-545,688-689). main initializes the service during startup (academy-watch-backend/src/main.py:182-185).",
+   "trust_decision_email_service is a useful transactional wrapper pattern: it composes a specific template/payload and treats delivery as best effort (academy-watch-backend/src/services/trust_decision_email_service.py:13-145).",
+   "profile_activity_notification_service adds opt-in and delivery-budget checks and advances its watermark only after successful email delivery, providing a reusable anti-duplicate pattern (academy-watch-backend/src/services/profile_activity_notification_service.py:109-180,197-249).",
+   "scout_digest_service similarly centralizes eligibility and delivery, although it is not tied to billing (academy-watch-backend/src/services/scout_digest_service.py:474-546,597-625).",
+   "product_events accepts only page_view, claim_submitted, follow_added, shadow_minted, search_performed, list_created, and profile_view; checkout_started, checkout_completed, purchase, cancellation, refund, dispute, and donation are absent (academy-watch-backend/src/routes/events.py:22-34).",
+   "The anonymous event batch drops invalid events and is appropriate for analytics only, not financial truth or entitlement state (academy-watch-backend/src/routes/events.py:63-139). Its admin endpoint provides aggregate product-event summaries (academy-watch-backend/src/routes/events.py:142-200).",
+   "The current admin dashboard has player, team, newsletter, operations, analytics, and action cards but no revenue, MRR, checkout, refund, dispute, or payout tile (academy-watch-frontend/src/pages/admin/AdminDashboard.jsx:356-506). Its backend stats endpoint likewise returns operational counts, not revenue (academy-watch-backend/src/routes/api.py:10057-10099).",
+   "BuyMeACoffee links already appear in all newsletter render variants and can be reused as a link-out pattern, but they are fixed to the platform account rather than program-owned support links (academy-watch-backend/src/templates/newsletter_email.html:680-695; academy-watch-backend/src/templates/newsletter_digest_email.html:293-301; academy-watch-backend/src/templates/newsletter_web.html:1294-1295,1954-1955)."
+  ],
+  "G": [
+   "test_funding_registry covers league CRUD, claim submission/review, public visibility, Connect provisioning/synchronization, revocation, saves, and demand aggregation; its fixture disables real Connect calls and mocks external behavior (academy-watch-backend/tests/test_funding_registry.py:18-26,129-213,216-358,360-494,497-629).",
+   "test_club_console_bridge covers bridge/adoption and program-manager lifecycle behavior, including donations staying disabled (academy-watch-backend/tests/test_club_console_bridge.py:225-331,334-463,709-734,917-1036).",
+   "test_club_console covers manager authorization and club processing requests (academy-watch-backend/tests/test_club_console.py:305-378,1614-1638).",
+   "test_follow_graph asserts public-program saving/follow behavior, and test_sitemap asserts approved program sitemap inclusion (academy-watch-backend/tests/test_follow_graph.py:390-431; academy-watch-backend/tests/test_sitemap.py:269-320).",
+   "test_account covers legacy Stripe-row deletion and export of scout_tier, but not cancellation of an external Stripe object (academy-watch-backend/tests/test_account.py:183-200,602-624,1299-1313,1342-1344).",
+   "test_subscriptions covers the current free journalist-follow behavior rather than Stripe billing (academy-watch-backend/tests/test_subscriptions.py:16-56).",
+   "test_scout_watchlist covers authentication, caps, default free tier, digest settings, and CSV behavior; it does not assert paid gates (academy-watch-backend/tests/test_scout_watchlist.py:246-311,459-542,588-671,730).",
+   "iOS tests assert decoding and ViewModel storage of scoutTier but no paid UI behavior (academy-watch-ios/AcademyWatchTests/WatchlistDecodingTests.swift:4-11; academy-watch-ios/AcademyWatchTests/WatchlistViewModelTests.swift:4-19).",
+   "Video tests cover ledger serialization and no-credit job behavior, but there are no direct tests for grant authorization, debit concurrency, refund validity, or Stripe-session replay (academy-watch-backend/tests/test_video_identity.py:311-320; academy-watch-backend/tests/test_video_job_kind.py:80-152).",
+   "test_product_events verifies allowlisting, ingestion, filtering, and admin summaries; it has no purchase event because purchase events are not allowed (academy-watch-backend/tests/test_product_events.py:1-8,73-205,290-327; academy-watch-backend/src/routes/events.py:22-34).",
+   "Frontend and newsletter tests cover the fixed BuyMeACoffee configuration/rendering only (academy-watch-frontend/tests/bmc-button.test.mjs:1-12; academy-watch-backend/tests/test_newsletters.py:143-157; academy-watch-backend/tests/test_newsletter_email_render.py:838-844).",
+   "The closest existing replay/expiry tests exercise signed contact-consent tokens, including expired, malformed, and reused tokens (academy-watch-backend/tests/test_contact.py:2828-2858,2928-2945).",
+   "Migration tests assert a single Alembic head for later migrations (academy-watch-backend/tests/test_cb01_coach_briefs.py:221-229; academy-watch-backend/tests/test_pm01_player_match_entries.py:261-270).",
+   "No current test covers Stripe credential configuration, Checkout Session creation, Stripe webhook signatures, webhook idempotency, Billing Portal, revenue reporting, a Pro tier transition, a paid feature gate, club profile-revision writes, club bundle billing, supporter import, or donation checkout; the identified payment tests are limited to legacy-row deletion and orphaned E2E helpers (academy-watch-backend/tests/test_account.py:1299-1313; academy-watch-frontend/e2e/helpers/stripe.js:29-106)."
+  ]
+ },
+ "answers": {
+  "1": "No. Main registers no Checkout/billing/webhook blueprint, the only live Stripe service expressly excludes Checkout and payment movement, and the scorecard records no money path (academy-watch-backend/src/main.py:32-61,118-149; academy-watch-backend/src/services/stripe_connect.py:1-6; ledgers/GRADING_dream-scorecard-2026-09-02.md:106). There is also no inbound Mailgun or similar provider webhook to copy: current Mailgun use is outbound HTTP from email_service (academy-watch-backend/src/services/email_service.py:151-168), and the n8n/Mailgun-related API code is outbound dispatch rather than signed callback verification (academy-watch-backend/src/routes/api.py:427-465). The closest signed state-changing pattern is club contact consent: URLSafeTimedSerializer signs and verifies a purpose-bound token with max_age and rejects bad/expired signatures (academy-watch-backend/src/services/contact.py:212-236); the consuming route locks/checks pending state, commits once, and makes reuse a neutral no-op (academy-watch-backend/src/routes/contact.py:1013-1058), with replay/expiry tests (academy-watch-backend/tests/test_contact.py:2828-2858,2928-2945). A Stripe webhook should combine that fail-closed pattern with raw-body Stripe-Signature verification and a transactionally unique Stripe event ID; VideoCreditLedger's unique stripe_session_id is the nearest existing durable idempotency seam, though it is currently unused by writers (academy-watch-backend/src/models/video.py:371-405; academy-watch-backend/src/routes/video.py:337-344,740-747,770-778).",
+  "2": "The old journalist/writer Connect implementation does nothing today: its ORM table is deprecated, has no live onboarding route, and is referenced only by account deletion/read-only legacy surfaces (academy-watch-backend/src/models/league.py:999-1037; academy-watch-backend/src/services/account.py:830-845; academy-watch-backend/src/routes/api.py:674-747). Old documentation describing writer onboarding and subscriber checkout is stale and was superseded by a removal directive (academy-watch-backend/STRIPE_IMPLEMENTATION_SUMMARY.md:23-115; ledgers/ACADEMY_WATCH_AGENT_DIRECTIVE.md:88-151). The current similarly named service is the gf01 club test scaffold: it creates a Stripe Express account in the US, business_type company, requests transfers only, creates an onboarding link, and refuses live mode (academy-watch-backend/src/services/stripe_connect.py:26-37,49-108). It is not safe to reuse unchanged for club payouts: readiness explicitly rejects livemode, there is no charge/transfer model, webhook, deauthorization handling, KYC remediation workflow, or live-country policy (academy-watch-backend/src/models/funding.py:412-423; academy-watch-backend/src/services/stripe_connect.py:1-6,81-108). Its account type/capability choice is a useful prototype only after the owner chooses direct charges versus destination charges/separate transfers and counsel approves the recipient model.",
+  "3": "A club bundle should attach to ClubProgram.id as the durable club-program/legal-recipient identity, with the purchasing UserAccount and billing authority recorded separately; Team is unsuitable because ClubProgram may bridge to a Team later and the bridge is explicitly modeled as adoption rather than identity (academy-watch-backend/src/models/funding.py:114-170; academy-watch-backend/src/services/club_console_bridge.py:389-435). Access should derive from active ClubProgramManager rows, whose authority is revocable and claim-backed (academy-watch-backend/src/models/funding.py:282-303; academy-watch-backend/src/services/club_registry.py:138-190). The natural console surface is MyClubConsole's existing Program tab, currently read-only and lacking billing/editor controls (academy-watch-frontend/src/pages/MyClubConsole.jsx:1762-1847,1918-1940). The owner must decide whether every active manager may purchase/cancel or whether a separate billing-owner role is required.",
+  "4": "A donation needs new program-keyed payment records. FundingAdminEvent is only an audit row and lacks donor, amount, currency, processor status, refund, receipt, and idempotency data; legacy journalist subscription/revenue tables and Team-keyed VideoCreditLedger model different domains (academy-watch-backend/src/models/funding.py:426-442; academy-watch-backend/src/models/league.py:999-1142; academy-watch-backend/src/models/video.py:371-405). The minimum safe model is a ClubDonation plus immutable processor-event/idempotency records and a separate eligibility/legal-gate record. is_fundable=False currently gates nothing because public serialization hardcodes false and no route reads it (academy-watch-backend/src/models/funding.py:191-216; academy-watch-backend/src/routes/funding.py:1125-1228). A future computed value must require completed legal classification, an approved/non-hidden program, donations_enabled, and payout readiness in the correct Stripe mode; the existing test helper supplies only part of that test-only predicate (academy-watch-backend/src/models/funding.py:175-189,412-423).",
+  "5": [
+   "STRIPE_SECRET_KEY \u2014 declared in env.template only (academy-watch-backend/env.template:15).",
+   "STRIPE_PUBLISHABLE_KEY \u2014 declared in env.template only (academy-watch-backend/env.template:17).",
+   "STRIPE_WEBHOOK_SECRET \u2014 declared in env.template only (academy-watch-backend/env.template:19).",
+   "STRIPE_PLATFORM_FEE_PERCENT \u2014 declared in env.template only (academy-watch-backend/env.template:22).",
+   "No STRIPE_* name appears in deploy.yml; the workflow updates the backend image/revision without declaring Stripe configuration, so actual production Container App settings are UNVERIFIED (academy-watch-backend/.github/workflows/deploy.yml:45-65,203-217)."
+  ],
+  "6": "The tree has one Alembic head: cb01 (background_jobs), whose current-head file is academy-watch-backend/migrations/versions/cb01_coach_briefs.py (academy-watch-backend/migrations/versions/cb01_coach_briefs.py:20-23). The shared helper file is academy-watch-backend/migrations/versions/_migration_helpers.py (academy-watch-backend/migrations/versions/_migration_helpers.py:1-44), with guarded table/index/column use demonstrated by academy-watch-backend/migrations/versions/s2f1_fans_reach.py (academy-watch-backend/migrations/versions/s2f1_fans_reach.py:14-22,30-81). New migrations must form one chain from cb01, use existence guards, and address RLS explicitly (docs/agents/backend.md:19-30; docs/agents/invariants.md:22-29,72-77)."
+ },
+ "packages": [
+  {
+   "name": "S3-P0",
+   "title": "Stripe foundation, durable webhook processing, billing state, receipts, and portal",
+   "allowed": [
+    ".github/workflows/deploy.yml",
+    "academy-watch-backend/env.template",
+    "academy-watch-backend/src/config/stripe_config.py",
+    "academy-watch-backend/src/models/billing.py",
+    "academy-watch-backend/src/services/stripe_billing.py",
+    "academy-watch-backend/src/services/account.py",
+    "academy-watch-backend/src/routes/api.py",
+    "academy-watch-backend/src/templates/billing_receipt.html",
+    "academy-watch-backend/migrations/versions/s3p0_billing_foundation.py",
+    "academy-watch-backend/tests/test_billing_foundation.py",
+    "academy-watch-backend/tests/test_account.py"
+   ],
+   "requirements": [
+    "1. Replace the orphan configuration helpers with a server-side product-code-to-Stripe-price map, explicit test/live consistency checks, and deployment names; never accept a price ID or amount from the browser (academy-watch-backend/src/config/stripe_config.py:11-69; academy-watch-backend/env.template:15-22; academy-watch-backend/.github/workflows/deploy.yml:203-217).",
+    "2. Add one generic Checkout Session service, Billing Portal service, and raw-body Stripe webhook that verifies Stripe-Signature before parsing or mutating state; no equivalent currently exists (academy-watch-backend/src/services/stripe_connect.py:1-6; academy-watch-backend/src/main.py:118-149; ledgers/GRADING_dream-scorecard-2026-09-02.md:106).",
+    "3. Persist every Stripe event ID before applying it, process event and subscription/entitlement projection in one transaction, tolerate replay and out-of-order delivery, and retain the provider-created timestamp/status (academy-watch-backend/src/services/contact.py:212-236; academy-watch-backend/src/routes/contact.py:1013-1058; academy-watch-backend/tests/test_contact.py:2828-2858,2928-2945).",
+    "4. Treat billing subscriptions and entitlement events as authoritative; legacy stripe_subscriptions and UserAccount.scout_tier are migration/read projections, not webhook ledgers (academy-watch-backend/src/models/league.py:493-530,999-1142).",
+    "5. Send receipts/status emails only after a committed first transition, using the existing background email service and its successful-delivery patterns so webhook retries do not duplicate mail (academy-watch-backend/src/services/email_service.py:467-545; academy-watch-backend/src/services/profile_activity_notification_service.py:197-249).",
+    "6. Extend account deletion to define external-customer/subscription cancellation or anonymization rather than merely deleting local legacy rows (academy-watch-backend/src/services/account.py:830-845; academy-watch-backend/tests/test_account.py:1299-1313).",
+    "7. Add dual-admin revenue/refund/dispute aggregates backed by server-side financial records, not anonymous product_events (academy-watch-backend/src/routes/events.py:22-34,63-139; academy-watch-backend/src/routes/api.py:10057-10099)."
+   ],
+   "contracts": [
+    {
+     "method": "POST",
+     "path": "/api/billing/stripe/webhook",
+     "auth": "No user auth; require valid Stripe-Signature over the exact raw request bytes.",
+     "request": "Raw Stripe event JSON bytes plus Stripe-Signature header.",
+     "response": {
+      "received": true,
+      "duplicate": false
+     },
+     "errors": {
+      "400": "Missing/invalid signature, malformed event, or disallowed account/mode.",
+      "422": "Recognized event with invalid product/scope metadata; persist for operator review without granting entitlement.",
+      "500": "Transient processing failure; roll back state and allow Stripe retry."
+     },
+     "evidence": "No webhook currently exists, while the contact-consent flow demonstrates fail-closed signature/expiry handling and replay-safe state checks (academy-watch-backend/src/main.py:118-149; academy-watch-backend/src/services/contact.py:212-236; academy-watch-backend/src/routes/contact.py:1013-1058)."
+    },
+    {
+     "method": "GET",
+     "path": "/api/billing/me",
+     "auth": "Bearer user token.",
+     "request": null,
+     "response": {
+      "customer": {
+       "exists": true
+      },
+      "subscriptions": [
+       {
+        "product_code": "scout_pro",
+        "scope_type": "user",
+        "scope_id": 123,
+        "status": "active",
+        "current_period_end": "ISO-8601"
+       }
+      ],
+      "entitlements": [
+       "scout_pro"
+      ]
+     },
+     "errors": {
+      "401": "Missing or invalid user authentication.",
+      "503": "Billing provider/state temporarily unavailable."
+     },
+     "evidence": "The current account endpoint only exposes deprecated read-only subscription rows and has no authoritative entitlement response (academy-watch-backend/src/routes/api.py:674-747; academy-watch-backend/src/models/league.py:1075-1115)."
+    },
+    {
+     "method": "POST",
+     "path": "/api/billing/portal",
+     "auth": "Bearer user token.",
+     "request": {
+      "return_path": "/account/billing"
+     },
+     "response": {
+      "url": "https://billing.stripe.com/..."
+     },
+     "errors": {
+      "400": "Return path is not an allowlisted relative application path.",
+      "401": "Missing or invalid user authentication.",
+      "404": "No Stripe customer exists.",
+      "503": "Stripe unavailable or mode mismatch."
+     },
+     "evidence": "No cancellation/reactivation/portal action exists in the current account surface; only legacy subscription display remains (academy-watch-frontend/src/App.jsx:3489-3555; academy-watch-backend/src/routes/api.py:702-747)."
+    },
+    {
+     "method": "GET",
+     "path": "/api/admin/billing/summary",
+     "auth": "require_api_key(allow_admin_token=True).",
+     "request": null,
+     "response": {
+      "currency": "usd",
+      "gross_minor": 0,
+      "refund_minor": 0,
+      "platform_fee_minor": 0,
+      "active_subscriptions_by_product": {},
+      "failed_or_disputed": 0
+     },
+     "errors": {
+      "401": "Neither API key nor administrator token is valid.",
+      "503": "Billing projection unavailable."
+     },
+     "evidence": "Existing admin authentication supports the dual gate, while the dashboard currently has no revenue data (academy-watch-backend/src/auth.py:284-292,321-383; academy-watch-backend/src/routes/api.py:10057-10099)."
+    }
+   ],
+   "migration": {
+    "needed": true,
+    "revision": "s3p0_billing_foundation",
+    "down_revision": "cb01",
+    "tables": [
+     "billing_customers",
+     "billing_checkout_sessions",
+     "billing_subscriptions",
+     "billing_entitlement_events",
+     "stripe_webhook_events"
+    ],
+    "constraints": [
+     "Unique Stripe event ID.",
+     "Unique Stripe Checkout Session ID.",
+     "Unique provider subscription ID.",
+     "Unique client idempotency key within purchaser/product/scope.",
+     "Integer minor-unit amounts and explicit ISO currency; no floating-point money."
+    ],
+    "rls": "Enable and force RLS on every new public-schema table with no public policies; application/service access remains server-side only (docs/agents/invariants.md:22-29,72-77).",
+    "chain": "cb01 -> s3p0_billing_foundation, using guarded helpers from _migration_helpers.py (academy-watch-backend/migrations/versions/cb01_coach_briefs.py:20-23; academy-watch-backend/migrations/versions/_migration_helpers.py:1-44).",
+    "smallest_alternative": "Fold customer and checkout-attempt metadata into subscriptions while retaining stripe_webhook_events and an append-only entitlement ledger; do not reuse the deprecated journalist tables (academy-watch-backend/src/models/league.py:999-1142)."
+   },
+   "depends_on": []
+  },
+  {
+   "name": "S3-P1",
+   "title": "Scout Pro checkout, canonical entitlement helper, and selected paid gates",
+   "allowed": [
+    "academy-watch-backend/src/services/scout_entitlements.py",
+    "academy-watch-backend/src/services/scout_digest_service.py",
+    "academy-watch-backend/src/routes/scout.py",
+    "academy-watch-backend/src/routes/auth_routes.py",
+    "academy-watch-backend/tests/test_scout_entitlements.py",
+    "academy-watch-backend/tests/test_scout_watchlist.py"
+   ],
+   "requirements": [
+    "1. Add one entitlement helper that derives active/grace/past_due/canceled access from S3-P0 billing state; keep scout_tier as a compatibility projection and never use is_verified_scout as payment state (academy-watch-backend/src/models/league.py:493-530,577-582; academy-watch-backend/src/services/trust.py:14-30).",
+    "2. Create Scout Pro Checkout Sessions only from a server-owned product code and the owner-approved committed price; PricingPage currently says free beta/pricing announced (academy-watch-frontend/src/pages/PricingPage.jsx:23-37,178-187).",
+    "3. Extend /auth/me and a dedicated entitlement endpoint so web and iOS receive the same normalized tier/features/limits contract; /auth/me currently omits the field (academy-watch-backend/src/models/league.py:584-610; academy-watch-backend/src/routes/auth_routes.py:408-435).",
+    "4. Apply the helper consistently to the owner-selected Pro benefits. Watchlists, notes, CSV, digest, and lists are all currently auth-only despite the pricing copy (academy-watch-backend/src/routes/scout.py:1630-1906,2203-2374; academy-watch-frontend/src/pages/PricingPage.jsx:23-37).",
+    "5. Preserve an explicitly documented beta/grandfather cohort instead of silently removing features from existing free users; price and grandfathering remain Phase-0 decisions (ledgers/ROADMAP_vision-gaps.md:89-99,131-142)."
+   ],
+   "contracts": [
+    {
+     "method": "POST",
+     "path": "/api/scout-pro/checkout",
+     "auth": "Bearer user token.",
+     "request": {
+      "interval": "month|year",
+      "idempotency_key": "client-generated UUID"
+     },
+     "response": {
+      "checkout_url": "https://checkout.stripe.com/...",
+      "session_id": "cs_test_..."
+     },
+     "errors": {
+      "400": "Unsupported interval or malformed idempotency key.",
+      "401": "Missing or invalid authentication.",
+      "409": "An active/equivalent subscription or in-flight checkout already exists.",
+      "503": "Price is not configured, Stripe is unavailable, or key/price mode mismatches."
+     },
+     "evidence": "The existing CTA only redirects to watchlist/sign-in and no code promotes scout_tier (academy-watch-frontend/src/pages/PricingPage.jsx:69-91; academy-watch-backend/src/services/account.py:640-654)."
+    },
+    {
+     "method": "GET",
+     "path": "/api/scout/entitlements",
+     "auth": "Bearer user token.",
+     "request": null,
+     "response": {
+      "tier": "free|pro",
+      "subscription_status": "none|trialing|active|past_due|canceled",
+      "current_period_end": "ISO-8601|null",
+      "features": {
+       "watchlist": true,
+       "notes": true,
+       "csv_export": false,
+       "custom_lists": false,
+       "digest": false
+      },
+      "limits": {
+       "watchlist_players": 200,
+       "lists": 10,
+       "follows_per_list": 50
+      }
+     },
+     "errors": {
+      "401": "Missing or invalid authentication."
+     },
+     "evidence": "Existing limits are scattered across route constants and no normalized entitlement helper exists (academy-watch-backend/src/routes/scout.py:71-75,1630-1718,1858-1906,2203-2374)."
+    },
+    {
+     "method": "GET",
+     "path": "/api/auth/me",
+     "auth": "Existing bearer/session authentication.",
+     "request": null,
+     "response": {
+      "scout_tier": "free|pro",
+      "entitlements": [
+       "feature_code"
+      ]
+     },
+     "errors": {
+      "401": "Existing authentication failure."
+     },
+     "evidence": "The existing response omits scout_tier even though watchlist and iOS already understand the field (academy-watch-backend/src/routes/auth_routes.py:408-435; academy-watch-ios/AcademyWatch/Models/WatchlistModels.swift:3-8)."
+    },
+    {
+     "method": "Existing paid-feature endpoints",
+     "path": "/api/scout/*",
+     "auth": "Bearer user token plus require_scout_entitlement(feature).",
+     "request": "Existing endpoint request.",
+     "response": "Existing successful response.",
+     "errors": {
+      "403": {
+       "error": "scout_pro_required",
+       "feature": "csv_export",
+       "upgrade_path": "/pricing"
+      }
+     },
+     "evidence": "CSV, lists, digest, watchlist, and notes currently check authentication rather than tier (academy-watch-backend/src/routes/scout.py:1630-1906,2203-2374)."
+    }
+   ],
+   "migration": {
+    "needed": false,
+    "reason": "Use S3-P0 billing/entitlement tables; scout_tier already exists as a compatibility projection (academy-watch-backend/src/models/league.py:493-530).",
+    "smallest_alternative": "Launch one monthly SKU and gate only CSV export initially, while explicitly grandfathering the existing beta cohort; CSV is currently authenticated but ungated (academy-watch-backend/src/routes/scout.py:1858-1906)."
+   },
+   "depends_on": [
+    "S3-P0"
+   ]
+  },
+  {
+   "name": "S3-P2",
+   "title": "Club profile editing, external support link-out, supporter import, updates, and club bundle",
+   "allowed": [
+    "academy-watch-backend/src/models/funding.py",
+    "academy-watch-backend/src/routes/funding.py",
+    "academy-watch-backend/src/services/supporter_import.py",
+    "academy-watch-backend/migrations/versions/s3p2_club_profile_support.py",
+    "academy-watch-backend/tests/test_funding_registry.py",
+    "academy-watch-backend/tests/test_program_support.py"
+   ],
+   "requirements": [
+    "1. Add manager-authenticated writes that always create a pending ClubProgramProfileRevision; keep the currently approved public revision unchanged until dual-admin moderation (academy-watch-backend/src/models/funding.py:282-335; academy-watch-backend/src/services/club_registry.py:138-190; academy-watch-backend/src/routes/funding.py:1067-1122).",
+    "2. Limit editable fields to summary, age range, activities, funding purpose, official URL, safeguarding URL, media, and a normalized allowlisted external-support provider/URL; reject unknown fields and javascript/userinfo/redirect-host tricks (academy-watch-backend/src/models/funding.py:305-335; ledgers/GRADING_dream-scorecard-2026-09-02.md:81).",
+    "3. Make Patreon/BuyMeACoffee a moderated per-program link-out and preserve the current global TheAcademyWatch BuyMeACoffee placement separately (academy-watch-frontend/src/components/bmcButtonConfig.js:1-29; academy-watch-frontend/src/App.jsx:4075-4093).",
+    "4. Import supporters with provider export ID, display name only when consented, joined month, and aggregate contribution band/count; reject email, phone, address, payment token, and free-form notes by default (academy-watch-frontend/src/pages/LegalPages.jsx:107-149; ledgers/ROADMAP_vision-gaps.md:193-203).",
+    "5. Key club-bundle subscriptions to ClubProgram.id and record the purchasing manager separately; do not bind billing identity to an optionally adopted Team (academy-watch-backend/src/models/funding.py:114-170,282-303; academy-watch-backend/src/services/club_console_bridge.py:389-435).",
+    "6. Add moderated club updates with measurable impact fields because the supporter-facing page is currently static and rated 2 (academy-watch-frontend/src/pages/ProgramPage.jsx:123-152; ledgers/GRADING_dream-scorecard-2026-09-02.md:82).",
+    "7. Keep money movement disabled: this package may create club subscription Checkout through S3-P0 but must not enable donations or reinterpret the test Connect scaffold (academy-watch-backend/src/models/funding.py:191-216,412-423; ledgers/GRADING_dream-scorecard-2026-09-02.md:118)."
+   ],
+   "contracts": [
+    {
+     "method": "GET",
+     "path": "/api/club/{program_id}/profile",
+     "auth": "Bearer token for an active ClubProgramManager.",
+     "request": null,
+     "response": {
+      "program": {},
+      "approved_revision": {},
+      "pending_revision": "object|null",
+      "supporter_import_summary": {},
+      "billing": {
+       "status": "none|active|past_due|canceled"
+      }
+     },
+     "errors": {
+      "401": "Missing authentication.",
+      "403": "Neutral authorization failure for non-manager, revoked manager, rejected claim, or hidden program.",
+      "404": "Program does not exist."
+     },
+     "evidence": "Current manager authorization already uses neutral 403 behavior, while MyClubConsole has only a read-only Program profile (academy-watch-backend/src/services/club_registry.py:138-190; academy-watch-frontend/src/pages/MyClubConsole.jsx:1762-1847)."
+    },
+    {
+     "method": "PUT",
+     "path": "/api/club/{program_id}/profile",
+     "auth": "Bearer token for an active ClubProgramManager.",
+     "request": {
+      "summary": "string",
+      "age_range": "string|null",
+      "activities": [
+       "string"
+      ],
+      "funding_purpose": "string|null",
+      "official_url": "https://...",
+      "safeguarding_url": "https://...",
+      "external_support": {
+       "provider": "patreon|buy_me_a_coffee",
+       "url": "https://allowlisted-host/..."
+      }
+     },
+     "response": {
+      "revision_id": 1,
+      "status": "pending"
+     },
+     "errors": {
+      "400": "Unknown/unsafe field, invalid URL, unsupported provider, or host mismatch.",
+      "401": "Missing authentication.",
+      "403": "Neutral manager authorization failure.",
+      "409": "An equivalent pending revision already exists."
+     },
+     "evidence": "Revision fields already exist but have no manager writer, and public GET reads only the approved revision (academy-watch-backend/src/models/funding.py:305-335; academy-watch-backend/src/routes/funding.py:1067-1122)."
+    },
+    {
+     "method": "POST",
+     "path": "/api/admin/funding/programs/{program_id}/profile-revisions/{revision_id}/review",
+     "auth": "require_api_key(allow_admin_token=True).",
+     "request": {
+      "action": "approve|reject",
+      "reason": "required for rejection"
+     },
+     "response": {
+      "revision_id": 1,
+      "status": "approved|rejected"
+     },
+     "errors": {
+      "400": "Invalid transition or missing rejection reason.",
+      "401": "Administrator authentication failed.",
+      "404": "Program/revision not found.",
+      "409": "Revision was already reviewed."
+     },
+     "evidence": "Funding already uses dual-admin review for claims, while profile revisions currently have only a read path (academy-watch-backend/src/routes/funding.py:785-954,1067-1122)."
+    },
+    {
+     "method": "POST",
+     "path": "/api/club/{program_id}/supporters/import",
+     "auth": "Bearer token for an active ClubProgramManager.",
+     "request": {
+      "provider": "patreon|buy_me_a_coffee",
+      "idempotency_key": "UUID",
+      "supporters": [
+       {
+        "provider_supporter_id": "string",
+        "display_name": "string|null",
+        "public_opt_in": true,
+        "joined_month": "YYYY-MM",
+        "contribution_band": "optional enum"
+       }
+      ]
+     },
+     "response": {
+      "import_id": 1,
+      "accepted": 0,
+      "updated": 0,
+      "rejected": 0
+     },
+     "errors": {
+      "400": "Unknown field, PII field, invalid provider/schema, or excessive batch.",
+      "401": "Missing authentication.",
+      "403": "Neutral manager authorization failure.",
+      "409": "Idempotency key was reused with different content.",
+      "413": "Batch exceeds configured limit."
+     },
+     "evidence": "No supporter model exists today, and Privacy currently covers only broad account/submitted/log data rather than imported supporter data (academy-watch-backend/src/models/funding.py:305-442; academy-watch-frontend/src/pages/LegalPages.jsx:107-149)."
+    },
+    {
+     "method": "POST",
+     "path": "/api/club/{program_id}/updates",
+     "auth": "Bearer token for an active ClubProgramManager.",
+     "request": {
+      "title": "string",
+      "body": "string",
+      "impact_label": "string|null",
+      "impact_value": "string|null"
+     },
+     "response": {
+      "update_id": 1,
+      "status": "pending"
+     },
+     "errors": {
+      "400": "Invalid length or unsafe content.",
+      "401": "Missing authentication.",
+      "403": "Neutral manager authorization failure.",
+      "409": "Duplicate pending update."
+     },
+     "evidence": "The existing public ProgramPage renders static profile content and a save signal but no club-authored updates (academy-watch-frontend/src/pages/ProgramPage.jsx:115-152; academy-watch-backend/src/routes/funding.py:1125-1181)."
+    },
+    {
+     "method": "POST",
+     "path": "/api/club/{program_id}/billing/checkout",
+     "auth": "Bearer token for an active manager with the owner-selected billing authority.",
+     "request": {
+      "interval": "month|year",
+      "idempotency_key": "UUID"
+     },
+     "response": {
+      "checkout_url": "https://checkout.stripe.com/...",
+      "session_id": "cs_test_..."
+     },
+     "errors": {
+      "400": "Unsupported interval.",
+      "401": "Missing authentication.",
+      "403": "Manager lacks billing authority.",
+      "409": "Program already has an active/equivalent subscription or checkout.",
+      "503": "Price/provider unavailable or mode mismatch."
+     },
+     "evidence": "ClubProgram is the stable program identity and ClubProgramManager is the existing revocable authority model; the current console has no billing surface (academy-watch-backend/src/models/funding.py:114-170,282-303; academy-watch-frontend/src/pages/MyClubConsole.jsx:1762-1847)."
+    },
+    {
+     "method": "GET",
+     "path": "/api/programs/{slug}",
+     "auth": "Public; existing exact-slug contract.",
+     "request": null,
+     "response": {
+      "program": {
+       "approved_profile": {},
+       "external_support": "moderated object|null",
+       "approved_updates": [],
+       "supporters": {
+        "public_count": 0
+       },
+       "club_bundle_active": false,
+       "is_fundable": false
+      }
+     },
+     "errors": {
+      "404": "Program is unapproved, hidden, in an unapproved league, or absent."
+     },
+     "evidence": "The current route already enforces approved/non-hidden exact-program visibility and returns only approved profile content (academy-watch-backend/src/routes/funding.py:1079-1122)."
+    }
+   ],
+   "migration": {
+    "needed": true,
+    "revision": "s3p2_club_profile_support",
+    "down_revision": "s3p0_billing_foundation",
+    "changes": [
+     "Add normalized external-support provider/URL fields to club_program_profile_revisions.",
+     "Create club_program_updates.",
+     "Create supporter_imports.",
+     "Create club_program_supporters with unique program/provider/provider_supporter_id.",
+     "Use S3-P0 billing_subscriptions with scope_type=club_program and scope_id=ClubProgram.id for club bundles."
+    ],
+    "rls": "Enable and force RLS with no public policies on revisions, imports, supporter rows, and unapproved updates; expose only approved projections through authenticated application routes (academy-watch-backend/migrations/versions/gf01_grassroots_identity.py:339-342; docs/agents/invariants.md:22-29,72-77).",
+    "chain": "cb01 -> s3p0_billing_foundation -> s3p2_club_profile_support (academy-watch-backend/migrations/versions/cb01_coach_briefs.py:20-23; docs/agents/backend.md:19-30).",
+    "smallest_alternative": "Ship only moderated profile/link-out editing plus aggregate-only supporter import counts; omit individual supporter rows and club updates. This follows the roadmap's cheap link-out/import-first sequence (ledgers/ROADMAP_vision-gaps.md:193-203)."
+   },
+   "depends_on": [
+    "S3-P0"
+   ]
+  },
+  {
+   "name": "S3-P3",
+   "title": "Web checkout, account billing, club editor, supporter surfaces, and admin revenue UI",
+   "allowed": [
+    "academy-watch-frontend/src/lib/api.js",
+    "academy-watch-frontend/src/pages/PricingPage.jsx",
+    "academy-watch-frontend/src/pages/AccountBillingPage.jsx",
+    "academy-watch-frontend/src/pages/MyClubConsole.jsx",
+    "academy-watch-frontend/src/pages/ProgramPage.jsx",
+    "academy-watch-frontend/src/pages/admin/AdminDashboard.jsx",
+    "academy-watch-frontend/src/pages/admin/AdminFunding.jsx",
+    "academy-watch-frontend/src/App.jsx",
+    "academy-watch-frontend/tests/pricing-contract.test.mjs",
+    "academy-watch-frontend/e2e/money-rails.spec.mjs"
+   ],
+   "requirements": [
+    "1. Build against frozen S3-P0/P1/P2 JSON mocks first; replace the current Scout Pro watchlist redirect with the authenticated Checkout contract only after the owner supplies committed prices (academy-watch-frontend/src/pages/PricingPage.jsx:23-37,69-91,178-187).",
+    "2. Add account billing status and a Billing Portal action; the current account subscription surface is read-only legacy data (academy-watch-frontend/src/App.jsx:3489-3555; academy-watch-backend/src/routes/api.py:702-747).",
+    "3. Turn MyClubConsole's existing Program tab into the moderated profile/link/import/update/bundle interface without weakening manager authorization (academy-watch-frontend/src/pages/MyClubConsole.jsx:1762-1847,1918-1940; academy-watch-backend/src/services/club_registry.py:138-190).",
+    "4. Extend ProgramPage with approved updates, public supporter aggregates, and moderated external links using safe external-link attributes; keep the existing save signal separate from payment (academy-watch-frontend/src/pages/ProgramPage.jsx:115-152; academy-watch-backend/src/routes/funding.py:1125-1228).",
+    "5. Never show a native donation CTA unless the server returns is_fundable=true; the current server hardcodes false and current copy says support is not live (academy-watch-backend/src/models/funding.py:191-216; academy-watch-frontend/src/pages/ProgramPage.jsx:149-152).",
+    "6. Add administrator revenue/subscription/refund/dispute tiles from the authenticated billing summary, not product_events (academy-watch-frontend/src/pages/admin/AdminDashboard.jsx:356-506; academy-watch-backend/src/routes/events.py:22-34,63-139)."
+   ],
+   "contracts": [
+    {
+     "method": "POST",
+     "path": "/api/scout-pro/checkout",
+     "auth": "Bearer user token.",
+     "request": {
+      "interval": "month|year",
+      "idempotency_key": "UUID"
+     },
+     "response": {
+      "checkout_url": "string",
+      "session_id": "string"
+     },
+     "errors": {
+      "400": "Show configuration/input error without retry loop.",
+      "401": "Open sign-in.",
+      "409": "Refresh billing state and show existing subscription.",
+      "503": "Show retryable provider-unavailable state."
+     },
+     "evidence": "PricingPage currently routes directly to watchlist/sign-in and can be implemented against this contract before backend completion (academy-watch-frontend/src/pages/PricingPage.jsx:69-91)."
+    },
+    {
+     "method": "GET/POST",
+     "path": "/api/billing/me and /api/billing/portal",
+     "auth": "Bearer user token.",
+     "request": {
+      "return_path": "/account/billing"
+     },
+     "response": {
+      "billing_state": "S3-P0 response",
+      "portal_url": "string"
+     },
+     "errors": {
+      "401": "Open sign-in.",
+      "404": "Disable portal when no customer exists.",
+      "503": "Preserve cached display and show unavailable state."
+     },
+     "evidence": "The current account page has no actionable billing control (academy-watch-frontend/src/App.jsx:3489-3555)."
+    },
+    {
+     "method": "GET/PUT/POST",
+     "path": "/api/club/{program_id}/profile, /supporters/import, /updates, and /billing/checkout",
+     "auth": "Bearer active manager.",
+     "request": "Exact S3-P2 schemas.",
+     "response": "Exact S3-P2 schemas.",
+     "errors": {
+      "400": "Render field-level validation.",
+      "401": "Open sign-in.",
+      "403": "Use one neutral access-denied state.",
+      "409": "Refresh pending revision/import/billing state.",
+      "413": "Explain supporter batch limit.",
+      "503": "Preserve draft and permit retry."
+     },
+     "evidence": "MyClubConsole already has the Program context but no editor/import/billing implementation (academy-watch-frontend/src/pages/MyClubConsole.jsx:1762-1847,1918-1940)."
+    },
+    {
+     "method": "GET",
+     "path": "/api/programs/{slug}",
+     "auth": "Public.",
+     "request": null,
+     "response": "S3-P2 public projection; render external support, updates, supporter aggregate, and server-computed is_fundable.",
+     "errors": {
+      "404": "Use existing unavailable-program state."
+     },
+     "evidence": "ProgramPage already consumes the exact-slug public route and displays the current non-live support state (academy-watch-frontend/src/pages/ProgramPage.jsx:34-73,123-152)."
+    }
+   ],
+   "migration": {
+    "needed": false,
+    "reason": "Frontend-only package consumes S3-P0/P1/P2 contracts.",
+    "smallest_alternative": "Change only PricingPage CTA, add a hosted Billing Portal link, and add the moderated external-support link to ProgramPage; retain the existing read-only console until the full editor is ready (academy-watch-frontend/src/pages/PricingPage.jsx:69-91; academy-watch-frontend/src/pages/ProgramPage.jsx:123-152; academy-watch-frontend/src/pages/MyClubConsole.jsx:1791-1847)."
+   },
+   "depends_on": [
+    "S3-P0",
+    "S3-P1",
+    "S3-P2"
+   ]
+  },
+  {
+   "name": "S3-P4",
+   "title": "GATED: native club donation checkout with optional donor tip",
+   "gated": true,
+   "allowed": [
+    "academy-watch-backend/src/models/donation.py",
+    "academy-watch-backend/src/services/donation_checkout.py",
+    "academy-watch-backend/src/services/stripe_connect.py",
+    "academy-watch-backend/src/routes/donations.py",
+    "academy-watch-backend/src/main.py",
+    "academy-watch-backend/src/templates/donation_receipt.html",
+    "academy-watch-backend/migrations/versions/s3p4_donations.py",
+    "academy-watch-backend/tests/test_donations.py"
+   ],
+   "requirements": [
+    "1. DO NOT START OR ENABLE until counsel/regulatory scope, recipient classification, charity-versus-for-profit wording, registration obligations, adult gate, dispute policy, and platform-fee/tip treatment are written and approved (ledgers/ROADMAP_vision-gaps.md:35-60,82-88,131-142,160-161; ledgers/GRADING_dream-scorecard-2026-09-02.md:118).",
+    "2. Compute eligibility server-side from an explicit legal-gate row, approved/non-hidden program, donations_enabled, and correctly configured Connect readiness; never trust current hardcoded is_fundable or a client flag (academy-watch-backend/src/models/funding.py:175-216,412-423).",
+    "3. Create separate immutable donation/payment-event records with minor-unit amount, currency, optional tip, donor ownership, receipt state, Stripe IDs, refund/dispute state, and idempotency; FundingAdminEvent and VideoCreditLedger are unsuitable (academy-watch-backend/src/models/funding.py:426-442; academy-watch-backend/src/models/video.py:371-405).",
+    "4. Reuse S3-P0's single signed webhook and event-ID ledger; register a donation event handler from main rather than adding a second public Stripe webhook (academy-watch-backend/src/main.py:118-149; academy-watch-backend/src/services/contact.py:212-236).",
+    "5. Promote the current Connect scaffold only after implementing live/test separation, supported-country policy, KYC remediation, deauthorization, onboarding-link refresh, and the selected charge/transfer model (academy-watch-backend/src/services/stripe_connect.py:1-6,26-108; academy-watch-backend/src/models/funding.py:412-423).",
+    "6. Preserve the roadmap's donor-tip promise only if approved: club amount and platform tip must be separately visible and never silently netted or defaulted without consent (ledgers/ROADMAP_vision-gaps.md:82-88).",
+    "7. Keep ProgramPage's donation UI dormant until this package is legally enabled and its accessibility acceptance passes (academy-watch-frontend/src/pages/ProgramPage.jsx:149-152; ledgers/ROADMAP_vision-gaps.md:216-218)."
+   ],
+   "contracts": [
+    {
+     "method": "POST",
+     "path": "/api/programs/{slug}/donations/checkout",
+     "auth": "Bearer adult user token.",
+     "request": {
+      "amount_minor": 2500,
+      "currency": "usd",
+      "tip_minor": 250,
+      "idempotency_key": "UUID",
+      "display_name": "string|null",
+      "public_opt_in": false
+     },
+     "response": {
+      "checkout_url": "https://checkout.stripe.com/...",
+      "session_id": "cs_test_...",
+      "donation_id": "opaque-public-id",
+      "club_amount_minor": 2500,
+      "tip_minor": 250
+     },
+     "errors": {
+      "400": "Invalid server-supported currency, amount/tip bounds, or public display input.",
+      "401": "Authentication required.",
+      "403": "Adult/legal eligibility is not satisfied.",
+      "404": "Program is not publicly available.",
+      "409": "Program is not fundable, checkout already exists, or idempotency content differs.",
+      "422": "Connect recipient is not payout-ready.",
+      "503": "Stripe unavailable or test/live mode mismatch."
+     },
+     "evidence": "Accounts/claims/donations are planned as adults-only and the public program currently exposes no payment route (ledgers/ROADMAP_vision-gaps.md:35-46; academy-watch-backend/src/routes/funding.py:1079-1228)."
+    },
+    {
+     "method": "GET",
+     "path": "/api/donations/{donation_id}",
+     "auth": "Bearer token for the donor; dual-admin credentials may inspect operational fields.",
+     "request": null,
+     "response": {
+      "donation_id": "opaque-public-id",
+      "program": {
+       "slug": "string",
+       "name": "string"
+      },
+      "club_amount_minor": 2500,
+      "tip_minor": 250,
+      "currency": "usd",
+      "status": "pending|paid|refunded|partially_refunded|disputed|failed",
+      "receipt_sent_at": "ISO-8601|null"
+     },
+     "errors": {
+      "401": "Authentication required.",
+      "403": "Caller does not own the donation.",
+      "404": "Donation not found."
+     },
+     "evidence": "No existing funding record contains donor/payment/receipt state, so a new donor-owned projection is required (academy-watch-backend/src/models/funding.py:426-442)."
+    },
+    {
+     "method": "POST",
+     "path": "/api/admin/donations/{donation_id}/refund",
+     "auth": "require_api_key(allow_admin_token=True).",
+     "request": {
+      "amount_minor": 2500,
+      "reason": "string"
+     },
+     "response": {
+      "donation_id": "opaque-public-id",
+      "status": "refund_pending"
+     },
+     "errors": {
+      "400": "Amount exceeds refundable balance or reason is missing.",
+      "401": "Administrator authentication failed.",
+      "404": "Donation not found.",
+      "409": "Refund already pending/completed or donation is not refundable.",
+      "503": "Stripe unavailable; no local completed-refund state is written."
+     },
+     "evidence": "The existing video refund only issues a service credit and lacks external-money validation, so it must not be reused (academy-watch-backend/src/routes/video.py:753-781)."
+    },
+    {
+     "method": "POST",
+     "path": "/api/club/{program_id}/connect/onboarding",
+     "auth": "Bearer active manager with payout authority and completed legal gate.",
+     "request": {
+      "return_path": "/my-club/program/payouts"
+     },
+     "response": {
+      "url": "https://connect.stripe.com/...",
+      "account_mode": "test|live"
+     },
+     "errors": {
+      "400": "Unsafe return path or unsupported country/entity configuration.",
+      "401": "Authentication required.",
+      "403": "Manager/payout/legal authorization failed.",
+      "409": "Onboarding is already complete or another link is active.",
+      "503": "Stripe unavailable or environment mode inconsistent."
+     },
+     "evidence": "Current onboarding is dual-admin-triggered, hard-coded to an Express US company, transfers-only, and test-only (academy-watch-backend/src/routes/funding.py:819-904; academy-watch-backend/src/services/stripe_connect.py:26-78)."
+    },
+    {
+     "method": "POST",
+     "path": "/api/admin/funding/programs/{program_id}/donations/eligibility",
+     "auth": "require_api_key(allow_admin_token=True).",
+     "request": {
+      "recipient_classification": "qualified_nonprofit|fiscal_sponsor|for_profit|other",
+      "jurisdictions": [
+       "US-CA"
+      ],
+      "terms_version": "string",
+      "enabled": true,
+      "decision_note": "string"
+     },
+     "response": {
+      "program_id": 1,
+      "legal_gate_complete": true,
+      "is_fundable": false,
+      "blocking_reasons": [
+       "connect_not_ready"
+      ]
+     },
+     "errors": {
+      "400": "Incomplete classification, terms, jurisdiction, or decision evidence.",
+      "401": "Administrator authentication failed.",
+      "404": "Program not found.",
+      "409": "Program/claim state no longer permits eligibility."
+     },
+     "evidence": "Regulatory scope, entity wording, and donation gating are explicit Phase-0 requirements, while is_fundable is currently always false (ledgers/ROADMAP_vision-gaps.md:131-142; academy-watch-backend/src/models/funding.py:191-216)."
+    },
+    {
+     "method": "POST",
+     "path": "/api/billing/stripe/webhook",
+     "auth": "Existing S3-P0 Stripe-signature contract; no second webhook.",
+     "request": "Raw Stripe event bytes. Donation Checkout metadata contains only opaque internal IDs and rail=club_donation.",
+     "response": {
+      "received": true,
+      "duplicate": false
+     },
+     "errors": {
+      "400": "Invalid signature/event.",
+      "422": "Donation metadata/state cannot be reconciled; quarantine without acknowledging a paid donation locally.",
+      "500": "Transactional processing failed and Stripe should retry."
+     },
+     "evidence": "A single signed/idempotent callback avoids duplicating the currently absent webhook surface (academy-watch-backend/src/main.py:118-149; ledgers/GRADING_dream-scorecard-2026-09-02.md:106)."
+    }
+   ],
+   "migration": {
+    "needed": true,
+    "revision": "s3p4_donations",
+    "down_revision": "s3p2_club_profile_support",
+    "tables": [
+     "program_donation_eligibilities",
+     "club_donations",
+     "club_donation_events"
+    ],
+    "constraints": [
+     "Unique donation public ID.",
+     "Unique Stripe Checkout Session and PaymentIntent IDs when present.",
+     "Unique event ID and unique donor/program idempotency key.",
+     "Nonnegative integer club/tip/refund minor units with currency checks.",
+     "Legal-gate version and eligibility snapshot retained per donation."
+    ],
+    "rls": "Enable and force RLS with no public policies; donor and manager views must be application projections with explicit authorization (docs/agents/invariants.md:22-29,72-77).",
+    "chain": "cb01 -> s3p0_billing_foundation -> s3p2_club_profile_support -> s3p4_donations (academy-watch-backend/migrations/versions/cb01_coach_briefs.py:20-23; docs/agents/backend.md:19-30).",
+    "smallest_alternative": "Do not merge or enable native donations. Retain S3-P2's moderated Patreon/BuyMeACoffee link-out and aggregate supporter import until counsel and operational readiness are complete (ledgers/ROADMAP_vision-gaps.md:131-142,193-203; ledgers/GRADING_dream-scorecard-2026-09-02.md:118)."
+   },
+   "depends_on": [
+    "S3-P0",
+    "S3-P2"
+   ]
+  }
+ ],
+ "decisions_for_owner": [
+  "Set the committed Scout Pro currency, monthly/annual prices, trial policy, launch date, and beta-grandfather cohort. Current UI says free beta/pricing announced, while the roadmap leaves price/grandfathering open (academy-watch-frontend/src/pages/PricingPage.jsx:23-37,178-187; ledgers/ROADMAP_vision-gaps.md:89-99,131-142).",
+  "Define the canonical tier IDs and exact Pro unlocks/limits. Watchlist, notes, CSV, digest, and custom lists are currently auth-only, despite being marketed as Pro features (academy-watch-backend/src/routes/scout.py:1630-1906,2203-2374; academy-watch-frontend/src/pages/PricingPage.jsx:23-37).",
+  "Confirm that the underlying football-data/API license permits charging for Scout Pro and club products; paid API-data licensing is explicitly unresolved (ledgers/ROADMAP_vision-gaps.md:53-60,131-142).",
+  "Set the club-bundle price, billing intervals, included Film Room credits, overage/refund rules, and whether Film billing remains disabled while analysis is still marked in development (academy-watch-frontend/src/pages/PricingPage.jsx:39-52,93-97,190-196; ledgers/ROADMAP_vision-gaps.md:89-99).",
+  "Choose club billing authority: every active ClubProgramManager, the original approved claimant, or a new billing-owner role. Current managers are revocable and claim-backed but have no billing distinction (academy-watch-backend/src/models/funding.py:282-303).",
+  "Choose supported purchaser/recipient countries, currencies, tax handling, Connect entity types, and Stripe charge model: direct charges, destination charges, or separate charges/transfers. The current prototype is Express, US company, transfers-only, test-only (academy-watch-backend/src/services/stripe_connect.py:26-78).",
+  "Do not authorize native donations until counsel resolves registration scope, California AB 488 and other jurisdictions, recipient classification, charity/for-profit wording, tax-deductibility claims, age rules, and required terms (ledgers/ROADMAP_vision-gaps.md:35-60,131-142; ledgers/GRADING_dream-scorecard-2026-09-02.md:118).",
+  "Set the donor-tip default, allowed range, presentation, refund allocation, processor-fee allocation, and platform revenue recognition. The roadmap's proposed promise is club receives 100% less processing and tip is optional, but the decision is still open (ledgers/ROADMAP_vision-gaps.md:82-88).",
+  "Define entitlement behavior for trialing, incomplete, past_due, paused, canceled-at-period-end, refunded, disputed, and grace-period states; no current helper defines any lifecycle (academy-watch-backend/src/models/league.py:493-530,1075-1115).",
+  "Approve external-support providers/domains, moderation rules, takedown SLA, and whether custom club URLs beyond Patreon/BuyMeACoffee are allowed. Current revisions expose only official and safeguarding URLs (academy-watch-backend/src/models/funding.py:319-325).",
+  "Approve supporter-import fields, consent representation, duplicate policy, retention, export/deletion handling, and whether contribution values may be stored at all. Current Privacy does not describe imported supporter data (academy-watch-frontend/src/pages/LegalPages.jsx:107-149).",
+  "Choose whether iOS remains web-link-only for purchases or requires native StoreKit/IAP review. The current app has no pricing/billing tab and only opens hosted legal pages (academy-watch-ios/AcademyWatch/Views/RootTabView.swift:140-194; academy-watch-ios/AcademyWatch/Views/LegalSafariLink.swift:4-67).",
+  "Choose whether Stripe-hosted receipts are sufficient or the application must send branded receipts/status mail. A reusable email service exists, but no payment receipt template or event allowlist exists (academy-watch-backend/src/services/email_service.py:94-180,467-545; academy-watch-backend/src/routes/events.py:22-34).",
+  "Decide whether to migrate/archive the four deprecated Stripe tables and remove stale writer-payment account UI/docs, or preserve them as a clearly labeled historical read model (academy-watch-backend/src/models/league.py:999-1142; academy-watch-backend/STRIPE_IMPLEMENTATION_SUMMARY.md:23-115; academy-watch-frontend/src/App.jsx:3489-3555).",
+  "Confirm actual production Stripe settings and mode outside source control. env.template lists four names, while deploy.yml declares none, so production readiness cannot be inferred from this tree (academy-watch-backend/env.template:15-22; academy-watch-backend/.github/workflows/deploy.yml:45-65,203-217)."
+ ],
+ "risks": [
+  "Webhook replay and out-of-order events can double-grant or regress entitlement unless Stripe event IDs and provider timestamps are transactionally enforced; no current Stripe webhook exists (ledgers/GRADING_dream-scorecard-2026-09-02.md:106; academy-watch-backend/tests/test_contact.py:2828-2858,2928-2945).",
+  "Double-clicks or network retries can create multiple Checkout Sessions/subscriptions unless a purchaser/product/scope idempotency key is unique; the current nullable VideoCreditLedger session ID is unused by all writers (academy-watch-backend/src/models/video.py:371-405; academy-watch-backend/src/routes/video.py:337-344,740-747,770-778).",
+  "Entitlement drift is likely if UserAccount.scout_tier and Stripe subscription status become independent authorities; scout_tier currently has no paid writer or enum constraint (academy-watch-backend/src/models/league.py:493-530; academy-watch-backend/src/services/account.py:640-654).",
+  "The current Connect readiness predicate rejects live accounts by design, so flipping keys alone would leave live programs unfundable or tempt bypassing safety checks (academy-watch-backend/src/models/funding.py:412-423; academy-watch-backend/src/services/stripe_connect.py:26-37).",
+  "Connect KYC, requirements, deauthorization, capability revocation, country/entity mismatch, and onboarding-link refresh have no complete workflow; the current service only creates/retrieves a US Express test account (academy-watch-backend/src/services/stripe_connect.py:49-108).",
+  "stripe_connect.py's configured-URL helper returns before its validation block, making the subsequent validation unreachable and increasing redirect-configuration risk (academy-watch-backend/src/services/stripe_connect.py:40-46).",
+  "Test/live key, webhook-secret, price, and Connect-account mismatches could create unreconcilable objects. Source declares core Stripe names only in env.template and no Stripe deployment names (academy-watch-backend/env.template:15-22; academy-watch-backend/.github/workflows/deploy.yml:45-65,203-217).",
+  "Refund, dispute, chargeback, and partial-refund behavior are undefined. The only current refund route adds a service credit and does not refund external money (academy-watch-backend/src/routes/video.py:753-781; ledgers/ROADMAP_vision-gaps.md:160-161).",
+  "Account deletion currently removes local legacy Stripe rows without demonstrating cancellation or anonymization of external customers/subscriptions, creating privacy and billing-continuity risk (academy-watch-backend/src/services/account.py:830-845; academy-watch-backend/tests/test_account.py:1299-1313).",
+  "Deprecated writer billing rows and stale UI/docs can be mistaken for an active system during migration or support work (academy-watch-backend/src/models/league.py:999-1142; academy-watch-backend/STRIPE_IMPLEMENTATION_SUMMARY.md:23-115; academy-watch-frontend/src/App.jsx:3489-3555).",
+  "New financial/supporter tables could leak sensitive state if migration RLS is omitted; project invariants require explicit RLS and deny-by-default treatment (docs/agents/invariants.md:22-29,72-77).",
+  "Supporter imports introduce third-party PII, consent, deletion, spoofing, and phishing risk that current Privacy language does not cover (academy-watch-frontend/src/pages/LegalPages.jsx:107-149).",
+  "A program can be emergency-hidden or a manager revoked between Checkout creation and webhook completion; eligibility must be rechecked and the resulting hold/refund behavior defined (academy-watch-backend/src/models/funding.py:148-170,282-303; academy-watch-backend/src/routes/funding.py:957-1018).",
+  "US-only test Connect assumptions do not establish lawful payout readiness for clubs in other countries or entity types (academy-watch-backend/src/services/stripe_connect.py:49-78; ledgers/ROADMAP_vision-gaps.md:53-60).",
+  "Video-credit integrity is weak under concurrency and refunds: grant accepts arbitrary reasons, refund need not prove a debit, and ClubProgram jobs bypass debit entirely (academy-watch-backend/src/routes/video.py:318-350,726-781).",
+  "Anonymous product_events can be dropped or forged and must never drive revenue, receipts, or entitlements (academy-watch-backend/src/routes/events.py:63-139).",
+  "Current legal/product copy conflicts with future rails and partially conflicts with current code, including Stripe writer-payment Privacy text and newsletter UI claims that writers are charged (academy-watch-frontend/src/pages/LegalPages.jsx:126-135; academy-watch-frontend/src/pages/admin/AdminNewsletters.jsx:1601-1608; academy-watch-backend/src/services/newsletter_deadline_service.py:334-447).",
+  "Charging for Scout/club products before data-license confirmation may violate upstream terms; the roadmap explicitly leaves paid API-data licensing unresolved (ledgers/ROADMAP_vision-gaps.md:53-60,131-142).",
+  "Native iOS subscription links or feature unlocks may introduce App Store policy/IAP obligations; current iOS has no purchase flow to establish an approved pattern (academy-watch-ios/AcademyWatch/Views/RootTabView.swift:140-194; academy-watch-ios/AcademyWatch/Services/APIClient.swift:569-607).",
+  "Client-supplied price IDs, amounts, tips, scope IDs, or return URLs could cause price tampering or open redirects; current Stripe config has no Checkout validation layer, and the Connect URL validator contains unreachable code (academy-watch-backend/src/config/stripe_config.py:25-69; academy-watch-backend/src/services/stripe_connect.py:40-46).",
+  "Receipt email can be duplicated by webhook retry unless delivery is keyed to the first committed state transition; existing notification code advances its watermark only after successful delivery and should be mirrored (academy-watch-backend/src/services/profile_activity_notification_service.py:197-249)."
+ ],
+ "acceptance": [
+  {
+   "pkg": "S3-P0",
+   "check": "On deployed main with test-mode Stripe, create a server-priced Checkout Session and Billing Portal session; assert returned objects are test-mode and a live/test price or account mismatch fails closed. No equivalent creation exists today (academy-watch-backend/src/services/stripe_connect.py:1-6,26-37; academy-watch-backend/src/config/stripe_config.py:25-69)."
+  },
+  {
+   "pkg": "S3-P0",
+   "check": "Deliver a valid signed test event, replay the identical event, then deliver an older event for the same subscription; assert one event row per Stripe event ID, one current subscription, no state regression, and exactly one entitlement/receipt transition. Replay/expiry behavior is currently tested only for contact tokens (academy-watch-backend/tests/test_contact.py:2828-2858,2928-2945)."
+  },
+  {
+   "pkg": "S3-P0",
+   "check": "Send missing, malformed, and wrong-secret Stripe-Signature headers and unknown product metadata; assert 400/422 as contracted and zero entitlement/revenue writes. Current main has no webhook protection to exercise (academy-watch-backend/src/main.py:118-149; ledgers/GRADING_dream-scorecard-2026-09-02.md:106)."
+  },
+  {
+   "pkg": "S3-P0",
+   "check": "Verify deployed admin billing summary matches stored test charges/refunds and account deletion executes the approved external-cancellation/anonymization policy rather than only deleting local rows (academy-watch-backend/src/services/account.py:830-845; academy-watch-backend/src/routes/api.py:10057-10099)."
+  },
+  {
+   "pkg": "S3-P1",
+   "check": "From a free deployed account, start test Checkout twice with the same idempotency key; assert one Session, scout_tier/entitlement stays free until the signed completion event, then normalized Pro entitlement appears in /api/scout/entitlements and /api/auth/me (academy-watch-backend/src/models/league.py:493-530; academy-watch-backend/src/routes/auth_routes.py:408-435)."
+  },
+  {
+   "pkg": "S3-P1",
+   "check": "For every owner-selected Pro feature, assert a free non-grandfathered user receives the exact scout_pro_required 403 and an active/grandfathered Pro user succeeds; today all candidate features are merely auth-gated (academy-watch-backend/src/routes/scout.py:1630-1906,2203-2374)."
+  },
+  {
+   "pkg": "S3-P1",
+   "check": "Exercise trialing, active, past_due, cancel-at-period-end, canceled, refund, dispute, and out-of-order test events; assert the documented grace policy and no divergence between billing subscription, helper output, scout_tier projection, web, and iOS responses (academy-watch-backend/src/models/league.py:493-530; academy-watch-ios/AcademyWatch/ViewModels/WatchlistViewModel.swift:95-105)."
+  },
+  {
+   "pkg": "S3-P1",
+   "check": "Assert paid status never changes is_verified_scout and verification status never grants Pro, because trust and billing are separate domains (academy-watch-backend/src/models/league.py:577-582; academy-watch-backend/src/services/trust.py:14-30)."
+  },
+  {
+   "pkg": "S3-P2",
+   "check": "On deployed main, an active manager submits a safe edit and public GET continues returning the prior approved revision until dual-admin approval; non-manager, revoked-manager, rejected-claim, and hidden-program requests all receive the same neutral 403/404 behavior (academy-watch-backend/src/services/club_registry.py:138-190; academy-watch-backend/src/routes/funding.py:1079-1122)."
+  },
+  {
+   "pkg": "S3-P2",
+   "check": "Reject javascript URLs, embedded credentials, redirect/host mismatches, unsupported providers, and unknown fields; after moderation, render Patreon/BuyMeACoffee with safe external-link attributes while retaining the platform-wide TheAcademyWatch link separately (academy-watch-frontend/src/components/bmcButtonConfig.js:1-29; academy-watch-backend/src/models/funding.py:319-325)."
+  },
+  {
+   "pkg": "S3-P2",
+   "check": "Import the same provider export twice under the same and different idempotency keys; assert no duplicate supporter, forbidden PII fields are rejected, only opted-in names become public, and account/program deletion follows the approved retention policy (academy-watch-frontend/src/pages/LegalPages.jsx:107-149; ledgers/ROADMAP_vision-gaps.md:193-203)."
+  },
+  {
+   "pkg": "S3-P2",
+   "check": "Purchase a test-mode club bundle as an authorized manager and replay its webhook; assert exactly one subscription scoped to ClubProgram.id, no Team ownership dependency, and unauthorized managers cannot buy/cancel (academy-watch-backend/src/models/funding.py:114-170,282-303; academy-watch-backend/src/services/club_console_bridge.py:389-435)."
+  },
+  {
+   "pkg": "S3-P2",
+   "check": "Verify every new table has enabled/forced RLS and no unintended public policy, while public program responses expose only approved revisions, approved updates, consented supporter aggregates, and moderated URLs (docs/agents/invariants.md:22-29,72-77; academy-watch-backend/src/routes/funding.py:1079-1122)."
+  },
+  {
+   "pkg": "S3-P3",
+   "check": "Run frontend contract tests against mocks before backend availability, then on deployed main verify Pricing shows the exact owner-approved price, sign-in behavior, Checkout return/cancel states, active subscription, and Billing Portal action; current CTA and copy are free-beta only (academy-watch-frontend/src/pages/PricingPage.jsx:23-37,69-91,178-187)."
+  },
+  {
+   "pkg": "S3-P3",
+   "check": "Verify MyClubConsole preserves drafts across retry, shows pending versus approved profile state, supports safe supporter import/update/bundle workflows, and never reveals whether a different user manages a program (academy-watch-frontend/src/pages/MyClubConsole.jsx:1762-1847; academy-watch-backend/src/services/club_registry.py:138-190)."
+  },
+  {
+   "pkg": "S3-P3",
+   "check": "Verify ProgramPage never shows native donation controls while is_fundable=false, external links use noopener/noreferrer, Save this program remains a distinct non-payment action, and approved updates/supporter aggregates remain accessible (academy-watch-backend/src/models/funding.py:191-216; academy-watch-frontend/src/pages/ProgramPage.jsx:115-152)."
+  },
+  {
+   "pkg": "S3-P3",
+   "check": "Verify administrator revenue tiles reconcile to S3-P0 records and are not populated from product_events; current product events omit purchase/refund types (academy-watch-backend/src/routes/events.py:22-34,63-139)."
+  },
+  {
+   "pkg": "S3-P3",
+   "check": "Complete keyboard, focus, screen-reader, contrast, loading/error, and reduced-motion checks for every new purchase/editor surface; accessibility is explicitly required before donation GA (ledgers/ROADMAP_vision-gaps.md:216-218)."
+  },
+  {
+   "pkg": "S3-P4",
+   "check": "Before deployment or feature enablement, require a versioned legal eligibility record covering recipient classification, jurisdictions, terms, adult gate, fee/tip treatment, refunds, disputes, and tax-deductibility wording; without it, checkout must remain unavailable (ledgers/ROADMAP_vision-gaps.md:35-60,82-88,131-142,160-161; ledgers/GRADING_dream-scorecard-2026-09-02.md:118)."
+  },
+  {
+   "pkg": "S3-P4",
+   "check": "With test-mode Stripe, create a donor checkout only for an approved/non-hidden legally eligible program with payout-ready test Connect; reject hidden, revoked, donations-disabled, wrong-mode, non-adult, and unready-account cases even if the browser claims is_fundable=true (academy-watch-backend/src/models/funding.py:175-216,412-423)."
+  },
+  {
+   "pkg": "S3-P4",
+   "check": "Replay successful Checkout/PaymentIntent events and assert one donation, one immutable event per Stripe event ID, one receipt, and exact separation of club amount, tip, processor fee, and platform revenue; FundingAdminEvent currently cannot represent those values (academy-watch-backend/src/models/funding.py:426-442; ledgers/ROADMAP_vision-gaps.md:82-88)."
+  },
+  {
+   "pkg": "S3-P4",
+   "check": "Exercise full, partial, repeated, failed, and disputed refunds in test mode; assert external Stripe success precedes completed local status, refundable balance never goes negative, and entitlement/supporter aggregates reconcile (academy-watch-backend/src/routes/video.py:753-781; ledgers/ROADMAP_vision-gaps.md:160-161)."
+  },
+  {
+   "pkg": "S3-P4",
+   "check": "Hide the program or revoke the manager after Session creation but before payment completion; assert the documented hold/refund policy executes and no further Checkout can be created (academy-watch-backend/src/models/funding.py:148-170,282-303; academy-watch-backend/src/routes/funding.py:957-1018)."
+  },
+  {
+   "pkg": "S3-P4",
+   "check": "Inspect created Stripe objects and assert every object is test-mode, no live account/price/customer is referenced, and current test-only Connect safety is not bypassed (academy-watch-backend/src/services/stripe_connect.py:26-37,81-108; academy-watch-backend/src/models/funding.py:412-423)."
+  }
+ ],
+ "open_questions": [
+  "UNVERIFIED: Which Stripe variables, values, secrets, webhook endpoints, and account mode are actually configured in production? deploy.yml declares none, and this reconnaissance did not read environment values (academy-watch-backend/.github/workflows/deploy.yml:45-65,203-217; academy-watch-backend/env.template:15-22).",
+  "UNCONFIRMED: What is the committed Scout Pro price? The current product UI says free beta/pricing announced, and the roadmap still lists price/grandfathering as a decision (academy-watch-frontend/src/pages/PricingPage.jsx:23-37,178-187; ledgers/ROADMAP_vision-gaps.md:131-142).",
+  "UNCONFIRMED: Have donation/recipient regulatory opinions, state registrations, charity-versus-for-profit wording, and API-data licensing been completed outside this repository? The repository marks them as incomplete prerequisites (ledgers/ROADMAP_vision-gaps.md:53-60,131-142; ledgers/GRADING_dream-scorecard-2026-09-02.md:118).",
+  "UNVERIFIED: Do the four deprecated Stripe tables contain production rows, and what RLS policies exist in the deployed database? Their creation migration has no RLS statements, while the ORM preserves them for legacy data (academy-watch-backend/migrations/versions/s1t2r3i4p5e6_add_stripe_models.py:19-99; academy-watch-backend/src/models/league.py:999-1142).",
+  "UNCONFIRMED: Which Connect charge model and recipient countries/entities should clubs use? Current code establishes only an Express US company test account requesting transfers (academy-watch-backend/src/services/stripe_connect.py:49-78).",
+  "UNCONFIRMED: What exact Patreon and BuyMeACoffee export schemas are acceptable, and may contribution values or supporter emails ever be retained? No current supporter-import model or Privacy disclosure answers this (academy-watch-backend/src/models/funding.py:305-442; academy-watch-frontend/src/pages/LegalPages.jsx:107-149).",
+  "UNCONFIRMED: Should club-bundle Film credits be scoped directly to ClubProgram, mirrored into Team's VideoCreditLedger after adoption, or remain outside the credit ledger? Current credits are Team-keyed while ClubProgram jobs bypass debit (academy-watch-backend/src/models/video.py:371-405; academy-watch-backend/src/routes/video.py:318-345).",
+  "UNCONFIRMED: Is iOS intentionally web-only for billing, or must Scout Pro entitlement and purchase restoration be native? Current iOS stores scoutTier but has no pricing or billing UI (academy-watch-ios/AcademyWatch/ViewModels/WatchlistViewModel.swift:95-105; academy-watch-ios/AcademyWatch/Views/RootTabView.swift:140-194).",
+  "UNCONFIRMED: Should stale writer-payment documentation, legacy account subscription display, and orphan Stripe E2E helpers be removed in S3-P0 or retained for historical migration support? They describe functionality absent from current main (academy-watch-backend/STRIPE_IMPLEMENTATION_SUMMARY.md:23-115; academy-watch-frontend/src/App.jsx:3489-3555; academy-watch-frontend/e2e/helpers/stripe.js:29-106).",
+  "UNVERIFIED: Runtime route behavior, deployed database contents, Stripe account capabilities, and external provider behavior were not exercised during this read-only source reconnaissance; the current source tests mock Connect and explicitly disable real calls (academy-watch-backend/tests/test_funding_registry.py:18-26)."
+ ]
+}
