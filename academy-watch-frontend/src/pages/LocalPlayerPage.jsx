@@ -4,12 +4,14 @@ import { AlertTriangle, ArrowRight, MapPin, ShieldAlert, UserPlus } from 'lucide
 import { APIService } from '@/lib/api'
 import { ContentReportDialog } from '@/components/ContentReportDialog'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
+import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useAuth } from '@/context/AuthContext'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { formatSeasonLabel } from '@/lib/seasons'
 
 function LoadingState() {
   return (
@@ -56,11 +58,69 @@ function MissingState() {
   )
 }
 
+function LocalSeasonStats({ stats, position }) {
+  if (!stats) return null
+  const goalkeeper = /(^|[^a-z])(g|gk|goalkeeper|keeper)(?=$|[^a-z])/.test(
+    String(position || '').trim().toLowerCase(),
+  )
+  const hasTotals = [
+    stats.appearances,
+    stats.minutes,
+    stats.goals,
+    stats.assists,
+    stats.saves,
+    stats.goals_conceded,
+  ].some((value) => Number(value || 0) > 0)
+  if (!hasTotals && !stats.provenance) return null
+
+  const totals = goalkeeper
+    ? [
+        ['Appearances', stats.appearances ?? 0, 'text-foreground'],
+        ['Minutes', stats.minutes ?? 0, 'text-foreground'],
+        ['Saves', stats.saves ?? 0, 'text-emerald-600'],
+        ['Conceded', stats.goals_conceded ?? 0, 'text-orange-600'],
+      ]
+    : [
+        ['Appearances', stats.appearances ?? 0, 'text-foreground'],
+        ['Minutes', stats.minutes ?? 0, 'text-foreground'],
+        ['Goals', stats.goals ?? 0, 'text-emerald-600'],
+        ['Assists', stats.assists ?? 0, 'text-amber-600'],
+      ]
+
+  return (
+    <section className="space-y-3" aria-labelledby="local-player-season-totals">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 id="local-player-season-totals" className="text-xl font-semibold tracking-tight text-foreground">
+          {formatSeasonLabel(stats.season)} Totals
+        </h2>
+        <ProvenanceChip provenance={stats.provenance} />
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {totals.map(([label, value, color]) => (
+          <Card key={label}>
+            <CardContent className="pt-4 text-center">
+              <div className={`text-3xl font-bold tabular-nums ${color}`}>
+                {label === 'Minutes' ? Number(value).toLocaleString() : value}
+              </div>
+              <div className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function LocalPlayerProfile({ numericPlayerId, onRetry }) {
   const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState(null)
+  const [seasonStats, setSeasonStats] = useState(null)
+  const signedPlayerApiId = `-${String(numericPlayerId)}`
+  const canonicalPlayerApiId = player?.api_player_id == null
+    ? signedPlayerApiId
+    : String(player.api_player_id)
 
   useEffect(() => {
     let cancelled = false
@@ -87,6 +147,19 @@ function LocalPlayerProfile({ numericPlayerId, onRetry }) {
 
     return () => { cancelled = true }
   }, [numericPlayerId])
+
+  useEffect(() => {
+    if (!player) return undefined
+    let cancelled = false
+    APIService.getPublicPlayerSeasonStats(canonicalPlayerApiId)
+      .then((response) => {
+        if (!cancelled) setSeasonStats(response || null)
+      })
+      .catch(() => {
+        if (!cancelled) setSeasonStats(null)
+    })
+    return () => { cancelled = true }
+  }, [canonicalPlayerApiId, player])
 
   if (loading) return <LoadingState />
   if (notFound) return <MissingState />
@@ -164,9 +237,14 @@ function LocalPlayerProfile({ numericPlayerId, onRetry }) {
 
         <ShowcaseSection
           local
-          playerApiId={numericPlayerId}
+          playerApiId={String(numericPlayerId)}
+          canonicalPlayerApiId={canonicalPlayerApiId}
           playerName={player.display_name}
+          playerPosition={player.position}
+          onSeasonStatsChange={setSeasonStats}
         />
+
+        <LocalSeasonStats stats={seasonStats} position={player.position} />
       </div>
     </div>
   )
