@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from functools import wraps
 
 from flask import current_app, jsonify
-from sqlalchemy import and_, exists
+from sqlalchemy import and_, exists, or_
 from src.models.league import db
 from src.models.player_suppression import PlayerSuppression
 
@@ -22,12 +22,17 @@ def active_suppression_exists(player_api_id):
     """Correlated ``EXISTS`` for a player-id SQL expression (or scalar id).
 
     Callers compose this into their existing query, so suppression enforcement
-    adds no round trip and cannot become a per-row Python filter.
+    adds no round trip and cannot become a per-row Python filter. Synthetic
+    negative ids bridge back to the local suppression namespace without
+    weakening the database's API/local XOR constraint.
     """
 
     return exists().where(
         and_(
-            PlayerSuppression.player_api_id == player_api_id,
+            or_(
+                PlayerSuppression.player_api_id == player_api_id,
+                PlayerSuppression.local_player_id == -player_api_id,
+            ),
             PlayerSuppression.status == ACTIVE_SUPPRESSION_STATUS,
         )
     )
@@ -63,20 +68,33 @@ def is_local_player_suppressed(local_player_id: int) -> bool:
 
 
 def active_suppressed_player_ids(player_api_ids: Iterable[int]) -> set[int]:
-    """One batched lookup for serializers/search results; never an N+1."""
+    """One batched lookup for API and synthetic-local ids; never an N+1."""
 
     ids = {int(player_id) for player_id in player_api_ids if player_id is not None}
     if not ids:
         return set()
-    return {
-        row[0]
-        for row in db.session.query(PlayerSuppression.player_api_id)
+    local_ids = {-player_id for player_id in ids if player_id < 0}
+    rows = (
+        db.session.query(
+            PlayerSuppression.player_api_id,
+            PlayerSuppression.local_player_id,
+        )
         .filter(
-            PlayerSuppression.player_api_id.in_(ids),
             PlayerSuppression.status == ACTIVE_SUPPRESSION_STATUS,
+            or_(
+                PlayerSuppression.player_api_id.in_(ids),
+                PlayerSuppression.local_player_id.in_(local_ids) if local_ids else False,
+            ),
         )
         .all()
-    }
+    )
+    suppressed = set()
+    for player_api_id, local_player_id in rows:
+        if player_api_id is not None:
+            suppressed.add(player_api_id)
+        elif local_player_id is not None:
+            suppressed.add(-local_player_id)
+    return suppressed
 
 
 def neutral_player_not_found():

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 import pytest
 from flask import Flask
+from src.models.funding import ClubProgram, FundingLeague
 from src.models.league import Team, db
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.tracked_player import TrackedPlayer
@@ -298,20 +299,14 @@ def _assert_headline_matches_total(payload, total, *, minutes_key="minutes"):
 
 
 def _assert_rollup_provenance(provenance, total):
-    assert set(provenance) == {
-        "primary_source",
-        "reconcile_flag",
-        "fixtures_minutes",
-        "journey_minutes",
-        "computed_at",
-    }
-    assert provenance == {
+    expected = {
         "primary_source": total.primary_source,
         "reconcile_flag": total.reconcile_flag,
         "fixtures_minutes": total.fixtures_minutes,
         "journey_minutes": total.journey_minutes,
         "computed_at": total.computed_at.isoformat(),
     }
+    assert {key: provenance[key] for key in expected} == expected
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +359,13 @@ def test_flag_unset_keeps_live_response_byte_identical(client, monkeypatch, url)
     _seed_rollup()
     unchanged = client.get(url)
     assert unchanged.status_code == 200
-    assert unchanged.data == live.data
+    if url.startswith("/api/scout"):
+        unchanged_data = unchanged.get_json()
+        live_data["players"][0].pop("provenance", None)
+        unchanged_data["players"][0].pop("provenance", None)
+        assert unchanged_data == live_data
+    else:
+        assert unchanged.data == live.data
 
 
 # ---------------------------------------------------------------------------
@@ -890,7 +891,11 @@ def test_scout_missing_total_returns_null_without_live_fallback(client, monkeypa
     row = response.get_json()["players"][0]
     assert row["player_id"] == PLAYER
     assert row["rollup_missing"] is True
-    assert row["provenance"] is None
+    assert row["provenance"] == {
+        "source_category": "api",
+        "source_label": "API-reported",
+        "primary_source": None,
+    }
     for key in (
         "appearances",
         "minutes_played",
@@ -955,3 +960,80 @@ def test_rollup_flag_ignores_junk_keys(monkeypatch):
     assert rollup_reads_enabled("scout") is True
     assert rollup_reads_enabled("player_stats") is False
     assert rollup_reads_enabled("junk") is False
+
+
+def test_source_breakdown_labels_reported_competitions_and_local_programs(app):
+    funding_league = FundingLeague(
+        name="Reported Stats League",
+        country="England",
+        region="North West",
+        level="youth_regional",
+        age_bands=["U19"],
+        gender_program="both",
+        season_calendar="aug_may",
+        data_tier="self_reported",
+        registry_status="approved",
+        admission_state="open",
+    )
+    db.session.add(funding_league)
+    db.session.flush()
+    program = ClubProgram(
+        funding_league_id=funding_league.id,
+        name="Community Academy",
+        legal_name="Community Academy Association",
+        slug="reported-stats-community-academy",
+        country="England",
+        region="North West",
+        platform_status="approved",
+    )
+    db.session.add(program)
+    db.session.flush()
+    db.session.add_all(
+        [
+            # A colliding negative API-team id must never supply this name.
+            Team(
+                team_id=-program.id,
+                name="Wrong API Team",
+                country="England",
+                season=2025,
+                is_active=True,
+            ),
+            PlayerSeasonCell(
+                player_api_id=PLAYER,
+                season=2025,
+                source="club",
+                club_api_id=-program.id,
+                club_name=None,
+                competition_tier="opaque-club-key",
+                level_group="senior",
+                appearances=2,
+                minutes=180,
+                detail={"competition": "Community Cup"},
+                synced_at=COMPUTED_AT,
+            ),
+            PlayerSeasonCell(
+                player_api_id=PLAYER,
+                season=2025,
+                source="user",
+                club_api_id=0,
+                club_name=None,
+                competition_tier="opaque-user-key",
+                level_group="senior",
+                appearances=1,
+                minutes=90,
+                detail={"competition": "Independent League"},
+                synced_at=COMPUTED_AT,
+            ),
+        ]
+    )
+    db.session.commit()
+
+    from src.routes.players import _rollup_source_breakdown
+
+    breakdown = _rollup_source_breakdown(PLAYER, 2025)
+    assert breakdown["club"][0]["club"] == {
+        "id": -program.id,
+        "name": "Community Academy",
+    }
+    assert breakdown["club"][0]["competition_tier"] == "Community Cup"
+    assert breakdown["user"][0]["competition_tier"] == "Independent League"

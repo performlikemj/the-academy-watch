@@ -18,7 +18,9 @@ from src.models.league import (
 )
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.tracked_player import TrackedPlayer
-from src.services.player_suppression import hide_suppressed_player
+from src.services.player_shadow_service import is_external_player_id
+from src.services.player_subject import resolve_player_subject
+from src.services.player_suppression import hide_suppressed_player, neutral_player_not_found
 from src.utils.feature_flags import rollup_reads_enabled
 
 logger = logging.getLogger(__name__)
@@ -190,12 +192,27 @@ def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict
         )
         .all()
     )
+    local_program_ids = {-cell.club_api_id for cell in cells if cell.club_api_id < 0}
+    local_program_names = {}
+    if local_program_ids:
+        from src.models.funding import ClubProgram
+
+        local_program_names = {
+            program.id: program.name
+            for program in ClubProgram.query.filter(ClubProgram.id.in_(local_program_ids)).all()
+        }
+
     breakdown: dict[str, list[dict]] = {}
     for cell in cells:
+        detail = cell.detail if isinstance(cell.detail, dict) else {}
+        competition_label = detail.get("competition") if cell.source in {"club", "user"} else cell.competition_tier
+        club_name = (
+            local_program_names.get(-cell.club_api_id, cell.club_name) if cell.club_api_id < 0 else cell.club_name
+        )
         breakdown.setdefault(cell.source, []).append(
             {
-                "club": {"id": cell.club_api_id, "name": cell.club_name},
-                "competition_tier": cell.competition_tier,
+                "club": {"id": cell.club_api_id, "name": club_name},
+                "competition_tier": competition_label,
                 "stats": {
                     "appearances": cell.appearances,
                     "minutes": cell.minutes,
@@ -238,7 +255,7 @@ def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-@players_bp.route("/players/<int:player_id>/stats", methods=["GET"])
+@players_bp.route("/players/<int(signed=True):player_id>/stats", methods=["GET"])
 @hide_suppressed_player("player_id")
 def get_public_player_stats(player_id: int):
     """Get historical stats for a player (public endpoint).
@@ -249,6 +266,13 @@ def get_public_player_stats(player_id: int):
     Query params:
     - force_sync: If 'true', force sync from API-Football even if local count matches
     """
+    external_player = is_external_player_id(player_id)
+    subject = None
+    if not external_player:
+        subject = resolve_player_subject(player_id)
+        if subject is None or not subject.is_public:
+            return neutral_player_not_found()
+
     try:
         from src.api_football_client import APIFootballClient
         from src.models.weekly import Fixture, FixturePlayerStats
@@ -388,6 +412,8 @@ def get_public_player_stats(player_id: int):
         player_name_for_sync = tracked[0].player_name if tracked else None
 
         for loan_team_api_id in loan_team_api_ids:
+            if not external_player:
+                continue
             try:
                 local_count = sum(1 for s, f in stats_query if s.team_api_id == loan_team_api_id)
                 api_client = APIFootballClient()
@@ -496,30 +522,55 @@ def get_public_player_stats(player_id: int):
 # ---------------------------------------------------------------------------
 
 
-@players_bp.route("/players/<int:player_id>/profile", methods=["GET"])
+@players_bp.route("/players/<int(signed=True):player_id>/profile", methods=["GET"])
 @hide_suppressed_player("player_id")
 def get_public_player_profile(player_id: int):
     """Get player profile info including name, team, position, photo."""
+    external_player = is_external_player_id(player_id)
+    subject = None
+    if not external_player:
+        subject = resolve_player_subject(player_id)
+        if subject is None or not subject.is_public:
+            return neutral_player_not_found()
+
     try:
         from src.models.weekly import FixturePlayerStats
 
+        local_player = subject.local_player if subject is not None else None
+        local_age = None
+        if local_player is not None:
+            from datetime import date as _date
+
+            from src.utils.academy_window import age_from_birth_date
+
+            if local_player.birth_date is not None:
+                local_age = age_from_birth_date(local_player.birth_date, today=_date.today())
+            elif local_player.birth_year is not None:
+                # A year alone cannot prove that this year's birthday has
+                # passed. Report the youngest possible age for that year.
+                local_age = max(0, _date.today().year - local_player.birth_year - 1)
+
         result = {
             "player_id": player_id,
-            "name": None,
+            "name": local_player.display_name if local_player is not None else None,
             "photo": None,
-            "position": None,
-            "loan_team_name": None,
+            "position": local_player.position if local_player is not None else None,
+            "loan_team_name": local_player.club_name if local_player is not None else None,
             "loan_team_id": None,
             "loan_team_logo": None,
             "parent_team_name": None,
             "parent_team_id": None,
             "parent_team_logo": None,
-            "nationality": None,
-            "age": None,
+            "nationality": local_player.country if local_player is not None else None,
+            "age": local_age,
         }
+        if local_player is not None:
+            result["local_player_id"] = local_player.id
 
-        # Get player base info from Player table
-        player = Player.query.filter_by(player_id=player_id).first()
+        # Legacy Player rows only represent API-Football identities. Historical
+        # orphan rows can have negative ids, but must never override the approved
+        # LocalPlayer identity resolved above.
+        player = Player.query.filter_by(player_id=player_id).first() if external_player else None
         if player:
             result["name"] = player.name
             result["photo"] = player.photo_url
@@ -694,10 +745,16 @@ def get_public_player_profile(player_id: int):
 # ---------------------------------------------------------------------------
 
 
-@players_bp.route("/players/<int:player_id>/season-stats", methods=["GET"])
+@players_bp.route("/players/<int(signed=True):player_id>/season-stats", methods=["GET"])
 @hide_suppressed_player("player_id")
 def get_public_player_season_stats(player_id: int):
     """Get aggregated season stats for a player at their LOAN CLUB only."""
+    external_player = is_external_player_id(player_id)
+    if not external_player:
+        subject = resolve_player_subject(player_id)
+        if subject is None or not subject.is_public:
+            return neutral_player_not_found()
+
     try:
         from sqlalchemy import func
         from src.api_football_client import APIFootballClient
@@ -986,7 +1043,7 @@ def get_public_player_season_stats(player_id: int):
         result["has_multiple_clubs"] = len(loan_teams_info) > 1
 
         # Aggregate stats from API-Football for ALL loan clubs
-        api_client = APIFootballClient()
+        api_client = APIFootballClient() if external_player else None
         total_appearances = 0
         total_minutes = 0
         total_goals = 0
@@ -994,6 +1051,8 @@ def get_public_player_season_stats(player_id: int):
         clubs_breakdown = []
 
         for team_info in loan_teams_info:
+            if api_client is None:
+                continue
             try:
                 api_totals = api_client._fetch_player_team_season_totals_api(
                     player_id=player_id,
@@ -1121,7 +1180,7 @@ def _degraded_availability_payload(player_id: int, season: int) -> dict:
     }
 
 
-@players_bp.route("/players/<int:player_id>/availability", methods=["GET"])
+@players_bp.route("/players/<int(signed=True):player_id>/availability", methods=["GET"])
 @hide_suppressed_player("player_id")
 def get_player_availability(player_id: int):
     """Get injury/absence history for a player this season.
@@ -1134,6 +1193,17 @@ def get_player_availability(player_id: int):
     Query params:
     - season: season start year (default: current season)
     """
+    if not is_external_player_id(player_id):
+        subject = resolve_player_subject(player_id)
+        if subject is None or not subject.is_public:
+            return neutral_player_not_found()
+        from src.utils.academy_window import current_stats_season
+
+        season = request.args.get("season", type=int) or current_stats_season()
+        payload = _degraded_availability_payload(player_id, season)
+        payload["reason"] = "local_player"
+        return jsonify(payload), 200
+
     try:
         season = request.args.get("season", type=int)
         try:

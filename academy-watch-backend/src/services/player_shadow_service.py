@@ -35,6 +35,12 @@ SHADOW_PROFILE_STALE_DAYS = 7
 MAX_SEARCH_RESULTS = 10
 
 
+def is_external_player_id(pid: int) -> bool:
+    """Return whether a logical player id belongs to API-Football."""
+
+    return pid > 0
+
+
 def _get_api_client():
     from src.routes.api import api_client
 
@@ -96,15 +102,61 @@ def _clean_seed(seed):
     return cleaned
 
 
+def _local_shadow_birth_date(player):
+    """Copy only an exact DOB; never invent a date from year-only evidence."""
+
+    return player.birth_date
+
+
+def _mint_local_shadow(player_api_id):
+    """Get or seed one synthetic shadow exclusively from its LocalPlayer."""
+
+    from src.models.showcase import LocalPlayer
+
+    local_player = LocalPlayer.query.filter_by(
+        id=-player_api_id,
+        api_player_id=player_api_id,
+        status="approved",
+        merged_into_local_player_id=None,
+    ).first()
+    if local_player is None:
+        raise ValueError("negative player id does not resolve to an approved local player")
+
+    shadow = PlayerShadow.query.filter_by(player_api_id=player_api_id).first()
+    if shadow is None:
+        shadow = PlayerShadow(player_api_id=player_api_id, player_name=local_player.display_name)
+        db.session.add(shadow)
+
+    # Re-seeding is deliberately idempotent and DB-only. LocalPlayer is the
+    # trusted source; caller-supplied seed/requested_by values never participate.
+    shadow.player_name = str(local_player.display_name)[:200]
+    shadow.photo_url = None
+    shadow.position = str(local_player.position)[:50] if local_player.position else None
+    shadow.nationality = str(local_player.country)[:100] if local_player.country else None
+    shadow.birth_date = _local_shadow_birth_date(local_player)
+    shadow.current_club_name = str(local_player.club_name)[:200] if local_player.club_name else None
+    shadow.current_club_api_id = None
+    shadow.requested_by_user_id = local_player.created_by_user_id
+    shadow.last_profile_sync_at = None
+    shadow.is_active = True
+    db.session.flush()
+    return shadow
+
+
 def mint_shadow(player_api_id, seed=None, requested_by=None, api_client=None):
     """Get-or-create the PlayerShadow for ``player_api_id``.
 
-    The profile comes from ``players/profiles``; on any error (or stub mode) it
-    falls back to the ``seed`` fields carried by the search result so the mint
-    always succeeds offline.
+    Positive ids use ``players/profiles`` and fall back to the caller seed.
+    Negative ids require the approved LocalPlayer at ``-player_api_id`` and are
+    seeded only from that trusted row without resolving or calling a client.
     """
     if is_player_suppressed(player_api_id):
         raise PlayerSuppressedError(player_api_id)
+
+    if not is_external_player_id(player_api_id):
+        if player_api_id == 0:
+            raise ValueError("player_api_id must be non-zero")
+        return _mint_local_shadow(player_api_id)
 
     existing = PlayerShadow.query.filter_by(player_api_id=player_api_id).first()
     if existing:
@@ -192,7 +244,7 @@ def search_players(q, api_client=None):
     for row in rows:
         player = (row or {}).get("player") or {}
         pid = player.get("id")
-        if not isinstance(pid, int) or pid in seen:
+        if not isinstance(pid, int) or not is_external_player_id(pid) or pid in seen:
             continue
         seen.add(pid)
         stats = row.get("statistics") if isinstance(row, dict) else None
@@ -291,6 +343,8 @@ def user_shadow_follow_count(user_id: int) -> int:
 
 
 def _fetch_season_data(client, player_api_id, season):
+    if not is_external_player_id(player_api_id):
+        return None
     resp = client._make_request("players", {"id": player_api_id, "season": season})
     data = resp.get("response", []) if isinstance(resp, dict) else []
     return data[0] if data else None
@@ -338,6 +392,8 @@ def _upsert_shadow_stats(player_api_id, team_api_id, season, agg):
 
 
 def _refresh_profile(client, shadow) -> bool:
+    if not is_external_player_id(shadow.player_api_id):
+        return False
     try:
         profile = client.get_player_profile(shadow.player_api_id) or {}
     except Exception:
@@ -377,6 +433,7 @@ def refresh_shadows(limit=25, cursor=None, api_client=None) -> dict:
 
     query = PlayerShadow.query.filter(
         PlayerShadow.is_active.is_(True),
+        PlayerShadow.player_api_id > 0,
         without_active_suppression(PlayerShadow.player_api_id),
     )
     if cursor:
@@ -427,3 +484,12 @@ def refresh_shadows(limit=25, cursor=None, api_client=None) -> dict:
         "failed": failed,
         "next_cursor": next_cursor,
     }
+
+
+__all__ = [
+    "is_external_player_id",
+    "mint_shadow",
+    "refresh_shadows",
+    "search_players",
+    "user_shadow_follow_count",
+]

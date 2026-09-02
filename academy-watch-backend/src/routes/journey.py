@@ -14,6 +14,8 @@ from src.auth import require_api_key
 from src.models.journey import YOUTH_LEVELS, ClubLocation, PlayerJourney, PlayerJourneyEntry
 from src.models.league import Team, TeamProfile, db
 from src.models.tracked_player import TrackedPlayer
+from src.services.player_shadow_service import is_external_player_id
+from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import (
     hide_suppressed_player,
     neutral_player_not_found,
@@ -33,7 +35,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-@journey_bp.route("/players/<int:player_id>/journey", methods=["GET"])
+@journey_bp.route("/players/<int(signed=True):player_id>/journey", methods=["GET"])
 @hide_suppressed_player("player_id")
 def get_player_journey(player_id):
     """Get a player's career journey for map visualization.
@@ -44,6 +46,19 @@ def get_player_journey(player_id):
     Query params:
     - sync: bool - Trigger sync if journey doesn't exist (default: false)
     """
+    if not is_external_player_id(player_id):
+        subject = resolve_player_subject(player_id)
+        if subject is None or not subject.is_public:
+            return neutral_player_not_found()
+        journey_data = _build_legacy_journey(player_id)
+        return jsonify(
+            {
+                "player_id": player_id,
+                "source": "local_player",
+                **journey_data,
+            }
+        )
+
     should_sync = request.args.get("sync", "false").lower() == "true"
 
     # Try PlayerJourney first (the new, richer data source)
@@ -692,7 +707,11 @@ def admin_backfill_player_names():
                     TrackedPlayer.nationality.is_(None),
                 )
             )
-            .filter(TrackedPlayer.is_active.is_(True), TrackedPlayer.id > fetch_cursor)
+            .filter(
+                TrackedPlayer.is_active.is_(True),
+                TrackedPlayer.player_api_id > 0,
+                TrackedPlayer.id > fetch_cursor,
+            )
             .order_by(TrackedPlayer.id)
             .limit(fetch_limit)
             .all()

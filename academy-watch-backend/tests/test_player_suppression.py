@@ -41,7 +41,12 @@ from src.models.tracked_player import TrackedPlayer
 from src.models.trust import ScoutVerification
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services.contact import utcnow
-from src.services.player_suppression import PlayerSuppressedError
+from src.services.player_suppression import (
+    PlayerSuppressedError,
+    active_suppressed_player_ids,
+    is_player_suppressed,
+    without_active_suppression,
+)
 
 VISIBLE_ID = 910_001
 SUPPRESSED_ID = 910_002
@@ -395,6 +400,45 @@ def _intake_payload(*, contact="Guardian@Example.com", statement=None):
         "contact_email": contact,
         "statement": statement or "<b>Please remove this profile</b><script>alert(1)</script>",
     }
+
+
+def test_synthetic_negative_id_correlates_local_suppression_without_breaking_xor(suppression_app):
+    local_player = LocalPlayer(
+        display_name="Suppressed Local Adult",
+        birth_year=1990,
+        status="approved",
+        provenance="user",
+    )
+    db.session.add(local_player)
+    db.session.flush()
+    synthetic_id = -local_player.id
+    local_player.api_player_id = synthetic_id
+    shadow = PlayerShadow(
+        player_api_id=synthetic_id,
+        player_name=local_player.display_name,
+        is_active=True,
+    )
+    suppression = PlayerSuppression(
+        local_player_id=local_player.id,
+        reason_code="player_request",
+        requester_role="player",
+        requester_contact="player@example.com",
+        request_statement="Please hide my local profile.",
+        status="active",
+    )
+    db.session.add_all([shadow, suppression])
+    db.session.commit()
+
+    assert suppression.player_api_id is None
+    assert is_player_suppressed(synthetic_id) is True
+    assert active_suppressed_player_ids([synthetic_id, VISIBLE_ID]) == {synthetic_id}
+    visible = PlayerShadow.query.filter(without_active_suppression(PlayerShadow.player_api_id)).all()
+    assert visible == []
+
+    suppression.status = "lifted"
+    db.session.commit()
+    assert is_player_suppressed(synthetic_id) is False
+    assert PlayerShadow.query.filter(without_active_suppression(PlayerShadow.player_api_id)).one() is shadow
 
 
 def test_public_intake_is_neutral_sanitized_encrypted_and_not_contact_gated(client, seeded_players, monkeypatch):
@@ -983,6 +1027,50 @@ def test_weekly_builders_scout_digest_pulse_and_cards_exclude_suppressed_players
     )
     db.session.commit()
     assert set(cards.get_cards_for_window(WINDOW_END)) == {VISIBLE_ID}
+
+
+def test_scout_digest_excludes_shadow_after_local_age_is_corrected_to_minor(suppression_app):
+    current_year = datetime.now(UTC).year
+    user, _ = _user_headers("local-age-correction@example.com")
+    local_player = LocalPlayer(
+        display_name="Corrected Local Prospect",
+        birth_year=current_year - 19,
+        status="approved",
+        provenance="user",
+        created_by_user_id=user.id,
+    )
+    db.session.add(local_player)
+    db.session.flush()
+    player_api_id = -local_player.id
+    local_player.api_player_id = player_api_id
+    db.session.add_all(
+        [
+            PlayerShadow(
+                player_api_id=player_api_id,
+                player_name=local_player.display_name,
+                birth_date=None,
+                requested_by_user_id=user.id,
+                is_active=True,
+            ),
+            ScoutWatchlistEntry(user_account_id=user.id, player_api_id=player_api_id),
+        ]
+    )
+    db.session.commit()
+
+    from src.services.scout_digest_service import build_user_digest
+
+    entry = ScoutWatchlistEntry.query.filter_by(
+        user_account_id=user.id,
+        player_api_id=player_api_id,
+    ).one()
+    visible_digest = build_user_digest(user, [entry], api_client=None)
+    assert visible_digest is not None
+    assert "Corrected Local Prospect" in visible_digest["text"]
+
+    local_player.birth_date = date(current_year - 17, 1, 1)
+    db.session.commit()
+
+    assert build_user_digest(user, [entry], api_client=None) is None
 
 
 def test_contact_creation_is_blocked_but_existing_participant_thread_remains_available(client, seeded_players):

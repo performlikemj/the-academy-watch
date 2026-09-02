@@ -9,7 +9,7 @@ watchlist-only regression, and the profile/season-stats shadow fallbacks.
 """
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +19,7 @@ from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerSh
 from src.models.funding import ClubProgram, FundingLeague
 from src.models.league import League, Team, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
+from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 
@@ -31,6 +32,8 @@ def app(monkeypatch):
     monkeypatch.setenv("API_USE_STUB_DATA", "true")
     monkeypatch.setenv("ADMIN_API_KEY", ADMIN_KEY)
     monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
+    monkeypatch.delenv("SCOUT_INCLUDE_LOCAL_PLAYERS", raising=False)
+    monkeypatch.delenv("SEASON_ROLLUP_READS", raising=False)
 
     from src.routes.players import players_bp
     from src.routes.scout import scout_bp
@@ -170,6 +173,35 @@ def seeded(app):
     )
     db.session.commit()
     return {"parent": parent, "loan_club": loan_club}
+
+
+@pytest.fixture
+def approved_local_follow(app):
+    local = LocalPlayer(
+        display_name="Local Follow",
+        normalized_name="local follow",
+        birth_date=date(1999, 4, 2),
+        birth_year=1999,
+        position="Defender",
+        country="Ireland",
+        status="approved",
+    )
+    db.session.add(local)
+    db.session.flush()
+    signed_id = -local.id
+    local.api_player_id = signed_id
+    db.session.add(
+        PlayerShadow(
+            player_api_id=signed_id,
+            player_name=local.display_name,
+            position=local.position,
+            nationality=local.country,
+            birth_date=local.birth_date,
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    return signed_id
 
 
 def _make_user(email, **overrides):
@@ -555,6 +587,33 @@ class TestShadow:
         assert shadow.player_name == "Minted Guy"
         assert shadow.nationality == "Argentina"
 
+    def test_follow_approved_negative_is_db_only(self, client, seeded, approved_local_follow, monkeypatch):
+        import src.routes.scout as scout_module
+
+        def _must_not_construct_client():
+            raise AssertionError("local follow attempted API-Football")
+
+        monkeypatch.setattr(scout_module, "_get_api_client", _must_not_construct_client)
+        lid = self._list(client)
+        response = client.post(
+            f"/api/scout/lists/{lid}/follows",
+            json={"kind": "player", "selector": {"player_api_id": approved_local_follow}},
+            headers=_headers(),
+        )
+        assert response.status_code == 201
+        assert response.get_json()["shadow_created"] is False
+        assert response.get_json()["follow"]["label"] == "Local Follow"
+
+    def test_unknown_negative_follow_is_rejected_without_mint(self, client, seeded):
+        lid = self._list(client)
+        response = client.post(
+            f"/api/scout/lists/{lid}/follows",
+            json={"kind": "player", "selector": {"player_api_id": -99999}},
+            headers=_headers(),
+        )
+        assert response.status_code == 400
+        assert PlayerShadow.query.filter_by(player_api_id=-99999).first() is None
+
     def test_shadow_follow_limit_403(self, client, seeded, monkeypatch):
         import src.routes.scout as scout_module
 
@@ -668,6 +727,14 @@ class TestResolver:
         self._add(fl, "player", {"player_api_id": 2001})
         resolved = {r["player_api_id"]: r["source"] for r in resolve_list(fl)}
         assert resolved == {1001: "tracked", 2001: "shadow"}
+
+    def test_player_local_negative_resolves_as_shadow(self, app, seeded, approved_local_follow):
+        from src.services.follow_resolver import resolve_list
+
+        user = _make_user("local-r@example.com")
+        fl = self._make_list(user)
+        self._add(fl, "player", {"player_api_id": approved_local_follow})
+        assert resolve_list(fl) == [{"player_api_id": approved_local_follow, "source": "shadow"}]
 
     def test_academy_club(self, app, seeded):
         from src.services.follow_resolver import resolve_list
