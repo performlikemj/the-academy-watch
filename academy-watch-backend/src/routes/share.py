@@ -6,7 +6,7 @@ from flask import Blueprint, make_response, render_template, send_file
 from src.services.player_share_card import build_share_meta, public_api_origin, render_share_card
 from src.services.player_suppression import neutral_player_not_found
 from src.services.public_player_subject import resolve_public_adult_subject
-from src.services.sitemap_service import build_sitemap_xml
+from src.services.sitemap_service import get_sitemap_response
 
 share_bp = Blueprint("share", __name__)
 
@@ -43,9 +43,7 @@ def player_share_card(player_api_id: int):
 
 @share_bp.route("/sitemap.xml", methods=["GET"])
 def sitemap_xml():
-    response = make_response(build_sitemap_xml())
-    response.mimetype = "application/xml"
-    return _no_store(response)
+    return get_sitemap_response()
 
 
 @share_bp.route("/robots.txt", methods=["GET"])

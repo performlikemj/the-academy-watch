@@ -19,6 +19,7 @@ from src.services.player_share_card import (
     SHARE_CARD_FONT_PATH,
     build_share_meta,
     get_share_card_font_path,
+    public_api_origin,
 )
 from src.services.player_suppression import neutral_player_not_found
 from src.services.public_player_subject import resolve_public_adult_subject
@@ -267,6 +268,40 @@ def test_api_origin_falls_back_to_request_root_only_when_unset(
     html = response.get_data(as_text=True)
     assert "http://dev-api.test:5188/p/98104/card.png" in html
     assert "forged.example" not in html
+
+
+@pytest.mark.parametrize(
+    "configured_origin",
+    ("", " \t "),
+    ids=("empty", "whitespace-only"),
+)
+def test_api_origin_falls_back_to_request_root_when_configured_origin_is_blank(
+    share_client,
+    parent_team,
+    monkeypatch,
+    configured_origin,
+):
+    player = _tracked(parent_team, 98_105, birth_date=_years_ago(25))
+    db.session.commit()
+    monkeypatch.setenv("PUBLIC_API_BASE_URL", configured_origin)
+
+    response = share_client.get(
+        f"/p/{player.player_api_id}",
+        base_url="http://dev-api.test:5189",
+        headers={"X-Forwarded-Host": "forged.example"},
+    )
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "http://dev-api.test:5189/p/98105/card.png" in html
+    assert "forged.example" not in html
+
+
+def test_api_origin_preserves_nonblank_config_verbatim_except_trailing_slashes(app, monkeypatch):
+    monkeypatch.setenv("PUBLIC_API_BASE_URL", "  https://api.share.test/root///")
+
+    with app.test_request_context("/", base_url="http://dev-api.test:5190"):
+        assert public_api_origin() == "  https://api.share.test/root"
 
 
 def test_all_unsafe_and_malformed_share_paths_are_byte_identical_neutral_json(

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from itertools import count
+from threading import Barrier, Event, Lock
 
 import pytest
 import sqlalchemy as sa
@@ -23,8 +25,10 @@ _SITEMAP_NS = {"sm": sitemap_service.SITEMAP_NAMESPACE}
 
 @pytest.fixture(autouse=True)
 def reset_sitemap_cache():
+    assert sitemap_service.wait_for_build(timeout=5)
     sitemap_service.clear_sitemap_cache()
     yield
+    assert sitemap_service.wait_for_build(timeout=5)
     sitemap_service.clear_sitemap_cache()
 
 
@@ -131,6 +135,20 @@ def _locations(xml: bytes) -> list[str]:
     return [node.text for node in root.findall("sm:url/sm:loc", _SITEMAP_NS) if node.text]
 
 
+def _xml_with_locations(*locations: str) -> bytes:
+    ET.register_namespace("", sitemap_service.SITEMAP_NAMESPACE)
+    urlset = ET.Element(f"{{{sitemap_service.SITEMAP_NAMESPACE}}}urlset")
+    for location in locations:
+        url = ET.SubElement(urlset, f"{{{sitemap_service.SITEMAP_NAMESPACE}}}url")
+        ET.SubElement(url, f"{{{sitemap_service.SITEMAP_NAMESPACE}}}loc").text = location
+    return ET.tostring(urlset, encoding="utf-8", xml_declaration=True)
+
+
+def _prime_cache(xml: bytes, *, built_at: float) -> None:
+    sitemap_service._cache["xml"] = xml
+    sitemap_service._cache["built_at"] = built_at
+
+
 def test_sitemap_includes_only_gate_approved_player_subjects(app, monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://public.example.test/")
     adult = _years_ago(24)
@@ -193,7 +211,8 @@ def test_sitemap_player_emission_calls_public_adult_gate(app, monkeypatch):
     assert "https://public.example.test/players/20001" not in locations
 
 
-def test_sitemap_candidate_query_is_distinct_sorted_and_capped_across_namespaces(app):
+def test_sitemap_candidate_query_is_distinct_sorted_and_respects_env_cap(app, monkeypatch):
+    monkeypatch.setenv("SITEMAP_MAX_PLAYER_CANDIDATES", "4")
     team = _team()
     db.session.execute(
         sa.insert(TrackedPlayer),
@@ -207,7 +226,7 @@ def test_sitemap_candidate_query_is_distinct_sorted_and_capped_across_namespaces
                 "data_depth": "full_stats",
                 "is_active": True,
             }
-            for player_api_id in range(30_000, 32_001)
+            for player_api_id in range(30_000, 30_010)
         ],
     )
     local = _local("First sorted candidate", birth_date=_years_ago(25))
@@ -215,10 +234,36 @@ def test_sitemap_candidate_query_is_distinct_sorted_and_capped_across_namespaces
 
     candidates = sitemap_service._player_candidate_ids()
 
-    assert len(candidates) == 2_000
+    assert len(candidates) == 4
     assert candidates == sorted(set(candidates))
-    assert candidates[0] == local.api_player_id
-    assert candidates[-1] == 31_998
+    assert candidates == [local.api_player_id, 30_000, 30_001, 30_002]
+
+
+def test_sitemap_candidate_default_cap_is_500(app, monkeypatch):
+    monkeypatch.delenv("SITEMAP_MAX_PLAYER_CANDIDATES", raising=False)
+    team = _team()
+    db.session.execute(
+        sa.insert(TrackedPlayer),
+        [
+            {
+                "player_api_id": player_api_id,
+                "player_name": f"Default-capped candidate {player_api_id}",
+                "team_id": team.id,
+                "status": "academy",
+                "data_source": "api-football",
+                "data_depth": "full_stats",
+                "is_active": True,
+            }
+            for player_api_id in range(31_000, 31_501)
+        ],
+    )
+    db.session.commit()
+
+    candidates = sitemap_service._player_candidate_ids()
+
+    assert len(candidates) == 500
+    assert candidates[0] == 31_000
+    assert candidates[-1] == 31_499
 
 
 def test_sitemap_includes_public_teams_newsletters_and_programs(app, monkeypatch):
@@ -330,35 +375,219 @@ def test_sitemap_total_url_cap_short_circuits_later_collections(app, monkeypatch
     assert locations[-1] == "https://public.example.test/teams/team-4998"
 
 
-def test_sitemap_cache_respects_one_hour_ttl_and_clear(app, monkeypatch):
+def test_sitemap_build_budget_stops_after_partial_players_but_keeps_non_player_urls(app, monkeypatch):
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://public.example.test")
+    monkeypatch.setenv("SITEMAP_BUILD_BUDGET_SECONDS", "1")
+    monkeypatch.setattr(sitemap_service, "_player_candidate_ids", lambda: [51_001, 51_002])
+    clock_values = iter((100.0, 100.25, 101.1))
+    gate_calls: list[int] = []
+
+    def build_clock():
+        return next(clock_values, 101.1)
+
+    def permit_subject(player_api_id: int):
+        gate_calls.append(player_api_id)
+        return object()
+
+    monkeypatch.setattr(sitemap_service.time, "monotonic", build_clock)
+    monkeypatch.setattr(sitemap_service, "resolve_public_adult_subject", permit_subject)
+    monkeypatch.setattr(sitemap_service, "_team_slugs", lambda: ["budget-team"])
+    monkeypatch.setattr(sitemap_service, "_newsletter_slugs", lambda: ["budget-newsletter"])
+    monkeypatch.setattr(sitemap_service, "_program_slugs", lambda: ["budget-program"])
+
+    locations = _locations(sitemap_service.build_sitemap_xml())
+
+    assert gate_calls == [51_001]
+    assert locations == [
+        "https://public.example.test/",
+        "https://public.example.test/players/51001",
+        "https://public.example.test/teams/budget-team",
+        "https://public.example.test/newsletters/budget-newsletter",
+        "https://public.example.test/programs/budget-program",
+    ]
+
+
+def test_sitemap_cache_respects_configured_ttl_serves_stale_and_clears(share_client, monkeypatch):
+    monkeypatch.setenv("SITEMAP_TTL_SECONDS", "2")
     clock = [100.0]
+    old_xml = _xml_with_locations("https://public.example.test/old")
+    new_xml = _xml_with_locations("https://public.example.test/new")
     renders: list[bytes] = []
 
     def render():
-        payload = f"render-{len(renders) + 1}".encode()
-        renders.append(payload)
-        return payload
+        renders.append(new_xml)
+        return new_xml
 
     monkeypatch.setattr(sitemap_service.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(sitemap_service, "_render_sitemap_xml", render)
+    monkeypatch.setattr(sitemap_service, "build_sitemap_xml", render)
+    _prime_cache(old_xml, built_at=clock[0])
 
-    first = sitemap_service.build_sitemap_xml()
-    clock[0] += sitemap_service.SITEMAP_CACHE_TTL_SECONDS - 1
-    assert sitemap_service.build_sitemap_xml() is first
-    assert renders == [b"render-1"]
+    clock[0] += 1.99
+    fresh = share_client.get("/sitemap.xml")
+    assert fresh.status_code == 200
+    assert fresh.data == old_xml
+    assert renders == []
 
-    clock[0] += 1
-    second = sitemap_service.build_sitemap_xml()
-    assert second == b"render-2"
-    assert renders == [b"render-1", b"render-2"]
+    clock[0] += 0.02
+    stale = share_client.get("/sitemap.xml")
+    assert stale.status_code == 200
+    assert stale.data == old_xml
+    assert sitemap_service.wait_for_build(timeout=5)
+    assert renders == [new_xml]
+    assert sitemap_service._cache["built_at"] == clock[0]
+
+    refreshed = share_client.get("/sitemap.xml")
+    assert refreshed.status_code == 200
+    assert refreshed.data == new_xml
+    assert sitemap_service.wait_for_build(timeout=5)
+    assert renders == [new_xml]
 
     sitemap_service.clear_sitemap_cache()
-    assert sitemap_service.build_sitemap_xml() == b"render-3"
-    assert renders == [b"render-1", b"render-2", b"render-3"]
+    assert sitemap_service._cache == {"xml": None, "built_at": None}
+
+
+def test_concurrent_cold_sitemap_requests_start_exactly_one_build(share_client, monkeypatch):
+    app = share_client.application
+    callers = 8
+    barrier = Barrier(callers)
+    build_started = Event()
+    release_build = Event()
+    calls_lock = Lock()
+    build_calls = 0
+    built_xml = _xml_with_locations("https://public.example.test/built")
+
+    def slow_build():
+        nonlocal build_calls
+        with calls_lock:
+            build_calls += 1
+        build_started.set()
+        if not release_build.wait(timeout=5):
+            raise TimeoutError("test did not release sitemap build")
+        return built_xml
+
+    def fetch_sitemap(_index: int):
+        barrier.wait(timeout=5)
+        with app.test_client() as client:
+            return client.get("/sitemap.xml")
+
+    monkeypatch.setattr(sitemap_service, "build_sitemap_xml", slow_build)
+    executor = ThreadPoolExecutor(max_workers=callers)
+    try:
+        futures = [executor.submit(fetch_sitemap, index) for index in range(callers)]
+        assert build_started.wait(timeout=5)
+        responses = [future.result(timeout=1) for future in futures]
+        assert release_build.is_set() is False
+        assert {response.status_code for response in responses} == {503}
+        assert build_calls == 1
+        assert sitemap_service._build_thread is not None
+        assert sitemap_service._build_thread.daemon is True
+    finally:
+        release_build.set()
+        executor.shutdown(wait=True)
+        assert sitemap_service.wait_for_build(timeout=5)
+
+    assert sitemap_service._cache["xml"] == built_xml
+    assert sitemap_service._building is False
+
+
+def test_fast_stale_requests_do_not_start_a_second_build_from_the_same_snapshot(share_client, monkeypatch):
+    monkeypatch.setenv("SITEMAP_TTL_SECONDS", "1")
+    monkeypatch.setattr(sitemap_service.time, "monotonic", lambda: 100.0)
+    app = share_client.application
+    old_xml = _xml_with_locations("https://public.example.test/old-generation")
+    new_xml = _xml_with_locations("https://public.example.test/new-generation")
+    _prime_cache(old_xml, built_at=1.0)
+    initial_generation = sitemap_service._cache_generation
+    real_start = sitemap_service._start_background_build
+    callers_ready = Barrier(2)
+    first_build_finished = Event()
+    order_lock = Lock()
+    observed_generations: list[int] = []
+    build_calls = 0
+
+    def fast_build():
+        nonlocal build_calls
+        build_calls += 1
+        return new_xml
+
+    def coordinated_start(request_app, observed_generation: int):
+        with order_lock:
+            call_index = len(observed_generations)
+            observed_generations.append(observed_generation)
+        callers_ready.wait(timeout=5)
+        if call_index == 0:
+            started = real_start(request_app, observed_generation)
+            assert started is True
+            assert sitemap_service.wait_for_build(timeout=5)
+            first_build_finished.set()
+            return started
+        assert first_build_finished.wait(timeout=5)
+        return real_start(request_app, observed_generation)
+
+    def fetch_sitemap():
+        with app.test_client() as client:
+            return client.get("/sitemap.xml")
+
+    monkeypatch.setattr(sitemap_service, "build_sitemap_xml", fast_build)
+    monkeypatch.setattr(sitemap_service, "_start_background_build", coordinated_start)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = [future.result(timeout=5) for future in [executor.submit(fetch_sitemap) for _ in range(2)]]
+
+    assert sitemap_service.wait_for_build(timeout=5)
+    assert [response.status_code for response in responses] == [200, 200]
+    assert [response.data for response in responses] == [old_xml, old_xml]
+    assert observed_generations == [initial_generation, initial_generation]
+    assert build_calls == 1
+    assert sitemap_service._cache["xml"] == new_xml
+    assert sitemap_service._cache_generation == initial_generation + 1
+    assert sitemap_service._building is False
+
+
+def test_failed_stale_refresh_keeps_previous_cache_and_clears_building(share_client, monkeypatch, caplog):
+    monkeypatch.setenv("SITEMAP_TTL_SECONDS", "1")
+    monkeypatch.setattr(sitemap_service.time, "monotonic", lambda: 100.0)
+    old_xml = _xml_with_locations("https://public.example.test/still-valid")
+    _prime_cache(old_xml, built_at=1.0)
+
+    def fail_build():
+        raise RuntimeError("deliberate sitemap build failure")
+
+    monkeypatch.setattr(sitemap_service, "build_sitemap_xml", fail_build)
+
+    response = share_client.get("/sitemap.xml")
+
+    assert response.status_code == 200
+    assert response.data == old_xml
+    assert sitemap_service.wait_for_build(timeout=5)
+    assert sitemap_service._cache == {"xml": old_xml, "built_at": 1.0}
+    assert sitemap_service._building is False
+    assert any("sitemap" in record.getMessage().lower() for record in caplog.records)
 
 
 def test_sitemap_route_returns_xml_before_spa_catch_all(share_client, monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://public.example.test")
+    real_build = sitemap_service.build_sitemap_xml
+    builds: list[bytes] = []
+
+    def counted_build():
+        xml = real_build()
+        builds.append(xml)
+        return xml
+
+    monkeypatch.setattr(sitemap_service, "build_sitemap_xml", counted_build)
+
+    cold = share_client.get("/sitemap.xml")
+
+    assert cold.status_code == 503
+    assert cold.mimetype == "text/plain"
+    assert cold.headers["Cache-Control"] == "no-store"
+    assert cold.headers["Retry-After"] == "60"
+    assert cold.get_data(as_text=True) == "Sitemap is being generated"
+    assert b"<urlset" not in cold.data
+    assert cold.data != b"SPA shell"
+    assert sitemap_service.wait_for_build(timeout=5)
+    assert len(builds) == 1
 
     response = share_client.get("/sitemap.xml")
 

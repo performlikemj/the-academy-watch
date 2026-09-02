@@ -55,7 +55,7 @@ def public_api_origin() -> str:
     """Return the configured API origin, or the request origin only in dev/tests."""
 
     configured = os.getenv("PUBLIC_API_BASE_URL")
-    if configured is not None:
+    if configured is not None and configured.strip():
         return configured.rstrip("/")
     return request.url_root.rstrip("/")
 
