@@ -8,7 +8,7 @@ Parent: `CONTINUITY.md`. Method: three codex (gpt-5.6-sol, ultra) read-only code
 
 ## Headline
 
-**Built: 54.1%.** Weighted across five pillars. **Lived: ~0%.** Prod has 9 accounts (5 are the team), 1 claimed player, 0 clubs, 0 watchlists, 0 introductions, 0 revenue. The code is half a platform; the marketplace has no participants yet.
+**Built: 59.8%.** Weighted across five pillars. **Lived: ~0%.** Prod has 9 accounts (5 are the team), 1 claimed player, 0 clubs, 0 watchlists, 0 introductions, 0 revenue. The code is half a platform; the marketplace has no participants yet.
 
 ## Scale
 
@@ -26,32 +26,32 @@ Rule that decides most scores: backend-without-a-button is a 2, never a 3. Flag-
 
 | Pillar | Weight | Score |
 |---|---|---|
-| P1 — Players: share, be found, have fans | 25 | **56.2%** |
-| P2 — Clubs: track, analyze growth, tools to improve | 25 | **61.1%** |
+| P1 — Players: share, be found, have fans | 25 | **71.9%** |
+| P2 — Clubs: track, analyze growth, tools to improve | 25 | **63.9%** |
 | P3 — Scouts: find and analyze | 20 | **67.9%** |
-| P4 — Funding: Patreon/BMAC → club part-ownership | 15 | **21.4%** |
+| P4 — Funding: Patreon/BMAC → club part-ownership | 15 | **28.6%** |
 | P5 — Foundation: safety, correctness, reach, ops, money, adoption | 15 | **53.1%** |
 
-### P1 — Players: share, be found, have fans — 56.2%
+### P1 — Players: share, be found, have fans — 71.9%
 
 | # | Capability | Score | Reach | Blocker | Next step | Effort |
 |---|---|---|---|---|---|---|
 | 1.1 | Create or claim my profile | 3 (codex said 2) | LIVE_WEB_IOS | [S0 A LIVE #957] web self-claim now sends contract_status (dialog mirrors iOS); local self-claims require birth_date ≥18 or fail-closed year (D1); birth_date stored (lp01) so exact-18 adults are public. Remaining: every claim still needs one admin review; iOS local-create lacks birthDate. | Pass contract_status through ShowcaseSection.submitClaim and APIService.submitProfileClaim; enforce is_minor_birth_year in create_local_player and admin_review_claim. | S |
-| 1.2 | Share about myself | 2 | LIVE_WEB | Every edit hides the approved profile until another manual admin review. | Diff fields inside _upsert_subject_showcase_profile, preserving approved low-risk fields while staging contract, club, and agent changes. | M |
-| 1.3 | Add my own games and stats | 1 | DESIGNED_ONLY | No persisted user-reported match grain exists. | Implement PlayerMatchEntry and owner-gated CRUD, append _user_cells to _FEEDERS, call refresh_player, then add the web form. | M |
-| 1.4 | Be found in scout discovery | 1 | DESIGNED_ONLY | Every discovery and save schema assumes a positive TrackedPlayer player_api_id. | Mint PlayerShadow during local approval, union eligible local shadows in _base_scout_query, then extend watchlist, follow, and client subject routing. | L |
+| 1.2 | Share about myself | 3 (codex said 2) | LIVE_WEB | [S1 P5] trust-tiered auto-approval: allow-listed low-risk fields keep the profile approved for accounts past the configured age with no adverse moderation events (fail-closed until SHOWCASE_TRUST_MIN_ACCOUNT_AGE_DAYS is set in prod). Remaining: flag must be set in prod; photos/contract fields still queue for admin. | Diff fields inside _upsert_subject_showcase_profile, preserving approved low-risk fields while staging contract, club, and agent changes. | M |
+| 1.3 | Add my own games and stats | 3 (codex said 1) | LIVE_WEB | [S1 P1+P4] player_match_entries grain (pm01) + owner CRUD /api/players/<signed id>/matches; web 'Add a game' on PlayerPage/LocalPlayerPage; self-reported cells feed season totals with provenance. Remaining: iOS has no entry form; no photo/video attachment per game. | Implement PlayerMatchEntry and owner-gated CRUD, append _user_cells to _FEEDERS, call refresh_player, then add the web form. | M |
+| 1.4 | Be found in scout discovery | 3 (codex said 1) | LIVE_WEB_IOS | [S1 P2] approved adult local players get negative synthetic ids + shadow rows and join scout browse/leaderboards/compare/CSV (flag ON in prod), watchlists, follows and the contact rail with provenance chips. Remaining: youth-competition rows never enter the senior union; link-api graduation is admin-only. | Mint PlayerShadow during local approval, union eligible local shadows in _base_scout_query, then extend watchlist, follow, and client subject routing. | L |
 | 1.5 | Be contacted safely | 3 (codex said 2) | LIVE_WEB_IOS | Prod CONTACT_RAIL_ENABLED=1 opens the 404 gate (contact.py:83-93). Player accept/decline is live on web (App.jsx:4215 route, :590 nav; IntroductionsPage.jsx:49) and iOS (IncomingContactRequestsView.swift:249); replies at ContactThread.jsx:82. Gap: only tracked-player self-claims are contactable (contact.py:419). | Encode CONTACT_RAIL_ENABLED=true in deployment configuration after smoke-checking the existing direct, notified, and club-included flows. | S |
 | 1.6 | Know I am being watched | 3 (codex said 2) | LIVE_IOS | Flag is on in prod; iOS owner card (PlayerDetailView.swift:199) reads showcase.py:1805 for approved self-claims. Codex's 'labelled scouts' claim is wrong: labels are Watchlists/Follows (PlayerInterestSignalsViewModel.swift:13-15). No web surface, so LIVE_IOS, but usable. | Filter aggregates through approved ScoutVerification rows, then enable CONTACT_RAIL_ENABLED and reuse the existing iOS card. | S |
 | 1.7 | Have fans | 2 (codex said 3) | LIVE_WEB | Fan surface exists only for API-Football TrackedPlayers: comments (PlayerPage.jsx:1426) and a scout-branded watchlist star (PlayerPage.jsx:319). LocalPlayerPage.jsx:1-11 mounts no comments, follow, or share; no fan concept in code; no public counts. The dream's self-showcased player cannot have fans. | Extend follow_resolver._validate_player and Follow.selector for local_player_id, then expose generic Follow controls on both player pages. | M |
 | 1.8 | Player growth view | 3 | LIVE_WEB_IOS | Growth storage and routes remain keyed solely by player_api_id. | After PlayerMatchEntry exists, extend season-rollup subjects for LocalPlayer and expose approved Qwen evidence through _verified_footage. | L |
 
-### P2 — Clubs: track, analyze growth, tools to improve — 61.1%
+### P2 — Clubs: track, analyze growth, tools to improve — 63.9%
 
 | # | Capability | Score | Reach | Blocker | Next step | Effort |
 |---|---|---|---|---|---|---|
 | 2.1 | Claim, verify my club, and reach the console | 3 (codex said 2) | LIVE_WEB | [S0 B LIVE #959] approving a club-official claim now grants the console (bridge → program + approved claim + active manager); console-first clubs can adopt into a public funding league on claim. Remaining: one admin approval step; adoption pauses the console until funding review; local console programs not yet adoptable. | Extract the grant logic from approve_program_claim() into a shared service; after verified social proof plus authority evidence, create the ClubProgramClaim and ClubProgramManager automatically, routing ambiguous claims to admin review. | M |
 | 2.2 | Roster, local-profile adoption, tracked links, and match squads | 3 | LIVE_WEB | The creator-only check in add_club_roster_member() prevents clubs adopting profiles created by their own players. | Add program-scoped LocalPlayer roster invitations, resolve the profile owner through PlayerProfileClaim, require owner acceptance, then create the existing ClubRosterMember and expose local search. | M |
-| 2.3 | Track games without video | 2 | LIVE_WEB | VideoMatch is the only manager-writable match aggregate, assumes footage, consumes Film Room quota, and lacks result or appearance-stat fields. | Add ClubMatch and ClubMatchAppearance keyed to ClubProgram and ClubRosterMember, with manager CRUD for scores, lineups, minutes, goals, and an optional VideoMatch link. | M |
+| 2.3 | Track games without video | 3 (codex said 2) | LIVE_WEB | [S1 P3+P4] clubs record a result and per-player lineup stats without video (POST /api/club/<program>/results) from the MyClub console; rows are club-confirmed and feed the rollup. Remaining: video_match link not persisted; program-scoped uniqueness is app-level until a partial unique index migration. | Add ClubMatch and ClubMatchAppearance keyed to ClubProgram and ClubRosterMember, with manager CRUD for scores, lineups, minutes, goals, and an optional VideoMatch link. | M |
 | 2.4 | Track academy graduates and loanees | 3 | LIVE_WEB | MyClub's ClubRosterMember roster is not joined through ClubProgram.team_api_id to Team and TrackedPlayer. Provider-covered managers can use the public page, but community clubs cannot. | Add manager-gated GET /club/<program_id>/tracked-players using require_club_manager(), ClubProgram.team_api_id, TrackedPlayer, and rollup_stats_by_player(); render a MyClub Academy Pathway tab. | M |
 | 2.5 | Analyze player growth over time and compare roster players | 3 (codex said 2) | LIVE_WEB_IOS | Prod SEASON_ROLLUP_READS lists every surface in feature_flags.py:5, so codex's only blocker is gone. JourneyTimeline.jsx:21-61 reads journey stops (PlayerPage.jsx:364), never the flag; compare on ScoutPage.jsx:324 and CompareView.swift:202. No MyClub view, locals excluded, backfill state unverified. | Backfill PlayerSeasonTotal with refresh_player(), verify /api/admin/season-rollup/status, then deploy SEASON_ROLLUP_READS=season_stats,player_stats,scout,teams. | S |
 | 2.6 | Film Room upload, analysis, reports, and reels | 2 | ADMIN_ONLY | Each club upload stops at a request timestamp; only an admin can queue computer vision, review identities, run Qwen, and finalize. | Factor routes/video.py:process_match() job creation into a shared service called by request_club_match_processing(), then expose club-scoped identity binding and finalization through require_club_manager() and the existing PlayerReels UI. | M |
@@ -71,7 +71,7 @@ Rule that decides most scores: backend-without-a-button is a 2, never a 3. Flag-
 | 3.6 | Pay for Scout Pro | 1 | DESIGNED_ONLY | Scout Pro is marketing copy plus an unused tier column. | Add Stripe Checkout and webhook handling that updates UserAccount.scout_tier, then gate selected Pro features through one entitlement helper. | M |
 | 3.7 | Club managers recruit as scouts | 3 | LIVE_WEB_IOS | Recruitment cannot prove which managed club the scout represents. | Add acting_club_program_id to ContactRequest, validate it through is_active_program_manager, and expose a managed-club selector before outreach. | M |
 
-### P4 — Funding: Patreon/BMAC → club part-ownership — 21.4%
+### P4 — Funding: Patreon/BMAC → club part-ownership — 28.6%
 
 | # | Capability | Score | Reach | Blocker | Next step | Effort |
 |---|---|---|---|---|---|---|
@@ -81,7 +81,7 @@ Rule that decides most scores: backend-without-a-button is a 2, never a 3. Flag-
 | 4.4 | External platform connection | 0 | MISSING | No external funding identity or URL is associated with ClubProgram. | Add moderated provider and external_support_url fields to ClubProgramProfileRevision and render a labeled ProgramPage link-out. | M |
 | 4.5 | Part-ownership / investment mechanic | 0 | MISSING | No counsel-approved securities structure or regulatory posture exists. | Complete jurisdiction-specific securities scoping before defining any ClubProgram-linked stake, governance, or investment mechanism. | L |
 | 4.6 | Supporter/fan-facing club page | 2 | LIVE_WEB | Public program page + 'Save this program' work, but it is reachable only by exact slug (the only in-app link is in the admin UI) and shows 'Support is not live yet'. | Add moderated ClubProgram updates and impact entries through ClubProgramManager and render them on ProgramPage. | M |
-| 4.7 | Grassroots attested manual-data path | 1 | DESIGNED_ONLY | The provenance-aware per-player match-entry grain does not exist. | Implement ClubFixture and PlayerMatchEntry through ClubRosterMember manager routes, then invoke season_rollup_service.refresh_player. | M |
+| 4.7 | Grassroots attested manual-data path | 3 (codex said 1) | LIVE_WEB | [S1] the same grain gives grassroots clubs a club-confirmed data path with provenance labels (api/club/self) on every surface. Remaining: no attestation text at entry time; no dispute flow on entries. | Implement ClubFixture and PlayerMatchEntry through ClubRosterMember manager routes, then invoke season_rollup_service.refresh_player. | M |
 
 ### P5 — Foundation: safety, correctness, reach, ops, money, adoption — 53.1%
 
@@ -111,9 +111,9 @@ Rule that decides most scores: backend-without-a-button is a 2, never a 3. Flag-
 
 | Stage | Name | When | What | Overall after |
 |---|---|---|---|---|
-| — | Today | — | — | **54.1%** |
-| S0 | Unbreak the front door | days | Fix the web claim payload (send contract_status), add the age gate to local self-claims, bridge club claim → console grant without an admin API key, put the digest sender on the nightly job, fix the dead journalist /stripe box. | **54.1%** |
-| S1 | One player universe + a games grain | weeks | Let local players into discovery/watchlists/contact/follows (shared subject id), and add a user-entered match row (player or club, provenance-labelled) that feeds the existing season cells. Show it in MyClub as a growth view. | **59.0%** |
+| — | Today | — | — | **59.8%** |
+| S0 | Unbreak the front door | days | Fix the web claim payload (send contract_status), add the age gate to local self-claims, bridge club claim → console grant without an admin API key, put the digest sender on the nightly job, fix the dead journalist /stripe box. | **59.8%** |
+| S1 | One player universe + a games grain | weeks | Let local players into discovery/watchlists/contact/follows (shared subject id), and add a user-entered match row (player or club, provenance-labelled) that feeds the existing season cells. Show it in MyClub as a growth view. | **59.8%** |
 | S2 | Fans and reach | weeks | Public follow for any account, fan counts on player pages, shareable player card with per-player og tags and a sitemap, trust-tiered auto-approval so edits stop hiding profiles, email notifications on the events that already exist. | **61.0%** |
 | S3 | Money rails | weeks | Stripe Checkout for Scout Pro at the committed price; club bundle subscription; donation checkout with donor-tip model once regulatory scoping is done; club-editable programs; Patreon/BuyMeACoffee link-out plus supporter import as the cheap first bridge. | **66.1%** |
 | S4 | Film Room self-serve + club tools | weeks–months | Club-triggered processing with a monthly allowance instead of 3-lifetime, worker checkpointing and scheduling, coaching notes and shareable player reports, a manager-scoped club dashboard on the pathway data that already exists. | **69.4%** |
@@ -168,4 +168,5 @@ After S6 every remaining point is polish to 4s: iOS parity, E2E on the core jour
 ## Status
 
 - 2026-09-02: scorecard created (baseline **51.9%**).
-- 2026-09-02 (later): **S0 executed and live** — PRs #957 (A), #958 (C), #960 (D), #961 (E hygiene), #959 (B); ACA job `job-scout-digest` created; prod `local_players.birth_date` pre-applied + stamped lp01. Re-scored rows 1.1, 2.1, 3.4 → 3 (see `ledgers/CONTINUITY_dream-s0.md`). Next: S1 (one player universe + games grain) — decisions in `ledgers/DIRECTIVE_phase1-user-fed-data.md` §4.
+- 2026-09-02 (later): **S0 executed and live** — PRs #957 (A), #958 (C), #960 (D), #961 (E hygiene), #959 (B); ACA job `job-scout-digest` created; prod `local_players.birth_date` pre-applied + stamped lp01. Re-scored rows 1.1, 2.1, 3.4 → 3 (see `ledgers/CONTINUITY_dream-s0.md`).
+- 2026-09-02 (evening): **S1 executed and live** — PRs #963 (P1 games grain + pm01), #965 (P2 local players in the universe, negative ids), #968 (P3 club results), #964 (P4 web), #969 (P5 trust tiers + graduation/backfill); prod `SCOUT_INCLUDE_LOCAL_PLAYERS=1`. Re-scored rows 1.2, 1.3, 1.4, 2.3, 4.7 → 3 (see `ledgers/CONTINUITY_dream-s1.md`). Next: S2 (fans + reach).
