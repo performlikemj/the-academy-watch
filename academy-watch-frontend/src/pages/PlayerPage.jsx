@@ -635,7 +635,26 @@ export function PlayerPage() {
         )
     }
 
-    if (notFound) return null
+    if (notFound) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-secondary to-background">
+                <Card className="max-w-md">
+                    <CardContent className="pt-6 text-center">
+                        <h1 className="text-lg font-semibold text-foreground mb-4">
+                            This profile doesn&apos;t exist or isn&apos;t public yet
+                        </h1>
+                        <p className="text-sm leading-relaxed text-muted-foreground mb-4">
+                            It may still be waiting for review, or the profile link may be incorrect.
+                        </p>
+                        <Button variant="outline" onClick={handleBack}>
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Go Back
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        )
+    }
 
     return (
         <JourneyProvider journeyData={journeyData}>

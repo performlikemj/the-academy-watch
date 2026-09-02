@@ -668,8 +668,12 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
   const errorRef = useRef(null)
   const memberById = useMemo(() => new Map(members.map((member) => [Number(member.id), member])), [members])
   const memberByPlayerId = useMemo(() => new Map(members.flatMap((member) => {
-    const playerId = signedPlayerIdForMember(member)
-    return playerId ? [[playerId, member]] : []
+    const playerIds = []
+    const apiPlayerId = Number(member.api_player_id)
+    if (Number.isInteger(apiPlayerId) && apiPlayerId > 0) playerIds.push(String(apiPlayerId))
+    const signedPlayerId = signedPlayerIdForMember(member)
+    if (signedPlayerId && !playerIds.includes(signedPlayerId)) playerIds.push(signedPlayerId)
+    return playerIds.map((playerId) => [playerId, member])
   })), [members])
   const seasonStats = result?.season_stats_by_player && typeof result.season_stats_by_player === 'object'
     ? Object.entries(result.season_stats_by_player)
@@ -761,7 +765,6 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
       if (videoMatch && response) onSaved(response)
     } catch (requestError) {
       if (requestError?.status === 401) {
-        APIService.setCuratorKey('')
         logout({ clearAdminKey: true })
         onClose()
         openLoginModal()
@@ -815,7 +818,7 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
                 <div className="grid gap-3 lg:grid-cols-2">
                   {seasonStats.map(([playerId, stats]) => {
                     const member = memberByPlayerId.get(String(playerId))
-                    const playerName = member?.display_name || stats?.player_name || `Player ${playerId}`
+                    const playerName = stats?.player_name || member?.display_name || `Player ${playerId}`
                     const metrics = [
                       ['Apps', stats?.appearances ?? 0],
                       ['Minutes', stats?.minutes ?? 0],

@@ -102,6 +102,7 @@ const MATCH_HOME_AWAY_OPTIONS = [
   { value: 'away', label: 'Away' },
   { value: 'neutral', label: 'Neutral venue' },
 ]
+const MATCHES_PER_PAGE = 100
 
 function emptyMatchForm() {
   return {
@@ -319,8 +320,17 @@ export function ShowcaseSection({
   const [gamesLoadedKey, setGamesLoadedKey] = useState(null)
   const [gamesLoadError, setGamesLoadError] = useState(null)
   const [gamesRequest, setGamesRequest] = useState(0)
+  const [gamesPage, setGamesPage] = useState(1)
+  const [gamesTotal, setGamesTotal] = useState(0)
+  const [gamesLoadMoreBusy, setGamesLoadMoreBusy] = useState(false)
+  const [gamesLoadMoreError, setGamesLoadMoreError] = useState(null)
   const gamesQueryKey = `${matchPlayerApiId}:${matchSeason ?? 'all'}:${token || 'public'}:${gamesRequest}`
+  const statsSubjectKey = `${matchPlayerApiId}:${matchSeason ?? 'all'}:${token || 'public'}`
   const gamesQueryKeyRef = useRef(gamesQueryKey)
+  const statsSubjectKeyRef = useRef(statsSubjectKey)
+  const gamesReplaceRequestRef = useRef(0)
+  const gamesLoadMoreRequestRef = useRef(0)
+  const seasonStatsRequestRef = useRef(0)
   const gamesLoaded = gamesLoadedKey === gamesQueryKey
   const gamesLoading = !gamesLoaded
   const visibleGames = gamesLoaded ? games : []
@@ -337,7 +347,9 @@ export function ShowcaseSection({
 
   useLayoutEffect(() => {
     gamesQueryKeyRef.current = gamesQueryKey
-  }, [gamesQueryKey])
+    if (statsSubjectKeyRef.current !== statsSubjectKey) seasonStatsRequestRef.current += 1
+    statsSubjectKeyRef.current = statsSubjectKey
+  }, [gamesQueryKey, statsSubjectKey])
 
   // Claim dialog
   const [claimOpen, setClaimOpen] = useState(false)
@@ -471,17 +483,43 @@ export function ShowcaseSection({
 
   useEffect(() => {
     let cancelled = false
-    APIService.getPlayerMatches(matchPlayerApiId, matchSeason == null ? {} : { season: matchSeason })
+    const replaceRequestId = gamesReplaceRequestRef.current + 1
+    gamesReplaceRequestRef.current = replaceRequestId
+    gamesLoadMoreRequestRef.current += 1
+    APIService.getPlayerMatches(matchPlayerApiId, {
+      ...(matchSeason == null ? {} : { season: matchSeason }),
+      page: 1,
+      per_page: MATCHES_PER_PAGE,
+    })
       .then((response) => {
-        if (cancelled) return
-        setGames(Array.isArray(response?.matches) ? response.matches : [])
+        if (
+          cancelled
+          || gamesReplaceRequestRef.current !== replaceRequestId
+          || gamesQueryKeyRef.current !== gamesQueryKey
+        ) return
+        const nextGames = Array.isArray(response?.matches) ? response.matches : []
+        const responsePage = Number(response?.page)
+        const responseTotal = Number(response?.total)
+        setGames(nextGames)
+        setGamesPage(Number.isInteger(responsePage) && responsePage > 0 ? responsePage : 1)
+        setGamesTotal(Number.isInteger(responseTotal) && responseTotal >= 0 ? responseTotal : nextGames.length)
         setGamesLoadError(null)
+        setGamesLoadMoreBusy(false)
+        setGamesLoadMoreError(null)
         setGamesLoadedKey(gamesQueryKey)
       })
       .catch((requestError) => {
-        if (cancelled) return
+        if (
+          cancelled
+          || gamesReplaceRequestRef.current !== replaceRequestId
+          || gamesQueryKeyRef.current !== gamesQueryKey
+        ) return
         setGames([])
+        setGamesPage(1)
+        setGamesTotal(0)
         setGamesLoadError(requestError?.status === 404 ? null : 'Games could not be loaded. Try again.')
+        setGamesLoadMoreBusy(false)
+        setGamesLoadMoreError(null)
         setGamesLoadedKey(gamesQueryKey)
       })
     return () => { cancelled = true }
@@ -658,6 +696,7 @@ export function ShowcaseSection({
   })
   const isOwner = myClaim?.status === 'approved'
   const canManageGames = isOwner && GAME_OWNER_RELATIONSHIPS.has(myClaim?.relationship_type)
+  const canLoadMoreGames = gamesLoaded && gamesTotal > visibleGames.length
   const visibleAffiliations = affiliations.filter(
     (affiliation) => isOwner || PUBLIC_AFFILIATION_STATUSES.has(affiliation.status),
   )
@@ -689,7 +728,7 @@ export function ShowcaseSection({
     || profile
     || verified.length > 0
     || visibleGames.length > 0
-  if (!hasContent && !isOwner && !showClaimStrip && gamesLoaded && !gamesLoadError) return null
+  if (!hasContent && !isOwner && !showClaimStrip) return null
 
   const reorderableIds = reel.filter((i) => !isSynthetic(i)).map((i) => i.id)
 
@@ -1233,20 +1272,44 @@ export function ShowcaseSection({
 
   const refreshFilteredGames = async () => {
     const queryKey = gamesQueryKey
+    const replaceRequestId = gamesReplaceRequestRef.current + 1
+    gamesReplaceRequestRef.current = replaceRequestId
+    gamesLoadMoreRequestRef.current += 1
+    setGamesLoadMoreBusy(false)
+    setGamesLoadMoreError(null)
     try {
       const response = await APIService.getPlayerMatches(
         matchPlayerApiId,
-        matchSeason == null ? {} : { season: matchSeason },
+        {
+          ...(matchSeason == null ? {} : { season: matchSeason }),
+          page: 1,
+          per_page: MATCHES_PER_PAGE,
+        },
       )
-      if (!isActiveSubject() || gamesQueryKeyRef.current !== queryKey) return false
-      setGames(Array.isArray(response?.matches) ? response.matches : [])
+      if (
+        !isActiveSubject()
+        || gamesQueryKeyRef.current !== queryKey
+        || gamesReplaceRequestRef.current !== replaceRequestId
+      ) return false
+      const nextGames = Array.isArray(response?.matches) ? response.matches : []
+      const responsePage = Number(response?.page)
+      const responseTotal = Number(response?.total)
+      setGames(nextGames)
+      setGamesPage(Number.isInteger(responsePage) && responsePage > 0 ? responsePage : 1)
+      setGamesTotal(Number.isInteger(responseTotal) && responseTotal >= 0 ? responseTotal : nextGames.length)
       setGamesLoadError(null)
       setGamesLoadedKey(queryKey)
       return true
     } catch (requestError) {
-      if (!isActiveSubject() || gamesQueryKeyRef.current !== queryKey) return false
+      if (
+        !isActiveSubject()
+        || gamesQueryKeyRef.current !== queryKey
+        || gamesReplaceRequestRef.current !== replaceRequestId
+      ) return false
       if (requestError?.status === 404) {
         setGames([])
+        setGamesPage(1)
+        setGamesTotal(0)
         setGamesLoadError(null)
       } else {
         setGamesLoadError('Games changed, but the latest list could not be loaded. Try again.')
@@ -1258,14 +1321,23 @@ export function ShowcaseSection({
 
   const reconcileSeasonStats = (response, fallbackSeason) => {
     if (!onSeasonStatsChange) return
-    const statsQueryKey = gamesQueryKey
+    const statsQueryKey = statsSubjectKey
+    const statsRequestId = seasonStatsRequestRef.current + 1
+    seasonStatsRequestRef.current = statsRequestId
     const returnedStats = response?.season_stats
     const returnedSeason = normalizeSeasonStart(returnedStats?.season)
-    if (returnedStats && (matchSeason == null || returnedSeason === matchSeason)) {
+    const returnedTotals = returnedStats
+      && typeof returnedStats === 'object'
+      && (
+        Object.prototype.hasOwnProperty.call(returnedStats, 'appearances')
+        || returnedStats.season != null
+      )
+    if (returnedTotals && (matchSeason == null || returnedSeason == null || returnedSeason === matchSeason)) {
       onSeasonStatsChange(returnedStats)
       return
     }
     const statsSeason = matchSeason
+      ?? normalizeSeasonStart(response?.match?.season)
       ?? returnedSeason
       ?? normalizeSeasonStart(response?.season)
       ?? normalizeSeasonStart(fallbackSeason)
@@ -1274,10 +1346,75 @@ export function ShowcaseSection({
       .then((nextStats) => {
         if (
           activeSubjectRef.current === subjectKey
-          && gamesQueryKeyRef.current === statsQueryKey
+          && statsSubjectKeyRef.current === statsQueryKey
+          && seasonStatsRequestRef.current === statsRequestId
         ) onSeasonStatsChange(nextStats)
       })
       .catch(() => {})
+  }
+
+  const loadMoreGames = async () => {
+    if (!canLoadMoreGames || gamesLoadMoreBusy) return
+    const queryKey = gamesQueryKey
+    const replaceRequestId = gamesReplaceRequestRef.current
+    const loadMoreRequestId = gamesLoadMoreRequestRef.current + 1
+    gamesLoadMoreRequestRef.current = loadMoreRequestId
+    const nextPage = gamesPage + 1
+    setGamesLoadMoreBusy(true)
+    setGamesLoadMoreError(null)
+    try {
+      const response = await APIService.getPlayerMatches(matchPlayerApiId, {
+        ...(matchSeason == null ? {} : { season: matchSeason }),
+        page: nextPage,
+        per_page: MATCHES_PER_PAGE,
+      })
+      if (
+        !isActiveSubject()
+        || gamesQueryKeyRef.current !== queryKey
+        || gamesReplaceRequestRef.current !== replaceRequestId
+        || gamesLoadMoreRequestRef.current !== loadMoreRequestId
+      ) return
+      const nextGames = Array.isArray(response?.matches) ? response.matches : []
+      const responsePage = Number(response?.page)
+      const responseTotal = Number(response?.total)
+      setGames((current) => {
+        const seenIds = new Set(current.map((match) => String(match.id)))
+        return [
+          ...current,
+          ...nextGames.filter((match) => {
+            const matchId = String(match.id)
+            if (seenIds.has(matchId)) return false
+            seenIds.add(matchId)
+            return true
+          }),
+        ]
+      })
+      setGamesPage(Number.isInteger(responsePage) && responsePage > 0 ? responsePage : nextPage)
+      setGamesTotal((current) => (
+        Number.isInteger(responseTotal) && responseTotal >= 0
+          ? responseTotal
+          : Math.max(current, visibleGames.length + nextGames.length)
+      ))
+      setGamesLoadMoreError(null)
+    } catch (requestError) {
+      if (
+        isActiveSubject()
+        && gamesQueryKeyRef.current === queryKey
+        && gamesReplaceRequestRef.current === replaceRequestId
+        && gamesLoadMoreRequestRef.current === loadMoreRequestId
+      ) {
+        setGamesLoadMoreError(
+          requestError?.body?.error || requestError?.message || 'More games could not be loaded. Try again.',
+        )
+      }
+    } finally {
+      if (
+        isActiveSubject()
+        && gamesQueryKeyRef.current === queryKey
+        && gamesReplaceRequestRef.current === replaceRequestId
+        && gamesLoadMoreRequestRef.current === loadMoreRequestId
+      ) setGamesLoadMoreBusy(false)
+    }
   }
 
   const openAddGameDialog = () => {
@@ -1325,6 +1462,10 @@ export function ShowcaseSection({
         primary_source: 'user',
       },
     }
+
+    gamesLoadMoreRequestRef.current += 1
+    setGamesLoadMoreBusy(false)
+    setGamesLoadMoreError(null)
 
     if (editing) {
       setGames((current) => current.map((match) => (
@@ -1397,6 +1538,9 @@ export function ShowcaseSection({
     const target = gameDeleteTarget
     const targetId = target.id
     const previousIndex = games.findIndex((match) => String(match.id) === String(targetId))
+    gamesLoadMoreRequestRef.current += 1
+    setGamesLoadMoreBusy(false)
+    setGamesLoadMoreError(null)
     setGames((current) => current.filter((match) => String(match.id) !== String(targetId)))
     setGameDeleteBusy(true)
     setGameDeleteError(null)
@@ -1845,7 +1989,7 @@ export function ShowcaseSection({
         )}
 
         {/* 5. Player- and club-entered games */}
-        {(visibleGames.length > 0 || canManageGames || gamesLoading || gamesLoadError) && (
+        {(canManageGames || (gamesLoaded && visibleGames.length > 0)) && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -1876,7 +2020,7 @@ export function ShowcaseSection({
             ) : visibleGames.length > 0 ? (
               <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70" role="list">
                 {visibleGames.map((match) => {
-                  const scoreEntered = match.result_for != null && match.result_against != null
+                    const scoreEntered = match.result_for != null && match.result_against != null
                   const venue = MATCH_HOME_AWAY_OPTIONS.find((option) => option.value === match.home_away)?.label
                     || match.home_away
                   const editable = canManageGames && match.editable && !String(match.id).startsWith('optimistic-')
@@ -1889,7 +2033,7 @@ export function ShowcaseSection({
                               {match.opponent ? `vs ${match.opponent}` : 'Game'}
                             </h3>
                             <span className="text-sm font-semibold tabular-nums text-foreground">
-                              {scoreEntered ? `${match.result_for}–${match.result_against}` : 'Score not entered'}
+                                {scoreEntered ? `${match.result_for}–${match.result_against}` : 'Score not entered'}
                             </span>
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1951,6 +2095,28 @@ export function ShowcaseSection({
                 <Plus className="h-4 w-4" />
                 Add your first game
               </button>
+            ) : null}
+
+            {visibleGames.length > 0 && (canLoadMoreGames || gamesLoadMoreError) ? (
+              <div className="flex flex-wrap items-center gap-3">
+                {gamesLoadMoreError ? (
+                  <p className="text-sm text-destructive" role="alert">{gamesLoadMoreError}</p>
+                ) : null}
+                {canLoadMoreGames ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={loadMoreGames}
+                    disabled={gamesLoadMoreBusy || gameBusy || gameDeleteBusy}
+                    aria-label="Load more games"
+                    className="ml-auto"
+                  >
+                    {gamesLoadMoreBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                    {gamesLoadMoreBusy ? 'Loading…' : 'Load more games'}
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         )}

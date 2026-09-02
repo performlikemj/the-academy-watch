@@ -91,7 +91,7 @@ test('approved player owner adds, edits, and deletes a self-reported game', asyn
       })
     }
     if (url.pathname === '/api/players/42/matches' && request.method() === 'GET') {
-      return route.fulfill({ json: { matches: savedMatch ? [savedMatch] : [], total: savedMatch ? 1 : 0, page: 1, per_page: 50 } })
+      return route.fulfill({ json: { matches: savedMatch ? [savedMatch] : [], total: savedMatch ? 1 : 0, page: 1, per_page: 100 } })
     }
     if (url.pathname === '/api/players/42/matches' && request.method() === 'POST') {
       const body = request.postDataJSON()
@@ -109,7 +109,7 @@ test('approved player owner adds, edits, and deletes a self-reported game', asyn
       return route.fulfill({
         json: {
           match: savedMatch,
-          season_stats: { season: 2026, appearances: 1, minutes: body.minutes, goals: body.goals, assists: body.assists, provenance: selfProvenance },
+          season_stats: { cells: 1, totals: 1 },
         },
       })
     }
@@ -120,7 +120,7 @@ test('approved player owner adds, edits, and deletes a self-reported game', asyn
       return route.fulfill({
         json: {
           match: savedMatch,
-          season_stats: { season: 2026, appearances: 1, minutes: body.minutes, goals: body.goals, assists: body.assists, provenance: selfProvenance },
+          season_stats: { cells: 1, totals: 1 },
         },
       })
     }
@@ -154,6 +154,7 @@ test('approved player owner adds, edits, and deletes a self-reported game', asyn
   const gameRow = page.locator('article[role="listitem"]').filter({ hasText: 'North City' })
   await expect(gameRow).toBeVisible()
   await expect(gameRow.getByText('Self-reported')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Edit game against North City' }).click()
   dialog = page.getByRole('dialog')
@@ -161,6 +162,7 @@ test('approved player owner adds, edits, and deletes a self-reported game', asyn
   await dialog.getByRole('button', { name: 'Save changes' }).click()
   await expect.poll(() => updateBodies.length).toBe(1)
   await expect(gameRow.getByText('2', { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Delete game against North City' }).click()
   dialog = page.getByRole('dialog')
@@ -190,6 +192,31 @@ test('approved player owner adds, edits, and deletes a self-reported game', asyn
 
 test('approved local player uses the reserved negative id for totals and games', async ({ page }) => {
   const signedRequests = []
+  const createBodies = []
+  const updateBodies = []
+  let localMatches = [{
+    id: 77,
+    player_api_id: -7,
+    season: 2026,
+    match_date: '2026-08-20',
+    competition: 'Kanto Academy League',
+    opponent: 'Eastside',
+    home_away: 'away',
+    result_for: 1,
+    result_against: 0,
+    minutes: 80,
+    goals: 1,
+    assists: 0,
+    yellows: 0,
+    reds: 0,
+    saves: null,
+    goals_conceded: null,
+    note: null,
+    source: 'self',
+    status: 'self_reported',
+    editable: true,
+    provenance: selfProvenance,
+  }]
 
   await page.addInitScript(() => {
     localStorage.setItem('academy_watch_user_token', 'mock-local-owner-token')
@@ -197,8 +224,9 @@ test('approved local player uses the reserved negative id for totals and games',
   })
 
   await page.route('**/api/**', async (route) => {
-    const url = new URL(route.request().url())
-    if (url.pathname.includes('/players/-7/')) signedRequests.push(url)
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.pathname.includes('/players/-7/')) signedRequests.push({ method: request.method(), url })
 
     if (url.pathname === '/api/local-players/7') {
       return route.fulfill({
@@ -221,38 +249,50 @@ test('approved local player uses the reserved negative id for totals and games',
     }
     if (url.pathname === '/api/players/-7/season-stats') {
       return route.fulfill({
-        json: { season: '2026/2027', appearances: 1, minutes: 80, goals: 1, assists: 0, provenance: selfProvenance },
+        json: {
+          season: '2026/2027',
+          appearances: localMatches.length,
+          minutes: localMatches.reduce((total, match) => total + match.minutes, 0),
+          goals: localMatches.reduce((total, match) => total + match.goals, 0),
+          assists: localMatches.reduce((total, match) => total + match.assists, 0),
+          provenance: selfProvenance,
+        },
       })
     }
-    if (url.pathname === '/api/players/-7/matches') {
+    if (url.pathname === '/api/players/-7/matches' && request.method() === 'GET') {
       return route.fulfill({
         json: {
-          matches: [{
-            id: 77,
-            player_api_id: -7,
-            season: 2026,
-            match_date: '2026-08-20',
-            competition: 'Kanto Academy League',
-            opponent: 'Eastside',
-            home_away: 'away',
-            result_for: 1,
-            result_against: 0,
-            minutes: 80,
-            goals: 1,
-            assists: 0,
-            yellows: 0,
-            reds: 0,
-            saves: null,
-            goals_conceded: null,
-            note: null,
-            source: 'self',
-            status: 'self_reported',
-            editable: true,
-            provenance: selfProvenance,
-          }],
-          total: 1,
+          matches: localMatches,
+          total: localMatches.length,
           page: 1,
-          per_page: 50,
+          per_page: 100,
+        },
+      })
+    }
+    if (url.pathname === '/api/players/-7/matches' && request.method() === 'POST') {
+      const body = request.postDataJSON()
+      createBodies.push(body)
+      const match = {
+        id: 78,
+        player_api_id: -7,
+        season: 2026,
+        ...body,
+        source: 'self',
+        status: 'self_reported',
+        editable: true,
+        provenance: selfProvenance,
+      }
+      localMatches = [...localMatches, match]
+      return route.fulfill({ json: { match, season_stats: { cells: 1, totals: 1 } } })
+    }
+    if (url.pathname === '/api/players/-7/matches/78' && request.method() === 'PATCH') {
+      const body = request.postDataJSON()
+      updateBodies.push(body)
+      localMatches = localMatches.map((match) => (match.id === 78 ? { ...match, ...body } : match))
+      return route.fulfill({
+        json: {
+          match: localMatches.find((match) => match.id === 78),
+          season_stats: { cells: 1, totals: 1 },
         },
       })
     }
@@ -266,10 +306,51 @@ test('approved local player uses the reserved negative id for totals and games',
   await expect(page.getByText('vs Eastside')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add a game', exact: true })).toBeVisible()
   await expect(page.locator('[data-provenance-source="self"]').first()).toBeVisible()
-  await expect.poll(() => signedRequests.some((url) => (
-    url.pathname === '/api/players/-7/matches' && !url.searchParams.has('season')
+  await expect.poll(() => signedRequests.some(({ method, url }) => (
+    method === 'GET'
+      && url.pathname === '/api/players/-7/matches'
+      && !url.searchParams.has('season')
+      && url.searchParams.get('per_page') === '100'
   ))).toBe(true)
-  expect(signedRequests.some((url) => url.pathname === '/api/players/-7/season-stats')).toBe(true)
+  expect(signedRequests.some(({ url }) => url.pathname === '/api/players/-7/season-stats')).toBe(true)
+  let seasonStatsRequestCount = signedRequests.filter(({ url }) => (
+    url.pathname === '/api/players/-7/season-stats' && url.searchParams.get('season') === '2026'
+  )).length
+
+  await page.getByRole('button', { name: 'Add a game', exact: true }).click()
+  let dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Match date').fill('2026-08-29')
+  await dialog.getByLabel('Competition').fill('Kanto Academy League')
+  await dialog.getByLabel('Opponent').fill('Westside')
+  await dialog.getByLabel('Minutes').fill('70')
+  await dialog.getByLabel('Goals').fill('1')
+  await dialog.getByRole('button', { name: 'Add game', exact: true }).click()
+
+  await expect.poll(() => createBodies.length).toBe(1)
+  const westsideRow = page.locator('article[role="listitem"]').filter({ hasText: 'Westside' })
+  await expect(westsideRow).toBeVisible()
+  await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
+  await expect.poll(() => signedRequests.filter(({ url }) => (
+    url.pathname === '/api/players/-7/season-stats' && url.searchParams.get('season') === '2026'
+  )).length)
+    .toBeGreaterThan(seasonStatsRequestCount)
+  seasonStatsRequestCount = signedRequests.filter(({ url }) => (
+    url.pathname === '/api/players/-7/season-stats' && url.searchParams.get('season') === '2026'
+  )).length
+
+  await page.getByRole('button', { name: 'Edit game against Westside' }).click()
+  dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Goals').fill('2')
+  await dialog.getByRole('button', { name: 'Save changes' }).click()
+  await expect.poll(() => updateBodies.length).toBe(1)
+  await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
+  await expect.poll(() => signedRequests.filter(({ url }) => (
+    url.pathname === '/api/players/-7/season-stats' && url.searchParams.get('season') === '2026'
+  )).length)
+    .toBeGreaterThan(seasonStatsRequestCount)
+
+  expect(signedRequests.some(({ method, url }) => method === 'POST' && url.pathname === '/api/players/-7/matches')).toBe(true)
+  expect(signedRequests.some(({ method, url }) => method === 'PATCH' && url.pathname === '/api/players/-7/matches/78')).toBe(true)
 })
 
 test('public minor receives only the neutral missing state', async ({ page }) => {
@@ -291,6 +372,129 @@ test('public minor receives only the neutral missing state', async ({ page }) =>
   await expect(page.getByText('Games', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Add a game', exact: true })).toHaveCount(0)
   expect(matchRequests).toEqual([])
+})
+
+test('positive player stats 404 renders the neutral card without requesting games', async ({ page }) => {
+  const matchRequests = []
+
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === '/api/seasons') return route.fulfill({ json: seasons })
+    if (url.pathname === '/api/players/42/profile') {
+      return route.fulfill({ json: { name: 'Hidden Player', position: 'Forward', age: 17, nationality: 'England' } })
+    }
+    if (url.pathname === '/api/players/42/stats') return json404(route)
+    if (url.pathname === '/api/players/42/season-stats') {
+      return route.fulfill({ json: { season: '2026/2027', appearances: 0, minutes: 0, goals: 0, assists: 0 } })
+    }
+    if (url.pathname === '/api/players/42/journey/map') {
+      return route.fulfill({ json: { entries: [], nodes: [], edges: [] } })
+    }
+    if (url.pathname === '/api/players/42/matches') {
+      matchRequests.push(url)
+      return route.fulfill({ json: { matches: [], total: 0, page: 1, per_page: 100 } })
+    }
+    return route.fulfill({ json: {} })
+  })
+
+  await page.goto('/players/42')
+  await expect(page.getByRole('heading', { name: "This profile doesn't exist or isn't public yet" })).toBeVisible()
+  await expect(page.getByText('It may still be waiting for review, or the profile link may be incorrect.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Go Back' })).toBeVisible()
+  await expect(page.getByText('Games', { exact: true })).toHaveCount(0)
+  expect(matchRequests).toEqual([])
+})
+
+test('public games stay hidden while loading and can load the next page', async ({ page }) => {
+  const matchUrls = []
+  let releaseFirstPage
+  const firstPageGate = new Promise((resolve) => {
+    releaseFirstPage = resolve
+  })
+  const firstPageMatches = Array.from({ length: 100 }, (_, index) => ({
+    id: index + 1,
+    player_api_id: 44,
+    season: 2026,
+    match_date: `2026-08-${String((index % 28) + 1).padStart(2, '0')}`,
+    competition: 'Public Academy League',
+    opponent: `Opponent ${index + 1}`,
+    home_away: 'home',
+    result_for: 1,
+    result_against: 0,
+    minutes: 80,
+    goals: 0,
+    assists: 0,
+    yellows: 0,
+    reds: 0,
+    saves: null,
+    goals_conceded: null,
+    note: null,
+    source: 'club',
+    status: 'club_confirmed',
+    editable: false,
+    provenance: clubProvenance,
+  }))
+
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === '/api/seasons') return route.fulfill({ json: seasons })
+    if (url.pathname === '/api/players/44/profile') {
+      return route.fulfill({ json: { name: 'Paged Player', position: 'Forward', age: 20, nationality: 'England' } })
+    }
+    if (url.pathname === '/api/players/44/stats') {
+      return route.fulfill({ json: { matches: [], summary: { season: 2026 }, provenance: clubProvenance } })
+    }
+    if (url.pathname === '/api/players/44/season-stats') {
+      return route.fulfill({
+        json: { season: '2026/2027', appearances: 101, minutes: 8080, goals: 0, assists: 0, provenance: clubProvenance },
+      })
+    }
+    if (url.pathname === '/api/players/44/journey/map') {
+      return route.fulfill({ json: { entries: [], nodes: [], edges: [] } })
+    }
+    if (url.pathname === '/api/players/44/showcase') {
+      return route.fulfill({
+        json: { ...emptyShowcase, profile: { bio: 'Public showcase loaded' } },
+      })
+    }
+    if (url.pathname === '/api/players/44/matches') {
+      matchUrls.push(url)
+      if (url.searchParams.get('page') === '2') {
+        return route.fulfill({
+          json: {
+            matches: [{
+              ...firstPageMatches[0],
+              id: 101,
+              match_date: '2026-09-01',
+              opponent: 'Final Opponent',
+            }],
+            total: 101,
+            page: 2,
+            per_page: 100,
+          },
+        })
+      }
+      await firstPageGate
+      return route.fulfill({ json: { matches: firstPageMatches, total: 101, page: 1, per_page: 100 } })
+    }
+    return route.fulfill({ json: {} })
+  })
+
+  await page.goto('/players/44')
+  await expect(page.getByRole('heading', { name: 'Paged Player', exact: true })).toBeVisible()
+  await expect.poll(() => matchUrls.length).toBeGreaterThan(0)
+  await expect(page.getByText('Public showcase loaded')).toBeVisible()
+  await expect(page.getByText('Games', { exact: true })).toHaveCount(0)
+  releaseFirstPage()
+
+  await expect(page.getByRole('button', { name: 'Load more games' })).toBeVisible()
+  expect(matchUrls[0].searchParams.get('page')).toBe('1')
+  expect(matchUrls[0].searchParams.get('per_page')).toBe('100')
+  await page.getByRole('button', { name: 'Load more games' }).click()
+  await expect(page.getByText('vs Final Opponent')).toBeVisible()
+  await expect(page.getByText('vs Final Opponent')).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Load more games' })).toHaveCount(0)
+  expect(matchUrls.some((url) => url.searchParams.get('page') === '2' && url.searchParams.get('per_page') === '100')).toBe(true)
 })
 
 test('Scout source filter reaches browse, boards, signed compare, and CSV while rendering chips', async ({ page }) => {
@@ -403,6 +607,8 @@ test('Scout source filter reaches browse, boards, signed compare, and CSV while 
   })
 
   await page.goto('/scout')
+  await expect.poll(() => playerUrls.length).toBeGreaterThan(0)
+  expect(playerUrls[0].searchParams.has('source')).toBe(false)
   await page.getByRole('combobox', { name: 'Filter by stats source' }).click()
   await page.getByRole('option', { name: 'Club-confirmed' }).click()
 
@@ -458,6 +664,7 @@ test('club manager records both video-linked and no-video results with roster st
         available: true,
         subject_type: 'local',
         player_api_id: -11,
+        api_player_id: 711,
         local_player_id: 11,
         display_name: 'Kai Mori',
         position: 'Goalkeeper',
@@ -520,8 +727,8 @@ test('club manager records both video-linked and no-video results with roster st
             status: 'club_confirmed',
           })),
           season_stats_by_player: {
-            7001: { season: 2026, appearances: 4, minutes: 320, goals: 2, assists: 2, yellows: 1, reds: 0 },
-            '-11': { season: 2026, appearances: 4, minutes: 320, goals: 0, assists: 0, yellows: 0, reds: 0, saves: 12, goals_conceded: 3 },
+            7001: { player_name: 'Mina Sato — verified', season: 2026, appearances: 4, minutes: 320, goals: 2, assists: 2, yellows: 1, reds: 0 },
+            [body.video_match_id == null ? '-11' : '711']: { season: 2026, appearances: 4, minutes: 320, goals: 0, assists: 0, yellows: 0, reds: 0, saves: 12, goals_conceded: 3 },
           },
         },
       })
@@ -552,6 +759,7 @@ test('club manager records both video-linked and no-video results with roster st
   await expect(dialog.getByRole('heading', { name: 'Season totals updated' })).toBeVisible()
   const minaTotals = dialog.locator('article').filter({ hasText: 'Mina Sato' })
   const kaiTotals = dialog.locator('article').filter({ hasText: 'Kai Mori' })
+  await expect(minaTotals.getByText('Mina Sato — verified', { exact: true })).toBeVisible()
   await expect(minaTotals.getByText('320', { exact: true })).toBeVisible()
   await expect(minaTotals.getByText('2', { exact: true }).first()).toBeVisible()
   await expect(kaiTotals.getByText('12', { exact: true })).toBeVisible()
@@ -576,6 +784,8 @@ test('club manager records both video-linked and no-video results with roster st
   await dialog.getByLabel('Include Kai Mori in result').check()
   await dialog.getByRole('button', { name: 'Save result' }).click()
   await expect.poll(() => resultBodies.length).toBe(2)
+  await expect(dialog.getByRole('heading', { name: 'Season totals updated' })).toBeVisible()
+  await expect(dialog.locator('article').filter({ hasText: 'Kai Mori' })).toBeVisible()
 
   expect(resultBodies[0]).toEqual({
     video_match_id: 41,
