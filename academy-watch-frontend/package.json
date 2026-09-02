@@ -64,7 +64,7 @@
     "react-force-graph-2d": "^1.29.1",
     "react-hook-form": "^7.85.0",
     "react-markdown": "^10.1.0",
-    "react-resizable-panels": "^4.12.2",
+    "react-resizable-panels": "^4.12.3",
     "react-router-dom": "^7.18.3",
     "react-simple-maps": "^3.0.0",
     "recharts": "^3.10.1",
