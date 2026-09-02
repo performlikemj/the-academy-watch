@@ -10,6 +10,7 @@ production web container.
 Usage (from ``academy-watch-backend``)::
 
     python -m src.scripts.season_rollup_cold_build --players 303010,12345
+    python -m src.scripts.season_rollup_cold_build --players=-17,303010
     python -m src.scripts.season_rollup_cold_build --all --season 2025
     python -m src.scripts.season_rollup_cold_build --all --after 303010 --limit 500
     python -m src.scripts.season_rollup_cold_build --all --dry-run
@@ -46,6 +47,9 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_BATCH_SIZE = 50
 _MAX_BATCH_SIZE = 200
+# PostgreSQL ``INTEGER`` player ids cannot equal this cursor: API-Football ids
+# are positive and ``-local_player_id`` bottoms out at ``-2**31 + 1``.
+_INITIAL_PLAYER_CURSOR = -(2**31)
 _CONTAINER_APP_ENV_KEYS = (
     "CONTAINER_APP_NAME",
     "CONTAINER_APP_REPLICA_NAME",
@@ -57,6 +61,7 @@ _REQUIRED_TABLES = {
     "fixtures",
     "player_journey_entries",
     "player_journeys",
+    "player_match_entries",
     "player_season_cells",
     "player_season_totals",
     "player_shadow_stats",
@@ -73,26 +78,23 @@ def _positive_int(raw: str) -> int:
     return value
 
 
-def _non_negative_int(raw: str) -> int:
+def _signed_int(raw: str) -> int:
     try:
-        value = int(raw)
+        return int(raw)
     except (TypeError, ValueError) as exc:
-        raise argparse.ArgumentTypeError("must be a non-negative integer player_api_id") from exc
-    if value < 0:
-        raise argparse.ArgumentTypeError("must be a non-negative integer player_api_id")
-    return value
+        raise argparse.ArgumentTypeError("must be a signed integer player_api_id") from exc
 
 
 def _player_id_list(raw: str) -> tuple[int, ...]:
     parts = [part.strip() for part in raw.split(",")]
     if not parts or any(not part for part in parts):
-        raise argparse.ArgumentTypeError("must be a comma-separated list of positive player_api_ids")
+        raise argparse.ArgumentTypeError("must be a comma-separated list of non-zero player_api_ids")
     try:
         player_ids = {int(part) for part in parts}
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("must be a comma-separated list of positive player_api_ids") from exc
-    if any(player_id < 1 for player_id in player_ids):
-        raise argparse.ArgumentTypeError("player_api_ids must be positive integers")
+        raise argparse.ArgumentTypeError("must be a comma-separated list of non-zero player_api_ids") from exc
+    if 0 in player_ids:
+        raise argparse.ArgumentTypeError("player_api_ids must be non-zero integers")
     return tuple(sorted(player_ids))
 
 
@@ -120,10 +122,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--after",
-        type=_non_negative_int,
-        default=0,
+        type=_signed_int,
+        default=_INITIAL_PLAYER_CURSOR,
         metavar="PLAYER_API_ID",
-        help="strict keyset resume cursor (default: 0)",
+        help="strict signed keyset resume cursor (default: before all valid player ids)",
     )
     parser.add_argument("--limit", type=_positive_int, help="stop after attempting this many players")
     parser.add_argument(

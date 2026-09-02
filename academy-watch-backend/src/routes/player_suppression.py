@@ -13,6 +13,8 @@ from src.extensions import limiter
 from src.models.follow import PlayerShadow
 from src.models.league import db
 from src.models.player_suppression import PlayerSuppression
+from src.models.showcase import PlayerProfileClaim
+from src.models.showcase_moderation import record_moderation_event
 from src.utils.sanitize import sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -196,6 +198,22 @@ def _decision_notes() -> str:
     return _clean_required(payload.get("notes"), "notes", max_len=MAX_NOTES_LENGTH)
 
 
+def _claim_owner_ids(suppression: PlayerSuppression) -> set[int]:
+    """Return distinct claimants for the suppression's exact subject."""
+    query = db.session.query(PlayerProfileClaim.user_account_id)
+    if suppression.local_player_id is not None:
+        query = query.filter(
+            PlayerProfileClaim.local_player_id == suppression.local_player_id,
+            PlayerProfileClaim.player_api_id.is_(None),
+        )
+    else:
+        query = query.filter(
+            PlayerProfileClaim.player_api_id == suppression.player_api_id,
+            PlayerProfileClaim.local_player_id.is_(None),
+        )
+    return {user_account_id for (user_account_id,) in query.distinct().all()}
+
+
 def _decide_suppression(suppression_id: int, action: str):
     transitions = {
         "activate": ({"requested", "active"}, "active"),
@@ -211,12 +229,23 @@ def _decide_suppression(suppression_id: int, action: str):
         if suppression.status not in allowed:
             return jsonify({"error": f"cannot {action} a {suppression.status} suppression"}), 409
 
+        became_active = action == "activate" and suppression.status != "active"
         suppression.status = target
         suppression.notes = notes
         suppression.decided_at = datetime.now(UTC)
         suppression.decided_by = _admin_actor()
         suppression.updated_at = suppression.decided_at
 
+        if became_active:
+            for user_account_id in _claim_owner_ids(suppression):
+                record_moderation_event(
+                    user_account_id=user_account_id,
+                    target_kind="suppression",
+                    target_id=suppression.id,
+                    action="suppressed",
+                    actor_email=suppression.decided_by,
+                    session=db.session,
+                )
         if action == "activate" and suppression.player_api_id is not None:
             PlayerShadow.query.filter_by(player_api_id=suppression.player_api_id).update(
                 {PlayerShadow.is_active: False},

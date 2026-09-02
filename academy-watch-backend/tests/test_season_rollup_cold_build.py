@@ -1,6 +1,6 @@
 """D4a off-container season-rollup cold-build runner."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from flask import Flask
@@ -9,6 +9,7 @@ from sqlalchemy.engine import make_url
 from src.models.follow import PlayerShadowStats
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, db
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.routes import season_rollup as admin_routes
@@ -66,6 +67,26 @@ def _apss(player_api_id: int) -> AcademyPlayerSeasonStats:
         goals=0,
         assists=0,
         minutes=90,
+    )
+    db.session.add(row)
+    return row
+
+
+def _match_entry(player_api_id: int) -> PlayerMatchEntry:
+    row = PlayerMatchEntry(
+        player_api_id=player_api_id,
+        season=SEASON,
+        source="self",
+        status="self_reported",
+        reported_by_user_id=1,
+        match_date=date(2025, 9, 1),
+        opponent="Community FC",
+        home_away="home",
+        minutes=90,
+        goals=0,
+        assists=0,
+        yellows=0,
+        reds=0,
     )
     db.session.add(row)
     return row
@@ -179,6 +200,38 @@ def test_players_mode_builds_only_requested_players(app, monkeypatch, capsys):
     assert PlayerSeasonTotal.query.filter_by(player_api_id=101, season=2024).count() == 0
     assert PlayerSeasonTotal.query.filter_by(player_api_id=102).one().computed_at == MARKER_TIME.replace(tzinfo=None)
     assert PlayerSeasonCell.query.filter_by(player_api_id=102).one().synced_at == MARKER_TIME.replace(tzinfo=None)
+
+
+def test_players_mode_accepts_signed_player_ids(app, monkeypatch):
+    calls = []
+
+    def _record(player_api_id, season=None, session=None):
+        calls.append((player_api_id, season, session))
+        return {"cells": 0, "totals": 0}
+
+    monkeypatch.setattr(runner.season_rollup_service, "refresh_player", _record)
+
+    result = _invoke(app, monkeypatch, "--players=-9,11,-9", "--after", "-10")
+
+    assert result == 0
+    assert calls == [(-9, None, db.session), (11, None, db.session)]
+
+
+def test_all_mode_discovers_negative_match_entry_only_subject(app, monkeypatch):
+    _match_entry(-7)
+    db.session.commit()
+    calls = []
+
+    def _record(player_api_id, season=None, session=None):
+        calls.append((player_api_id, season, session))
+        return {"cells": 0, "totals": 0}
+
+    monkeypatch.setattr(runner.season_rollup_service, "refresh_player", _record)
+
+    result = _invoke(app, monkeypatch, "--all", "--season", str(SEASON), "--batch-size", "1")
+
+    assert result == 0
+    assert calls == [(-7, SEASON, db.session)]
 
 
 def test_all_mode_after_limit_resume_matches_endpoint_population(app, monkeypatch):

@@ -37,6 +37,7 @@ from src.models.player_suppression import PlayerSuppression
 from src.models.pulse import PlayerCardCache, PlayerPulse
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import LocalPlayer, PlayerProfileClaim, PlayerShowcaseProfile
+from src.models.showcase_moderation import ShowcaseModerationEvent
 from src.models.tracked_player import TrackedPlayer
 from src.models.trust import ScoutVerification
 from src.models.weekly import Fixture, FixturePlayerStats
@@ -611,6 +612,88 @@ def test_admin_queue_activate_reject_lift_and_shadow_lifecycle(client, seeded_pl
     assert decision.status_code == 200
     rejected_queue = client.get("/api/admin/suppressions?status=rejected", headers=_admin_headers())
     assert [row["id"] for row in rejected_queue.get_json()["suppressions"]] == [rejected.id]
+
+
+def test_api_suppression_activation_records_one_event_per_claim_owner(client, seeded_players):
+    first_owner, _, _ = _approved_player_claim("first-owner@example.com", SUPPRESSED_ID)
+    second_owner, _, _ = _approved_player_claim("second-owner@example.com", SUPPRESSED_ID)
+    suppression = PlayerSuppression(
+        player_api_id=SUPPRESSED_ID,
+        reason_code="guardian_request",
+        requester_role="guardian",
+        requester_contact="guardian@example.com",
+        request_statement="Please remove this player.",
+        status="requested",
+    )
+    db.session.add(suppression)
+    db.session.commit()
+
+    response = client.post(
+        f"/api/admin/suppressions/{suppression.id}/activate",
+        json={"notes": "Verified suppression request"},
+        headers=_admin_headers(),
+    )
+
+    assert response.status_code == 200
+    events = ShowcaseModerationEvent.query.order_by(ShowcaseModerationEvent.user_account_id).all()
+    assert [event.user_account_id for event in events] == sorted([first_owner.id, second_owner.id])
+    assert {(event.target_kind, event.target_id, event.action, event.actor_email) for event in events} == {
+        ("suppression", suppression.id, "suppressed", "tf2-admin@example.com")
+    }
+
+    repeated = client.post(
+        f"/api/admin/suppressions/{suppression.id}/activate",
+        json={"notes": "Still suppressed"},
+        headers=_admin_headers(),
+    )
+    assert repeated.status_code == 200
+    assert ShowcaseModerationEvent.query.count() == 2
+
+
+def test_local_suppression_activation_records_local_claim_owner_event(client):
+    owner, _ = _user_headers("local-owner@example.com")
+    local_player = LocalPlayer(
+        display_name="Local Suppression Subject",
+        birth_year=1990,
+        status="approved",
+        provenance="user",
+        created_by_user_id=owner.id,
+    )
+    db.session.add(local_player)
+    db.session.flush()
+    claim = PlayerProfileClaim(
+        local_player_id=local_player.id,
+        user_account_id=owner.id,
+        relationship_type="player",
+        contract_status="free_agent",
+        status="approved",
+    )
+    suppression = PlayerSuppression(
+        local_player_id=local_player.id,
+        reason_code="player_request",
+        requester_role="player",
+        requester_contact="local-owner@example.com",
+        request_statement="Please remove my local profile.",
+        status="requested",
+    )
+    db.session.add_all([claim, suppression])
+    db.session.commit()
+
+    response = client.post(
+        f"/api/admin/suppressions/{suppression.id}/activate",
+        json={"notes": "Identity and request verified"},
+        headers=_admin_headers(),
+    )
+
+    assert response.status_code == 200
+    event = ShowcaseModerationEvent.query.one()
+    assert (event.user_account_id, event.target_kind, event.target_id, event.action) == (
+        owner.id,
+        "suppression",
+        suppression.id,
+        "suppressed",
+    )
+    assert event.actor_email == "tf2-admin@example.com"
 
 
 def test_scout_queries_exclude_suppressed_players_at_sql_level(client, suppression_app, seeded_players, monkeypatch):

@@ -39,6 +39,7 @@ from src.auth import _safe_error_payload, require_api_key
 from src.models.follow import PlayerShadowStats
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, db
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services import season_rollup_service
@@ -137,6 +138,7 @@ def _candidate_player_ids(
             _had_source_cell(PlayerShadowStats.player_api_id, PlayerShadowStats.season, "shadow"),
         )
     )
+    match_entry_rows = select(PlayerMatchEntry.player_api_id.label("player_api_id"))
     cell_rows = select(PlayerSeasonCell.player_api_id.label("player_api_id"))
     total_rows = select(PlayerSeasonTotal.player_api_id.label("player_api_id"))
 
@@ -145,6 +147,7 @@ def _candidate_player_ids(
         journey_rows = journey_rows.where(PlayerJourneyEntry.season == season)
         apss_rows = apss_rows.where(AcademyPlayerSeasonStats.season == season)
         shadow_rows = shadow_rows.where(PlayerShadowStats.season == season)
+        match_entry_rows = match_entry_rows.where(PlayerMatchEntry.season == season)
         cell_rows = cell_rows.where(PlayerSeasonCell.season == season)
         total_rows = total_rows.where(PlayerSeasonTotal.season == season)
 
@@ -153,6 +156,7 @@ def _candidate_player_ids(
         (journey_rows, PlayerJourney.player_api_id),
         (apss_rows, AcademyPlayerSeasonStats.player_api_id),
         (shadow_rows, PlayerShadowStats.player_api_id),
+        (match_entry_rows, PlayerMatchEntry.player_api_id),
         (cell_rows, PlayerSeasonCell.player_api_id),
         (total_rows, PlayerSeasonTotal.player_api_id),
     )
@@ -172,7 +176,7 @@ def _candidate_player_ids(
         bounded_queries.append(query)
 
     # A page query reads at most ``per_source_limit`` ids from each indexed
-    # source, then merges/deduplicates at most 6N ids.
+    # source, then merges/deduplicates at most 7N ids.
     rows = union_all(*bounded_queries).subquery()
     return select(rows.c.player_api_id).where(rows.c.player_api_id.is_not(None)).group_by(rows.c.player_api_id)
 
@@ -364,16 +368,13 @@ def _stale_player_ids(player_ids: tuple[int, ...] | None = None):
     return select(stale_rows.c.player_api_id).group_by(stale_rows.c.player_api_id)
 
 
-def _page_ids(id_statement, cursor: int, batch_size: int) -> list[int]:
+def _page_ids(id_statement, cursor: int | None, batch_size: int) -> list[int]:
     ids = id_statement.subquery()
-    return list(
-        db.session.execute(
-            select(ids.c.player_api_id)
-            .where(ids.c.player_api_id > cursor)
-            .order_by(ids.c.player_api_id)
-            .limit(batch_size)
-        ).scalars()
-    )
+    statement = select(ids.c.player_api_id)
+    if cursor is not None:
+        statement = statement.where(ids.c.player_api_id > cursor)
+    statement = statement.order_by(ids.c.player_api_id).limit(batch_size)
+    return list(db.session.execute(statement).scalars())
 
 
 def _count_ids(id_statement) -> int:
@@ -427,13 +428,11 @@ def _cursor_arg() -> tuple[int | None, str | None]:
     """
     raw_cursor = request.args.get("cursor")
     if raw_cursor is None or raw_cursor == "":
-        return 0, None
+        return None, None
     try:
         cursor = int(raw_cursor)
     except (TypeError, ValueError):
-        return None, "cursor must be a non-negative integer player_api_id"
-    if cursor < 0:
-        return None, "cursor must be a non-negative integer player_api_id"
+        return None, "cursor must be an integer player_api_id"
     return cursor, None
 
 
@@ -444,13 +443,20 @@ def _positive_int_arg(name: str) -> int | None:
     return value
 
 
+def _nonzero_int_arg(name: str) -> int | None:
+    value = request.args.get(name, type=int)
+    if not isinstance(value, int) or value == 0:
+        return None
+    return value
+
+
 @season_rollup_bp.route("/admin/season-rollup/rebuild", methods=["POST"])
 @require_api_key
 def admin_rebuild_season_rollup():
     """Rebuild rollups for one player or a bounded player-id page.
 
     Query params:
-    - ``scope=player&player_api_id=<positive int>``
+    - ``scope=player&player_api_id=<non-zero int>``
     - ``scope=season&season=<start-year int>[&batch_size&cursor]``
     - ``scope=stale[&batch_size&cursor]``
     - ``scope=all[&batch_size&cursor]``
@@ -468,9 +474,9 @@ def admin_rebuild_season_rollup():
         return jsonify({"error": "scope must be one of: player, season, stale, all"}), 400
 
     if scope == "player":
-        player_api_id = _positive_int_arg("player_api_id")
+        player_api_id = _nonzero_int_arg("player_api_id")
         if player_api_id is None:
-            return jsonify({"error": "player_api_id must be a positive integer"}), 400
+            return jsonify({"error": "player_api_id must be a non-zero integer"}), 400
         try:
             season_rollup_service.refresh_player(player_api_id, season=None, session=db.session)
             db.session.commit()
@@ -493,7 +499,7 @@ def admin_rebuild_season_rollup():
 
     try:
         # Keyset-page a capped set from every source before any stale aggregate.
-        # The merged input to a rebuild is therefore at most 6N ids; stale scope
+        # The merged input to a rebuild is therefore at most 7N ids; stale scope
         # evaluates clocks only for that bounded candidate page. One extra id is
         # a bounded lookahead used to determine whether another page exists;
         # rebuild requests never run a platform-wide remainder count.

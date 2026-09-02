@@ -18,6 +18,7 @@ from src.models.follow import PlayerShadow
 from src.models.journey import PlayerJourney
 from src.models.league import League, PlayerLink, Team, db
 from src.models.showcase import LocalPlayer, PlayerProfileClaim, PlayerShowcaseProfile
+from src.models.showcase_moderation import ShowcaseModerationEvent
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
 
@@ -562,7 +563,7 @@ class TestAdminClaimReview:
         public = client.get("/api/players/5001/showcase")
         assert public.get_json()["claim_status"] == "claimed"
 
-    def test_reject_pending_claim(self, client):
+    def test_reject_pending_claim(self, app, client):
         headers = _user_headers("kobbie@example.com")
         claim_id = client.post(
             "/api/players/5001/claim",
@@ -574,8 +575,12 @@ class TestAdminClaimReview:
         )
         assert review.status_code == 200
         assert review.get_json()["claim"]["status"] == "rejected"
+        with app.app_context():
+            event = ShowcaseModerationEvent.query.one()
+            assert (event.target_kind, event.target_id, event.action) == ("claim", claim_id, "rejected")
+            assert event.actor_email == "admin@test.com"
 
-    def test_revoke_requires_approved(self, client):
+    def test_revoke_requires_approved(self, app, client):
         headers = _user_headers("kobbie@example.com")
         claim_id = client.post(
             "/api/players/5001/claim",
@@ -596,6 +601,10 @@ class TestAdminClaimReview:
         )
         assert good.status_code == 200
         assert good.get_json()["claim"]["status"] == "revoked"
+        with app.app_context():
+            event = ShowcaseModerationEvent.query.one()
+            assert (event.target_kind, event.target_id, event.action) == ("claim", claim_id, "revoked")
+            assert event.actor_email == "admin@test.com"
 
     def test_approve_does_not_revoke_other_claims(self, app, client):
         # A player and an agent both claim; approving one leaves the other untouched.
