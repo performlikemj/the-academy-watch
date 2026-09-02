@@ -80,22 +80,24 @@ def api_call_counter(monkeypatch):
     import src.api_football_client as client_module
     from src.routes import api as api_module
     from src.routes import players as players_module
-    from src.services import player_shadow_service
+    from src.services import journey_sync, player_shadow_service
 
     monkeypatch.setattr(client_module, "APIFootballClient", ExplodingClient)
+    monkeypatch.setattr(journey_sync, "APIFootballClient", ExplodingClient)
     monkeypatch.setattr(api_module, "api_client", ExplodingLazyClient())
     monkeypatch.setattr(players_module, "_get_api_client", lambda: ExplodingLazyClient())
     monkeypatch.setattr(player_shadow_service, "_get_api_client", lambda: ExplodingLazyClient())
     return calls
 
 
-def _seed_local(*, name: str, birth_date: date) -> int:
+def _seed_local(*, name: str, birth_date: date | None, birth_year: int | None = None) -> int:
     creator = _ensure_user_account(f"{name.lower().replace(' ', '-')}@example.com")
     db.session.flush()
     local_player = LocalPlayer(
         display_name=name,
         normalized_name="set-by-validator",
         birth_date=birth_date,
+        birth_year=birth_year if birth_year is not None else (birth_date.year if birth_date else None),
         position="Midfielder",
         country="England",
         club_name="Community FC",
@@ -170,6 +172,24 @@ def test_approved_adult_negative_routes_are_db_only(client, local_subjects, api_
     assert responses[f"/api/players/{player_api_id}/availability"].get_json()["reason"] == "local_player"
     assert responses[f"/api/players/{player_api_id}/journey?sync=true"].get_json()["source"] == "local_player"
     assert responses[f"/api/players/{player_api_id}/journey/map?sync=true"].get_json()["source"] == "local-player"
+    assert api_call_counter == []
+
+
+def test_year_only_local_profile_uses_conservative_age_and_keeps_shadow_dob_empty(
+    client,
+    negative_app,
+    api_call_counter,
+):
+    birth_year = date.today().year - 19
+    player_api_id = _seed_local(name="Year Only Local", birth_date=None, birth_year=birth_year)
+
+    response = client.get(f"/api/players/{player_api_id}/profile")
+
+    assert response.status_code == 200, response.get_json()
+    assert response.get_json()["age"] == date.today().year - birth_year - 1
+    shadow = PlayerShadow.query.filter_by(player_api_id=player_api_id).one()
+    assert shadow.birth_date is None
+    assert shadow.photo_url is None
     assert api_call_counter == []
 
 

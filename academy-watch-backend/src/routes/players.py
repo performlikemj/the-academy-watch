@@ -192,12 +192,27 @@ def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict
         )
         .all()
     )
+    local_program_ids = {-cell.club_api_id for cell in cells if cell.club_api_id < 0}
+    local_program_names = {}
+    if local_program_ids:
+        from src.models.funding import ClubProgram
+
+        local_program_names = {
+            program.id: program.name
+            for program in ClubProgram.query.filter(ClubProgram.id.in_(local_program_ids)).all()
+        }
+
     breakdown: dict[str, list[dict]] = {}
     for cell in cells:
+        detail = cell.detail if isinstance(cell.detail, dict) else {}
+        competition_label = detail.get("competition") if cell.source in {"club", "user"} else cell.competition_tier
+        club_name = (
+            local_program_names.get(-cell.club_api_id, cell.club_name) if cell.club_api_id < 0 else cell.club_name
+        )
         breakdown.setdefault(cell.source, []).append(
             {
-                "club": {"id": cell.club_api_id, "name": cell.club_name},
-                "competition_tier": cell.competition_tier,
+                "club": {"id": cell.club_api_id, "name": club_name},
+                "competition_tier": competition_label,
                 "stats": {
                     "appearances": cell.appearances,
                     "minutes": cell.minutes,
@@ -530,7 +545,9 @@ def get_public_player_profile(player_id: int):
             if local_player.birth_date is not None:
                 local_age = age_from_birth_date(local_player.birth_date, today=_date.today())
             elif local_player.birth_year is not None:
-                local_age = max(0, _date.today().year - local_player.birth_year)
+                # A year alone cannot prove that this year's birthday has
+                # passed. Report the youngest possible age for that year.
+                local_age = max(0, _date.today().year - local_player.birth_year - 1)
 
         result = {
             "player_id": player_id,

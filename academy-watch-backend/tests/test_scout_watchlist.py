@@ -310,15 +310,15 @@ class TestAddAndRemove:
         assert resp.status_code == 409
         assert "watchlist limit reached" in resp.get_json()["error"]
 
-    def test_delete_is_idempotent(self, client, seeded):
+    def test_delete_returns_404_once_entry_is_absent(self, client, seeded):
         headers = _headers()
         client.post("/api/scout/watchlist", json={"player_api_id": 1001}, headers=headers)
         resp = client.delete("/api/scout/watchlist/1001", headers=headers)
         assert resp.status_code == 200
         assert resp.get_json() == {"removed": True}
         resp = client.delete("/api/scout/watchlist/1001", headers=headers)
-        assert resp.status_code == 200
-        assert resp.get_json() == {"removed": False}
+        assert resp.status_code == 404
+        assert resp.get_json() == {"error": "Player not found"}
 
     def test_approved_adult_negative_can_be_watched_enriched_edited_and_removed(
         self, client, seeded, local_watchlist_player
@@ -347,6 +347,25 @@ class TestAddAndRemove:
         removed = client.delete(f"/api/scout/watchlist/{local_watchlist_player}", headers=headers)
         assert removed.status_code == 200
         assert removed.get_json() == {"removed": True}
+
+    def test_local_entry_can_be_removed_after_subject_becomes_minor(self, client, seeded, local_watchlist_player):
+        headers = _headers()
+        created = client.post(
+            "/api/scout/watchlist",
+            json={"player_api_id": local_watchlist_player},
+            headers=headers,
+        )
+        assert created.status_code == 201
+
+        local = LocalPlayer.query.filter_by(api_player_id=local_watchlist_player).one()
+        local.birth_date = date(date.today().year - 12, 1, 1)
+        local.birth_year = local.birth_date.year
+        db.session.commit()
+
+        removed = client.delete(f"/api/scout/watchlist/{local_watchlist_player}", headers=headers)
+        assert removed.status_code == 200
+        assert removed.get_json() == {"removed": True}
+        assert ScoutWatchlistEntry.query.filter_by(player_api_id=local_watchlist_player).first() is None
 
 
 class TestNote:

@@ -103,23 +103,9 @@ def _clean_seed(seed):
 
 
 def _local_shadow_birth_date(player):
-    """Preserve an exact DOB, or conservatively map a year-only DOB.
+    """Copy only an exact DOB; never invent a date from year-only evidence."""
 
-    ``PlayerShadow`` has no separate birth-year column. December 31 keeps a
-    year-only identity under 18 for essentially the full boundary year and
-    avoids pretending the player is older than the moderated local record can
-    establish.
-    """
-
-    if player.birth_date is not None:
-        return player.birth_date
-    birth_year = player.birth_year
-    if isinstance(birth_year, bool) or not isinstance(birth_year, int):
-        return None
-    try:
-        return date(birth_year, 12, 31)
-    except ValueError:
-        return None
+    return player.birth_date
 
 
 def _mint_local_shadow(player_api_id):

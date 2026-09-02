@@ -1029,6 +1029,50 @@ def test_weekly_builders_scout_digest_pulse_and_cards_exclude_suppressed_players
     assert set(cards.get_cards_for_window(WINDOW_END)) == {VISIBLE_ID}
 
 
+def test_scout_digest_excludes_shadow_after_local_age_is_corrected_to_minor(suppression_app):
+    current_year = datetime.now(UTC).year
+    user, _ = _user_headers("local-age-correction@example.com")
+    local_player = LocalPlayer(
+        display_name="Corrected Local Prospect",
+        birth_year=current_year - 19,
+        status="approved",
+        provenance="user",
+        created_by_user_id=user.id,
+    )
+    db.session.add(local_player)
+    db.session.flush()
+    player_api_id = -local_player.id
+    local_player.api_player_id = player_api_id
+    db.session.add_all(
+        [
+            PlayerShadow(
+                player_api_id=player_api_id,
+                player_name=local_player.display_name,
+                birth_date=None,
+                requested_by_user_id=user.id,
+                is_active=True,
+            ),
+            ScoutWatchlistEntry(user_account_id=user.id, player_api_id=player_api_id),
+        ]
+    )
+    db.session.commit()
+
+    from src.services.scout_digest_service import build_user_digest
+
+    entry = ScoutWatchlistEntry.query.filter_by(
+        user_account_id=user.id,
+        player_api_id=player_api_id,
+    ).one()
+    visible_digest = build_user_digest(user, [entry], api_client=None)
+    assert visible_digest is not None
+    assert "Corrected Local Prospect" in visible_digest["text"]
+
+    local_player.birth_date = date(current_year - 17, 1, 1)
+    db.session.commit()
+
+    assert build_user_digest(user, [entry], api_client=None) is None
+
+
 def test_contact_creation_is_blocked_but_existing_participant_thread_remains_available(client, seeded_players):
     _, first_scout_headers = _verified_scout("first-scout@example.com")
     _, owner_headers, _ = _approved_player_claim("player-owner@example.com", SUPPRESSED_ID)

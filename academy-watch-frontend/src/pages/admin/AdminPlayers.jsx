@@ -492,7 +492,7 @@ function SeedTab({ teams, setMessage }) {
             <Card>
                 <CardHeader>
                     <CardTitle>Add Player Manually</CardTitle>
-                    <CardDescription>Add a player who isn't in the API data</CardDescription>
+                    <CardDescription>Add a known API-Football player to tracking</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <ManualAddForm teams={teams} setMessage={setMessage} />
@@ -507,6 +507,7 @@ function SeedTab({ teams, setMessage }) {
 // ============================================================
 function ManualAddForm({ teams, setMessage }) {
     const [form, setForm] = useState({
+        player_api_id: '',
         player_name: '',
         position: '',
         nationality: '',
@@ -527,9 +528,15 @@ function ManualAddForm({ teams, setMessage }) {
             setMessage({ type: 'error', text: 'Team is required' })
             return
         }
+        const playerApiId = Number(form.player_api_id)
+        if (!Number.isInteger(playerApiId) || playerApiId <= 0) {
+            setMessage({ type: 'error', text: 'API-Football player ID must be a positive integer' })
+            return
+        }
 
         try {
             const payload = {
+                player_api_id: playerApiId,
                 player_name: form.player_name.trim(),
                 team_id: Number(form.team_id),
                 status: form.status,
@@ -542,9 +549,9 @@ function ManualAddForm({ teams, setMessage }) {
             if (form.current_club_name) payload.current_club_name = form.current_club_name
             if (form.notes) payload.notes = form.notes
 
-            await APIService.adminTrackedPlayerCreate(payload)
+            await APIService.adminPlayerCreate(payload)
             setMessage({ type: 'success', text: `Added ${form.player_name}` })
-            setForm({ player_name: '', position: '', nationality: '', age: '', team_id: '', status: 'academy', current_level: '', current_club_name: '', notes: '' })
+            setForm({ player_api_id: '', player_name: '', position: '', nationality: '', age: '', team_id: '', status: 'academy', current_level: '', current_club_name: '', notes: '' })
         } catch (error) {
             setMessage({ type: 'error', text: `Create failed: ${error?.body?.error || error.message}` })
         }
@@ -553,6 +560,21 @@ function ManualAddForm({ teams, setMessage }) {
     return (
         <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                    <Label>API-Football Player ID *</Label>
+                    <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        value={form.player_api_id}
+                        onChange={(e) => setForm({ ...form, player_api_id: e.target.value })}
+                        placeholder="Positive API-Football player ID"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                        players not in API-Football → create a Local Player
+                    </p>
+                </div>
                 <div className="md:col-span-2">
                     <Label>Player Name *</Label>
                     <Input value={form.player_name} onChange={(e) => setForm({ ...form, player_name: e.target.value })} placeholder="Full name" />

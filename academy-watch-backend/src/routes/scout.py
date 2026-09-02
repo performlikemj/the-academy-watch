@@ -169,10 +169,12 @@ SOURCE_LABELS = {
 
 
 def _local_players_enabled() -> bool:
-    """Whether approved local identities join public Scout discovery.
+    """Whether approved locals join discovery/query-resolved Scout surfaces.
 
-    Read dynamically so an operator can roll the union back without a process
-    restart in tests and so the safe default remains an empty local branch.
+    This gates browse, leaderboards, compare, export, and query follows. Direct
+    watchlist adds and player-follow selectors accept approved adult locals
+    regardless of this flag. Read dynamically so an operator can roll the
+    union back without a process restart; the safe default remains off.
     """
 
     return os.getenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "").strip().lower() in {"1", "true", "yes", "on"}
@@ -512,6 +514,9 @@ def _scout_identity_subquery(*, include_local=None):
             ),
         )
         .filter(
+            # Intentionally ignore orphan negative rows in legacy ``players``.
+            # Only referenced collisions block D1 minting at approval time;
+            # inert legacy rows must not hide an otherwise public local.
             PlayerShadow.player_api_id < 0,
             PlayerShadow.is_active.is_(True),
             LocalPlayer.status == "approved",
@@ -1739,21 +1744,14 @@ def scout_watchlist_add():
 @require_user_auth
 @limiter.limit("30/minute", key_func=_user_rate_limit_key)
 def scout_watchlist_remove(player_api_id):
-    """Remove a player from the watchlist. Idempotent."""
+    """Remove the caller's entry even when its subject is now unavailable."""
     try:
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        subject = _resolve_subject(player_api_id)
         entry = ScoutWatchlistEntry.query.filter_by(user_account_id=user.id, player_api_id=player_api_id).first()
-        if player_api_id < 0 and (
-            subject is None or subject.is_minor or subject.local_player is None or subject.shadow is None
-        ):
-            return neutral_player_not_found()
         if entry is None:
-            if player_api_id < 0 and not subject.is_public:
-                return neutral_player_not_found()
-            return jsonify({"removed": False})
+            return neutral_player_not_found()
         db.session.delete(entry)
         db.session.commit()
         _mirror_watchlist_remove(user, player_api_id)

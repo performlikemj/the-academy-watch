@@ -24,6 +24,8 @@ from src.models.league import (
     CommunityTake,
     NewsletterCommentary,
     NewsletterPlayerYoutubeLink,
+    Player,
+    PlayerComment,
     PlayerFlag,
     PlayerLink,
     QuickTakeSubmission,
@@ -1603,10 +1605,105 @@ class TestAdminLocalPlayers:
                 assert shadows[0].player_name == f"{action.title()} Prospect"
                 assert shadows[0].position == "Midfielder"
                 assert shadows[0].nationality == "England"
+                assert shadows[0].birth_date is None
+                assert shadows[0].photo_url is None
                 assert shadows[0].requested_by_user_id == stored.created_by_user_id
             else:
                 assert stored.api_player_id is None
                 assert shadows == []
+
+    def test_orphan_legacy_player_row_does_not_block_mint_or_scout_union(self, app, client, caplog):
+        from src.routes import showcase as showcase_routes
+
+        with app.app_context():
+            player = _seed_local_player("Orphan Namespace Prospect", status="pending")
+            signed_id = -player.id
+            db.session.add(Player(player_id=signed_id, name="Retired orphan row"))
+            db.session.commit()
+            player_id = player.id
+            showcase_routes._logged_orphan_legacy_player_ids.discard(signed_id)
+            assert showcase_routes._legacy_negative_identity_conflict(signed_id) is None
+            assert showcase_routes._legacy_negative_identity_conflict(signed_id) is None
+
+        reviewed = client.post(
+            f"/api/admin/local-players/{player_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert reviewed.status_code == 200, reviewed.get_json()
+        assert reviewed.get_json()["player"]["api_player_id"] == signed_id
+
+        repeated = client.post(
+            f"/api/admin/local-players/{player_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert repeated.status_code == 200, repeated.get_json()
+        warnings = [record for record in caplog.records if "Ignoring orphan legacy players row" in record.message]
+        assert len(warnings) == 1
+
+        with app.app_context():
+            from src.routes.scout import _scout_identity_subquery
+
+            identity = _scout_identity_subquery(include_local=True)
+            visible_ids = {row.player_api_id for row in db.session.query(identity.c.player_api_id).all()}
+            assert signed_id in visible_ids
+
+    @pytest.mark.parametrize(
+        "reference_kind",
+        ["tracked", "shadow", "claim", "watchlist", "follow", "follow_snapshot"],
+    )
+    def test_referenced_legacy_negative_id_blocks_approval(self, app, client, reference_kind):
+        with app.app_context():
+            player = _seed_local_player(f"Referenced {reference_kind} Prospect", status="pending")
+            signed_id = -player.id
+            if reference_kind == "tracked":
+                team = Team(team_id=90_001, name="Legacy Academy", country="England", season=2025)
+                db.session.add(team)
+                db.session.flush()
+                reference = TrackedPlayer(
+                    player_api_id=signed_id,
+                    player_name="Legacy tracked player",
+                    team_id=team.id,
+                )
+            elif reference_kind == "shadow":
+                reference = PlayerShadow(player_api_id=signed_id, player_name="Legacy shadow")
+            elif reference_kind == "claim":
+                _owner, reference = _seed_claim(player_api_id=signed_id, status="pending")
+            elif reference_kind == "watchlist":
+                watcher = _make_user("legacy-watchlist@example.com")
+                reference = ScoutWatchlistEntry(user_account_id=watcher.id, player_api_id=signed_id)
+            elif reference_kind == "follow":
+                follower = _make_user("legacy-follow@example.com")
+                follow_list = FollowList(user_account_id=follower.id, name="Legacy list")
+                db.session.add(follow_list)
+                db.session.flush()
+                reference = Follow(
+                    list_id=follow_list.id,
+                    kind="player",
+                    selector={"player_api_id": signed_id},
+                )
+            else:
+                follower = _make_user("legacy-follow-snapshot@example.com")
+                reference = FollowPlayerSnapshot(
+                    user_account_id=follower.id,
+                    player_api_id=signed_id,
+                )
+            db.session.add(reference)
+            db.session.commit()
+            player_id = player.id
+
+        reviewed = client.post(
+            f"/api/admin/local-players/{player_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert reviewed.status_code == 409, reviewed.get_json()
+        assert reviewed.get_json()["error"] == "synthetic player id conflicts with a legacy manual player"
+        with app.app_context():
+            stored = db.session.get(LocalPlayer, player_id)
+            assert stored.status == "pending"
+            assert stored.api_player_id is None
 
     def test_merge_repoints_every_local_subject_with_exact_counts(self, app, client):
         with app.app_context():
@@ -2152,6 +2249,13 @@ class TestAdminLocalPlayers:
                 author_id=owner.id,
                 author_name="Bridge Owner",
             )
+            player_comment = PlayerComment(
+                player_id=old_player_api_id,
+                user_id=owner.id,
+                author_email="bridge-owner@example.com",
+                author_name="Bridge Owner",
+                body="Local player page comment",
+            )
             db.session.add_all(
                 [
                     source_claim,
@@ -2182,6 +2286,7 @@ class TestAdminLocalPlayers:
                     quick_take,
                     community_take,
                     commentary,
+                    player_comment,
                 ]
             )
             db.session.flush()
@@ -2227,6 +2332,7 @@ class TestAdminLocalPlayers:
             quick_take_id = quick_take.id
             community_take_id = community_take.id
             commentary_id = commentary.id
+            player_comment_id = player_comment.id
 
         for invalid in (0, -1, "5001", True):
             response = client.post(
@@ -2272,6 +2378,7 @@ class TestAdminLocalPlayers:
             "quick_take_submissions": 1,
             "community_takes": 1,
             "newsletter_commentary": 1,
+            "player_comments": 1,
             "season_cells": 1,
             "season_totals": 1,
         }
@@ -2320,6 +2427,7 @@ class TestAdminLocalPlayers:
             assert db.session.get(QuickTakeSubmission, quick_take_id).player_id == target_player_api_id
             assert db.session.get(CommunityTake, community_take_id).player_id == target_player_api_id
             assert db.session.get(NewsletterCommentary, commentary_id).player_id == target_player_api_id
+            assert db.session.get(PlayerComment, player_comment_id).player_id == target_player_api_id
             assert PlayerSeasonCell.query.filter_by(player_api_id=old_player_api_id).count() == 0
             assert PlayerSeasonTotal.query.filter_by(player_api_id=old_player_api_id).count() == 0
             assert PlayerSeasonCell.query.filter_by(player_api_id=target_player_api_id).count() == 1

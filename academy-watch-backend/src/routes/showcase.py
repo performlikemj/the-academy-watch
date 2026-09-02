@@ -45,6 +45,7 @@ from src.models.league import (
     NewsletterCommentary,
     NewsletterPlayerYoutubeLink,
     Player,
+    PlayerComment,
     PlayerFlag,
     PlayerLink,
     QuickTakeSubmission,
@@ -104,6 +105,11 @@ from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 logger = logging.getLogger(__name__)
 
 showcase_bp = Blueprint("showcase", __name__)
+
+# A handful of production rows predate D1 and occupy its reserved negative-id
+# namespace without being referenced anywhere. Keep the warning useful instead
+# of emitting it on every re-approval attempt or worker request.
+_logged_orphan_legacy_player_ids: set[int] = set()
 
 
 @showcase_bp.before_app_request
@@ -3433,12 +3439,32 @@ def admin_list_local_players():
 
 
 def _legacy_negative_identity_conflict(player_api_id: int):
-    """Lock and return a legacy row colliding with D1's reserved namespace."""
+    """Lock and return a referenced legacy identity occupying D1's namespace.
+
+    An unreferenced ``players`` row is inert legacy data and must not prevent a
+    LocalPlayer from receiving its deterministic signed id. References in any
+    player-universe table make the collision ambiguous, so those fail closed.
+    """
+
+    followed_player_id = Follow.selector["player_api_id"].as_integer()
+    reference_queries = (
+        TrackedPlayer.query.filter_by(player_api_id=player_api_id),
+        PlayerShadow.query.filter_by(player_api_id=player_api_id),
+        PlayerProfileClaim.query.filter_by(player_api_id=player_api_id),
+        ScoutWatchlistEntry.query.filter_by(player_api_id=player_api_id),
+        Follow.query.filter(Follow.kind == "player", followed_player_id == player_api_id),
+        FollowPlayerSnapshot.query.filter_by(player_api_id=player_api_id),
+    )
+    for query in reference_queries:
+        reference = query.with_for_update().first()
+        if reference is not None:
+            return reference
 
     legacy_player = Player.query.filter_by(player_id=player_api_id).with_for_update().first()
-    if legacy_player is not None:
-        return legacy_player
-    return TrackedPlayer.query.filter_by(player_api_id=player_api_id).with_for_update().first()
+    if legacy_player is not None and player_api_id not in _logged_orphan_legacy_player_ids:
+        logger.warning("Ignoring orphan legacy players row for reserved negative id %s", player_api_id)
+        _logged_orphan_legacy_player_ids.add(player_api_id)
+    return None
 
 
 @showcase_bp.route("/admin/local-players/<int:lp_id>/review", methods=["POST"])
@@ -3464,6 +3490,7 @@ def admin_review_local_player(lp_id: int):
         synthetic_player_api_id = player.api_player_id if player.api_player_id is not None else -player.id
         if (
             action == "approve"
+            and not repeated_approval
             and synthetic_player_api_id < 0
             and _legacy_negative_identity_conflict(synthetic_player_api_id) is not None
         ):
@@ -4102,7 +4129,15 @@ def _rekey_follow_snapshots(old_player_api_id: int, player_api_id: int) -> int:
 
 
 def _rekey_follow_selectors(old_player_api_id: int, player_api_id: int) -> int:
-    player_follows = Follow.query.filter_by(kind="player").with_for_update().all()
+    followed_player_id = Follow.selector["player_api_id"].as_integer()
+    player_follows = (
+        Follow.query.filter(
+            Follow.kind == "player",
+            followed_player_id.in_((old_player_api_id, player_api_id)),
+        )
+        .with_for_update()
+        .all()
+    )
     source_rows = [row for row in player_follows if (row.selector or {}).get("player_api_id") == old_player_api_id]
     target_by_list = {
         row.list_id: row for row in player_follows if (row.selector or {}).get("player_api_id") == player_api_id
@@ -4329,6 +4364,10 @@ def _rekey_content_references(old_player_api_id: int, player_api_id: int) -> dic
             {NewsletterCommentary.player_id: player_api_id},
             synchronize_session=False,
         ),
+        "player_comments": PlayerComment.query.filter_by(player_id=old_player_api_id).update(
+            {PlayerComment.player_id: player_api_id},
+            synchronize_session=False,
+        ),
     }
 
 
@@ -4429,7 +4468,7 @@ def admin_link_local_player_api(lp_id: int):
             return jsonify({"error": "player_api_id is already linked to another local player"}), 409
 
         old_player_api_id = -player.id
-        if _legacy_negative_identity_conflict(old_player_api_id) is not None:
+        if player.api_player_id is None and _legacy_negative_identity_conflict(old_player_api_id) is not None:
             return jsonify({"error": "synthetic player id conflicts with a legacy manual player"}), 409
         if player.api_player_id not in (None, old_player_api_id, player_api_id):
             return jsonify({"error": "local player is already linked to a different API player"}), 409

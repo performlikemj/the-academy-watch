@@ -9802,61 +9802,59 @@ def admin_get_player_field_options():
 @api_bp.route("/admin/players", methods=["POST"])
 @require_api_key
 def admin_create_player():
-    """Retired legacy manual-player creator; LocalPlayer owns synthetic ids."""
-    return jsonify(
-        {
-            "error": "Legacy manual player creation is retired",
-            "message": "Create and approve a LocalPlayer instead; negative player ids are reserved.",
-        }
-    ), 410
-
-
-def _retired_admin_create_player_implementation():
     """
-    Create a new manual player with loan association.
+    Add a known API-Football player to tracking from the admin form.
 
-    This creates both a Player record and a TrackedPlayer record to properly
-    track the player's loan status and team associations.
+    Positive IDs are supplied explicitly. Synthetic negative IDs are reserved
+    for approved LocalPlayer rows and are never minted by this legacy endpoint.
+    The older loan-shaped payload remains accepted for admin API callers.
     """
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
+
+        player_api_id = data.get("player_api_id")
+        if (
+            isinstance(player_api_id, bool)
+            or not isinstance(player_api_id, int)
+            or not is_external_player_id(player_api_id)
+        ):
+            return jsonify({"error": "player_api_id must be a positive integer"}), 400
 
         # Validate required fields
-        name = (data.get("name") or "").strip()
+        name = (data.get("player_name") or data.get("name") or "").strip()
         if not name:
             return jsonify({"error": "Player name is required"}), 400
 
-        window_key = data.get("window_key")
-        if not window_key:
+        modern_payload = data.get("team_id") is not None
+        if not modern_payload and not data.get("window_key"):
             return jsonify({"error": "Season/window is required"}), 400
 
         # Handle primary team (either from database or custom)
-        primary_team_id = data.get("primary_team_id")
+        primary_team_id = data.get("team_id") if modern_payload else data.get("primary_team_id")
         custom_primary_team_name = (data.get("custom_primary_team_name") or "").strip()
 
         if primary_team_id:
             # Using team from database
-            primary_team = Team.query.get(primary_team_id)
+            primary_team = db.session.get(Team, primary_team_id)
             if not primary_team:
                 return jsonify({"error": f"Primary team ID {primary_team_id} not found"}), 404
             primary_team_name = primary_team.name
-            primary_team_api_id = primary_team.team_id
         elif custom_primary_team_name:
             # Using custom team name
             primary_team = None
             primary_team_id = None
             primary_team_name = custom_primary_team_name
-            primary_team_api_id = None
         else:
             return jsonify({"error": "Primary team or custom primary team name is required"}), 400
 
         # Handle loan team (either from database or custom)
-        loan_team_id = data.get("loan_team_id")
-        custom_loan_team_name = (data.get("custom_loan_team_name") or "").strip()
+        loan_team_id = data.get("current_club_db_id") if modern_payload else data.get("loan_team_id")
+        custom_loan_team_name = data.get("current_club_name") if modern_payload else data.get("custom_loan_team_name")
+        custom_loan_team_name = (custom_loan_team_name or "").strip()
 
         if loan_team_id:
             # Using team from database
-            loan_team = Team.query.get(loan_team_id)
+            loan_team = db.session.get(Team, loan_team_id)
             if not loan_team:
                 return jsonify({"error": f"Loan team ID {loan_team_id} not found"}), 404
             loan_team_name = loan_team.name
@@ -9866,55 +9864,72 @@ def _retired_admin_create_player_implementation():
             loan_team = None
             loan_team_id = None
             loan_team_name = custom_loan_team_name
-            loan_team_api_id = None
-        else:
+            loan_team_api_id = data.get("current_club_api_id") if modern_payload else None
+        elif not modern_payload:
             return jsonify({"error": "Loan team or custom loan team name is required"}), 400
-
-        # Generate a unique player_id for manual players (negative IDs to avoid conflicts with API-Football)
-        existing_manual_players = Player.query.filter(Player.player_id < 0).order_by(Player.player_id.asc()).all()
-        if existing_manual_players:
-            new_player_id = existing_manual_players[0].player_id - 1
         else:
-            new_player_id = -1
+            loan_team_name = None
+            loan_team_api_id = data.get("current_club_api_id")
 
-        # Create player record
-        player_record = Player(player_id=new_player_id)
+        existing_tracked = TrackedPlayer.query.filter_by(
+            player_api_id=player_api_id,
+            team_id=primary_team_id,
+        ).first()
+        if existing_tracked is not None:
+            return jsonify({"error": "Player is already tracked for this team"}), 409
+
+        # Create or enrich the legacy profile row used by admin read surfaces.
+        player_record = Player.query.filter_by(player_id=player_api_id).first()
+        if player_record is None:
+            player_record = Player(player_id=player_api_id)
+            player_record.created_at = datetime.now(UTC)
+            db.session.add(player_record)
         player_record.name = name
-        player_record.firstname = data.get("firstname")
-        player_record.lastname = data.get("lastname")
-        player_record.position = data.get("position")
-        player_record.nationality = data.get("nationality")
-        player_record.age = data.get("age")
-        player_record.height = data.get("height")
-        player_record.weight = data.get("weight")
-        player_record.photo_url = data.get("photo_url")
-        player_record.created_at = datetime.now(UTC)
+        for field in (
+            "firstname",
+            "lastname",
+            "position",
+            "nationality",
+            "age",
+            "height",
+            "weight",
+            "photo_url",
+        ):
+            if data.get(field) is not None:
+                setattr(player_record, field, data[field])
         player_record.updated_at = datetime.now(UTC)
 
         # Handle sofascore_id with duplicate check
         sofascore_id = data.get("sofascore_id")
         if sofascore_id:
-            existing = Player.query.filter_by(sofascore_id=sofascore_id).first()
+            existing = Player.query.filter(
+                Player.sofascore_id == sofascore_id,
+                Player.player_id != player_api_id,
+            ).first()
             if existing:
                 return jsonify(
                     {"error": f"Sofascore ID {sofascore_id} is already assigned to player #{existing.player_id}"}
                 ), 409
             player_record.sofascore_id = sofascore_id
 
-        db.session.add(player_record)
-        db.session.flush()  # Get player_id before creating tracked player record
+        db.session.flush()
 
-        # Create TrackedPlayer record to track the loan
+        # Create the tracked subject used by the admin and scout surfaces.
         tracked_player = TrackedPlayer(
-            player_api_id=new_player_id,
+            player_api_id=player_api_id,
             player_name=name,
             team_id=primary_team_id,
-            status="on_loan",
+            status=data.get("status", "academy") if modern_payload else "on_loan",
+            current_level=data.get("current_level"),
+            position=data.get("position"),
+            nationality=data.get("nationality"),
+            age=data.get("age"),
             current_club_db_id=loan_team_id,
             current_club_api_id=loan_team_api_id,
             current_club_name=loan_team_name,
             is_active=True,
-            data_source="manual",
+            data_source=data.get("data_source", "manual"),
+            notes=data.get("notes"),
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -9922,12 +9937,11 @@ def _retired_admin_create_player_implementation():
         db.session.add(tracked_player)
         db.session.commit()
 
+        message = f'Player "{name}" added to tracking for {primary_team_name}'
+        if not modern_payload:
+            message = f'Player "{name}" created successfully with loan from {primary_team_name} to {loan_team_name}'
         return jsonify(
-            {
-                "message": f'Player "{name}" created successfully with loan from {primary_team_name} to {loan_team_name}',
-                "player": player_record.to_dict(),
-                "tracked_player": tracked_player.to_dict(),
-            }
+            {"message": message, "player": player_record.to_dict(), "tracked_player": tracked_player.to_dict()}
         ), 201
     except Exception as e:
         logger.exception("admin_create_player failed")

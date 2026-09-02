@@ -12,7 +12,7 @@ import pytest
 from flask import Flask
 from src.models.api_cache import APIUsageDaily
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
-from src.models.league import AdminSetting, BackgroundJob, League, Team, db
+from src.models.league import AdminSetting, BackgroundJob, League, Player, Team, db
 from src.models.tracked_player import TrackedPlayer
 
 ADMIN_KEY = "test-admin-key"
@@ -235,3 +235,93 @@ class TestLegacyRecomputeTombstone:
     def test_legacy_recompute_academy_ids_still_requires_auth(self, client):
         res = client.post("/api/admin/tracked-players/recompute-academy-ids", json={})
         assert res.status_code == 401
+
+
+class TestAdminCreatePlayer:
+    @pytest.mark.parametrize(
+        "player_api_id",
+        [
+            pytest.param(None, id="missing"),
+            pytest.param(0, id="zero"),
+            pytest.param(-42, id="negative"),
+            pytest.param(True, id="boolean"),
+            pytest.param("42", id="string"),
+        ],
+    )
+    def test_rejects_missing_or_non_positive_api_id(self, client, admin_headers, player_api_id):
+        team = _seed_team()
+        payload = {"player_name": "Manual External", "team_id": team.id}
+        if player_api_id is not None:
+            payload["player_api_id"] = player_api_id
+
+        response = client.post("/api/admin/players", json=payload, headers=admin_headers)
+
+        assert response.status_code == 400
+        assert response.get_json() == {"error": "player_api_id must be a positive integer"}
+        assert Player.query.count() == 0
+        assert TrackedPlayer.query.count() == 0
+
+    def test_positive_api_id_adds_player_to_tracking(self, client, admin_headers):
+        team = _seed_team()
+
+        response = client.post(
+            "/api/admin/players",
+            json={
+                "player_api_id": 42001,
+                "player_name": "Manual External",
+                "team_id": team.id,
+                "status": "academy",
+                "position": "Midfielder",
+                "nationality": "England",
+                "age": 19,
+                "data_source": "manual",
+            },
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 201
+        payload = response.get_json()
+        assert payload["player"]["player_id"] == 42001
+        assert payload["tracked_player"]["player_api_id"] == 42001
+        assert payload["tracked_player"]["team_id"] == team.id
+        player = Player.query.filter_by(player_id=42001).one()
+        tracked = TrackedPlayer.query.filter_by(player_api_id=42001, team_id=team.id).one()
+        assert (player.name, tracked.player_name, tracked.position) == (
+            "Manual External",
+            "Manual External",
+            "Midfielder",
+        )
+
+    def test_positive_api_id_preserves_legacy_loan_payload(self, client, admin_headers):
+        parent = _seed_team()
+        loan = Team(
+            team_id=44,
+            name="Loan Club",
+            country="England",
+            season=2025,
+            league_id=parent.league_id,
+            is_active=True,
+        )
+        db.session.add(loan)
+        db.session.commit()
+
+        response = client.post(
+            "/api/admin/players",
+            json={
+                "player_api_id": 42002,
+                "name": "Legacy External",
+                "window_key": "2025-26::FULL",
+                "primary_team_id": parent.id,
+                "loan_team_id": loan.id,
+            },
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 201
+        tracked = TrackedPlayer.query.filter_by(player_api_id=42002).one()
+        assert (tracked.team_id, tracked.status, tracked.current_club_db_id, tracked.current_club_api_id) == (
+            parent.id,
+            "on_loan",
+            loan.id,
+            loan.team_id,
+        )

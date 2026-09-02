@@ -23,6 +23,7 @@ from sqlalchemy import and_, exists, func, or_
 from src.models.follow import FollowList, FollowPlayerSnapshot, PlayerShadow, PlayerShadowStats
 from src.models.league import UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
+from src.models.showcase import without_minor_local_bridge
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import without_active_suppression
 
@@ -85,6 +86,7 @@ def _active_shadow(player_api_id: int):
     return (
         PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True)
         .filter(without_active_suppression(PlayerShadow.player_api_id))
+        .filter(without_minor_local_bridge(PlayerShadow.player_api_id))
         .first()
     )
 
