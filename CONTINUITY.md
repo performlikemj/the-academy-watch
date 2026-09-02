@@ -96,6 +96,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
+- **2026-09-03 Coach's brief C2 delivered in PR #985 (open, unmerged; CI green):** separate worker `brief.json`, independently scheduled grounded expectation checks, hash-only persistence, strict Pydantic/Ollama schema, privacy/legacy regressions. Spike 167 passed; worker 25 passed; both Ruff configurations clean. Exact backend suite retains 12 known collection errors; collectible run was 1,975 passed / 42 unrelated failures / 3 skipped. See `ledgers/CONTINUITY_coach-brief-c2.md`.
 - **2026-09-02 Coach's brief C1 PR #973 OPEN:** backend-only `cb01` storage, manager-scoped club routes, 2+ character/non-Latin roster-name screening, sentinel leak tests, and FK-by-column guard; review round 2 adds script-aware Latin boundaries, case/accent folding, and original blank-line numbering. After merging main, `cb01` was re-chained onto stamped main head `s2f1` (`cb01 → s2f1 → pm01`); Alembic reports one `cb01` head, 111 focused tests pass, and Ruff check/format are green.
   Migration must be pre-applied/stamped before merge. MJ decisions B1–B5 + future Track S: `ledgers/DIRECTIVE_coach-brief.md`; task state: `ledgers/CONTINUITY_coach-brief.md`.
 - **2026-09-02 HANDOFF → `ledgers/DIRECTIVE_dream-s2-handoff.md`** (read first). S0 + S1 shipped and live (59.8%); S1 hygiene #974 merged; tooling in `ledgers/tooling/dream-scorecard/`. Next stage S2 "fans + reach" — wait for MJ's "go S2".
@@ -984,6 +985,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 ```
 CONTINUITY.md
   └─ ledgers/CONTINUITY_coach-brief.md (Track C/P/M directive workstream)
+       ├─ ledgers/CONTINUITY_coach-brief-c2.md (C2 complete; PR #985 open, @owner:/root)
        └─ ledgers/CONTINUITY_dev-club-fixture-bridge.md (B1 complete; PR #975 open, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-json-schema-format.md (review round complete; PR #972 open, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-caption-enum-prompt.md (verified; PR delivery next, @owner:/root)
@@ -1005,6 +1007,7 @@ CONTINUITY.md
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|
+| CONTINUITY_coach-brief-c2.md | C2 complete; PR #985 open | /root | none |
 | CONTINUITY_dev-club-fixture-bridge.md | B1 complete; PR #975 open | /root | none |
 | CONTINUITY_grounded-json-schema-format.md | review round complete; PR #972 open | /root | none |
 | CONTINUITY_grounded-caption-enum-prompt.md | verified; PR delivery next | /root | none |

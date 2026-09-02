@@ -21,11 +21,13 @@ from qwen_match_analysis import (  # noqa: E402
     build_team_prompt,
     caption_frame_timestamps,
     compute_player_confidence,
+    eligible_brief_reads,
     filter_player_notes,
     finalize_analysis,
     generate_player_reads,
     generate_team_pass,
     generate_window_captions,
+    gate_brief_checks,
     grounded_caption_schema,
     grounded_read_schema,
     parse_observation,
@@ -59,6 +61,9 @@ def _good_analysis():
             "captions_action_type_recovered": 0,
             "captions_zone_coerced": 0,
             "captions_claims_dropped": 0,
+            "brief_checks_total": 0,
+            "brief_checks_evidence_found": 0,
+            "brief_checks_downgraded": 0,
             "notes_scope": "ours",
             "grounding": {
                 "caption_windows": 0,
@@ -340,6 +345,30 @@ def test_grounded_player_prompt_bounds_observations_by_importance():
     )
     assert prompt.count(expected_sentence) == 1
     assert "|".join(qwen_analysis.PLAYER_CONFIDENCE_LEVELS) not in prompt
+
+
+def test_grounded_player_prompt_without_brief_is_byte_identical_snapshot():
+    prompt = build_player_prompt(
+        ("blue", 8),
+        [
+            {
+                "timestamp_s": 10,
+                "observation": {
+                    "teams": [],
+                    "ball_visible": True,
+                    "phase_of_play": "attack",
+                    "visible_pitch_zone": "central",
+                    "observation": "sample",
+                    "notable_actions": [],
+                },
+            }
+        ],
+        grounded_contract=True,
+    )
+
+    assert hashlib.sha256(prompt.encode()).hexdigest() == (
+        "d0351da91685738b3d18f65ef4696da228bcd9d495b793ec48a4f11cd7baf45e"
+    )
 
 
 def _schema_definition(schema, name):
@@ -2352,3 +2381,491 @@ def test_more_than_half_failure_rule(total, failed, expected):
 )
 def test_more_than_half_player_read_failure_rule(total, failed, expected):
     assert too_many_player_read_failures(total, failed) is expected
+
+
+def test_brief_player_prompt_numbers_expectations_and_forbids_negative_claims():
+    sentinel = "SENTINEL_PRIVATE_EXPECTATION"
+    prompt = build_player_prompt(
+        ("blue", 8),
+        [{"timestamp_s": 10, "observation": _good_observation()}],
+        grounded_contract=True,
+        brief={"lines": [sentinel, "Recover inside"], "hash": "a" * 64},
+        system_brief={"lines": ["Press together"], "hash": "b" * 64},
+    )
+
+    assert (
+        "The coach's expectations for this player, numbered: "
+        f"1. {sentinel} 2. Recover inside" in prompt
+    )
+    assert "How the team plays: Press together" in prompt
+    assert "Use evidence_found only when a supplied frame visibly supports" in prompt
+    assert "otherwise use no_evidence with null box_t and box" in prompt
+    assert "Never state or imply that an expectation was not met" in prompt
+    assert '"expectation_checks"' in prompt
+
+
+def test_team_pass_prompt_never_receives_separate_brief_text():
+    sentinel = "SENTINEL_TEAM_MUST_NOT_SEE"
+    analysis_context = {"our_kit_color": "blue"}
+    brief_context = {
+        "roster": {"42": {"lines": [sentinel], "hash": "a" * 64}},
+        "system_brief": None,
+    }
+
+    prompt = build_team_prompt(
+        [{"timestamp_s": 10, "observation": _good_observation()}],
+        analysis_context,
+    )
+
+    assert sentinel not in prompt
+    assert "brief" not in prompt.casefold()
+    assert brief_context["roster"]["42"]["lines"][0] == sentinel
+
+
+def test_brief_read_schema_is_strict_bounded_and_uses_verdict_vocabulary():
+    schema = grounded_read_schema(with_brief=True)
+    container = _schema_definition(schema, "GroundedBriefPlayerRead")
+    check = _schema_definition(schema, "GroundedExpectationCheck")
+
+    checks_schema = container["properties"]["expectation_checks"]
+    assert checks_schema["minItems"] == 1
+    assert checks_schema["maxItems"] == qwen_analysis.MAX_BRIEF_EXPECTATIONS
+    assert check["properties"]["verdict"]["enum"] == list(
+        qwen_analysis.BRIEF_CHECK_VERDICTS
+    )
+    assert check["additionalProperties"] is False
+    assert schema["additionalProperties"] is False
+
+
+def test_brief_read_schema_accepts_exact_checks_and_rejects_contract_violations():
+    evidence = [{"timestamp_s": 10, "observation": _good_observation()}]
+    valid = {
+        "observations": [],
+        "expectation_checks": [
+            {
+                "expectation_index": 1,
+                "verdict": "evidence_found",
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+            },
+            {
+                "expectation_index": 2,
+                "verdict": "no_evidence",
+                "box_t": None,
+                "box": None,
+            },
+        ],
+        "confidence": "low",
+    }
+
+    assert (
+        parse_player_read(
+            json.dumps(valid),
+            evidence,
+            grounded_contract=True,
+            brief_expectation_count=2,
+        )
+        == valid
+    )
+
+    missing = {**valid, "expectation_checks": valid["expectation_checks"][:1]}
+    with pytest.raises(ValueError, match="exactly one check per expectation"):
+        parse_player_read(
+            json.dumps(missing),
+            evidence,
+            grounded_contract=True,
+            brief_expectation_count=2,
+        )
+
+    duplicate = {
+        **valid,
+        "expectation_checks": [
+            valid["expectation_checks"][0],
+            {**valid["expectation_checks"][1], "expectation_index": 1},
+        ],
+    }
+    with pytest.raises(ValueError, match="each supplied index exactly once"):
+        parse_player_read(
+            json.dumps(duplicate),
+            evidence,
+            grounded_contract=True,
+            brief_expectation_count=2,
+        )
+
+    non_null_no_evidence = {
+        **valid,
+        "expectation_checks": [
+            valid["expectation_checks"][0],
+            {
+                **valid["expectation_checks"][1],
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+            },
+        ],
+    }
+    with pytest.raises(ValueError, match="no_evidence requires null"):
+        parse_player_read(
+            json.dumps(non_null_no_evidence),
+            evidence,
+            grounded_contract=True,
+            brief_expectation_count=2,
+        )
+
+
+def test_gate_brief_checks_keeps_all_and_counts_downgrade():
+    counts = {
+        "brief_checks_total": 0,
+        "brief_checks_evidence_found": 0,
+        "brief_checks_downgraded": 0,
+    }
+    checks = [
+        {
+            "expectation_index": 1,
+            "verdict": "evidence_found",
+            "box_t": 10,
+            "box": [100, 100, 200, 200],
+        },
+        {
+            "expectation_index": 2,
+            "verdict": "evidence_found",
+            "box_t": 10,
+            "box": [800, 800, 900, 900],
+        },
+        {
+            "expectation_index": 3,
+            "verdict": "no_evidence",
+            "box_t": None,
+            "box": None,
+        },
+    ]
+
+    gated = gate_brief_checks(
+        checks,
+        "a" * 64,
+        [[10, 100, 100, 200, 200]],
+        (1000, 1000),
+        counts,
+    )
+
+    assert [check["verdict"] for check in gated] == [
+        "evidence_found",
+        "no_evidence",
+        "no_evidence",
+    ]
+    assert gated[0]["iou"] == 1.0
+    assert set(gated[1]) == {"expectation_index", "brief_hash", "verdict"}
+    assert counts == {
+        "brief_checks_total": 3,
+        "brief_checks_evidence_found": 1,
+        "brief_checks_downgraded": 1,
+    }
+
+
+def test_analysis_accepts_zero_observations_when_brief_checks_are_non_empty():
+    analysis = _good_analysis()
+    analysis["player_notes"][0].update(
+        {
+            "observations": [],
+            "brief_checks": [
+                {
+                    "expectation_index": 1,
+                    "brief_hash": "a" * 64,
+                    "verdict": "no_evidence",
+                }
+            ],
+            "system_brief_hash": "b" * 64,
+        }
+    )
+    analysis["sampling"].update(
+        {
+            "brief_checks_total": 1,
+            "brief_checks_evidence_found": 0,
+            "brief_checks_downgraded": 0,
+        }
+    )
+
+    validate_analysis_schema(analysis, required_player_pairs={("blue", 8)})
+
+
+def test_analysis_rejects_missing_brief_check_counter():
+    analysis = _good_analysis()
+    del analysis["sampling"]["brief_checks_downgraded"]
+
+    with pytest.raises(
+        ValueError,
+        match="sampling.brief_checks_downgraded must be a non-negative integer",
+    ):
+        validate_analysis_schema(analysis)
+
+
+def test_brief_eligibility_is_independent_of_recurrence_and_reports_ineligible():
+    observations = [
+        {
+            "timestamp_s": 10,
+            "filename": "frame_10.jpg",
+            "observation": _good_observation(),
+        }
+    ]
+    context = {
+        "roster": {
+            "42": {"lines": ["Hold width"], "hash": "a" * 64},
+            "43": {"lines": ["Recover inside"], "hash": "b" * 64},
+        },
+        "system_brief": {"lines": ["Press together"], "hash": "c" * 64},
+    }
+    caption_windows = [
+        {
+            "roster_entry_id": 42,
+            "roster_jersey_number": 8,
+            "kit_color": "blue",
+        },
+        {
+            "roster_entry_id": 43,
+            "roster_jersey_number": 11,
+            "kit_color": "blue",
+        },
+    ]
+
+    eligible, limits = eligible_brief_reads(
+        context,
+        observations,
+        caption_windows,
+        {"42": [[10, 100, 100, 200, 200]], "43": []},
+        (1000, 1000),
+    )
+
+    assert recurring_jersey_evidence(observations) == set()
+    assert set(eligible) == {("blue", 8)}
+    assert eligible[("blue", 8)]["system_brief"]["hash"] == "c" * 64
+    assert limits == ["brief for #11 could not be checked: no verified frames"]
+
+
+def test_briefed_read_persists_hashes_and_checks_but_never_brief_text(
+    monkeypatch, tmp_path
+):
+    sentinel = "SENTINEL_BRIEF_MUST_NOT_PERSIST"
+    system_sentinel = "SENTINEL_SYSTEM_MUST_NOT_PERSIST"
+    response = {
+        "observations": [
+            {
+                "observation": sentinel,
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+            }
+        ],
+        "expectation_checks": [
+            {
+                "expectation_index": 1,
+                "verdict": "no_evidence",
+                "box_t": None,
+                "box": None,
+            }
+        ],
+        "confidence": "low",
+    }
+    calls = []
+
+    def fake_ollama_chat(prompt, **kwargs):
+        calls.append((prompt, kwargs))
+        return json.dumps(response)
+
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+    monkeypatch.setattr(qwen_analysis.shutil, "copyfile", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    brief_counts = {
+        "brief_checks_total": 0,
+        "brief_checks_evidence_found": 0,
+        "brief_checks_downgraded": 0,
+    }
+
+    notes, limits, omitted = generate_player_reads(
+        set(),
+        [
+            {
+                "timestamp_s": 10,
+                "filename": "frame_10.jpg",
+                "observation": _good_observation(),
+            }
+        ],
+        frames_dir=tmp_path,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=17,
+        frame_size=(1000, 1000),
+        player_tracks={"42": [[10, 100, 100, 200, 200]]},
+        player_roster_ids={("blue", 8): 42},
+        player_briefs={
+            ("blue", 8): {
+                "brief": {"lines": [sentinel], "hash": "a" * 64},
+                "system_brief": {
+                    "lines": [system_sentinel],
+                    "hash": "b" * 64,
+                },
+            }
+        },
+        brief_counts=brief_counts,
+    )
+
+    assert limits == []
+    assert omitted == set()
+    assert notes[0]["observations"] == []
+    assert notes[0]["brief_checks"] == [
+        {
+            "expectation_index": 1,
+            "brief_hash": "a" * 64,
+            "verdict": "no_evidence",
+        }
+    ]
+    assert notes[0]["system_brief_hash"] == "b" * 64
+    persisted = json.dumps(notes)
+    assert sentinel not in persisted
+    assert system_sentinel not in persisted
+    assert sentinel in calls[0][0]
+    assert calls[0][1]["response_schema"] == grounded_read_schema(with_brief=True)
+    assert calls[0][1]["num_predict"] == qwen_analysis.GROUNDED_PLAYER_NUM_PREDICT
+
+
+def test_grounded_player_cap_fits_eight_checks_plus_three_observations():
+    response = {
+        "observations": [
+            {
+                "observation": "A concise grounded observation " * 5,
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+            }
+            for _ in range(3)
+        ],
+        "expectation_checks": [
+            {
+                "expectation_index": index,
+                "verdict": "evidence_found",
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+            }
+            for index in range(1, 9)
+        ],
+        "confidence": "medium",
+    }
+
+    assert len(json.dumps(response)) < qwen_analysis.GROUNDED_PLAYER_NUM_PREDICT * 3
+
+
+def test_run_keeps_brief_out_of_team_prompt_and_persisted_analysis(
+    monkeypatch, tmp_path
+):
+    sentinel = "SENTINEL_PRIVATE_RUN_BRIEF"
+    system_sentinel = "SENTINEL_PRIVATE_RUN_SYSTEM"
+    video_path = tmp_path / "match.mp4"
+    video_path.write_bytes(b"video")
+    out_dir = tmp_path / "out"
+    context_path = tmp_path / "context.json"
+    context_path.write_text(
+        json.dumps(
+            {
+                "our_kit_color": "blue",
+                "frame_size": [1000, 1000],
+                "caption_windows": [
+                    {
+                        "tracklet_id": 7,
+                        "roster_entry_id": 42,
+                        "roster_jersey_number": 8,
+                        "kit_color": "blue",
+                        "start_s": 0,
+                        "end_s": 3,
+                        "box_track": [[0, 100, 100, 200, 200]],
+                    }
+                ],
+                "player_tracks": {"42": [[0, 100, 100, 200, 200]]},
+            }
+        )
+    )
+    brief_path = tmp_path / "brief.json"
+    brief_path.write_text(
+        json.dumps(
+            {
+                "roster": {
+                    "42": {"lines": [sentinel], "hash": "a" * 64},
+                },
+                "system_brief": {
+                    "lines": [system_sentinel],
+                    "hash": "b" * 64,
+                },
+            }
+        )
+    )
+    prompts = {"player": [], "team": []}
+
+    def fake_ollama_chat(prompt, **kwargs):
+        if "image_path" in kwargs:
+            return json.dumps(_good_observation())
+        if "image_paths" in kwargs:
+            prompts["player"].append(prompt)
+            return json.dumps(
+                {
+                    "observations": [],
+                    "expectation_checks": [
+                        {
+                            "expectation_index": 1,
+                            "verdict": "no_evidence",
+                            "box_t": None,
+                            "box": None,
+                        }
+                    ],
+                    "confidence": "low",
+                }
+            )
+        prompts["team"].append(prompt)
+        return json.dumps(
+            {
+                "match_summary": "A compact sampled match summary.",
+                "team_analysis": _good_analysis()["team_analysis"],
+                "honest_limits": [],
+            }
+        )
+
+    monkeypatch.setenv("VIDEO_DECODE_SANDBOX", "0")
+    monkeypatch.setenv("QWEN_CAPTIONS", "0")
+    monkeypatch.setattr(
+        qwen_analysis.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"ffmpeg", "ffprobe"} else None,
+    )
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis.shutil, "copyfile", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    assert (
+        qwen_analysis.run(
+            [
+                "--video",
+                str(video_path),
+                "--out",
+                str(out_dir),
+                "--kickoff-s",
+                "0",
+                "--end-s",
+                "1",
+                "--context-json",
+                str(context_path),
+                "--brief-json",
+                str(brief_path),
+            ]
+        )
+        == 0
+    )
+
+    assert sentinel in prompts["player"][0]
+    assert system_sentinel in prompts["player"][0]
+    assert sentinel not in prompts["team"][0]
+    assert system_sentinel not in prompts["team"][0]
+    analysis = json.loads((out_dir / "analysis.json").read_text())
+    serialized = json.dumps(analysis)
+    assert sentinel not in serialized
+    assert system_sentinel not in serialized
+    assert analysis["sampling"]["brief_checks_total"] == 1
+    assert analysis["sampling"]["brief_checks_evidence_found"] == 0
+    assert analysis["sampling"]["brief_checks_downgraded"] == 0
+    assert analysis["player_notes"][0]["brief_checks"][0]["brief_hash"] == "a" * 64
+    assert analysis["player_notes"][0]["system_brief_hash"] == "b" * 64
+    assert qwen_analysis.COACHS_BRIEF_HONEST_LIMIT in analysis["honest_limits"]

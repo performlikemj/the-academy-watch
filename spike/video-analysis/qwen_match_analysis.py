@@ -83,6 +83,8 @@ ACTION_TYPES = (
 CLAIM_CONFIDENCE_LEVELS = ("low", "medium", "high")
 CLAIM_VISIBILITY_LEVELS = ("clear", "partial", "unclear")
 PLAYER_CONFIDENCE_LEVELS = ("low", "medium")
+BRIEF_CHECK_VERDICTS = ("evidence_found", "no_evidence")
+MAX_BRIEF_EXPECTATIONS = 8
 CAPTION_FAULT_COUNTERS = (
     "captions_action_type_coerced",
     "captions_action_type_recovered",
@@ -95,6 +97,11 @@ HONEST_LIMIT_TEMPLATES = (
     "Players are identified by jersey number only.",
     "Observations are qualitative, not measured statistics.",
     "Pitch zones are camera-relative thirds, not calibrated positions.",
+)
+COACHS_BRIEF_HONEST_LIMIT = (
+    "Coach's-brief expectations were checked against sampled frames only; "
+    "'no evidence' is not 'did not happen'; an evidence frame verifies the "
+    "player's identity and location, not the behaviour."
 )
 
 
@@ -140,7 +147,7 @@ def inline_local_json_schema_refs(schema: dict) -> dict:
 def _grounded_models():
     from typing import Literal
 
-    from pydantic import BaseModel, ConfigDict, conlist
+    from pydantic import BaseModel, ConfigDict, conlist, model_validator
 
     class GroundedClaim(BaseModel):
         model_config = ConfigDict(extra="forbid")
@@ -173,19 +180,48 @@ def _grounded_models():
         observations: conlist(GroundedObservation, max_length=3)
         confidence: Literal[*PLAYER_CONFIDENCE_LEVELS]
 
-    return GroundedWindowCaption, GroundedPlayerRead
+    class GroundedExpectationCheck(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        expectation_index: int
+        verdict: Literal[*BRIEF_CHECK_VERDICTS]
+        box_t: float | None
+        box: conlist(float, min_length=4, max_length=4) | None
+
+        @model_validator(mode="after")
+        def evidence_matches_verdict(self):
+            if self.verdict == "evidence_found":
+                if self.box_t is None or self.box is None:
+                    raise ValueError("evidence_found requires box_t and box")
+            elif self.box_t is not None or self.box is not None:
+                raise ValueError("no_evidence requires null box_t and box")
+            return self
+
+    class GroundedBriefPlayerRead(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        observations: conlist(GroundedObservation, max_length=3)
+        expectation_checks: conlist(
+            GroundedExpectationCheck,
+            min_length=1,
+            max_length=MAX_BRIEF_EXPECTATIONS,
+        )
+        confidence: Literal[*PLAYER_CONFIDENCE_LEVELS]
+
+    return GroundedWindowCaption, GroundedPlayerRead, GroundedBriefPlayerRead
 
 
 def grounded_caption_schema() -> dict:
     """Build the grounded-caption Ollama response schema lazily."""
-    GroundedWindowCaption, _ = _grounded_models()
+    GroundedWindowCaption, _, _ = _grounded_models()
     return inline_local_json_schema_refs(GroundedWindowCaption.model_json_schema())
 
 
-def grounded_read_schema() -> dict:
+def grounded_read_schema(*, with_brief: bool = False) -> dict:
     """Build the grounded player-read Ollama response schema lazily."""
-    _, GroundedPlayerRead = _grounded_models()
-    return inline_local_json_schema_refs(GroundedPlayerRead.model_json_schema())
+    _, GroundedPlayerRead, GroundedBriefPlayerRead = _grounded_models()
+    model = GroundedBriefPlayerRead if with_brief else GroundedPlayerRead
+    return inline_local_json_schema_refs(model.model_json_schema())
 
 
 def _number(value: object) -> bool:
@@ -576,6 +612,8 @@ def build_player_prompt(
     evidence_frames: list[dict],
     *,
     grounded_contract: bool = False,
+    brief: dict | None = None,
+    system_brief: dict | None = None,
 ) -> str:
     kit_color, jersey_number = player_pair
     compact_evidence = []
@@ -595,13 +633,39 @@ def build_player_prompt(
     )
     if grounded_contract:
         player_confidence_levels = ", ".join(PLAYER_CONFIDENCE_LEVELS)
+        brief_lines = brief.get("lines") if isinstance(brief, dict) else None
+        if isinstance(brief_lines, list) and brief_lines:
+            numbered_expectations = " ".join(
+                f"{index}. {line}" for index, line in enumerate(brief_lines, start=1)
+            )
+            system_lines = (
+                system_brief.get("lines") if isinstance(system_brief, dict) else None
+            )
+            system_section = (
+                f"\nHow the team plays: {' '.join(system_lines)}"
+                if isinstance(system_lines, list) and system_lines
+                else ""
+            )
+            brief_section = f"""
+The coach's expectations for this player, numbered: {numbered_expectations}{system_section}
+
+For each numbered expectation return one expectation_check with expectation_index and a verdict. verdict must be
+exactly one of: {", ".join(BRIEF_CHECK_VERDICTS)}. Use evidence_found only when a supplied frame visibly supports
+the expectation AND the box covers the tracked player there; otherwise use no_evidence with null box_t and box.
+Never state or imply that an expectation was not met. Return exactly one check for every supplied index."""
+            output_shape = """{"observations":[{"observation":str,"box_t":number,"box":[x1,y1,x2,y2]}],
+"expectation_checks":[{"expectation_index":int,"verdict":str,"box_t":number|null,
+"box":[x1,y1,x2,y2]|null}],"confidence":str}"""
+        else:
+            brief_section = ""
+            output_shape = """{"observations":[{"observation":str,"box_t":number,"box":[x1,y1,x2,y2]}],
+"confidence":str}"""
         return f"""Write a trustworthy scout's read for the football player wearing {kit_color} #{jersey_number}.
 The first attached image identifies the tracked player with a red rectangle. Other images are unlabelled: find the
-same player yourself. The images are ordered across time. Evidence timestamps and sampled context: {evidence_json}
+same player yourself. The images are ordered across time. Evidence timestamps and sampled context: {evidence_json}{brief_section}
 
 Return one JSON object only with this exact shape:
-{{"observations":[{{"observation":str,"box_t":number,"box":[x1,y1,x2,y2]}}],
-"confidence":str}}
+{output_shape}
 confidence must be exactly one of: {player_confidence_levels} — a single word, never a list or several joined by '|'.
 Return at most 3 observations, most important first. Each box must cover only the tracked player region supporting
 its observation and use Qwen normalized_1000 coordinates (integer axes 0 to 1000) in the image at box_t. box_t
@@ -850,10 +914,14 @@ def parse_player_read(
     evidence_frames: list[dict] | None = None,
     *,
     grounded_contract: bool = False,
+    brief_expectation_count: int = 0,
 ) -> dict:
     player_read = json.loads(content)
     validate_player_read_schema(
-        player_read, evidence_frames, grounded_contract=grounded_contract
+        player_read,
+        evidence_frames,
+        grounded_contract=grounded_contract,
+        brief_expectation_count=brief_expectation_count,
     )
     return player_read
 
@@ -1079,6 +1147,7 @@ def validate_player_read_schema(
     evidence_frames: list[dict] | None = None,
     *,
     grounded_contract: bool = False,
+    brief_expectation_count: int = 0,
 ) -> None:
     if not isinstance(player_read, dict):
         raise ValueError("player read must be a JSON object")
@@ -1117,6 +1186,48 @@ def validate_player_read_schema(
         raise ValueError("player read must contain 1 to 3 non-empty observations")
     if player_read["confidence"] not in PLAYER_CONFIDENCE_LEVELS:
         raise ValueError("player read confidence must be low or medium")
+    expectation_checks = player_read.get("expectation_checks")
+    if brief_expectation_count:
+        if not grounded_contract:
+            raise ValueError("brief expectation checks require the grounded contract")
+        if not isinstance(expectation_checks, list):
+            raise ValueError("brief player read expectation_checks must be a list")
+        if len(expectation_checks) != brief_expectation_count:
+            raise ValueError(
+                "brief player read must contain exactly one check per expectation"
+            )
+        expected_indexes = set(range(1, brief_expectation_count + 1))
+        actual_indexes = set()
+        for check in expectation_checks:
+            if not isinstance(check, dict):
+                raise ValueError("each expectation check must be an object")
+            if {"expectation_index", "verdict", "box_t", "box"} - check.keys():
+                raise ValueError("expectation check is missing required keys")
+            expectation_index = check["expectation_index"]
+            if not isinstance(expectation_index, int) or isinstance(
+                expectation_index, bool
+            ):
+                raise ValueError("expectation_index must be an integer")
+            actual_indexes.add(expectation_index)
+            verdict = check["verdict"]
+            if verdict not in BRIEF_CHECK_VERDICTS:
+                raise ValueError("expectation check verdict is invalid")
+            if verdict == "evidence_found":
+                if not _number(check["box_t"]):
+                    raise ValueError("evidence_found requires numeric box_t")
+                box = check["box"]
+                if (
+                    not isinstance(box, list)
+                    or len(box) != 4
+                    or not all(_number(value) for value in box)
+                ):
+                    raise ValueError("evidence_found requires a four-number box")
+            elif check["box_t"] is not None or check["box"] is not None:
+                raise ValueError("no_evidence requires null box_t and box")
+        if actual_indexes != expected_indexes:
+            raise ValueError(
+                "expectation checks must use each supplied index exactly once"
+            )
     if evidence_frames is not None:
         evidence_timestamps = {
             round(float(frame["timestamp_s"]), 3) for frame in evidence_frames
@@ -1137,6 +1248,14 @@ def validate_player_read_schema(
             if not cited_timestamps & evidence_timestamps:
                 raise ValueError(
                     "each player observation must cite an evidence timestamp as t=<seconds>"
+                )
+        for check in expectation_checks or []:
+            if (
+                check["verdict"] == "evidence_found"
+                and round(float(check["box_t"]), 3) not in evidence_timestamps
+            ):
+                raise ValueError(
+                    "each evidence_found box_t must cite an evidence timestamp"
                 )
 
 
@@ -1231,6 +1350,25 @@ def validate_analysis_schema(
                 sampling.get(key), bool
             ):
                 raise ValueError(f"sampling.{key} must be an integer")
+        for key in (
+            "brief_checks_total",
+            "brief_checks_evidence_found",
+            "brief_checks_downgraded",
+        ):
+            if (
+                not isinstance(sampling.get(key), int)
+                or isinstance(sampling.get(key), bool)
+                or sampling[key] < 0
+            ):
+                raise ValueError(f"sampling.{key} must be a non-negative integer")
+        if (
+            sampling["brief_checks_evidence_found"] > sampling["brief_checks_total"]
+            or sampling["brief_checks_downgraded"] > sampling["brief_checks_total"]
+            or sampling["brief_checks_evidence_found"]
+            + sampling["brief_checks_downgraded"]
+            > sampling["brief_checks_total"]
+        ):
+            raise ValueError("sampling brief-check counters are inconsistent")
         if sampling.get("notes_scope") not in ("ours", "all"):
             raise ValueError("sampling.notes_scope must be ours or all")
         grounding_counts = sampling.get("grounding")
@@ -1344,6 +1482,73 @@ def validate_analysis_schema(
                     or not all(_number(value) for value in item["box"])
                 ):
                     raise ValueError("player_note evidence entry is invalid")
+        brief_checks = player.get("brief_checks")
+        if brief_checks is not None:
+            if (
+                not isinstance(brief_checks, list)
+                or not 1 <= len(brief_checks) <= MAX_BRIEF_EXPECTATIONS
+            ):
+                raise ValueError("player_note.brief_checks must be a non-empty list")
+            seen_expectation_indexes = set()
+            seen_brief_hashes = set()
+            for check in brief_checks:
+                if not isinstance(check, dict):
+                    raise ValueError("player_note brief check must be an object")
+                expectation_index = check.get("expectation_index")
+                brief_hash = check.get("brief_hash")
+                verdict = check.get("verdict")
+                if (
+                    not isinstance(expectation_index, int)
+                    or isinstance(expectation_index, bool)
+                    or expectation_index <= 0
+                    or expectation_index in seen_expectation_indexes
+                ):
+                    raise ValueError(
+                        "player_note brief check expectation_index is invalid"
+                    )
+                seen_expectation_indexes.add(expectation_index)
+                if (
+                    not isinstance(brief_hash, str)
+                    or re.fullmatch(r"[0-9a-f]{64}", brief_hash) is None
+                ):
+                    raise ValueError("player_note brief_hash is invalid")
+                seen_brief_hashes.add(brief_hash)
+                if verdict == "evidence_found":
+                    if (
+                        set(check)
+                        != {
+                            "expectation_index",
+                            "brief_hash",
+                            "verdict",
+                            "t",
+                            "box",
+                            "iou",
+                        }
+                        or not _number(check.get("t"))
+                        or not _number(check.get("iou"))
+                        or not isinstance(check.get("box"), list)
+                        or len(check["box"]) != 4
+                        or not all(_number(value) for value in check["box"])
+                    ):
+                        raise ValueError(
+                            "evidence_found persisted brief check is invalid"
+                        )
+                elif verdict == "no_evidence":
+                    if set(check) != {"expectation_index", "brief_hash", "verdict"}:
+                        raise ValueError("no_evidence persisted brief check is invalid")
+                else:
+                    raise ValueError("player_note brief check verdict is invalid")
+            if seen_expectation_indexes != set(range(1, len(brief_checks) + 1)):
+                raise ValueError("player_note brief check indexes must be contiguous")
+            if len(seen_brief_hashes) != 1:
+                raise ValueError("player_note brief checks must share one brief_hash")
+        if "system_brief_hash" in player and (
+            not isinstance(player["system_brief_hash"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", player["system_brief_hash"]) is None
+        ):
+            raise ValueError("player_note.system_brief_hash is invalid")
+        if "system_brief_hash" in player and not brief_checks:
+            raise ValueError("player_note.system_brief_hash requires brief_checks")
         if not isinstance(player["jersey_number"], int) or isinstance(
             player["jersey_number"], bool
         ):
@@ -1364,7 +1569,10 @@ def validate_analysis_schema(
                 f"{player_pair[0]} #{player_pair[1]}"
             )
         present_player_pairs.add(player_pair)
-        if not any(observation.strip() for observation in player["observations"]):
+        if (
+            not any(observation.strip() for observation in player["observations"])
+            and not brief_checks
+        ):
             hollow_player_pairs.add(player_pair)
     if hollow_player_pairs:
         rendered = ", ".join(
@@ -1590,6 +1798,9 @@ def finalize_analysis(
         "captions_action_type_recovered": 0,
         "captions_zone_coerced": 0,
         "captions_claims_dropped": 0,
+        "brief_checks_total": 0,
+        "brief_checks_evidence_found": 0,
+        "brief_checks_downgraded": 0,
         "notes_scope": notes_scope,
         "grounding": {
             "caption_windows": 0,
@@ -1733,6 +1944,40 @@ def _load_context(path: Path | None) -> dict:
     return cleaned
 
 
+def _load_brief_context(path: Path | None) -> dict | None:
+    """Validate the private brief file only when the worker supplied one."""
+    if path is None:
+        return None
+
+    from pydantic import BaseModel, ConfigDict, Field, conlist, field_validator
+
+    class Strict(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+    class BriefPayload(Strict):
+        lines: conlist(str, min_length=1, max_length=MAX_BRIEF_EXPECTATIONS)
+        hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+        @field_validator("lines")
+        @classmethod
+        def lines_are_normalized(cls, lines):
+            if any(not line or line != line.strip() for line in lines):
+                raise ValueError("brief lines must be non-empty and trimmed")
+            return lines
+
+    class BriefContext(Strict):
+        roster: dict[str, BriefPayload]
+        system_brief: BriefPayload | None
+
+    parsed = BriefContext.model_validate_json(path.read_text(encoding="utf-8"))
+    for roster_entry_id in parsed.roster:
+        if not roster_entry_id.isdigit() or int(roster_entry_id) <= 0:
+            raise ValueError(
+                "--brief-json roster keys must be positive integer strings"
+            )
+    return parsed.model_dump()
+
+
 def _parse_bool_env(name: str, default: str) -> bool:
     value = os.getenv(name, default).strip()
     if value not in ("0", "1"):
@@ -1749,6 +1994,7 @@ def _args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--second-half-kickoff-s", type=float)
     parser.add_argument("--end-s", type=float)
     parser.add_argument("--context-json", type=Path)
+    parser.add_argument("--brief-json", type=Path)
     return parser.parse_args(argv)
 
 
@@ -1824,7 +2070,7 @@ def _player_roster_ids(caption_windows: list[dict]) -> dict[tuple[str, int], int
     ambiguous = set()
     for window in caption_windows:
         kit_color = window.get("kit_color")
-        if not isinstance(kit_color, str):
+        if not isinstance(kit_color, str) or not _normalized_kit_color(kit_color):
             continue
         pair = (_normalized_kit_color(kit_color), window["roster_jersey_number"])
         roster_id = window["roster_entry_id"]
@@ -1835,6 +2081,99 @@ def _player_roster_ids(caption_windows: list[dict]) -> dict[tuple[str, int], int
     for pair in ambiguous:
         mapping.pop(pair, None)
     return mapping
+
+
+def eligible_brief_reads(
+    brief_context: dict | None,
+    observations: list[dict],
+    caption_windows: list[dict],
+    player_tracks: dict[str, list[list]] | None,
+    frame_size: tuple[int, int] | None,
+) -> tuple[dict[tuple[str, int], dict], list[str]]:
+    """Resolve brief reads independently of the recurring-number scheduler."""
+    if not brief_context:
+        return {}, []
+    pair_to_roster = _player_roster_ids(caption_windows)
+    roster_pairs = {}
+    for pair, roster_id in pair_to_roster.items():
+        roster_pairs.setdefault(roster_id, set()).add(pair)
+    roster_to_pair = {
+        roster_id: next(iter(pairs))
+        for roster_id, pairs in roster_pairs.items()
+        if len(pairs) == 1
+    }
+    number_by_roster = {
+        window["roster_entry_id"]: window["roster_jersey_number"]
+        for window in caption_windows
+    }
+    eligible = {}
+    limits = []
+    for roster_entry_id, brief in sorted(
+        brief_context.get("roster", {}).items(), key=lambda item: int(item[0])
+    ):
+        roster_id = int(roster_entry_id)
+        pair = roster_to_pair.get(roster_id)
+        track = (player_tracks or {}).get(roster_entry_id)
+        evidence_frames = player_evidence_frames(observations, pair) if pair else []
+        grounded_frames = [
+            row
+            for row in evidence_frames
+            if isinstance(row.get("filename"), str)
+            and track
+            and interpolated_box(track, float(row["timestamp_s"])) is not None
+        ]
+        if pair is not None and frame_size and track and grounded_frames:
+            eligible[pair] = {
+                "brief": brief,
+                "system_brief": brief_context.get("system_brief"),
+            }
+            continue
+        jersey_number = pair[1] if pair else number_by_roster.get(roster_id, "?")
+        limits.append(
+            f"brief for #{jersey_number} could not be checked: no verified frames"
+        )
+    return eligible, limits
+
+
+def gate_brief_checks(
+    checks: list[dict],
+    brief_hash: str,
+    box_track: list[list],
+    frame_size: tuple[int, int],
+    counts: dict[str, int] | None = None,
+) -> list[dict]:
+    """Keep each check, downgrading ungrounded evidence through the shared gate."""
+    gated = []
+    for check in checks:
+        if counts is not None:
+            counts["brief_checks_total"] += 1
+        base = {
+            "expectation_index": check["expectation_index"],
+            "brief_hash": brief_hash,
+        }
+        if check["verdict"] == "no_evidence":
+            gated.append({**base, "verdict": "no_evidence"})
+            continue
+        result = ground_normalized_box(
+            check["box"], float(check["box_t"]), box_track, frame_size
+        )
+        if not result["grounded"]:
+            if counts is not None:
+                counts["brief_checks_downgraded"] += 1
+            gated.append({**base, "verdict": "no_evidence"})
+            continue
+        if counts is not None:
+            counts["brief_checks_evidence_found"] += 1
+        gated.append(
+            {
+                **base,
+                "verdict": "evidence_found",
+                "t": _clean_number(float(check["box_t"])),
+                "box": [_clean_number(value) for value in result["box"]],
+                "iou": result["iou"],
+            }
+        )
+    return gated
 
 
 def generate_player_reads(
@@ -1849,21 +2188,35 @@ def generate_player_reads(
     player_tracks: dict[str, list[list]] | None = None,
     player_roster_ids: dict[tuple[str, int], int] | None = None,
     grounding_counts: dict[str, int] | None = None,
+    player_briefs: dict[tuple[str, int], dict] | None = None,
+    brief_counts: dict[str, int] | None = None,
 ) -> tuple[list[dict], list[str], set[tuple[str, int]]]:
     """Generate independent reads; a twice-failed player is honestly omitted."""
     player_notes = []
     failure_limits = []
     omitted_pairs = set()
+    scheduled_player_pairs = required_player_pairs | set(player_briefs or {})
     tracking_contract_present = player_tracks is not None
     has_grounded_read = False
     if frame_size and tracking_contract_present:
-        for player_pair in required_player_pairs:
+        for player_pair in scheduled_player_pairs:
             roster_entry_id = (player_roster_ids or {}).get(player_pair)
             if roster_entry_id is not None and player_tracks.get(str(roster_entry_id)):
                 has_grounded_read = True
                 break
-    read_schema = grounded_read_schema() if has_grounded_read else None
-    for player_pair in sorted(required_player_pairs):
+    read_schemas = (
+        {
+            False: grounded_read_schema(),
+            True: grounded_read_schema(with_brief=True),
+        }
+        if has_grounded_read
+        else {}
+    )
+    for player_pair in sorted(scheduled_player_pairs):
+        brief_input = (player_briefs or {}).get(player_pair)
+        brief = brief_input.get("brief") if brief_input else None
+        system_brief = brief_input.get("system_brief") if brief_input else None
+        brief_expectation_count = len(brief["lines"]) if brief else 0
         evidence_frames = player_evidence_frames(observations, player_pair)
         image_paths = player_image_paths(evidence_frames, frames_dir)
         track = None
@@ -1923,18 +2276,23 @@ def generate_player_reads(
                         player_pair,
                         evidence_frames,
                         grounded_contract=grounded_contract,
+                        brief=brief,
+                        system_brief=system_brief,
                     ),
                     ollama_url=ollama_url,
                     model=model,
                     timeout_s=timeout_s,
                     num_predict=num_predict,
                     image_paths=call_image_paths,
-                    response_schema=read_schema if grounded_contract else None,
+                    response_schema=(
+                        read_schemas[bool(brief)] if grounded_contract else None
+                    ),
                 )
                 parsed = parse_player_read(
                     content,
                     evidence_frames,
                     grounded_contract=grounded_contract,
+                    brief_expectation_count=brief_expectation_count,
                 )
                 break
             except Exception as exc:
@@ -1967,14 +2325,36 @@ def generate_player_reads(
             )
             continue
         note_observations = parsed["observations"]
+        if brief is not None:
+            private_lines = [
+                *brief["lines"],
+                *(system_brief["lines"] if system_brief is not None else []),
+            ]
+            note_observations = [
+                observation
+                for observation in note_observations
+                if not any(
+                    line.casefold() in observation["observation"].casefold()
+                    for line in private_lines
+                )
+            ]
         note_evidence = None
+        brief_checks = None
         if grounded_contract:
             if grounding_counts is not None:
                 grounding_counts["read_observations"] += len(note_observations)
             gated = _gate_model_items(note_observations, track, frame_size)
             if grounding_counts is not None:
                 grounding_counts["read_grounded"] += len(gated)
-            if not gated:
+            if brief is not None:
+                brief_checks = gate_brief_checks(
+                    parsed["expectation_checks"],
+                    brief["hash"],
+                    track,
+                    frame_size,
+                    brief_counts,
+                )
+            if not gated and not brief_checks:
                 omitted_pairs.add(player_pair)
                 failure_limits.append(
                     f"no read produced for {player_pair[0]} #{player_pair[1]}: "
@@ -1999,6 +2379,12 @@ def generate_player_reads(
                 "confidence": parsed["confidence"],
                 "read_model": model,
                 **({"evidence": note_evidence} if note_evidence is not None else {}),
+                **({"brief_checks": brief_checks} if brief_checks is not None else {}),
+                **(
+                    {"system_brief_hash": system_brief["hash"]}
+                    if brief is not None and system_brief is not None
+                    else {}
+                ),
             }
         )
     return player_notes, failure_limits, omitted_pairs
@@ -2336,6 +2722,7 @@ def run(argv: list[str] | None = None) -> int:
         )
 
     context = _load_context(args.context_json)
+    brief_context = _load_brief_context(args.brief_json)
     analysis_context = {
         key: value
         for key, value in context.items()
@@ -2355,7 +2742,21 @@ def run(argv: list[str] | None = None) -> int:
         "read_grounded": 0,
     }
     caption_fault_counts = {key: 0 for key in CAPTION_FAULT_COUNTERS}
+    brief_counts = {
+        "brief_checks_total": 0,
+        "brief_checks_evidence_found": 0,
+        "brief_checks_downgraded": 0,
+    }
     frame_size = tuple(context["frame_size"]) if "frame_size" in context else None
+    player_roster_ids = _player_roster_ids(context.get("caption_windows", []))
+    player_briefs, brief_failure_limits = eligible_brief_reads(
+        brief_context,
+        observations,
+        context.get("caption_windows", []),
+        context.get("player_tracks"),
+        frame_size,
+    )
+    scheduled_player_pairs = required_player_pairs | set(player_briefs)
     player_notes, player_failure_limits, omitted_player_pairs = generate_player_reads(
         required_player_pairs,
         observations,
@@ -2365,18 +2766,21 @@ def run(argv: list[str] | None = None) -> int:
         timeout_s=timeout_s,
         frame_size=frame_size,
         player_tracks=context.get("player_tracks"),
-        player_roster_ids=_player_roster_ids(context.get("caption_windows", [])),
+        player_roster_ids=player_roster_ids,
         grounding_counts=grounding_counts,
+        player_briefs=player_briefs,
+        brief_counts=brief_counts,
     )
+    player_failure_limits = [*brief_failure_limits, *player_failure_limits]
     if "player_tracks" not in context and required_player_pairs:
         player_failure_limits.append(
             "Player reads were not tracking-verified because player_tracks was absent."
         )
     if too_many_player_read_failures(
-        len(required_player_pairs), len(omitted_player_pairs)
+        len(scheduled_player_pairs), len(omitted_player_pairs)
     ):
         raise RuntimeError(
-            f"{len(omitted_player_pairs)} of {len(required_player_pairs)} required "
+            f"{len(omitted_player_pairs)} of {len(scheduled_player_pairs)} required "
             "player reads failed (>50%); refusing analysis"
         )
 
@@ -2403,12 +2807,18 @@ def run(argv: list[str] | None = None) -> int:
         "honest_limits": [
             *team_pass["honest_limits"],
             *player_failure_limits,
+            *(
+                [COACHS_BRIEF_HONEST_LIMIT]
+                if brief_context
+                and (brief_context.get("roster") or brief_context.get("system_brief"))
+                else []
+            ),
         ],
     }
     validate_analysis_schema(
         candidate,
         require_computed=False,
-        required_player_pairs=required_player_pairs - omitted_player_pairs,
+        required_player_pairs=scheduled_player_pairs - omitted_player_pairs,
     )
     final = finalize_analysis(
         candidate,
@@ -2417,10 +2827,11 @@ def run(argv: list[str] | None = None) -> int:
         sampling=plan,
         frames_failed=failed,
         notes_scope=effective_notes_scope,
-        required_player_pairs=required_player_pairs,
+        required_player_pairs=scheduled_player_pairs,
         omitted_player_pairs=omitted_player_pairs,
     )
     final["sampling"]["grounding"].update(grounding_counts)
+    final["sampling"].update(brief_counts)
 
     if captions_enabled and context.get("caption_windows"):
         try:
@@ -2448,6 +2859,7 @@ def run(argv: list[str] | None = None) -> int:
         final["sampling"]["captions_failed"] = captions_failed
     final["sampling"].update(caption_fault_counts)
     final["sampling"]["grounding"].update(grounding_counts)
+    final["sampling"].update(brief_counts)
     grounding_limit = (
         f"{grounding_counts['caption_grounded']} of "
         f"{grounding_counts['caption_windows']} clip notes and "

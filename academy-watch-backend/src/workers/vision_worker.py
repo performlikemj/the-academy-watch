@@ -10,7 +10,7 @@ forces anyway:
 
   $VIDEO_PIPELINE_CMD --video <local mp4> --out <artifacts dir> \
       [--kickoff-s N] [--halftime-s N] [--second-half-kickoff-s N] [--end-s N] \
-      [--context-json <path>]
+      [--context-json <path>] [--brief-json <path>]
 
 The timeline markers window the run to in-play time: the pipeline processes [kickoff, end]
 and skips the halftime gap [halftime, second-half-kickoff] (see game_time.in_play_plan /
@@ -33,6 +33,7 @@ the stale-reaper recover from evictions, and a re-delivered queue message
 no-ops against an already-claimed job.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -56,6 +57,7 @@ DEFAULT_QWEN_CAPTION_TOP_K = 5
 MAX_QWEN_CAPTION_WINDOWS = 80
 MAX_ANALYSIS_CONTEXT_BYTES = 20 * 1024 * 1024
 OVERSIZE_CONTEXT_HZ = 2
+MAX_BRIEF_CONTEXT_LINES = 8
 
 
 def _row_value(row, name, default=None):
@@ -258,6 +260,47 @@ def _analysis_context(
     }
 
 
+def _brief_payload(body) -> dict | None:
+    if not isinstance(body, str):
+        return None
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines:
+        return None
+    normalized_body = "\n".join(lines)
+    return {
+        "lines": lines[:MAX_BRIEF_CONTEXT_LINES],
+        "hash": hashlib.sha256(normalized_body.encode("utf-8")).hexdigest(),
+    }
+
+
+def _brief_context(match, roster_entries, roster_members) -> dict | None:
+    """Build private brief input separately from the team-visible analysis context."""
+    program_id = _row_value(match, "club_program_id")
+    if program_id is None:
+        return None
+    members_by_id = {
+        int(_row_value(member, "id")): member
+        for member in roster_members
+        if _row_value(member, "id") is not None and _row_value(member, "program_id") == program_id
+    }
+    roster = {}
+    for entry in roster_entries:
+        member_id = _row_value(entry, "club_roster_member_id")
+        member = members_by_id.get(int(member_id)) if member_id is not None else None
+        payload = _brief_payload(_row_value(member, "coach_brief_body")) if member is not None else None
+        if payload is not None:
+            roster[str(int(_row_value(entry, "id")))] = payload
+    program = _row_value(match, "club_program")
+    return {
+        "roster": roster,
+        "system_brief": _brief_payload(_row_value(program, "system_brief_body")),
+    }
+
+
+def _has_brief_entries(context: dict | None) -> bool:
+    return bool(context and (context.get("roster") or context.get("system_brief")))
+
+
 def _encode_analysis_context(context: dict) -> bytes:
     from src.services.video_boxes import sample_box_track
 
@@ -331,6 +374,7 @@ def _build_pipeline_cmd(
     out_dir: Path,
     match,
     context_path: Path | None = None,
+    brief_path: Path | None = None,
 ) -> list[str]:
     """Assemble the pipeline argv, forwarding the operator's timeline markers.
 
@@ -351,6 +395,8 @@ def _build_pipeline_cmd(
             cmd += [flag, str(value)]
     if context_path is not None:
         cmd += ["--context-json", str(context_path)]
+    if brief_path is not None:
+        cmd += ["--brief-json", str(brief_path)]
     return cmd
 
 
@@ -371,11 +417,17 @@ def _keepalive(app, job_id: str, stop: threading.Event, fenced: threading.Event,
                 return
 
 
-def _run_pipeline(video_path: Path, out_dir: Path, match, context_path: Path | None = None) -> None:
+def _run_pipeline(
+    video_path: Path,
+    out_dir: Path,
+    match,
+    context_path: Path | None = None,
+    brief_path: Path | None = None,
+) -> None:
     cmd_template = os.getenv("VIDEO_PIPELINE_CMD")
     if not cmd_template:
         raise RuntimeError("VIDEO_PIPELINE_CMD is not set (vision image misconfigured)")
-    cmd = _build_pipeline_cmd(cmd_template, video_path, out_dir, match, context_path)
+    cmd = _build_pipeline_cmd(cmd_template, video_path, out_dir, match, context_path, brief_path)
     log.info("running pipeline: %s", " ".join(cmd))
     subprocess.run(cmd, check=True)
 
@@ -436,7 +488,9 @@ def process_job(app, job_id: str) -> bool:
             out_dir = tmp_path / "artifacts"
             out_dir.mkdir()
             context_path = None
+            brief_path = None
             if pipeline_kind == "qwen_analysis":
+                from src.models.funding import ClubRosterMember
                 from src.services import video_boxes, video_dev_artifacts
 
                 context_path = tmp_path / "context.json"
@@ -457,6 +511,23 @@ def process_job(app, job_id: str) -> bool:
                 )
                 top_k = int(os.getenv("QWEN_CAPTION_TOP_K", str(DEFAULT_QWEN_CAPTION_TOP_K)))
                 roster_entries = list(match.roster_entries)
+                roster_members = []
+                club_program_id = _row_value(match, "club_program_id")
+                if club_program_id is not None:
+                    member_ids = {
+                        _row_value(entry, "club_roster_member_id")
+                        for entry in roster_entries
+                        if _row_value(entry, "club_roster_member_id") is not None
+                    }
+                    if member_ids:
+                        roster_members = list(
+                            db.session.query(ClubRosterMember)
+                            .filter(
+                                ClubRosterMember.program_id == club_program_id,
+                                ClubRosterMember.id.in_(member_ids),
+                            )
+                            .all()
+                        )
                 box_tracks = {int(tracklet.id): video_boxes.box_track_for(match, tracklet) for tracklet in tracklets}
                 frame_size = _stored_frame_size(match) or _probe_frame_size(video_path)
                 context_path.write_bytes(
@@ -472,11 +543,18 @@ def process_job(app, job_id: str) -> bool:
                         )
                     )
                 )
+                brief_context = _brief_context(match, roster_entries, roster_members)
+                if _has_brief_entries(brief_context):
+                    brief_path = tmp_path / "brief.json"
+                    brief_path.write_text(
+                        json.dumps(brief_context, ensure_ascii=False, separators=(",", ":")),
+                        encoding="utf-8",
+                    )
             stop, fenced = threading.Event(), threading.Event()
             keeper = threading.Thread(target=_keepalive, args=(app, job_id, stop, fenced), daemon=True)
             keeper.start()
             try:
-                _run_pipeline(video_path, out_dir, match, context_path)
+                _run_pipeline(video_path, out_dir, match, context_path, brief_path)
             finally:
                 stop.set()
                 keeper.join(timeout=30)

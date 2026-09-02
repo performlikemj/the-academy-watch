@@ -2,6 +2,7 @@
 markers (including the 2nd-half kickoff and end/full-time) are forwarded to $VIDEO_PIPELINE_CMD
 so the GPU pass can window to in-play time."""
 
+import hashlib
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,9 +15,11 @@ from src.models.video import VideoAnalysisJob, VideoMatch
 from src.services.video_storage import verify_expected_blob
 from src.workers.vision_worker import (
     _analysis_context,
+    _brief_context,
     _build_pipeline_cmd,
     _download_footage,
     _encode_analysis_context,
+    _has_brief_entries,
     _local_video_path,
     _probe_frame_size,
     main,
@@ -81,6 +84,27 @@ def test_context_path_is_forwarded_after_markers():
         context,
     )
     assert command[-2:] == ["--context-json", str(context)]
+
+
+def test_brief_path_is_forwarded_only_when_explicitly_supplied():
+    context = Path("/tmp/context.json")
+    brief = Path("/tmp/brief.json")
+    match = SimpleNamespace(
+        kickoff_s=None,
+        halftime_s=None,
+        second_half_kickoff_s=None,
+        duration_s=None,
+    )
+
+    command = _build_pipeline_cmd(TEMPLATE, VIDEO, OUT, match, context, brief)
+
+    assert command[-4:] == [
+        "--context-json",
+        str(context),
+        "--brief-json",
+        str(brief),
+    ]
+    assert "--brief-json" not in _build_pipeline_cmd(TEMPLATE, VIDEO, OUT, match, context)
 
 
 def _caption_chain(tracklet_id, roster_id, start, end, *, confidence="high", contaminated=False, cluster=0):
@@ -198,6 +222,85 @@ def test_caption_windows_clip_box_tracks_and_context_unions_tracks_by_roster():
         ],
         "9": [],
     }
+    assert not ({"roster", "brief", "system_brief"} & context.keys())
+
+
+def test_brief_context_is_separate_hash_only_and_bounded_to_eight_lines():
+    body = "\n".join(["  Hold width  ", "", *[f"Expectation {index}" for index in range(2, 11)]])
+    normalized = "\n".join(["Hold width", *[f"Expectation {index}" for index in range(2, 11)]])
+    system_body = "  Stay compact\n\n Counter-press together  "
+    match = SimpleNamespace(
+        club_program_id=7,
+        club_program=SimpleNamespace(
+            id=7,
+            system_brief_body=system_body,
+            name="PRIVATE CLUB NAME",
+        ),
+    )
+    roster = [
+        SimpleNamespace(
+            id=42,
+            club_roster_member_id=5,
+            player_name="PRIVATE PLAYER NAME",
+            position="Midfielder",
+        ),
+        SimpleNamespace(id=43, club_roster_member_id=None),
+    ]
+    members = [
+        SimpleNamespace(
+            id=5,
+            program_id=7,
+            coach_brief_body=body,
+        ),
+        SimpleNamespace(
+            id=6,
+            program_id=8,
+            coach_brief_body="Foreign brief",
+        ),
+    ]
+
+    context = _brief_context(match, roster, members)
+
+    assert context == {
+        "roster": {
+            "42": {
+                "lines": ["Hold width", *[f"Expectation {index}" for index in range(2, 9)]],
+                "hash": hashlib.sha256(normalized.encode()).hexdigest(),
+            }
+        },
+        "system_brief": {
+            "lines": ["Stay compact", "Counter-press together"],
+            "hash": hashlib.sha256(b"Stay compact\nCounter-press together").hexdigest(),
+        },
+    }
+    serialized = __import__("json").dumps(context)
+    assert "PRIVATE PLAYER NAME" not in serialized
+    assert "PRIVATE CLUB NAME" not in serialized
+    assert "Midfielder" not in serialized
+    assert _has_brief_entries(context) is True
+
+
+def test_admin_match_has_no_brief_context_or_pipeline_flag():
+    match = SimpleNamespace(
+        club_program_id=None,
+        kickoff_s=None,
+        halftime_s=None,
+        second_half_kickoff_s=None,
+        duration_s=None,
+    )
+
+    assert _brief_context(match, [], []) is None
+    assert _has_brief_entries(None) is False
+    assert _build_pipeline_cmd(TEMPLATE, VIDEO, OUT, match) == [
+        "python",
+        "/app/run_spike.py",
+        "--device",
+        "cuda",
+        "--video",
+        str(VIDEO),
+        "--out",
+        str(OUT),
+    ]
 
 
 def test_oversize_context_downsamples_tracks_to_two_hz(monkeypatch):
@@ -375,7 +478,9 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
     def fake_pipeline(command, check):
         assert check is True
         assert command[command.index("--video") + 1] == str(video)
+        assert "--brief-json" not in command
         context_path = Path(command[command.index("--context-json") + 1])
+        assert not (context_path.parent / "brief.json").exists()
         context = __import__("json").loads(context_path.read_text())
         assert context == {
             "opponent_name": "Red-kit opposition",
@@ -412,6 +517,96 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
     complete.assert_called_once()
     assert complete.call_args.args[:2] == ("job-1", analysis)
     assert complete.call_args.kwargs["gpu_seconds"] >= 0
+
+
+def test_club_qwen_job_writes_separate_brief_file_and_forwards_flag(tmp_path, monkeypatch):
+    app = Flask(__name__)
+    app.config.update(
+        TESTING=True,
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+    video = tmp_path / "match.mp4"
+    video.write_bytes(b"test footage")
+    job = SimpleNamespace(video_match_id=1)
+    roster_entry = SimpleNamespace(
+        id=42,
+        jersey_number=8,
+        club_roster_member_id=5,
+    )
+    member = SimpleNamespace(
+        id=5,
+        program_id=7,
+        coach_brief_body="Hold width\nRecover inside",
+    )
+    match = SimpleNamespace(
+        id=1,
+        blob_path=None,
+        blob_etag=None,
+        capture_meta={"local": {"video": str(video)}, "resolution": [1920, 1080]},
+        kickoff_s=0,
+        halftime_s=None,
+        second_half_kickoff_s=None,
+        duration_s=90,
+        opponent_name="Opposition",
+        our_kit_color="blue",
+        opponent_kit_color="red",
+        competition="Academy fixture",
+        our_team_cluster=0,
+        club_program_id=7,
+        club_program=SimpleNamespace(
+            id=7,
+            system_brief_body="Press together",
+        ),
+        roster_entries=[roster_entry],
+        status="queued",
+    )
+
+    def fake_get(model, _identifier):
+        return job if model is VideoAnalysisJob else match
+
+    analysis = {
+        "schema_version": "qwen-analysis-v1",
+        "match_summary": "Sampled match analysis.",
+    }
+
+    def fake_pipeline(command, check):
+        assert check is True
+        context_path = Path(command[command.index("--context-json") + 1])
+        brief_path = Path(command[command.index("--brief-json") + 1])
+        assert brief_path.parent == context_path.parent
+        assert __import__("json").loads(brief_path.read_text()) == {
+            "roster": {
+                "42": {
+                    "lines": ["Hold width", "Recover inside"],
+                    "hash": hashlib.sha256(b"Hold width\nRecover inside").hexdigest(),
+                }
+            },
+            "system_brief": {
+                "lines": ["Press together"],
+                "hash": hashlib.sha256(b"Press together").hexdigest(),
+            },
+        }
+        out_dir = Path(command[command.index("--out") + 1])
+        (out_dir / "analysis.json").write_text(__import__("json").dumps(analysis))
+
+    monkeypatch.setenv("VIDEO_PIPELINE_KIND", "qwen_analysis")
+    monkeypatch.setenv("VIDEO_PIPELINE_CMD", "python qwen_match_analysis.py")
+    with app.app_context():
+        with (
+            patch.object(db.session, "get", side_effect=fake_get),
+            patch("src.services.video_storage.is_configured", return_value=False),
+            patch("src.services.video_dev_artifacts.local_artifacts", return_value=None),
+            patch("src.services.video_queue.heartbeat", return_value=True),
+            patch.object(db.session, "query") as query,
+            patch("src.workers.vision_worker.subprocess.run", side_effect=fake_pipeline),
+            patch("src.services.video_analysis_store.complete_job_with_analysis") as complete,
+        ):
+            query.return_value.filter.return_value.all.side_effect = [[], [member]]
+            assert process_job(app, "job-1") is True
+
+    complete.assert_called_once()
 
 
 def test_cv_kind_hands_tracks_to_box_persistence_after_artifact_completion(tmp_path, monkeypatch):
