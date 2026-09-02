@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 from flask import Flask
@@ -16,6 +17,7 @@ from scripts.dev.bridge_match_to_club import (
 )
 from src.auth import issue_user_token
 from src.extensions import limiter
+from src.models.follow import PlayerShadow
 from src.models.funding import (
     ClubProgram,
     ClubProgramClaim,
@@ -173,6 +175,52 @@ def test_bridge_refuses_supabase_and_pooler_hosts(database_uri):
         guard_database_target(database_uri)
 
 
+def test_execute_bridge_refuses_prod_host_before_opening_connection(monkeypatch):
+    monkeypatch.setenv(ALLOW_ENV, "1")
+    monkeypatch.setenv("FLASK_ENV", "development")
+    monkeypatch.delenv("APP_ENV", raising=False)
+    app = Flask("prod-shaped-fixture-bridge-test")
+    app.config.update(
+        SQLALCHEMY_DATABASE_URI=("postgresql+psycopg://dev:secret@aws-0-us-west-1.pooler.supabase.com:6543/postgres"),
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(app)
+
+    with app.app_context():
+        engine = db.engine
+        with patch.object(engine, "connect") as connect:
+            with pytest.raises(BridgeRefused, match="not an allowed dev target"):
+                execute_bridge(app, match_id=1, manager_email=MANAGER_EMAIL)
+        connect.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "database_uri",
+    [
+        "sqlite:////tmp/fixture-bridge.db",
+        "postgresql+psycopg://dev:secret@localhost/soccer_newsletter",
+    ],
+)
+def test_bridge_allows_sqlite_or_expected_database_name(database_uri):
+    guard_database_target(database_uri)
+
+
+def test_bridge_refuses_unexpected_database_name_without_matching_override():
+    database_uri = "postgresql+psycopg://dev:secret@localhost/fixture_copy"
+
+    with pytest.raises(BridgeRefused, match="database name 'fixture_copy' is not allowed"):
+        guard_database_target(database_uri)
+    with pytest.raises(BridgeRefused, match="database name 'fixture_copy' is not allowed"):
+        guard_database_target(database_uri, allow_db_name="different_copy")
+
+
+def test_bridge_allows_explicit_database_name_override():
+    guard_database_target(
+        "postgresql+psycopg://dev:secret@localhost/fixture_copy",
+        allow_db_name="fixture_copy",
+    )
+
+
 def test_bridge_refuses_match_already_assigned_to_different_program(bridge_app):
     other_league = FundingLeague(
         name="Other league",
@@ -251,6 +299,7 @@ def test_full_bridge_activates_console_and_exposes_all_reel_players(bridge_app):
     local_players = LocalPlayer.query.order_by(LocalPlayer.id).all()
     assert len(local_players) == 18
     assert all(player.status == "approved" for player in local_players)
+    assert all(player.api_player_id == -player.id for player in local_players)
     assert all(player.created_by_user_id == bridge_app.bridge["manager_id"] for player in local_players)
 
     client = bridge_app.test_client()
@@ -275,6 +324,28 @@ def test_full_bridge_activates_console_and_exposes_all_reel_players(bridge_app):
     assert len(players) == 18
     assert [player["jersey_number"] for player in players] == list(range(1, 19))
 
+    result = client.post(
+        f"/api/club/{program.id}/results",
+        headers=_manager_headers(),
+        json={
+            "match_date": "2025-09-01",
+            "opponent": "Development United",
+            "competition": "Development League",
+            "home_away": "home",
+            "result_for": 2,
+            "result_against": 1,
+            "entries": [
+                {
+                    "club_roster_member_id": summary["members"][0]["club_roster_member_id"],
+                    "minutes": 90,
+                    "goals": 1,
+                }
+            ],
+        },
+    )
+    assert result.status_code == 201, result.get_json()
+    assert result.get_json()["matches"][0]["player_api_id"] == -local_players[0].id
+
 
 def test_bridge_is_idempotent_and_second_run_creates_no_rows(bridge_app):
     first = _run(bridge_app, program_name="AFC Yorkies")
@@ -289,6 +360,46 @@ def test_bridge_is_idempotent_and_second_run_creates_no_rows(bridge_app):
     assert second["counts"]["roster_members"]["existing"] == 18
     assert second["counts"]["roster_entry_links"]["existing"] == 18
     assert [row["club_roster_member_id"] for row in second["members"]] == member_ids
+
+
+def test_bridge_rerun_repairs_identity_and_reactivates_console(bridge_app):
+    first = _run(bridge_app)
+    program = db.session.get(ClubProgram, first["program_id"])
+    claim = ClubProgramClaim.query.filter_by(program_id=program.id).one()
+    grant = ClubProgramManager.query.filter_by(program_id=program.id).one()
+    local_player = LocalPlayer.query.order_by(LocalPlayer.id).first()
+    local_player.api_player_id = None
+    program.platform_status = "suspended"
+    program.emergency_hidden = True
+    claim.status = "revoked"
+    grant.status = "revoked"
+    db.session.commit()
+
+    repaired = _run(bridge_app)
+
+    assert all(values["created"] == 0 for values in repaired["counts"].values())
+    assert local_player.api_player_id == -local_player.id
+    assert program.platform_status == "approved"
+    assert program.emergency_hidden is False
+    assert claim.status == "approved"
+    assert grant.status == "active"
+
+
+def test_bridge_refuses_referenced_legacy_synthetic_identity(bridge_app):
+    db.session.add(PlayerShadow(player_api_id=-1, player_name="Legacy negative identity"))
+    db.session.commit()
+
+    with pytest.raises(BridgeRefused, match="synthetic player id conflicts with a legacy manual player"):
+        _run(bridge_app)
+
+    assert _row_counts() == {
+        "funding_leagues": 0,
+        "club_programs": 0,
+        "program_claims": 0,
+        "program_managers": 0,
+        "local_players": 0,
+        "roster_members": 0,
+    }
 
 
 def test_dry_run_rolls_back_fixture_rows_and_links(bridge_app):

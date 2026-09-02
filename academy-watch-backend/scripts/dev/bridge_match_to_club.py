@@ -25,6 +25,7 @@ if str(BACKEND_ROOT) not in sys.path:
 os.environ.setdefault("SKIP_API_HANDSHAKE", "1")
 
 ALLOW_ENV = "ALLOW_FIXTURE_BRIDGE"
+DEFAULT_DATABASE_NAME = "soccer_newsletter"
 DEV_LEAGUE_NAME = "Dev fixture league"
 MY_CLUB_PATH = "/my-club"
 SCRIPT_ACTOR = "dev-fixture-bridge"
@@ -66,15 +67,27 @@ def guard_runtime_environment() -> None:
             raise BridgeRefused(f"refusing fixture bridge: {env_name}={value!r} looks like production")
 
 
-def guard_database_target(database_uri) -> None:
-    """Reject known hosted-production database endpoints from the resolved URL."""
+def guard_database_target(database_uri, *, allow_db_name: str | None = None) -> None:
+    """Reject hosted-production endpoints and unexpected database names."""
 
     try:
-        host = (make_url(database_uri).host or "").lower()
+        url = make_url(database_uri)
+        host = (url.host or "").lower()
     except Exception as exc:
         raise BridgeRefused("refusing fixture bridge: could not resolve the database host") from exc
     if "supabase" in host or "pooler" in host:
         raise BridgeRefused(f"refusing fixture bridge: database host {host!r} is not an allowed dev target")
+    if url.get_backend_name() == "sqlite":
+        return
+
+    allowed_names = {DEFAULT_DATABASE_NAME}
+    if allow_db_name:
+        allowed_names.add(allow_db_name)
+    if url.database not in allowed_names:
+        raise BridgeRefused(
+            f"refusing fixture bridge: database name {url.database!r} is not allowed; "
+            f"pass --allow-db-name {url.database!r} explicitly to override"
+        )
 
 
 def _empty_counts() -> dict[str, dict[str, int]]:
@@ -287,6 +300,25 @@ def _validate_existing_local(entry, member, manager, program):
     return local_player
 
 
+def _ensure_synthetic_identity(local_player, entry, now) -> None:
+    from src.routes.showcase import _legacy_negative_identity_conflict
+
+    synthetic_player_api_id = -local_player.id
+    if local_player.api_player_id is not None:
+        if local_player.api_player_id != synthetic_player_api_id:
+            raise BridgeRefused(
+                f"roster entry #{entry.jersey_number} has incompatible local-player identity "
+                f"{local_player.api_player_id}; expected {synthetic_player_api_id}"
+            )
+        return
+    if _legacy_negative_identity_conflict(synthetic_player_api_id) is not None:
+        raise BridgeRefused(
+            f"roster entry #{entry.jersey_number} synthetic player id conflicts with a legacy manual player"
+        )
+    local_player.api_player_id = synthetic_player_api_id
+    local_player.updated_at = now
+
+
 def _get_or_create_member(entry, match, program, manager, now, counts):
     from src.models.funding import ClubRosterMember
     from src.models.league import db
@@ -340,6 +372,7 @@ def _get_or_create_member(entry, match, program, manager, now, counts):
     local_player.status = "approved"
     local_player.position = entry.position
     local_player.club_name = program.name
+    _ensure_synthetic_identity(local_player, entry, now)
     member.role = entry.position
     if member.note is None or member.note == marker:
         member.note = marker
@@ -408,7 +441,15 @@ def bridge_match_to_club(*, match_id: int, manager_email: str, program_name: str
     }
 
 
-def execute_bridge(app, *, match_id: int, manager_email: str, program_name: str | None = None, dry_run=False) -> dict:
+def execute_bridge(
+    app,
+    *,
+    match_id: int,
+    manager_email: str,
+    program_name: str | None = None,
+    dry_run=False,
+    allow_db_name: str | None = None,
+) -> dict:
     """Run all guards and commit or roll back the bridge atomically."""
 
     guard_runtime_environment()
@@ -416,7 +457,7 @@ def execute_bridge(app, *, match_id: int, manager_email: str, program_name: str 
     with context:
         from src.models.league import db
 
-        guard_database_target(db.engine.url)
+        guard_database_target(db.engine.url, allow_db_name=allow_db_name)
         try:
             summary = bridge_match_to_club(
                 match_id=match_id,
@@ -470,6 +511,7 @@ def _parse_args(argv=None):
     parser.add_argument("--manager-email", required=True)
     parser.add_argument("--program-name")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--allow-db-name")
     return parser.parse_args(argv)
 
 
@@ -485,6 +527,7 @@ def main(argv=None) -> int:
             manager_email=args.manager_email,
             program_name=args.program_name,
             dry_run=args.dry_run,
+            allow_db_name=args.allow_db_name,
         )
     except BridgeRefused as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
