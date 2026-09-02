@@ -264,5 +264,6 @@ def test_pm01_is_the_single_head_and_chains_from_lp01():
     config.set_main_option("script_location", str(repo_root / "migrations"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["pm01"]
+    assert script.get_heads() == ["s2f1"]
+    assert script.get_revision("s2f1").down_revision == "pm01"
     assert script.get_revision("pm01").down_revision == "lp01"
