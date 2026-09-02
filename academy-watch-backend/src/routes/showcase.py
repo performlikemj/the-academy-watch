@@ -48,6 +48,7 @@ from src.models.showcase import (
     PlayerProfileClaim,
     PlayerShowcaseMedia,
     PlayerShowcaseProfile,
+    local_player_is_minor,
     without_minor_local_bridge,
 )
 from src.models.tracked_player import TrackedPlayer
@@ -137,6 +138,7 @@ MAX_LOCAL_PLAYER_CITY_LENGTH = 120
 MAX_LOCAL_PLAYER_CLUB_NAME_LENGTH = 200
 MIN_LOCAL_PLAYER_BIRTH_YEAR = 1950
 MAX_LOCAL_PLAYER_BIRTH_YEAR = 2020
+LOCAL_SELF_CLAIM_ADULT_ERROR = "The platform is 18+ for self-managed profiles"
 MAX_PENDING_LOCAL_PLAYERS_PER_USER = 10
 MAX_PENDING_LOCAL_CLUBS_PER_USER = 10
 MAX_PENDING_CLUB_CLAIMS_PER_USER = 5
@@ -1134,6 +1136,41 @@ def _adult_player_claim_error(player_api_id: int):
     return None
 
 
+def _parse_local_player_birth_date(payload: dict) -> date | None:
+    if "birth_date" not in payload:
+        return None
+    raw_birth_date = payload.get("birth_date")
+    if not isinstance(raw_birth_date, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_birth_date) is None:
+        raise ValueError("birth_date must be an ISO date in YYYY-MM-DD format")
+    try:
+        parsed_birth_date = date.fromisoformat(raw_birth_date)
+    except ValueError:
+        raise ValueError("birth_date must be an ISO date in YYYY-MM-DD format") from None
+    if not MIN_LOCAL_PLAYER_BIRTH_YEAR <= parsed_birth_date.year <= MAX_LOCAL_PLAYER_BIRTH_YEAR:
+        raise ValueError(
+            f"birth_date year must be between {MIN_LOCAL_PLAYER_BIRTH_YEAR} and {MAX_LOCAL_PLAYER_BIRTH_YEAR}"
+        )
+    return parsed_birth_date
+
+
+def _local_self_claim_birth_year(birth_date: date | None, birth_year: int | None) -> int:
+    """Require adult evidence for a self-managed local profile.
+
+    An exact birth date is authoritative when supplied. A year alone only
+    proves adulthood once every person born in that year must be at least 18.
+    """
+    today = datetime.now(UTC).date()
+    if birth_date is not None:
+        age = age_from_birth_date(birth_date, today=today)
+        if age is None or age < 18:
+            raise ValueError(LOCAL_SELF_CLAIM_ADULT_ERROR)
+        return birth_date.year
+
+    if birth_year is None or today.year - birth_year < 19:
+        raise ValueError(LOCAL_SELF_CLAIM_ADULT_ERROR)
+    return birth_year
+
+
 # ---------------------------------------------------------------------------
 # Flywheel X — Film Room → verified footage evidence
 # ---------------------------------------------------------------------------
@@ -1368,8 +1405,15 @@ def create_local_player():
         if not 2 <= len(display_name) <= MAX_LOCAL_PLAYER_NAME_LENGTH:
             return jsonify({"error": "display_name must be between 2 and 200 characters"}), 400
 
+        try:
+            birth_date = _parse_local_player_birth_date(payload)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
         birth_year = payload.get("birth_year")
-        if birth_year is not None:
+        if birth_date is not None:
+            birth_year = birth_date.year
+        elif birth_year is not None:
             if isinstance(birth_year, bool) or not isinstance(birth_year, int):
                 return jsonify({"error": "birth_year must be an integer between 1950 and 2020"}), 400
             if not MIN_LOCAL_PLAYER_BIRTH_YEAR <= birth_year <= MAX_LOCAL_PLAYER_BIRTH_YEAR:
@@ -1387,6 +1431,11 @@ def create_local_player():
                 jsonify({"error": f"relationship_type must be one of {sorted(LOCAL_PLAYER_RELATIONSHIP_TYPES)}"}),
                 400,
             )
+        if relationship_type == "player":
+            try:
+                birth_year = _local_self_claim_birth_year(birth_date, birth_year)
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
 
         _lock_pending_quota(user.id, namespace=5_455_005)
         duplicate_query = LocalPlayer.query.filter(
@@ -1427,6 +1476,7 @@ def create_local_player():
 
         player = LocalPlayer(
             display_name=display_name,
+            birth_date=birth_date,
             birth_year=birth_year,
             position=position,
             country=country,
@@ -1507,9 +1557,9 @@ def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
     if _local_player_is_suppressed(player):
         return False
     user = auth_context["user"] if auth_context else None
-    # Year-only academy records are club-private while under 18, even after an
-    # identity moderator approves the row. Their claimant may still manage it.
-    if player.is_minor:
+    # Minor academy records are club-private even after an identity moderator
+    # approves the row. Their claimant may still manage it.
+    if local_player_is_minor(player):
         return bool(user and _has_visible_local_claim(player.id, user.id))
     if player.status == "approved":
         return True

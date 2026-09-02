@@ -7,15 +7,17 @@ from an API player that happens to have the same positive integer id.
 """
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
 from flask import Flask
 from PIL import Image
 from src.auth import _ensure_user_account, issue_user_token
-from src.models.league import PlayerLink, db
+from src.models.funding import ClubProgram  # noqa: F401 - registers the FK target for db.create_all()
+from src.models.league import PlayerLink, Team, db
 from src.models.showcase import (
     LocalClub,
     LocalPlayer,
@@ -23,6 +25,7 @@ from src.models.showcase import (
     PlayerProfileClaim,
     PlayerShowcaseMedia,
     PlayerShowcaseProfile,
+    without_minor_local_bridge,
 )
 from src.models.tracked_player import TrackedPlayer
 from src.services import social_proof
@@ -30,6 +33,15 @@ from src.services import social_proof
 ADMIN_KEY = "test-admin-key"
 CODE_PATTERN = re.compile(r"^AW-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$")
 DEFAULT_ADULT_BIRTH_YEAR = datetime.now(UTC).year - 19
+LP01_MIGRATION = Path(__file__).resolve().parents[1] / "migrations/versions/lp01_local_player_birth_date.py"
+
+
+def _birth_date_years_ago(years):
+    today = datetime.now(UTC).date()
+    try:
+        return today.replace(year=today.year - years)
+    except ValueError:
+        return today.replace(year=today.year - years, day=28)
 
 
 @pytest.fixture
@@ -124,6 +136,7 @@ def _make_user(email):
 def _seed_local_player(
     display_name="Northside Prospect",
     *,
+    birth_date=None,
     birth_year=DEFAULT_ADULT_BIRTH_YEAR,
     position="Midfielder",
     country="England",
@@ -137,6 +150,7 @@ def _seed_local_player(
     player = LocalPlayer(
         display_name=display_name,
         normalized_name=LocalPlayer.normalize_name(display_name),
+        birth_date=birth_date,
         birth_year=birth_year,
         position=position,
         country=country,
@@ -222,7 +236,7 @@ def _seed_media(
 def _create_local_player(client, email="creator@example.com", **overrides):
     payload = {
         "display_name": "Northside Prospect",
-        "birth_year": 2008,
+        "birth_year": DEFAULT_ADULT_BIRTH_YEAR,
         "position": "Midfielder",
         "country": "England",
         "city": "Leeds",
@@ -300,6 +314,17 @@ def _fake_get(monkeypatch, responses):
     monkeypatch.setattr(social_proof.requests, "Session", FakeSession)
 
 
+def test_lp01_migration_chains_from_bx01_and_guards_birth_date_ddl():
+    source = LP01_MIGRATION.read_text()
+
+    assert 'revision = "lp01"' in source
+    assert 'down_revision = "bx01"' in source
+    assert "if table_exists(TABLE) and not column_exists(TABLE, COLUMN):" in source
+    assert "op.add_column(TABLE, sa.Column(COLUMN, sa.Date(), nullable=True))" in source
+    assert "if table_exists(TABLE) and column_exists(TABLE, COLUMN):" in source
+    assert "op.drop_column(TABLE, COLUMN)" in source
+
+
 # --------------------------------------------------------------------------- #
 # Creation, validation, and duplicates
 # --------------------------------------------------------------------------- #
@@ -316,12 +341,11 @@ class TestLocalPlayerCreation:
             "/api/local-players",
             json={
                 "display_name": " <b>North   Star Prospect</b> ",
-                "birth_year": 2009,
+                "birth_year": 2005,
                 "position": f"<i>{'M' * 60}</i>",
                 "country": f"<script>{'E' * 110}</script>",
                 "city": f"<b>{'C' * 130}</b>",
                 "club_name": f" <em>Northside {'F' * 210}</em> ",
-                "birth_date": "2009-04-03",
             },
             headers=_user_headers("creator@example.com"),
         )
@@ -343,7 +367,7 @@ class TestLocalPlayerCreation:
         assert player == {
             "id": player["id"],
             "display_name": "North   Star Prospect",
-            "birth_year": 2009,
+            "birth_year": 2005,
             "position": "M" * 50,
             "country": "E" * 100,
             "city": "C" * 120,
@@ -368,10 +392,185 @@ class TestLocalPlayerCreation:
             assert stored.created_by_user_id == creator.id
             assert stored.provenance == "user"
             assert stored.club_name == f"Northside {'F' * 190}"
-            assert not hasattr(stored, "birth_date")
+            assert stored.birth_date is None
             stored.display_name = "  Renamed\n  Prospect  "
             db.session.flush()
             assert stored.normalized_name == "renamed prospect"
+
+    @pytest.mark.parametrize(
+        ("years_ago", "expected_status"),
+        [(18, 400), (19, 201)],
+        ids=["current-year-minus-18", "current-year-minus-19"],
+    )
+    def test_self_claim_birth_year_fails_closed_until_age_is_certain(self, app, client, years_ago, expected_status):
+        birth_year = datetime.now(UTC).year - years_ago
+        response = client.post(
+            "/api/local-players",
+            json={"display_name": f"Year Evidence Prospect {years_ago}", "birth_year": birth_year},
+            headers=_user_headers("creator@example.com"),
+        )
+
+        assert response.status_code == expected_status, response.get_json()
+        if expected_status == 400:
+            assert response.get_json()["error"] == "The platform is 18+ for self-managed profiles"
+            with app.app_context():
+                assert LocalPlayer.query.count() == 0
+                assert PlayerProfileClaim.query.count() == 0
+        else:
+            assert response.get_json()["player"]["birth_year"] == birth_year
+
+    @pytest.mark.parametrize("years_ago", [18, 19], ids=["exactly-18", "nineteen-years-ago"])
+    def test_adult_self_claim_birth_date_is_stored_and_public_after_approval(self, app, client, years_ago):
+        birth_date = _birth_date_years_ago(years_ago)
+        owner_email = f"adult-{years_ago}@example.com"
+
+        response = client.post(
+            "/api/local-players",
+            json={"display_name": f"Adult Prospect {years_ago}", "birth_date": birth_date.isoformat()},
+            headers=_user_headers(owner_email),
+        )
+
+        assert response.status_code == 201, response.get_json()
+        player = response.get_json()["player"]
+        player_id = player["id"]
+        assert player["birth_year"] == birth_date.year
+        assert "birth_date" not in player
+        with app.app_context():
+            assert db.session.get(LocalPlayer, player_id).birth_date == birth_date
+
+        approved = client.post(
+            f"/api/admin/local-players/{player_id}/review",
+            json={"action": "approve", "note": "Adult identity verified"},
+            headers=_admin_headers(),
+        )
+        assert approved.status_code == 200, approved.get_json()
+        assert "birth_date" not in approved.get_json()["player"]
+
+        public = client.get(f"/api/local-players/{player_id}")
+        assert public.status_code == 200, public.get_json()
+        assert public.get_json()["player"]["birth_year"] == birth_date.year
+        assert "birth_date" not in public.get_json()["player"]
+
+        other_user = client.get(
+            f"/api/local-players/{player_id}",
+            headers=_user_headers("other-user@example.com"),
+        )
+        assert other_user.status_code == 200, other_user.get_json()
+        assert "birth_date" not in other_user.get_json()["player"]
+
+        owner = client.get(f"/api/local-players/{player_id}", headers=_user_headers(owner_email))
+        assert owner.status_code == 200, owner.get_json()
+        assert "birth_date" not in owner.get_json()["player"]
+
+    def test_valid_birth_date_overrides_malformed_birth_year(self, app, client):
+        birth_date = _birth_date_years_ago(19)
+        response = client.post(
+            "/api/local-players",
+            json={
+                "display_name": "Authoritative Date Prospect",
+                "birth_date": birth_date.isoformat(),
+                "birth_year": "not-a-year",
+            },
+            headers=_user_headers("authoritative-date@example.com"),
+        )
+
+        assert response.status_code == 201, response.get_json()
+        player = response.get_json()["player"]
+        assert player["birth_year"] == birth_date.year
+        with app.app_context():
+            stored = db.session.get(LocalPlayer, player["id"])
+            assert stored.birth_date == birth_date
+            assert stored.birth_year == birth_date.year
+
+    def test_self_claim_birth_date_one_day_short_of_18_is_rejected(self, app, client):
+        birth_date = _birth_date_years_ago(18) + timedelta(days=1)
+
+        response = client.post(
+            "/api/local-players",
+            json={"display_name": "Minor Prospect", "birth_date": birth_date.isoformat()},
+            headers=_user_headers("creator@example.com"),
+        )
+
+        assert response.status_code == 400, response.get_json()
+        assert response.get_json()["error"] == "The platform is 18+ for self-managed profiles"
+        with app.app_context():
+            assert LocalPlayer.query.count() == 0
+            assert PlayerProfileClaim.query.count() == 0
+
+    def test_self_claim_without_birth_evidence_is_rejected(self, app, client):
+        response = client.post(
+            "/api/local-players",
+            json={"display_name": "Unknown Age Prospect"},
+            headers=_user_headers("creator@example.com"),
+        )
+
+        assert response.status_code == 400, response.get_json()
+        assert response.get_json()["error"] == "The platform is 18+ for self-managed profiles"
+        with app.app_context():
+            assert LocalPlayer.query.count() == 0
+            assert PlayerProfileClaim.query.count() == 0
+
+    def test_guardian_claim_with_2009_birth_year_remains_claimant_only(self, client):
+        response = client.post(
+            "/api/local-players",
+            json={
+                "display_name": "Guardian Managed Prospect",
+                "birth_year": 2009,
+                "relationship_type": "guardian",
+            },
+            headers=_user_headers("guardian@example.com"),
+        )
+
+        assert response.status_code == 201, response.get_json()
+        body = response.get_json()
+        assert body["player"]["birth_year"] == 2009
+        assert body["claim"]["relationship_type"] == "guardian"
+        player_id = body["player"]["id"]
+
+        approved = client.post(
+            f"/api/admin/local-players/{player_id}/review",
+            json={"action": "approve", "note": "Guardian identity verified"},
+            headers=_admin_headers(),
+        )
+        assert approved.status_code == 200, approved.get_json()
+        assert client.get(f"/api/local-players/{player_id}").status_code == 404
+        assert (
+            client.get(
+                f"/api/local-players/{player_id}",
+                headers=_user_headers("other-user@example.com"),
+            ).status_code
+            == 404
+        )
+        owner = client.get(
+            f"/api/local-players/{player_id}",
+            headers=_user_headers("guardian@example.com"),
+        )
+        assert owner.status_code == 200, owner.get_json()
+
+    @pytest.mark.parametrize("relationship_type", ["agent", "guardian"])
+    def test_non_player_claim_birth_date_is_stored_and_derives_year(
+        self,
+        app,
+        client,
+        relationship_type,
+    ):
+        birth_date = _birth_date_years_ago(16)
+        response = client.post(
+            "/api/local-players",
+            json={
+                "display_name": f"{relationship_type.title()} Date Prospect",
+                "birth_date": birth_date.isoformat(),
+                "relationship_type": relationship_type,
+            },
+            headers=_user_headers(f"{relationship_type}@example.com"),
+        )
+
+        assert response.status_code == 201, response.get_json()
+        player = response.get_json()["player"]
+        assert player["birth_year"] == birth_date.year
+        assert "birth_date" not in player
+        with app.app_context():
+            assert db.session.get(LocalPlayer, player["id"]).birth_date == birth_date
 
     @pytest.mark.parametrize("relationship_type", ["agent", "guardian"])
     def test_supported_relationship_types_round_trip(self, client, relationship_type):
@@ -418,7 +617,11 @@ class TestLocalPlayerCreation:
     def test_birth_year_boundaries(self, client, birth_year):
         response = client.post(
             "/api/local-players",
-            json={"display_name": f"Boundary Prospect {birth_year}", "birth_year": birth_year},
+            json={
+                "display_name": f"Boundary Prospect {birth_year}",
+                "birth_year": birth_year,
+                "relationship_type": "guardian",
+            },
             headers=_user_headers("creator@example.com"),
         )
 
@@ -428,13 +631,17 @@ class TestLocalPlayerCreation:
     @pytest.mark.parametrize("existing_status", ["pending", "approved"])
     def test_active_duplicate_echoes_existing(self, app, client, existing_status):
         with app.app_context():
-            existing = _seed_local_player("North Star Prospect", birth_year=2008, status=existing_status)
+            existing = _seed_local_player(
+                "North Star Prospect",
+                birth_year=DEFAULT_ADULT_BIRTH_YEAR,
+                status=existing_status,
+            )
             db.session.commit()
             existing_id = existing.id
 
         response = client.post(
             "/api/local-players",
-            json={"display_name": " NORTH\n star prospect ", "birth_year": 2008},
+            json={"display_name": " NORTH\n star prospect ", "birth_year": DEFAULT_ADULT_BIRTH_YEAR},
             headers=_user_headers("creator@example.com"),
         )
 
@@ -459,7 +666,7 @@ class TestLocalPlayerCreation:
             creator = _make_user("creator@example.com")
             existing = _seed_local_player(
                 "North Star Prospect",
-                birth_year=2008,
+                birth_year=DEFAULT_ADULT_BIRTH_YEAR,
                 status="pending",
                 created_by_user_id=creator.id,
             )
@@ -468,7 +675,7 @@ class TestLocalPlayerCreation:
 
         response = client.post(
             "/api/local-players",
-            json={"display_name": " NORTH\n star prospect ", "birth_year": 2008},
+            json={"display_name": " NORTH\n star prospect ", "birth_year": DEFAULT_ADULT_BIRTH_YEAR},
             headers=_user_headers("creator@example.com"),
         )
 
@@ -492,7 +699,7 @@ class TestLocalPlayerCreation:
 
         response = client.post(
             "/api/local-players",
-            json={"display_name": " no  birth year prospect "},
+            json={"display_name": " no  birth year prospect ", "relationship_type": "guardian"},
             headers=_user_headers("creator@example.com"),
         )
 
@@ -516,6 +723,64 @@ class TestLocalPlayerCreation:
 
 
 class TestLocalPlayerVisibility:
+    def test_sql_minor_bridge_keeps_exact_date_adult_and_hides_conservative_minors(self, app):
+        exact_adult_api_id = 81_001
+        year_only_minor_api_id = 81_002
+        unknown_age_api_id = 81_003
+        with app.app_context():
+            team = Team(
+                team_id=81_000,
+                name="Bridge Test Academy",
+                country="England",
+                season=datetime.now(UTC).year,
+            )
+            db.session.add(team)
+            db.session.flush()
+            db.session.add_all(
+                [
+                    TrackedPlayer(
+                        player_api_id=player_api_id,
+                        player_name=f"Bridge Player {player_api_id}",
+                        team_id=team.id,
+                        status="academy",
+                        is_active=True,
+                    )
+                    for player_api_id in (exact_adult_api_id, year_only_minor_api_id, unknown_age_api_id)
+                ]
+            )
+            exact_adult_birth_date = _birth_date_years_ago(18)
+            _seed_local_player(
+                "Exact Adult Bridge",
+                birth_date=exact_adult_birth_date,
+                birth_year=exact_adult_birth_date.year,
+                status="approved",
+                api_player_id=exact_adult_api_id,
+            )
+            _seed_local_player(
+                "Year Only Minor Bridge",
+                birth_year=2009,
+                status="approved",
+                api_player_id=year_only_minor_api_id,
+            )
+            _seed_local_player(
+                "Unknown Age Bridge",
+                birth_year=None,
+                status="approved",
+                api_player_id=unknown_age_api_id,
+            )
+            db.session.commit()
+
+            visible_ids = {
+                player_api_id
+                for (player_api_id,) in db.session.query(TrackedPlayer.player_api_id)
+                .filter(without_minor_local_bridge(TrackedPlayer.player_api_id))
+                .all()
+            }
+
+        assert exact_adult_api_id in visible_ids
+        assert year_only_minor_api_id not in visible_ids
+        assert unknown_age_api_id not in visible_ids
+
     def test_pending_is_claimant_only_until_admin_approval(self, app, client):
         with app.app_context():
             player = _seed_local_player(status="pending")

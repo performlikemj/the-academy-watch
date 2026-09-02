@@ -1400,12 +1400,21 @@ export class APIService {
         })
     }
 
-    static async submitProfileClaim(playerId, { relationship_type, message }, opts = { local: false }) {
+    static async submitProfileClaim(
+        playerId,
+        { relationship_type, message, contract_status, current_club_name },
+        opts = { local: false },
+    ) {
         if (!playerId) throw new Error('playerId is required')
         if (opts.local) throw new Error('Local player claims are created automatically with the profile')
+        const payload = { relationship_type, message }
+        if (relationship_type === 'player') {
+            payload.contract_status = contract_status
+            if (current_club_name) payload.current_club_name = current_club_name
+        }
         return this.request(`/players/${encodeURIComponent(playerId)}/claim`, {
             method: 'POST',
-            body: JSON.stringify({ relationship_type, message }),
+            body: JSON.stringify(payload),
         })
     }
 

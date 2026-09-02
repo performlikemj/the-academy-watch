@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from src.auth import mint_media_token
 from src.models.funding import ClubProgram, ClubRosterMember
 from src.models.league import Team, db
-from src.models.showcase import LocalPlayer
+from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services import video_retention, video_storage
@@ -189,7 +189,7 @@ def _member_subject(member: ClubRosterMember) -> tuple[dict | None, object | Non
             "local_player_id": local.id,
             "display_name": local.display_name,
             "position": local.position,
-            "is_minor": local.is_minor,
+            "is_minor": local_player_is_minor(local),
         },
         local,
     )
@@ -650,7 +650,7 @@ def get_club_match_report(program_id: int, match_id: int):
                 "subject_type": "local",
                 "player_api_id": None,
                 "local_player_id": local.id,
-                "is_minor": local.is_minor,
+                "is_minor": local_player_is_minor(local),
             }
         if subject is None:
             continue

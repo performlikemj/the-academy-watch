@@ -55,6 +55,12 @@ const RELATIONSHIP_OPTIONS = [
   { value: 'club_official', label: 'Club official' },
 ]
 
+const CLAIM_CONTRACT_STATUS_OPTIONS = [
+  { value: 'free_agent', label: 'Free agent' },
+  { value: 'contracted', label: 'Contracted' },
+  { value: 'unknown', label: 'Not sure' },
+]
+
 const FOOT_OPTIONS = [
   { value: 'left', label: 'Left' },
   { value: 'right', label: 'Right' },
@@ -168,6 +174,8 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
   // Claim dialog
   const [claimOpen, setClaimOpen] = useState(false)
   const [claimRelationship, setClaimRelationship] = useState('player')
+  const [claimContractStatus, setClaimContractStatus] = useState('')
+  const [claimCurrentClubName, setClaimCurrentClubName] = useState('')
   const [claimMessage, setClaimMessage] = useState('')
   const [claimBusy, setClaimBusy] = useState(false)
   const [claimDone, setClaimDone] = useState(false)
@@ -299,6 +307,8 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
       previousSubjectRef.current = subjectKey
       clearAllCloseTimers()
       setClaimOpen(false)
+      setClaimContractStatus('')
+      setClaimCurrentClubName('')
       setClaimBusy(false)
       setClaimDone(false)
       setClaimError(null)
@@ -496,6 +506,10 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
 
   const submitClaim = async () => {
     if (local || claimBusy) return
+    if (claimRelationship === 'player' && !claimContractStatus) {
+      setClaimError('Select your current contract status.')
+      return
+    }
     const pid = playerApiId
     setClaimBusy(true)
     setClaimError(null)
@@ -503,6 +517,10 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
       const response = await APIService.submitProfileClaim(pid, {
         relationship_type: claimRelationship,
         message: claimMessage.trim() || undefined,
+        contract_status: claimRelationship === 'player' ? claimContractStatus : undefined,
+        current_club_name: claimRelationship === 'player'
+          ? claimCurrentClubName.trim() || undefined
+          : undefined,
       }, { local })
       track('claim_submitted', { player_api_id: pid, relationship: claimRelationship })
       if (isActiveSubject()) {
@@ -1531,6 +1549,53 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
                   </p>
                 ) : null}
               </div>
+              {claimRelationship === 'player' ? (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="showcase-claim-contract-status">Contract status</Label>
+                    <Select
+                      value={claimContractStatus}
+                      onValueChange={(value) => {
+                        setClaimContractStatus(value)
+                        if (value === 'free_agent') setClaimCurrentClubName('')
+                        setClaimError(null)
+                      }}
+                      required
+                    >
+                      <SelectTrigger
+                        id="showcase-claim-contract-status"
+                        aria-describedby="showcase-claim-contract-status-help"
+                      >
+                        <SelectValue placeholder="Select your status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CLAIM_CONTRACT_STATUS_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p id="showcase-claim-contract-status-help" className="text-xs leading-relaxed text-muted-foreground">
+                      Player claims are for adults aged 18 or older. Choose the status that is true today.
+                    </p>
+                  </div>
+                  {claimContractStatus && claimContractStatus !== 'free_agent' ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="showcase-claim-current-club">Current club (optional)</Label>
+                      <Input
+                        id="showcase-claim-current-club"
+                        value={claimCurrentClubName}
+                        onChange={(event) => setClaimCurrentClubName(event.target.value)}
+                        placeholder="Club name"
+                        maxLength={180}
+                        autoComplete="organization"
+                      />
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        Used to help route introductions correctly.
+                      </p>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
               <div className="space-y-2">
                 <Label>Message (optional)</Label>
                 <Textarea
@@ -1551,7 +1616,10 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
           ) : (
             <DialogFooter>
               <Button variant="ghost" onClick={() => setClaimOpen(false)}>Cancel</Button>
-              <Button onClick={submitClaim} disabled={claimBusy}>
+              <Button
+                onClick={submitClaim}
+                disabled={claimBusy || (claimRelationship === 'player' && !claimContractStatus)}
+              >
                 {claimBusy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
                 Submit claim
               </Button>

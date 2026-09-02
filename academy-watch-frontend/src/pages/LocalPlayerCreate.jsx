@@ -19,6 +19,7 @@ import {
 
 const EMPTY_FORM = {
   display_name: '',
+  birth_date: '',
   birth_year: '',
   position: '',
   club_name: '',
@@ -92,7 +93,10 @@ function AuthenticatedLocalPlayerCreate({ token }) {
     if (name.length < 2) next.display_name = 'Enter at least 2 characters.'
     if (name.length > 200) next.display_name = 'Use 200 characters or fewer.'
     if (clubName.length > 200) next.club_name = 'Use 200 characters or fewer.'
-    if (year && !Number.isInteger(Number(year))) {
+    if (form.relationship_type === 'player' && !form.birth_date) {
+      next.birth_date = 'Enter your birth date to confirm you are at least 18.'
+    }
+    if (form.relationship_type !== 'player' && year && !Number.isInteger(Number(year))) {
       next.birth_year = 'Enter a whole year, for example 2008.'
     }
     return next
@@ -110,7 +114,11 @@ function AuthenticatedLocalPlayerCreate({ token }) {
       display_name: form.display_name.trim(),
       relationship_type: form.relationship_type,
     }
-    if (birthYear) payload.birth_year = Number(birthYear)
+    if (form.relationship_type === 'player') {
+      payload.birth_date = form.birth_date
+    } else if (birthYear) {
+      payload.birth_year = Number(birthYear)
+    }
     if (form.position.trim()) payload.position = form.position.trim()
     if (form.club_name.trim()) payload.club_name = form.club_name.trim()
     if (form.country.trim()) payload.country = form.country.trim()
@@ -241,7 +249,7 @@ function AuthenticatedLocalPlayerCreate({ token }) {
         <Card>
           <CardHeader>
             <CardTitle>Player details</CardTitle>
-            <CardDescription>Only the display name is required. You can add more showcase details later.</CardDescription>
+            <CardDescription>Self-managed profiles also require a birth date. You can add more showcase details later.</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-5" onSubmit={submit} noValidate>
@@ -266,26 +274,72 @@ function AuthenticatedLocalPlayerCreate({ token }) {
                 ) : null}
               </div>
 
-              <div className="space-y-2 sm:max-w-[calc(50%-0.5rem)]">
-                <Label htmlFor="local-player-birth-year">Birth year (optional)</Label>
-                <Input
-                  id="local-player-birth-year"
-                  type="number"
-                  step="1"
-                  inputMode="numeric"
-                  value={form.birth_year}
-                  onChange={(event) => updateField('birth_year', event.target.value)}
-                  placeholder="e.g. 2008"
+              <div className="space-y-2">
+                <Label htmlFor="local-player-relationship">Your relationship to the player</Label>
+                <Select
+                  value={form.relationship_type}
+                  onValueChange={(value) => updateField('relationship_type', value)}
                   disabled={submitting}
-                  aria-invalid={Boolean(errors.birth_year)}
-                  aria-describedby={errors.birth_year ? 'local-player-birth-year-error' : undefined}
-                />
-                {errors.birth_year ? (
-                  <p id="local-player-birth-year-error" className="text-xs text-destructive" role="alert">
-                    {errors.birth_year}
-                  </p>
-                ) : null}
+                >
+                  <SelectTrigger id="local-player-relationship">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RELATIONSHIPS.map((relationship) => (
+                      <SelectItem key={relationship.value} value={relationship.value}>
+                        {relationship.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+
+              {form.relationship_type === 'player' ? (
+                <div className="space-y-2 sm:max-w-[calc(50%-0.5rem)]">
+                  <Label htmlFor="local-player-birth-date">Birth date</Label>
+                  <Input
+                    id="local-player-birth-date"
+                    type="date"
+                    value={form.birth_date}
+                    onChange={(event) => updateField('birth_date', event.target.value)}
+                    disabled={submitting}
+                    required
+                    aria-invalid={Boolean(errors.birth_date)}
+                    aria-describedby={errors.birth_date
+                      ? 'local-player-birth-date-help local-player-birth-date-error'
+                      : 'local-player-birth-date-help'}
+                  />
+                  <p id="local-player-birth-date-help" className="text-xs leading-relaxed text-muted-foreground">
+                    Self-managed profiles are only for players aged 18 or older. Your full birth date is required.
+                  </p>
+                  {errors.birth_date ? (
+                    <p id="local-player-birth-date-error" className="text-xs text-destructive" role="alert">
+                      {errors.birth_date}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="space-y-2 sm:max-w-[calc(50%-0.5rem)]">
+                  <Label htmlFor="local-player-birth-year">Birth year (optional)</Label>
+                  <Input
+                    id="local-player-birth-year"
+                    type="number"
+                    step="1"
+                    inputMode="numeric"
+                    value={form.birth_year}
+                    onChange={(event) => updateField('birth_year', event.target.value)}
+                    placeholder="e.g. 2008"
+                    disabled={submitting}
+                    aria-invalid={Boolean(errors.birth_year)}
+                    aria-describedby={errors.birth_year ? 'local-player-birth-year-error' : undefined}
+                  />
+                  {errors.birth_year ? (
+                    <p id="local-player-birth-year-error" className="text-xs text-destructive" role="alert">
+                      {errors.birth_year}
+                    </p>
+                  ) : null}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -339,26 +393,6 @@ function AuthenticatedLocalPlayerCreate({ token }) {
                     disabled={submitting}
                   />
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="local-player-relationship">Your relationship to the player</Label>
-                <Select
-                  value={form.relationship_type}
-                  onValueChange={(value) => updateField('relationship_type', value)}
-                  disabled={submitting}
-                >
-                  <SelectTrigger id="local-player-relationship">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {RELATIONSHIPS.map((relationship) => (
-                      <SelectItem key={relationship.value} value={relationship.value}>
-                        {relationship.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
 
               <div className="flex flex-col-reverse gap-2 border-t border-border/70 pt-5 sm:flex-row sm:items-center sm:justify-between">
