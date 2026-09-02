@@ -42,7 +42,7 @@
     "@radix-ui/react-toggle": "^1.1.18",
     "@radix-ui/react-toggle-group": "^1.1.19",
     "@radix-ui/react-tooltip": "^1.2.16",
-    "@stripe/stripe-js": "^9.13.0",
+    "@stripe/stripe-js": "^9.14.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tiptap/extension-link": "^3.30.5",
     "@tiptap/react": "^3.30.1",
