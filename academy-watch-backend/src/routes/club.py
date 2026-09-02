@@ -13,6 +13,7 @@ import logging
 import math
 import os
 import re
+import unicodedata
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
@@ -50,7 +51,7 @@ MAX_TIMELINE_SECONDS = 6 * 60 * 60
 MAX_BRIEF_CHARS = 2000
 MAX_BRIEF_LINES = 12
 MAX_BRIEF_LINE_CHARS = 240
-BRIEF_NAME_TOKEN_RE = re.compile(r"[^\W\d_]{3,}")
+BRIEF_NAME_TOKEN_RE = re.compile(r"[^\W\d_]{2,}")
 CLUB_EDITABLE_MATCH_STATUSES = {"created", "uploaded"}
 RESULT_COUNT_FIELDS = ("goals", "assists", "yellows", "reds")
 RESULT_OPTIONAL_COUNT_FIELDS = ("saves", "goals_conceded")
@@ -340,27 +341,41 @@ def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
     return tokens
 
 
+def _brief_name_token_matches(token: str, line: str) -> bool:
+    folded_token = token.casefold()
+    folded_line = line.casefold()
+    contains_non_latin_letter = any(
+        character.isalpha() and not unicodedata.name(character, "").startswith("LATIN ") for character in token
+    )
+    if contains_non_latin_letter:
+        return folded_token in folded_line
+    return re.search(rf"(?<!\w){re.escape(folded_token)}(?!\w)", folded_line) is not None
+
+
 def _clean_brief(body, program: ClubProgram) -> str | None:
     if not isinstance(body, str):
         raise ValueError("body must be a string")
     cleaned = body.strip()
+    if not cleaned:
+        return None
     if len(cleaned) > MAX_BRIEF_CHARS:
         raise ValueError(f"Brief must be at most {MAX_BRIEF_CHARS} characters")
-    lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+    lines = [
+        (line_number, line.strip()) for line_number, line in enumerate(cleaned.splitlines(), start=1) if line.strip()
+    ]
     if len(lines) > MAX_BRIEF_LINES:
         raise ValueError(f"Brief must contain at most {MAX_BRIEF_LINES} non-empty lines")
 
     name_tokens = _brief_name_tokens(program)
-    for line_number, line in enumerate(lines, start=1):
+    for line_number, line in lines:
         if len(line) > MAX_BRIEF_LINE_CHARS:
             raise ValueError(f"Brief lines must be at most {MAX_BRIEF_LINE_CHARS} characters")
-        for candidate in BRIEF_NAME_TOKEN_RE.findall(line):
-            token = name_tokens.get(candidate.casefold())
-            if token:
+        for token in name_tokens.values():
+            if _brief_name_token_matches(token, line):
                 raise ValueError(
                     f'Briefs describe behaviours, not people — remove the name "{token}" from line {line_number}.'
                 )
-    return "\n".join(lines) or None
+    return "\n".join(line for _line_number, line in lines)
 
 
 def _result_player(member: ClubRosterMember) -> tuple[int, str | None, bool]:

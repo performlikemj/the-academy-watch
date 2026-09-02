@@ -473,10 +473,15 @@ def test_coach_and_system_briefs_are_scoped_written_read_and_cleared(club_app, c
     ) == (None, None, None)
 
 
-def test_brief_name_screening_covers_local_and_match_rosters_case_insensitively(club_app, client):
+def test_brief_name_screening_covers_short_latin_non_latin_and_match_rosters(club_app, client):
     program_id = club_app.c2["program_a"]
-    local = _local(club_app.c2["users"]["a"], name="Mika Tanaka", birth_year=2000, status="approved")
-    member_id = _add_local_member(client, program_id, local.id)
+    local_players = [
+        _local(club_app.c2["users"]["a"], name=name, birth_year=2000 + index, status="approved")
+        for index, name in enumerate(("Mika Tanaka", "Alex Li", "Kai Ng", "田中 太郎"))
+    ]
+    member_id = _add_local_member(client, program_id, local_players[0].id)
+    for local in local_players[1:]:
+        _add_local_member(client, program_id, local.id)
     match = _match(program_id)
     db.session.add(
         VideoRosterEntry(
@@ -489,13 +494,24 @@ def test_brief_name_screening_covers_local_and_match_rosters_case_insensitively(
 
     local_name = client.put(
         f"/api/club/{program_id}/roster/{member_id}/brief",
-        json={"body": "Ask mIKA to receive between the lines"},
+        json={"body": "Hold the line\n\nAsk mIKA to receive between the lines"},
         headers=_headers("a"),
     )
     assert local_name.status_code == 400
     assert local_name.get_json() == {
-        "error": 'Briefs describe behaviours, not people — remove the name "Mika" from line 1.'
+        "error": 'Briefs describe behaviours, not people — remove the name "Mika" from line 3.'
     }
+
+    for brief, token in (("Li must stay wide", "Li"), ("Recover behind Ng", "Ng"), ("田中に前を向かせる", "田中")):
+        short_name = client.put(
+            f"/api/club/{program_id}/system-brief",
+            json={"body": brief},
+            headers=_headers("a"),
+        )
+        assert short_name.status_code == 400
+        assert short_name.get_json() == {
+            "error": f'Briefs describe behaviours, not people — remove the name "{token}" from line 1.'
+        }
 
     match_name = client.put(
         f"/api/club/{program_id}/system-brief",
@@ -509,11 +525,32 @@ def test_brief_name_screening_covers_local_and_match_rosters_case_insensitively(
 
     unrelated = client.put(
         f"/api/club/{program_id}/system-brief",
-        json={"body": "Guard the half-space after turnovers"},
+        json={"body": "Move to receive in the line"},
         headers=_headers("a"),
     )
     assert unrelated.status_code == 200
-    assert unrelated.get_json()["system_brief"]["body"] == "Guard the half-space after turnovers"
+    assert unrelated.get_json()["system_brief"]["body"] == "Move to receive in the line"
+
+
+def test_empty_brief_clears_before_building_roster_name_tokens(club_app, client, monkeypatch):
+    program_id = club_app.c2["program_a"]
+    program = db.session.get(ClubProgram, program_id)
+    program.system_brief_body = "Stay compact"
+    db.session.commit()
+
+    monkeypatch.setattr(
+        club_routes,
+        "_brief_name_tokens",
+        lambda _program: pytest.fail("empty briefs must not query roster name tokens"),
+    )
+    response = client.put(
+        f"/api/club/{program_id}/system-brief",
+        json={"body": " \n\t "},
+        headers=_headers("a"),
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["system_brief"] == {"body": None, "updated_at": None}
 
 
 @pytest.mark.parametrize(

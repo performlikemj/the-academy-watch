@@ -96,9 +96,10 @@ only; the club UI joins indexes to the current brief and shows "Brief changed �
 differs; admins see index + verdict only. Briefs never enter `feedback-export`, `training-manifest`, sim
 screenshots/reports or PM ingest; they never train a shared model. Name screening: the system supplies no DB name
 field to the model; the UI says "describe behaviours, not people"; the server rejects a brief line containing any
-roster `player_name` / `display_name` token of that program (case-insensitive, ≥2 chars) with a plain message (B3).
+roster `player_name` / `display_name` token of that program (case-insensitive, ≥2 chars; whole-word for Latin tokens,
+substring for tokens containing any non-Latin letter) with a plain message (B3).
 
-**C1 — Storage + API (backend, migration `cb01` ← `lp01`).** Six guarded `add_column`s on the owning rows (RLS
+**C1 — Storage + API (backend, migration `cb01` ← `pm01` (main moved)).** Six guarded `add_column`s on the owning rows (RLS
 already enabled; deletion cascades naturally; no new table):
 `club_roster_members.coach_brief_body` Text, `.brief_updated_at`, `.brief_updated_by_user_id` FK
 `user_accounts` nullable ON DELETE SET NULL; `club_programs.system_brief_body` Text, `.system_brief_updated_at`,

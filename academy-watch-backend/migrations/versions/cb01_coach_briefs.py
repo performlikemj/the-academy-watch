@@ -57,18 +57,28 @@ AUDIT_FOREIGN_KEYS = (
 )
 
 
-def _constraint_exists(table_name: str, constraint_name: str) -> bool:
+def _constraint_exists(table_name: str, column_name: str, constraint_name: str | None = None) -> bool:
+    name_filter = ""
+    params = {
+        "column_name": column_name,
+        "qualified_table": f"public.{table_name}",
+    }
+    if constraint_name is not None:
+        name_filter = " AND constraint_record.conname = :constraint_name"
+        params["constraint_name"] = constraint_name
     return (
         op.get_bind()
         .execute(
             sa.text(
-                "SELECT 1 FROM pg_constraint "
-                "WHERE conname = :constraint_name AND conrelid = to_regclass(:qualified_table)"
+                "SELECT 1 FROM pg_constraint AS constraint_record "
+                "JOIN pg_attribute AS attribute "
+                "ON attribute.attrelid = constraint_record.conrelid "
+                "AND attribute.attname = :column_name "
+                "WHERE constraint_record.contype = 'f' "
+                "AND constraint_record.conrelid = to_regclass(:qualified_table) "
+                "AND constraint_record.conkey = ARRAY[attribute.attnum]" + name_filter
             ),
-            {
-                "constraint_name": constraint_name,
-                "qualified_table": f"public.{table_name}",
-            },
+            params,
         )
         .scalar()
         is not None
@@ -82,7 +92,7 @@ def upgrade():
                 add_column_safe(table, column)
     if table_exists("user_accounts"):
         for table, column, constraint in AUDIT_FOREIGN_KEYS:
-            if table_exists(table) and column_exists(table, column) and not _constraint_exists(table, constraint):
+            if table_exists(table) and column_exists(table, column) and not _constraint_exists(table, column):
                 op.create_foreign_key(
                     constraint,
                     table,
@@ -94,8 +104,8 @@ def upgrade():
 
 
 def downgrade():
-    for table, _column, constraint in AUDIT_FOREIGN_KEYS:
-        if table_exists(table) and _constraint_exists(table, constraint):
+    for table, column, constraint in AUDIT_FOREIGN_KEYS:
+        if table_exists(table) and _constraint_exists(table, column, constraint):
             op.drop_constraint(constraint, table, type_="foreignkey")
     for table, columns in ((MEMBER_TABLE, MEMBER_COLUMNS), (PROGRAM_TABLE, PROGRAM_COLUMNS)):
         if not table_exists(table):

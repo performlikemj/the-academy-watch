@@ -79,20 +79,31 @@ def engine():
 @pytest.fixture
 def cb01(monkeypatch):
     module = importlib.import_module("migrations.versions.cb01_coach_briefs")
-    constraints = set()
+    constraints = {}
     created_constraints = []
     monkeypatch.setattr(module, "table_exists", _sqlite_table_exists)
     monkeypatch.setattr(module, "column_exists", _sqlite_column_exists)
     monkeypatch.setattr(module, "add_column_safe", _sqlite_add_column_safe)
-    monkeypatch.setattr(module, "_constraint_exists", lambda _table, name: name in constraints)
+
+    def constraint_exists(table, column, constraint_name=None):
+        existing_name = constraints.get((table, column))
+        return existing_name is not None and (constraint_name is None or existing_name == constraint_name)
+
+    monkeypatch.setattr(module, "_constraint_exists", constraint_exists)
 
     def create_foreign_key(name, source, referent, local_cols, remote_cols, *, ondelete):
         created_constraints.append((name, source, referent, tuple(local_cols), tuple(remote_cols), ondelete))
-        constraints.add(name)
+        constraints[(source, local_cols[0])] = name
 
-    def drop_constraint(name, _table, *, type_):
+    def drop_constraint(name, table, *, type_):
         assert type_ == "foreignkey"
-        constraints.remove(name)
+        matching_columns = [
+            column
+            for (source, column), existing_name in constraints.items()
+            if source == table and existing_name == name
+        ]
+        assert len(matching_columns) == 1
+        del constraints[(table, matching_columns[0])]
 
     monkeypatch.setattr(module.op, "create_foreign_key", create_foreign_key)
     monkeypatch.setattr(module.op, "drop_constraint", drop_constraint)
@@ -118,7 +129,7 @@ def test_cb01_upgrade_twice_is_idempotent_and_keeps_owning_tables(engine, cb01):
     assert set(inspector.get_table_names()) == original_tables
     assert {column["name"] for column in inspector.get_columns("club_programs")} == PROGRAM_COLUMNS
     assert {column["name"] for column in inspector.get_columns("club_roster_members")} == MEMBER_COLUMNS
-    assert constraints == {name for _table, _column, name in module.AUDIT_FOREIGN_KEYS}
+    assert set(constraints.values()) == {name for _table, _column, name in module.AUDIT_FOREIGN_KEYS}
     assert created_constraints == [
         (
             "fk_club_roster_members_brief_updated_by_user_id",
@@ -157,7 +168,7 @@ def test_cb01_downgrade_drops_all_six_columns_guardedly(engine, cb01):
         module.downgrade()
 
     inspector = sa.inspect(engine)
-    assert constraints == set()
+    assert constraints == {}
     assert {column["name"] for column in inspector.get_columns("club_programs")} == {"id"}
     assert {column["name"] for column in inspector.get_columns("club_roster_members")} == {"id", "program_id"}
 
@@ -176,10 +187,23 @@ def test_cb01_repairs_fks_when_audit_columns_were_preapplied_without_them(engine
     with _alembic_ops(engine):
         module.upgrade()
 
-    assert constraints == {name for _table, _column, name in module.AUDIT_FOREIGN_KEYS}
+    assert set(constraints.values()) == {name for _table, _column, name in module.AUDIT_FOREIGN_KEYS}
     assert len(created_constraints) == 2
     assert {column["name"] for column in sa.inspect(engine).get_columns("club_programs")} == PROGRAM_COLUMNS
     assert {column["name"] for column in sa.inspect(engine).get_columns("club_roster_members")} == MEMBER_COLUMNS
+
+
+def test_cb01_does_not_duplicate_an_auto_named_fk_on_the_same_column(engine, cb01):
+    module, constraints, created_constraints = cb01
+    constraints[(module.MEMBER_TABLE, "brief_updated_by_user_id")] = "club_roster_members_brief_updated_by_user_id_fkey"
+
+    with _alembic_ops(engine):
+        module.upgrade()
+
+    assert [created[1] for created in created_constraints] == [module.PROGRAM_TABLE]
+    assert constraints[(module.MEMBER_TABLE, "brief_updated_by_user_id")] == (
+        "club_roster_members_brief_updated_by_user_id_fkey"
+    )
 
 
 def test_cb01_creates_no_table_and_inherits_existing_rls():
@@ -188,7 +212,9 @@ def test_cb01_creates_no_table_and_inherits_existing_rls():
     assert "RLS is inherited" in source
     assert "table_exists(table)" in source
     assert "add_column_safe(table, column)" in source
-    assert "_constraint_exists(table, constraint)" in source
+    assert "_constraint_exists(table, column)" in source
+    assert "constraint_record.contype = 'f'" in source
+    assert "constraint_record.conkey = ARRAY[attribute.attnum]" in source
     assert 'ondelete="SET NULL"' in source
 
 

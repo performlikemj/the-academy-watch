@@ -96,7 +96,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
-- **2026-09-02 Coach's brief C1 PR #973 OPEN:** backend-only `cb01` storage, manager-scoped club routes, roster-name screening, and sentinel leak tests; focused 61 pass, Ruff green, exact whole suite blocked by 12 legacy collection errors.
+- **2026-09-02 Coach's brief C1 PR #973 OPEN:** backend-only `cb01` storage, manager-scoped club routes, 2+ character/non-Latin roster-name screening, sentinel leak tests, and FK-by-column guard; review-round focused command 80 pass, Ruff green, exact whole suite blocked by 12 legacy collection errors.
   Migration must be pre-applied/stamped before merge. MJ decisions B1–B5 + future Track S: `ledgers/DIRECTIVE_coach-brief.md`; task state: `ledgers/CONTINUITY_coach-brief.md`.
 - **2026-09-02 grounded caption enum prompt review fix applied; PR #970 awaiting merge:** grounded-only placeholder examples/instructions plus set-based deterministic single-choice recovery; 138 spike tests and both bare Ruff checks pass. See `ledgers/CONTINUITY_grounded-caption-enum-prompt.md`.
 - **2026-09-02 S1 SHIPPED (evening) — "one player universe + a games grain" → 59.8%.** Five PRs live: #963 P1 games grain
