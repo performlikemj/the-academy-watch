@@ -639,7 +639,7 @@ function RosterPanel({ programId, members, systemBrief, loading, error, onMember
             key={`system-${systemBrief?.updated_at || 'empty'}`}
             id="club-system-brief"
             title="System brief"
-            description="one expectation per line — describe behaviours, not people"
+            description="one expectation per line, up to 8 lines — describe behaviours, not people"
             brief={systemBrief}
             onSave={async (body) => {
               const response = await APIService.setClubSystemBrief(programId, body)
@@ -694,7 +694,7 @@ function RosterPanel({ programId, members, systemBrief, loading, error, onMember
                     key={`${member.id}-${member.brief?.updated_at || 'empty'}`}
                     id={`coach-brief-${member.id}`}
                     title="Coach's brief"
-                    description="one expectation per line — describe behaviours, not people"
+                    description="one expectation per line, up to 8 lines — describe behaviours, not people"
                     brief={member.brief}
                     onSave={async (body) => {
                       const response = await APIService.setRosterMemberBrief(programId, member.id, body)

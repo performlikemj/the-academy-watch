@@ -414,6 +414,7 @@ def test_coach_and_system_briefs_are_scoped_written_read_and_cleared(club_app, c
     assert member_brief["body"] == "Hold width before receiving\nScan before turning"
     assert member_brief["updated_at"] is not None
     assert member_brief["hash"] == "d6724bb443f8f5940034b1ce9bda9df788656bcf0ff391f224b6eec354a99e82"
+    assert member_brief["lines"] == ["Hold width before receiving", "Scan before turning"]
 
     system_response = client.put(
         f"/api/club/{a}/system-brief",
@@ -425,6 +426,7 @@ def test_coach_and_system_briefs_are_scoped_written_read_and_cleared(club_app, c
     assert system_brief["body"] == "Stay compact across phases"
     assert system_brief["updated_at"] is not None
     assert system_brief["hash"] == "e16f595f115eea3bb79739a331187d53213a543a3d19892a4810d2db7e1d5447"
+    assert system_brief["lines"] == ["Stay compact across phases"]
 
     roster = client.get(f"/api/club/{a}/roster", headers=_headers("a"))
     assert roster.status_code == 200
@@ -463,8 +465,18 @@ def test_coach_and_system_briefs_are_scoped_written_read_and_cleared(club_app, c
         json={"body": ""},
         headers=_headers("a"),
     )
-    assert cleared_member.get_json()["member"]["brief"] == {"body": None, "updated_at": None, "hash": None}
-    assert cleared_system.get_json()["system_brief"] == {"body": None, "updated_at": None, "hash": None}
+    assert cleared_member.get_json()["member"]["brief"] == {
+        "body": None,
+        "updated_at": None,
+        "hash": None,
+        "lines": None,
+    }
+    assert cleared_system.get_json()["system_brief"] == {
+        "body": None,
+        "updated_at": None,
+        "hash": None,
+        "lines": None,
+    }
     db.session.refresh(member)
     db.session.refresh(program)
     assert (member.coach_brief_body, member.brief_updated_at, member.brief_updated_by_user_id) == (None, None, None)
@@ -577,7 +589,12 @@ def test_empty_brief_clears_before_building_roster_name_tokens(club_app, client,
     )
 
     assert response.status_code == 200
-    assert response.get_json()["system_brief"] == {"body": None, "updated_at": None, "hash": None}
+    assert response.get_json()["system_brief"] == {
+        "body": None,
+        "updated_at": None,
+        "hash": None,
+        "lines": None,
+    }
 
 
 @pytest.mark.parametrize(
@@ -1226,7 +1243,7 @@ def test_shadow_only_positive_roster_member_remains_available(club_app, client):
             "program_id": program_id,
             "role": None,
             "note": None,
-            "brief": {"body": None, "updated_at": None, "hash": None},
+            "brief": {"body": None, "updated_at": None, "hash": None, "lines": None},
             "created_at": response.get_json()["members"][0]["created_at"],
             "available": True,
             "subject_type": "tracked",
@@ -1523,6 +1540,18 @@ def test_club_preflight_rejects_unknown_values(club_app, client, field, value):
     )
     assert response.status_code == 400
     assert field in response.get_json()["error"]
+
+
+@pytest.mark.parametrize("value", [[], {}, True], ids=("list", "dict", "boolean"))
+def test_club_preflight_route_returns_400_for_non_string_values(club_app, client, value):
+    response = client.post(
+        f"/api/club/{club_app.c2['program_a']}/matches",
+        json={"camera_view": value},
+        headers=_headers("a"),
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "camera_view must be one of: broadcast, panoramic, wide_fixed"}
 
 
 @pytest.mark.parametrize("timeline_value", [True, 6 * 60 * 60 + 1], ids=("boolean", "over-six-hours"))
@@ -1910,7 +1939,7 @@ def test_local_takedown_hides_public_roster_and_finalized_report(club_app, clien
     assert roster == [
         {
             "available": False,
-            "brief": {"body": None, "updated_at": None, "hash": None},
+            "brief": {"body": None, "updated_at": None, "hash": None, "lines": None},
             "created_at": roster[0]["created_at"],
             "id": member["id"],
             "note": None,

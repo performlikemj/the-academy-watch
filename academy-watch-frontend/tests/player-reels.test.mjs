@@ -236,7 +236,10 @@ test('briefChecksPresentation joins current club lines only when the server hash
     { jersey_number: 8, club_roster_member_id: null },
     { jersey_number: 8, club_roster_member_id: 51 },
   ]
-  const clubRoster = [{ id: 51, brief: { body: 'Hold width\nRecover inside', hash: 'matching-hash' } }]
+  const clubRoster = [{
+    id: 51,
+    brief: { body: 'Hold width\nRecover inside', hash: 'matching-hash', lines: ['Hold width', 'Recover inside'] },
+  }]
 
   assert.deepEqual(briefChecksPresentation(note, matchRoster, clubRoster), {
     changed: false,
@@ -245,7 +248,10 @@ test('briefChecksPresentation joins current club lines only when the server hash
       { expectationIndex: 2, expectation: 'Recover inside', verdict: 'no_evidence', time: null },
     ],
   })
-  assert.deepEqual(briefChecksPresentation(note, matchRoster, [{ id: 51, brief: { body: 'New brief', hash: 'new-hash' } }]), {
+  assert.deepEqual(briefChecksPresentation(note, matchRoster, [{
+    id: 51,
+    brief: { body: 'New brief', hash: 'new-hash', lines: ['New brief'] },
+  }]), {
     changed: true,
     items: [],
   })
@@ -257,6 +263,28 @@ test('briefChecksPresentation keeps admin output text-blind', () => {
   }), {
     changed: false,
     items: [{ expectationIndex: 3, label: 'Expectation 3 — evidence at 42:00', verdict: 'evidence_found' }],
+  })
+})
+
+test('evidence_found without a finite timestamp never renders the opposite verdict', () => {
+  const note = {
+    jersey_number: 8,
+    brief_checks: [{ expectation_index: 1, brief_hash: 'matching-hash', verdict: 'evidence_found' }],
+  }
+  const matchRoster = [{ jersey_number: 8, club_roster_member_id: 51 }]
+  const clubRoster = [{ id: 51, brief: { body: 'Hold width', hash: 'matching-hash', lines: ['Hold width'] } }]
+
+  assert.deepEqual(briefChecksPresentation(note, matchRoster, clubRoster), {
+    changed: false,
+    items: [{ expectationIndex: 1, expectation: 'Hold width', verdict: 'evidence_found', time: null }],
+  })
+  assert.deepEqual(briefChecksPresentation(note), {
+    changed: false,
+    items: [{
+      expectationIndex: 1,
+      label: 'Expectation 1 — evidence (time unavailable)',
+      verdict: 'evidence_found',
+    }],
   })
 })
 

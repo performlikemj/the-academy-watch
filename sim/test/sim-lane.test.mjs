@@ -6,11 +6,47 @@ import test from 'node:test'
 
 import { computeExitCode, computeTotals, shapeStepRecord } from '../lib/driver.mjs'
 import { gradeRecords, normalizeGrade, parseGradeJSON, validateProposal } from '../lib/grade.mjs'
+import { assertSyntheticFixture, SYNTHETIC_BRIEF } from '../journeys/club-console.mjs'
 import { createTeardownController, resolveCredentials, signalExitCode } from '../run.mjs'
 
 function journeys(...steps) {
   return [{ name: 'sample', steps }]
 }
+
+const cleanSimProgram = {
+  id: 9,
+  slug: 'academy-watch-synthetic-sim-fixture',
+  country: 'Development',
+}
+
+const cleanSimRoster = {
+  system_brief: { body: null },
+  members: [{ brief: { body: null } }, { brief: { body: SYNTHETIC_BRIEF } }],
+}
+
+test('club-console guard refuses the bridge development program', () => {
+  assert.throws(
+    () => assertSyntheticFixture({ ...cleanSimProgram, slug: 'afc-yorkies-dev-fixture' }, cleanSimRoster),
+    /dedicated synthetic sim fixture/,
+  )
+})
+
+test('club-console guard refuses a sim program containing a real brief', () => {
+  assert.throws(
+    () => assertSyntheticFixture(cleanSimProgram, {
+      ...cleanSimRoster,
+      members: [{ brief: { body: 'A real coach brief must never enter the sim.' } }],
+    }),
+    /non-synthetic brief/,
+  )
+})
+
+test('club-console guard allows only the clean dedicated sim fixture', () => {
+  assert.deepEqual(assertSyntheticFixture(cleanSimProgram, cleanSimRoster), {
+    program: cleanSimProgram,
+    roster: cleanSimRoster,
+  })
+})
 
 test('computeTotals counts actions and grading verdicts', () => {
   const result = computeTotals(journeys(

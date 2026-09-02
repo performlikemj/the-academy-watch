@@ -107,6 +107,30 @@ function mintAuth({ python, secretKey, adminEmail }) {
   return result.stdout.trim()
 }
 
+function seedSimFixture({ python, backendEnv, adminEmail, secrets }) {
+  const result = spawnSync(
+    python,
+    ['scripts/dev/seed_sim_club_fixture.py', '--manager-email', adminEmail],
+    {
+      cwd: backendDir,
+      env: {
+        ...backendEnv,
+        ALLOW_SIM_FIXTURE_SEED: '1',
+        FLASK_DEBUG: 'false',
+        SKIP_API_HANDSHAKE: '1',
+      },
+      encoding: 'utf8',
+      maxBuffer: 4 * 1024 * 1024,
+    },
+  )
+  if (result.status !== 0) {
+    const detail = redact(`${result.stdout || ''}\n${result.stderr || ''}`.trim(), secrets)
+    throw new Error(`Synthetic sim fixture seeding failed.${detail ? `\n${detail}` : ''}`)
+  }
+  const summary = result.stdout.trim().split(/\r?\n/).filter(Boolean).at(-1)
+  if (summary) console.log(summary)
+}
+
 function redact(text, secrets) {
   let clean = String(text)
   for (const secret of secrets.filter(Boolean)) clean = clean.split(secret).join('[REDACTED]')
@@ -180,7 +204,7 @@ async function waitForHealth(url, managed, timeoutMs = 120_000) {
   throw new Error(`Timed out waiting for ${url}: ${lastError}${tail}`)
 }
 
-async function bootServers({ baseUrl, python, backendEnv, secrets, processes }) {
+async function bootServers({ baseUrl, backendPort, python, backendEnv, secrets, processes }) {
   const parsedBase = new URL(baseUrl)
   if (parsedBase.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(parsedBase.hostname)) {
     throw new Error('Self-boot requires SIM_BASE_URL to use http://localhost or http://127.0.0.1; use SIM_EXTERNAL=1 otherwise.')
@@ -189,7 +213,19 @@ async function bootServers({ baseUrl, python, backendEnv, secrets, processes }) 
   const backend = spawnManaged(
     'backend',
     python,
-    ['src/main.py'],
+    [
+      '-m',
+      'flask',
+      '--app',
+      'src.main',
+      'run',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      backendPort,
+      '--no-debugger',
+      '--no-reload',
+    ],
     {
       cwd: backendDir,
       env: {
@@ -202,13 +238,20 @@ async function bootServers({ baseUrl, python, backendEnv, secrets, processes }) 
     secrets,
   )
   processes.push(backend)
-  await waitForHealth('http://127.0.0.1:5001/api/health', backend)
+  await waitForHealth(`http://127.0.0.1:${backendPort}/api/health`, backend)
 
   const frontend = spawnManaged(
     'frontend',
     'pnpm',
     ['dev', '--host', parsedBase.hostname, '--port', frontendPort, '--strictPort'],
-    { cwd: frontendDir, env: { ...process.env, E2E_DISABLE_HMR_OVERLAY: 'true' } },
+    {
+      cwd: frontendDir,
+      env: {
+        ...process.env,
+        E2E_DISABLE_HMR_OVERLAY: 'true',
+        VITE_API_PROXY_TARGET: `http://127.0.0.1:${backendPort}`,
+      },
+    },
     secrets,
   )
   processes.push(frontend)
@@ -318,6 +361,7 @@ async function main() {
   await ensureShotDirectory(shotsDir)
 
   const baseUrl = process.env.SIM_BASE_URL || 'http://localhost:5173'
+  const backendPort = process.env.SIM_BACKEND_PORT || '5001'
   const python = process.env.SIM_PYTHON || '/Users/michaeljones/Projects/loanarmy/.loan/bin/python'
   const adminEmail = process.env.SIM_ADMIN_EMAIL || 'mj@bywayofmj.com'
   const matchId = process.env.SIM_MATCH_ID || '4'
@@ -325,6 +369,7 @@ async function main() {
   const ollamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434'
   const model = process.env.SIM_VISION_MODEL || 'qwen3.8:27b-obliterated-q8'
   const external = enabled(process.env.SIM_EXTERNAL, false)
+  const seedFixture = enabled(process.env.SIM_SEED_FIXTURE, true)
   const secrets = []
   const records = []
   const managed = []
@@ -352,14 +397,16 @@ async function main() {
     secrets.push(secretKey, adminKey)
     console.log('App Sim Lane: loanarmy-web')
     console.log(`Base URL: ${baseUrl}`)
+    console.log(`Backend port: ${backendPort}`)
     console.log(`Credentials: secret_key: ${backend.credentials.secretKey.source}; admin_api_key: ${backend.credentials.adminApiKey.source}`)
     const token = mintAuth({ python, secretKey, adminEmail })
     secrets.push(token)
+    if (seedFixture) seedSimFixture({ python, backendEnv: env, adminEmail, secrets })
 
     if (external) {
       await waitForHealth(baseUrl, null, 30_000)
     } else {
-      await bootServers({ baseUrl, python, backendEnv: env, secrets, processes: managed })
+      await bootServers({ baseUrl, backendPort, python, backendEnv: env, secrets, processes: managed })
     }
 
     const chromium = loadChromium(frontendDir)

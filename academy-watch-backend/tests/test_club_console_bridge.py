@@ -252,7 +252,7 @@ def test_team_claim_grants_discoverable_console_idempotently_and_stays_private(b
     assert roster.get_json() == {
         "members": [],
         "count": 0,
-        "system_brief": {"body": None, "updated_at": None, "hash": None},
+        "system_brief": {"body": None, "updated_at": None, "hash": None, "lines": None},
     }
 
     discovery = client.get("/api/funding/claims/me", headers=_user_headers(TEAM_EMAIL))

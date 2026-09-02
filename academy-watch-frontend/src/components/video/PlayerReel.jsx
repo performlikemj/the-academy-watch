@@ -164,8 +164,8 @@ export function briefChecksPresentation(note, matchRoster, clubRoster) {
             changed: false,
             items: checks.map((check) => {
                 const time = formatBriefEvidenceTime(check.t)
-                const verdict = check.verdict === 'evidence_found' && time
-                    ? `evidence at ${time}`
+                const verdict = check.verdict === 'evidence_found'
+                    ? time ? `evidence at ${time}` : 'evidence (time unavailable)'
                     : 'no evidence in sampled frames'
                 return { expectationIndex: check.expectation_index, label: `Expectation ${check.expectation_index} — ${verdict}`, verdict: check.verdict }
             }),
@@ -185,7 +185,7 @@ export function briefChecksPresentation(note, matchRoster, clubRoster) {
         return { changed: true, items: [] }
     }
 
-    const lines = brief.body.split('\n')
+    const lines = Array.isArray(brief.lines) ? brief.lines : []
     const items = checks.map((check) => ({
         expectationIndex: check.expectation_index,
         expectation: lines[check.expectation_index - 1],
@@ -833,9 +833,9 @@ function TeamOverview({ match, overview, onRunAnalysis, analysisRunning, clubRos
                                                                 {item.expectation || item.label}
                                                             </span>
                                                             {item.expectation ? (
-                                                                item.verdict === 'evidence_found' && item.time ? (
+                                                                item.verdict === 'evidence_found' ? (
                                                                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                                                                        <ShieldCheck className="h-3 w-3" /> Evidence at {item.time}
+                                                                        <ShieldCheck className="h-3 w-3" /> {item.time ? `Evidence at ${item.time}` : 'Evidence (time unavailable)'}
                                                                     </span>
                                                                 ) : (
                                                                     <span className="text-xs text-muted-foreground">No evidence in sampled frames</span>

@@ -34,6 +34,7 @@ const roster = {
       body: SYNTHETIC_BRIEF,
       updated_at: '2026-09-03T09:15:00Z',
       hash: SYNTHETIC_BRIEF_HASH,
+      lines: SYNTHETIC_BRIEF.split('\n'),
     },
     created_at: '2026-08-20T10:00:00Z',
   }],
@@ -205,7 +206,6 @@ async function installClubMocks(page, { denyReel = false, reelResponses = [reel]
 }
 
 async function installAdminMocks(page) {
-  const matchPayloads = []
   await page.addInitScript(() => {
     localStorage.setItem('academy_watch_user_token', 'mock-admin-token')
     localStorage.setItem('academy_watch_is_admin', 'true')
@@ -215,11 +215,7 @@ async function installAdminMocks(page) {
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === '/api/admin/auth-check') return route.fulfill({ json: { ok: true } })
-    if (url.pathname === '/api/admin/video/matches/41') {
-      const payload = matchPayload()
-      matchPayloads.push(payload)
-      return route.fulfill({ json: payload })
-    }
+    if (url.pathname === '/api/admin/video/matches/41') return route.fulfill({ json: matchPayload() })
     if (url.pathname === '/api/admin/video/matches/41/tracklets') return route.fulfill({ json: { tracklets: [] } })
     if (url.pathname === '/api/admin/video/matches/41/reel') return route.fulfill({ json: reel })
     if (url.pathname === '/api/admin/video/matches/41/report') return route.fulfill({ json: { reports: [] } })
@@ -246,7 +242,6 @@ async function installAdminMocks(page) {
     if (url.pathname.endsWith('/bbox-track')) return route.fulfill({ json: { boxes: [[20, 180, 90, 310, 430]], available: true } })
     return route.fulfill({ json: {} })
   })
-  return { matchPayloads }
 }
 
 async function expectVerifiedAndWithheldReel(page, screenshotPaths) {
@@ -308,7 +303,7 @@ test('club manager opens a read-only player reel without admin credentials', asy
 })
 
 test('admin reel shows verified notes and honestly withholds ungrounded prose', async ({ page }) => {
-  const { matchPayloads } = await installAdminMocks(page)
+  await installAdminMocks(page)
   await page.goto('/admin/video/41')
 
   await expect(page.getByRole('heading', { name: 'Player reels' })).toBeVisible()
@@ -318,7 +313,7 @@ test('admin reel shows verified notes and honestly withholds ungrounded prose', 
   })
   await expect(page.getByText('Expectation 1 — evidence at 0:21')).toBeVisible()
   await expect(page.getByText('Expectation 2 — no evidence in sampled frames')).toBeVisible()
-  expect(JSON.stringify(matchPayloads)).not.toContain(SYNTHETIC_BRIEF)
+  await expect(page.locator('body')).not.toContainText(SYNTHETIC_BRIEF)
 })
 
 test('foreign reel denial renders the same neutral unavailable state', async ({ page }) => {

@@ -315,6 +315,7 @@ def _brief_dict(body: str | None, updated_at: datetime | None) -> dict:
         "body": body,
         "updated_at": updated_at.isoformat() if updated_at else None,
         "hash": payload["hash"] if payload else None,
+        "lines": payload["lines"] if payload else None,
     }
 
 

@@ -33,7 +33,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 ## State
 
 ### Done
-- Coach's brief C3 + camera preflight P1 complete (2026-09-03): MyClub brief editors, hash-gated expected-vs-evidence reel presentation, admin text-blind presentation, honest limits, synthetic-only sim steps, and allowlisted non-destructive `capture_meta` preflight merges. Focused backend 155, frontend unit 23, reel e2e 3/3, Ruff, frontend lint (0 errors/169 baseline warnings), and build pass. Live synthetic sim: 10/11; `brief-edit` passed, while `brief-in-reel` could not verify because the stored fixture analysis predates C2 and contains no `brief_checks`. See `ledgers/CONTINUITY_coach-brief-c3.md`.
+- Coach's brief C3 + camera preflight P1 complete; PR #989 review fix round applied (2026-09-03): sims now seed/select a dedicated `-sim-fixture`, refuse non-synthetic briefs before club steps, and carry a schema-valid post-C2 analysis fixture. Preflight non-strings return 400, API/worker brief normalization is pinned, admin leak E2E checks the rendered DOM, roster payloads expose normalized lines, missing evidence time stays evidence, and hints state the 8-line cap. Focused backend 118, C3 frontend unit 24, reel E2E 3/3, sim pure 18, Ruff, frontend lint/build, and live ungraded sim 11/11 pass. See `ledgers/CONTINUITY_coach-brief-c3.md`.
 - Grounded caption label/claim fault isolation complete (2026-09-02): grounded-only unknown labels coerce to `unclear`, malformed claims drop independently, sampling reports three fault counters, and legacy validation remains strict. Mock-only spike suite: 131 passed; both spike files pass bare Ruff check/format. See `ledgers/CONTINUITY_grounded-caption-lenient-enums.md`.
 - Grounded Qwen caption/read truncation fix complete (2026-09-02): complete JSON returned at `done_reason=length` is accepted with a warning, while invalid JSON raises an explicit truncation error; grounded caption/read contracts use 900-token initial caps and one bounded 1800-token retry; prompts request at most three prioritized items; legacy caps and ordinary retries remain unchanged. Mock-only spike suite: 127 passed. Both changed spike files pass bare `ruff check` and bare `ruff format --check`. See `ledgers/CONTINUITY_grounded-num-predict.md`.
 - Full Circle incident-response runbook FC-TF3 complete (2026-07-23): added the operator playbook at `docs/runbooks/incident-response.md` with FC-B1/B2/B3/TF1/TF2 scenario coverage, PII-safe evidence queries, Azure containment/immutable rollback, suppression gap and reactivation handling, controlled recovery, and known operational gaps. Validation: 95 focused backend tests, Ruff check/format, one Alembic `tf02` head, shell syntax, Markdown links, and adversarial account/suppression/operations reviews all pass.
@@ -97,6 +97,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
+- **2026-09-03 Coach's brief C3/P1 PR #989 open; review fix round applied:** dedicated synthetic sim program + real-brief refusal, post-C2 fixture analysis, preflight 400s, shared hash-helper parity, DOM leak proof, canonical brief lines, unavailable-time verdict, and 8-line hint. Requested focused gates and live ungraded sim 11/11 pass. See `ledgers/CONTINUITY_coach-brief-c3.md`.
 - **2026-09-03 Coach's brief C2 PR #985 review round 3 complete (open, unmerged):** no-kit roster briefs surface as structured honest limits without scheduling checks; overlength text uses payload `max_lines`; brief normalization is single-source.
   Spike 176; requested backend 85; backend Ruff (460 files) and bare spike Ruff (2 files) clean. See `ledgers/CONTINUITY_coach-brief-c2.md`.
 - **2026-09-02 Coach's brief C1 PR #973 OPEN:** backend-only `cb01` storage, manager-scoped club routes, 2+ character/non-Latin roster-name screening, sentinel leak tests, and FK-by-column guard; review round 2 adds script-aware Latin boundaries, case/accent folding, and original blank-line numbering. After merging main, `cb01` was re-chained onto stamped main head `s2f1` (`cb01 → s2f1 → pm01`); Alembic reports one `cb01` head, 111 focused tests pass, and Ruff check/format are green.
@@ -988,7 +989,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 CONTINUITY.md
   └─ ledgers/CONTINUITY_coach-brief.md (Track C/P/M directive workstream)
        ├─ ledgers/CONTINUITY_coach-brief-c2.md (C2 complete; PR #985 open, @owner:/root)
-       ├─ ledgers/CONTINUITY_coach-brief-c3.md (C3/P1 complete; PR delivery next, @owner:/root)
+       ├─ ledgers/CONTINUITY_coach-brief-c3.md (PR #989 open; review fix round applied, @owner:/root)
        └─ ledgers/CONTINUITY_dev-club-fixture-bridge.md (B1 complete; PR #975 open, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-json-schema-format.md (review round complete; PR #972 open, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-caption-enum-prompt.md (verified; PR delivery next, @owner:/root)
@@ -1010,7 +1011,7 @@ CONTINUITY.md
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|
-| CONTINUITY_coach-brief-c3.md | C3/P1 complete; PR delivery next | /root | live `brief-in-reel` awaits a post-C2 fixture analysis |
+| CONTINUITY_coach-brief-c3.md | PR #989 open; review fix round applied | /root | none |
 | CONTINUITY_coach-brief-c2.md | C2 complete; PR #985 open | /root | none |
 | CONTINUITY_dev-club-fixture-bridge.md | B1 complete; PR #975 open | /root | none |
 | CONTINUITY_grounded-json-schema-format.md | review round complete; PR #972 open | /root | none |

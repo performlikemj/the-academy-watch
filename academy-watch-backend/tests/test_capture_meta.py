@@ -35,6 +35,9 @@ def test_merge_preflight_preserves_existing_metadata_and_ignores_unnamed_input()
         ("camera_motion", "tripod"),
         ("pitch_lines_visible", "most"),
         ("attack_direction_first_half", "upfield"),
+        ("camera_view", []),
+        ("camera_motion", {}),
+        ("pitch_lines_visible", True),
     ],
 )
 def test_merge_preflight_rejects_values_outside_the_contract(field, value):

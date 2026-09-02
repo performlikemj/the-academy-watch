@@ -9,11 +9,11 @@ Owner: /root
 
 - Ship the MyClub brief editors, expected-vs-evidence reel display, honest limits, and capture-meta camera preflight fields.
 - Preserve brief privacy and existing capture metadata across admin and club APIs.
-- Deliver a tested commit and open PR from `feat/coach-brief-c3` without merging it.
+- Deliver a tested review-fix commit to open PR #989 without merging it.
 
 ## Constraints / Assumptions
 
-- No worker or spike edits.
+- No spike edits; the worker change is limited to consuming the shared backend brief helper.
 - Brief text is club-only; admin payloads contain hash/index/verdict only.
 - Sim screenshots may use only the synthetic club fixture and synthetic brief text.
 - Stage explicit paths only; no `git add -A` and no `--no-verify`.
@@ -22,12 +22,14 @@ Owner: /root
 
 - Reuse backend brief normalization/hash helper so the roster GET supplies the canonical hash.
 - Merge only allowlisted preflight keys plus `attack_direction_first_half` into existing `capture_meta`.
+- Seed and select only the dedicated `-sim-fixture` program; refuse any non-synthetic brief before club-console steps.
+- Admin leak E2E proof is a DOM assertion after opening the AI read; backend sentinel tests remain the payload proof.
 
 ## State
 
-- Done: Implemented C3/P1 frontend and backend, privacy/preservation coverage, synthetic-only sim guard and steps, and all requested local gates.
-- Now: Commit, push `feat/coach-brief-c3`, and open the PR without merging.
-- Next: Regenerate the synthetic fixture analysis after C2 is available, then rerun `brief-in-reel` for the remaining live acceptance check.
+- Done: Applied the PR #989 blocker, should-fixes, and nits; the dedicated synthetic sim passes 11/11.
+- Now: PR #989 open; review fix round applied.
+- Next: Commit and push the review round without merging.
 
 ## Links
 
@@ -42,6 +44,8 @@ Owner: /root
 ## Working set
 
 - `academy-watch-backend/src/services/`
+- `academy-watch-backend/scripts/dev/seed_sim_club_fixture.py`
+- `academy-watch-backend/src/workers/vision_worker.py`
 - `academy-watch-backend/src/routes/video.py`
 - `academy-watch-backend/src/routes/club.py`
 - `academy-watch-backend/tests/`
@@ -51,6 +55,8 @@ Owner: /root
 - `academy-watch-frontend/tests/player-reels.test.mjs`
 - `academy-watch-frontend/e2e/club-reels.spec.mjs`
 - `sim/journeys/club-console.mjs`
+- `sim/run.mjs`
+- `sim/test/sim-lane.test.mjs`
 
 ## Notes
 
@@ -63,3 +69,12 @@ Owner: /root
 - 2026-09-03: `node --test sim/test/sim-lane.test.mjs && node --check sim/journeys/club-console.mjs` — 15 passed.
 - 2026-09-03: External synthetic-fixture sim report `sim/report/2026-09-02T21-04-28-259Z/report.json` — 10/11 steps. `brief-edit` saved and survived reload; `brief-in-reel` failed honestly because the fixture's stored analysis predates C2 and has no `brief_checks`. No real brief was captured.
 - 2026-09-03: Full frontend unit suite retains an unrelated baseline failure in `admin-newsletters-api.test.mjs`: `buildSeedTop5Request` expects `/admin/loans/seed-top5` but current code returns `/admin/tracked-players/seed-team`.
+- 2026-09-03: Review round isolates sims onto `academy-watch-synthetic-sim-fixture`; the guard refuses bridge programs and any non-synthetic roster/system brief before the first club-console step.
+- 2026-09-03: Synthetic post-C2 analysis uses the shared brief hash, one `evidence_found` plus one `no_evidence` check, all brief counters, and the coach's-brief honest-limit line; schema validation passed.
+- 2026-09-03: `pytest tests/test_capture_meta.py tests/test_club_console.py tests/test_video_reels.py tests/test_coach_brief.py -q` — 118 passed.
+- 2026-09-03: `ruff check . && ruff format --check .` — passed; 467 files formatted.
+- 2026-09-03: `pnpm lint` and `pnpm build` — passed; build retains the existing large-chunk advisory.
+- 2026-09-03: Focused frontend unit tests — 24 passed. Full `pnpm test` — 128 passed / 15 unrelated baseline failures (legacy paths/setup plus existing newsletter/nav expectations).
+- 2026-09-03: `pnpm exec playwright test e2e/club-reels.spec.mjs --config=playwright.club-reels.config.js` — 3 passed; admin brief-leak assertion now checks rendered body text after opening the AI read.
+- 2026-09-03: `node --test sim/test/sim-lane.test.mjs` plus syntax checks — 18 passed.
+- 2026-09-03: Final self-boot live sim used backend `5099` and frontend `5277` with `SIM_GRADE=0`: 11/11 steps OK after explicitly selecting the guarded sim program; report `sim/report/2026-09-02T21-39-13-222Z/report.json`.

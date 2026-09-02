@@ -525,6 +525,23 @@ def test_markers_patch_rejects_unknown_attack_direction_without_committing():
     commit.assert_not_called()
 
 
+@pytest.mark.parametrize("value", [[], {}, True], ids=("list", "dict", "boolean"))
+def test_admin_preflight_route_returns_400_for_non_string_values(value):
+    app = Flask(__name__)
+    app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI="sqlite:///:memory:")
+    db.init_app(app)
+    match = type("Match", (), {"capture_meta": {"camera": "touchline"}})()
+
+    with app.test_request_context(json={"camera_view": value}):
+        with patch.object(db.session, "get", return_value=match), patch.object(db.session, "commit") as commit:
+            response, status = update_video_match.__wrapped__(1)
+
+    assert status == 400
+    assert response.json == {"error": "camera_view must be one of: broadcast, panoramic, wide_fixed"}
+    assert match.capture_meta == {"camera": "touchline"}
+    commit.assert_not_called()
+
+
 def test_preflight_patch_preserves_analysis_and_local_capture_metadata():
     app = Flask(__name__)
     app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI="sqlite:///:memory:")

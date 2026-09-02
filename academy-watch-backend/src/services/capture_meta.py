@@ -21,7 +21,7 @@ def merge_preflight(capture_meta, data: dict) -> dict | None:
         if key not in data:
             continue
         value = data[key]
-        if value not in allowed:
+        if not isinstance(value, str) or value not in allowed:
             if key == "attack_direction_first_half":
                 raise ValueError("attack_direction_first_half must be left or right")
             choices = ", ".join(sorted(allowed))
