@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { SeasonSelect } from '@/components/ui/SeasonSelect'
 import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
+import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
@@ -31,6 +32,19 @@ const AGE_PRESETS = [
   { key: 'u21', label: 'U21', params: { max_age: 21 } },
   { key: 'u23', label: 'U23', params: { max_age: 23 } },
 ]
+
+const SOURCE_FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'api', label: 'API' },
+  { value: 'club', label: 'Club-confirmed' },
+  { value: 'self', label: 'Self-reported' },
+]
+const SOURCE_VALUES = new Set(SOURCE_FILTERS.slice(1).map(({ value }) => value))
+
+function normalizeSignedPlayerId(value) {
+  const normalized = String(value ?? '').trim()
+  return /^-?[1-9]\d*$/.test(normalized) ? normalized : null
+}
 
 // Sorts that default ascending because lower is better (or alphabetical).
 const ASC_DEFAULT_SORTS = new Set(['name', 'age', 'goals_conceded', 'conceded_per90'])
@@ -304,6 +318,7 @@ function LeaderboardCard({ board, entries, loading, season, seasonOverride }) {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium text-foreground">{player.player_name}</span>
                     <span className="block truncate text-xs text-muted-foreground">{player.loan_team_name || player.primary_team_name}</span>
+                    <ProvenanceChip provenance={player.provenance} className="mt-1" />
                   </span>
                   <span className="shrink-0 text-right">
                     <span className="block text-sm font-bold tabular-nums text-primary">{board.metric(player) ?? '—'}</span>
@@ -321,7 +336,7 @@ function LeaderboardCard({ board, entries, loading, season, seasonOverride }) {
   )
 }
 
-function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride }) {
+function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, source = 'all' }) {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
@@ -333,18 +348,23 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride }
     let cancelled = false
     setLoading(true)
     setError(null)
-    APIService.compareScoutPlayers(playerIds, { includeAvailability: true, season })
+    APIService.compareScoutPlayers(playerIds, {
+      includeAvailability: true,
+      season,
+      ...(source !== 'all' ? { source } : {}),
+    })
       .then((res) => { if (!cancelled) setData(res) })
       .catch((err) => { if (!cancelled) setError(err.message || 'Comparison failed') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [open, playerIds, season])
+  }, [open, playerIds, season, source])
 
   useEffect(() => () => clearTimeout(copyTimer.current), [])
 
   const handleCopyLink = useCallback(() => {
     const params = new URLSearchParams({ compare: playerIds.join(',') })
     if (season != null) params.set('season', String(season))
+    if (source !== 'all') params.set('source', source)
     const url = `${window.location.origin}/scout?${params}`
     const flash = (state) => {
       setCopyState(state)
@@ -356,7 +376,7 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride }
       return
     }
     navigator.clipboard.writeText(url).then(() => flash('copied')).catch(() => flash('failed'))
-  }, [playerIds, season])
+  }, [playerIds, season, source])
 
   const players = data?.players || []
   const anyGoalkeeper = players.some((p) => p.profile?.position === 'Goalkeeper')
@@ -421,10 +441,8 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride }
                           <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                             No data for this season
                           </span>
-                        ) : p.provenance?.primary_source ? (
-                          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                            Source: {p.provenance.primary_source}
-                          </span>
+                        ) : p.provenance ? (
+                          <ProvenanceChip provenance={p.provenance} />
                         ) : null}
                       </Link>
                     </th>
@@ -518,6 +536,8 @@ export function ScoutPage() {
   const [watchedIds, setWatchedIds] = useState(null)
   const [exporting, setExporting] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
+  const requestedSource = searchParams.get('source')
+  const source = SOURCE_VALUES.has(requestedSource) ? requestedSource : 'all'
   const seasonParam = searchParams.get('season')
   const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
   const selectedSeason = seasonParam === null ? storedSeason : urlSeason
@@ -573,11 +593,22 @@ export function ScoutPage() {
     }, { replace: true })
   }, [setSearchParams])
 
-  // Compare deep links: /scout?compare=1,2,3
+  const changeSource = useCallback((nextSource) => {
+    if (nextSource !== 'all' && !SOURCE_VALUES.has(nextSource)) return
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous)
+      if (nextSource === 'all') next.delete('source')
+      else next.set('source', nextSource)
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  // Compare deep links keep signed IDs as strings so local-player negatives
+  // survive navigation and never cross an API boundary as coerced numbers.
   useEffect(() => {
     const raw = searchParams.get('compare')
     if (!raw) return
-    const ids = [...new Set(raw.split(',').map((part) => parseInt(part.trim(), 10)).filter((n) => Number.isInteger(n) && n > 0))]
+    const ids = [...new Set(raw.split(',').map(normalizeSignedPlayerId).filter(Boolean))]
     if (ids.length >= 2 && ids.length <= 4) {
       setCompareIds(ids)
       setCompareOpen(true)
@@ -637,6 +668,7 @@ export function ScoutPage() {
       if (debouncedSearch) params.search = debouncedSearch
       if (effectivePosition) params.position = effectivePosition
       if (status !== 'all') params.status = status
+      if (source !== 'all') params.source = source
       const preset = AGE_PRESETS.find((p) => p.key === agePreset)
       Object.assign(params, preset?.params || {})
       if (selectedSeason != null) params.season = selectedSeason
@@ -646,7 +678,7 @@ export function ScoutPage() {
     } finally {
       setExporting(false)
     }
-  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, agePreset, sort, order, selectedSeason])
+  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, source, agePreset, sort, order, selectedSeason])
 
   useEffect(() => {
     clearTimeout(searchTimer.current)
@@ -663,11 +695,12 @@ export function ScoutPage() {
     if (debouncedSearch) params.search = debouncedSearch
     if (effectivePosition) params.position = effectivePosition
     if (status !== 'all') params.status = status
+    if (source !== 'all') params.source = source
     const preset = AGE_PRESETS.find((p) => p.key === agePreset)
     Object.assign(params, preset?.params || {})
     if (selectedSeason != null) params.season = selectedSeason
     return params
-  }, [debouncedSearch, effectivePosition, status, agePreset, selectedSeason])
+  }, [debouncedSearch, effectivePosition, status, source, agePreset, selectedSeason])
 
   // Reset to first page when filters change
   useEffect(() => { setPage(1) }, [filterParams, sort, order])
@@ -700,6 +733,7 @@ export function ScoutPage() {
     Object.assign(boardFilters, preset?.params || {})
     if (effectivePosition) boardFilters.position = effectivePosition
     if (status !== 'all') boardFilters.status = status
+    if (source !== 'all') boardFilters.source = source
     APIService.getScoutLeaderboards(boardFilters)
       .then((data) => {
         if (cancelled) return
@@ -712,13 +746,15 @@ export function ScoutPage() {
       })
       .finally(() => { if (!cancelled) setBoardsLoading(false) })
     return () => { cancelled = true }
-  }, [phase, effectivePosition, status, agePreset, selectedSeason])
+  }, [phase, effectivePosition, status, source, agePreset, selectedSeason])
 
   const toggleCompare = useCallback((playerId) => {
+    const normalizedPlayerId = normalizeSignedPlayerId(playerId)
+    if (!normalizedPlayerId) return
     setCompareIds((current) => {
-      if (current.includes(playerId)) return current.filter((id) => id !== playerId)
+      if (current.includes(normalizedPlayerId)) return current.filter((id) => id !== normalizedPlayerId)
       if (current.length >= 4) return current
-      return [...current, playerId]
+      return [...current, normalizedPlayerId]
     })
   }, [])
 
@@ -747,7 +783,7 @@ export function ScoutPage() {
   )
 
   const statColumns = phaseConfig.columns.map((key) => STAT_COLUMNS[key])
-  const tableColumnCount = 7 + statColumns.length
+  const tableColumnCount = 8 + statColumns.length
   const displaySeason = selectedSeason ?? resolvedSeason ?? currentSeason
 
   return (
@@ -915,6 +951,16 @@ export function ScoutPage() {
                 <SelectItem value="left">Left</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={source} onValueChange={changeSource}>
+              <SelectTrigger className="w-full sm:w-48" aria-label="Filter by stats source">
+                <SelectValue placeholder="Source" />
+              </SelectTrigger>
+              <SelectContent>
+                {SOURCE_FILTERS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={sort} onValueChange={(value) => { setSort(value); setOrder(ASC_DEFAULT_SORTS.has(value) ? 'asc' : 'desc') }}>
               <SelectTrigger className="w-full sm:w-52" aria-label="Sort by">
                 <SelectValue placeholder="Sort by" />
@@ -945,6 +991,7 @@ export function ScoutPage() {
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Club</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Form</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Source</th>
                   {statColumns.map((col) =>
                     col.sortKey ? (
                       <Fragment key={col.label}>{headerCell(col.sortKey, col.label, true, col.title)}</Fragment>
@@ -969,7 +1016,7 @@ export function ScoutPage() {
                   ))
                 ) : players.length ? (
                   players.map((player) => {
-                    const selected = compareIds.includes(player.player_id)
+                    const selected = compareIds.includes(String(player.player_id))
                     const watched = !!watchedIds?.has(player.player_id)
                     return (
                       <tr key={player.id} className={`transition-colors hover:bg-secondary/40 ${selected ? 'bg-primary/5' : ''}`}>
@@ -1024,6 +1071,9 @@ export function ScoutPage() {
                           ) : (
                             <FormIndicator form={player.recent_form} />
                           )}
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <ProvenanceChip provenance={player.provenance} />
                         </td>
                         {statColumns.map((col) => (
                           <td key={col.label} className={`px-3 py-2.5 text-right text-sm tabular-nums ${col.cellClass || ''}`}>
@@ -1106,6 +1156,7 @@ export function ScoutPage() {
           playerIds={compareIds}
           season={selectedSeason}
           seasonOverride={seasonOverride}
+          source={source}
         />
         <IntroduceDialog
           open={!!introducePlayer}

@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dialog'
 import {
   Clapperboard,
+  CalendarDays,
   ShieldCheck,
   UserSquare,
   Plus,
@@ -41,10 +42,11 @@ import {
   Building2,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
-import { formatDateOnly } from '@/lib/dateOnly'
+import { formatDateOnly, toLocalISODate } from '@/lib/dateOnly'
 import { track } from '@/lib/track'
 import { isYouTubeUrl } from '@/lib/youtube'
 import { VideoEmbed } from '@/components/VideoEmbed'
+import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { VerificationCode, VerificationInstructions } from '@/components/showcase/VerificationCode'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 
@@ -91,9 +93,137 @@ const CLUB_LEVEL_OPTIONS = [
 const EMPTY_CLUB_RESULTS = { api_teams: [], local_clubs: [] }
 const EMPTY_LOCAL_CLUB_FORM = { name: '', country: '', city: '', level: '' }
 const PUBLIC_AFFILIATION_STATUSES = new Set(['self_reported', 'club_confirmed'])
+const GAME_OWNER_RELATIONSHIPS = new Set(['player', 'guardian', 'agent'])
 
 const PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const PHOTO_MAX_BYTES = 8 * 1024 * 1024
+const MATCH_HOME_AWAY_OPTIONS = [
+  { value: 'home', label: 'Home' },
+  { value: 'away', label: 'Away' },
+  { value: 'neutral', label: 'Neutral venue' },
+]
+const MATCHES_PER_PAGE = 100
+
+function emptyMatchForm() {
+  return {
+    match_date: '',
+    competition: '',
+    opponent: '',
+    home_away: 'home',
+    result_for: '',
+    result_against: '',
+    minutes: '0',
+    goals: '0',
+    assists: '0',
+    yellows: '0',
+    reds: '0',
+    saves: '',
+    goals_conceded: '',
+    note: '',
+  }
+}
+
+function matchToForm(match) {
+  const form = emptyMatchForm()
+  for (const key of Object.keys(form)) {
+    if (match?.[key] !== null && typeof match?.[key] !== 'undefined') {
+      form[key] = String(match[key])
+    }
+  }
+  return form
+}
+
+function parseBoundedInteger(value, fieldLabel, maximum, { nullable = false } = {}) {
+  if (nullable && value === '') return { value: null }
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > maximum) {
+    return { error: `${fieldLabel} must be a whole number from 0 to ${maximum}.` }
+  }
+  return { value: parsed }
+}
+
+function validateMatchForm(form, isGoalkeeper) {
+  if (!formatDateOnly(form.match_date)) return 'Enter a valid match date.'
+  if (form.match_date > toLocalISODate(new Date())) return 'Match date cannot be in the future.'
+
+  const competition = form.competition.trim()
+  if (competition.length > 120) return 'Competition must be 120 characters or fewer.'
+
+  const opponent = form.opponent.trim()
+  if (!opponent) return 'Enter the opponent.'
+  if (opponent.length > 120) return 'Opponent must be 120 characters or fewer.'
+  if (!MATCH_HOME_AWAY_OPTIONS.some((option) => option.value === form.home_away)) {
+    return 'Choose whether the game was home, away or at a neutral venue.'
+  }
+
+  for (const [key, label] of [['result_for', 'Score for'], ['result_against', 'Score against']]) {
+    const parsed = parseBoundedInteger(form[key], label, 20, { nullable: true })
+    if (parsed.error) return parsed.error
+  }
+
+  const minutes = parseBoundedInteger(form.minutes, 'Minutes', 130)
+  if (minutes.error) return minutes.error
+  for (const [key, label] of [
+    ['goals', 'Goals'],
+    ['assists', 'Assists'],
+    ['yellows', 'Yellow cards'],
+    ['reds', 'Red cards'],
+  ]) {
+    const parsed = parseBoundedInteger(form[key], label, 20)
+    if (parsed.error) return parsed.error
+  }
+  if (isGoalkeeper) {
+    for (const [key, label] of [['saves', 'Saves'], ['goals_conceded', 'Goals conceded']]) {
+      const parsed = parseBoundedInteger(form[key], label, 20, { nullable: true })
+      if (parsed.error) return parsed.error
+    }
+  }
+  if (form.note.trim().length > 500) return 'Note must be 500 characters or fewer.'
+  return null
+}
+
+function buildMatchPayload(form, isGoalkeeper) {
+  const integer = (key, nullable = false) => (
+    nullable && form[key] === '' ? null : Number(form[key])
+  )
+  return {
+    match_date: form.match_date,
+    competition: form.competition.trim() || null,
+    opponent: form.opponent.trim(),
+    home_away: form.home_away,
+    result_for: integer('result_for', true),
+    result_against: integer('result_against', true),
+    minutes: integer('minutes'),
+    goals: integer('goals'),
+    assists: integer('assists'),
+    yellows: integer('yellows'),
+    reds: integer('reds'),
+    saves: isGoalkeeper ? integer('saves', true) : null,
+    goals_conceded: isGoalkeeper ? integer('goals_conceded', true) : null,
+    note: form.note.trim() || null,
+  }
+}
+
+function isGoalkeeperPosition(position) {
+  const normalized = String(position || '').trim().toLowerCase()
+  return /(^|[^a-z])(g|gk|goalkeeper|keeper)(?=$|[^a-z])/.test(normalized)
+}
+
+function normalizeSeasonStart(value) {
+  const match = String(value ?? '').trim().match(/^(\d{4})(?:\/\d{2,4})?$/)
+  return match ? Number(match[1]) : null
+}
+
+function matchMutationError(error, fallback) {
+  if (error?.status === 401) return 'Your session expired. Sign in and try again.'
+  if (error?.status === 403) return 'Only an approved profile owner can manage these games.'
+  if (error?.status === 404) return 'This game is no longer available. Refresh and try again.'
+  if (error?.status === 409) return error.body?.error || 'This game conflicts with an existing entry.'
+  if (error?.status === 400 || error?.status === 422) {
+    return error.body?.error || 'Check the game details and try again.'
+  }
+  return error?.body?.error || error?.message || fallback
+}
 
 // Synthetic newsletter-sourced reel items carry string ids like "yt-123" and
 // are not owner-editable (no reorder/delete). Real PlayerLink rows are integers.
@@ -160,16 +290,66 @@ function AffiliationStatusBadge({ status }) {
   return <Badge variant="secondary">Self-reported</Badge>
 }
 
-export function ShowcaseSection({ playerApiId, playerName, local = false }) {
+export function ShowcaseSection({
+  playerApiId,
+  canonicalPlayerApiId,
+  playerName,
+  playerPosition,
+  season,
+  local = false,
+  onSeasonStatsChange,
+}) {
   const { token } = useAuth()
-  const { openLoginModal } = useAuthUI()
+  const { logout, openLoginModal } = useAuthUI()
   const subjectKey = `${local ? 'local' : 'api'}:${playerApiId}`
+  const matchPlayerApiId = canonicalPlayerApiId == null
+    ? local ? `-${String(playerApiId)}` : String(playerApiId)
+    : String(canonicalPlayerApiId)
+  const matchSeason = normalizeSeasonStart(season)
+  const goalkeeper = isGoalkeeperPosition(playerPosition)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [showcase, setShowcase] = useState(null)
   const [loadedSubjectKey, setLoadedSubjectKey] = useState(null)
   const [myClaims, setMyClaims] = useState([])
+
+  // User/club-fed game rows. Signed ids stay strings at this boundary so a
+  // local player's reserved leading minus is never lost to numeric coercion.
+  const [games, setGames] = useState([])
+  const [gamesLoadedKey, setGamesLoadedKey] = useState(null)
+  const [gamesLoadError, setGamesLoadError] = useState(null)
+  const [gamesRequest, setGamesRequest] = useState(0)
+  const [gamesPage, setGamesPage] = useState(1)
+  const [gamesTotal, setGamesTotal] = useState(0)
+  const [gamesLoadMoreBusy, setGamesLoadMoreBusy] = useState(false)
+  const [gamesLoadMoreError, setGamesLoadMoreError] = useState(null)
+  const gamesQueryKey = `${matchPlayerApiId}:${matchSeason ?? 'all'}:${token || 'public'}:${gamesRequest}`
+  const statsSubjectKey = `${matchPlayerApiId}:${matchSeason ?? 'all'}:${token || 'public'}`
+  const gamesQueryKeyRef = useRef(gamesQueryKey)
+  const statsSubjectKeyRef = useRef(statsSubjectKey)
+  const gamesReplaceRequestRef = useRef(0)
+  const gamesLoadMoreRequestRef = useRef(0)
+  const seasonStatsRequestRef = useRef(0)
+  const gamesLoaded = gamesLoadedKey === gamesQueryKey
+  const gamesLoading = !gamesLoaded
+  const visibleGames = gamesLoaded ? games : []
+  const [gameOpen, setGameOpen] = useState(false)
+  const [gameForm, setGameForm] = useState(emptyMatchForm)
+  const [gameEditTarget, setGameEditTarget] = useState(null)
+  const [gameBusy, setGameBusy] = useState(false)
+  const [gameError, setGameError] = useState(null)
+  const [gameDeleteOpen, setGameDeleteOpen] = useState(false)
+  const [gameDeleteTarget, setGameDeleteTarget] = useState(null)
+  const [gameDeleteBusy, setGameDeleteBusy] = useState(false)
+  const [gameDeleteError, setGameDeleteError] = useState(null)
+  const optimisticGameIdRef = useRef(0)
+
+  useLayoutEffect(() => {
+    gamesQueryKeyRef.current = gamesQueryKey
+    if (statsSubjectKeyRef.current !== statsSubjectKey) seasonStatsRequestRef.current += 1
+    statsSubjectKeyRef.current = statsSubjectKey
+  }, [gamesQueryKey, statsSubjectKey])
 
   // Claim dialog
   const [claimOpen, setClaimOpen] = useState(false)
@@ -303,6 +483,50 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
 
   useEffect(() => {
     let cancelled = false
+    const replaceRequestId = gamesReplaceRequestRef.current + 1
+    gamesReplaceRequestRef.current = replaceRequestId
+    gamesLoadMoreRequestRef.current += 1
+    APIService.getPlayerMatches(matchPlayerApiId, {
+      ...(matchSeason == null ? {} : { season: matchSeason }),
+      page: 1,
+      per_page: MATCHES_PER_PAGE,
+    })
+      .then((response) => {
+        if (
+          cancelled
+          || gamesReplaceRequestRef.current !== replaceRequestId
+          || gamesQueryKeyRef.current !== gamesQueryKey
+        ) return
+        const nextGames = Array.isArray(response?.matches) ? response.matches : []
+        const responsePage = Number(response?.page)
+        const responseTotal = Number(response?.total)
+        setGames(nextGames)
+        setGamesPage(Number.isInteger(responsePage) && responsePage > 0 ? responsePage : 1)
+        setGamesTotal(Number.isInteger(responseTotal) && responseTotal >= 0 ? responseTotal : nextGames.length)
+        setGamesLoadError(null)
+        setGamesLoadMoreBusy(false)
+        setGamesLoadMoreError(null)
+        setGamesLoadedKey(gamesQueryKey)
+      })
+      .catch((requestError) => {
+        if (
+          cancelled
+          || gamesReplaceRequestRef.current !== replaceRequestId
+          || gamesQueryKeyRef.current !== gamesQueryKey
+        ) return
+        setGames([])
+        setGamesPage(1)
+        setGamesTotal(0)
+        setGamesLoadError(requestError?.status === 404 ? null : 'Games could not be loaded. Try again.')
+        setGamesLoadMoreBusy(false)
+        setGamesLoadMoreError(null)
+        setGamesLoadedKey(gamesQueryKey)
+      })
+    return () => { cancelled = true }
+  }, [gamesQueryKey, matchPlayerApiId, matchSeason])
+
+  useEffect(() => {
+    let cancelled = false
     if (previousSubjectRef.current !== subjectKey) {
       previousSubjectRef.current = subjectKey
       clearAllCloseTimers()
@@ -322,6 +546,15 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
       setCodeCopyState('idle')
       setVideoOpen(false)
       setVideoBusy(false)
+      setGameOpen(false)
+      setGameForm(emptyMatchForm())
+      setGameEditTarget(null)
+      setGameBusy(false)
+      setGameError(null)
+      setGameDeleteOpen(false)
+      setGameDeleteTarget(null)
+      setGameDeleteBusy(false)
+      setGameDeleteError(null)
       setPhotoOpen(false)
       setPhotoFile(null)
       setPhotoBusy(false)
@@ -450,12 +683,20 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
   const verified = !local && Array.isArray(showcase.verified_footage) ? showcase.verified_footage : []
   const claimStatus = showcase.claim_status // 'unclaimed' | 'claimed'
 
-  const myClaim = myClaims.find((claim) => (
-    local
-      ? Number(claim.local_player_id) === Number(playerApiId)
-      : Number(claim.player_api_id) === Number(playerApiId)
-  ))
+  const signedSubjectId = Number(playerApiId)
+  const myClaim = myClaims.find((claim) => {
+    const apiClaimMatches = !local && Number(claim.player_api_id) === signedSubjectId
+    const localClaimId = Number(claim.local_player_id)
+    const localClaimMatches = local
+      ? localClaimId === signedSubjectId || String(claim.player_api_id) === matchPlayerApiId
+      : signedSubjectId < 0 && (
+          localClaimId === signedSubjectId || localClaimId === Math.abs(signedSubjectId)
+        )
+    return apiClaimMatches || localClaimMatches
+  })
   const isOwner = myClaim?.status === 'approved'
+  const canManageGames = isOwner && GAME_OWNER_RELATIONSHIPS.has(myClaim?.relationship_type)
+  const canLoadMoreGames = gamesLoaded && gamesTotal > visibleGames.length
   const visibleAffiliations = affiliations.filter(
     (affiliation) => isOwner || PUBLIC_AFFILIATION_STATUSES.has(affiliation.status),
   )
@@ -486,6 +727,7 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
     || visibleAffiliations.length > 0
     || profile
     || verified.length > 0
+    || visibleGames.length > 0
   if (!hasContent && !isOwner && !showClaimStrip) return null
 
   const reorderableIds = reel.filter((i) => !isSynthetic(i)).map((i) => i.id)
@@ -1013,6 +1255,322 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
     }
   }
 
+  const handleExpiredGameSession = (requestError) => {
+    if (requestError?.status !== 401) return
+    setGameOpen(false)
+    setGameEditTarget(null)
+    setGameForm(emptyMatchForm())
+    setGameError(null)
+    setGameBusy(false)
+    setGameDeleteOpen(false)
+    setGameDeleteTarget(null)
+    setGameDeleteError(null)
+    setGameDeleteBusy(false)
+    logout({ clearAdminKey: true })
+    openLoginModal()
+  }
+
+  const refreshFilteredGames = async () => {
+    const queryKey = gamesQueryKey
+    const replaceRequestId = gamesReplaceRequestRef.current + 1
+    gamesReplaceRequestRef.current = replaceRequestId
+    gamesLoadMoreRequestRef.current += 1
+    setGamesLoadMoreBusy(false)
+    setGamesLoadMoreError(null)
+    try {
+      const response = await APIService.getPlayerMatches(
+        matchPlayerApiId,
+        {
+          ...(matchSeason == null ? {} : { season: matchSeason }),
+          page: 1,
+          per_page: MATCHES_PER_PAGE,
+        },
+      )
+      if (
+        !isActiveSubject()
+        || gamesQueryKeyRef.current !== queryKey
+        || gamesReplaceRequestRef.current !== replaceRequestId
+      ) return false
+      const nextGames = Array.isArray(response?.matches) ? response.matches : []
+      const responsePage = Number(response?.page)
+      const responseTotal = Number(response?.total)
+      setGames(nextGames)
+      setGamesPage(Number.isInteger(responsePage) && responsePage > 0 ? responsePage : 1)
+      setGamesTotal(Number.isInteger(responseTotal) && responseTotal >= 0 ? responseTotal : nextGames.length)
+      setGamesLoadError(null)
+      setGamesLoadedKey(queryKey)
+      return true
+    } catch (requestError) {
+      if (
+        !isActiveSubject()
+        || gamesQueryKeyRef.current !== queryKey
+        || gamesReplaceRequestRef.current !== replaceRequestId
+      ) return false
+      if (requestError?.status === 404) {
+        setGames([])
+        setGamesPage(1)
+        setGamesTotal(0)
+        setGamesLoadError(null)
+      } else {
+        setGamesLoadError('Games changed, but the latest list could not be loaded. Try again.')
+      }
+      setGamesLoadedKey(queryKey)
+      return requestError?.status === 404
+    }
+  }
+
+  const reconcileSeasonStats = (response, fallbackSeason) => {
+    if (!onSeasonStatsChange) return
+    const statsQueryKey = statsSubjectKey
+    const statsRequestId = seasonStatsRequestRef.current + 1
+    seasonStatsRequestRef.current = statsRequestId
+    const returnedStats = response?.season_stats
+    const returnedSeason = normalizeSeasonStart(returnedStats?.season)
+    const returnedTotals = returnedStats
+      && typeof returnedStats === 'object'
+      && (
+        Object.prototype.hasOwnProperty.call(returnedStats, 'appearances')
+        || returnedStats.season != null
+      )
+    if (returnedTotals && (matchSeason == null || returnedSeason == null || returnedSeason === matchSeason)) {
+      onSeasonStatsChange(returnedStats)
+      return
+    }
+    const statsSeason = matchSeason
+      ?? normalizeSeasonStart(response?.match?.season)
+      ?? returnedSeason
+      ?? normalizeSeasonStart(response?.season)
+      ?? normalizeSeasonStart(fallbackSeason)
+    if (statsSeason == null) return
+    APIService.getPublicPlayerSeasonStats(matchPlayerApiId, statsSeason)
+      .then((nextStats) => {
+        if (
+          activeSubjectRef.current === subjectKey
+          && statsSubjectKeyRef.current === statsQueryKey
+          && seasonStatsRequestRef.current === statsRequestId
+        ) onSeasonStatsChange(nextStats)
+      })
+      .catch(() => {})
+  }
+
+  const loadMoreGames = async () => {
+    if (!canLoadMoreGames || gamesLoadMoreBusy) return
+    const queryKey = gamesQueryKey
+    const replaceRequestId = gamesReplaceRequestRef.current
+    const loadMoreRequestId = gamesLoadMoreRequestRef.current + 1
+    gamesLoadMoreRequestRef.current = loadMoreRequestId
+    const nextPage = gamesPage + 1
+    setGamesLoadMoreBusy(true)
+    setGamesLoadMoreError(null)
+    try {
+      const response = await APIService.getPlayerMatches(matchPlayerApiId, {
+        ...(matchSeason == null ? {} : { season: matchSeason }),
+        page: nextPage,
+        per_page: MATCHES_PER_PAGE,
+      })
+      if (
+        !isActiveSubject()
+        || gamesQueryKeyRef.current !== queryKey
+        || gamesReplaceRequestRef.current !== replaceRequestId
+        || gamesLoadMoreRequestRef.current !== loadMoreRequestId
+      ) return
+      const nextGames = Array.isArray(response?.matches) ? response.matches : []
+      const responsePage = Number(response?.page)
+      const responseTotal = Number(response?.total)
+      setGames((current) => {
+        const seenIds = new Set(current.map((match) => String(match.id)))
+        return [
+          ...current,
+          ...nextGames.filter((match) => {
+            const matchId = String(match.id)
+            if (seenIds.has(matchId)) return false
+            seenIds.add(matchId)
+            return true
+          }),
+        ]
+      })
+      setGamesPage(Number.isInteger(responsePage) && responsePage > 0 ? responsePage : nextPage)
+      setGamesTotal((current) => (
+        Number.isInteger(responseTotal) && responseTotal >= 0
+          ? responseTotal
+          : Math.max(current, visibleGames.length + nextGames.length)
+      ))
+      setGamesLoadMoreError(null)
+    } catch (requestError) {
+      if (
+        isActiveSubject()
+        && gamesQueryKeyRef.current === queryKey
+        && gamesReplaceRequestRef.current === replaceRequestId
+        && gamesLoadMoreRequestRef.current === loadMoreRequestId
+      ) {
+        setGamesLoadMoreError(
+          requestError?.body?.error || requestError?.message || 'More games could not be loaded. Try again.',
+        )
+      }
+    } finally {
+      if (
+        isActiveSubject()
+        && gamesQueryKeyRef.current === queryKey
+        && gamesReplaceRequestRef.current === replaceRequestId
+        && gamesLoadMoreRequestRef.current === loadMoreRequestId
+      ) setGamesLoadMoreBusy(false)
+    }
+  }
+
+  const openAddGameDialog = () => {
+    if (!canManageGames) return
+    setGameEditTarget(null)
+    setGameForm(emptyMatchForm())
+    setGameError(null)
+    setGameOpen(true)
+  }
+
+  const openEditGameDialog = (match) => {
+    if (!canManageGames || !match?.editable) return
+    setGameEditTarget(match)
+    setGameForm(matchToForm(match))
+    setGameError(null)
+    setGameOpen(true)
+  }
+
+  const submitGame = async () => {
+    if (!canManageGames || gameBusy) return
+    const validationError = validateMatchForm(gameForm, goalkeeper)
+    if (validationError) {
+      setGameError(validationError)
+      return
+    }
+
+    const payload = buildMatchPayload(gameForm, goalkeeper)
+    const mutationQueryKey = gamesQueryKey
+    const editing = gameEditTarget
+    const targetId = editing?.id
+    optimisticGameIdRef.current += 1
+    const optimisticId = `optimistic-${subjectKey}-${optimisticGameIdRef.current}`
+    const optimisticMatch = {
+      ...(editing || {}),
+      ...payload,
+      id: editing ? targetId : optimisticId,
+      player_api_id: matchPlayerApiId,
+      season: editing?.season ?? matchSeason,
+      source: editing?.source || 'self',
+      status: editing?.status || 'self_reported',
+      editable: true,
+      provenance: editing?.provenance || {
+        source_category: 'self',
+        source_label: 'Self-reported',
+        primary_source: 'user',
+      },
+    }
+
+    gamesLoadMoreRequestRef.current += 1
+    setGamesLoadMoreBusy(false)
+    setGamesLoadMoreError(null)
+
+    if (editing) {
+      setGames((current) => current.map((match) => (
+        String(match.id) === String(targetId) ? optimisticMatch : match
+      )))
+    } else {
+      setGames((current) => [optimisticMatch, ...current])
+    }
+
+    setGameBusy(true)
+    setGameError(null)
+    try {
+      const response = editing
+        ? await APIService.updatePlayerMatch(matchPlayerApiId, targetId, payload)
+        : await APIService.createPlayerMatch(matchPlayerApiId, payload)
+      if (!response?.match?.id) throw new Error('The saved game was not returned')
+      if (!isActiveSubject()) return
+      setGameOpen(false)
+      setGameEditTarget(null)
+      setGameForm(emptyMatchForm())
+      if (gamesQueryKeyRef.current !== mutationQueryKey) return
+      const replacedId = String(editing ? targetId : optimisticId)
+      const returnedId = String(response.match.id)
+      setGames((current) => {
+        let replaced = false
+        const next = []
+        for (const match of current) {
+          const currentId = String(match.id)
+          if (currentId === replacedId) {
+            if (!replaced) next.push(response.match)
+            replaced = true
+          } else if (currentId !== returnedId) {
+            next.push(match)
+          }
+        }
+        if (!replaced) next.unshift(response.match)
+        return next
+      })
+      await refreshFilteredGames()
+      if (!isActiveSubject() || gamesQueryKeyRef.current !== mutationQueryKey) return
+      reconcileSeasonStats(response, response.match.season)
+    } catch (requestError) {
+      if (!isActiveSubject()) return
+      if (gamesQueryKeyRef.current === mutationQueryKey) {
+        if (editing) {
+          setGames((current) => current.map((match) => (
+            String(match.id) === String(targetId) ? editing : match
+          )))
+        } else {
+          setGames((current) => current.filter((match) => String(match.id) !== optimisticId))
+        }
+        setGameError(matchMutationError(requestError, 'Failed to save this game.'))
+      }
+      handleExpiredGameSession(requestError)
+    } finally {
+      if (isActiveSubject()) setGameBusy(false)
+    }
+  }
+
+  const requestDeleteGame = (match) => {
+    if (!canManageGames || !match?.editable || gameDeleteBusy) return
+    setGameDeleteTarget(match)
+    setGameDeleteError(null)
+    setGameDeleteOpen(true)
+  }
+
+  const deleteGame = async () => {
+    if (!canManageGames || !gameDeleteTarget?.id || gameDeleteBusy) return
+    const mutationQueryKey = gamesQueryKey
+    const target = gameDeleteTarget
+    const targetId = target.id
+    const previousIndex = games.findIndex((match) => String(match.id) === String(targetId))
+    gamesLoadMoreRequestRef.current += 1
+    setGamesLoadMoreBusy(false)
+    setGamesLoadMoreError(null)
+    setGames((current) => current.filter((match) => String(match.id) !== String(targetId)))
+    setGameDeleteBusy(true)
+    setGameDeleteError(null)
+    try {
+      const response = await APIService.deletePlayerMatch(matchPlayerApiId, targetId)
+      if (!isActiveSubject()) return
+      setGameDeleteOpen(false)
+      setGameDeleteTarget(null)
+      if (gamesQueryKeyRef.current !== mutationQueryKey) return
+      await refreshFilteredGames()
+      if (!isActiveSubject() || gamesQueryKeyRef.current !== mutationQueryKey) return
+      reconcileSeasonStats(response, target.season)
+    } catch (requestError) {
+      if (!isActiveSubject()) return
+      if (gamesQueryKeyRef.current === mutationQueryKey) {
+        setGames((current) => {
+          if (current.some((match) => String(match.id) === String(targetId))) return current
+          const next = [...current]
+          const restoreAt = previousIndex < 0 ? 0 : Math.min(previousIndex, next.length)
+          next.splice(restoreAt, 0, target)
+          return next
+        })
+        setGameDeleteError(matchMutationError(requestError, 'Failed to delete this game.'))
+      }
+      handleExpiredGameSession(requestError)
+    } finally {
+      if (isActiveSubject()) setGameDeleteBusy(false)
+    }
+  }
+
   const clubResultCount = clubResults.api_teams.length + clubResults.local_clubs.length
   const canCreateClub = clubSearch.trim().length >= 2
     && clubSearchComplete
@@ -1030,6 +1588,18 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
           action={
             isOwner ? (
               <div className="flex w-full shrink-0 flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+                {canManageGames ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={openAddGameDialog}
+                    disabled={gamesLoading}
+                    className="gap-1.5"
+                  >
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    Add a game
+                  </Button>
+                ) : null}
                 <Button variant="outline" size="sm" onClick={openVideoDialog} className="gap-1.5">
                   <Plus className="h-3.5 w-3.5" />
                   Add video
@@ -1418,7 +1988,140 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
           </div>
         )}
 
-        {/* 5. Club-verified footage */}
+        {/* 5. Player- and club-entered games */}
+        {(canManageGames || (gamesLoaded && visibleGames.length > 0)) && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  Games
+                </p>
+                {visibleGames.length > 0 ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Each row keeps its reporting source separate.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            {gamesLoading && visibleGames.length === 0 ? (
+              <div className="space-y-2" aria-busy="true" aria-label="Loading games">
+                <Skeleton className="h-20 w-full rounded-lg" />
+                <Skeleton className="h-20 w-full rounded-lg" />
+              </div>
+            ) : gamesLoadError ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border px-4 py-4">
+                <p className="text-sm text-muted-foreground" role="alert">{gamesLoadError}</p>
+                <Button variant="outline" size="sm" onClick={() => setGamesRequest((request) => request + 1)}>
+                  Try again
+                </Button>
+              </div>
+            ) : visibleGames.length > 0 ? (
+              <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70" role="list">
+                {visibleGames.map((match) => {
+                    const scoreEntered = match.result_for != null && match.result_against != null
+                  const venue = MATCH_HOME_AWAY_OPTIONS.find((option) => option.value === match.home_away)?.label
+                    || match.home_away
+                  const editable = canManageGames && match.editable && !String(match.id).startsWith('optimistic-')
+                  return (
+                    <article key={match.id} className="space-y-2.5 px-3 py-3 sm:px-4" role="listitem">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            <h3 className="break-words text-sm font-semibold text-foreground">
+                              {match.opponent ? `vs ${match.opponent}` : 'Game'}
+                            </h3>
+                            <span className="text-sm font-semibold tabular-nums text-foreground">
+                                {scoreEntered ? `${match.result_for}–${match.result_against}` : 'Score not entered'}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {[formatDateOnly(match.match_date), match.competition, venue].filter(Boolean).join(' · ')}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                          <ProvenanceChip provenance={match.provenance || match.source} />
+                          {editable ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => openEditGameDialog(match)}
+                                aria-label={`Edit game against ${match.opponent || 'opponent'}`}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={() => requestDeleteGame(match)}
+                                aria-label={`Delete game against ${match.opponent || 'opponent'}`}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                        <span><strong className="font-semibold text-foreground">{match.minutes ?? 0}</strong> min</span>
+                        <span><strong className="font-semibold text-foreground">{match.goals ?? 0}</strong> goals</span>
+                        <span><strong className="font-semibold text-foreground">{match.assists ?? 0}</strong> assists</span>
+                        <span><strong className="font-semibold text-foreground">{match.yellows ?? 0}</strong> yellow</span>
+                        <span><strong className="font-semibold text-foreground">{match.reds ?? 0}</strong> red</span>
+                        {match.saves != null ? (
+                          <span><strong className="font-semibold text-foreground">{match.saves}</strong> saves</span>
+                        ) : null}
+                        {match.goals_conceded != null ? (
+                          <span><strong className="font-semibold text-foreground">{match.goals_conceded}</strong> conceded</span>
+                        ) : null}
+                      </div>
+                      {match.note ? (
+                        <p className="break-words text-xs leading-relaxed text-foreground/75">{match.note}</p>
+                      ) : null}
+                    </article>
+                  )
+                })}
+              </div>
+            ) : canManageGames ? (
+              <button
+                type="button"
+                onClick={openAddGameDialog}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-6 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
+              >
+                <Plus className="h-4 w-4" />
+                Add your first game
+              </button>
+            ) : null}
+
+            {visibleGames.length > 0 && (canLoadMoreGames || gamesLoadMoreError) ? (
+              <div className="flex flex-wrap items-center gap-3">
+                {gamesLoadMoreError ? (
+                  <p className="text-sm text-destructive" role="alert">{gamesLoadMoreError}</p>
+                ) : null}
+                {canLoadMoreGames ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={loadMoreGames}
+                    disabled={gamesLoadMoreBusy || gameBusy || gameDeleteBusy}
+                    aria-label="Load more games"
+                    className="ml-auto"
+                  >
+                    {gamesLoadMoreBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                    {gamesLoadMoreBusy ? 'Loading…' : 'Load more games'}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* 6. Club-verified footage */}
         {!local && verified.length > 0 && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -1461,7 +2164,7 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
           </div>
         )}
 
-        {/* 6. Claim strip */}
+        {/* 7. Claim strip */}
         {showClaimStrip && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4">
             {myClaim ? (
@@ -1724,6 +2427,243 @@ export function ShowcaseSection({ playerApiId, playerName, local = false }) {
               </Button>
             </DialogFooter>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add/edit game dialog */}
+      <Dialog
+        open={gameOpen}
+        onOpenChange={(open) => {
+          if (gameBusy) return
+          setGameOpen(open)
+          if (!open) {
+            setGameEditTarget(null)
+            setGameForm(emptyMatchForm())
+            setGameError(null)
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{gameEditTarget ? 'Edit game' : 'Add a game'}</DialogTitle>
+            <DialogDescription>
+              Enter this player&apos;s match stats. They will be labelled as self-reported.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              submitGame()
+            }}
+          >
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`player-game-date-${playerApiId}`}>Match date</Label>
+                <Input
+                  id={`player-game-date-${playerApiId}`}
+                  type="date"
+                  value={gameForm.match_date}
+                  max={toLocalISODate(new Date())}
+                  onChange={(event) => setGameForm((form) => ({ ...form, match_date: event.target.value }))}
+                  disabled={gameBusy}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`player-game-competition-${playerApiId}`}>Competition (optional)</Label>
+                <Input
+                  id={`player-game-competition-${playerApiId}`}
+                  value={gameForm.competition}
+                  onChange={(event) => setGameForm((form) => ({ ...form, competition: event.target.value }))}
+                  placeholder="e.g. National League U21"
+                  maxLength={120}
+                  disabled={gameBusy}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`player-game-opponent-${playerApiId}`}>Opponent</Label>
+                <Input
+                  id={`player-game-opponent-${playerApiId}`}
+                  value={gameForm.opponent}
+                  onChange={(event) => setGameForm((form) => ({ ...form, opponent: event.target.value }))}
+                  placeholder="Opponent name"
+                  maxLength={120}
+                  disabled={gameBusy}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`player-game-venue-${playerApiId}`}>Home / away</Label>
+                <Select
+                  value={gameForm.home_away}
+                  onValueChange={(value) => setGameForm((form) => ({ ...form, home_away: value }))}
+                  disabled={gameBusy}
+                >
+                  <SelectTrigger id={`player-game-venue-${playerApiId}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MATCH_HOME_AWAY_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <fieldset className="space-y-2 rounded-lg border border-border/70 p-3">
+              <legend className="px-1 text-sm font-medium text-foreground">Score (optional)</legend>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor={`player-game-score-for-${playerApiId}`}>Score for</Label>
+                  <Input
+                    id={`player-game-score-for-${playerApiId}`}
+                    type="number"
+                    min="0"
+                    max="20"
+                    step="1"
+                    inputMode="numeric"
+                    value={gameForm.result_for}
+                    onChange={(event) => setGameForm((form) => ({ ...form, result_for: event.target.value }))}
+                    disabled={gameBusy}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`player-game-score-against-${playerApiId}`}>Score against</Label>
+                  <Input
+                    id={`player-game-score-against-${playerApiId}`}
+                    type="number"
+                    min="0"
+                    max="20"
+                    step="1"
+                    inputMode="numeric"
+                    value={gameForm.result_against}
+                    onChange={(event) => setGameForm((form) => ({ ...form, result_against: event.target.value }))}
+                    disabled={gameBusy}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Enter either score value when it is known.</p>
+            </fieldset>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              {[
+                ['minutes', 'Minutes', 130],
+                ['goals', 'Goals', 20],
+                ['assists', 'Assists', 20],
+                ['yellows', 'Yellow cards', 20],
+                ['reds', 'Red cards', 20],
+              ].map(([key, label, maximum]) => (
+                <div key={key} className="space-y-2">
+                  <Label htmlFor={`player-game-${key}-${playerApiId}`}>{label}</Label>
+                  <Input
+                    id={`player-game-${key}-${playerApiId}`}
+                    type="number"
+                    min="0"
+                    max={String(maximum)}
+                    step="1"
+                    inputMode="numeric"
+                    value={gameForm[key]}
+                    onChange={(event) => setGameForm((form) => ({ ...form, [key]: event.target.value }))}
+                    disabled={gameBusy}
+                    required
+                  />
+                </div>
+              ))}
+            </div>
+
+            {goalkeeper ? (
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ['saves', 'Saves'],
+                  ['goals_conceded', 'Goals conceded'],
+                ].map(([key, label]) => (
+                  <div key={key} className="space-y-2">
+                    <Label htmlFor={`player-game-${key}-${playerApiId}`}>{label}</Label>
+                    <Input
+                      id={`player-game-${key}-${playerApiId}`}
+                      type="number"
+                      min="0"
+                      max="20"
+                      step="1"
+                      inputMode="numeric"
+                      value={gameForm[key]}
+                      onChange={(event) => setGameForm((form) => ({ ...form, [key]: event.target.value }))}
+                      disabled={gameBusy}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="space-y-2">
+              <Label htmlFor={`player-game-note-${playerApiId}`}>Note (optional)</Label>
+              <Textarea
+                id={`player-game-note-${playerApiId}`}
+                value={gameForm.note}
+                onChange={(event) => setGameForm((form) => ({ ...form, note: event.target.value }))}
+                placeholder="Add useful context about the performance"
+                maxLength={500}
+                rows={3}
+                disabled={gameBusy}
+              />
+            </div>
+
+            {gameError ? <p className="text-sm text-destructive" role="alert">{gameError}</p> : null}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setGameOpen(false)} disabled={gameBusy}>Cancel</Button>
+            <Button type="submit" disabled={gameBusy}>
+              {gameBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              {gameBusy ? 'Saving…' : gameEditTarget ? 'Save changes' : 'Add game'}
+            </Button>
+          </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete game confirmation */}
+      <Dialog
+        open={gameDeleteOpen}
+        onOpenChange={(open) => {
+          if (gameDeleteBusy) return
+          setGameDeleteOpen(open)
+          if (!open) {
+            setGameDeleteTarget(null)
+            setGameDeleteError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete game</DialogTitle>
+            <DialogDescription>
+              Remove the game against {gameDeleteTarget?.opponent || 'this opponent'} from this player&apos;s stats.
+            </DialogDescription>
+          </DialogHeader>
+          {gameDeleteError ? (
+            <p className="text-sm text-destructive" role="alert">{gameDeleteError}</p>
+          ) : (
+            <p className="text-sm text-foreground/90">This cannot be undone.</p>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setGameDeleteOpen(false)} disabled={gameDeleteBusy}>
+              {gameDeleteError ? 'Close' : 'Cancel'}
+            </Button>
+            {!gameDeleteError ? (
+              <Button variant="destructive" onClick={deleteGame} disabled={gameDeleteBusy}>
+                {gameDeleteBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                {gameDeleteBusy ? 'Deleting…' : 'Delete game'}
+              </Button>
+            ) : null}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

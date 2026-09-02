@@ -42,6 +42,7 @@ import { SeasonStatsPanel } from '@/components/SeasonStatsPanel'
 import { CommentSection } from '@/components/CommentSection'
 import { PlayerLinksSection } from '@/components/PlayerLinksSection'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
+import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { PlayerAvailability } from '@/components/PlayerAvailability'
 import { SeasonSelect } from '@/components/ui/SeasonSelect'
 import { seasonStore } from '@/lib/seasonStore'
@@ -274,6 +275,7 @@ export function PlayerPage() {
     const [seasonStats, setSeasonStats] = useState(null)
     const [commentaries, setCommentaries] = useState({ commentaries: [], authors: [], total_count: 0 })
     const [loading, setLoading] = useState(true)
+    const [notFound, setNotFound] = useState(false)
     const [error, setError] = useState(null)
     const [position, setPosition] = useState(DEFAULT_POSITION)
     const [selectedMetrics, setSelectedMetrics] = useState([])
@@ -389,17 +391,30 @@ export function PlayerPage() {
 
     const loadPlayerData = async (isCancelled) => {
         setLoading(true)
+        setNotFound(false)
         setError(null)
         try {
+            let publicStatsNotFound = false
             const [profileData, statsData, seasonData, commentariesData, academyData] = await Promise.all([
                 APIService.getPublicPlayerProfile(playerId).catch(() => null),
-                APIService.getPublicPlayerStats(playerId, selectedSeason),
+                APIService.getPublicPlayerStats(playerId, selectedSeason).catch((requestError) => {
+                    if (requestError?.status === 404) {
+                        publicStatsNotFound = true
+                        return null
+                    }
+                    throw requestError
+                }),
                 APIService.getPublicPlayerSeasonStats(playerId, selectedSeason).catch(() => null),
                 APIService.getPlayerCommentaries(playerId).catch(() => ({ commentaries: [], authors: [], total_count: 0 })),
                 APIService.getPlayerAcademyStats(playerId).catch(() => null),
             ])
 
             if (isCancelled()) return
+
+            if (publicStatsNotFound || (profileData == null && statsData == null && seasonData == null)) {
+                setNotFound(true)
+                return
+            }
 
             const statRows = Array.isArray(statsData) ? statsData : statsData?.matches ?? []
             setProfile(profileData)
@@ -620,6 +635,27 @@ export function PlayerPage() {
         )
     }
 
+    if (notFound) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-secondary to-background">
+                <Card className="max-w-md">
+                    <CardContent className="pt-6 text-center">
+                        <h1 className="text-lg font-semibold text-foreground mb-4">
+                            This profile doesn&apos;t exist or isn&apos;t public yet
+                        </h1>
+                        <p className="text-sm leading-relaxed text-muted-foreground mb-4">
+                            It may still be waiting for review, or the profile link may be incorrect.
+                        </p>
+                        <Button variant="outline" onClick={handleBack}>
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Go Back
+                        </Button>
+                    </CardContent>
+                </Card>
+            </div>
+        )
+    }
+
     return (
         <JourneyProvider journeyData={journeyData}>
         <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
@@ -716,12 +752,24 @@ export function PlayerPage() {
 
             <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 pb-24 sm:pb-6">
                     <div className="space-y-8">
-                        <ShowcaseSection playerApiId={playerApiId} playerName={playerName} />
+                        <ShowcaseSection
+                            playerApiId={String(playerId)}
+                            playerName={playerName}
+                            playerPosition={profile?.position || position}
+                            season={resolvedSeason}
+                            onSeasonStatsChange={(nextStats) => {
+                                const nextSeason = Number.parseInt(String(nextStats?.season ?? ''), 10)
+                                if (selectedSeason == null || nextSeason === Number(selectedSeason)) {
+                                    setSeasonStats(nextStats)
+                                }
+                            }}
+                        />
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex flex-wrap items-center gap-2">
                                 <h2 className="text-xl font-semibold tracking-tight text-foreground">
                                     {seasonLabel} Totals
                                 </h2>
+                                <ProvenanceChip provenance={provenance} />
                                 {provenanceText && provenanceText !== 'none' && provenanceText !== 'live-fallback' ? (
                                     <UiTooltip>
                                         <TooltipTrigger asChild>

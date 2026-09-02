@@ -17,12 +17,14 @@ import {
   ShieldCheck,
   Shirt,
   Trash2,
+  Trophy,
   Upload,
   Users,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { ClubIntroductionsPanel } from '@/components/contact/ClubIntroductionsPanel'
 import { PlayerReels } from '@/components/video/PlayerReel'
+import { useAuthUI } from '@/context/AuthContext'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { formatDateOnly } from '@/lib/dateOnly'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -55,6 +57,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 
 const MAX_TIMELINE_SECONDS = 21600
+const MAX_MATCH_MINUTES = 130
+const MAX_MATCH_COUNT = 20
+const MAX_RESULT_TEXT_LENGTH = 120
+const MAX_RESULT_NOTE_LENGTH = 500
 const EDITABLE_MATCH_STATUSES = new Set(['created', 'uploaded'])
 const MATCH_STATUS = {
   created: { label: 'Awaiting upload', className: 'border-sky-200 bg-sky-50 text-sky-800' },
@@ -73,6 +79,14 @@ const EMPTY_MATCH_FORM = {
   our_kit_color: '',
   opponent_kit_color: '',
   match_date: '',
+}
+const EMPTY_RESULT_FORM = {
+  match_date: '',
+  opponent: '',
+  competition: '',
+  home_away: 'home',
+  result_for: '',
+  result_against: '',
 }
 const MATCH_FORM_FIELDS = [
   'opponent_name',
@@ -144,6 +158,95 @@ function matchRosterValues(match) {
     club_roster_member_id: entry.club_roster_member_id,
     jersey_number: String(entry.jersey_number),
   })).filter((entry) => entry.club_roster_member_id) : []
+}
+
+function isGoalkeeper(member) {
+  const position = String(member?.position || member?.role || '').trim().toLowerCase()
+  return position === 'g' || position === 'gk' || position === 'goalkeeper' || position === 'keeper'
+}
+
+function resultFormValues(match, savedResult) {
+  const returned = savedResult?.result
+  if (returned && typeof returned === 'object') {
+    return {
+      match_date: returned.match_date || '',
+      opponent: returned.opponent || '',
+      competition: returned.competition || '',
+      home_away: returned.home_away || 'home',
+      result_for: returned.result_for ?? '',
+      result_against: returned.result_against ?? '',
+    }
+  }
+  if (!match) return EMPTY_RESULT_FORM
+  return {
+    match_date: match.match_date || '',
+    opponent: match.opponent_name || '',
+    competition: match.competition || '',
+    home_away: match.home_away || 'home',
+    result_for: match.result_for ?? '',
+    result_against: match.result_against ?? '',
+  }
+}
+
+function resultRosterMembers(match, rosterMembers) {
+  const available = rosterMembers.filter((member) => member.available)
+  if (!match) return available
+  const membersById = new Map(available.map((member) => [Number(member.id), member]))
+  return (Array.isArray(match.roster) ? match.roster : []).flatMap((entry) => {
+    const member = membersById.get(Number(entry.club_roster_member_id))
+    return member ? [{ ...member, jersey_number: entry.jersey_number }] : []
+  })
+}
+
+function resultEntryValues(member, returnedMatch, included) {
+  return {
+    club_roster_member_id: member.id,
+    included,
+    minutes: String(returnedMatch?.minutes ?? 0),
+    goals: String(returnedMatch?.goals ?? 0),
+    assists: String(returnedMatch?.assists ?? 0),
+    yellows: String(returnedMatch?.yellows ?? 0),
+    reds: String(returnedMatch?.reds ?? 0),
+    saves: returnedMatch?.saves === null || typeof returnedMatch?.saves === 'undefined' ? '' : String(returnedMatch.saves),
+    goals_conceded: returnedMatch?.goals_conceded === null || typeof returnedMatch?.goals_conceded === 'undefined' ? '' : String(returnedMatch.goals_conceded),
+    note: returnedMatch?.note || '',
+  }
+}
+
+function resultEntriesValues(members, savedResult, defaultIncluded) {
+  const returnedByPlayerId = new Map((Array.isArray(savedResult?.matches) ? savedResult.matches : []).map((match) => [
+    String(match.player_api_id),
+    match,
+  ]))
+  return members.map((member) => resultEntryValues(
+    member,
+    returnedByPlayerId.get(signedPlayerIdForMember(member)),
+    defaultIncluded,
+  ))
+}
+
+function boundedInteger(value, label, max) {
+  if (value === '' || value === null || typeof value === 'undefined') {
+    throw new Error(`${label} is required.`)
+  }
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > max) {
+    throw new Error(`${label} must be a whole number from 0 to ${max}.`)
+  }
+  return parsed
+}
+
+function nullableBoundedInteger(value, label, max) {
+  if (value === '' || value === null || typeof value === 'undefined') return null
+  return boundedInteger(value, label, max)
+}
+
+function signedPlayerIdForMember(member) {
+  if (member?.player_api_id !== null && typeof member?.player_api_id !== 'undefined') {
+    return String(member.player_api_id)
+  }
+  const localPlayerId = Number(member?.local_player_id)
+  return Number.isInteger(localPlayerId) && localPlayerId > 0 ? String(-localPlayerId) : null
 }
 
 function timelinePayload(values, { dirtyFields } = {}) {
@@ -555,6 +658,347 @@ function CreateMatchDialog({ open, onOpenChange, programId, onCreated, onAccessD
   )
 }
 
+function RecordResultDialog({ programId, videoMatch, members, savedResult, onSaved, onClose, onAccessDenied }) {
+  const { logout, openLoginModal } = useAuthUI()
+  const [form, setForm] = useState(() => resultFormValues(videoMatch, savedResult))
+  const [entries, setEntries] = useState(() => resultEntriesValues(members, savedResult, Boolean(videoMatch)))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [result, setResult] = useState(null)
+  const errorRef = useRef(null)
+  const memberById = useMemo(() => new Map(members.map((member) => [Number(member.id), member])), [members])
+  const memberByPlayerId = useMemo(() => new Map(members.flatMap((member) => {
+    const playerIds = []
+    const apiPlayerId = Number(member.api_player_id)
+    if (Number.isInteger(apiPlayerId) && apiPlayerId > 0) playerIds.push(String(apiPlayerId))
+    const signedPlayerId = signedPlayerIdForMember(member)
+    if (signedPlayerId && !playerIds.includes(signedPlayerId)) playerIds.push(signedPlayerId)
+    return playerIds.map((playerId) => [playerId, member])
+  })), [members])
+  const seasonStats = result?.season_stats_by_player && typeof result.season_stats_by_player === 'object'
+    ? Object.entries(result.season_stats_by_player)
+    : []
+  const noVideo = !videoMatch
+  const selectedEntryCount = entries.filter((entry) => entry.included).length
+
+  useEffect(() => {
+    if (error) errorRef.current?.focus()
+  }, [error])
+
+  const updateForm = (field, value) => {
+    setError(null)
+    setForm((current) => ({ ...current, [field]: value }))
+  }
+  const updateEntry = (memberId, field, value) => {
+    setError(null)
+    setEntries((current) => current.map((entry) => Number(entry.club_roster_member_id) === Number(memberId)
+      ? { ...entry, [field]: value }
+      : entry))
+  }
+
+  const buildPayload = () => {
+    const matchDate = form.match_date.trim()
+    if (!matchDate) throw new Error('Match date is required.')
+    const today = new Date()
+    const todayString = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-')
+    if (matchDate > todayString) throw new Error('Match date cannot be in the future.')
+
+    const opponent = form.opponent.trim()
+    const competition = form.competition.trim()
+    if (!opponent) throw new Error('Opponent is required.')
+    if (opponent.length > MAX_RESULT_TEXT_LENGTH) throw new Error(`Opponent must be at most ${MAX_RESULT_TEXT_LENGTH} characters.`)
+    if (competition.length > MAX_RESULT_TEXT_LENGTH) throw new Error(`Competition must be at most ${MAX_RESULT_TEXT_LENGTH} characters.`)
+    if (!['home', 'away', 'neutral'].includes(form.home_away)) throw new Error('Choose whether the fixture was home, away or neutral.')
+
+    const selectedEntries = entries.filter((entry) => entry.included)
+    if (selectedEntries.length === 0) throw new Error('Select at least one roster member.')
+
+    return {
+      video_match_id: videoMatch ? Number(videoMatch.id) : null,
+      match_date: matchDate,
+      opponent,
+      competition: competition || null,
+      home_away: form.home_away,
+      result_for: boundedInteger(form.result_for, 'Our score', MAX_MATCH_COUNT),
+      result_against: boundedInteger(form.result_against, 'Their score', MAX_MATCH_COUNT),
+      entries: selectedEntries.map((entry) => {
+        const member = memberById.get(Number(entry.club_roster_member_id))
+        const memberId = Number(entry.club_roster_member_id)
+        if (!member || !Number.isInteger(memberId) || memberId <= 0) {
+          throw new Error('A selected roster member is no longer available.')
+        }
+        const note = entry.note.trim()
+        if (note.length > MAX_RESULT_NOTE_LENGTH) {
+          throw new Error(`${member.display_name || 'Player'}’s note must be at most ${MAX_RESULT_NOTE_LENGTH} characters.`)
+        }
+        const goalkeeper = isGoalkeeper(member)
+        return {
+          club_roster_member_id: memberId,
+          minutes: boundedInteger(entry.minutes, `${member.display_name || 'Player'} minutes`, MAX_MATCH_MINUTES),
+          goals: boundedInteger(entry.goals, `${member.display_name || 'Player'} goals`, MAX_MATCH_COUNT),
+          assists: boundedInteger(entry.assists, `${member.display_name || 'Player'} assists`, MAX_MATCH_COUNT),
+          yellows: boundedInteger(entry.yellows, `${member.display_name || 'Player'} yellows`, MAX_MATCH_COUNT),
+          reds: boundedInteger(entry.reds, `${member.display_name || 'Player'} reds`, MAX_MATCH_COUNT),
+          saves: goalkeeper ? nullableBoundedInteger(entry.saves, `${member.display_name || 'Goalkeeper'} saves`, MAX_MATCH_COUNT) : null,
+          goals_conceded: goalkeeper ? nullableBoundedInteger(entry.goals_conceded, `${member.display_name || 'Goalkeeper'} goals conceded`, MAX_MATCH_COUNT) : null,
+          note: note || null,
+        }
+      }),
+    }
+  }
+
+  const submit = async () => {
+    if (busy) return
+    let payload
+    try {
+      payload = buildPayload()
+    } catch (validationError) {
+      setError(validationError.message)
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    try {
+      const response = await APIService.recordClubResult(programId, payload)
+      setResult(response || { season_stats_by_player: {} })
+      if (videoMatch && response) onSaved(response)
+    } catch (requestError) {
+      if (requestError?.status === 401) {
+        logout({ clearAdminKey: true })
+        onClose()
+        openLoginModal()
+        return
+      }
+      if (requestError?.status === 403) {
+        onClose()
+        onAccessDenied()
+        return
+      }
+      if (requestError?.status === 404) {
+        setError(requestError.body?.error || 'This match or roster is no longer available. Refresh and try again.')
+      } else if (requestError?.status === 409) {
+        setError(requestError.body?.error || 'This result conflicts with the current match or roster. Refresh and try again.')
+      } else {
+        setError(errorText(requestError, 'Could not record this result.'))
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(nextOpen) => { if (!nextOpen && !busy) onClose() }}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>{videoMatch ? `Record result vs ${videoMatch.opponent_name || 'opponent'}` : 'Record a result without video'}</DialogTitle>
+          <DialogDescription>
+            {videoMatch
+              ? 'Add the final score and club-confirmed stats for the saved match roster.'
+              : 'Log a fixture and club-confirmed player stats without creating or uploading a video.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {result ? (
+          <div className="space-y-4 py-2">
+            <Alert className="border-emerald-200 bg-emerald-50">
+              <Check className="h-4 w-4 text-emerald-700" />
+              <AlertDescription className="text-emerald-950">
+                Result saved for {Array.isArray(result.matches) ? result.matches.length : selectedEntryCount} players. Their club-confirmed season totals are now updated.
+              </AlertDescription>
+            </Alert>
+            <section aria-labelledby="club-result-season-totals" className="space-y-3">
+              <div>
+                <h3 id="club-result-season-totals" className="font-bold text-foreground">Season totals updated</h3>
+                <p className="text-sm text-muted-foreground">Totals remain separated by source and are shown here exactly as returned after the write.</p>
+              </div>
+              {seasonStats.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">No season totals were returned.</p>
+              ) : (
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {seasonStats.map(([playerId, stats]) => {
+                    const rosterMemberId = Number(stats?.club_roster_member_id)
+                    const hasRosterMemberId = Number.isInteger(rosterMemberId) && rosterMemberId > 0
+                    const member = (hasRosterMemberId ? memberById.get(rosterMemberId) : null)
+                      || memberByPlayerId.get(String(playerId))
+                    const withheldMinor = stats?.withheld === 'minor'
+                    const playerName = stats?.player_name
+                      || member?.display_name
+                      || (withheldMinor ? 'Roster player' : `Player ${playerId}`)
+                    const metrics = [
+                      ['Apps', stats?.appearances ?? 0],
+                      ['Minutes', stats?.minutes ?? 0],
+                      ['Goals', stats?.goals ?? 0],
+                      ['Assists', stats?.assists ?? 0],
+                      ['Yellows', stats?.yellows ?? 0],
+                      ['Reds', stats?.reds ?? 0],
+                    ]
+                    if (stats?.saves !== null && typeof stats?.saves !== 'undefined') metrics.push(['Saves', stats.saves])
+                    if (stats?.goals_conceded !== null && typeof stats?.goals_conceded !== 'undefined') metrics.push(['Conceded', stats.goals_conceded])
+                    return (
+                      <article
+                        key={hasRosterMemberId ? `roster-${rosterMemberId}` : `player-${playerId}`}
+                        className="rounded-xl border border-border bg-secondary/25 p-4"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h4 className="font-semibold text-foreground">{playerName}</h4>
+                          {!withheldMinor && stats?.season ? <Badge variant="outline">{stats.season} season</Badge> : null}
+                        </div>
+                        {withheldMinor ? (
+                          <p className="mt-3 rounded-lg border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground">
+                            Totals withheld for this player
+                          </p>
+                        ) : (
+                          <dl className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                            {metrics.map(([label, value]) => (
+                              <div key={label} className="rounded-lg bg-background px-2.5 py-2 ring-1 ring-border/70">
+                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</dt>
+                                <dd className="mt-0.5 font-bold tabular-nums text-foreground">{value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
+                      </article>
+                    )
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+        ) : (
+          <form
+            className="space-y-5 py-2"
+            aria-describedby={error ? 'club-result-error' : undefined}
+            onSubmit={(event) => { event.preventDefault(); submit() }}
+          >
+            <section className="grid gap-4 rounded-xl border border-border bg-secondary/20 p-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Match result details">
+              <div className="space-y-2">
+                <Label htmlFor="club-result-date">Match date</Label>
+                <Input id="club-result-date" type="date" value={form.match_date} onChange={(event) => updateForm('match_date', event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="club-result-opponent">Opponent</Label>
+                <Input id="club-result-opponent" value={form.opponent} onChange={(event) => updateForm('opponent', event.target.value)} maxLength={MAX_RESULT_TEXT_LENGTH} placeholder="Opponent name" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="club-result-competition">Competition</Label>
+                <Input id="club-result-competition" value={form.competition} onChange={(event) => updateForm('competition', event.target.value)} maxLength={MAX_RESULT_TEXT_LENGTH} placeholder="League or tournament" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="club-result-home-away">Home / away</Label>
+                <Select value={form.home_away} onValueChange={(value) => updateForm('home_away', value)}>
+                  <SelectTrigger id="club-result-home-away"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="home">Home</SelectItem>
+                    <SelectItem value="away">Away</SelectItem>
+                    <SelectItem value="neutral">Neutral</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="club-result-for">Our score</Label>
+                <Input id="club-result-for" type="number" inputMode="numeric" min="0" max={MAX_MATCH_COUNT} step="1" value={form.result_for} onChange={(event) => updateForm('result_for', event.target.value)} placeholder="0" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="club-result-against">Their score</Label>
+                <Input id="club-result-against" type="number" inputMode="numeric" min="0" max={MAX_MATCH_COUNT} step="1" value={form.result_against} onChange={(event) => updateForm('result_against', event.target.value)} placeholder="0" />
+              </div>
+            </section>
+
+            <section className="space-y-3" aria-labelledby="club-result-player-stats">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <h3 id="club-result-player-stats" className="font-bold text-foreground">Player stats</h3>
+                  <p className="text-sm text-muted-foreground">Minutes allow 0–{MAX_MATCH_MINUTES}; every count allows 0–{MAX_MATCH_COUNT}. Leave goalkeeper fields blank when unknown.</p>
+                </div>
+                <Badge variant="outline">{selectedEntryCount} selected</Badge>
+              </div>
+              {entries.length === 0 ? (
+                <EmptyState icon={Users} title="No available roster members">Add players to the club roster{videoMatch ? ' and save the match roster' : ''} before recording a result.</EmptyState>
+              ) : (
+                <div className="space-y-3">
+                  {entries.map((entry) => {
+                    const member = memberById.get(Number(entry.club_roster_member_id))
+                    if (!member) return null
+                    const goalkeeper = isGoalkeeper(member)
+                    const playerLabel = member.display_name || `Roster member #${member.id}`
+                    const prefix = `club-result-player-${member.id}`
+                    return (
+                      <article key={member.id} aria-labelledby={`${prefix}-name`} className={`rounded-xl border p-4 transition-colors ${entry.included ? 'border-border bg-card' : 'border-border/60 bg-muted/25 opacity-70'}`}>
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            {noVideo ? (
+                              <input
+                                type="checkbox"
+                                checked={entry.included}
+                                onChange={(event) => updateEntry(member.id, 'included', event.target.checked)}
+                                aria-label={`Include ${playerLabel} in result`}
+                                className="h-4 w-4 shrink-0 accent-primary"
+                              />
+                            ) : null}
+                            <div className="min-w-0">
+                              <h4 id={`${prefix}-name`} className="truncate font-semibold text-foreground">{playerLabel}</h4>
+                              <p className="truncate text-xs text-muted-foreground">{[member.jersey_number ? `#${member.jersey_number}` : null, member.position || member.role, member.is_minor ? 'Minor — private' : null].filter(Boolean).join(' · ') || 'Club roster member'}</p>
+                            </div>
+                          </div>
+                          {goalkeeper ? <Badge className="border-sky-200 bg-sky-50 text-sky-800">Goalkeeper</Badge> : null}
+                        </div>
+                        <fieldset disabled={!entry.included} className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                          {[
+                            ['minutes', 'Minutes', MAX_MATCH_MINUTES],
+                            ['goals', 'Goals', MAX_MATCH_COUNT],
+                            ['assists', 'Assists', MAX_MATCH_COUNT],
+                            ['yellows', 'Yellows', MAX_MATCH_COUNT],
+                            ['reds', 'Reds', MAX_MATCH_COUNT],
+                          ].map(([field, label, max]) => (
+                            <div key={field} className="space-y-1.5">
+                              <Label htmlFor={`${prefix}-${field}`}>{label}</Label>
+                              <Input id={`${prefix}-${field}`} type="number" inputMode="numeric" min="0" max={max} step="1" value={entry[field]} onChange={(event) => updateEntry(member.id, field, event.target.value)} />
+                            </div>
+                          ))}
+                          {goalkeeper ? (
+                            <>
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`${prefix}-saves`}>Saves</Label>
+                                <Input id={`${prefix}-saves`} type="number" inputMode="numeric" min="0" max={MAX_MATCH_COUNT} step="1" value={entry.saves} onChange={(event) => updateEntry(member.id, 'saves', event.target.value)} placeholder="Unknown" />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`${prefix}-goals-conceded`}>Goals conceded</Label>
+                                <Input id={`${prefix}-goals-conceded`} type="number" inputMode="numeric" min="0" max={MAX_MATCH_COUNT} step="1" value={entry.goals_conceded} onChange={(event) => updateEntry(member.id, 'goals_conceded', event.target.value)} placeholder="Unknown" />
+                              </div>
+                            </>
+                          ) : null}
+                          <div className="space-y-1.5 sm:col-span-3 lg:col-span-6">
+                            <Label htmlFor={`${prefix}-note`}>Note</Label>
+                            <Textarea id={`${prefix}-note`} value={entry.note} onChange={(event) => updateEntry(member.id, 'note', event.target.value)} maxLength={MAX_RESULT_NOTE_LENGTH} rows={2} placeholder="Optional manager note" />
+                          </div>
+                        </fieldset>
+                      </article>
+                    )
+                  })}
+                </div>
+              )}
+            </section>
+            {error ? (
+              <p id="club-result-error" ref={errorRef} className="text-sm text-destructive" role="alert" tabIndex={-1}>
+                {error}
+              </p>
+            ) : null}
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+              <Button type="submit" disabled={busy || selectedEntryCount === 0}>
+                {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trophy className="mr-1.5 h-4 w-4" />}
+                {busy ? 'Saving result…' : 'Save result'}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+        {result ? <DialogFooter><Button type="button" onClick={onClose}>Close</Button></DialogFooter> : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function MatchReport({ programId, match, onAccessDenied }) {
   const [state, setState] = useState({ loading: false, loaded: false, notFinalized: false, report: null, error: null })
 
@@ -705,7 +1149,7 @@ function ClubPlayerReels({ programId, match, onAccessDenied }) {
   )
 }
 
-function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChange, onUploadGrantChange, onAccessDenied, onRefresh }) {
+function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChange, onUploadGrantChange, onAccessDenied, onRefresh, onRecordResult }) {
   const editable = EDITABLE_MATCH_STATUSES.has(match.status)
   const [form, setForm] = useState(() => matchFormValues(match))
   const dirtyFieldsRef = useRef(new Set())
@@ -971,6 +1415,24 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
           {editable ? <Button variant="outline" onClick={saveRoster} disabled={rosterSaving || availableMembers.length === 0}>{rosterSaving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Shirt className="mr-1.5 h-4 w-4" />}{rosterSaving ? 'Saving…' : 'Save match roster'}</Button> : null}
         </section>
 
+        {editable ? (
+          <section className="space-y-3 border-t border-border pt-5" aria-labelledby={`match-${match.id}-result`}>
+            <div>
+              <h3 id={`match-${match.id}-result`} className="font-bold text-foreground">Record result</h3>
+              <p className="text-sm text-muted-foreground">Save the score and club-confirmed stats for the players on this match roster.</p>
+            </div>
+            {match.roster.length === 0 ? <p className="text-sm text-amber-800">Select players and save the match roster first.</p> : null}
+            <Button
+              variant="outline"
+              onClick={() => onRecordResult(match)}
+              disabled={match.roster.length === 0}
+              aria-label={`Record result for ${match.opponent_name || `match ${match.id}`}`}
+            >
+              <Trophy className="mr-1.5 h-4 w-4" /> Record result
+            </Button>
+          </section>
+        ) : null}
+
         <section className="space-y-3 border-t border-border pt-5" aria-labelledby={`match-${match.id}-processing`}>
           <div><h3 id={`match-${match.id}-processing`} className="font-bold text-foreground">Processing</h3><p className="text-sm text-muted-foreground">Your request only queues the work. An admin runs the GPU pipeline, reviews identities and finalizes the result.</p></div>
           {match.processing_request_status === 'requested' ? <Alert className="border-indigo-200 bg-indigo-50"><Clock3 className="h-4 w-4 text-indigo-700" /><AlertDescription className="text-indigo-950">Processing requested. Refresh this match later to see its admin-run status.</AlertDescription></Alert> : null}
@@ -998,6 +1460,8 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
 
 function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadFailureCount, uploadGrants, onMatchesChange, onUploadGrantChange, onReload, onAccessDenied }) {
   const [createOpen, setCreateOpen] = useState(false)
+  const [resultTarget, setResultTarget] = useState(null)
+  const [savedVideoResults, setSavedVideoResults] = useState({})
   const [selectedId, setSelectedId] = useState(() => matches[0]?.id || null)
   const selectedMatch = matches.find((match) => match.id === selectedId) || matches[0] || null
 
@@ -1061,7 +1525,17 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div><h2 className="text-xl font-bold tracking-tight text-foreground">Matches &amp; reports</h2><p className="mt-1 text-sm text-muted-foreground">Create, upload and queue private match analysis.</p></div>
-        <Button onClick={() => setCreateOpen(true)}><Plus className="mr-1.5 h-4 w-4" /> Create match</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setResultTarget({ videoMatch: null, members: resultRosterMembers(null, rosterMembers), savedResult: null })}
+            disabled={!rosterMembers.some((member) => member.available)}
+            aria-label="Record result without video"
+          >
+            <Trophy className="mr-1.5 h-4 w-4" /> Record result
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}><Plus className="mr-1.5 h-4 w-4" /> Create match</Button>
+        </div>
       </div>
       {loadFailureCount > 0 ? (
         <Alert className="border-amber-200 bg-amber-50">
@@ -1105,11 +1579,30 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
               onUploadGrantChange={(grant) => onUploadGrantChange(selectedMatch.id, grant)}
               onAccessDenied={onAccessDenied}
               onRefresh={refreshSelected}
+              onRecordResult={(videoMatch) => setResultTarget({
+                videoMatch,
+                members: resultRosterMembers(videoMatch, rosterMembers),
+                savedResult: savedVideoResults[String(videoMatch.id)] || null,
+              })}
             />
           ) : null}
         </div>
       ) : null}
       <CreateMatchDialog open={createOpen} onOpenChange={setCreateOpen} programId={programId} onCreated={created} onAccessDenied={onAccessDenied} />
+      {resultTarget ? (
+        <RecordResultDialog
+          programId={programId}
+          videoMatch={resultTarget.videoMatch}
+          members={resultTarget.members}
+          savedResult={resultTarget.savedResult}
+          onSaved={(response) => {
+            const matchId = resultTarget.videoMatch?.id
+            if (matchId) setSavedVideoResults((current) => ({ ...current, [String(matchId)]: response }))
+          }}
+          onClose={() => setResultTarget(null)}
+          onAccessDenied={onAccessDenied}
+        />
+      ) : null}
     </div>
   )
 }

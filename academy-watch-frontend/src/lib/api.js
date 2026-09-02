@@ -473,6 +473,37 @@ export class APIService {
         return this.request(`/players/${playerId}/season-stats${query}`)
     }
 
+    static async getPlayerMatches(playerApiId, params = {}) {
+        const queryParams = new URLSearchParams()
+        for (const [key, value] of Object.entries(params)) {
+            if (value === undefined || value === null || value === '') continue
+            queryParams.set(key, String(value))
+        }
+        const query = queryParams.toString()
+        const suffix = query ? `?${query}` : ''
+        return this.request(`/players/${encodeURIComponent(String(playerApiId))}/matches${suffix}`)
+    }
+
+    static async createPlayerMatch(playerApiId, payload) {
+        return this.request(`/players/${encodeURIComponent(String(playerApiId))}/matches`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async updatePlayerMatch(playerApiId, entryId, payload) {
+        return this.request(`/players/${encodeURIComponent(String(playerApiId))}/matches/${encodeURIComponent(String(entryId))}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async deletePlayerMatch(playerApiId, entryId) {
+        return this.request(`/players/${encodeURIComponent(String(playerApiId))}/matches/${encodeURIComponent(String(entryId))}`, {
+            method: 'DELETE',
+        })
+    }
+
     static async getPlayerCommentaries(playerId) {
         return this.request(`/players/${playerId}/commentaries`)
     }
@@ -487,10 +518,11 @@ export class APIService {
         return this.request(`/scout/leaderboards?${params}`)
     }
 
-    static async compareScoutPlayers(ids = [], { includeAvailability = false, season } = {}) {
+    static async compareScoutPlayers(ids = [], { includeAvailability = false, season, source } = {}) {
         const params = new URLSearchParams({ ids: ids.join(',') })
         if (includeAvailability) params.set('include_availability', 'true')
         if (season !== undefined && season !== null) params.set('season', String(season))
+        if (source) params.set('source', String(source))
         return this.request(`/scout/compare?${params}`)
     }
 
@@ -1330,6 +1362,13 @@ export class APIService {
 
     static async createClubMatch(programId, payload) {
         return this.request(`/club/${encodeURIComponent(programId)}/matches`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async recordClubResult(programId, payload) {
+        return this.request(`/club/${encodeURIComponent(String(programId))}/results`, {
             method: 'POST',
             body: JSON.stringify(payload),
         })
