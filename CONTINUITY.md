@@ -97,7 +97,13 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ### Now
 - **2026-09-02 grounded caption enum prompt review fix applied; PR #970 awaiting merge:** grounded-only placeholder examples/instructions plus set-based deterministic single-choice recovery; 138 spike tests and both bare Ruff checks pass. See `ledgers/CONTINUITY_grounded-caption-enum-prompt.md`.
-- **2026-09-02 S1 STARTED (MJ: "go S1, show the stats with the chip").** Ledger `ledgers/CONTINUITY_dream-s1.md`; decisions D1 negative synthetic ids / D2 show with chip / D3 minors never public. Codex recon re-verifying the Aug-23 directive anchors on origin/main c764f10; then 3–4 codex packages (grain + migration pm01, identity union, web, trust tiers).
+- **2026-09-02 S1 SHIPPED (evening) — "one player universe + a games grain" → 59.8%.** Five PRs live: #963 P1 games grain
+  (`player_match_entries` + `showcase_moderation_events`, migration `pm01` pre-applied + stamped; owner CRUD; user/club rollup feeders),
+  #965 P2 local players join the universe (negative synthetic ids, approval mint, signed routes, no-upstream guards, scout union +
+  `source` filter + provenance, link-api), #968 P3 club results + lineups (program-scoped identity), #964 P4 web (add a game, provenance
+  chips, scout source filter, club record-result dialog), #969 P5 trust-tiered auto-approval + graduation re-key + backfill. Prod env:
+  `SCOUT_INCLUDE_LOCAL_PLAYERS=1`, `SHOWCASE_TRUST_MIN_ACCOUNT_AGE_DAYS=14`. MJ: rotated Mailgun (synced to KV), approved deleting the 3
+  orphan negative players rows (done). Hygiene sweep S1-E in flight. Ledger `ledgers/CONTINUITY_dream-s1.md`. NEXT: S2 fans + reach.
 - **2026-09-02 DREAM SCORECARD + S0 SHIPPED (Fable orchestrating; codex ultra builds; Fable-subagent adversarial checks; bot reviews read).**
   Scorecard `ledgers/GRADING_dream-scorecard-2026-09-02.md`: baseline **Built 51.9% / Lived ~0%** (prod: 9 accounts [5 team], 1 claim, 0 clubs,
   0 intros, $0). Evidence `ledgers/research/dream-scorecard-2026-09-02.json` (baseline + post_s0). **S0 'unbreak the front door' DONE + LIVE
