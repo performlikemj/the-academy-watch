@@ -1,3 +1,3 @@
 User-agent: *
 Allow: /
-Sitemap: https://api.theacademywatch.com/sitemap.xml
+Sitemap: https://theacademywatch.com/sitemap.xml

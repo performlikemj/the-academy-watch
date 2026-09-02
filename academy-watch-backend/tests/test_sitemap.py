@@ -600,6 +600,7 @@ def test_sitemap_route_returns_xml_before_spa_catch_all(share_client, monkeypatc
 
 def test_api_robots_points_at_api_origin_sitemap(share_client, monkeypatch):
     monkeypatch.setenv("PUBLIC_API_BASE_URL", "https://api.example.test/root/")
+    monkeypatch.delenv("PUBLIC_SHARE_BASE_URL", raising=False)
 
     response = share_client.get("/robots.txt", headers={"X-Forwarded-Host": "forged.invalid"})
 
