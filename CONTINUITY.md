@@ -96,7 +96,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
-- **2026-09-02 grounded caption enum prompt verified:** grounded-only concrete enum examples/instructions plus deterministic single-choice recovery; 136 spike tests and both bare Ruff checks pass. See `ledgers/CONTINUITY_grounded-caption-enum-prompt.md`.
+- **2026-09-02 grounded caption enum prompt review fix applied; PR #970 awaiting merge:** grounded-only placeholder examples/instructions plus set-based deterministic single-choice recovery; 138 spike tests and both bare Ruff checks pass. See `ledgers/CONTINUITY_grounded-caption-enum-prompt.md`.
 - **2026-09-02 S1 STARTED (MJ: "go S1, show the stats with the chip").** Ledger `ledgers/CONTINUITY_dream-s1.md`; decisions D1 negative synthetic ids / D2 show with chip / D3 minors never public. Codex recon re-verifying the Aug-23 directive anchors on origin/main c764f10; then 3–4 codex packages (grain + migration pm01, identity union, web, trust tiers).
 - **2026-09-02 DREAM SCORECARD + S0 SHIPPED (Fable orchestrating; codex ultra builds; Fable-subagent adversarial checks; bot reviews read).**
   Scorecard `ledgers/GRADING_dream-scorecard-2026-09-02.md`: baseline **Built 51.9% / Lived ~0%** (prod: 9 accounts [5 team], 1 claim, 0 clubs,

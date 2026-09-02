@@ -330,12 +330,14 @@ def test_grounded_player_prompt_bounds_observations_by_importance():
     )
 
     assert "Return at most 3 observations, most important first." in prompt
-    assert '"confidence":"medium"' in prompt
-    assert (
-        "confidence must be exactly one of: low, medium — a single word, "
-        "never a list or several joined by '|'." in prompt
+    assert '"confidence":str' in prompt
+    expected_sentence = (
+        "confidence must be exactly one of: "
+        f"{', '.join(qwen_analysis.PLAYER_CONFIDENCE_LEVELS)} — a single word, "
+        "never a list or several joined by '|'."
     )
-    assert "low|medium" not in prompt
+    assert prompt.count(expected_sentence) == 1
+    assert "|".join(qwen_analysis.PLAYER_CONFIDENCE_LEVELS) not in prompt
 
 
 def test_legacy_player_prompt_is_byte_identical_snapshot():
@@ -853,16 +855,18 @@ def test_caption_prompt_is_number_only_multi_frame_and_outcome_guarded():
         grounded_contract=True,
     )
     assert "Return at most 3 claims, most important first." in grounded_prompt
-    for field, example, choices in (
-        ("action_type", "carry", qwen_analysis.ACTION_TYPES),
-        ("visible_pitch_zone", "central", qwen_analysis.PITCH_ZONES),
-        ("confidence", "medium", qwen_analysis.CLAIM_CONFIDENCE_LEVELS),
-        ("visibility", "clear", qwen_analysis.CLAIM_VISIBILITY_LEVELS),
+    for field, noun, choices in (
+        ("action_type", "word", qwen_analysis.ACTION_TYPES),
+        ("visible_pitch_zone", "value", qwen_analysis.PITCH_ZONES),
+        ("confidence", "word", qwen_analysis.CLAIM_CONFIDENCE_LEVELS),
+        ("visibility", "word", qwen_analysis.CLAIM_VISIBILITY_LEVELS),
     ):
-        assert f'"{field}":"{example}"' in grounded_prompt
-        assert (
-            f"{field} must be exactly one of: {', '.join(choices)}" in grounded_prompt
+        assert f'"{field}":str' in grounded_prompt
+        expected_sentence = (
+            f"{field} must be exactly one of: {', '.join(choices)} — a single "
+            f"{noun}, never a list or several joined by '|'."
         )
+        assert grounded_prompt.count(expected_sentence) == 1
         assert "|".join(choices) not in grounded_prompt
 
 
@@ -961,6 +965,8 @@ def test_grounded_caption_coerces_unknown_action_and_keeps_window(
     (
         ("carry|unclear", "unclear", 0),
         ("duel|xx", "duel", 1),
+        ("duel|duel", "duel", 1),
+        ("unclear|xx", "unclear", 0),
         ("carry|pass", "unclear", 0),
     ),
 )

@@ -393,8 +393,8 @@ frames; never say a shot scores or becomes a goal unless the goal is visibly sco
 Return at most 3 claims, most important first.
 Return one JSON object only with this exact shape:
 {{"claims":[{{"claim":str,"t0":number,"t1":number,"box_t":number,
-"box":[x1,y1,x2,y2],"confidence":"medium","visibility":"clear"}}],
-"action_type":"carry","visible_pitch_zone":"central"}}
+"box":[x1,y1,x2,y2],"confidence":str,"visibility":str}}],
+"action_type":str,"visible_pitch_zone":str}}
 action_type must be exactly one of: {action_types} — a single word, never a list or several joined by '|'.
 visible_pitch_zone must be exactly one of: {pitch_zones} — a single value, never a list or several joined by '|'.
 confidence must be exactly one of: {claim_confidence_levels} — a single word, never a list or several joined by '|'.
@@ -515,7 +515,7 @@ same player yourself. The images are ordered across time. Evidence timestamps an
 
 Return one JSON object only with this exact shape:
 {{"observations":[{{"observation":str,"box_t":number,"box":[x1,y1,x2,y2]}}],
-"confidence":"medium"}}
+"confidence":str}}
 confidence must be exactly one of: {player_confidence_levels} — a single word, never a list or several joined by '|'.
 Return at most 3 observations, most important first. Each box must cover only the tracked player region supporting
 its observation and use Qwen normalized_1000 coordinates (integer axes 0 to 1000) in the image at box_t. box_t
@@ -892,18 +892,18 @@ def _normalize_grounded_window_caption(
     if caption["action_type"] not in ACTION_TYPES:
         raw_value = caption["action_type"]
         valid_tokens = (
-            [
+            {
                 token.strip()
                 for token in raw_value.split("|")
                 if token.strip() in ACTION_TYPES
-            ]
+            }
             if isinstance(raw_value, str) and "|" in raw_value
-            else []
+            else set()
         )
-        recovered = valid_tokens[0] if len(valid_tokens) == 1 else None
+        recovered = next(iter(valid_tokens)) if len(valid_tokens) == 1 else None
         caption["action_type"] = recovered or "unclear"
         _increment_caption_fault(fault_counts, "captions_action_type_coerced")
-        if recovered is not None:
+        if recovered is not None and recovered != "unclear":
             _increment_caption_fault(fault_counts, "captions_action_type_recovered")
             log.warning(
                 "grounded caption action_type %r not in vocabulary; "

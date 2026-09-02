@@ -25,9 +25,9 @@ Owner: `/root`
 
 ## State
 
-- Done: Implemented grounded-only concrete enum examples/instructions, shared validator vocabularies, deterministic single-choice recovery, sampling counters, and regressions; all required checks pass.
-- Now: Commit and push the scoped changes, then open the requested unmerged PR.
-- Next: Await review; validate prompt compliance and recovery counts in a later regen.
+- Done: Replaced grounded enum example values with placeholders, retained constant-derived vocabulary sentences, made single-choice recovery set-based, excluded `unclear` from the recovery counter, and added regressions; all required checks pass.
+- Now: PR #970 open; review fix round applied; awaiting merge.
+- Next: next regen: compare label distributions (share of unclear/carry/central/medium/clear) against regen 11 to catch any example/echo bias.
 
 ## Links
 
@@ -50,3 +50,6 @@ Owner: `/root`
 - 2026-09-02: Focused regression selection → 10 passed.
 - 2026-09-02: `/Users/michaeljones/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis -q` → 136 passed.
 - 2026-09-02: Bare `ruff check` → all checks passed; bare `ruff format --check` → both files already formatted; `git diff --check` clean.
+- 2026-09-02 review fix: Focused prompt/recovery/snapshot selection → 9 passed.
+- 2026-09-02 review fix: `/Users/michaeljones/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis -q` → 138 passed.
+- 2026-09-02 review fix: Bare `ruff check` → all checks passed; bare `ruff format --check` → both files already formatted; `git diff --check` clean.
