@@ -69,6 +69,8 @@ def _attach_api_budget(api_client, budget: APICallBudget):
         client.call_budget = budget
     except (AttributeError, TypeError) as exc:
         raise TypeError("api_client must allow the scout digest call budget to be attached") from exc
+    if callable(resolve) and getattr(resolve(), "call_budget", None) is not budget:
+        raise TypeError("resolved api_client did not retain the scout digest call budget")
     return client
 
 
@@ -112,7 +114,7 @@ def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HO
             if next_cursor is None:
                 break
             if isinstance(next_cursor, bool) or not isinstance(next_cursor, int) or next_cursor <= cursor:
-                logger.warning(
+                logger.error(
                     "Scout digest paging returned a non-advancing cursor: cursor=%r next_cursor=%r users_considered=%r",
                     cursor,
                     next_cursor,
@@ -152,8 +154,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    dry_run = args.dry_run or os.getenv("SCOUT_DIGEST_DRY_RUN", "").strip().lower() in ("1", "true", "yes", "on")
     with app.app_context():
-        summary = run(dry_run=args.dry_run, min_interval_hours=args.min_interval_hours)
+        summary = run(dry_run=dry_run, min_interval_hours=args.min_interval_hours)
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")), flush=True)
     return 1 if summary["errors"] else 0
 

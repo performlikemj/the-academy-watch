@@ -20,9 +20,11 @@ Code-level notes for `academy-watch-backend/`. Architecture and the data model a
 
 - **Always guard DDL** with `migrations/_migration_helpers.py` (`column_exists`, `table_exists`,
   …) — prod schema has drifted out-of-band, so unguarded `op.add_column`/`op.create_table`
-  crashes `flask db upgrade` on deploy (invariants.md §8).
+  crashes `flask db upgrade` when it is applied (invariants.md §8).
 - **New public table → enable RLS in the same migration** or the deploy's security-check fails
   (invariants.md §2).
+- **Nothing applies Alembic migrations automatically in prod.** Pre-apply the guarded DDL via the
+  pooler, then stamp `alembic_version` (see `ledgers/CONTINUITY_dream-s0.md`, 2026-09-02 lp01 entry).
 - Generate migrations (`flask db migrate -m "..."`), review the autogen, then `flask db upgrade`.
   The head is a long chain with merge nodes (e.g. `… aw18 → cs01 → aw19 (merge cs01,vid02) →
   aw20 → vid03 → aw22`); check `alembic heads` before adding one so you branch from the real tip.

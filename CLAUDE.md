@@ -34,7 +34,7 @@ update `CONTINUITY.md` when state changes. Autonomous runs go through `scripts/r
 - **Backend**: Flask 3.1 + SQLAlchemy 2.0 + Alembic, Python **3.11** (Docker `python:3.11-slim`; ruff config targets py312, venv `.loan` is 3.11)
 - **Frontend**: React 19 + Vite 6 + Tailwind 4 + Radix UI, pnpm, ESLint flat config (`.jsx`)
 - **Data**: PostgreSQL on **Supabase** (`snqwamzutbcbjgusubsa`, us-west-1); RLS on all public tables
-- **Infra**: Azure Container Apps (backend `ca-loan-army-backend`) + Static Web App (frontend `swa-goonloan`), ACR `acrloanarmy`, RG `rg-loan-army-westus2`
+- **Infra**: Azure Container Apps (backend FQDN `ca-loan-army-backend.victoriousocean-5cdd2683.westus2.azurecontainerapps.io`) + Static Web App (frontend `swa-goonloan`), ACR `acrbwmj`, RG `rg-nbhd-prod` (post-consolidation)
 - **Integrations**: API-Football (all football data), Stripe Connect (writer payouts), Mailgun (email), Reddit, OpenAI (AI newsletters)
 
 ```

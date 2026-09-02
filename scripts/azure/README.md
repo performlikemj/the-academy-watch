@@ -421,16 +421,21 @@ Copy the backend's non-secret runtime configuration: `FLASK_ENV`, `DB_HOST`,
 `DB_PORT`, `DB_USER`, `DB_NAME`, `DB_SSLMODE`, `MAILGUN_DOMAIN`,
 `MAILGUN_API_URL`, `EMAIL_FROM_NAME`, `EMAIL_FROM_ADDRESS`, and
 `PUBLIC_BASE_URL`. Do not set `API_USE_STUB_DATA` or `SKIP_API_HANDSHAKE`.
+`SCOUT_DIGEST_API_BUDGET` is optional and defaults to 200 live calls per run,
+including the API handshake; digests still send without enrichment once the
+budget is spent. Set `SCOUT_DIGEST_DRY_RUN=1` for manual runs that should render
+without sending or updating digest snapshots.
+
 Configure the required secrets only through Key Vault-backed Container Apps
 secret references; never copy secret values:
 
 - `DB_PASSWORD=secretref:job-scout-digest-supabase-db-password`
 - `API_FOOTBALL_KEY=secretref:job-scout-digest-api-football-key`
+- `SECRET_KEY=secretref:job-scout-digest-secret-key`
 - `MAILGUN_API_KEY=secretref:job-scout-digest-mailgun-api-key`
 
 The job identity needs `Key Vault Secrets User` on `kv-loan-army`, and all
-three references must be healthy before enabling the schedule. The orchestrator
-must create `job-scout-digest-mailgun-api-key` first.
+four references must be healthy before enabling the schedule. Create KV secrets job-scout-digest-{supabase-db-password,api-football-key,secret-key,mailgun-api-key} in kv-loan-army first (copied from the existing secrets), then reference them as the app secrets above.
 
 Importing the application currently writes one pre-existing extra stdout line
 from `src/agents/weekly_agent.py` before the job's JSON summary. Consumers should

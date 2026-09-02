@@ -23,6 +23,7 @@ from src.auth import _ensure_user_account, issue_user_token
 from src.extensions import limiter
 from src.models.contact import ContactRequest
 from src.models.follow import Follow, FollowList, PlayerShadow
+from src.models.funding import ClubProgram  # noqa: F401 - registers the FK target for db.create_all()
 from src.models.league import (
     AcademyPlayerSeasonStats,
     CommunityTake,
@@ -1044,4 +1045,5 @@ def test_tf02_migration_is_guarded_rls_enabled_and_single_head():
 
     cfg = Config(str(repo_root / "alembic.ini"))
     cfg.set_main_option("script_location", str(repo_root / "migrations"))
-    assert ScriptDirectory.from_config(cfg).get_heads() == ["tf02"]
+    heads = ScriptDirectory.from_config(cfg).get_heads()
+    assert len(heads) == 1, heads

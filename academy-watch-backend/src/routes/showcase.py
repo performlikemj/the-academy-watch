@@ -1436,6 +1436,10 @@ def create_local_player():
                 birth_year = _local_self_claim_birth_year(birth_date, birth_year)
             except ValueError as exc:
                 return jsonify({"error": str(exc)}), 400
+        elif birth_date is not None:
+            age = age_from_birth_date(birth_date, today=datetime.now(UTC).date())
+            if age is None or age < 18:
+                birth_date = None
 
         _lock_pending_quota(user.id, namespace=5_455_005)
         duplicate_query = LocalPlayer.query.filter(
