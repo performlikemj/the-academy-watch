@@ -8,9 +8,9 @@ import time
 from pathlib import Path
 
 try:
-    from ..contract import parse_claims
+    from ..contract import CONFIDENCE_VALUES, VISIBILITY_VALUES, parse_claims
 except ImportError:  # pragma: no cover
-    from contract import parse_claims
+    from contract import CONFIDENCE_VALUES, VISIBILITY_VALUES, parse_claims
 
 from .common import (
     draw_truth_box,
@@ -27,6 +27,7 @@ DEFAULT_MODEL = "qwen3-vl:8b"
 ANCHOR_MODES = frozenset({"first", "all"})
 BOX_SPACES = frozenset({"normalized_1000", "image_pixels"})
 DEFAULT_BOX_SPACE = "normalized_1000"
+FORMAT_MODES = frozenset({"json", "schema"})
 BOX_COORDINATE_INSTRUCTIONS = {
     "normalized_1000": (
         "Return the box as integers from 0 to 1000 relative to the image: x=0 is "
@@ -72,6 +73,31 @@ The evidence box must cover only the tracked player region that supports the sen
 action is not visible enough to support a claim, omit the claim. Use visibility="unclear" and low confidence when
 evidence is genuinely unclear. Do not invent an action, outcome, statistic, formation, identity, name, or readable
 number."""
+
+
+def bench_claim_schema() -> dict:
+    """Build the bench claim schema lazily from the strict contract constants."""
+    from typing import Literal
+
+    from pydantic import BaseModel, ConfigDict, conlist
+
+    class BenchClaim(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        claim: str
+        t0: float
+        t1: float
+        box_t: float
+        box: conlist(float, min_length=4, max_length=4) | None
+        confidence: Literal[*tuple(sorted(CONFIDENCE_VALUES))]
+        visibility: Literal[*tuple(sorted(VISIBILITY_VALUES))]
+
+    class BenchClaims(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        claims: conlist(BenchClaim, max_length=3)
+
+    return BenchClaims.model_json_schema()
 
 
 def build_prompt(
@@ -239,6 +265,11 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
     model = cfg.get("model") or os.getenv("BENCH_MODEL") or DEFAULT_MODEL
     anchor_mode = cfg.get("anchor_mode", "first")
     box_space = cfg.get("box_space", DEFAULT_BOX_SPACE)
+    format_mode = cfg.get("format_mode", "json")
+    if format_mode not in FORMAT_MODES:
+        raise ValueError(
+            f"format_mode must be one of {', '.join(sorted(FORMAT_MODES))}"
+        )
     started = time.monotonic()
     raw = ""
     claims = []
@@ -272,6 +303,9 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
                     "repeat_penalty": float(cfg.get("repeat_penalty", 1.15)),
                 },
                 response_metadata=response_metadata,
+                response_schema=(
+                    bench_claim_schema() if format_mode == "schema" else None
+                ),
             )
             parsed_claims = parse_claims(raw)
             has_parseable_claim = any(not claim["malformed"] for claim in parsed_claims)
@@ -293,6 +327,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
         "model": model,
         "anchor_mode": anchor_mode,
         "box_space": box_space,
+        "format_mode": format_mode,
         "sent_frames": frames,
         "anchored_frames": anchored_frames,
         "from_thinking": bool(response_metadata.get("from_thinking", False)),

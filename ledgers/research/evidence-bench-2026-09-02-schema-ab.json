@@ -1,0 +1,74 @@
+{
+  "experiment": "Ollama format JSON versus JSON Schema on frozen E1 v5 clips",
+  "date": "2026-09-02",
+  "basecamp": "mjjones@100.82.160.117; Ollama 0.33.2; qwen3-vl:8b only",
+  "frozen_set": {
+    "path": "~/Projects/loanarmy-bench-frozen/manifest.json",
+    "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+    "clips": 20
+  },
+  "settings": {
+    "adapter": "qwen3vl_ollama",
+    "anchor_mode": "first",
+    "box_space": "normalized_1000",
+    "model": "qwen3-vl:8b",
+    "num_ctx": 65536,
+    "num_predict": 400,
+    "repeat_penalty": 1.15,
+    "temperature": 0
+  },
+  "live_check": {
+    "image": "~/bench-gallery/m04-n21-t3011-390297-390800-0.jpg",
+    "image_size": [
+      960,
+      540
+    ],
+    "http_status": 200,
+    "done_reason": "stop",
+    "message_content_parsed": false,
+    "message_content_schema_valid": false,
+    "existing_validator_valid_on_message_content": false,
+    "message_thinking_carried_answer": true,
+    "eval_count": 248,
+    "wall_s": 5.38,
+    "verdict": "Schema accepted; Ollama 0.33.2 returned the answer in message.thinking, matching the known fallback quirk."
+  },
+  "json_mode": {
+    "report": "~/Projects/loanarmy-bench-reports/schema-ab-json/report.json",
+    "scored_clips": 19,
+    "failed_clips": 1,
+    "failed_clip_ids": [
+      "m04-n02-t3005-474114-478131"
+    ],
+    "failed_clip_error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+    "claim_count": 19,
+    "box_grounded_count": 14,
+    "box_grounded_rate": 0.7368,
+    "malformed_rate": 0.0,
+    "hollow_rate": 0.0,
+    "wall_s_per_clip": 20.276
+  },
+  "schema_mode": {
+    "report": "~/Projects/loanarmy-bench-reports/schema-ab-schema/report.json",
+    "scored_clips": 19,
+    "failed_clips": 1,
+    "failed_clip_ids": [
+      "m04-n02-t3005-474114-478131"
+    ],
+    "failed_clip_error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+    "claim_count": 19,
+    "box_grounded_count": 14,
+    "box_grounded_rate": 0.7368,
+    "malformed_rate": 0.0,
+    "hollow_rate": 0.0,
+    "wall_s_per_clip": 20.179
+  },
+  "acceptance": {
+    "malformed_rate_zero": true,
+    "box_grounded_clip_delta": 0,
+    "box_grounded_not_lower_by_more_than_one_clip": true,
+    "wall_s_per_clip_ratio_schema_over_json": 0.9952,
+    "wall_time_within_plus_25_percent": true,
+    "accepted": true
+  }
+}

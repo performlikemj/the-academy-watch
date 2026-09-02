@@ -13,7 +13,7 @@ from adapters import common as adapter_common  # noqa: E402
 from adapters import qwen3vl_ollama as qwen_adapter  # noqa: E402
 from adapters.common import sample_timestamps, scale_box  # noqa: E402
 from adapters.qwen3vl_mlx import STUB_ERROR, run as run_mlx  # noqa: E402
-from contract import parse_claims  # noqa: E402
+from contract import CONFIDENCE_VALUES, VISIBILITY_VALUES, parse_claims  # noqa: E402
 from run_bench import (  # noqa: E402
     _find_resume_dir,
     _resolve_inference_settings,
@@ -407,6 +407,57 @@ def test_shared_ollama_call_receives_capped_generation_options(monkeypatch, tmp_
     }
 
 
+def test_bench_claim_schema_matches_contract_and_serializes():
+    schema = qwen_adapter.bench_claim_schema()
+    claim_schema = schema["$defs"]["BenchClaim"]
+
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["claims"]["maxItems"] == 3
+    assert claim_schema["additionalProperties"] is False
+    assert claim_schema["properties"]["confidence"]["enum"] == sorted(CONFIDENCE_VALUES)
+    assert claim_schema["properties"]["visibility"]["enum"] == sorted(VISIBILITY_VALUES)
+    box_array = claim_schema["properties"]["box"]["anyOf"][0]
+    assert box_array["minItems"] == box_array["maxItems"] == 4
+    json.dumps(schema)
+
+
+def test_shared_ollama_call_sends_schema_object_when_requested(monkeypatch, tmp_path):
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"message":{"content":"{\\"claims\\":[]}"}}'
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data)
+        return Response()
+
+    monkeypatch.setattr(
+        adapter_common.qwen_match_analysis.urllib.request, "urlopen", fake_urlopen
+    )
+    image = tmp_path / "frame.jpg"
+    image.write_bytes(b"frame")
+    schema = qwen_adapter.bench_claim_schema()
+
+    adapter_common.ollama_chat_with_options(
+        "prompt",
+        ollama_url="http://ollama.test",
+        model="qwen3-vl:8b",
+        timeout_s=12,
+        image_paths=[image],
+        options={"num_predict": 400, "repeat_penalty": 1.15},
+        response_schema=schema,
+    )
+
+    assert captured["body"]["format"] == schema
+
+
 def test_shared_ollama_call_omits_num_ctx_when_disabled(monkeypatch, tmp_path):
     captured = {}
 
@@ -611,6 +662,41 @@ def test_qwen_adapter_flags_responses_with_no_parseable_claims(
     assert result["from_thinking"] is False
 
 
+@pytest.mark.parametrize(
+    ("format_mode", "expected_schema"),
+    (("json", None), ("schema", "schema")),
+)
+def test_qwen_adapter_routes_format_mode(
+    monkeypatch, tmp_path, format_mode, expected_schema
+):
+    frame = tmp_path / "frame.jpg"
+    captured = {}
+    monkeypatch.setattr(
+        qwen_adapter,
+        "extract_sample_frames",
+        lambda *_args: [{"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}],
+    )
+    monkeypatch.setattr(qwen_adapter, "apply_anchors", lambda *_args: [])
+
+    def fake_chat(*_args, **kwargs):
+        captured.update(kwargs)
+        return json.dumps({"claims": [_claim(box_t=15.0)]})
+
+    monkeypatch.setattr(qwen_adapter, "ollama_chat_with_options", fake_chat)
+
+    result = qwen_adapter.run(
+        tmp_path / "clip.mp4",
+        {**_truth(), "jersey_number": 12, "frame_size": [1920, 1080]},
+        {"model": "qwen3-vl:8b", "format_mode": format_mode},
+    )
+
+    expected = (
+        qwen_adapter.bench_claim_schema() if expected_schema == "schema" else None
+    )
+    assert captured["response_schema"] == expected
+    assert result["format_mode"] == format_mode
+
+
 def test_anchor_first_draws_only_on_frame_zero(monkeypatch, tmp_path):
     frames = [
         {
@@ -748,6 +834,7 @@ def test_resume_fingerprint_mismatch_is_not_resumed_and_is_refused(tmp_path):
         "timeout_s": 300.0,
         "anchor_mode": "first",
         "box_space": "normalized_1000",
+        "format_mode": "json",
         "num_predict": 400,
         "repeat_penalty": 1.15,
         "frozen_set_id": "frozen-1",
@@ -784,6 +871,7 @@ def test_run_metadata_records_model_resolved_from_environment(monkeypatch):
     assert metadata["timeout_s"] == 123.0
     assert metadata["anchor_mode"] == "first"
     assert metadata["box_space"] == "normalized_1000"
+    assert metadata["format_mode"] == "json"
     assert metadata["num_predict"] == 350
     assert metadata["repeat_penalty"] == 1.2
     assert metadata["adapter"] == "qwen3vl_ollama"

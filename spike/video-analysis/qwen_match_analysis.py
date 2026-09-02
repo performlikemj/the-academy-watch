@@ -102,6 +102,57 @@ class OllamaOutputTruncated(ValueError):
     """Raised when Ollama stops generation at the requested output-token cap."""
 
 
+def _grounded_models():
+    from typing import Literal
+
+    from pydantic import BaseModel, ConfigDict, conlist
+
+    class GroundedClaim(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        claim: str
+        t0: float
+        t1: float
+        box_t: float
+        box: conlist(float, min_length=4, max_length=4)
+        confidence: Literal[*CLAIM_CONFIDENCE_LEVELS]
+        visibility: Literal[*CLAIM_VISIBILITY_LEVELS]
+
+    class GroundedWindowCaption(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        claims: conlist(GroundedClaim, max_length=3)
+        action_type: Literal[*ACTION_TYPES]
+        visible_pitch_zone: Literal[*PITCH_ZONES]
+
+    class GroundedObservation(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        observation: str
+        box_t: float
+        box: conlist(float, min_length=4, max_length=4)
+
+    class GroundedPlayerRead(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        observations: conlist(GroundedObservation, max_length=3)
+        confidence: Literal[*PLAYER_CONFIDENCE_LEVELS]
+
+    return GroundedWindowCaption, GroundedPlayerRead
+
+
+def grounded_caption_schema() -> dict:
+    """Build the grounded-caption Ollama response schema lazily."""
+    GroundedWindowCaption, _ = _grounded_models()
+    return GroundedWindowCaption.model_json_schema()
+
+
+def grounded_read_schema() -> dict:
+    """Build the grounded player-read Ollama response schema lazily."""
+    _, GroundedPlayerRead = _grounded_models()
+    return GroundedPlayerRead.model_json_schema()
+
+
 def _number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
@@ -637,6 +688,7 @@ def ollama_chat(
     image_path: Path | None = None,
     image_paths: list[Path] | None = None,
     response_metadata: dict[str, object] | None = None,
+    response_schema: dict | None = None,
 ) -> str:
     """Make the one permitted network call shape, using only urllib."""
     if image_path is not None and image_paths is not None:
@@ -670,7 +722,7 @@ def ollama_chat(
         "model": model,
         "think": False,
         "stream": False,
-        "format": "json",
+        "format": response_schema if response_schema is not None else "json",
         "options": options,
         "messages": [message],
     }
@@ -1834,6 +1886,9 @@ def generate_player_reads(
                     timeout_s=timeout_s,
                     num_predict=num_predict,
                     image_paths=call_image_paths,
+                    response_schema=(
+                        grounded_read_schema() if grounded_contract else None
+                    ),
                 )
                 parsed = parse_player_read(
                     content,
@@ -2014,6 +2069,9 @@ def generate_window_captions(
                         timeout_s=timeout_s,
                         num_predict=num_predict,
                         image_paths=frame_paths,
+                        response_schema=(
+                            grounded_caption_schema() if grounded_contract else None
+                        ),
                     )
                     parsed = parse_window_caption(
                         content,
