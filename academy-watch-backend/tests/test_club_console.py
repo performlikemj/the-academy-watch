@@ -398,6 +398,204 @@ def test_active_manager_cannot_address_foreign_child_ids_through_own_program(clu
         assert response.status_code == 404, (method, path, response.get_json())
 
 
+def test_coach_and_system_briefs_are_scoped_written_read_and_cleared(club_app, client):
+    a = club_app.c2["program_a"]
+    b = club_app.c2["program_b"]
+    member_id = _add_api_member(client, a)
+    foreign_member_id = _add_api_member(client, b, 7002, "b")
+
+    member_response = client.put(
+        f"/api/club/{a}/roster/{member_id}/brief",
+        json={"body": "  Hold width before receiving  \n\n Scan before turning "},
+        headers=_headers("a"),
+    )
+    assert member_response.status_code == 200
+    member_brief = member_response.get_json()["member"]["brief"]
+    assert member_brief["body"] == "Hold width before receiving\nScan before turning"
+    assert member_brief["updated_at"] is not None
+
+    system_response = client.put(
+        f"/api/club/{a}/system-brief",
+        json={"body": "  Stay compact across phases  "},
+        headers=_headers("a"),
+    )
+    assert system_response.status_code == 200
+    system_brief = system_response.get_json()["system_brief"]
+    assert system_brief["body"] == "Stay compact across phases"
+    assert system_brief["updated_at"] is not None
+
+    roster = client.get(f"/api/club/{a}/roster", headers=_headers("a"))
+    assert roster.status_code == 200
+    body = roster.get_json()
+    assert body["system_brief"] == system_brief
+    assert body["members"][0]["brief"] == member_brief
+
+    member = db.session.get(ClubRosterMember, member_id)
+    program = db.session.get(ClubProgram, a)
+    assert member.brief_updated_by_user_id == club_app.c2["users"]["a"]
+    assert program.system_brief_updated_by_user_id == club_app.c2["users"]["a"]
+
+    for path in (
+        f"/api/club/{b}/roster/{foreign_member_id}/brief",
+        f"/api/club/{b}/system-brief",
+    ):
+        denied = client.put(path, json={"body": "Keep the back line connected"}, headers=_headers("a"))
+        assert denied.status_code == 403
+        assert denied.get_json() == {"error": "Club manager access denied"}
+
+    foreign = client.put(
+        f"/api/club/{a}/roster/{foreign_member_id}/brief",
+        json={"body": "Keep the back line connected"},
+        headers=_headers("a"),
+    )
+    assert foreign.status_code == 404
+    assert foreign.get_json() == {"error": "Member not found"}
+
+    cleared_member = client.put(
+        f"/api/club/{a}/roster/{member_id}/brief",
+        json={"body": "  \n\t "},
+        headers=_headers("a"),
+    )
+    cleared_system = client.put(
+        f"/api/club/{a}/system-brief",
+        json={"body": ""},
+        headers=_headers("a"),
+    )
+    assert cleared_member.get_json()["member"]["brief"] == {"body": None, "updated_at": None}
+    assert cleared_system.get_json()["system_brief"] == {"body": None, "updated_at": None}
+    db.session.refresh(member)
+    db.session.refresh(program)
+    assert (member.coach_brief_body, member.brief_updated_at, member.brief_updated_by_user_id) == (None, None, None)
+    assert (
+        program.system_brief_body,
+        program.system_brief_updated_at,
+        program.system_brief_updated_by_user_id,
+    ) == (None, None, None)
+
+
+def test_brief_name_screening_covers_short_latin_non_latin_and_match_rosters(club_app, client):
+    program_id = club_app.c2["program_a"]
+    local_players = [
+        _local(club_app.c2["users"]["a"], name=name, birth_year=2000 + index, status="approved")
+        for index, name in enumerate(("Mika Tanaka", "Alex Li", "Kai Ng", "José Silva", "田中 太郎"))
+    ]
+    member_id = _add_local_member(client, program_id, local_players[0].id)
+    for local in local_players[1:]:
+        _add_local_member(client, program_id, local.id)
+    match = _match(program_id)
+    db.session.add(
+        VideoRosterEntry(
+            video_match_id=match.id,
+            player_name="Guest Striker",
+            jersey_number=17,
+        )
+    )
+    db.session.commit()
+
+    local_name = client.put(
+        f"/api/club/{program_id}/roster/{member_id}/brief",
+        json={"body": "Hold the line\n\nAsk mIKA to receive between the lines"},
+        headers=_headers("a"),
+    )
+    assert local_name.status_code == 400
+    assert local_name.get_json() == {
+        "error": 'Briefs describe behaviours, not people — remove the name "Mika" from line 3.'
+    }
+
+    for brief, token in (
+        ("Li must stay wide", "Li"),
+        ("Recover behind Ng", "Ng"),
+        ("Alexに任せる", "Alex"),
+        ("ask jose to turn", "José"),
+        ("JOSÉ must turn", "José"),
+        ("田中に前を向かせる", "田中"),
+    ):
+        short_name = client.put(
+            f"/api/club/{program_id}/system-brief",
+            json={"body": brief},
+            headers=_headers("a"),
+        )
+        assert short_name.status_code == 400
+        assert short_name.get_json() == {
+            "error": f'Briefs describe behaviours, not people — remove the name "{token}" from line 1.'
+        }
+
+    match_name = client.put(
+        f"/api/club/{program_id}/system-brief",
+        json={"body": "Press GUEST after turnovers"},
+        headers=_headers("a"),
+    )
+    assert match_name.status_code == 400
+    assert match_name.get_json() == {
+        "error": 'Briefs describe behaviours, not people — remove the name "Guest" from line 1.'
+    }
+
+    unrelated = client.put(
+        f"/api/club/{program_id}/system-brief",
+        json={"body": "Move to receive in the line"},
+        headers=_headers("a"),
+    )
+    assert unrelated.status_code == 200
+    assert unrelated.get_json()["system_brief"]["body"] == "Move to receive in the line"
+
+    latin_prefix = client.put(
+        f"/api/club/{program_id}/system-brief",
+        json={"body": "Ask Mikael to receive between the lines"},
+        headers=_headers("a"),
+    )
+    assert latin_prefix.status_code == 200
+    assert latin_prefix.get_json()["system_brief"]["body"] == "Ask Mikael to receive between the lines"
+
+    original_line_number = client.put(
+        f"/api/club/{program_id}/system-brief",
+        json={"body": "\n\nAsk Mika to turn"},
+        headers=_headers("a"),
+    )
+    assert original_line_number.status_code == 400
+    assert original_line_number.get_json() == {
+        "error": 'Briefs describe behaviours, not people — remove the name "Mika" from line 3.'
+    }
+
+
+def test_empty_brief_clears_before_building_roster_name_tokens(club_app, client, monkeypatch):
+    program_id = club_app.c2["program_a"]
+    program = db.session.get(ClubProgram, program_id)
+    program.system_brief_body = "Stay compact"
+    db.session.commit()
+
+    monkeypatch.setattr(
+        club_routes,
+        "_brief_name_tokens",
+        lambda _program: pytest.fail("empty briefs must not query roster name tokens"),
+    )
+    response = client.put(
+        f"/api/club/{program_id}/system-brief",
+        json={"body": " \n\t "},
+        headers=_headers("a"),
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["system_brief"] == {"body": None, "updated_at": None}
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    (
+        ("x" * 2001, "Brief must be at most 2000 characters"),
+        ("\n".join(f"movement {number}" for number in range(13)), "Brief must contain at most 12 non-empty lines"),
+        ("x" * 241, "Brief lines must be at most 240 characters"),
+    ),
+)
+def test_brief_bounds_are_enforced(club_app, client, body, message):
+    response = client.put(
+        f"/api/club/{club_app.c2['program_a']}/system-brief",
+        json={"body": body},
+        headers=_headers("a"),
+    )
+    assert response.status_code == 400
+    assert response.get_json() == {"error": message}
+
+
 def test_club_manager_records_result_with_forced_provenance_and_one_commit(club_app, client, monkeypatch):
     program_id = club_app.c2["program_a"]
     manager_id = club_app.c2["users"]["a"]
@@ -1026,6 +1224,7 @@ def test_shadow_only_positive_roster_member_remains_available(club_app, client):
             "program_id": program_id,
             "role": None,
             "note": None,
+            "brief": {"body": None, "updated_at": None},
             "created_at": response.get_json()["members"][0]["created_at"],
             "available": True,
             "subject_type": "tracked",
@@ -1646,6 +1845,7 @@ def test_local_takedown_hides_public_roster_and_finalized_report(club_app, clien
     assert roster == [
         {
             "available": False,
+            "brief": {"body": None, "updated_at": None},
             "created_at": roster[0]["created_at"],
             "id": member["id"],
             "note": None,
@@ -1750,6 +1950,62 @@ def test_club_manager_gets_scoped_media_token_and_filtered_reel(club_app, client
     hidden = client.get(f"/api/club/{a}/matches/{match.id}/reel", headers=_headers("a"))
     assert hidden.status_code == 200
     assert hidden.get_json()["players"] == []
+
+
+def test_coach_brief_sentinel_never_leaks_into_match_or_learning_payloads(club_app, client, monkeypatch):
+    from src.routes import video as video_routes
+
+    sentinel = "SENTINEL_BRIEF_7f3a"
+    program_id = club_app.c2["program_a"]
+    member_id = _add_api_member(client, program_id)
+    match, _entry, _tracklet = _reel_evidence(program_id, member_id)
+    monkeypatch.setattr(video_routes.video_dev_artifacts, "local_artifacts", lambda loaded: None)
+
+    member_write = client.put(
+        f"/api/club/{program_id}/roster/{member_id}/brief",
+        json={"body": sentinel},
+        headers=_headers("a"),
+    )
+    system_write = client.put(
+        f"/api/club/{program_id}/system-brief",
+        json={"body": sentinel},
+        headers=_headers("a"),
+    )
+    assert member_write.status_code == 200
+    assert system_write.status_code == 200
+
+    responses = {
+        "admin match": client.get(f"/api/admin/video/matches/{match.id}", headers=_admin_headers()),
+        "feedback export": client.get(
+            f"/api/admin/video/matches/{match.id}/feedback-export",
+            headers=_admin_headers(),
+        ),
+        "training manifest": client.get(
+            f"/api/admin/video/matches/{match.id}/training-manifest",
+            headers=_admin_headers(),
+        ),
+        "admin report": client.get(f"/api/admin/video/matches/{match.id}/report", headers=_admin_headers()),
+        "club match": client.get(
+            f"/api/club/{program_id}/matches/{match.id}",
+            headers=_headers("a"),
+        ),
+        "club match list": client.get(f"/api/club/{program_id}/matches", headers=_headers("a")),
+        "club report": client.get(
+            f"/api/club/{program_id}/matches/{match.id}/report",
+            headers=_headers("a"),
+        ),
+        "club reel": client.get(
+            f"/api/club/{program_id}/matches/{match.id}/reel",
+            headers=_headers("a"),
+        ),
+        "admin reel": client.get(
+            f"/api/admin/video/matches/{match.id}/reel",
+            headers=_admin_headers(),
+        ),
+    }
+    for label, response in responses.items():
+        assert response.status_code == 200, (label, response.get_data(as_text=True))
+        assert sentinel not in response.get_data(as_text=True), label
 
 
 def test_club_media_token_streams_owned_footage_and_bbox_then_fails_closed_after_reassignment(

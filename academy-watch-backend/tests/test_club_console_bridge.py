@@ -249,7 +249,11 @@ def test_team_claim_grants_discoverable_console_idempotently_and_stays_private(b
 
     roster = client.get(f"/api/club/{program.id}/roster", headers=_user_headers(TEAM_EMAIL))
     assert roster.status_code == 200, roster.get_json()
-    assert roster.get_json() == {"members": [], "count": 0}
+    assert roster.get_json() == {
+        "members": [],
+        "count": 0,
+        "system_brief": {"body": None, "updated_at": None},
+    }
 
     discovery = client.get("/api/funding/claims/me", headers=_user_headers(TEAM_EMAIL))
     assert discovery.status_code == 200, discovery.get_json()

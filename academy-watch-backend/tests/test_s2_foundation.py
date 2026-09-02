@@ -640,12 +640,13 @@ def test_s2f1_upgrade_twice_and_downgrade_twice_are_executable(migration_engine,
     assert [column["name"] for column in inspector.get_columns("user_accounts")] == ["id"]
 
 
-def test_s2f1_is_the_single_head_and_chains_through_pm01_to_lp01():
+def test_cb01_is_the_single_head_and_chains_through_s2f1_to_pm01():
     repo_root = Path(__file__).resolve().parent.parent
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "migrations"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["s2f1"]
+    assert script.get_heads() == ["cb01"]
+    assert script.get_revision("cb01").down_revision == "s2f1"
     assert script.get_revision("s2f1").down_revision == "pm01"
     assert script.get_revision("pm01").down_revision == "lp01"
