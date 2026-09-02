@@ -631,17 +631,35 @@ def user_email_preferences():
             user = _ensure_user_account(email)
 
         if request.method == "PATCH":
-            payload = request.get_json() or {}
-            pref = (payload.get("email_delivery_preference") or "").strip().lower()
-            if pref not in ("individual", "digest"):
-                return jsonify({"error": 'email_delivery_preference must be "individual" or "digest"'}), 400
-            user.email_delivery_preference = pref
-            user.updated_at = datetime.now(UTC)
+            payload = request.get_json(silent=True)
+            supported_fields = {
+                "email_delivery_preference",
+                "profile_activity_email_opt_in",
+            }
+            if not isinstance(payload, dict) or not supported_fields.intersection(payload):
+                return jsonify({"error": "Request body must include a supported email preference"}), 400
+
+            if "email_delivery_preference" in payload:
+                pref = payload["email_delivery_preference"]
+                if not isinstance(pref, str) or pref not in ("individual", "digest"):
+                    return jsonify({"error": 'email_delivery_preference must be "individual" or "digest"'}), 400
+
+            if "profile_activity_email_opt_in" in payload:
+                opt_in = payload["profile_activity_email_opt_in"]
+                if not isinstance(opt_in, bool):
+                    return jsonify({"error": "profile_activity_email_opt_in must be a boolean"}), 400
+
+            if "email_delivery_preference" in payload:
+                user.email_delivery_preference = payload["email_delivery_preference"]
+            if "profile_activity_email_opt_in" in payload:
+                user.profile_activity_email_opt_in = payload["profile_activity_email_opt_in"]
+            user.updated_at = datetime.now(UTC).replace(tzinfo=None)
             db.session.commit()
 
         return jsonify(
             {
                 "email_delivery_preference": user.email_delivery_preference or "individual",
+                "profile_activity_email_opt_in": bool(user.profile_activity_email_opt_in),
                 "user_id": user.id,
             }
         )

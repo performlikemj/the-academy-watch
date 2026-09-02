@@ -54,6 +54,7 @@ from src.models.league import (
     UserAccount,
     db,
 )
+from src.models.player_fan import PlayerFan
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.player_suppression import PlayerSuppression
 from src.models.pulse import PlayerCardCache, PlayerPulse
@@ -101,6 +102,8 @@ from src.services.player_suppression import (
     is_player_suppressed,
     neutral_player_not_found,
 )
+from src.services.public_player_subject import owned_public_adult_subjects
+from src.services.reach_metrics import fan_counts, profile_view_counts
 from src.services.user_blocks import blocked_user_ids
 from src.utils.academy_window import age_from_birth_date
 from src.utils.feature_flags import showcase_trust_min_account_age_days
@@ -2007,19 +2010,7 @@ def my_interest_signals():
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        player_ids = [
-            row[0]
-            for row in db.session.query(PlayerProfileClaim.player_api_id)
-            .filter_by(
-                user_account_id=user.id,
-                relationship_type="player",
-                status="approved",
-            )
-            .filter(PlayerProfileClaim.player_api_id.isnot(None))
-            .distinct()
-            .order_by(PlayerProfileClaim.player_api_id.asc())
-            .all()
-        ]
+        player_ids = [subject.signed_id for subject in owned_public_adult_subjects(user.id)]
         now = utcnow()
         week_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=now.weekday())
         if not player_ids:
@@ -2086,6 +2077,8 @@ def my_interest_signals():
             .all()
         )
         follows = {player_id: (total, added) for player_id, total, added in follow_rows}
+        fans = fan_counts(player_ids, since=week_start, exclude_user_ids=hidden_user_ids)
+        profile_views = profile_view_counts(player_ids, now=now)
 
         return jsonify(
             {
@@ -2101,6 +2094,11 @@ def my_interest_signals():
                             "total": follows.get(player_id, (0, 0))[0],
                             "added_this_week": follows.get(player_id, (0, 0))[1],
                         },
+                        "fans": {
+                            "total": fans[player_id][0],
+                            "added_this_week": fans[player_id][1],
+                        },
+                        "profile_views": profile_views[player_id],
                     }
                     for player_id in player_ids
                 ],
@@ -3922,6 +3920,10 @@ def admin_merge_local_player(lp_id: int):
         links = PlayerLink.query.filter(
             *_subject_filters(PlayerLink, _local_subject(source.id), api_field="player_id")
         ).update({PlayerLink.local_player_id: target.id}, synchronize_session=False)
+        player_fans = _rekey_player_fans(
+            -source.id,
+            target.api_player_id if target.api_player_id is not None else -target.id,
+        )
 
         source.status = "merged"
         source.merged_into_local_player_id = target.id
@@ -3938,6 +3940,7 @@ def admin_merge_local_player(lp_id: int):
                     "media": media,
                     "affiliations": affiliations,
                     "links": links,
+                    "player_fans": player_fans,
                 },
             }
         )
@@ -4248,6 +4251,24 @@ def _rekey_watchlists(old_player_api_id: int, player_api_id: int) -> int:
             continue
         _merge_snapshot_state(target, source)
         db.session.delete(source)
+    db.session.flush()
+    for source in to_move:
+        source.player_api_id = player_api_id
+    return len(source_rows)
+
+
+def _rekey_player_fans(old_player_api_id: int, player_api_id: int) -> int:
+    source_rows = PlayerFan.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+    target_user_ids = {
+        row.user_account_id for row in PlayerFan.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    }
+    to_move = []
+    for source in source_rows:
+        if source.user_account_id in target_user_ids:
+            db.session.delete(source)
+            continue
+        target_user_ids.add(source.user_account_id)
+        to_move.append(source)
     db.session.flush()
     for source in to_move:
         source.player_api_id = player_api_id
@@ -4690,6 +4711,7 @@ def admin_link_local_player_api(lp_id: int):
         rekeyed["player_shadows"] = shadow_count
         rekeyed["shadow_stats"] = _rekey_shadow_stats(old_player_api_id, player_api_id)
         rekeyed["watchlist_entries"] = _rekey_watchlists(old_player_api_id, player_api_id)
+        rekeyed["player_fans"] = _rekey_player_fans(old_player_api_id, player_api_id)
         rekeyed["follow_selectors"] = _rekey_follow_selectors(old_player_api_id, player_api_id)
         rekeyed["follow_snapshots"] = _rekey_follow_snapshots(old_player_api_id, player_api_id)
         roster_rows, video_rows = _rekey_roster(player.id, old_player_api_id, player_api_id)

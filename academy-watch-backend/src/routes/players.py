@@ -8,9 +8,11 @@ This blueprint handles:
 """
 
 import logging
+import os
 
-from flask import Blueprint, jsonify, request
-from src.auth import _safe_error_payload
+from flask import Blueprint, g, jsonify, request
+from src.auth import _safe_error_payload, require_user_auth, resolve_bearer_user
+from src.extensions import limiter
 from src.models.league import (
     NewsletterCommentary,
     Player,
@@ -18,14 +20,101 @@ from src.models.league import (
 )
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.tracked_player import TrackedPlayer
+from src.services.fan_follow_service import (
+    CannotFollowOwnProfile,
+    SubjectNotPublic,
+    follow_player,
+    unfollow_player,
+)
 from src.services.player_shadow_service import is_external_player_id
 from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import hide_suppressed_player, neutral_player_not_found
+from src.services.public_player_subject import resolve_public_adult_subject
+from src.services.reach_metrics import fan_counts, is_fan
 from src.utils.feature_flags import rollup_reads_enabled
 
 logger = logging.getLogger(__name__)
 
 players_bp = Blueprint("players", __name__)
+
+
+def _user_rate_limit_key() -> str:
+    return getattr(g, "user_email", None) or (request.remote_addr or "anon")
+
+
+def _optional_authenticated_user():
+    """Resolve optional Bearer auth; every auth failure degrades to anonymous."""
+
+    try:
+        return resolve_bearer_user()
+    except Exception:
+        return None
+
+
+def _public_api_base() -> str:
+    configured = os.getenv("PUBLIC_API_BASE_URL")
+    return configured.rstrip("/") if configured else request.url_root.rstrip("/")
+
+
+@players_bp.route("/players/<int(signed=True):player_api_id>/followers/count", methods=["GET"])
+def get_player_follower_count(player_api_id: int):
+    """Return a public-adult fan count with optional caller follow state."""
+
+    if resolve_public_adult_subject(player_api_id) is None:
+        return neutral_player_not_found()
+
+    user = _optional_authenticated_user()
+    fans = fan_counts([player_api_id])[player_api_id][0]
+    return jsonify(
+        {
+            "player_api_id": player_api_id,
+            "fans": fans,
+            "following": is_fan(user.id, player_api_id) if user is not None else None,
+            "share_url": f"{_public_api_base()}/p/{player_api_id}",
+        }
+    )
+
+
+@players_bp.route("/players/<int(signed=True):player_api_id>/follow", methods=["POST"])
+@require_user_auth
+@limiter.limit("30/minute", key_func=_user_rate_limit_key)
+def follow_public_player(player_api_id: int):
+    """Idempotently follow one public adult player."""
+
+    try:
+        created, fans = follow_player(g.user, player_api_id)
+    except SubjectNotPublic:
+        return neutral_player_not_found()
+    except CannotFollowOwnProfile:
+        return jsonify({"error": "You cannot follow your own profile"}), 400
+
+    return (
+        jsonify(
+            {
+                "player_api_id": player_api_id,
+                "following": True,
+                "fans": fans,
+                "created": created,
+            }
+        ),
+        201 if created else 200,
+    )
+
+
+@players_bp.route("/players/<int(signed=True):player_api_id>/follow", methods=["DELETE"])
+@require_user_auth
+@limiter.limit("30/minute", key_func=_user_rate_limit_key)
+def unfollow_public_player(player_api_id: int):
+    """Remove only the caller's fan row, including for hidden subjects."""
+
+    deleted = unfollow_player(g.user, player_api_id)
+    return jsonify(
+        {
+            "player_api_id": player_api_id,
+            "following": False,
+            "deleted": deleted,
+        }
+    )
 
 
 # Lazy import for api_client to avoid circular imports and early initialization

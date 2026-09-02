@@ -7,11 +7,12 @@ Exercises the real blueprint path via a Flask test client:
   and the dual-factor admin gate.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from flask import Flask
+from src.models.follow import PlayerShadow
 from src.models.league import db
 from src.models.product_event import ProductEvent
 
@@ -98,6 +99,9 @@ def test_invalid_names_dropped(client, app):
             {"name": "pageview", "path": "/a"},
             {"name": "not_a_real_event", "path": "/b"},
             {"name": "follow_added"},
+            {"name": "follow_removed"},
+            {"name": "fan_follow_added"},
+            {"name": "fan_follow_removed"},
             {"name": ""},
             {"path": "/no-name"},
         ]
@@ -143,6 +147,108 @@ def test_identity_resolved_from_token(client, app):
     with app.app_context():
         row = ProductEvent.query.one()
         assert row.user_email == "scout@example.com"
+
+
+def test_profile_view_public_adult_persists_anonymously_and_minor_is_silently_omitted(client, app):
+    adult_id = 71_001
+    minor_id = 71_002
+    with app.app_context():
+        db.session.add_all(
+            [
+                PlayerShadow(
+                    player_api_id=adult_id,
+                    player_name="Adult Profile",
+                    birth_date=date(2000, 1, 1),
+                    is_active=True,
+                ),
+                PlayerShadow(
+                    player_api_id=minor_id,
+                    player_name="Minor Profile",
+                    birth_date=datetime.now(UTC).date(),
+                    is_active=True,
+                ),
+            ]
+        )
+        db.session.commit()
+
+    def post_view(player_api_id):
+        return client.post(
+            "/api/events",
+            json={
+                "events": [
+                    {
+                        "name": "profile_view",
+                        "props": {"player_api_id": player_api_id, "extra": "discard me"},
+                        "session_id": "must-not-persist",
+                        "path": f"/players/{player_api_id}",
+                        "referrer": "https://example.com/private-referrer",
+                    }
+                ]
+            },
+            headers=_headers("viewer@example.com"),
+        )
+
+    adult_response = post_view(adult_id)
+    minor_response = post_view(minor_id)
+
+    assert adult_response.status_code == minor_response.status_code == 202
+    assert adult_response.data == minor_response.data
+    assert adult_response.get_json() == {"accepted": 1}
+
+    with app.app_context():
+        row = ProductEvent.query.one()
+        assert row.event_name == "profile_view"
+        assert row.props == {"player_api_id": adult_id}
+        assert row.user_email is None
+        assert row.session_id is None
+        assert row.path is None
+        assert row.referrer is None
+
+
+def test_profile_view_drops_malformed_ids_but_counts_valid_gated_ids(client, app):
+    payload = {
+        "events": [
+            {"name": "profile_view"},
+            {"name": "profile_view", "props": []},
+            {"name": "profile_view", "props": {}},
+            {"name": "profile_view", "props": {"player_api_id": True}},
+            {"name": "profile_view", "props": {"player_api_id": 0}},
+            {"name": "profile_view", "props": {"player_api_id": 1.5}},
+            {"name": "profile_view", "props": {"player_api_id": "71003"}},
+            {"name": "profile_view", "props": {"player_api_id": 71_003}},
+            {"name": "profile_view", "props": {"player_api_id": -71_004}},
+        ]
+    }
+
+    response = client.post("/api/events", json=payload)
+
+    assert response.status_code == 202
+    assert response.get_json() == {"accepted": 2}
+    with app.app_context():
+        assert ProductEvent.query.count() == 0
+
+
+def test_profile_view_gate_error_does_not_fail_the_rest_of_the_batch(client, app, monkeypatch):
+    def fail_closed(_player_api_id):
+        raise RuntimeError("synthetic resolver failure")
+
+    monkeypatch.setattr("src.routes.events.resolve_public_adult_subject", fail_closed)
+    response = client.post(
+        "/api/events",
+        json={
+            "events": [
+                {"name": "profile_view", "props": {"player_api_id": 71_005}},
+                {"name": "pageview", "path": "/still-accepted"},
+            ]
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.get_json() == {"accepted": 2}
+    with app.app_context():
+        row = ProductEvent.query.one()
+        assert row.event_name == "pageview"
+        assert row.path == "/still-accepted"
 
 
 def test_beacon_content_type_parsed(client, app):
