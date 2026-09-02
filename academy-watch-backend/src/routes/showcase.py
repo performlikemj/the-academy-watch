@@ -4259,15 +4259,21 @@ def _rekey_watchlists(old_player_api_id: int, player_api_id: int) -> int:
 
 def _rekey_player_fans(old_player_api_id: int, player_api_id: int) -> int:
     source_rows = PlayerFan.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
-    target_user_ids = {
-        row.user_account_id for row in PlayerFan.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    targets = {
+        row.user_account_id: row
+        for row in PlayerFan.query.filter_by(player_api_id=player_api_id).with_for_update().all()
     }
     to_move = []
     for source in source_rows:
-        if source.user_account_id in target_user_ids:
+        target = targets.get(source.user_account_id)
+        if target is not None:
+            target.created_at = _earliest(
+                _naive_utc(target.created_at),
+                _naive_utc(source.created_at),
+            )
             db.session.delete(source)
             continue
-        target_user_ids.add(source.user_account_id)
+        targets[source.user_account_id] = source
         to_move.append(source)
     db.session.flush()
     for source in to_move:

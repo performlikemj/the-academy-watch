@@ -50,6 +50,7 @@ from src.models.showcase import (
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoPlayerReport, VideoRosterEntry
 from src.services import social_proof
+from src.services.reach_metrics import fan_counts
 
 ADMIN_KEY = "test-admin-key"
 CODE_PATTERN = re.compile(r"^AW-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$")
@@ -1785,17 +1786,22 @@ class TestAdminLocalPlayers:
                 link_type="highlight",
                 status="pending",
             )
+            fan_now = datetime.now(UTC).replace(tzinfo=None)
+            old_fan_at = fan_now - timedelta(days=10)
             source_moving_fan = PlayerFan(
                 user_account_id=moving_fan.id,
                 player_api_id=-source_id,
+                created_at=old_fan_at,
             )
             source_colliding_fan = PlayerFan(
                 user_account_id=colliding_fan.id,
                 player_api_id=-source_id,
+                created_at=old_fan_at,
             )
             target_colliding_fan = PlayerFan(
                 user_account_id=colliding_fan.id,
                 player_api_id=merge_target_player_api_id,
+                created_at=fan_now,
             )
             db.session.add_all(
                 [
@@ -1875,7 +1881,13 @@ class TestAdminLocalPlayers:
             assert PlayerFan.query.filter_by(player_api_id=merge_target_player_api_id).count() == 2
             assert db.session.get(PlayerFan, source_moving_fan_id).player_api_id == merge_target_player_api_id
             assert db.session.get(PlayerFan, source_colliding_fan_id) is None
-            assert db.session.get(PlayerFan, target_colliding_fan_id).player_api_id == merge_target_player_api_id
+            surviving_fan = db.session.get(PlayerFan, target_colliding_fan_id)
+            assert surviving_fan.player_api_id == merge_target_player_api_id
+            assert surviving_fan.created_at == old_fan_at
+            assert fan_counts(
+                [merge_target_player_api_id],
+                since=fan_now - timedelta(days=7),
+            )[merge_target_player_api_id] == (2, 0)
 
     def test_merge_rekeys_fans_to_unbridged_local_target_signed_id(self, app, client):
         with app.app_context():
@@ -2184,17 +2196,22 @@ class TestAdminLocalPlayers:
                 user_account_id=scout.id,
                 player_api_id=target_player_api_id,
             )
+            fan_now = datetime.now(UTC).replace(tzinfo=None)
+            old_fan_at = fan_now - timedelta(days=10)
             source_moving_fan = PlayerFan(
                 user_account_id=moving_fan.id,
                 player_api_id=old_player_api_id,
+                created_at=old_fan_at,
             )
             source_colliding_fan = PlayerFan(
                 user_account_id=colliding_fan.id,
                 player_api_id=old_player_api_id,
+                created_at=old_fan_at,
             )
             target_colliding_fan = PlayerFan(
                 user_account_id=colliding_fan.id,
                 player_api_id=target_player_api_id,
+                created_at=fan_now,
             )
             follow_list = FollowList(user_account_id=scout.id, name="Graduation list")
             db.session.add(follow_list)
@@ -2485,7 +2502,13 @@ class TestAdminLocalPlayers:
             assert PlayerFan.query.filter_by(player_api_id=target_player_api_id).count() == 2
             assert db.session.get(PlayerFan, source_moving_fan_id).player_api_id == target_player_api_id
             assert db.session.get(PlayerFan, source_colliding_fan_id) is None
-            assert db.session.get(PlayerFan, target_colliding_fan_id).player_api_id == target_player_api_id
+            surviving_fan = db.session.get(PlayerFan, target_colliding_fan_id)
+            assert surviving_fan.player_api_id == target_player_api_id
+            assert surviving_fan.created_at == old_fan_at
+            assert fan_counts(
+                [target_player_api_id],
+                since=fan_now - timedelta(days=7),
+            )[target_player_api_id] == (2, 0)
             assert Follow.query.count() == 1
             assert Follow.query.one().selector == {"player_api_id": target_player_api_id}
             assert Follow.query.one().note == "follow note"
