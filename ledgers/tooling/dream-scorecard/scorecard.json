@@ -1,10 +1,10 @@
 {
-  "overall_pct": 59.8,
+  "overall_pct": 61.0,
   "pillars": {
     "P1": {
       "name": "Players: share, be found, have fans",
       "weight": 25,
-      "pct": 71.9,
+      "pct": 75.0,
       "capabilities": [
         {
           "id": "1.1",
@@ -146,7 +146,7 @@
           "id": "1.6",
           "name": "Know I am being watched",
           "score": 3,
-          "reach": "LIVE_IOS",
+          "reach": "LIVE_WEB_IOS",
           "exists": [
             "academy-watch-backend/src/routes/showcase.py:1805 \u2014 Returns interest for approved tracked-player self-claims.",
             "academy-watch-backend/src/routes/showcase.py:1845 \u2014 Counts distinct watchlist accounts while excluding blocks.",
@@ -160,19 +160,19 @@
             "Local-player interest aggregation is missing.",
             "Verified-scout filtering is missing; generic accounts are labelled scouts."
           ],
-          "blocker": "Flag is on in prod; iOS owner card (PlayerDetailView.swift:199) reads showcase.py:1805 for approved self-claims. Codex's 'labelled scouts' claim is wrong: labels are Watchlists/Follows (PlayerInterestSignalsViewModel.swift:13-15). No web surface, so LIVE_IOS, but usable.",
+          "blocker": "[S2 P1+P3 LIVE #983/#979] web owner card (WatchingMeCard in ShowcaseSection) reads the extended /api/showcase/mine/interest-signals: watchlists, fans, profile views 7/30 d, counts only; local (negative-id) self-claims included; iOS card unchanged (old fields preserved). Remaining: profile views are anonymous telemetry (not verified scouts); no push.",
           "next_step": "Filter aggregates through approved ScoutVerification rows, then enable CONTACT_RAIL_ENABLED and reuse the existing iOS card.",
           "effort": "S",
           "confidence": "high",
           "codex_score": 2,
-          "override_why": "[adversary-1 up] Flag is on in prod; iOS owner card (PlayerDetailView.swift:199) reads showcase.py:1805 for approved self-claims. Codex's 'labelled scouts' claim is wrong: labels are Watchlists/Follows (PlayerInterestSignalsViewModel.swift:13-15). No web surface, so LIVE_IOS, but usable.",
+          "override_why": "[S2 P1+P3 LIVE #983/#979] web owner card (WatchingMeCard in ShowcaseSection) reads the extended /api/showcase/mine/interest-signals: watchlists, fans, profile views 7/30 d, counts only; local (negative-id) self-claims included; iOS card unchanged (old fields preserved). Remaining: profile views are anonymous telemetry (not verified scouts); no push.",
           "codex_reach": "FLAGGED_OFF",
-          "codex_blocker": "The only client is flagged off and its counts do not identify scouts truthfully."
+          "codex_blocker": "Profile views are anonymous telemetry, not verified-scout views; no push notifications exist."
         },
         {
           "id": "1.7",
           "name": "Have fans",
-          "score": 2,
+          "score": 3,
           "reach": "LIVE_WEB",
           "exists": [
             "academy-watch-frontend/src/App.jsx:4190 \u2014 Web exposes public tracked-player pages.",
@@ -191,12 +191,12 @@
             "iOS comments and player-card sharing components are missing.",
             "Automated follow-digest scheduling is missing; sending remains admin-triggered."
           ],
-          "blocker": "Fan surface exists only for API-Football TrackedPlayers: comments (PlayerPage.jsx:1426) and a scout-branded watchlist star (PlayerPage.jsx:319). LocalPlayerPage.jsx:1-11 mounts no comments, follow, or share; no fan concept in code; no public counts. The dream's self-showcased player cannot have fans.",
+          "blocker": "iOS has no fan follow surface; local player pages still have no comments.",
           "next_step": "Extend follow_resolver._validate_player and Follow.selector for local_player_id, then expose generic Follow controls on both player pages.",
           "effort": "M",
           "confidence": "high",
           "codex_score": 3,
-          "override_why": "[adversary-1 down] Fan surface exists only for API-Football TrackedPlayers: comments (PlayerPage.jsx:1426) and a scout-branded watchlist star (PlayerPage.jsx:319). LocalPlayerPage.jsx:1-11 mounts no comments, follow, or share; no fan concept in code; no public counts. The dream's self-showcased player cannot have fans.",
+          "override_why": "[S2 P0+P1+P3 LIVE #978/#983/#979] any signed-in account can follow a public adult player (tracked or local) from the web player pages; public fan counts; Share button; player_fans grain with owner exclusion, neutral 404 for minors/suppressed; fans re-keyed on graduation/merge. Remaining: iOS has no follow button; no comments on local pages.",
           "codex_reach": "LIVE_WEB_IOS",
           "codex_blocker": "The usable relationship remains scout-branded and TrackedPlayer-only."
         },
@@ -899,7 +899,7 @@
     "P5": {
       "name": "Foundation: safety, correctness, reach, ops, money, adoption",
       "weight": 15,
-      "pct": 53.1,
+      "pct": 56.2,
       "capabilities": [
         {
           "id": "5.1",
@@ -976,7 +976,7 @@
         {
           "id": "5.3",
           "name": "Reach",
-          "score": 2,
+          "score": 3,
           "reach": "LIVE_WEB",
           "exists": [
             "academy-watch-backend/src/templates/newsletter_web.html:7 \u2014 Renders newsletter-specific title and social metadata.",
@@ -997,13 +997,14 @@
             "MISSING newsletter follow, claim, or introduction marketplace CTAs.",
             "MISSING workflow or infrastructure evidence that Mailgun/SMTP is configured in production."
           ],
-          "blocker": "Player and club pages are SPA-generic (homepage-only OG tags, no sitemap), no push (no APNs code), digests have no scheduler; emails do fire for login, claim/scout decisions and club consent.",
+          "blocker": "[S2 P2+P4 LIVE #980/#984] per-player share pages with og/twitter tags + 1200\u00d7630 card on the API origin (api.theacademywatch.com/p/<id>), sitemap.xml + robots.txt (public adults only, gate on every URL), opt-in weekly profile-activity email (ACA job job-profile-activity, Mon 07:30 UTC), scout digests already scheduled. Remaining: pretty theacademywatch.com/p/<id> needs a Cloudflare rule; no push; newsletters still SPA-only for crawlers.",
           "next_step": "Add sitemap and player/program metadata endpoints backed by TrackedPlayer and ClubProgram, then generate OG cards for those URLs.",
           "effort": "M",
           "confidence": "high",
           "codex_score": 2,
-          "override_why": "[adversary-2 keep] Newsletter pages carry OG tags but player/club pages are SPA-generic (index.html:13-25, no sitemap/robots in public/). Emails fire for login, claim and scout decisions, club consent; no push (no APNs code); digest has no scheduler.",
-          "codex_blocker": "Player and club growth surfaces remain SPA-generic, unshareable, and pull-only."
+          "override_why": "[S2 P2+P4 LIVE #980/#984] per-player share pages with og/twitter tags + 1200\u00d7630 card on the API origin (api.theacademywatch.com/p/<id>), sitemap.xml + robots.txt (public adults only, gate on every URL), opt-in weekly profile-activity email (ACA job job-profile-activity, Mon 07:30 UTC), scout digests already scheduled. Remaining: pretty theacademywatch.com/p/<id> needs a Cloudflare rule; no push; newsletters still SPA-only for crawlers.",
+          "codex_reach": "LIVE_WEB",
+          "codex_blocker": "Top-domain share URLs need an edge rule (SWA cannot proxy); no push; newsletter pages are still crawler-blind."
         },
         {
           "id": "5.4",

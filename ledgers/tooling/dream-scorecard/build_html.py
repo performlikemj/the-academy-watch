@@ -52,7 +52,7 @@ a:focus-visible,summary:focus-visible{{outline:2px solid var(--accent);outline-o
 @media(prefers-reduced-motion:no-preference){{.fill{{transition:width .5s ease}}}}
 </style>
 <div class="wrap">
-<div class="eyebrow">The Academy Watch · dream scorecard · {DATE} · updated after S0 + S1 shipped</div>
+<div class="eyebrow">The Academy Watch · dream scorecard · {DATE} · updated after S0 + S1 + S2 shipped</div>
 <h1>How far is the app from the dream?</h1>
 <p class="dream">{e(DREAM)}</p>
 <div class="sheet">
@@ -73,7 +73,7 @@ for p,v in d["pillars"].items():
         parts.append(f'<div class="cap"><div class="id">{e(c["id"])}</div><div><div class="name">{e(c["name"])}{note}</div><div class="why">{e(c.get("blocker",""))}</div><details><summary>Next step · {e(c.get("effort","-"))}</summary><p>{e(c.get("next_step",""))}</p></details></div>{dots(c["score"])}{reach_pill(c.get("reach","MISSING"))}</div>')
     parts.append('</div>')
 parts.append('<h2>What holds the dream back, ranked</h2><ol class="block">'+"".join(f'<li><div><b>{e(t)}</b><p>{e(w)}</p><span class="caps-ref">caps {e(ids)}</span></div></li>' for t,w,ids in BLOCKERS)+'</ol>')
-parts.append(f'<h2>Steps toward 100%</h2><p class="note"><b>S0 and S1 are done</b> (S0: front door — five PRs; S1: one player universe + a games grain — five PRs: self-made players join scout discovery with provenance chips, players add their own games, clubs record results and lineups, trust-tiered edits). Baseline before S0 was 51.9%, after S0 54.1%. Projected score after each stage, computed from the target scores with the same weights. Stages aim at 3 (usable), not 4; the last quarter is polish, iOS parity, tests, and the under-18 expansion.</p><div class="stages">')
+parts.append(f'<h2>Steps toward 100%</h2><p class="note"><b>S0, S1, and S2 are done</b> (S0: front door — five PRs; S1: one player universe + a games grain — five PRs: self-made players join scout discovery with provenance chips, players add their own games, clubs record results and lineups, trust-tiered edits; S2: fans + reach — five PRs: web fan follow/counts, owner signals, per-player share cards, sitemap/robots, and the weekly activity email job). Baseline before S0 was 51.9%, after S0 54.1%. Projected score after each stage, computed from the target scores with the same weights. Stages aim at 3 (usable), not 4; the last quarter is polish, iOS parity, tests, and the under-18 expansion.</p><div class="stages">')
 parts.append(f'<div class="stage"><div class="sid">now</div><div><b>Today</b></div><div class="track"><div class="fill" style="width:{d["overall_pct"]}%"></div></div><div class="pct">{d["overall_pct"]}%</div></div>')
 for sid,name,when,what,targets,o,pp in proj:
     parts.append(f'<div class="stage"><div class="sid">{e(sid)}</div><div><b>{e(name)}</b><span class="when">{e(when)}</span><div class="what">{e(what)}</div></div><div class="track"><div class="fill" style="width:{o}%"></div></div><div class="pct">{o}%</div></div>')

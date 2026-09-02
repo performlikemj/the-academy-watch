@@ -3,25 +3,25 @@
   {
    "id": "S0",
    "name": "Unbreak the front door",
-   "overall_after": 59.8,
+   "overall_after": 61.0,
    "pillars_after": {
-    "P1": 71.9,
+    "P1": 75.0,
     "P2": 63.9,
     "P3": 67.9,
     "P4": 28.6,
-    "P5": 53.1
+    "P5": 56.2
    }
   },
   {
    "id": "S1",
    "name": "One player universe + a games grain",
-   "overall_after": 59.8,
+   "overall_after": 61.0,
    "pillars_after": {
-    "P1": 71.9,
+    "P1": 75.0,
     "P2": 63.9,
     "P3": 67.9,
     "P4": 28.6,
-    "P5": 53.1
+    "P5": 56.2
    }
   },
   {
