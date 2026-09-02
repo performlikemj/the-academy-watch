@@ -41,6 +41,7 @@ RAW_RETENTION_DAYS = 90
 DEFAULT_MATCH_QUOTA = 3
 MAX_MATCH_QUOTA = 100
 QUOTA_LOCK_NAMESPACE = 4_343_202
+RESULT_PLAYER_LOCK_NAMESPACE = 4_343_203
 MAX_CAPTURE_META_BYTES = 8 * 1024
 MAX_CAPTURE_META_DEPTH = 4
 MAX_CAPTURE_META_KEYS = 50
@@ -253,6 +254,13 @@ def _member_subject(member: ClubRosterMember) -> tuple[dict | None, object | Non
         subject = resolve_player_subject(member.player_api_id)
         if subject is None or subject.is_suppressed:
             return None, None
+        tracked_rows = TrackedPlayer.query.filter_by(player_api_id=member.player_api_id).all()
+        is_minor = season_rollup_service.positive_subject_is_minor(
+            member.player_api_id,
+            tracked_rows,
+            subject.shadow,
+            session=db.session,
+        )
         return (
             {
                 "subject_type": "tracked",
@@ -260,7 +268,7 @@ def _member_subject(member: ClubRosterMember) -> tuple[dict | None, object | Non
                 "local_player_id": None,
                 "display_name": subject.display_name,
                 "position": subject.position,
-                "is_minor": subject.is_minor,
+                "is_minor": is_minor,
             },
             subject.tracked_player or subject.shadow,
         )
@@ -295,12 +303,12 @@ def _member_dict(member: ClubRosterMember) -> dict:
     return out
 
 
-def _result_player(member: ClubRosterMember) -> tuple[int, str | None]:
+def _result_player(member: ClubRosterMember) -> tuple[int, str | None, bool]:
     if member.player_api_id is not None:
         subject, _ = _member_subject(member)
         if member.player_api_id <= 0 or subject is None:
             raise _ClubResultConflict("Every result player must be an available club roster member")
-        return member.player_api_id, subject["display_name"]
+        return member.player_api_id, subject["display_name"], subject["is_minor"]
 
     local = db.session.get(LocalPlayer, member.local_player_id)
     if (
@@ -314,7 +322,7 @@ def _result_player(member: ClubRosterMember) -> tuple[int, str | None]:
         )
     if not _local_player_available(local):
         raise _ClubResultConflict("Every result player must be an available club roster member")
-    return -local.id, local.display_name
+    return -local.id, local.display_name, bool(local_player_is_minor(local))
 
 
 def _result_entry_dict(entry: PlayerMatchEntry, member_id: int | None) -> dict:
@@ -329,7 +337,17 @@ def _club_season_stats(
     level_group: str,
     member_id: int,
     player_name: str | None,
+    is_minor: bool,
 ) -> dict | None:
+    metadata = {
+        "club_roster_member_id": member_id,
+        "player_name": player_name,
+        "season": season,
+        "level_group": level_group,
+        "source": "club",
+    }
+    if is_minor:
+        return {**metadata, "withheld": "minor"}
     total = PlayerSeasonTotal.query.filter_by(
         player_api_id=player_api_id,
         season=season,
@@ -340,11 +358,7 @@ def _club_season_stats(
     if not isinstance(club_stats, dict):
         return None
     return {
-        "club_roster_member_id": member_id,
-        "player_name": player_name,
-        "season": season,
-        "level_group": level_group,
-        "source": "club",
+        **metadata,
         **{field: club_stats.get(field) for field in RESULT_STAT_FIELDS},
     }
 
@@ -364,6 +378,19 @@ def _lock_program_quota(program_id: int) -> None:
             text("SELECT pg_advisory_xact_lock(:namespace, :program_id)"),
             {"namespace": QUOTA_LOCK_NAMESPACE, "program_id": program_id},
         )
+
+
+def _lock_result_players(player_api_ids: set[int]) -> None:
+    """Serialize cross-program club-result identity checks on Postgres."""
+    if db.session.get_bind().dialect.name == "postgresql":
+        for player_api_id in sorted(player_api_ids):
+            db.session.execute(
+                text("SELECT pg_advisory_xact_lock(:namespace, :player_api_id)"),
+                {
+                    "namespace": RESULT_PLAYER_LOCK_NAMESPACE,
+                    "player_api_id": player_api_id,
+                },
+            )
 
 
 def _resolve_team_id(program: ClubProgram) -> int | None:
@@ -460,6 +487,12 @@ def delete_club_roster_member(program_id: int, member_id: int):
 @club_bp.route("/club/<int:program_id>/results", methods=["POST"])
 @require_club_manager()
 def record_club_result(program_id: int):
+    """Upsert one fixture's club-confirmed lines.
+
+    ``video_match_id`` is validated and echoed for this POST only. Persistence
+    awaits a later ``player_match_entries.video_match_id`` column, so result
+    history returns it as null.
+    """
     try:
         data = _payload()
         header = _result_header_values(data)
@@ -511,19 +544,19 @@ def record_club_result(program_id: int):
         resolved_entries = []
         seen_player_ids = set()
         for member_id, values in parsed_entries:
-            player_api_id, player_name = _result_player(members[member_id])
+            player_api_id, player_name, is_minor = _result_player(members[member_id])
             if player_api_id in seen_player_ids:
                 raise _ClubResultConflict("Each result player may appear only once")
             seen_player_ids.add(player_api_id)
-            resolved_entries.append((member_id, player_api_id, player_name, values))
+            resolved_entries.append((member_id, player_api_id, player_name, is_minor, values))
 
         season = current_stats_season(header["match_date"])
+        _lock_result_players(seen_player_ids)
         identity_rows = (
             PlayerMatchEntry.query.filter(
                 PlayerMatchEntry.match_date == header["match_date"],
                 PlayerMatchEntry.opponent == header["opponent"],
                 PlayerMatchEntry.source == "club",
-                PlayerMatchEntry.reported_by_user_id == g.user_id,
                 or_(
                     PlayerMatchEntry.club_program_id == program_id,
                     PlayerMatchEntry.player_api_id.in_(seen_player_ids),
@@ -542,6 +575,8 @@ def record_club_result(program_id: int):
                 continue
             if row.club_program_id != program_id:
                 raise _ClubResultConflict("A matching result entry already belongs to another club program")
+            if row.player_api_id in existing:
+                raise _ClubResultConflict("Multiple matching result entries already exist for this club program")
             existing[row.player_api_id] = row
 
         for entry in fixture_rows:
@@ -552,7 +587,7 @@ def record_club_result(program_id: int):
         created = False
         response_rows = []
         touched_player_ids = {entry.player_api_id for entry in fixture_rows}
-        for member_id, player_api_id, _player_name, values in resolved_entries:
+        for member_id, player_api_id, _player_name, _is_minor, values in resolved_entries:
             entry = existing.get(player_api_id)
             if entry is None:
                 entry = PlayerMatchEntry()
@@ -560,6 +595,7 @@ def record_club_result(program_id: int):
                 created = True
                 for field, value in header.items():
                     setattr(entry, field, value)
+                entry.reported_by_user_id = g.user_id
             for field, value in values.items():
                 setattr(entry, field, value)
             entry.player_api_id = player_api_id
@@ -567,7 +603,6 @@ def record_club_result(program_id: int):
             entry.source = "club"
             entry.status = "club_confirmed"
             entry.club_program_id = program_id
-            entry.reported_by_user_id = g.user_id
             response_rows.append((entry, member_id))
             touched_player_ids.add(player_api_id)
 
@@ -585,8 +620,15 @@ def record_club_result(program_id: int):
 
         level_group = "youth" if season_rollup_service._is_youth_competition(header["competition"]) else "senior"
         season_stats_by_player = {}
-        for member_id, player_api_id, player_name, _values in resolved_entries:
-            stats = _club_season_stats(player_api_id, season, level_group, member_id, player_name)
+        for member_id, player_api_id, player_name, is_minor, _values in resolved_entries:
+            stats = _club_season_stats(
+                player_api_id,
+                season,
+                level_group,
+                member_id,
+                player_name,
+                is_minor,
+            )
             if stats is not None:
                 season_stats_by_player[str(player_api_id)] = stats
         matches = [_result_entry_dict(entry, member_id) for entry, member_id in response_rows]
@@ -644,11 +686,6 @@ def list_club_results(program_id: int):
                 entry.season,
                 entry.match_date,
                 entry.opponent,
-                entry.competition,
-                entry.home_away,
-                entry.result_for,
-                entry.result_against,
-                entry.reported_by_user_id,
             )
             group = grouped.get(key)
             if group is None:
