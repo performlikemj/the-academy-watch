@@ -847,6 +847,17 @@ def test_club_source_beats_larger_user_source_without_cross_source_sum(app):
         minutes=30,
         goals=1,
         reporter=2,
+        club_program_id=91,
+    )
+    _reported_entry(
+        player,
+        source="club",
+        status="club_confirmed",
+        match_date=date(2025, 9, 3),
+        competition="Community League",
+        minutes=0,
+        reporter=2,
+        club_program_id=91,
     )
     db.session.commit()
 
@@ -854,7 +865,39 @@ def test_club_source_beats_larger_user_source_without_cross_source_sum(app):
     db.session.commit()
 
     total = PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025).one()
-    assert (total.primary_source, total.minutes, total.goals) == ("club", 30, 1)
+    club_cell = PlayerSeasonCell.query.filter_by(player_api_id=player, source="club").one()
+    assert (club_cell.club_api_id, club_cell.appearances, club_cell.detail["competition"]) == (
+        -91,
+        1,
+        "Community League",
+    )
+    assert club_cell.competition_tier not in total.clubs[0]["competition_tiers"]
+    assert total.clubs == [
+        {
+            "id": -91,
+            "name": None,
+            "minutes": 30,
+            "appearances": 1,
+            "goals": 1,
+            "assists": 0,
+            "competition_tiers": ["Community League"],
+        }
+    ]
+    from src.routes.players import _rollup_clubs
+
+    assert _rollup_clubs(total)[0] == {
+        "team_api_id": -91,
+        "team_name": None,
+        "team_logo": None,
+        "window_type": None,
+        "is_current": None,
+        "appearances": 1,
+        "minutes": 30,
+        "goals": 1,
+        "assists": 0,
+        "competition_tiers": ["Community League"],
+    }
+    assert (total.primary_source, total.minutes, total.goals, total.appearances) == ("club", 30, 1, 1)
     assert total.source_breakdown["user"]["minutes"] == 120
     assert total.source_breakdown["club"]["minutes"] == 30
 

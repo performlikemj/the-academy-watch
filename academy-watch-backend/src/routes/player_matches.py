@@ -1,20 +1,22 @@
 """Public match-entry reads and claimant-owned self-report CRUD."""
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from flask import Blueprint, g, jsonify, request
 from itsdangerous import BadSignature, SignatureExpired
+from sqlalchemy.exc import IntegrityError
 from src.auth import _user_serializer, require_user_auth
 from src.extensions import limiter
 from src.models.follow import PlayerShadow
-from src.models.funding import ClubProgramManager, ClubRosterMember
+from src.models.funding import ClubRosterMember
 from src.models.journey import PlayerJourney
 from src.models.league import UserAccount, db
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.showcase import LocalPlayer, PlayerProfileClaim, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.services import season_rollup_service
+from src.services.club_registry import _is_manager_of_approved_program
 from src.services.player_suppression import (
     is_local_player_suppressed,
     is_player_suppressed,
@@ -26,8 +28,9 @@ from src.utils.sanitize import sanitize_plain_text
 player_matches_bp = Blueprint("player_matches", __name__)
 logger = logging.getLogger(__name__)
 
-WRITE_RELATIONSHIPS = frozenset({"player", "guardian", "agent"})
-MINOR_READ_RELATIONSHIPS = frozenset({"player", "guardian"})
+# Every approved representative who may manage private entries may also read
+# them. Public visibility remains independently blocked for every minor.
+CLAIM_RELATIONSHIPS = frozenset({"player", "guardian", "agent"})
 HOME_AWAY_VALUES = frozenset({"home", "away", "neutral"})
 COUNT_FIELDS = ("goals", "assists", "yellows", "reds")
 OPTIONAL_COUNT_FIELDS = ("result_for", "result_against", "saves", "goals_conceded")
@@ -106,8 +109,9 @@ def _positive_subject_is_minor(
     player_api_id: int, tracked_rows: list[TrackedPlayer], shadow: PlayerShadow | None
 ) -> bool:
     """Conservative persisted-age rule for tracked/shadow identities."""
+    today = datetime.now(UTC).date()
     bridged_locals = LocalPlayer.query.filter_by(api_player_id=player_api_id).all()
-    if any(local_player_is_minor(local) for local in bridged_locals):
+    if any(local_player_is_minor(local, today=today) for local in bridged_locals):
         return True
 
     birth_dates = [row.birth_date for row in tracked_rows if row.birth_date]
@@ -117,7 +121,7 @@ def _positive_subject_is_minor(
     if shadow is not None and shadow.birth_date:
         birth_dates.append(shadow.birth_date)
 
-    ages = [age for value in birth_dates if (age := age_from_birth_date(value)) is not None]
+    ages = [age for value in birth_dates if (age := age_from_birth_date(value, today=today)) is not None]
     if ages:
         return any(age < 18 for age in ages)
 
@@ -192,20 +196,10 @@ def _manager_can_read_subject(subject: dict, user_id: int) -> bool:
         if subject["local_player_id"] is not None
         else ClubRosterMember.player_api_id == subject["player_api_id"]
     )
-    return (
-        db.session.query(ClubRosterMember.id)
-        .join(
-            ClubProgramManager,
-            ClubProgramManager.program_id == ClubRosterMember.program_id,
-        )
-        .filter(
-            subject_filter,
-            ClubProgramManager.user_account_id == user_id,
-            ClubProgramManager.status == "active",
-        )
-        .first()
-        is not None
-    )
+    program_ids = [
+        row[0] for row in db.session.query(ClubRosterMember.program_id).filter(subject_filter).distinct().all()
+    ]
+    return any(_is_manager_of_approved_program(user_id, program_id) for program_id in program_ids)
 
 
 def _json_object() -> dict:
@@ -226,8 +220,10 @@ def _parse_match_date(value) -> date:
         raise ValueError("match_date must be an ISO date in YYYY-MM-DD format") from None
     if value != parsed.isoformat():
         raise ValueError("match_date must be an ISO date in YYYY-MM-DD format")
-    if parsed > datetime.now(UTC).date():
-        raise ValueError("match_date cannot be in the future")
+    if parsed < date(1970, 1, 1):
+        raise ValueError("match_date cannot be before 1970-01-01")
+    if parsed > datetime.now(UTC).date() + timedelta(days=1):
+        raise ValueError("match_date cannot be more than one day in the future")
     return parsed
 
 
@@ -326,10 +322,45 @@ def _write_claim_or_error(player_api_id: int):
     subject = _resolve_subject(player_api_id)
     if subject is None:
         return None, None, neutral_player_not_found()
-    claim = _claim_for_user(subject, g.user_id, WRITE_RELATIONSHIPS)
+    claim = _claim_for_user(subject, g.user_id, CLAIM_RELATIONSHIPS)
     if claim is None:
+        if subject["is_minor"]:
+            return subject, None, neutral_player_not_found()
         return subject, None, (jsonify({"error": "You do not have an approved claim for this player"}), 403)
     return subject, claim, None
+
+
+def _find_self_entry(
+    player_api_id: int,
+    match_date: date,
+    opponent: str,
+    user_id: int,
+) -> PlayerMatchEntry | None:
+    return PlayerMatchEntry.query.filter_by(
+        player_api_id=player_api_id,
+        match_date=match_date,
+        opponent=opponent,
+        source="self",
+        reported_by_user_id=user_id,
+    ).first()
+
+
+def _apply_self_entry(
+    entry: PlayerMatchEntry,
+    values: dict,
+    *,
+    player_api_id: int,
+    user_id: int,
+    season: int,
+) -> None:
+    for field, value in values.items():
+        setattr(entry, field, value)
+    entry.player_api_id = player_api_id
+    entry.season = season
+    entry.source = "self"
+    entry.status = "self_reported"
+    entry.reported_by_user_id = user_id
+    entry.club_program_id = None
 
 
 @player_matches_bp.route("/players/<int(signed=True):player_api_id>/matches", methods=["GET"])
@@ -343,7 +374,7 @@ def list_player_matches(player_api_id: int):
             can_read = bool(
                 user
                 and (
-                    _claim_for_user(subject, user.id, MINOR_READ_RELATIONSHIPS)
+                    _claim_for_user(subject, user.id, CLAIM_RELATIONSHIPS)
                     or _manager_can_read_subject(subject, user.id)
                 )
             )
@@ -374,7 +405,7 @@ def list_player_matches(player_api_id: int):
             .limit(per_page)
             .all()
         )
-        write_claim = _claim_for_user(subject, user.id, WRITE_RELATIONSHIPS) if user else None
+        write_claim = _claim_for_user(subject, user.id, CLAIM_RELATIONSHIPS) if user else None
         return jsonify(
             {
                 "matches": [
@@ -405,31 +436,46 @@ def create_player_match(player_api_id: int):
             return error
         values = _entry_values(_json_object())
         season = current_stats_season(values["match_date"])
-        entry = PlayerMatchEntry.query.filter_by(
-            player_api_id=player_api_id,
-            match_date=values["match_date"],
-            opponent=values["opponent"],
-            source="self",
-            reported_by_user_id=g.user_id,
-        ).first()
+        entry = _find_self_entry(
+            player_api_id,
+            values["match_date"],
+            values["opponent"],
+            g.user_id,
+        )
         created = entry is None
         if entry is None:
-            entry = PlayerMatchEntry(
-                player_api_id=player_api_id,
-                source="self",
-                status="self_reported",
-                reported_by_user_id=g.user_id,
-                club_program_id=None,
-            )
+            entry = PlayerMatchEntry()
             db.session.add(entry)
-        for field, value in values.items():
-            setattr(entry, field, value)
-        entry.season = season
-        entry.source = "self"
-        entry.status = "self_reported"
-        entry.reported_by_user_id = g.user_id
-        entry.club_program_id = None
-        db.session.flush()
+        _apply_self_entry(
+            entry,
+            values,
+            player_api_id=player_api_id,
+            user_id=g.user_id,
+            season=season,
+        )
+        try:
+            db.session.flush()
+        except IntegrityError:
+            # Another identical POST may have committed after our preflight.
+            # Join that winner and apply this request as the idempotent update.
+            db.session.rollback()
+            entry = _find_self_entry(
+                player_api_id,
+                values["match_date"],
+                values["opponent"],
+                g.user_id,
+            )
+            if entry is None:
+                raise
+            created = False
+            _apply_self_entry(
+                entry,
+                values,
+                player_api_id=player_api_id,
+                user_id=g.user_id,
+                season=season,
+            )
+            db.session.flush()
         season_stats = season_rollup_service.refresh_player(player_api_id, season, session=db.session)
         db.session.commit()
         return jsonify({"match": entry.to_dict(editable=True), "season_stats": season_stats}), 201 if created else 200
@@ -470,7 +516,11 @@ def update_player_match(player_api_id: int, entry_id: int):
         entry.status = "self_reported"
         entry.reported_by_user_id = g.user_id
         entry.club_program_id = None
-        db.session.flush()
+        try:
+            db.session.flush()
+        except IntegrityError:
+            db.session.rollback()
+            return jsonify({"error": "A match entry already exists for that date and opponent"}), 409
         refreshes = {}
         for season in sorted({old_season, entry.season}):
             refreshes[season] = season_rollup_service.refresh_player(

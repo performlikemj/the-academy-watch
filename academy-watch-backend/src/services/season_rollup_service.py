@@ -625,7 +625,8 @@ def _reported_match_cells(
             groups[key] = agg
             club_names[key] = club_name
             competition_names[key] = " ".join((entry.competition or "").split()) or None
-        _add(agg, "appearances", 1)
+        if (entry.minutes or 0) > 0:
+            _add(agg, "appearances", 1)
         _add(agg, "goals", entry.goals)
         _add(agg, "assists", entry.assists)
         _add(agg, "minutes", entry.minutes)
@@ -639,12 +640,16 @@ def _reported_match_cells(
         entry_season, club_program_id, competition_key = key
         competition = competition_names[key]
         level_group = LEVEL_YOUTH if _is_youth_competition(competition_key) else LEVEL_SENIOR
+        # ``club_api_id`` is a shared namespace: positive values are provider
+        # team IDs, negative values are platform ClubProgram IDs, and 0 means
+        # the report is not assigned to a club.
+        cell_club_id = -club_program_id if club_program_id else 0
         cell = _finish_cell(
             agg,
             player_api_id=player_api_id,
             season=entry_season,
             source=cell_source,
-            club_api_id=club_program_id,
+            club_api_id=cell_club_id,
             club_name=club_names.get(key),
             competition_tier=_reported_competition_tier(level_group, competition_key),
             level_group=level_group,
@@ -781,8 +786,14 @@ def _clubs_array(headline_cells: list[dict]) -> list[dict]:
         club["appearances"] += c["appearances"] or 0
         club["goals"] += c["goals"] or 0
         club["assists"] += c["assists"] or 0
-        if c["competition_tier"] not in club["competition_tiers"]:
-            club["competition_tiers"].append(c["competition_tier"])
+        # Reported competition_tier values are hashed key discriminators, not
+        # presentation labels. The read-side clubs adapter forwards this list.
+        if c["source"] in {SOURCE_CLUB, SOURCE_USER}:
+            competition_label = (c.get("detail") or {}).get("competition")
+        else:
+            competition_label = c["competition_tier"]
+        if competition_label and competition_label not in club["competition_tiers"]:
+            club["competition_tiers"].append(competition_label)
     return sorted(by_club.values(), key=lambda x: (-(x["minutes"] or 0), x["id"]))
 
 
