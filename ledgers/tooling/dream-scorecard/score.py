@@ -10,11 +10,31 @@ def load(path):
     return json.loads(m.group(0))
 caps = {}
 meta = {"surprises": [], "strong_already": [], "admin_count_endpoints": []}
-for f in sorted(glob.glob(os.path.join(S, "out-*.json"))):
+audit_paths = sorted(glob.glob(os.path.join(S, "out-*.json")))
+for f in audit_paths:
     d = load(f)
     for c in d.get("capabilities", []):
         caps[c["id"]] = c
     for k in meta: meta[k] += d.get(k, [])
+# The copied tooling intentionally omits the raw session audits. Reconstruct their
+# pre-override rows from the compiled scorecard so in-place reruns stay lossless.
+scorecard_path = os.path.join(S, "scorecard.json")
+if not audit_paths and os.path.exists(scorecard_path):
+    previous = json.load(open(scorecard_path))
+    for pillar in previous.get("pillars", {}).values():
+        for compiled in pillar.get("capabilities", []):
+            if "codex_score" not in compiled:
+                continue
+            c = dict(compiled)
+            c["score"] = c.pop("codex_score")
+            if "codex_reach" in c:
+                c["reach"] = c.pop("codex_reach")
+            if "codex_blocker" in c:
+                c["blocker"] = c.pop("codex_blocker")
+            c.pop("override_why", None)
+            caps[c["id"]] = c
+    for k in meta:
+        meta[k] = previous.get(k, [])
 # orchestrator overrides (Fable adversarial-review verdicts) live in overrides.json: {"1.4": {"score": 2, "why": "..."}}
 ov_path = os.path.join(S, "overrides.json")
 overrides = json.load(open(ov_path)) if os.path.exists(ov_path) else {}
@@ -39,7 +59,7 @@ for p in WEIGHTS:
     pillars[p] = {"name": NAMES[p], "weight": WEIGHTS[p], "pct": pct, "capabilities": cs}
 overall = round(sum(pillars[p]["pct"] * WEIGHTS[p] for p in WEIGHTS) / sum(WEIGHTS.values()), 1)
 out = {"overall_pct": overall, "pillars": pillars, **meta}
-json.dump(out, open(os.path.join(S, "scorecard.json"), "w"), indent=2)
+json.dump(out, open(scorecard_path, "w"), indent=2)
 print(f"OVERALL {overall}%")
 for p, v in pillars.items():
     print(f"  {p} {v['pct']:5.1f}%  w={v['weight']}  n={len(v['capabilities'])}  {v['name']}")

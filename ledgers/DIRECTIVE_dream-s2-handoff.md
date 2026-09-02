@@ -9,7 +9,7 @@ Read in this order: this file → `ledgers/GRADING_dream-scorecard-2026-09-02.md
 
 - **Score:** baseline 51.9% (morning) → S0 54.1% → **S1 59.8%** (`ledgers/tooling/dream-scorecard/scorecard.json`, weights P1 25/P2 25/P3 20/P4 15/P5 15).
   Lived adoption is still ~0 (9 accounts, 5 = team; 1 claim; 0 clubs; 0 intros; $0). Artifact page (republish to THIS url with
-  the Artifact tool's `url` param): https://claude.ai/code/artifact/9a6ba375-a350-461a-bbf5-ce56d1b1002d
+  the Artifact tool's `url` param): https://claude.ai/code/artifact/1ac9cfc9-9540-4a41-80a6-1e3846fbb8d9
 - **Merged today (all live):** S0 #957 A, #958 C (+ ACA job `job-scout-digest`), #960 D, #961 E, #959 B · S1 #963 P1, #965 P2, #968 P3,
   #964 P4, #969 P5, #974 hygiene · docs #967, #971?/#972? (n/a), docs tails. Other session merged #966, #970, #975 (video/regen work).
 - **Prod (RG `rg-nbhd-prod`, app `ca-loan-army-backend`, FQDN `ca-loan-army-backend.victoriousocean-5cdd2683.westus2.azurecontainerapps.io`,
