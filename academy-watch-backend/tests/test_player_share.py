@@ -20,6 +20,7 @@ from src.services.player_share_card import (
     build_share_meta,
     get_share_card_font_path,
     public_api_origin,
+    public_share_origin,
 )
 from src.services.player_suppression import neutral_player_not_found
 from src.services.public_player_subject import resolve_public_adult_subject
@@ -152,6 +153,7 @@ def test_share_html_has_escaped_social_metadata_and_configured_api_origin(
     db.session.commit()
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://www.share.test/")
     monkeypatch.setenv("PUBLIC_API_BASE_URL", "https://api.share.test/root///")
+    monkeypatch.delenv("PUBLIC_SHARE_BASE_URL", raising=False)
 
     response = share_client.get(
         f"/p/{player.player_api_id}",
@@ -172,10 +174,51 @@ def test_share_html_has_escaped_social_metadata_and_configured_api_origin(
     assert '<meta property="og:image:width" content="1200">' in html
     assert '<meta property="og:image:height" content="630">' in html
     assert '<meta name="twitter:card" content="summary_large_image">' in html
+    assert '<meta name="twitter:image" content="https://api.share.test/root/p/98101/card.png">' in html
     assert '<link rel="canonical" href="https://www.share.test/players/98101">' in html
     assert '<meta http-equiv="refresh" content="0; url=https://www.share.test/players/98101">' in html
     assert '<a href="https://www.share.test/players/98101">' in html
     assert "<script" not in html
+    assert "forged.example" not in html
+    assert "ingress.test" not in html
+
+
+def test_share_meta_uses_public_share_origin_for_social_urls_and_keeps_canonical(
+    app,
+    share_client,
+    parent_team,
+    monkeypatch,
+):
+    player = _tracked(parent_team, 98_106, birth_date=_years_ago(25))
+    db.session.commit()
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://www.share.test/")
+    monkeypatch.setenv("PUBLIC_API_BASE_URL", "https://api.share.test/root/")
+    monkeypatch.setenv("PUBLIC_SHARE_BASE_URL", "https://theacademywatch.com")
+
+    with app.test_request_context(
+        "/",
+        base_url="https://ingress.test",
+        headers={"X-Forwarded-Host": "forged.example"},
+    ):
+        subject = resolve_public_adult_subject(player.player_api_id)
+        meta = build_share_meta(subject)
+
+    assert meta["share_url"] == "https://theacademywatch.com/p/98106"
+    assert meta["image_url"] == "https://theacademywatch.com/p/98106/card.png"
+    assert meta["canonical_url"] == "https://www.share.test/players/98106"
+
+    response = share_client.get(
+        f"/p/{player.player_api_id}",
+        headers={"Host": "ingress.test", "X-Forwarded-Host": "forged.example"},
+    )
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert '<meta property="og:url" content="https://theacademywatch.com/p/98106">' in html
+    assert '<meta property="og:image" content="https://theacademywatch.com/p/98106/card.png">' in html
+    assert '<meta name="twitter:image" content="https://theacademywatch.com/p/98106/card.png">' in html
+    assert '<link rel="canonical" href="https://www.share.test/players/98106">' in html
+    assert "api.share.test" not in html
     assert "forged.example" not in html
     assert "ingress.test" not in html
 
@@ -240,6 +283,7 @@ def test_negative_local_share_uses_local_canonical_path(share_client, monkeypatc
     db.session.commit()
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://theacademywatch.test/")
     monkeypatch.setenv("PUBLIC_API_BASE_URL", "https://api.theacademywatch.test/")
+    monkeypatch.delenv("PUBLIC_SHARE_BASE_URL", raising=False)
 
     response = share_client.get(f"/p/{local.api_player_id}")
 
@@ -257,6 +301,7 @@ def test_api_origin_falls_back_to_request_root_only_when_unset(
 ):
     player = _tracked(parent_team, 98_104, birth_date=_years_ago(25))
     db.session.commit()
+    monkeypatch.delenv("PUBLIC_SHARE_BASE_URL", raising=False)
     monkeypatch.delenv("PUBLIC_API_BASE_URL", raising=False)
 
     response = share_client.get(
@@ -283,6 +328,7 @@ def test_api_origin_falls_back_to_request_root_when_configured_origin_is_blank(
 ):
     player = _tracked(parent_team, 98_105, birth_date=_years_ago(25))
     db.session.commit()
+    monkeypatch.delenv("PUBLIC_SHARE_BASE_URL", raising=False)
     monkeypatch.setenv("PUBLIC_API_BASE_URL", configured_origin)
 
     response = share_client.get(
@@ -302,6 +348,32 @@ def test_api_origin_preserves_nonblank_config_verbatim_except_trailing_slashes(a
 
     with app.test_request_context("/", base_url="http://dev-api.test:5190"):
         assert public_api_origin() == "  https://api.share.test/root"
+
+
+@pytest.mark.parametrize(
+    ("configured_share_origin", "expected"),
+    (
+        ("", "https://api.share.test/root"),
+        (" \t ", "https://api.share.test/root"),
+        ("  https://theacademywatch.com/// \t", "https://theacademywatch.com"),
+    ),
+    ids=("empty", "whitespace-only", "trimmed"),
+)
+def test_public_share_origin_strips_config_and_treats_blank_as_unset(
+    app,
+    monkeypatch,
+    configured_share_origin,
+    expected,
+):
+    monkeypatch.setenv("PUBLIC_API_BASE_URL", "https://api.share.test/root/")
+    monkeypatch.setenv("PUBLIC_SHARE_BASE_URL", configured_share_origin)
+
+    with app.test_request_context(
+        "/",
+        base_url="https://ingress.test",
+        headers={"X-Forwarded-Host": "forged.example"},
+    ):
+        assert public_share_origin() == expected
 
 
 def test_all_unsafe_and_malformed_share_paths_are_byte_identical_neutral_json(
@@ -380,6 +452,7 @@ def test_share_routes_call_the_public_adult_gate_before_rendering(
 
 def test_api_robots_txt_uses_configured_api_origin(share_client, monkeypatch):
     monkeypatch.setenv("PUBLIC_API_BASE_URL", "https://api.share.test/base///")
+    monkeypatch.delenv("PUBLIC_SHARE_BASE_URL", raising=False)
 
     response = share_client.get(
         "/robots.txt",
@@ -390,4 +463,20 @@ def test_api_robots_txt_uses_configured_api_origin(share_client, monkeypatch):
     assert response.mimetype == "text/plain"
     assert response.get_data(as_text=True) == (
         "User-agent: *\nAllow: /p/\nDisallow: /api/\nSitemap: https://api.share.test/base/sitemap.xml\n"
+    )
+
+
+def test_api_robots_txt_uses_configured_public_share_origin(share_client, monkeypatch):
+    monkeypatch.setenv("PUBLIC_API_BASE_URL", "https://api.share.test/base/")
+    monkeypatch.setenv("PUBLIC_SHARE_BASE_URL", "https://theacademywatch.com")
+
+    response = share_client.get(
+        "/robots.txt",
+        headers={"Host": "ingress.test", "X-Forwarded-Host": "forged.example"},
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/plain"
+    assert response.get_data(as_text=True) == (
+        "User-agent: *\nAllow: /p/\nDisallow: /api/\nSitemap: https://theacademywatch.com/sitemap.xml\n"
     )

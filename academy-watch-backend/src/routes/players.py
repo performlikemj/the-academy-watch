@@ -8,7 +8,6 @@ This blueprint handles:
 """
 
 import logging
-import os
 
 from flask import Blueprint, g, jsonify, request
 from src.auth import _safe_error_payload, require_user_auth, resolve_bearer_user
@@ -27,6 +26,7 @@ from src.services.fan_follow_service import (
     unfollow_player,
 )
 from src.services.player_shadow_service import is_external_player_id
+from src.services.player_share_card import public_share_origin
 from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import hide_suppressed_player, neutral_player_not_found
 from src.services.public_player_subject import resolve_public_adult_subject
@@ -51,11 +51,6 @@ def _optional_authenticated_user():
         return None
 
 
-def _public_api_base() -> str:
-    configured = os.getenv("PUBLIC_API_BASE_URL")
-    return configured.rstrip("/") if configured else request.url_root.rstrip("/")
-
-
 @players_bp.route("/players/<int(signed=True):player_api_id>/followers/count", methods=["GET"])
 def get_player_follower_count(player_api_id: int):
     """Return a public-adult fan count with optional caller follow state."""
@@ -70,7 +65,7 @@ def get_player_follower_count(player_api_id: int):
             "player_api_id": player_api_id,
             "fans": fans,
             "following": is_fan(user.id, player_api_id) if user is not None else None,
-            "share_url": f"{_public_api_base()}/p/{player_api_id}",
+            "share_url": f"{public_share_origin()}/p/{player_api_id}",
         }
     )
 
