@@ -85,6 +85,9 @@ def owned_public_adult_subjects(user_account_id: int) -> list[PlayerSubject]:
 def user_owns_subject(user_account_id: int, signed_id: int) -> bool:
     """Test approved player ownership across direct and local claim namespaces."""
 
+    if isinstance(signed_id, bool) or not isinstance(signed_id, int) or signed_id == 0:
+        return False
+
     return (
         db.session.query(PlayerProfileClaim.id)
         .outerjoin(LocalPlayer, LocalPlayer.id == PlayerProfileClaim.local_player_id)
@@ -104,6 +107,10 @@ def user_owns_subject(user_account_id: int, signed_id: int) -> bool:
 
 def owner_account_ids_subquery(signed_id):
     """Return a correlated select of approved player-owner account ids."""
+
+    is_sql_expression = callable(getattr(signed_id, "__clause_element__", None))
+    if not is_sql_expression and (isinstance(signed_id, bool) or not isinstance(signed_id, int) or signed_id == 0):
+        return sa.select(PlayerProfileClaim.user_account_id).where(sa.false())
 
     return (
         sa.select(PlayerProfileClaim.user_account_id)

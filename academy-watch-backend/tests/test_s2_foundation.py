@@ -179,12 +179,22 @@ def test_public_adult_gate_uses_birth_date_and_stored_age_evidence(app, tracked_
 
 
 def test_public_adult_gate_rejects_seventeen_year_old_at_eighteen_year_boundary(app, tracked_factory):
-    """Mutation guard: changing the shared ``age < 18`` rule to ``age < 17`` fails."""
+    """Pin date-derived and stored-age evidence around the adult boundary."""
 
+    exactly_eighteen = _years_ago(18)
+    one_day_short = exactly_eighteen + timedelta(days=1)
     tracked_factory(10_006, age=17)
+    tracked_factory(10_007, birth_date=exactly_eighteen)
+    tracked_factory(10_008, birth_date=one_day_short)
+    _shadow(10_009, birth_date=one_day_short)
+    local = _local("Boundary Local", birth_date=one_day_short)
     db.session.commit()
 
     assert resolve_public_adult_subject(10_006) is None
+    assert resolve_public_adult_subject(10_007).signed_id == 10_007
+    assert resolve_public_adult_subject(10_008) is None
+    assert resolve_public_adult_subject(10_009) is None
+    assert resolve_public_adult_subject(local.api_player_id) is None
 
 
 def test_public_adult_gate_handles_shadow_only_age_evidence(app):
@@ -326,6 +336,17 @@ def test_owner_subquery_excludes_local_owner_from_fans_and_is_fan(app):
     assert is_fan(outsider.id, local.api_player_id) is True
 
 
+@pytest.mark.parametrize("invalid_signed_id", [None, True, 0, "5"])
+def test_ownership_helpers_reject_invalid_signed_ids(app, invalid_signed_id):
+    owner = _user("invalid-owner-id@example.com")
+    claim_player_id = 7 if invalid_signed_id is None else int(invalid_signed_id)
+    _claim(owner, player_api_id=claim_player_id)
+    db.session.commit()
+
+    assert user_owns_subject(owner.id, invalid_signed_id) is False
+    assert db.session.execute(owner_account_ids_subquery(invalid_signed_id)).scalars().all() == []
+
+
 def test_player_fan_and_user_preference_defaults_match_contract(app):
     user = _user("defaults@example.com")
     fan = PlayerFan(user_account_id=user.id, player_api_id=12_001)
@@ -438,6 +459,22 @@ def test_profile_view_counts_observe_inclusive_boundaries_and_aware_now(app):
         since=aware_now - timedelta(days=7),
         now=aware_now,
     ) == {player_id: 2, 12_202: 1, 999_999: 0}
+
+
+def test_profile_view_counts_case_guards_non_profile_event_props(app):
+    now = datetime(2026, 9, 2, 12)
+    since = now - timedelta(days=1)
+    db.session.add_all(
+        [
+            ProductEvent(event_name="profile_view", props={"player_api_id": 5}, created_at=now),
+            ProductEvent(event_name="pageview", props={"player_api_id": "x"}, created_at=now),
+            ProductEvent(event_name="pageview", props={"player_api_id": 5}, created_at=now),
+        ]
+    )
+    db.session.commit()
+
+    assert profile_view_counts([5], now=now) == {5: {"last_7_days": 1, "last_30_days": 1}}
+    assert profile_view_counts_since([5], since=since, now=now) == {5: 1}
 
 
 def test_empty_metric_inputs_execute_no_queries(app):

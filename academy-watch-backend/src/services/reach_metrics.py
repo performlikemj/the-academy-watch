@@ -93,7 +93,7 @@ def profile_view_counts(signed_ids, *, now=None) -> dict[int, dict[str, int]]:
     now = _now_naive(now)
     seven_days_ago = now - timedelta(days=7)
     thirty_days_ago = now - timedelta(days=30)
-    player_id = ProductEvent.props["player_api_id"].as_integer()
+    player_id = case((ProductEvent.event_name == "profile_view", ProductEvent.props["player_api_id"].as_integer()))
     rows = (
         db.session.query(
             player_id.label("player_api_id"),
@@ -124,7 +124,7 @@ def profile_view_counts_since(signed_ids, *, since, now=None) -> dict[int, int]:
         return {}
     since = _naive_utc(since)
     now = _now_naive(now)
-    player_id = ProductEvent.props["player_api_id"].as_integer()
+    player_id = case((ProductEvent.event_name == "profile_view", ProductEvent.props["player_api_id"].as_integer()))
     rows = (
         db.session.query(player_id.label("player_api_id"), func.count(ProductEvent.id))
         .filter(
