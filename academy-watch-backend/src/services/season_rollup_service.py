@@ -61,14 +61,16 @@ import logging
 from datetime import UTC, datetime
 from hashlib import sha256
 
-import src.models.showcase  # noqa: F401
-from src.models.follow import PlayerShadowStats
+from src.models.follow import PlayerShadow, PlayerShadowStats
 from src.models.funding import ClubProgram
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, db
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
+from src.models.showcase import LocalPlayer, local_player_is_minor
+from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
+from src.utils.academy_window import age_from_birth_date
 
 logger = logging.getLogger(__name__)
 
@@ -589,6 +591,72 @@ def _reported_competition_tier(level_group: str, competition_key: str) -> str:
     return f"{level_group[0]}-{digest}"
 
 
+def positive_subject_is_minor(
+    player_api_id: int,
+    tracked_rows: list[TrackedPlayer],
+    shadow: PlayerShadow | None,
+    *,
+    session,
+    today=None,
+) -> bool:
+    """Conservative shared age rule for a known positive player identity."""
+    today = today or datetime.now(UTC).date()
+    bridged_locals = session.query(LocalPlayer).filter_by(api_player_id=player_api_id).all()
+    if any(local_player_is_minor(local, today=today) for local in bridged_locals):
+        return True
+
+    birth_dates = [row.birth_date for row in tracked_rows if row.birth_date]
+    journey = session.query(PlayerJourney).filter_by(player_api_id=player_api_id).first()
+    if journey is not None and journey.birth_date:
+        birth_dates.append(journey.birth_date)
+    if shadow is not None and shadow.birth_date:
+        birth_dates.append(shadow.birth_date)
+
+    ages = [age for value in birth_dates if (age := age_from_birth_date(value, today=today)) is not None]
+    if ages:
+        return any(age < 18 for age in ages)
+
+    stored_ages = [row.age for row in tracked_rows if row.age is not None]
+    if stored_ages:
+        return any(age < 18 for age in stored_ages)
+    return True
+
+
+def _reported_subject_is_minor(player_api_id: int, session) -> bool:
+    """Apply the player-match route's conservative age rule at cell emission.
+
+    Match entries remain durable while the subject is a minor. This decision
+    is recomputed on every refresh, so the first refresh after the subject's
+    18th birthday emits the previously withheld user/club cells.
+    """
+    today = datetime.now(UTC).date()
+    if player_api_id >= 0:
+        if player_api_id == 0:
+            return True
+
+        tracked_rows = session.query(TrackedPlayer).filter_by(player_api_id=player_api_id).all()
+        shadow = session.query(PlayerShadow).filter_by(player_api_id=player_api_id, is_active=True).first()
+        if not tracked_rows and shadow is None:
+            return True
+        return positive_subject_is_minor(
+            player_api_id,
+            tracked_rows,
+            shadow,
+            session=session,
+            today=today,
+        )
+
+    local = session.get(LocalPlayer, -player_api_id)
+    if (
+        local is None
+        or local.status != "approved"
+        or (local.api_player_id is not None and local.api_player_id != player_api_id)
+        or local.merged_into_local_player_id is not None
+    ):
+        return True
+    return bool(local_player_is_minor(local, today=today))
+
+
 def _reported_match_cells(
     player_api_id: int,
     season: int | None,
@@ -611,11 +679,14 @@ def _reported_match_cells(
     )
     if season is not None:
         q = q.filter(PlayerMatchEntry.season == season)
+    rows = q.all()
+    if not rows or _reported_subject_is_minor(player_api_id, session):
+        return []
 
     groups: dict[tuple, dict] = {}
     club_names: dict[tuple, str | None] = {}
     competition_names: dict[tuple, str | None] = {}
-    for entry, club_name in q.all():
+    for entry, club_name in rows:
         club_program_id = entry.club_program_id or 0
         competition_key = _reported_competition_key(entry.competition)
         key = (entry.season, club_program_id, competition_key)

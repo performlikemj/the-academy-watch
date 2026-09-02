@@ -10,7 +10,6 @@ from src.auth import _user_serializer, require_user_auth
 from src.extensions import limiter
 from src.models.follow import PlayerShadow
 from src.models.funding import ClubRosterMember
-from src.models.journey import PlayerJourney
 from src.models.league import UserAccount, db
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.showcase import LocalPlayer, PlayerProfileClaim, local_player_is_minor
@@ -22,7 +21,7 @@ from src.services.player_suppression import (
     is_player_suppressed,
     neutral_player_not_found,
 )
-from src.utils.academy_window import age_from_birth_date, current_stats_season
+from src.utils.academy_window import current_stats_season
 from src.utils.sanitize import sanitize_plain_text
 
 player_matches_bp = Blueprint("player_matches", __name__)
@@ -109,26 +108,13 @@ def _positive_subject_is_minor(
     player_api_id: int, tracked_rows: list[TrackedPlayer], shadow: PlayerShadow | None
 ) -> bool:
     """Conservative persisted-age rule for tracked/shadow identities."""
-    today = datetime.now(UTC).date()
-    bridged_locals = LocalPlayer.query.filter_by(api_player_id=player_api_id).all()
-    if any(local_player_is_minor(local, today=today) for local in bridged_locals):
-        return True
-
-    birth_dates = [row.birth_date for row in tracked_rows if row.birth_date]
-    journey = PlayerJourney.query.filter_by(player_api_id=player_api_id).first()
-    if journey is not None and journey.birth_date:
-        birth_dates.append(journey.birth_date)
-    if shadow is not None and shadow.birth_date:
-        birth_dates.append(shadow.birth_date)
-
-    ages = [age for value in birth_dates if (age := age_from_birth_date(value, today=today)) is not None]
-    if ages:
-        return any(age < 18 for age in ages)
-
-    stored_ages = [row.age for row in tracked_rows if row.age is not None]
-    if stored_ages:
-        return any(age < 18 for age in stored_ages)
-    return True
+    return season_rollup_service.positive_subject_is_minor(
+        player_api_id,
+        tracked_rows,
+        shadow,
+        session=db.session,
+        today=datetime.now(UTC).date(),
+    )
 
 
 def _resolve_subject(player_api_id: int) -> dict | None:

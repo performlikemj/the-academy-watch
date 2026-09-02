@@ -7,7 +7,7 @@ stays fixtures-only. Plus the other coverage-map buckets, level_group split,
 the noise filter, refresh idempotency/transactionality, and real sync hooks.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from flask import Flask
@@ -15,11 +15,13 @@ from flask import Flask
 # Importing the service at module top registers every model it touches (journey,
 # weekly, follow.PlayerShadowStats, league.AcademyPlayerSeasonStats, season_rollup)
 # into db.metadata BEFORE the app fixture's create_all() runs.
-from src.models.follow import PlayerShadowStats
+from src.models.follow import PlayerShadow, PlayerShadowStats
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, db
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
+from src.models.showcase import LocalPlayer
+from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services import season_rollup_service as svc
 
@@ -94,6 +96,39 @@ def _entry(j, player, season, club, minutes, goals=0, assists=0, apps=0, **kw):
     )
     db.session.add(e)
     return e
+
+
+def _birth_date_years_ago(years: int) -> date:
+    today = datetime.now(UTC).date()
+    try:
+        return today.replace(year=today.year - years)
+    except ValueError:
+        return today.replace(year=today.year - years, day=28)
+
+
+def _shadow_subject(player_api_id: int, *, age: int | None) -> PlayerShadow:
+    shadow = PlayerShadow(
+        player_api_id=player_api_id,
+        player_name=f"Player {player_api_id}",
+        birth_date=_birth_date_years_ago(age) if age is not None else None,
+        is_active=True,
+    )
+    db.session.add(shadow)
+    return shadow
+
+
+def _local_subject(*, age: int | None) -> LocalPlayer:
+    birth_date = _birth_date_years_ago(age) if age is not None else None
+    local = LocalPlayer(
+        display_name=f"Local player {LocalPlayer.query.count() + 1}",
+        birth_date=birth_date,
+        birth_year=birth_date.year if birth_date else None,
+        status="approved",
+    )
+    db.session.add(local)
+    db.session.flush()
+    local.api_player_id = -local.id
+    return local
 
 
 # ---------------------------------------------------------------------------
@@ -755,8 +790,190 @@ def _reported_entry(
     return entry
 
 
+def test_reported_feeders_withhold_positive_minor_until_next_adult_refresh(app):
+    player = 8001
+    shadow = _shadow_subject(player, age=17)
+    _reported_entry(
+        player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 1),
+        competition="County League",
+        minutes=90,
+    )
+    _reported_entry(
+        player,
+        source="club",
+        status="club_confirmed",
+        match_date=date(2025, 9, 2),
+        competition="County League",
+        minutes=90,
+    )
+
+    assert svc.refresh_player(player, season=2025, session=db.session) == {"cells": 0, "totals": 0}
+    assert PlayerMatchEntry.query.filter_by(player_api_id=player).count() == 2
+    assert PlayerSeasonCell.query.filter_by(player_api_id=player).count() == 0
+
+    # Entries stay durable while private; the first refresh after adulthood
+    # emits both reported sources without requiring re-entry.
+    shadow.birth_date = _birth_date_years_ago(18)
+    assert svc.refresh_player(player, season=2025, session=db.session) == {"cells": 2, "totals": 1}
+    assert {cell.source for cell in PlayerSeasonCell.query.filter_by(player_api_id=player)} == {
+        "club",
+        "user",
+    }
+    assert PlayerMatchEntry.query.filter_by(player_api_id=player).count() == 2
+
+
+def test_reported_feeder_uses_tracked_only_age_and_rechecks_at_eighteen(app):
+    player = 8005
+    tracked = TrackedPlayer(
+        player_api_id=player,
+        player_name="Tracked-only player",
+        team_id=1,
+        birth_date=_birth_date_years_ago(17).isoformat(),
+        age=17,
+        status="academy",
+        data_source="manual",
+        data_depth="full_stats",
+    )
+    db.session.add(tracked)
+    _reported_entry(
+        player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 1),
+        competition="County League",
+        minutes=90,
+    )
+
+    assert svc.refresh_player(player, season=2025, session=db.session) == {"cells": 0, "totals": 0}
+    assert PlayerMatchEntry.query.filter_by(player_api_id=player).count() == 1
+
+    tracked.birth_date = _birth_date_years_ago(18).isoformat()
+    tracked.age = 18
+    assert svc.refresh_player(player, season=2025, session=db.session) == {"cells": 1, "totals": 1}
+    assert PlayerSeasonCell.query.filter_by(player_api_id=player, source="user").one().minutes == 90
+
+
+def test_reported_feeders_withhold_negative_minor_and_unknown_local_subjects(app):
+    minor = _local_subject(age=17)
+    minor_player = -minor.id
+    _reported_entry(
+        minor_player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 1),
+        competition="County League",
+        minutes=90,
+    )
+    _reported_entry(
+        minor_player,
+        source="club",
+        status="club_confirmed",
+        match_date=date(2025, 9, 2),
+        competition="County League",
+        minutes=90,
+    )
+    unknown = _local_subject(age=None)
+    unknown_player = -unknown.id
+    _reported_entry(
+        unknown_player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 3),
+        competition="County League",
+        minutes=90,
+    )
+
+    assert svc.refresh_player(minor_player, season=2025, session=db.session) == {"cells": 0, "totals": 0}
+    assert svc.refresh_player(unknown_player, season=2025, session=db.session) == {"cells": 0, "totals": 0}
+    assert (
+        PlayerMatchEntry.query.filter(PlayerMatchEntry.player_api_id.in_([minor_player, unknown_player])).count() == 3
+    )
+
+    minor.birth_date = _birth_date_years_ago(18)
+    minor.birth_year = minor.birth_date.year
+    assert svc.refresh_player(minor_player, season=2025, session=db.session) == {"cells": 2, "totals": 1}
+    assert PlayerSeasonCell.query.filter_by(player_api_id=unknown_player).count() == 0
+
+
+def test_reported_feeders_withhold_unknown_positive_and_minor_local_bridge(app):
+    unknown_player = 8002
+    _shadow_subject(unknown_player, age=None)
+    _reported_entry(
+        unknown_player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 1),
+        competition="County League",
+        minutes=90,
+    )
+
+    bridged_player = 8003
+    _shadow_subject(bridged_player, age=20)
+    bridge_birth_date = _birth_date_years_ago(17)
+    db.session.add(
+        LocalPlayer(
+            display_name="Minor positive bridge",
+            birth_date=bridge_birth_date,
+            birth_year=bridge_birth_date.year,
+            status="approved",
+            api_player_id=bridged_player,
+        )
+    )
+    _reported_entry(
+        bridged_player,
+        source="club",
+        status="club_confirmed",
+        match_date=date(2025, 9, 2),
+        competition="County League",
+        minutes=90,
+    )
+
+    assert svc.refresh_player(unknown_player, season=2025, session=db.session) == {"cells": 0, "totals": 0}
+    assert svc.refresh_player(bridged_player, season=2025, session=db.session) == {"cells": 0, "totals": 0}
+    assert (
+        PlayerMatchEntry.query.filter(PlayerMatchEntry.player_api_id.in_([unknown_player, bridged_player])).count() == 2
+    )
+
+
+def test_minor_filter_withholds_only_reported_sources_and_keeps_api_cells(app):
+    player = 8004
+    _shadow_subject(player, age=17)
+    fixture = _fixture(8004, 2025)
+    _fps(fixture, player, 81, minutes=80, goals=1)
+    _reported_entry(
+        player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 1),
+        competition="County League",
+        minutes=90,
+        goals=3,
+    )
+    _reported_entry(
+        player,
+        source="club",
+        status="club_confirmed",
+        match_date=date(2025, 9, 2),
+        competition="County League",
+        minutes=90,
+        goals=2,
+    )
+    db.session.commit()
+
+    assert svc.refresh_player(player, season=2025, session=db.session) == {"cells": 1, "totals": 1}
+    assert {cell.source for cell in PlayerSeasonCell.query.filter_by(player_api_id=player)} == {"fixtures"}
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025).one()
+    assert (total.primary_source, total.minutes, total.goals) == ("fixtures", 80, 1)
+    assert set(total.source_breakdown) == {"fixtures"}
+    assert PlayerMatchEntry.query.filter_by(player_api_id=player).count() == 2
+
+
 def test_user_feeder_preserves_two_competitions_for_negative_player_and_never_commits(app):
-    player = -42
+    local = _local_subject(age=20)
+    player = -local.id
     _reported_entry(
         player,
         source="self",
@@ -803,7 +1020,8 @@ def test_user_feeder_preserves_two_competitions_for_negative_player_and_never_co
 
 
 def test_user_feeder_canonicalizes_youth_competition_before_classification(app):
-    player = -43
+    local = _local_subject(age=20)
+    player = -local.id
     _reported_entry(
         player,
         source="self",
@@ -828,6 +1046,7 @@ def test_user_feeder_canonicalizes_youth_competition_before_classification(app):
 
 def test_club_source_beats_larger_user_source_without_cross_source_sum(app):
     player = 8010
+    _shadow_subject(player, age=20)
     _reported_entry(
         player,
         source="self",
@@ -911,6 +1130,7 @@ def test_every_api_source_has_higher_authority_than_club_and_user():
 
 def test_api_cell_beats_larger_club_and_disputed_rows_are_excluded(app):
     player = 8011
+    _shadow_subject(player, age=20)
     fixture = _fixture(8011, 2025)
     _fps(fixture, player, 77, minutes=10, goals=1)
     _reported_entry(
