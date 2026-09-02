@@ -476,6 +476,8 @@ def send_scout_digests(
     cursor: int = 0,
     skip_sent_since: datetime | None = None,
     report_job_metrics: bool = False,
+    *,
+    enrichment_cache: dict | None = None,
 ) -> dict:
     """Build (and optionally send) digests for eligible users.
 
@@ -490,7 +492,9 @@ def send_scout_digests(
     persist each entry's last_snapshot/last_digest_at after a successful send.
     ``skip_sent_since`` is reserved for the scheduled runner; the admin route
     omits it and retains its existing per-send behavior. ``report_job_metrics``
-    adds scheduled-run-only processed-user and delivery-error counts.
+    adds scheduled-run-only processed-user and delivery-error counts. Scheduled
+    callers may pass a run-owned ``enrichment_cache`` to reuse player state
+    across cursor pages; omission preserves the fresh per-call cache.
     """
     from src.services.email_service import email_service  # lazy so tests can monkeypatch send_email
 
@@ -544,7 +548,7 @@ def send_scout_digests(
     errors = 0
     previews = []
     now = datetime.now(UTC)
-    player_cache: dict = {}
+    player_cache = enrichment_cache if enrichment_cache is not None else {}
     entry_budget = MAX_DIGEST_ENTRIES
     last_processed = cursor
     exhausted_budget = False

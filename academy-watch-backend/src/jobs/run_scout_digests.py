@@ -11,8 +11,10 @@ Usage:
 import argparse
 import json
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 
+from src.api_football_client import APICallBudget
 from src.main import app
 from src.routes.scout import _get_api_client
 from src.services.scout_digest_service import MAX_DIGEST_USERS, send_scout_digests
@@ -21,10 +23,53 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 DEFAULT_MIN_INTERVAL_HOURS = 144
+DEFAULT_API_BUDGET = 200
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _api_budget_limit() -> int:
+    raw = os.getenv("SCOUT_DIGEST_API_BUDGET", str(DEFAULT_API_BUDGET)).strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid SCOUT_DIGEST_API_BUDGET=%r; using %d",
+            raw,
+            DEFAULT_API_BUDGET,
+        )
+        return DEFAULT_API_BUDGET
+    if value < 0:
+        logger.warning("Negative SCOUT_DIGEST_API_BUDGET=%r; using 0", raw)
+        return 0
+    return value
+
+
+def _attach_api_budget(api_client, budget: APICallBudget):
+    """Resolve the route's lazy client and attach this run's hard call cap."""
+    missing = object()
+    resolve = getattr(api_client, "_resolve", None)
+    factory = getattr(api_client, "_factory", None)
+    instance = getattr(api_client, "_instance", missing)
+    if instance is None and callable(factory) and callable(resolve):
+
+        def budgeted_factory():
+            return factory(call_budget=budget)
+
+        api_client._factory = budgeted_factory
+        try:
+            client = resolve()
+        finally:
+            api_client._factory = factory
+    else:
+        client = resolve() if callable(resolve) else api_client
+    try:
+        client.call_budget = budget
+    except (AttributeError, TypeError) as exc:
+        raise TypeError("api_client must allow the scout digest call budget to be attached") from exc
+    return client
 
 
 def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HOURS) -> dict:
@@ -32,6 +77,7 @@ def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HO
     if min_interval_hours < 0:
         raise ValueError("min_interval_hours must be non-negative")
 
+    api_budget = APICallBudget(_api_budget_limit())
     summary = {
         "users_considered": 0,
         "sent": 0,
@@ -39,12 +85,15 @@ def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HO
         "errors": 0,
         "dry_run": dry_run,
         "would_send": 0,
+        "api_calls_used": 0,
+        "api_budget_exhausted": False,
     }
     cursor = 0
     skip_sent_since = _utcnow() - timedelta(hours=min_interval_hours) if min_interval_hours else None
+    enrichment_cache: dict = {}
 
     try:
-        api_client = _get_api_client()
+        api_client = _attach_api_budget(_get_api_client(), api_budget)
         while True:
             page = send_scout_digests(
                 dry_run=dry_run,
@@ -53,6 +102,7 @@ def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HO
                 cursor=cursor,
                 skip_sent_since=skip_sent_since,
                 report_job_metrics=True,
+                enrichment_cache=enrichment_cache,
             )
             summary["users_considered"] += int(page["users_processed"])
             for key in ("sent", "skipped", "errors"):
@@ -76,6 +126,8 @@ def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HO
         summary["errors"] += 1
 
     summary["would_send"] = summary["users_considered"] - summary["skipped"]
+    summary["api_calls_used"] = api_budget.spent
+    summary["api_budget_exhausted"] = api_budget.exhausted
     return summary
 
 
