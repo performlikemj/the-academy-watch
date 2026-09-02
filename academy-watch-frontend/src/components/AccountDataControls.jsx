@@ -41,7 +41,7 @@ function downloadJson(data) {
 export function AccountDataControls() {
   const navigate = useNavigate()
   const { token } = useAuth()
-  const { logout } = useAuthUI()
+  const { logout, openLoginModal } = useAuthUI()
   const [profileRequest, setProfileRequest] = useState(0)
   const [profileState, setProfileState] = useState({ token: null, status: 'loading', email: null })
   const [exporting, setExporting] = useState(false)
@@ -82,6 +82,12 @@ export function AccountDataControls() {
       downloadJson(data)
       setExportStatus({ type: 'success', message: 'Your data download is ready.' })
     } catch (error) {
+      if (error?.status === 401) {
+        APIService.setCuratorKey('')
+        logout({ clearAdminKey: true })
+        openLoginModal()
+        return
+      }
       setExportStatus({
         type: 'error',
         message: error?.status === 429 ? EXPORT_RATE_LIMIT_MESSAGE : EXPORT_ERROR_MESSAGE,

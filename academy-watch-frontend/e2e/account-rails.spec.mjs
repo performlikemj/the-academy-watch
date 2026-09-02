@@ -153,6 +153,37 @@ test('account export explains when the authenticated user is rate limited', asyn
   await expect(page.getByText('You recently exported your data; try again later.')).toBeVisible()
 })
 
+test('an unauthorized account export clears the session, opens login, and does not download', async ({ page }) => {
+  await mockApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/account/export' && request.method() === 'GET') {
+      await route.fulfill({ status: 401, json: { error: 'authentication required' } })
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/settings')
+  await page.evaluate(() => {
+    globalThis.__accountDownloadAttempts = 0
+    const originalClick = globalThis.HTMLAnchorElement.prototype.click
+    globalThis.HTMLAnchorElement.prototype.click = function (...args) {
+      if (this.hasAttribute('download')) {
+        globalThis.__accountDownloadAttempts += 1
+        return undefined
+      }
+      return originalClick.apply(this, args)
+    }
+  })
+  await page.getByRole('button', { name: 'Download my data' }).click()
+
+  await expect(page).toHaveURL('/')
+  await expect(page.getByRole('heading', { name: 'Sign in to The Academy Watch' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('academy_watch_user_token'))).toBeNull()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('academy_watch_admin_key'))).toBeNull()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('academy_watch_curator_key'))).toBeNull()
+  expect(await page.evaluate(() => globalThis.__accountDownloadAttempts)).toBe(0)
+})
+
 test('account deletion requires the account email, posts confirmation, logs out, and returns home', async ({ page }) => {
   const deleteRequests = []
 
