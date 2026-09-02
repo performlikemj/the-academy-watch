@@ -96,6 +96,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
+- **2026-09-02 Coach's brief B1 fixture bridge delivered in PR #975 (open, unmerged), fix round 2 complete:** bridged local players mint/repair the negative synthetic identity required for result recording after the shared legacy-conflict check; hosted-production targets are refused before connection; non-SQLite database names require an explicit override. The bridge test now registers showcase route models before `db.create_all()`, so its isolated 17-test run passes; paired bridge/club-console tests 60 passed; backend-wide Ruff check/format clean. No basecamp/prod execution. See `ledgers/CONTINUITY_dev-club-fixture-bridge.md`.
 - **2026-09-02 grounded Ollama JSON Schema delivered in PR #972; review round complete:** schemas build once outside retries and inline definitions; bench schema is JSON-mode-parity; docs/tests/ledger tightened. Mock-only spike suite: 155 passed; six spike files pass bare Ruff check/format. See `ledgers/CONTINUITY_grounded-json-schema-format.md`.
 - **2026-09-02 grounded caption enum prompt review fix applied; PR #970 awaiting merge:** grounded-only placeholder examples/instructions plus set-based deterministic single-choice recovery; 138 spike tests and both bare Ruff checks pass. See `ledgers/CONTINUITY_grounded-caption-enum-prompt.md`.
 - **2026-09-02 S1 SHIPPED (evening) — "one player universe + a games grain" → 59.8%.** Five PRs live: #963 P1 games grain
@@ -979,6 +980,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ```
 CONTINUITY.md
+  └─ ledgers/CONTINUITY_coach-brief.md (Track C/P/M directive workstream)
+       └─ ledgers/CONTINUITY_dev-club-fixture-bridge.md (B1 complete; PR #975 open, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-json-schema-format.md (review round complete; PR #972 open, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-caption-enum-prompt.md (verified; PR delivery next, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-caption-lenient-enums.md (complete; 131 tests + both spike files bare-Ruff clean, @owner:/root)
@@ -999,6 +1002,7 @@ CONTINUITY.md
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|
+| CONTINUITY_dev-club-fixture-bridge.md | B1 complete; PR #975 open | /root | none |
 | CONTINUITY_grounded-json-schema-format.md | review round complete; PR #972 open | /root | none |
 | CONTINUITY_grounded-caption-enum-prompt.md | verified; PR delivery next | /root | none |
 | CONTINUITY_grounded-caption-lenient-enums.md | complete; both spike files bare-Ruff clean | /root | none |
