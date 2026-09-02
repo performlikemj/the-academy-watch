@@ -2020,7 +2020,7 @@ export function ShowcaseSection({
             ) : visibleGames.length > 0 ? (
               <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70" role="list">
                 {visibleGames.map((match) => {
-                    const scoreEntered = match.result_for != null && match.result_against != null
+                  const scoreEntered = match.result_for != null && match.result_against != null
                   const venue = MATCH_HOME_AWAY_OPTIONS.find((option) => option.value === match.home_away)?.label
                     || match.home_away
                   const editable = canManageGames && match.editable && !String(match.id).startsWith('optimistic-')
@@ -2033,7 +2033,7 @@ export function ShowcaseSection({
                               {match.opponent ? `vs ${match.opponent}` : 'Game'}
                             </h3>
                             <span className="text-sm font-semibold tabular-nums text-foreground">
-                                {scoreEntered ? `${match.result_for}–${match.result_against}` : 'Score not entered'}
+                              {scoreEntered ? `${match.result_for}–${match.result_against}` : 'Score not entered'}
                             </span>
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground">

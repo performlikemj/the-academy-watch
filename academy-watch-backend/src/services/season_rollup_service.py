@@ -61,6 +61,7 @@ import logging
 from datetime import UTC, datetime
 from hashlib import sha256
 
+from sqlalchemy import text
 from src.models.follow import PlayerShadow, PlayerShadowStats
 from src.models.funding import ClubProgram
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
@@ -108,6 +109,7 @@ _SOURCE_PRIORITY = {
 
 # Per-session dirty set (player_api_id, season) awaiting a post-commit refresh.
 _DIRTY_KEY = "_season_rollup_dirty"
+PLAYER_REFRESH_LOCK_NAMESPACE = 5_352_001
 
 # The eight aggregatable stat keys shared by cells and totals.
 _STAT_KEYS = ("appearances", "goals", "assists", "minutes", "yellows", "reds", "saves", "goals_conceded")
@@ -631,29 +633,34 @@ def positive_subject_is_minor(
     return not adult_local_birth_year
 
 
-def _reported_subject_is_minor(player_api_id: int, session) -> bool:
-    """Apply the player-match route's conservative age rule at cell emission.
+def resolve_reported_subject(player_api_id: int, session) -> dict | None:
+    """Resolve one signed reported-stats subject and its conservative age.
 
-    Match entries remain durable while the subject is a minor. This decision
-    is recomputed on every refresh, so the first refresh after the subject's
-    18th birthday emits the previously withheld user/club cells.
+    Suppression stays a read-route concern so durable source entries and
+    reconstructable rollups follow the same policy as API feeders.
     """
     today = datetime.now(UTC).date()
-    if player_api_id >= 0:
-        if player_api_id == 0:
-            return True
-
-        tracked_rows = session.query(TrackedPlayer).filter_by(player_api_id=player_api_id).all()
+    if player_api_id > 0:
+        tracked_rows = (
+            session.query(TrackedPlayer).filter_by(player_api_id=player_api_id).order_by(TrackedPlayer.id.asc()).all()
+        )
         shadow = session.query(PlayerShadow).filter_by(player_api_id=player_api_id, is_active=True).first()
         if not tracked_rows and shadow is None:
-            return True
-        return positive_subject_is_minor(
-            player_api_id,
-            tracked_rows,
-            shadow,
-            session=session,
-            today=today,
-        )
+            return None
+        return {
+            "player_api_id": player_api_id,
+            "local_player_id": None,
+            "is_minor": positive_subject_is_minor(
+                player_api_id,
+                tracked_rows,
+                shadow,
+                session=session,
+                today=today,
+            ),
+        }
+
+    if player_api_id == 0:
+        return None
 
     local = session.get(LocalPlayer, -player_api_id)
     if (
@@ -662,8 +669,12 @@ def _reported_subject_is_minor(player_api_id: int, session) -> bool:
         or (local.api_player_id is not None and local.api_player_id != player_api_id)
         or local.merged_into_local_player_id is not None
     ):
-        return True
-    return bool(local_player_is_minor(local, today=today))
+        return None
+    return {
+        "player_api_id": player_api_id,
+        "local_player_id": local.id,
+        "is_minor": bool(local_player_is_minor(local, today=today)),
+    }
 
 
 def _reported_match_cells(
@@ -689,7 +700,10 @@ def _reported_match_cells(
     if season is not None:
         q = q.filter(PlayerMatchEntry.season == season)
     rows = q.all()
-    if not rows or _reported_subject_is_minor(player_api_id, session):
+    if not rows:
+        return []
+    subject = resolve_reported_subject(player_api_id, session)
+    if subject is None or subject["is_minor"]:
         return []
 
     groups: dict[tuple, dict] = {}
@@ -887,6 +901,18 @@ def _delete_scope(session, model, player_api_id: int, season: int | None):
     q.delete(synchronize_session=False)
 
 
+def _lock_player_refresh(session, player_api_id: int) -> None:
+    """Serialize every scoped or all-season rebuild for one player on Postgres."""
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, :player_api_id)"),
+            {
+                "namespace": PLAYER_REFRESH_LOCK_NAMESPACE,
+                "player_api_id": player_api_id,
+            },
+        )
+
+
 def refresh_player(player_api_id: int, season: int | None = None, session=None) -> dict:
     """Rebuild a player's rollup cells + totals from the sources, in ONE transaction.
 
@@ -898,6 +924,7 @@ def refresh_player(player_api_id: int, season: int | None = None, session=None) 
     those fresh cells. Idempotent: re-running yields exactly the same rows.
     """
     session = session or db.session
+    _lock_player_refresh(session, player_api_id)
     now = datetime.now(UTC)
 
     # 1) Clear the slate (scoped). Bulk DELETE executes immediately, so the

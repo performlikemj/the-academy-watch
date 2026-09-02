@@ -8,6 +8,7 @@ the noise filter, refresh idempotency/transactionality, and real sync hooks.
 """
 
 from datetime import UTC, date, datetime
+from types import SimpleNamespace
 
 import pytest
 from flask import Flask
@@ -450,6 +451,54 @@ def test_season_scoped_refresh_leaves_other_seasons(app):
     assert PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025).count() == 1
 
 
+def test_player_refresh_advisory_lock_is_postgres_only_and_player_wide():
+    class FakeSession:
+        def __init__(self, dialect_name):
+            self.bind = SimpleNamespace(dialect=SimpleNamespace(name=dialect_name))
+            self.executions = []
+
+        def get_bind(self):
+            return self.bind
+
+        def execute(self, statement, parameters):
+            self.executions.append((str(statement), parameters))
+
+    postgres = FakeSession("postgresql")
+    sqlite = FakeSession("sqlite")
+
+    svc._lock_player_refresh(postgres, -17)
+    svc._lock_player_refresh(sqlite, -17)
+
+    assert postgres.executions == [
+        (
+            "SELECT pg_advisory_xact_lock(:namespace, :player_api_id)",
+            {"namespace": svc.PLAYER_REFRESH_LOCK_NAMESPACE, "player_api_id": -17},
+        )
+    ]
+    assert sqlite.executions == []
+
+
+def test_refresh_player_acquires_lock_before_deleting_rollups(app, monkeypatch):
+    calls = []
+    original_delete_scope = svc._delete_scope
+
+    monkeypatch.setattr(
+        svc,
+        "_lock_player_refresh",
+        lambda session, player_api_id: calls.append(("lock", player_api_id)),
+    )
+
+    def tracking_delete_scope(session, model, player_api_id, season):
+        calls.append(("delete", model, player_api_id, season))
+        return original_delete_scope(session, model, player_api_id, season)
+
+    monkeypatch.setattr(svc, "_delete_scope", tracking_delete_scope)
+
+    assert svc.refresh_player(8801, season=2025, session=db.session) == {"cells": 0, "totals": 0}
+    assert calls[0] == ("lock", 8801)
+    assert calls[1] == ("delete", PlayerSeasonCell, 8801, 2025)
+
+
 # ---------------------------------------------------------------------------
 # choke point
 # ---------------------------------------------------------------------------
@@ -854,6 +903,21 @@ def test_reported_feeder_uses_tracked_only_age_and_rechecks_at_eighteen(app):
     tracked.age = 18
     assert svc.refresh_player(player, season=2025, session=db.session) == {"cells": 1, "totals": 1}
     assert PlayerSeasonCell.query.filter_by(player_api_id=player, source="user").one().minutes == 90
+
+
+@pytest.mark.parametrize("invalidity", ["rejected", "merged", "mismatched-api-id"])
+def test_resolve_reported_subject_rejects_invalid_negative_identities(app, invalidity):
+    local = _local_subject(age=20)
+    player_api_id = -local.id
+    if invalidity == "rejected":
+        local.status = "rejected"
+    elif invalidity == "merged":
+        replacement = _local_subject(age=20)
+        local.merged_into_local_player_id = replacement.id
+    else:
+        local.api_player_id = 9001
+
+    assert svc.resolve_reported_subject(player_api_id, db.session) is None
 
 
 def test_reported_feeders_withhold_negative_minor_and_unknown_local_subjects(app):

@@ -352,6 +352,7 @@ def test_account_age_exactly_at_threshold_is_eligible(app, client, monkeypatch):
 
 
 def test_trust_gate_locks_approved_claim_row(app, client, monkeypatch):
+    """SQLite proves lock emission; PostgreSQL locks serialize concurrent revocation."""
     from flask_sqlalchemy.query import Query
     from sqlalchemy.dialects import postgresql
 
