@@ -20,15 +20,16 @@ Reel storage reuses the existing ``PlayerLink`` model (``link_type='highlight'``
 plus the ``sort_order`` column added in migration ``aw19``.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import sqlalchemy as sa
 from sqlalchemy import event
 from sqlalchemy.orm import validates
 from src.models.league import db
+from src.utils.academy_window import age_from_birth_date
 
 
-def is_minor_birth_year(birth_year):
+def is_minor_birth_year(birth_year, *, today=None):
     """Conservative year-only minor test for scalar and SQL birth years.
 
     Without a full date of birth, someone who may still be 17 during the
@@ -36,10 +37,40 @@ def is_minor_birth_year(birth_year):
     property so the age boundary cannot drift between read paths.
     """
 
-    cutoff = datetime.now(UTC).year - 18
+    today = today or datetime.now(UTC).date()
+    cutoff = today.year - 18
     if hasattr(birth_year, "is_not"):
         return sa.or_(birth_year.is_(None), birth_year >= cutoff)
     return birth_year is None or birth_year >= cutoff
+
+
+def local_player_is_minor(player, *, today=None):
+    """Return the D1 minor flag for a LocalPlayer row or SQL entity.
+
+    A precise birth date is authoritative. Rows created before birth dates
+    were stored retain the conservative year-only behavior, including treating
+    an unknown age as a minor.
+    """
+
+    today = today or datetime.now(UTC).date()
+    if isinstance(today, datetime):
+        today = today.date()
+
+    birth_date = player.birth_date
+    if hasattr(birth_date, "is_not"):
+        try:
+            adult_cutoff = date(today.year - 18, today.month, today.day)
+        except ValueError:
+            adult_cutoff = date(today.year - 18, today.month, 28)
+        return sa.or_(
+            sa.and_(birth_date.is_not(None), birth_date > adult_cutoff),
+            sa.and_(birth_date.is_(None), is_minor_birth_year(player.birth_year, today=today)),
+        )
+
+    if birth_date is not None:
+        age = age_from_birth_date(birth_date, today=today)
+        return age is None or age < 18
+    return bool(is_minor_birth_year(player.birth_year, today=today))
 
 
 class LocalPlayer(db.Model):
@@ -54,6 +85,7 @@ class LocalPlayer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     display_name = db.Column(db.String(200), nullable=False)
     normalized_name = db.Column(db.String(220), nullable=False)
+    birth_date = db.Column(db.Date, nullable=True)
     birth_year = db.Column(db.Integer)
     position = db.Column(db.String(50))
     country = db.Column(db.String(100))
@@ -77,8 +109,8 @@ class LocalPlayer(db.Model):
 
     @property
     def is_minor(self) -> bool:
-        """Conservative year-only minor flag used at every serialization gate."""
-        return bool(is_minor_birth_year(self.birth_year))
+        """Date-aware minor flag retained for compatibility with callers."""
+        return bool(local_player_is_minor(self))
 
     @validates("display_name")
     def _sync_normalized_name(self, _key, value):
@@ -104,7 +136,7 @@ def without_minor_local_bridge(api_player_id):
     return ~sa.exists().where(
         sa.and_(
             LocalPlayer.api_player_id == api_player_id,
-            is_minor_birth_year(LocalPlayer.birth_year),
+            local_player_is_minor(LocalPlayer),
         )
     )
 

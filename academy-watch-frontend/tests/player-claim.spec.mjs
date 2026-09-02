@@ -1,3 +1,5 @@
+// Run after starting this worktree's Vite server on the chosen port:
+// E2E_BASE_URL=http://127.0.0.1:5180 pnpm exec playwright test --config tests player-claim.spec.mjs
 import { expect, test } from '@playwright/test'
 
 const baseURL = process.env.E2E_BASE_URL || 'http://127.0.0.1:5180'
