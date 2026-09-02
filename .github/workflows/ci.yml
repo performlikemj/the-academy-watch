@@ -60,17 +60,17 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Dependabot #832 broke ACR by mismatching pydantic and pydantic-core.
-      - name: Resolve backend requirements (python 3.11, dry run)
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --dry-run -r academy-watch-backend/requirements.txt
-
       - name: Install ruff
-        run: pip install ruff==0.16.0
+        run: python -m pip install ruff==0.16.0
 
       - name: Run ruff lint
         run: ruff check academy-watch-backend
 
       - name: Run ruff format check
         run: ruff format --check academy-watch-backend
+
+      # Dependabot #832 broke ACR by mismatching pydantic and pydantic-core.
+      - name: Resolve backend requirements (python 3.11, dry run)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --dry-run -r academy-watch-backend/requirements.txt

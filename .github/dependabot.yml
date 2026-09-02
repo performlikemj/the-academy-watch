@@ -23,4 +23,5 @@ updates:
         update-types: ["version-update:semver-major"]
       # pydantic pins pydantic-core exactly, so both must be bumped by hand.
       # Standalone pydantic-core bumps broke the ACR build in #832 (and twice before).
+      # (Security updates bypass this ignore — the CI dry-run fails them, so they cannot auto-merge.)
       - dependency-name: "pydantic-core"
