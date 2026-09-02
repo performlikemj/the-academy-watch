@@ -33,6 +33,7 @@ from src.models.league import (
     Team,
     db,
 )
+from src.models.player_fan import PlayerFan
 from src.models.player_suppression import PlayerSuppression
 from src.models.pulse import PlayerCardCache, PlayerPulse
 from src.models.scout_watchlist import ScoutWatchlistEntry
@@ -49,6 +50,7 @@ from src.models.showcase import (
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoPlayerReport, VideoRosterEntry
 from src.services import social_proof
+from src.services.reach_metrics import fan_counts
 
 ADMIN_KEY = "test-admin-key"
 CODE_PATTERN = re.compile(r"^AW-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$")
@@ -1710,6 +1712,8 @@ class TestAdminLocalPlayers:
         with app.app_context():
             source = _seed_local_player("Duplicate Prospect", status="pending")
             target = _seed_local_player("Canonical Prospect", status="approved")
+            merge_target_player_api_id = 8_101
+            target.api_player_id = merge_target_player_api_id
             db.session.commit()
             source_id = source.id
             target_id = target.id
@@ -1717,6 +1721,8 @@ class TestAdminLocalPlayers:
             first_user = _make_user("first@example.com")
             second_user = _make_user("second@example.com")
             api_user = _make_user("api@example.com")
+            moving_fan = _make_user("merge-moving-fan@example.com")
+            colliding_fan = _make_user("merge-colliding-fan@example.com")
             local_claims = [
                 PlayerProfileClaim(
                     player_api_id=None,
@@ -1780,6 +1786,23 @@ class TestAdminLocalPlayers:
                 link_type="highlight",
                 status="pending",
             )
+            fan_now = datetime.now(UTC).replace(tzinfo=None)
+            old_fan_at = fan_now - timedelta(days=10)
+            source_moving_fan = PlayerFan(
+                user_account_id=moving_fan.id,
+                player_api_id=-source_id,
+                created_at=old_fan_at,
+            )
+            source_colliding_fan = PlayerFan(
+                user_account_id=colliding_fan.id,
+                player_api_id=-source_id,
+                created_at=old_fan_at,
+            )
+            target_colliding_fan = PlayerFan(
+                user_account_id=colliding_fan.id,
+                player_api_id=merge_target_player_api_id,
+                created_at=fan_now,
+            )
             db.session.add_all(
                 [
                     *local_claims,
@@ -1790,9 +1813,15 @@ class TestAdminLocalPlayers:
                     api_affiliation,
                     *local_links,
                     api_link,
+                    source_moving_fan,
+                    source_colliding_fan,
+                    target_colliding_fan,
                 ]
             )
             db.session.commit()
+            source_moving_fan_id = source_moving_fan.id
+            source_colliding_fan_id = source_colliding_fan.id
+            target_colliding_fan_id = target_colliding_fan.id
             local_claim_ids = [row.id for row in local_claims]
             local_profile_id = local_profile.id
             local_media_ids = [row.id for row in local_media]
@@ -1819,6 +1848,7 @@ class TestAdminLocalPlayers:
             "media": 2,
             "affiliations": 2,
             "links": 2,
+            "player_fans": 2,
         }
         assert response.get_json()["player"]["status"] == "merged"
         assert response.get_json()["player"]["merged_into_local_player_id"] == target_id
@@ -1847,6 +1877,44 @@ class TestAdminLocalPlayers:
             assert db.session.get(PlayerClubAffiliation, api_ids["affiliation"]).player_api_id == source_id
             assert db.session.get(PlayerLink, api_ids["link"]).player_id == source_id
             assert db.session.get(PlayerLink, api_ids["link"]).local_player_id is None
+            assert PlayerFan.query.filter_by(player_api_id=-source_id).count() == 0
+            assert PlayerFan.query.filter_by(player_api_id=merge_target_player_api_id).count() == 2
+            assert db.session.get(PlayerFan, source_moving_fan_id).player_api_id == merge_target_player_api_id
+            assert db.session.get(PlayerFan, source_colliding_fan_id) is None
+            surviving_fan = db.session.get(PlayerFan, target_colliding_fan_id)
+            assert surviving_fan.player_api_id == merge_target_player_api_id
+            assert surviving_fan.created_at == old_fan_at
+            assert fan_counts(
+                [merge_target_player_api_id],
+                since=fan_now - timedelta(days=7),
+            )[merge_target_player_api_id] == (2, 0)
+
+    def test_merge_rekeys_fans_to_unbridged_local_target_signed_id(self, app, client):
+        with app.app_context():
+            source = _seed_local_player("Synthetic Fan Source", status="pending")
+            target = _seed_local_player("Synthetic Fan Target", status="approved")
+            fan = _make_user("synthetic-merge-fan@example.com")
+            source_signed_id = -source.id
+            target_signed_id = -target.id
+            player_fan = PlayerFan(user_account_id=fan.id, player_api_id=source_signed_id)
+            db.session.add(player_fan)
+            db.session.commit()
+            source_id = source.id
+            target_id = target.id
+            fan_id = player_fan.id
+
+        response = client.post(
+            f"/api/admin/local-players/{source_id}/merge",
+            json={"into_local_player_id": target_id},
+            headers=_admin_headers(),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        assert response.get_json()["moved"]["player_fans"] == 1
+        with app.app_context():
+            moved = db.session.get(PlayerFan, fan_id)
+            assert moved.player_api_id == target_signed_id
+            assert PlayerFan.query.filter_by(player_api_id=source_signed_id).count() == 0
 
     def test_merge_consolidates_profile_collision_and_returns_card_to_moderation(self, app, client):
         with app.app_context():
@@ -2045,6 +2113,8 @@ class TestAdminLocalPlayers:
             creator = _make_user("bridge-creator@example.com")
             owner = _make_user("bridge-owner@example.com")
             scout = _make_user("bridge-scout@example.com")
+            moving_fan = _make_user("bridge-moving-fan@example.com")
+            colliding_fan = _make_user("bridge-colliding-fan@example.com")
             player = _seed_local_player(
                 "Bridge Prospect",
                 status="approved",
@@ -2125,6 +2195,23 @@ class TestAdminLocalPlayers:
             target_watchlist = ScoutWatchlistEntry(
                 user_account_id=scout.id,
                 player_api_id=target_player_api_id,
+            )
+            fan_now = datetime.now(UTC).replace(tzinfo=None)
+            old_fan_at = fan_now - timedelta(days=10)
+            source_moving_fan = PlayerFan(
+                user_account_id=moving_fan.id,
+                player_api_id=old_player_api_id,
+                created_at=old_fan_at,
+            )
+            source_colliding_fan = PlayerFan(
+                user_account_id=colliding_fan.id,
+                player_api_id=old_player_api_id,
+                created_at=old_fan_at,
+            )
+            target_colliding_fan = PlayerFan(
+                user_account_id=colliding_fan.id,
+                player_api_id=target_player_api_id,
+                created_at=fan_now,
             )
             follow_list = FollowList(user_account_id=scout.id, name="Graduation list")
             db.session.add(follow_list)
@@ -2270,6 +2357,9 @@ class TestAdminLocalPlayers:
                     shadow_stats,
                     source_watchlist,
                     target_watchlist,
+                    source_moving_fan,
+                    source_colliding_fan,
+                    target_colliding_fan,
                     source_follow,
                     target_follow,
                     source_snapshot,
@@ -2319,6 +2409,9 @@ class TestAdminLocalPlayers:
             )
             db.session.add(video_report)
             db.session.commit()
+            source_moving_fan_id = source_moving_fan.id
+            source_colliding_fan_id = source_colliding_fan.id
+            target_colliding_fan_id = target_colliding_fan.id
             local_link_id = local_link.id
             local_media_id = local_media.id
             target_claim_id = target_claim.id
@@ -2365,6 +2458,7 @@ class TestAdminLocalPlayers:
             "player_shadows": 1,
             "shadow_stats": 1,
             "watchlist_entries": 1,
+            "player_fans": 2,
             "follow_selectors": 1,
             "follow_snapshots": 1,
             "roster_members": 1,
@@ -2404,6 +2498,17 @@ class TestAdminLocalPlayers:
             assert PlayerShadowStats.query.filter_by(player_api_id=target_player_api_id).count() == 1
             assert ScoutWatchlistEntry.query.filter_by(player_api_id=target_player_api_id).count() == 1
             assert ScoutWatchlistEntry.query.one().note == "local note"
+            assert PlayerFan.query.filter_by(player_api_id=old_player_api_id).count() == 0
+            assert PlayerFan.query.filter_by(player_api_id=target_player_api_id).count() == 2
+            assert db.session.get(PlayerFan, source_moving_fan_id).player_api_id == target_player_api_id
+            assert db.session.get(PlayerFan, source_colliding_fan_id) is None
+            surviving_fan = db.session.get(PlayerFan, target_colliding_fan_id)
+            assert surviving_fan.player_api_id == target_player_api_id
+            assert surviving_fan.created_at == old_fan_at
+            assert fan_counts(
+                [target_player_api_id],
+                since=fan_now - timedelta(days=7),
+            )[target_player_api_id] == (2, 0)
             assert Follow.query.count() == 1
             assert Follow.query.one().selector == {"player_api_id": target_player_api_id}
             assert Follow.query.one().note == "follow note"

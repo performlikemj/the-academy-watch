@@ -14,6 +14,7 @@ from src.auth import _get_authorized_email, require_api_key
 from src.extensions import limiter
 from src.models.league import db
 from src.models.product_event import ProductEvent
+from src.services.public_player_subject import resolve_public_adult_subject
 
 events_bp = Blueprint("events", __name__)
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ ALLOWED_EVENTS = frozenset(
         "shadow_minted",
         "search_performed",
         "list_created",
+        "profile_view",
     }
 )
 
@@ -88,6 +90,36 @@ def ingest_events():
         if not isinstance(name, str) or name not in ALLOWED_EVENTS:
             continue
         props = ev.get("props")
+        if name == "profile_view":
+            if not isinstance(props, dict):
+                continue
+            player_api_id = props.get("player_api_id")
+            if isinstance(player_api_id, bool) or not isinstance(player_api_id, int) or player_api_id == 0:
+                continue
+
+            # A syntactically valid view is accepted even when the fail-closed
+            # public-adult gate silently omits its persistence.
+            accepted += 1
+            try:
+                with db.session.begin_nested():
+                    subject = resolve_public_adult_subject(player_api_id)
+            except Exception:
+                logger.exception("Failed to resolve a profile-view subject")
+                continue
+            if subject is None:
+                continue
+            db.session.add(
+                ProductEvent(
+                    event_name=name,
+                    user_email=None,
+                    session_id=None,
+                    path=None,
+                    referrer=None,
+                    props={"player_api_id": player_api_id},
+                )
+            )
+            continue
+
         if not isinstance(props, dict):
             props = None
         db.session.add(

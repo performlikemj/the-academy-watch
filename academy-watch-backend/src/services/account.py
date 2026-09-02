@@ -34,6 +34,7 @@ from src.models.league import (
     WriterCoverageRequest,
     db,
 )
+from src.models.player_fan import PlayerFan
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.product_event import ProductEvent
 from src.models.scout_watchlist import ScoutWatchlistEntry
@@ -265,6 +266,7 @@ def build_account_export(user: UserAccount) -> dict:
     account.pop("managed_by_user_id", None)
     account["scout_tier"] = user.scout_tier or "free"
     account["scout_digest_opt_in"] = bool(user.scout_digest_opt_in)
+    account["profile_activity_email_opt_in"] = bool(user.profile_activity_email_opt_in)
 
     normalized_email = (user.email or "").strip().lower()
     subscriptions = []
@@ -313,6 +315,12 @@ def build_account_export(user: UserAccount) -> dict:
             .all()
         ],
         "watchlist_entries": watchlist_payloads,
+        "fan_follows": [
+            row.to_dict()
+            for row in PlayerFan.query.filter_by(user_account_id=user.id)
+            .order_by(PlayerFan.created_at.asc(), PlayerFan.id.asc())
+            .all()
+        ],
         "follow_lists": [_follow_list_dict(row, suppressed_player_ids) for row in follow_lists],
         "match_entries": [
             _match_entry_dict(row)
@@ -664,6 +672,7 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     counts = {
         "deleted": {
             "watchlist_entries": 0,
+            "fan_follows": 0,
             "follow_lists": 0,
             "follows": 0,
             "follow_player_snapshots": 0,
@@ -755,6 +764,9 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         ).update({PlayerLink.sort_order: 0}, synchronize_session=False)
 
     counts["deleted"]["watchlist_entries"] = ScoutWatchlistEntry.query.filter_by(user_account_id=user_id).delete(
+        synchronize_session=False
+    )
+    counts["deleted"]["fan_follows"] = PlayerFan.query.filter_by(user_account_id=user_id).delete(
         synchronize_session=False
     )
     list_ids = [row[0] for row in db.session.query(FollowList.id).filter_by(user_account_id=user_id).all()]
