@@ -548,6 +548,33 @@ def test_club_result_repost_updates_idempotently_and_refreshes_rollup(club_app, 
     assert history.get_json()["results"][0]["result"]["video_match_id"] is None
 
 
+@pytest.mark.parametrize(
+    "opponent",
+    ["ΟΛΥΜΠΙΑΚΟΣ", "İ"],
+    ids=["greek", "turkish"],
+)
+def test_club_result_repost_db_folds_unicode_opponent_identity(club_app, client, opponent):
+    program_id = club_app.c2["program_a"]
+    member_id = _add_api_member(client, program_id)
+
+    first = client.post(
+        f"/api/club/{program_id}/results",
+        json=_result_payload([member_id], opponent=opponent),
+        headers=_headers("a"),
+    )
+    corrected = client.post(
+        f"/api/club/{program_id}/results",
+        json=_result_payload([member_id], opponent=opponent, result_for=3),
+        headers=_headers("a"),
+    )
+
+    assert opponent.lower() != opponent
+    assert first.status_code == 201
+    assert corrected.status_code == 200
+    assert corrected.get_json()["matches"][0]["id"] == first.get_json()["matches"][0]["id"]
+    assert PlayerMatchEntry.query.filter_by(player_api_id=7001, source="club").count() == 1
+
+
 def test_program_managers_share_one_fixture_identity_and_history_group(club_app, client):
     program_id = club_app.c2["program_a"]
     manager_a_id = club_app.c2["users"]["a"]
@@ -679,7 +706,7 @@ def test_club_result_locks_only_same_program_identity_rows(club_app, client, mon
     assert conflict.status_code == 409
     assert len(locked_identity_sql) == 1
     assert "FOR UPDATE" in locked_identity_sql[0]
-    assert "lower(player_match_entries.opponent)" in locked_identity_sql[0]
+    assert "lower(player_match_entries.opponent) = lower(" in locked_identity_sql[0]
     assert "player_match_entries.club_program_id =" in locked_identity_sql[0]
     assert " OR " not in locked_identity_sql[0]
 
@@ -725,7 +752,9 @@ def test_club_result_rejects_legacy_duplicate_for_unposted_fixture_player(club_a
     )
 
     assert response.status_code == 409
-    assert response.get_json() == {"error": "Multiple matching result entries already exist for this club program"}
+    assert response.get_json() == {
+        "error": "Multiple matching result entries already exist for this club program (player_api_id=7002)"
+    }
     assert PlayerMatchEntry.query.filter_by(player_api_id=7001, source="club").count() == 0
     stored = PlayerMatchEntry.query.filter_by(player_api_id=7002, source="club").order_by(PlayerMatchEntry.id).all()
     assert len(stored) == 2

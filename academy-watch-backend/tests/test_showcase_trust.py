@@ -148,6 +148,123 @@ def _reported_entry(
     return entry
 
 
+def test_graduated_rollup_locks_match_rows_then_players_then_rollup_rows(app, monkeypatch):
+    from flask_sqlalchemy.query import Query
+    from sqlalchemy.dialects import postgresql
+    from src.routes import showcase as showcase_routes
+
+    target_player_api_id = 8_800
+    with app.app_context():
+        reporter, player = _approved_local_player(
+            "graduation-lock-order@example.com",
+            birth_date=date(2000, 1, 1),
+            birth_year=2000,
+        )
+        old_player_api_id = player.api_player_id
+        _reported_entry(player_api_id=old_player_api_id, reporter_id=reporter.id)
+        now = datetime.now(UTC)
+        db.session.add_all(
+            [
+                PlayerSeasonCell(
+                    player_api_id=old_player_api_id,
+                    season=2025,
+                    source="user",
+                    club_api_id=0,
+                    competition_tier="other",
+                    level_group="senior",
+                    appearances=1,
+                    goals=0,
+                    assists=0,
+                    minutes=90,
+                    yellows=0,
+                    reds=0,
+                    synced_at=now,
+                ),
+                PlayerSeasonTotal(
+                    player_api_id=old_player_api_id,
+                    season=2025,
+                    level_group="senior",
+                    appearances=1,
+                    goals=0,
+                    assists=0,
+                    minutes=90,
+                    yellows=0,
+                    reds=0,
+                    primary_source="user",
+                    computed_at=now,
+                ),
+            ]
+        )
+        db.session.commit()
+
+        order = []
+        original_with_for_update = Query.with_for_update
+
+        def capture_with_for_update(query, *args, **kwargs):
+            locked = original_with_for_update(query, *args, **kwargs)
+            entities = {description.get("entity") for description in query.column_descriptions}
+            model_label = next(
+                (
+                    label
+                    for model, label in (
+                        (PlayerMatchEntry, "match"),
+                        (PlayerSeasonCell, "cell"),
+                        (PlayerSeasonTotal, "total"),
+                    )
+                    if model in entities
+                ),
+                None,
+            )
+            if model_label is not None:
+                sql = str(
+                    locked.statement.compile(
+                        dialect=postgresql.dialect(),
+                        compile_kwargs={"literal_binds": True},
+                    )
+                )
+                order.append((model_label, sql))
+            return locked
+
+        def capture_player_lock(_session, player_api_id):
+            order.append(("lock", player_api_id))
+
+        def capture_refresh(player_api_id, *, session=None, **_kwargs):
+            assert session is db.session
+            order.append(("refresh", player_api_id))
+            return {"cells": 1, "totals": 1}
+
+        monkeypatch.setattr(Query, "with_for_update", capture_with_for_update)
+        monkeypatch.setattr(showcase_routes.season_rollup_service, "_lock_player_refresh", capture_player_lock)
+        monkeypatch.setattr(showcase_routes.season_rollup_service, "refresh_player", capture_refresh)
+
+        rekeyed, rollup = showcase_routes._refresh_graduated_rollup(
+            old_player_api_id,
+            target_player_api_id,
+        )
+
+        assert rekeyed == {"season_cells": 1, "season_totals": 1, "player_match_entries": 1}
+        assert rollup == {"cells": 1, "totals": 1}
+        assert [label for label, _value in order] == [
+            "match",
+            "match",
+            "lock",
+            "lock",
+            "cell",
+            "total",
+            "cell",
+            "total",
+            "cell",
+            "total",
+            "refresh",
+        ]
+        assert order[2:4] == [("lock", old_player_api_id), ("lock", target_player_api_id)]
+        assert order[-1] == ("refresh", target_player_api_id)
+        locked_sql = [sql for label, sql in order if label in {"match", "cell", "total"}]
+        assert all("FOR UPDATE" in sql for sql in locked_sql)
+        assert all(str(old_player_api_id) in locked_sql[index] for index in (0, 2, 3, 4, 5))
+        assert all(str(target_player_api_id) in locked_sql[index] for index in (1, 6, 7))
+
+
 def test_env_unset_keeps_approved_profile_pending(app, client):
     with app.app_context():
         _, profile, headers = _approved_profile_owner("unset@example.com", created_at=_old_account_time())

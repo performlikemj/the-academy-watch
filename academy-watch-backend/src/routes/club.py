@@ -554,7 +554,7 @@ def record_club_result(program_id: int):
         _lock_result_players(seen_player_ids)
         identity_query = PlayerMatchEntry.query.filter(
             PlayerMatchEntry.match_date == header["match_date"],
-            func.lower(PlayerMatchEntry.opponent) == header["opponent"].lower(),
+            func.lower(PlayerMatchEntry.opponent) == func.lower(header["opponent"]),
             PlayerMatchEntry.source == "club",
         )
         fixture_rows = (
@@ -580,7 +580,10 @@ def record_club_result(program_id: int):
         fixture_by_player = {}
         for row in fixture_rows:
             if row.player_api_id in fixture_by_player:
-                raise _ClubResultConflict("Multiple matching result entries already exist for this club program")
+                raise _ClubResultConflict(
+                    "Multiple matching result entries already exist for this club program "
+                    f"(player_api_id={row.player_api_id})"
+                )
             fixture_by_player[row.player_api_id] = row
         existing = {
             player_api_id: row for player_api_id, row in fixture_by_player.items() if player_api_id in seen_player_ids
