@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Your Academy Watch activity</title>
+  </head>
+  <body style="margin:0;background:#f4f1eb;color:#202020;font-family:Arial,sans-serif;">
+    <div style="max-width:640px;margin:0 auto;padding:32px 20px;">
+      <div style="background:#202020;color:#ffffff;padding:22px 26px;border-radius:12px 12px 0 0;">
+        <div style="font-size:13px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;">
+          The Academy Watch
+        </div>
+        <h1 style="margin:10px 0 0;font-size:26px;line-height:1.25;">Your weekly profile activity</h1>
+      </div>
+
+      <div style="background:#ffffff;padding:26px;border-radius:0 0 12px 12px;">
+        <p style="margin:0 0 22px;font-size:17px;line-height:1.55;">
+          <strong>{{ new_fans }}</strong> new fans,
+          <strong>{{ watchlist_adds }}</strong> watchlist adds, and
+          <strong>{{ profile_views }}</strong> profile views.
+        </p>
+
+        {% for subject in subjects %}
+          <div style="border-top:1px solid #ded8cf;padding:20px 0;">
+            <h2 style="margin:0 0 12px;font-size:20px;line-height:1.3;">{{ subject.display_name }}</h2>
+            <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:14px;">
+              <tr>
+                <td style="padding:4px 8px 4px 0;">New fans</td>
+                <td style="padding:4px 0;text-align:right;font-weight:700;">{{ subject.new_fans }}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 8px 4px 0;">Watchlist adds</td>
+                <td style="padding:4px 0;text-align:right;font-weight:700;">{{ subject.watchlist_adds }}</td>
+              </tr>
+              <tr>
+                <td style="padding:4px 8px 4px 0;">Profile views</td>
+                <td style="padding:4px 0;text-align:right;font-weight:700;">{{ subject.profile_views }}</td>
+              </tr>
+            </table>
+            <a href="{{ subject.url }}" style="color:#6f1d38;font-weight:700;">View profile</a>
+          </div>
+        {% endfor %}
+
+        <p style="margin:10px 0 0;color:#68625b;font-size:13px;line-height:1.5;">
+          Turn this off in Account → Email preferences
+        </p>
+      </div>
+    </div>
+  </body>
+</html>

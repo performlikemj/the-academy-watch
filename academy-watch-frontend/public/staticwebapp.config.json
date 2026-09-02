@@ -1,7 +1,7 @@
 {
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/*.ico", "/*.png", "/*.webmanifest"]
+    "exclude": ["/assets/*", "/*.ico", "/*.png", "/*.webmanifest", "/robots.txt"]
   },
   "routes": [
     { "route": "/assets/*", "headers": { "Cache-Control": "public, max-age=31536000, immutable" } }

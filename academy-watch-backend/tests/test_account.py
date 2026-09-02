@@ -29,6 +29,7 @@ from src.models.league import (
     UserSubscription,
     db,
 )
+from src.models.player_fan import PlayerFan
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
@@ -580,6 +581,23 @@ def _seed_full_account_graph():
 
 def test_export_is_complete_safe_and_scoped_to_the_authenticated_user(client):
     seeded = _seed_full_account_graph()
+    subject = db.session.get(UserAccount, seeded["subject_id"])
+    subject.profile_activity_email_opt_in = True
+    db.session.add_all(
+        [
+            PlayerFan(
+                user_account_id=subject.id,
+                player_api_id=COUNTERPART_PLAYER_ID,
+                created_at=datetime(2025, 8, 20, 10, 30),
+            ),
+            PlayerFan(
+                user_account_id=UNRELATED_SCOUT_ID,
+                player_api_id=UNRELATED_PLAYER_API_ID,
+                created_at=datetime(2025, 8, 21, 11, 45),
+            ),
+        ]
+    )
+    db.session.commit()
 
     response = client.get("/api/account/export", headers=_headers(seeded["subject_email"]))
 
@@ -589,6 +607,7 @@ def test_export_is_complete_safe_and_scoped_to_the_authenticated_user(client):
         "account",
         "scout_verifications",
         "watchlist_entries",
+        "fan_follows",
         "follow_lists",
         "match_entries",
         "showcase_claims",
@@ -602,10 +621,17 @@ def test_export_is_complete_safe_and_scoped_to_the_authenticated_user(client):
     assert payload["account"]["email"] == seeded["subject_email"]
     assert payload["account"]["scout_tier"] == "free"
     assert payload["account"]["scout_digest_opt_in"] is True
+    assert payload["account"]["profile_activity_email_opt_in"] is True
     assert len(payload["scout_verifications"]) == 1
     assert payload["scout_verifications"][0]["full_name"] == "Subject Scout"
     assert len(payload["watchlist_entries"]) == 1
     assert payload["watchlist_entries"][0]["note"] == "subject private watchlist note"
+    assert payload["fan_follows"] == [
+        {
+            "player_api_id": COUNTERPART_PLAYER_ID,
+            "created_at": "2025-08-20T10:30:00",
+        }
+    ]
     assert payload["match_entries"] == []
 
     assert len(payload["follow_lists"]) == 1
@@ -1216,6 +1242,35 @@ def test_delete_rolls_back_match_erasure_when_rollup_refresh_fails(client, monke
     assert db.session.get(PlayerMatchEntry, entry_id) is not None
     assert UserAccount.query.filter_by(is_tombstone=True).count() == 0
     assert AccountDeletionEvent.query.count() == 0
+
+
+def test_delete_explicitly_removes_only_the_callers_fan_rows(client):
+    subject = _add_account(98_121, "fan-delete@example.com", "Fan Delete")
+    unrelated = _add_account(98_122, "fan-keep@example.com", "Fan Keep")
+    db.session.flush()
+    db.session.add_all(
+        [
+            PlayerFan(user_account_id=subject.id, player_api_id=74_101),
+            PlayerFan(user_account_id=unrelated.id, player_api_id=74_102),
+        ]
+    )
+    db.session.commit()
+    subject_id = subject.id
+    unrelated_id = unrelated.id
+
+    response = client.post(
+        "/api/account/delete",
+        json={"confirm": "DELETE"},
+        headers=_headers(subject.email),
+    )
+
+    assert response.status_code == 200, response.get_json()
+    db.session.expire_all()
+    event = AccountDeletionEvent.query.one()
+    assert event.counts["deleted"]["fan_follows"] == 1
+    assert db.session.get(UserAccount, subject_id) is None
+    assert PlayerFan.query.filter_by(user_account_id=subject_id).count() == 0
+    assert PlayerFan.query.filter_by(user_account_id=unrelated_id, player_api_id=74_102).count() == 1
 
 
 def test_delete_erases_owned_data_and_tombstones_shared_integrity(client):

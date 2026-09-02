@@ -3085,10 +3085,18 @@ class TestContactLimits:
 
 class TestInterestSignals:
     def test_aggregates_are_correct_distinct_and_identity_free(self, client):
+        from src.models.player_fan import PlayerFan
+        from src.models.product_event import ProductEvent
+
         owner, owner_headers, _ = _claim("signal-owner@example.com", 7001)
         _claim("signal-owner@example.com", 7002)
         _claim("signal-owner@example.com", 7003, status="pending")
         _claim("signal-owner@example.com", 7004, relationship_type="agent")
+        _claim("signal-owner@example.com", 7005)
+        _, _, _, local_player_api_id = _local_claim(
+            "signal-owner@example.com",
+            birth_date=date(2000, 1, 1),
+        )
 
         now = utcnow()
         week_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=now.weekday())
@@ -3098,8 +3106,42 @@ class TestInterestSignals:
         watcher_c, _ = _headers("watcher-c@example.com")
         db.session.add_all(
             [
+                PlayerShadow(
+                    player_api_id=7001,
+                    player_name="Public adult one",
+                    birth_date=date(2000, 1, 1),
+                    is_active=True,
+                ),
+                PlayerShadow(
+                    player_api_id=7002,
+                    player_name="Public adult two",
+                    birth_date=date(2000, 1, 1),
+                    is_active=True,
+                ),
+                PlayerShadow(
+                    player_api_id=7005,
+                    player_name="Private minor",
+                    birth_date=date.today(),
+                    is_active=True,
+                ),
                 ScoutWatchlistEntry(user_account_id=watcher_a.id, player_api_id=7001, created_at=old),
                 ScoutWatchlistEntry(user_account_id=watcher_b.id, player_api_id=7001, created_at=now),
+                PlayerFan(user_account_id=watcher_a.id, player_api_id=7001, created_at=old),
+                PlayerFan(user_account_id=watcher_b.id, player_api_id=7001, created_at=now),
+                PlayerFan(user_account_id=watcher_c.id, player_api_id=7001, created_at=now),
+                PlayerFan(user_account_id=watcher_c.id, player_api_id=local_player_api_id, created_at=now),
+                ProductEvent(event_name="profile_view", props={"player_api_id": 7001}, created_at=now),
+                ProductEvent(
+                    event_name="profile_view",
+                    props={"player_api_id": 7001},
+                    created_at=now - timedelta(days=10),
+                ),
+                ProductEvent(
+                    event_name="profile_view",
+                    props={"player_api_id": local_player_api_id},
+                    created_at=now,
+                ),
+                ProductEvent(event_name="profile_view", props={"player_api_id": 7005}, created_at=now),
                 UserBlock(blocker_user_id=owner.id, blocked_user_id=watcher_b.id),
                 # Reverse-direction blocks do not hide the blocker's own signal.
                 UserBlock(blocker_user_id=watcher_a.id, blocked_user_id=owner.id),
@@ -3133,14 +3175,25 @@ class TestInterestSignals:
         assert payload["week_start"].startswith(week_start.date().isoformat())
         assert payload["interest_signals"] == [
             {
+                "player_api_id": local_player_api_id,
+                "watchlists": {"total": 0, "added_this_week": 0},
+                "follows": {"total": 0, "added_this_week": 0},
+                "fans": {"total": 1, "added_this_week": 1},
+                "profile_views": {"last_7_days": 1, "last_30_days": 1},
+            },
+            {
                 "player_api_id": 7001,
                 "watchlists": {"total": 1, "added_this_week": 0},
                 "follows": {"total": 2, "added_this_week": 1},
+                "fans": {"total": 2, "added_this_week": 1},
+                "profile_views": {"last_7_days": 1, "last_30_days": 2},
             },
             {
                 "player_api_id": 7002,
                 "watchlists": {"total": 0, "added_this_week": 0},
                 "follows": {"total": 0, "added_this_week": 0},
+                "fans": {"total": 0, "added_this_week": 0},
+                "profile_views": {"last_7_days": 0, "last_30_days": 0},
             },
         ]
 
