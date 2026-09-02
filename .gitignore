@@ -42,7 +42,8 @@ loan-army-backend/newsletter*
 .venv-test/
 loan-army-frontend/test-results
 academy-watch-frontend/test-results/
-playwright-report
+playwright-report/
+test-results/
 settings.local.json
 CONTINUITY*.md
 # Video-analysis spike: heavy local artifacts (venvs, footage, run outputs)

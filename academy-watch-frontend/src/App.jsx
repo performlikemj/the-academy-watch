@@ -57,7 +57,6 @@ import {
   Search,
   CreditCard,
   XCircle,
-  RotateCcw,
   Clock,
   Send
 } from 'lucide-react'
@@ -3022,7 +3021,6 @@ function SettingsPage() {
   // Paid subscriptions and journalist follows state
   const [paidSubscriptions, setPaidSubscriptions] = useState([])
   const [journalistFollows, setJournalistFollows] = useState([])
-  const [processingSubId, setProcessingSubId] = useState(null)
 
   useEffect(() => {
     setDisplayNameInput(auth.displayName || '')
@@ -3129,43 +3127,6 @@ function SettingsPage() {
       setEmailPrefStatus({ type: 'error', message: error?.message || 'Failed to update preference.' })
     } finally {
       setEmailPrefLoading(false)
-    }
-  }
-
-  const handleCancelPaidSubscription = async (subscriptionId) => {
-    if (!confirm('Are you sure you want to cancel this subscription? You will still have access until the end of your billing period.')) {
-      return
-    }
-    setProcessingSubId(subscriptionId)
-    setMessage(null)
-    try {
-      await APIService.request(`/stripe/cancel-subscription/${subscriptionId}`, { method: 'POST' })
-      // Refresh paid subscriptions
-      const allSubs = await APIService.getAllSubscriptions().catch(() => ({ paid_subscriptions: [] }))
-      setPaidSubscriptions(allSubs?.paid_subscriptions || [])
-      setMessage({ type: 'success', text: 'Subscription canceled. You will have access until the end of your billing period.' })
-    } catch (error) {
-      console.error('Failed to cancel subscription', error)
-      setMessage({ type: 'error', text: error?.message || 'Failed to cancel subscription.' })
-    } finally {
-      setProcessingSubId(null)
-    }
-  }
-
-  const handleReactivatePaidSubscription = async (subscriptionId) => {
-    setProcessingSubId(subscriptionId)
-    setMessage(null)
-    try {
-      await APIService.request(`/stripe/reactivate-subscription/${subscriptionId}`, { method: 'POST' })
-      // Refresh paid subscriptions
-      const allSubs = await APIService.getAllSubscriptions().catch(() => ({ paid_subscriptions: [] }))
-      setPaidSubscriptions(allSubs?.paid_subscriptions || [])
-      setMessage({ type: 'success', text: 'Subscription reactivated successfully!' })
-    } catch (error) {
-      console.error('Failed to reactivate subscription', error)
-      setMessage({ type: 'error', text: error?.message || 'Failed to reactivate subscription.' })
-    } finally {
-      setProcessingSubId(null)
     }
   }
 
@@ -3533,7 +3494,7 @@ function SettingsPage() {
                     <CreditCard className="h-5 w-5" />
                     Premium Subscriptions
                   </CardTitle>
-                  <CardDescription>Manage your paid journalist subscriptions.</CardDescription>
+                  <CardDescription>Your paid journalist subscriptions.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {paidSubscriptions.map((sub) => (
@@ -3585,42 +3546,9 @@ function SettingsPage() {
                         <Alert className="bg-amber-50 border-amber-200">
                           <AlertDescription className="text-amber-800">
                             This subscription will end on {new Date(sub.current_period_end).toLocaleDateString()}.
-                            You can reactivate it anytime before then.
                           </AlertDescription>
                         </Alert>
                       )}
-
-                      <div className="flex gap-2">
-                        {sub.status === 'active' && !sub.cancel_at_period_end && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleCancelPaidSubscription(sub.id)}
-                            disabled={processingSubId === sub.id}
-                          >
-                            {processingSubId === sub.id ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <XCircle className="mr-2 h-4 w-4" />
-                            )}
-                            Cancel Subscription
-                          </Button>
-                        )}
-                        {sub.cancel_at_period_end && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleReactivatePaidSubscription(sub.id)}
-                            disabled={processingSubId === sub.id}
-                          >
-                            {processingSubId === sub.id ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <RotateCcw className="mr-2 h-4 w-4" />
-                            )}
-                            Reactivate
-                          </Button>
-                        )}
-                      </div>
                     </div>
                   ))}
                 </CardContent>

@@ -23,6 +23,8 @@ Code-level notes for `academy-watch-backend/`. Architecture and the data model a
   crashes `flask db upgrade` on deploy (invariants.md §8).
 - **New public table → enable RLS in the same migration** or the deploy's security-check fails
   (invariants.md §2).
+- **Nothing applies Alembic migrations automatically in prod.** Pre-apply DDL via the pooler,
+  then stamp the revision; see the ledger for the current rollout.
 - Generate migrations (`flask db migrate -m "..."`), review the autogen, then `flask db upgrade`.
   The head is a long chain with merge nodes (e.g. `… aw18 → cs01 → aw19 (merge cs01,vid02) →
   aw20 → vid03 → aw22`); check `alembic heads` before adding one so you branch from the real tip.

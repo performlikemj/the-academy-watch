@@ -16,6 +16,7 @@ import pytest
 from flask import Flask
 from PIL import Image
 from src.auth import _ensure_user_account, issue_user_token
+from src.extensions import limiter
 from src.models.funding import ClubProgram  # noqa: F401 - registers the FK target for db.create_all()
 from src.models.league import PlayerLink, Team, db
 from src.models.showcase import (
@@ -68,6 +69,7 @@ def app(monkeypatch, tmp_path):
     )
 
     db.init_app(flask_app)
+    limiter.init_app(flask_app)
     flask_app.register_blueprint(showcase_bp, url_prefix="/api")
 
     with flask_app.app_context():
@@ -548,21 +550,24 @@ class TestLocalPlayerCreation:
         assert owner.status_code == 200, owner.get_json()
 
     @pytest.mark.parametrize("relationship_type", ["agent", "guardian"])
-    def test_non_player_claim_birth_date_is_stored_and_derives_year(
+    @pytest.mark.parametrize(("years_ago", "retains_birth_date"), [(16, False), (18, True)])
+    def test_non_player_claim_birth_date_is_minimized_unless_it_proves_adulthood(
         self,
         app,
         client,
         relationship_type,
+        years_ago,
+        retains_birth_date,
     ):
-        birth_date = _birth_date_years_ago(16)
+        birth_date = _birth_date_years_ago(years_ago)
         response = client.post(
             "/api/local-players",
             json={
-                "display_name": f"{relationship_type.title()} Date Prospect",
+                "display_name": f"{relationship_type.title()} Date Prospect {years_ago}",
                 "birth_date": birth_date.isoformat(),
                 "relationship_type": relationship_type,
             },
-            headers=_user_headers(f"{relationship_type}@example.com"),
+            headers=_user_headers(f"{relationship_type}-{years_ago}@example.com"),
         )
 
         assert response.status_code == 201, response.get_json()
@@ -570,7 +575,8 @@ class TestLocalPlayerCreation:
         assert player["birth_year"] == birth_date.year
         assert "birth_date" not in player
         with app.app_context():
-            assert db.session.get(LocalPlayer, player["id"]).birth_date == birth_date
+            expected_birth_date = birth_date if retains_birth_date else None
+            assert db.session.get(LocalPlayer, player["id"]).birth_date == expected_birth_date
 
     @pytest.mark.parametrize("relationship_type", ["agent", "guardian"])
     def test_supported_relationship_types_round_trip(self, client, relationship_type):

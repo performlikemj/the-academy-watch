@@ -51,7 +51,7 @@ export default defineConfig({
     },
     {
       command: `"${backendPython}" src/main.py`,
-      cwd: path.join(rootDir, 'loan-army-backend'),
+      cwd: path.join(rootDir, 'academy-watch-backend'),
       url: apiHealthURL,
       reuseExistingServer: true,
       timeout: 120000,

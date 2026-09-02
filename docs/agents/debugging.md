@@ -42,7 +42,7 @@ the load; prod self-heals ~1 min after. If you must run the op, scale up first o
 off-container. Check current scale:
 
 ```bash
-az containerapp show -n ca-loan-army-backend -g rg-loan-army-westus2 \
+az containerapp show -n ca-loan-army-backend -g rg-nbhd-prod \
   --query 'properties.template.scale.{min:minReplicas,max:maxReplicas}' -o table
 ```
 
@@ -80,7 +80,7 @@ Read CURRENT inline secrets — the Key Vault copies are stale (invariants.md §
 never echo the values into the transcript:
 
 ```bash
-az containerapp secret show -g rg-loan-army-westus2 -n ca-loan-army-backend \
+az containerapp secret show -g rg-nbhd-prod -n ca-loan-army-backend \
   --secret-name secret-key --query value -o tsv
 ```
 

@@ -18,6 +18,7 @@ from src.services import scout_digest_service
 @pytest.fixture(autouse=True)
 def _default_api_budget(monkeypatch):
     monkeypatch.delenv("SCOUT_DIGEST_API_BUDGET", raising=False)
+    monkeypatch.delenv("SCOUT_DIGEST_DRY_RUN", raising=False)
 
 
 def test_run_pages_to_exhaustion_and_aggregates(monkeypatch):
@@ -111,6 +112,30 @@ def test_dry_run_is_forwarded_and_prints_one_json_line(monkeypatch, capsys):
     assert calls[0]["skip_sent_since"] is None
 
 
+def test_dry_run_env_is_equivalent_to_cli_switch(monkeypatch, capsys):
+    calls = []
+    monkeypatch.setenv("SCOUT_DIGEST_DRY_RUN", "1")
+    monkeypatch.setattr(job, "_get_api_client", lambda: SimpleNamespace(call_budget=None))
+
+    def fake_send_scout_digests(**kwargs):
+        calls.append(kwargs)
+        return {"users_processed": 1, "sent": 0, "skipped": 0, "errors": 0, "next_cursor": None}
+
+    monkeypatch.setattr(job, "send_scout_digests", fake_send_scout_digests)
+
+    assert job.main(["--min-interval-hours", "0"]) == 0
+    assert json.loads(capsys.readouterr().out)["dry_run"] is True
+    assert calls[0]["dry_run"] is True
+
+
+def test_attach_api_budget_rejects_a_lazy_client_that_resolves_to_a_different_instance():
+    clients = [SimpleNamespace(call_budget=None), SimpleNamespace(call_budget=None)]
+    lazy_client = SimpleNamespace(_resolve=lambda: clients.pop(0))
+
+    with pytest.raises(TypeError, match="resolved api_client did not retain"):
+        job._attach_api_budget(lazy_client, job.APICallBudget(1))
+
+
 def test_service_failure_reports_error_and_nonzero_exit(monkeypatch, capsys, caplog):
     monkeypatch.setattr(job, "_get_api_client", lambda: SimpleNamespace(call_budget=None))
     monkeypatch.setattr(
@@ -151,7 +176,7 @@ def test_run_refuses_non_advancing_cursor_and_exits_nonzero(monkeypatch, capsys,
 
     monkeypatch.setattr(job, "send_scout_digests", fake_send_scout_digests)
 
-    with caplog.at_level(logging.WARNING, logger=job.__name__):
+    with caplog.at_level(logging.ERROR, logger=job.__name__):
         summary = job.run()
 
     assert [call["cursor"] for call in calls] == [0]
