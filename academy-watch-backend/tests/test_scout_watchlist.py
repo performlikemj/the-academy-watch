@@ -310,13 +310,17 @@ class TestAddAndRemove:
         assert resp.status_code == 409
         assert "watchlist limit reached" in resp.get_json()["error"]
 
-    def test_delete_returns_404_once_entry_is_absent(self, client, seeded):
+    def test_delete_is_idempotent_for_positive_and_404_for_absent_negative(self, client, seeded):
         headers = _headers()
         client.post("/api/scout/watchlist", json={"player_api_id": 1001}, headers=headers)
         resp = client.delete("/api/scout/watchlist/1001", headers=headers)
         assert resp.status_code == 200
         assert resp.get_json() == {"removed": True}
         resp = client.delete("/api/scout/watchlist/1001", headers=headers)
+        assert resp.status_code == 200
+        assert resp.get_json() == {"removed": False}
+
+        resp = client.delete("/api/scout/watchlist/-3", headers=headers)
         assert resp.status_code == 404
         assert resp.get_json() == {"error": "Player not found"}
 

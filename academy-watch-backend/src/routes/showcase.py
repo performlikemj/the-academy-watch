@@ -4004,14 +4004,7 @@ def _rekey_showcase_rows(local_player_id: int, player_api_id: int, now: datetime
 
 
 def _local_birth_date_for_shadow(player: LocalPlayer):
-    if player.birth_date is not None:
-        return player.birth_date
-    if player.birth_year is None:
-        return None
-    try:
-        return date(player.birth_year, 12, 31)
-    except (TypeError, ValueError):
-        return None
+    return player.birth_date
 
 
 def _rekey_shadow(

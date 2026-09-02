@@ -1751,7 +1751,9 @@ def scout_watchlist_remove(player_api_id):
             return jsonify({"error": "auth context missing email"}), 401
         entry = ScoutWatchlistEntry.query.filter_by(user_account_id=user.id, player_api_id=player_api_id).first()
         if entry is None:
-            return neutral_player_not_found()
+            if player_api_id < 0:
+                return neutral_player_not_found()
+            return jsonify({"removed": False})
         db.session.delete(entry)
         db.session.commit()
         _mirror_watchlist_remove(user, player_api_id)

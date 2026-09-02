@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 import pytest
 from flask import Flask
 from PIL import Image
+from sqlalchemy import event
 from src.auth import _ensure_user_account, issue_user_token
 from src.extensions import limiter
 from src.models.contact import ContactRequest
@@ -2399,6 +2400,7 @@ class TestAdminLocalPlayers:
             assert profile.status == "pending"
             assert PlayerShadow.query.filter_by(player_api_id=old_player_api_id).first() is None
             assert PlayerShadow.query.filter_by(player_api_id=target_player_api_id).count() == 1
+            assert PlayerShadow.query.filter_by(player_api_id=target_player_api_id).one().birth_date is None
             assert PlayerShadowStats.query.filter_by(player_api_id=target_player_api_id).count() == 1
             assert ScoutWatchlistEntry.query.filter_by(player_api_id=target_player_api_id).count() == 1
             assert ScoutWatchlistEntry.query.one().note == "local note"
@@ -2444,6 +2446,90 @@ class TestAdminLocalPlayers:
         assert repeated.status_code == 200, repeated.get_json()
         assert all(value == 0 for value in repeated.get_json()["graduation"]["rekeyed"].values())
         assert repeated.get_json()["graduation"]["rollup"] == {"cells": 1, "totals": 1}
+
+    def test_link_api_year_only_local_does_not_synthesize_shadow_birth_date(self, app, client):
+        with app.app_context():
+            player = _seed_local_player(
+                "Year Only Graduate",
+                status="approved",
+                birth_date=None,
+                birth_year=DEFAULT_ADULT_BIRTH_YEAR,
+            )
+            db.session.flush()
+            player_id = player.id
+            player.api_player_id = -player_id
+            db.session.commit()
+
+        response = client.post(
+            f"/api/admin/local-players/{player_id}/link-api",
+            json={"player_api_id": 5_501},
+            headers=_admin_headers(),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        with app.app_context():
+            shadow = PlayerShadow.query.filter_by(player_api_id=5_501).one()
+            assert shadow.birth_date is None
+
+    def test_rekey_follow_selectors_filters_json_ids_before_locking(self, app, monkeypatch):
+        from src.routes import showcase as showcase_routes
+
+        old_player_api_id = -7_001
+        target_player_api_id = 7_002
+        unrelated_player_api_id = 7_003
+        with app.app_context():
+            follower = _make_user("selector-lock-scope@example.com")
+            follow_list = FollowList(user_account_id=follower.id, name="Scoped graduation")
+            db.session.add(follow_list)
+            db.session.flush()
+            source = Follow(
+                list_id=follow_list.id,
+                kind="player",
+                selector={"player_api_id": old_player_api_id},
+            )
+            unrelated = Follow(
+                list_id=follow_list.id,
+                kind="player",
+                selector={"player_api_id": unrelated_player_api_id},
+            )
+            db.session.add_all([source, unrelated])
+            db.session.commit()
+            unrelated_id = unrelated.id
+
+            query_type = type(Follow.query)
+            real_with_for_update = query_type.with_for_update
+            locked_query_sql = []
+
+            def capture_locked_query(query, *args, **kwargs):
+                locked_query_sql.append(
+                    str(
+                        query.statement.compile(
+                            dialect=db.engine.dialect,
+                            compile_kwargs={"literal_binds": True},
+                        )
+                    ).lower()
+                )
+                return real_with_for_update(query, *args, **kwargs)
+
+            loaded_follow_ids = []
+
+            def capture_follow_load(target, _context):
+                loaded_follow_ids.append(target.id)
+
+            monkeypatch.setattr(query_type, "with_for_update", capture_locked_query)
+            event.listen(Follow, "load", capture_follow_load)
+            try:
+                db.session.expunge_all()
+                assert showcase_routes._rekey_follow_selectors(old_player_api_id, target_player_api_id) == 1
+            finally:
+                event.remove(Follow, "load", capture_follow_load)
+
+            assert unrelated_id not in loaded_follow_ids
+            assert len(locked_query_sql) == 1
+            sql = locked_query_sql[0]
+            assert "json_extract" in sql
+            assert "player_api_id" in sql
+            assert f"in ({old_player_api_id}, {target_player_api_id})" in sql
 
     def test_link_api_rejects_another_local_player_and_rolls_back_refresh_failure(self, app, client, monkeypatch):
         with app.app_context():

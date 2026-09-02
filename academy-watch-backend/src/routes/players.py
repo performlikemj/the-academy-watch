@@ -526,8 +526,9 @@ def get_public_player_stats(player_id: int):
 @hide_suppressed_player("player_id")
 def get_public_player_profile(player_id: int):
     """Get player profile info including name, team, position, photo."""
+    external_player = is_external_player_id(player_id)
     subject = None
-    if not is_external_player_id(player_id):
+    if not external_player:
         subject = resolve_player_subject(player_id)
         if subject is None or not subject.is_public:
             return neutral_player_not_found()
@@ -566,8 +567,10 @@ def get_public_player_profile(player_id: int):
         if local_player is not None:
             result["local_player_id"] = local_player.id
 
-        # Get player base info from Player table
-        player = Player.query.filter_by(player_id=player_id).first()
+        # Legacy Player rows only represent API-Football identities. Historical
+        # orphan rows can have negative ids, but must never override the approved
+        # LocalPlayer identity resolved above.
+        player = Player.query.filter_by(player_id=player_id).first() if external_player else None
         if player:
             result["name"] = player.name
             result["photo"] = player.photo_url

@@ -274,7 +274,7 @@ class TestAdminCreatePlayer:
                 "position": "Midfielder",
                 "nationality": "England",
                 "age": 19,
-                "data_source": "manual",
+                "data_source": "api-football",
             },
             headers=admin_headers,
         )
@@ -284,6 +284,7 @@ class TestAdminCreatePlayer:
         assert payload["player"]["player_id"] == 42001
         assert payload["tracked_player"]["player_api_id"] == 42001
         assert payload["tracked_player"]["team_id"] == team.id
+        assert payload["tracked_player"]["data_source"] == "manual"
         player = Player.query.filter_by(player_id=42001).one()
         tracked = TrackedPlayer.query.filter_by(player_api_id=42001, team_id=team.id).one()
         assert (player.name, tracked.player_name, tracked.position) == (
@@ -291,6 +292,31 @@ class TestAdminCreatePlayer:
             "Manual External",
             "Midfielder",
         )
+
+    @pytest.mark.parametrize(
+        "status",
+        [pytest.param("pending", id="unknown"), pytest.param("", id="empty"), pytest.param(None, id="null")],
+    )
+    def test_modern_payload_rejects_invalid_status(self, client, admin_headers, status):
+        team = _seed_team()
+
+        response = client.post(
+            "/api/admin/players",
+            json={
+                "player_api_id": 42003,
+                "player_name": "Invalid Status",
+                "team_id": team.id,
+                "status": status,
+            },
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 400
+        assert response.get_json() == {
+            "error": "status must be one of: academy, first_team, left, on_loan, released, sold"
+        }
+        assert Player.query.count() == 0
+        assert TrackedPlayer.query.count() == 0
 
     def test_positive_api_id_preserves_legacy_loan_payload(self, client, admin_headers):
         parent = _seed_team()

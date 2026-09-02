@@ -129,6 +129,8 @@ logger = logging.getLogger(__name__)
 
 api_bp = Blueprint("api", __name__)
 
+TRACKED_PLAYER_STATUSES = frozenset({"academy", "on_loan", "first_team", "released", "sold", "left"})
+
 # Background job functions (_create_background_job, _update_job, _get_job) are imported from src.utils.background_jobs
 
 
@@ -9828,6 +9830,9 @@ def admin_create_player():
         modern_payload = data.get("team_id") is not None
         if not modern_payload and not data.get("window_key"):
             return jsonify({"error": "Season/window is required"}), 400
+        tracked_status = data.get("status", "academy") if modern_payload else "on_loan"
+        if modern_payload and (not isinstance(tracked_status, str) or tracked_status not in TRACKED_PLAYER_STATUSES):
+            return jsonify({"error": f"status must be one of: {', '.join(sorted(TRACKED_PLAYER_STATUSES))}"}), 400
 
         # Handle primary team (either from database or custom)
         primary_team_id = data.get("team_id") if modern_payload else data.get("primary_team_id")
@@ -9919,7 +9924,7 @@ def admin_create_player():
             player_api_id=player_api_id,
             player_name=name,
             team_id=primary_team_id,
-            status=data.get("status", "academy") if modern_payload else "on_loan",
+            status=tracked_status,
             current_level=data.get("current_level"),
             position=data.get("position"),
             nationality=data.get("nationality"),
@@ -9928,7 +9933,7 @@ def admin_create_player():
             current_club_api_id=loan_team_api_id,
             current_club_name=loan_team_name,
             is_active=True,
-            data_source=data.get("data_source", "manual"),
+            data_source="manual",
             notes=data.get("notes"),
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),

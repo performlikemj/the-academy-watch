@@ -14,7 +14,7 @@ from flask import Flask
 from src.auth import _ensure_user_account
 from src.extensions import limiter
 from src.models.follow import PlayerShadow
-from src.models.league import db
+from src.models.league import Player, db
 from src.models.showcase import LocalPlayer, PlayerShowcaseProfile
 from src.services.player_shadow_service import is_external_player_id
 
@@ -172,6 +172,37 @@ def test_approved_adult_negative_routes_are_db_only(client, local_subjects, api_
     assert responses[f"/api/players/{player_api_id}/availability"].get_json()["reason"] == "local_player"
     assert responses[f"/api/players/{player_api_id}/journey?sync=true"].get_json()["source"] == "local_player"
     assert responses[f"/api/players/{player_api_id}/journey/map?sync=true"].get_json()["source"] == "local-player"
+    assert api_call_counter == []
+
+
+def test_negative_profile_ignores_orphan_legacy_player_identity(
+    client,
+    negative_app,
+    api_call_counter,
+):
+    player_api_id = _seed_local(name="Canonical Local", birth_date=date(2000, 1, 1))
+    db.session.add(
+        Player(
+            player_id=player_api_id,
+            name="ORPHAN",
+            photo_url="https://example.test/orphan.png",
+            position="Goalkeeper",
+            nationality="Mars",
+            age=33,
+        )
+    )
+    db.session.commit()
+
+    response = client.get(f"/api/players/{player_api_id}/profile")
+
+    assert response.status_code == 200, response.get_json()
+    profile = response.get_json()
+    assert profile["name"] == "Canonical Local"
+    assert profile["photo"] is None
+    assert profile["position"] == "Midfielder"
+    assert profile["nationality"] == "England"
+    assert profile["age"] == date.today().year - 2000
+    assert profile["local_player_id"] == -player_api_id
     assert api_call_counter == []
 
 
