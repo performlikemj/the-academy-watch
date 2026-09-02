@@ -341,15 +341,34 @@ def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
     return tokens
 
 
+def _fold_brief_name(value: str) -> str:
+    return "".join(
+        character for character in unicodedata.normalize("NFKD", value) if not unicodedata.combining(character)
+    ).casefold()
+
+
+def _is_latin_word_character(character: str) -> bool:
+    return character == "_" or character.isdigit() or unicodedata.name(character, "").startswith("LATIN ")
+
+
 def _brief_name_token_matches(token: str, line: str) -> bool:
-    folded_token = token.casefold()
-    folded_line = line.casefold()
+    folded_token = _fold_brief_name(token)
+    folded_line = _fold_brief_name(line)
     contains_non_latin_letter = any(
         character.isalpha() and not unicodedata.name(character, "").startswith("LATIN ") for character in token
     )
     if contains_non_latin_letter:
         return folded_token in folded_line
-    return re.search(rf"(?<!\w){re.escape(folded_token)}(?!\w)", folded_line) is not None
+
+    start = 0
+    while (match_start := folded_line.find(folded_token, start)) != -1:
+        match_end = match_start + len(folded_token)
+        left_is_word = match_start > 0 and _is_latin_word_character(folded_line[match_start - 1])
+        right_is_word = match_end < len(folded_line) and _is_latin_word_character(folded_line[match_end])
+        if not left_is_word and not right_is_word:
+            return True
+        start = match_start + 1
+    return False
 
 
 def _clean_brief(body, program: ClubProgram) -> str | None:
@@ -360,9 +379,7 @@ def _clean_brief(body, program: ClubProgram) -> str | None:
         return None
     if len(cleaned) > MAX_BRIEF_CHARS:
         raise ValueError(f"Brief must be at most {MAX_BRIEF_CHARS} characters")
-    lines = [
-        (line_number, line.strip()) for line_number, line in enumerate(cleaned.splitlines(), start=1) if line.strip()
-    ]
+    lines = [(line_number, line.strip()) for line_number, line in enumerate(body.splitlines(), start=1) if line.strip()]
     if len(lines) > MAX_BRIEF_LINES:
         raise ValueError(f"Brief must contain at most {MAX_BRIEF_LINES} non-empty lines")
 

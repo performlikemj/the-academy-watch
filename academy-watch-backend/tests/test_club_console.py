@@ -477,7 +477,7 @@ def test_brief_name_screening_covers_short_latin_non_latin_and_match_rosters(clu
     program_id = club_app.c2["program_a"]
     local_players = [
         _local(club_app.c2["users"]["a"], name=name, birth_year=2000 + index, status="approved")
-        for index, name in enumerate(("Mika Tanaka", "Alex Li", "Kai Ng", "田中 太郎"))
+        for index, name in enumerate(("Mika Tanaka", "Alex Li", "Kai Ng", "José Silva", "田中 太郎"))
     ]
     member_id = _add_local_member(client, program_id, local_players[0].id)
     for local in local_players[1:]:
@@ -502,7 +502,14 @@ def test_brief_name_screening_covers_short_latin_non_latin_and_match_rosters(clu
         "error": 'Briefs describe behaviours, not people — remove the name "Mika" from line 3.'
     }
 
-    for brief, token in (("Li must stay wide", "Li"), ("Recover behind Ng", "Ng"), ("田中に前を向かせる", "田中")):
+    for brief, token in (
+        ("Li must stay wide", "Li"),
+        ("Recover behind Ng", "Ng"),
+        ("Alexに任せる", "Alex"),
+        ("ask jose to turn", "José"),
+        ("JOSÉ must turn", "José"),
+        ("田中に前を向かせる", "田中"),
+    ):
         short_name = client.put(
             f"/api/club/{program_id}/system-brief",
             json={"body": brief},
@@ -530,6 +537,24 @@ def test_brief_name_screening_covers_short_latin_non_latin_and_match_rosters(clu
     )
     assert unrelated.status_code == 200
     assert unrelated.get_json()["system_brief"]["body"] == "Move to receive in the line"
+
+    latin_prefix = client.put(
+        f"/api/club/{program_id}/system-brief",
+        json={"body": "Ask Mikael to receive between the lines"},
+        headers=_headers("a"),
+    )
+    assert latin_prefix.status_code == 200
+    assert latin_prefix.get_json()["system_brief"]["body"] == "Ask Mikael to receive between the lines"
+
+    original_line_number = client.put(
+        f"/api/club/{program_id}/system-brief",
+        json={"body": "\n\nAsk Mika to turn"},
+        headers=_headers("a"),
+    )
+    assert original_line_number.status_code == 400
+    assert original_line_number.get_json() == {
+        "error": 'Briefs describe behaviours, not people — remove the name "Mika" from line 3.'
+    }
 
 
 def test_empty_brief_clears_before_building_roster_name_tokens(club_app, client, monkeypatch):

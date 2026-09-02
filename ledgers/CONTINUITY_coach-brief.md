@@ -10,6 +10,7 @@ Parent: `CONTINUITY.md` §Now 2026-09-02. Related: `DIRECTIVE_evidence-bench.md`
 - 2026-09-02: required `pytest -q` cannot collect because 12 legacy modules import permanently removed models/utilities. With those modules ignored, 1,860 passed / 36 failed / 3 skipped; one C1 response-shape failure was fixed, leaving 35 pre-existing failures confirmed by `--lf`. No unrelated fixes made.
 - 2026-09-02: adversarial review found and closed a partial-DDL gap: `cb01` now separately guards/repairs named `ON DELETE SET NULL` FKs when audit columns already exist. Follow-up review: no blockers.
 - 2026-09-02: PR #973 review round fixes 2+ character and non-Latin roster-name screening, original brief line numbers, empty-clear short-circuiting, and FK-by-column migration detection; focused 80 tests pass.
+- 2026-09-02: PR #973 review round 2 complete: Latin-token boundaries now treat only adjacent Latin letters/digits/underscores as word characters, name comparison uses accent folding, and validation retains original line numbers across leading blanks. Exact focused command passes 80 tests; whole-backend Ruff check and format check pass.
 
 ## Next
 - Review PR #973, then pre-apply guarded `cb01` on prod via the pooler, verify the six columns, and stamp `cb01` before merge.
