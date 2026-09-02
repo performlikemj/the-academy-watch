@@ -23,6 +23,7 @@ from src.models.funding import (
     FundingLeague,
 )
 from src.models.league import League, TeamProfile, UserAccount, db
+from src.services.club_console_bridge import is_console_league
 from src.services.stripe_connect import (
     StripeConnectConfigurationError,
     create_express_organization_onboarding,
@@ -458,6 +459,17 @@ def admin_update_funding_league(league_id):
         reason = _clean(payload.get("reason"), "reason", max_len=2000)
         before = {"admission_state": league.admission_state, "registry_status": league.registry_status}
 
+        if is_console_league(league):
+            requested_registry_status = str(payload.get("registry_status", "")).strip().lower()
+            requested_admission_state = str(payload.get("admission_state", "")).strip().lower()
+            identity_fields = {"name", "country", "region", "data_tier", "league_api_id"}
+            if (
+                requested_registry_status == "approved"
+                or requested_admission_state == "open"
+                or identity_fields.intersection(payload)
+            ):
+                return jsonify({"error": "console-only league must remain unlisted and closed"}), 409
+
         if league.existing_league_id and any(
             key in payload for key in ("name", "country", "data_tier", "league_api_id")
         ):
@@ -619,6 +631,18 @@ def submit_program_claim():
             raise ValueError("club country must match the selected league country")
         program = ClubProgram.query.filter_by(team_api_id=team_api_id).first() if team_api_id else None
         if program is not None and program.funding_league_id != league.id:
+            if is_console_league(program.league):
+                return (
+                    jsonify(
+                        {
+                            "error": (
+                                f"console program '{program.name}' ({program.slug}) already exists; "
+                                "an admin must adopt it into a public league before funding claims can be submitted"
+                            )
+                        }
+                    ),
+                    409,
+                )
             return jsonify({"error": "this covered club is already registered in another league"}), 409
         if program is None:
             base_slug = _slug(name)

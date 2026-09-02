@@ -3114,7 +3114,7 @@ def admin_list_club_claims():
 @showcase_bp.route("/admin/club-claims/<int:claim_id>/review", methods=["POST"])
 @require_api_key
 def admin_review_club_claim(claim_id: int):
-    """Approve/reject a pending claim, revoke it, or restore a revoked grant."""
+    """Approve/reject a pending claim or revoke an approved grant."""
     try:
         claim = ClubOfficialClaim.query.filter_by(id=claim_id).with_for_update().first()
         if claim is None:
@@ -3126,7 +3126,7 @@ def admin_review_club_claim(claim_id: int):
         raw_action = payload.get("action")
         action = raw_action.strip().lower() if isinstance(raw_action, str) else ""
         transitions = {
-            "approve": ({"pending", "revoked"}, "approved"),
+            "approve": ({"pending"}, "approved"),
             "reject": ({"pending"}, "rejected"),
             "revoke": ({"approved"}, "revoked"),
         }
