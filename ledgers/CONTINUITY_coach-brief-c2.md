@@ -29,8 +29,8 @@ Owner: /root
 
 ## State
 
-- Done: Implemented the PR #985 review round: checks-only 600-token call, roster-based eligibility and distinct failure limits, system-only suppression, shared 8-line payload cap, bounded expectation index, legacy stray-key tolerance, and privacy regressions.
-- Now: Await re-review of PR #985 after the single fix commit; PR remains open and unmerged.
+- Done: Implemented review round 3: no-kit roster briefs now reach the spike as structured skips, overlength limits use payload `max_lines`, and brief normalization has one source.
+- Now: Await re-review of PR #985 after the single Round 3 fix commit; PR remains open and unmerged.
 - Next: Fable acceptance regeneration after merge (outside this task and explicitly not run here).
 
 ## Links
@@ -53,6 +53,9 @@ Owner: /root
 
 ## Notes
 
+- Review round 3: blank-kit jobs write and pass `brief.json` with `no_kit_colour` skips; the spike emits the roster-specific limit without scheduling checks or adding the generic checks limit; overlength text is `max_lines`-driven; `_brief_payload` returns payload plus normalized line count.
+- Verified review round 3: `pytest spike/video-analysis -q` -> 176 passed; requested backend suite -> 85 passed; backend Ruff check/format and bare spike Ruff check/format pass.
+- No Ollama calls, no merge, and no frontend changes in review round 3.
 - Review round 2: private checks failures now persist fixed text and log type-only metadata; missing-kit, empty-track, and overlength paths degrade honestly; spike 175, requested backend 121, backend Ruff 460 files and bare spike Ruff 2 files all pass.
 - Verified review round: `pytest spike/video-analysis -q` -> 170 passed.
 - Verified review round: backend requested suite -> 87 passed.

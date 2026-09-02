@@ -2783,23 +2783,20 @@ def test_brief_eligibility_is_independent_of_recurrence_and_reports_ineligible()
     ]
 
 
-def test_brief_eligibility_reports_empty_kit_and_overlong_skip(tmp_path):
+def test_brief_eligibility_reports_no_kit_and_payload_driven_overlong_skip(tmp_path):
     context = {
         "schema_version": "brief-context-v1",
-        "max_lines": 8,
-        "roster": {
+        "max_lines": 6,
+        "roster": {},
+        "skipped_roster": {
             "42": {
                 "jersey_number": 8,
-                "kit_color": "",
-                "lines": ["Hold width"],
-                "hash": "a" * 64,
-            }
-        },
-        "skipped_roster": {
+                "reason": "no_kit_colour",
+            },
             "43": {
                 "jersey_number": 11,
                 "reason": "brief_longer_than_max_lines",
-            }
+            },
         },
         "system_brief": None,
     }
@@ -2816,9 +2813,97 @@ def test_brief_eligibility_reports_empty_kit_and_overlong_skip(tmp_path):
 
     assert eligible == {}
     assert limits == [
-        "brief for roster entry 43 (#11) could not be checked: brief longer than 8 lines",
         "brief for roster entry 42 (#8) could not be checked: no kit colour on the match",
+        "brief for roster entry 43 (#11) could not be checked: brief longer than 6 lines",
     ]
+
+
+def test_no_kit_brief_limit_schedules_no_checks_and_keeps_counters_zero(
+    monkeypatch, tmp_path
+):
+    video_path = tmp_path / "match.mp4"
+    video_path.write_bytes(b"video")
+    out_dir = tmp_path / "out"
+    context_path = tmp_path / "context.json"
+    context_path.write_text(
+        json.dumps(
+            {
+                "our_kit_color": None,
+                "frame_size": [1000, 1000],
+                "caption_windows": [],
+                "player_tracks": {},
+            }
+        )
+    )
+    brief_path = tmp_path / "brief.json"
+    brief_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "brief-context-v1",
+                "max_lines": 8,
+                "roster": {},
+                "skipped_roster": {
+                    "42": {"jersey_number": 8, "reason": "no_kit_colour"}
+                },
+                "system_brief": None,
+            }
+        )
+    )
+    calls = []
+
+    def fake_ollama_chat(prompt, **kwargs):
+        calls.append(kwargs)
+        if "image_path" in kwargs:
+            return json.dumps(_good_observation())
+        assert "image_paths" not in kwargs
+        return json.dumps(
+            {
+                "match_summary": "A compact sampled match summary.",
+                "team_analysis": _good_analysis()["team_analysis"],
+                "honest_limits": [],
+            }
+        )
+
+    monkeypatch.setenv("VIDEO_DECODE_SANDBOX", "0")
+    monkeypatch.setenv("QWEN_CAPTIONS", "0")
+    monkeypatch.setattr(
+        qwen_analysis.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"ffmpeg", "ffprobe"} else None,
+    )
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    assert (
+        qwen_analysis.run(
+            [
+                "--video",
+                str(video_path),
+                "--out",
+                str(out_dir),
+                "--kickoff-s",
+                "0",
+                "--end-s",
+                "1",
+                "--context-json",
+                str(context_path),
+                "--brief-json",
+                str(brief_path),
+            ]
+        )
+        == 0
+    )
+
+    assert not any("image_paths" in kwargs for kwargs in calls)
+    analysis = json.loads((out_dir / "analysis.json").read_text())
+    assert analysis["sampling"]["brief_checks_total"] == 0
+    assert analysis["sampling"]["brief_checks_evidence_found"] == 0
+    assert analysis["sampling"]["brief_checks_downgraded"] == 0
+    assert (
+        "brief for roster entry 42 (#8) could not be checked: no kit colour on the match"
+        in analysis["honest_limits"]
+    )
+    assert qwen_analysis.COACHS_BRIEF_HONEST_LIMIT not in analysis["honest_limits"]
 
 
 def test_briefed_player_uses_separate_ordinary_and_checks_only_calls(

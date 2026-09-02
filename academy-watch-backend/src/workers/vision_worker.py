@@ -260,19 +260,22 @@ def _analysis_context(
     }
 
 
-def _brief_payload(body, *, max_lines: int) -> dict | None:
+def _brief_payload(body, *, max_lines: int) -> tuple[dict | None, int]:
     if not isinstance(body, str):
-        return None
+        return None, 0
     lines = [line.strip() for line in body.splitlines() if line.strip()]
     if not lines:
-        return None
+        return None, 0
     if len(lines) > max_lines:
-        return None
+        return None, len(lines)
     normalized_body = "\n".join(lines)
-    return {
-        "lines": lines,
-        "hash": hashlib.sha256(normalized_body.encode("utf-8")).hexdigest(),
-    }
+    return (
+        {
+            "lines": lines,
+            "hash": hashlib.sha256(normalized_body.encode("utf-8")).hexdigest(),
+        },
+        len(lines),
+    )
 
 
 def _brief_context(match, roster_entries, roster_members) -> dict | None:
@@ -294,12 +297,18 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
         if (member_id := _row_value(entry, "club_roster_member_id")) is not None and int(member_id) in members_by_id
     ]
     if not isinstance(kit_color, str) or not kit_color.strip():
-        has_roster_brief = any(
-            isinstance(body := _row_value(member, "coach_brief_body"), str)
-            and any(line.strip() for line in body.splitlines())
-            for _, member in brief_entries
-        )
-        if has_roster_brief:
+        skipped_roster = {}
+        for entry, member in brief_entries:
+            _, line_count = _brief_payload(
+                _row_value(member, "coach_brief_body"),
+                max_lines=MAX_BRIEF_LINES,
+            )
+            if line_count:
+                skipped_roster[str(int(_row_value(entry, "id")))] = {
+                    "jersey_number": int(_row_value(entry, "jersey_number")),
+                    "reason": "no_kit_colour",
+                }
+        if skipped_roster:
             log.warning(
                 "video match %s: roster briefs skipped because the match has no kit colour",
                 _row_value(match, "id", "unknown"),
@@ -308,7 +317,7 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
             "schema_version": BRIEF_CONTEXT_SCHEMA_VERSION,
             "max_lines": MAX_BRIEF_LINES,
             "roster": {},
-            "skipped_roster": {},
+            "skipped_roster": skipped_roster,
             "system_brief": None,
         }
 
@@ -316,29 +325,29 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
     skipped_roster = {}
     for entry, member in brief_entries:
         body = _row_value(member, "coach_brief_body")
-        lines = [line.strip() for line in body.splitlines() if line.strip()] if isinstance(body, str) else []
-        payload = _brief_payload(body, max_lines=MAX_BRIEF_LINES)
+        payload, line_count = _brief_payload(body, max_lines=MAX_BRIEF_LINES)
         if payload is not None:
             roster[str(int(_row_value(entry, "id")))] = {
                 **payload,
                 "jersey_number": int(_row_value(entry, "jersey_number")),
                 "kit_color": kit_color.strip(),
             }
-        elif len(lines) > MAX_BRIEF_LINES:
+        elif line_count > MAX_BRIEF_LINES:
             skipped_roster[str(int(_row_value(entry, "id")))] = {
                 "jersey_number": int(_row_value(entry, "jersey_number")),
                 "reason": "brief_longer_than_max_lines",
             }
     program = _row_value(match, "club_program")
+    system_brief, _ = _brief_payload(
+        _row_value(program, "system_brief_body"),
+        max_lines=MAX_BRIEF_LINES,
+    )
     return {
         "schema_version": BRIEF_CONTEXT_SCHEMA_VERSION,
         "max_lines": MAX_BRIEF_LINES,
         "roster": roster,
         "skipped_roster": skipped_roster,
-        "system_brief": _brief_payload(
-            _row_value(program, "system_brief_body"),
-            max_lines=MAX_BRIEF_LINES,
-        ),
+        "system_brief": system_brief,
     }
 
 

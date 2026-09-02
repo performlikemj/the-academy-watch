@@ -3,6 +3,7 @@ markers (including the 2nd-half kickoff and end/full-time) are forwarded to $VID
 so the GPU pass can window to in-play time."""
 
 import hashlib
+import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -346,9 +347,12 @@ def test_brief_context_skips_all_roster_briefs_without_kit_colour(caplog):
         context = _brief_context(match, roster, members)
 
     assert context["roster"] == {}
-    assert context["skipped_roster"] == {}
+    assert context["skipped_roster"] == {
+        "42": {"jersey_number": 8, "reason": "no_kit_colour"},
+        "43": {"jersey_number": 11, "reason": "no_kit_colour"},
+    }
     assert context["system_brief"] is None
-    assert _has_brief_entries(context) is False
+    assert _has_brief_entries(context) is True
     warnings = [record.message for record in caplog.records if "roster briefs skipped" in record.message]
     assert warnings == ["video match 12: roster briefs skipped because the match has no kit colour"]
 
@@ -697,7 +701,7 @@ def test_club_qwen_job_writes_separate_brief_file_and_forwards_flag(tmp_path, mo
     complete.assert_called_once()
 
 
-def test_club_qwen_job_with_brief_and_no_kit_writes_no_brief_file(tmp_path, monkeypatch, caplog):
+def test_club_qwen_job_with_brief_and_no_kit_passes_skipped_brief_file(tmp_path, monkeypatch, caplog):
     app = Flask(__name__)
     app.config.update(
         TESTING=True,
@@ -748,9 +752,15 @@ def test_club_qwen_job_with_brief_and_no_kit_writes_no_brief_file(tmp_path, monk
 
     def fake_pipeline(command, check):
         assert check is True
-        assert "--brief-json" not in command
         context_path = Path(command[command.index("--context-json") + 1])
-        assert not (context_path.parent / "brief.json").exists()
+        brief_path = Path(command[command.index("--brief-json") + 1])
+        assert json.loads(brief_path.read_text()) == {
+            "schema_version": "brief-context-v1",
+            "max_lines": 8,
+            "roster": {},
+            "skipped_roster": {"42": {"jersey_number": 8, "reason": "no_kit_colour"}},
+            "system_brief": None,
+        }
         assert __import__("json").loads(context_path.read_text())["our_kit_color"] is None
         out_dir = Path(command[command.index("--out") + 1])
         (out_dir / "analysis.json").write_text(__import__("json").dumps(analysis))

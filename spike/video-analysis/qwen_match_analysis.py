@@ -2014,7 +2014,7 @@ def _load_brief_context(path: Path | None) -> dict | None:
 
     class SkippedRosterPayload(Strict):
         jersey_number: int = Field(strict=True)
-        reason: Literal["brief_longer_than_max_lines"]
+        reason: Literal["brief_longer_than_max_lines", "no_kit_colour"]
 
     class BriefContext(Strict):
         schema_version: Literal["brief-context-v1"]
@@ -2177,14 +2177,21 @@ def eligible_brief_reads(
     if not brief_context:
         return {}, []
     eligible = {}
-    limits = [
-        f"brief for roster entry {int(roster_entry_id)} "
-        f"(#{skipped['jersey_number']}) could not be checked: brief longer than 8 lines"
-        for roster_entry_id, skipped in sorted(
-            brief_context.get("skipped_roster", {}).items(),
-            key=lambda item: int(item[0]),
+    limits = []
+    for roster_entry_id, skipped in sorted(
+        brief_context.get("skipped_roster", {}).items(),
+        key=lambda item: int(item[0]),
+    ):
+        roster_id = int(roster_entry_id)
+        jersey_number = skipped["jersey_number"]
+        if skipped["reason"] == "no_kit_colour":
+            reason = "no kit colour on the match"
+        else:
+            reason = f"brief longer than {brief_context['max_lines']} lines"
+        limits.append(
+            f"brief for roster entry {roster_id} (#{jersey_number}) "
+            f"could not be checked: {reason}"
         )
-    ]
     for roster_entry_id, brief in sorted(
         brief_context.get("roster", {}).items(), key=lambda item: int(item[0])
     ):
