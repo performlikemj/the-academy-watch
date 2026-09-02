@@ -469,7 +469,16 @@ def _assemble_user_updates(user: UserAccount, watchlist_entries, routed_lists, c
     return flat_updates, groups, group_updates
 
 
-def send_scout_digests(dry_run: bool = True, limit: int = 50, api_client=None, cursor: int = 0) -> dict:
+def send_scout_digests(
+    dry_run: bool = True,
+    limit: int = 50,
+    api_client=None,
+    cursor: int = 0,
+    skip_sent_since: datetime | None = None,
+    report_job_metrics: bool = False,
+    *,
+    enrichment_cache: dict | None = None,
+) -> dict:
     """Build (and optionally send) digests for eligible users.
 
     Eligibility (opt-in true, email present, AND has watchlist entries OR an
@@ -481,6 +490,11 @@ def send_scout_digests(dry_run: bool = True, limit: int = 50, api_client=None, c
     user with only a watchlist gets the legacy digest (byte-identical). dry_run
     renders previews without sending and without mutating snapshots. Real runs
     persist each entry's last_snapshot/last_digest_at after a successful send.
+    ``skip_sent_since`` is reserved for the scheduled runner; the admin route
+    omits it and retains its existing per-send behavior. ``report_job_metrics``
+    adds scheduled-run-only processed-user and delivery-error counts. Scheduled
+    callers may pass a run-owned ``enrichment_cache`` to reuse player state
+    across cursor pages; omission preserves the fresh per-call cache.
     """
     from src.services.email_service import email_service  # lazy so tests can monkeypatch send_email
 
@@ -496,15 +510,31 @@ def send_scout_digests(dry_run: bool = True, limit: int = 50, api_client=None, c
 
     has_watchlist = exists().where(ScoutWatchlistEntry.user_account_id == UserAccount.id)
     has_list = exists().where(and_(FollowList.user_account_id == UserAccount.id, FollowList.is_active.is_(True)))
+    eligibility_filters = [
+        UserAccount.id > cursor,
+        UserAccount.email.isnot(None),
+        UserAccount.scout_digest_opt_in.is_(True),
+        or_(has_watchlist, has_list),
+    ]
+    if skip_sent_since is not None:
+        recent_watchlist_digest = exists().where(
+            and_(
+                ScoutWatchlistEntry.user_account_id == UserAccount.id,
+                ScoutWatchlistEntry.last_digest_at >= skip_sent_since,
+            )
+        )
+        recent_follow_digest = exists().where(
+            and_(
+                FollowPlayerSnapshot.user_account_id == UserAccount.id,
+                FollowPlayerSnapshot.last_digest_at >= skip_sent_since,
+            )
+        )
+        eligibility_filters.extend((~recent_watchlist_digest, ~recent_follow_digest))
+
     user_ids = [
         row[0]
         for row in db.session.query(UserAccount.id)
-        .filter(
-            UserAccount.id > cursor,
-            UserAccount.email.isnot(None),
-            UserAccount.scout_digest_opt_in.is_(True),
-            or_(has_watchlist, has_list),
-        )
+        .filter(*eligibility_filters)
         .order_by(UserAccount.id)
         .limit(limit)
         .all()
@@ -515,9 +545,10 @@ def send_scout_digests(dry_run: bool = True, limit: int = 50, api_client=None, c
 
     sent = 0
     skipped = 0
+    errors = 0
     previews = []
     now = datetime.now(UTC)
-    player_cache: dict = {}
+    player_cache = enrichment_cache if enrichment_cache is not None else {}
     entry_budget = MAX_DIGEST_ENTRIES
     last_processed = cursor
     exhausted_budget = False
@@ -581,10 +612,12 @@ def send_scout_digests(dry_run: bool = True, limit: int = 50, api_client=None, c
             )
         except Exception:
             logger.exception("Scout digest send failed for user %s", user_id)
+            errors += 1
             skipped += 1
             last_processed = user_id
             continue
         if result is not None and getattr(result, "success", True) is False:
+            errors += 1
             skipped += 1
             last_processed = user_id
             continue
@@ -603,10 +636,14 @@ def send_scout_digests(dry_run: bool = True, limit: int = 50, api_client=None, c
         last_processed = user_id
 
     more_remaining = exhausted_budget or len(user_ids) == limit
-    return {
+    result = {
         "sent": sent,
         "skipped": skipped,
         "users_considered": len(user_ids),
         "previews": previews,
         "next_cursor": last_processed if more_remaining else None,
     }
+    if report_job_metrics:
+        result["errors"] = errors
+        result["users_processed"] = skipped + (len(previews) if dry_run else sent)
+    return result

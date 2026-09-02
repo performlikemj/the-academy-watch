@@ -406,6 +406,37 @@ February 31 never occurs, so that cron cannot fire. `az containerapp job stop`
 is deliberately not used: it stops current executions but does not disable the
 next scheduled execution. Manual and event-triggered source jobs remain intact.
 
+### `job-scout-digest`
+
+The deployment orchestrator provisions `job-scout-digest` in resource group
+`rg-nbhd-prod` as a scheduled Container Apps Job. It runs every Monday at
+07:00 UTC (`0 7 * * 1`) with the current backend image. Create it with
+`--user-identity id-loanarmy-runtime` and command:
+
+```text
+python -m src.jobs.run_scout_digests
+```
+
+Copy the backend's non-secret runtime configuration: `FLASK_ENV`, `DB_HOST`,
+`DB_PORT`, `DB_USER`, `DB_NAME`, `DB_SSLMODE`, `MAILGUN_DOMAIN`,
+`MAILGUN_API_URL`, `EMAIL_FROM_NAME`, `EMAIL_FROM_ADDRESS`, and
+`PUBLIC_BASE_URL`. Do not set `API_USE_STUB_DATA` or `SKIP_API_HANDSHAKE`.
+Configure the required secrets only through Key Vault-backed Container Apps
+secret references; never copy secret values:
+
+- `DB_PASSWORD=secretref:job-scout-digest-supabase-db-password`
+- `API_FOOTBALL_KEY=secretref:job-scout-digest-api-football-key`
+- `MAILGUN_API_KEY=secretref:job-scout-digest-mailgun-api-key`
+
+The job identity needs `Key Vault Secrets User` on `kv-loan-army`, and all
+three references must be healthy before enabling the schedule. The orchestrator
+must create `job-scout-digest-mailgun-api-key` first.
+
+Importing the application currently writes one pre-existing extra stdout line
+from `src/agents/weekly_agent.py` before the job's JSON summary. Consumers should
+parse the final line with `tail -1 | jq`; do not treat all stdout as one JSON
+document.
+
 ## 5. Build the frontend against the stable API domain
 
 Both frontend workflows use repository variable `API_BASE_URL`, defaulting to
