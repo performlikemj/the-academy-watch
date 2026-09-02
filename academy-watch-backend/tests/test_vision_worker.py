@@ -225,12 +225,13 @@ def test_caption_windows_clip_box_tracks_and_context_unions_tracks_by_roster():
     assert not ({"roster", "brief", "system_brief"} & context.keys())
 
 
-def test_brief_context_is_separate_hash_only_and_bounded_to_eight_lines():
-    body = "\n".join(["  Hold width  ", "", *[f"Expectation {index}" for index in range(2, 11)]])
-    normalized = "\n".join(["Hold width", *[f"Expectation {index}" for index in range(2, 11)]])
+def test_brief_context_is_separate_hash_only_and_sends_all_eight_lines():
+    body = "\n".join(["  Hold width  ", "", *[f"Expectation {index}" for index in range(2, 9)]])
+    normalized = "\n".join(["Hold width", *[f"Expectation {index}" for index in range(2, 9)]])
     system_body = "  Stay compact\n\n Counter-press together  "
     match = SimpleNamespace(
         club_program_id=7,
+        our_kit_color="blue",
         club_program=SimpleNamespace(
             id=7,
             system_brief_body=system_body,
@@ -240,6 +241,7 @@ def test_brief_context_is_separate_hash_only_and_bounded_to_eight_lines():
     roster = [
         SimpleNamespace(
             id=42,
+            jersey_number=8,
             club_roster_member_id=5,
             player_name="PRIVATE PLAYER NAME",
             position="Midfielder",
@@ -262,10 +264,14 @@ def test_brief_context_is_separate_hash_only_and_bounded_to_eight_lines():
     context = _brief_context(match, roster, members)
 
     assert context == {
+        "schema_version": "brief-context-v1",
+        "max_lines": 8,
         "roster": {
             "42": {
                 "lines": ["Hold width", *[f"Expectation {index}" for index in range(2, 9)]],
                 "hash": hashlib.sha256(normalized.encode()).hexdigest(),
+                "jersey_number": 8,
+                "kit_color": "blue",
             }
         },
         "system_brief": {
@@ -278,6 +284,17 @@ def test_brief_context_is_separate_hash_only_and_bounded_to_eight_lines():
     assert "PRIVATE CLUB NAME" not in serialized
     assert "Midfielder" not in serialized
     assert _has_brief_entries(context) is True
+
+
+def test_system_brief_without_roster_briefs_does_not_enable_flag():
+    context = {
+        "schema_version": "brief-context-v1",
+        "max_lines": 8,
+        "roster": {},
+        "system_brief": {"lines": ["Press together"], "hash": "a" * 64},
+    }
+
+    assert _has_brief_entries(context) is False
 
 
 def test_admin_match_has_no_brief_context_or_pipeline_flag():
@@ -441,7 +458,7 @@ def test_local_video_path_requires_existing_absolute_path(tmp_path):
     assert _local_video_path(match) == video
 
 
-def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path, monkeypatch):
+def test_club_program_without_roster_briefs_has_no_brief_flag(tmp_path, monkeypatch):
     app = Flask(__name__)
     app.config.update(
         TESTING=True,
@@ -466,6 +483,8 @@ def test_qwen_analysis_kind_uses_local_footage_and_analysis_completion(tmp_path,
         opponent_kit_color="red",
         competition="Academy fixture",
         our_team_cluster=0,
+        club_program_id=7,
+        club_program=SimpleNamespace(id=7, system_brief_body=None),
         roster_entries=[],
         status="queued",
     )
@@ -576,11 +595,18 @@ def test_club_qwen_job_writes_separate_brief_file_and_forwards_flag(tmp_path, mo
         context_path = Path(command[command.index("--context-json") + 1])
         brief_path = Path(command[command.index("--brief-json") + 1])
         assert brief_path.parent == context_path.parent
+        assert "Hold width" not in context_path.read_text()
+        assert "Recover inside" not in context_path.read_text()
+        assert "Press together" not in context_path.read_text()
         assert __import__("json").loads(brief_path.read_text()) == {
+            "schema_version": "brief-context-v1",
+            "max_lines": 8,
             "roster": {
                 "42": {
                     "lines": ["Hold width", "Recover inside"],
                     "hash": hashlib.sha256(b"Hold width\nRecover inside").hexdigest(),
+                    "jersey_number": 8,
+                    "kit_color": "blue",
                 }
             },
             "system_brief": {

@@ -57,7 +57,7 @@ DEFAULT_QWEN_CAPTION_TOP_K = 5
 MAX_QWEN_CAPTION_WINDOWS = 80
 MAX_ANALYSIS_CONTEXT_BYTES = 20 * 1024 * 1024
 OVERSIZE_CONTEXT_HZ = 2
-MAX_BRIEF_CONTEXT_LINES = 8
+BRIEF_CONTEXT_SCHEMA_VERSION = "brief-context-v1"
 
 
 def _row_value(row, name, default=None):
@@ -260,21 +260,25 @@ def _analysis_context(
     }
 
 
-def _brief_payload(body) -> dict | None:
+def _brief_payload(body, *, max_lines: int) -> dict | None:
     if not isinstance(body, str):
         return None
     lines = [line.strip() for line in body.splitlines() if line.strip()]
     if not lines:
         return None
+    if len(lines) > max_lines:
+        raise ValueError(f"stored brief exceeds {max_lines}-line context cap")
     normalized_body = "\n".join(lines)
     return {
-        "lines": lines[:MAX_BRIEF_CONTEXT_LINES],
+        "lines": lines,
         "hash": hashlib.sha256(normalized_body.encode("utf-8")).hexdigest(),
     }
 
 
 def _brief_context(match, roster_entries, roster_members) -> dict | None:
     """Build private brief input separately from the team-visible analysis context."""
+    from src.routes.club import MAX_BRIEF_LINES
+
     program_id = _row_value(match, "club_program_id")
     if program_id is None:
         return None
@@ -287,18 +291,34 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
     for entry in roster_entries:
         member_id = _row_value(entry, "club_roster_member_id")
         member = members_by_id.get(int(member_id)) if member_id is not None else None
-        payload = _brief_payload(_row_value(member, "coach_brief_body")) if member is not None else None
+        payload = (
+            _brief_payload(
+                _row_value(member, "coach_brief_body"),
+                max_lines=MAX_BRIEF_LINES,
+            )
+            if member is not None
+            else None
+        )
         if payload is not None:
-            roster[str(int(_row_value(entry, "id")))] = payload
+            roster[str(int(_row_value(entry, "id")))] = {
+                **payload,
+                "jersey_number": int(_row_value(entry, "jersey_number")),
+                "kit_color": _row_value(match, "our_kit_color"),
+            }
     program = _row_value(match, "club_program")
     return {
+        "schema_version": BRIEF_CONTEXT_SCHEMA_VERSION,
+        "max_lines": MAX_BRIEF_LINES,
         "roster": roster,
-        "system_brief": _brief_payload(_row_value(program, "system_brief_body")),
+        "system_brief": _brief_payload(
+            _row_value(program, "system_brief_body"),
+            max_lines=MAX_BRIEF_LINES,
+        ),
     }
 
 
 def _has_brief_entries(context: dict | None) -> bool:
-    return bool(context and (context.get("roster") or context.get("system_brief")))
+    return bool(context and context.get("roster"))
 
 
 def _encode_analysis_context(context: dict) -> bytes:

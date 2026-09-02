@@ -582,7 +582,7 @@ def test_empty_brief_clears_before_building_roster_name_tokens(club_app, client,
     ("body", "message"),
     (
         ("x" * 2001, "Brief must be at most 2000 characters"),
-        ("\n".join(f"movement {number}" for number in range(13)), "Brief must contain at most 12 non-empty lines"),
+        ("\n".join(f"movement {number}" for number in range(9)), "Brief must contain at most 8 non-empty lines"),
         ("x" * 241, "Brief lines must be at most 240 characters"),
     ),
 )

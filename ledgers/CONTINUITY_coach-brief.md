@@ -4,6 +4,7 @@ Directive: `ledgers/DIRECTIVE_coach-brief.md` (authored 2026-09-02; MJ chose "br
 Parent: `CONTINUITY.md` §Now 2026-09-02. Related: `DIRECTIVE_evidence-bench.md` (E2/E3), `CONTINUITY_video-analysis.md`.
 
 ## State
+- 2026-09-03: PR #985 review round complete: briefed players now use an unchanged ordinary read plus a checks-only call; the 8-line/versioned worker payload supplies roster kit/number identity, and eligibility comes from roster tracks plus interpolated evidence rather than caption windows. Spike 170 and requested backend 87 pass; backend and bare-spike Ruff gates clean; no Basecamp/Ollama calls.
 - 2026-09-03: C2 implementation started on `feat/coach-brief-c2` from merged C1 commit `34f003e`; child ledger `CONTINUITY_coach-brief-c2.md`. Prerequisite model field confirmed; no Basecamp/Ollama calls and no frontend changes.
 - 2026-09-03: C2 implementation verified: spike 167 passed; worker 25 passed; backend-config and bare-spike Ruff check/format pass; no-brief grounded prompt remains byte-identical. Exact backend suite retains its 12 known collection errors; collectible diagnostic 1,975 passed / 42 unrelated failures / 3 skipped. Commit/push/PR delivery next.
 - 2026-09-03: C2 delivered as one scoped commit on `feat/coach-brief-c2`; PR #985 open and unmerged: https://github.com/performlikemj/the-academy-watch/pull/985.

@@ -103,7 +103,7 @@ substring for tokens containing any non-Latin letter) with a plain message (B3).
 already enabled; deletion cascades naturally; no new table):
 `club_roster_members.coach_brief_body` Text, `.brief_updated_at`, `.brief_updated_by_user_id` FK
 `user_accounts` nullable ON DELETE SET NULL; `club_programs.system_brief_body` Text, `.system_brief_updated_at`,
-`.system_brief_updated_by_user_id` (same). Bounds: trimmed, ≤2000 chars, ≤12 non-empty lines, one expectation per
+`.system_brief_updated_by_user_id` (same). Bounds: trimmed, ≤2000 chars, ≤8 non-empty lines, one expectation per
 line. Routes (`@require_club_manager()`; unmanaged program → existing neutral 403; foreign/missing member under an
 authorised program → neutral 404): `PUT /club/<pid>/roster/<member_id>/brief` (empty body clears — no separate
 DELETE), `PUT /club/<pid>/system-brief`. The private roster response (`getClubRoster`) gains per-member `brief`
@@ -113,24 +113,25 @@ idempotent migration test.
 
 **C2 — Context + prompt + schema + gate (worker + spike).** `brief_context` is assembled SEPARATELY from
 `analysis_context` (never added to it, so the team pass cannot see it): for each roster entry of a club match
-with `club_roster_member_id → coach_brief_body`, `{roster_entry_id: {"lines": [...≤8], "hash": sha256}}` plus
-`system_brief {lines, hash}`; written to `brief.json` beside `context.json`; admin matches without a program emit
+with `club_roster_member_id → coach_brief_body`, `{roster_entry_id: {"jersey_number", "kit_color", "lines":
+[...≤8], "hash": sha256}}` plus
+`system_brief {lines, hash}`, `max_lines: 8`, and `schema_version: brief-context-v1`; written to `brief.json`
+beside `context.json`; admin matches without a program emit
 none and follow the legacy path byte-for-byte. `position` and names are NOT passed (v1). **Scheduling:** brief
-reads run for every briefed roster entry that has a resolvable `(kit, number)`, a `player_track`, and ≥1 grounded
-evidence frame — independent of the OCR-recurrence rule that schedules ordinary reads; entries lacking those get
-an honest limit line ("brief for #N could not be checked: no verified frames"). Prompt: per-player read call gains
-"The coach's expectations for this player, numbered: …" (+ "How the team plays: …" when a system brief exists)
-and "For each numbered expectation return {expectation_index, verdict:'evidence_found'|'no_evidence', box_t, box}.
-`evidence_found` only when a frame visibly supports it AND you box the player there; otherwise `no_evidence`.
-Never state an expectation was not met." Schema adds `expectation_checks` (exactly one entry per fed index;
-`evidence_found` requires a sent timestamp + valid box; `no_evidence` requires null evidence). **New
+checks run for every briefed roster entry whose payload-derived `(kit, number)` has a `player_tracks` entry and ≥1
+grounded evidence frame — independent of both OCR recurrence and selected caption windows; entries lacking a
+track versus a verified frame get distinct honest-limit lines. **Two-call boundary:** the ordinary grounded read
+uses the unchanged main prompt/schema and receives no brief content. A separate checks-only call receives the
+same anchor frames, numbered expectations, optional "How the team plays" system brief, and the no-negatives rule;
+its response schema contains only `expectation_checks` and is Pydantic-parsed before sent-timestamp hand checks.
+The bounded expectation index is 1..`max_lines`; checks use `num_predict=600`. **New
 `gate_brief_checks`** (separate from `_gate_model_items`): keeps every check, downgrades a failing
 `evidence_found` to `no_evidence` and counts it; a player note may have zero observations when it carries
 non-empty `brief_checks`. Persisted `player_notes[i].brief_checks = [{expectation_index, brief_hash, verdict,
 t?, box?, iou?}]` (no text); counters `sampling.brief_checks_total/evidence_found/downgraded`; new honest limit
 "Coach's-brief expectations were checked against sampled frames only; 'no evidence' is not 'did not happen'; an
 evidence frame verifies the player's identity and location, not the behaviour." Caps re-checked with a mocked
-size test (8 checks + 3 observations within `GROUNDED_PLAYER_NUM_PREDICT`; raise to 1200 if not). Tests: prompt
+size test (8 checks plus headroom within 600 tokens). Tests: prompt
 contains numbered brief + no-negatives rule; brief never in team-pass prompt; schema; gate downgrade counted;
 zero-observation-with-checks accepted; legacy path byte-identical.
 

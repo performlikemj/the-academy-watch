@@ -24,11 +24,13 @@ Owner: /root
 
 - Use the existing grounded schema models and Ollama schema-format path because C1's base includes merged PR #972.
 - Use the shared grounding rule in `spike/video-analysis/grounding.py` for brief-check downgrades.
+- Briefed players use two calls: the byte-identical ordinary grounded read gets no brief; a Pydantic-parsed checks-only call gets private text and emits no prose.
+- The worker-owned payload supplies the 8-line maximum and roster `(kit_color, jersey_number)` identity; eligibility comes from `player_tracks` plus interpolated evidence, never caption windows.
 
 ## State
 
-- Done: Implemented and delivered separate worker `brief.json`; optional spike input; independent eligible brief scheduling; numbered grounded prompt; strict Pydantic/Ollama schema; hash-only checks; shared grounding downgrade gate; counters; honest limits; zero-observation support; privacy and legacy regressions. PR #985 is open and unmerged.
-- Now: Await review of PR #985.
+- Done: Implemented the PR #985 review round: checks-only 600-token call, roster-based eligibility and distinct failure limits, system-only suppression, shared 8-line payload cap, bounded expectation index, legacy stray-key tolerance, and privacy regressions.
+- Now: Await re-review of PR #985 after the single fix commit; PR remains open and unmerged.
 - Next: Fable acceptance regeneration after merge (outside this task and explicitly not run here).
 
 ## Links
@@ -51,11 +53,10 @@ Owner: /root
 
 ## Notes
 
-- Verified: `pytest spike/video-analysis -q` -> 167 passed.
-- Verified: `pytest tests/test_vision_worker.py -q` -> 25 passed.
-- Verified: combined changed tests -> 129 passed.
-- Verified: backend-config Ruff check/format on worker + test; bare Ruff check/format on spike + test.
-- Verified: no-brief grounded player prompt SHA-256 matches `origin/main` exactly (`d0351d...f45e`).
+- Verified review round: `pytest spike/video-analysis -q` -> 170 passed.
+- Verified review round: backend requested suite -> 87 passed.
+- Verified review round: backend `ruff check .` + `ruff format --check .` pass (459 files); bare spike Ruff check/format pass (2 files).
+- Verified by direct pre-fix comparison: no-brief grounded prompt and response schema are byte-identical.
 - Not verified (inherited baseline): exact backend `pytest -q` stops at the same 12 legacy collection errors documented upstream.
 - Diagnostic only: with those 12 modules ignored, 1,975 passed / 42 unrelated failures / 3 skipped; no failure names touch C2 files.
 - No Basecamp/Ollama calls and no frontend changes.
