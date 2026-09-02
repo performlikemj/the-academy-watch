@@ -54,6 +54,8 @@ env:
   JOB_SYNC_FIXTURES_NAME: job-sync-fixtures
   JOB_STATUS_REFRESH_NAME: job-status-refresh
   JOB_DATA_FIX_NAME: job-data-fix
+  JOB_VIDEO_MAINTENANCE_NAME: job-video-maintenance
+  JOB_SCOUT_DIGEST_NAME: job-scout-digest
   TAG: prod
   # Supabase connection for security checks
   SUPA_DB_HOST: db.snqwamzutbcbjgusubsa.supabase.co
@@ -221,7 +223,7 @@ jobs:
 
       - name: Update scheduled jobs
         run: |
-          for JOB_NAME in "${{ env.JOB_WEEKLY_NAME }}" "${{ env.JOB_TRANSFER_HEAL_NAME }}" "${{ env.JOB_SYNC_FIXTURES_NAME }}" "${{ env.JOB_STATUS_REFRESH_NAME }}" "${{ env.JOB_DATA_FIX_NAME }}"; do
+          for JOB_NAME in "${{ env.JOB_WEEKLY_NAME }}" "${{ env.JOB_TRANSFER_HEAL_NAME }}" "${{ env.JOB_SYNC_FIXTURES_NAME }}" "${{ env.JOB_STATUS_REFRESH_NAME }}" "${{ env.JOB_DATA_FIX_NAME }}" "${{ env.JOB_VIDEO_MAINTENANCE_NAME }}" "${{ env.JOB_SCOUT_DIGEST_NAME }}"; do
             if az containerapp job show -g "${{ env.AZURE_RG }}" -n "$JOB_NAME" > /dev/null 2>&1; then
               echo "Updating job '$JOB_NAME' image"
               az containerapp job update \
