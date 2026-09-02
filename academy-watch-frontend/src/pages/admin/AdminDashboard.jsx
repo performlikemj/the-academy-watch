@@ -78,8 +78,11 @@ function StatTile({ label, value, ok, okLabel = 'OK', warnLabel = 'needs repair'
 // Product analytics — counts by event + a simple daily sparkline (7/30-day toggle).
 const ANALYTICS_EVENTS = [
     ['pageview', 'Pageviews'],
+    ['profile_view', 'Profile views'],
     ['search_performed', 'Searches'],
     ['follow_added', 'Follows'],
+    ['fan_follow_added', 'Fan follows'],
+    ['fan_follow_removed', 'Fan unfollows'],
     ['shadow_minted', 'Shadows minted'],
     ['list_created', 'Lists created'],
     ['claim_submitted', 'Claims'],
@@ -148,7 +151,7 @@ function AnalyticsSummaryCard() {
                     </p>
                 ) : !summary ? (
                     <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
-                        {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
+                        {ANALYTICS_EVENTS.map(([key]) => <Skeleton key={key} className="h-16 rounded-lg" />)}
                     </div>
                 ) : (
                     <div className="space-y-4">

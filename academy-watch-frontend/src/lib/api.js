@@ -468,6 +468,22 @@ export class APIService {
         return this.request(`/players/${playerId}/profile`)
     }
 
+    static async getPlayerFanCount(signedId) {
+        return this.request(`/players/${encodeURIComponent(String(signedId))}/followers/count`)
+    }
+
+    static async followPlayer(signedId) {
+        return this.request(`/players/${encodeURIComponent(String(signedId))}/follow`, {
+            method: 'POST',
+        })
+    }
+
+    static async unfollowPlayer(signedId) {
+        return this.request(`/players/${encodeURIComponent(String(signedId))}/follow`, {
+            method: 'DELETE',
+        })
+    }
+
     static async getPublicPlayerSeasonStats(playerId, season) {
         const query = season === undefined || season === null ? '' : `?season=${encodeURIComponent(season)}`
         return this.request(`/players/${playerId}/season-stats${query}`)
@@ -644,10 +660,21 @@ export class APIService {
         return this.request('/user/email-preferences')
     }
 
+    static async getEmailPreferences() {
+        return this.getUserEmailPreferences()
+    }
+
     static async updateUserEmailPreferences(preference) {
         return this.request('/user/email-preferences', {
             method: 'PATCH',
             body: JSON.stringify({ email_delivery_preference: preference })
+        })
+    }
+
+    static async updateEmailPreferences(partial) {
+        return this.request('/user/email-preferences', {
+            method: 'PATCH',
+            body: JSON.stringify(partial),
         })
     }
 
@@ -1474,6 +1501,10 @@ export class APIService {
 
     static async getMyClaims() {
         return this.request('/me/claims')
+    }
+
+    static async getMyInterestSignals() {
+        return this.request('/showcase/mine/interest-signals')
     }
 
     static async verifyClaimProof(claimId, { proof_url }) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -41,12 +41,14 @@ import { MiniProgressBar } from '@/components/MiniProgressBar'
 import { SeasonStatsPanel } from '@/components/SeasonStatsPanel'
 import { CommentSection } from '@/components/CommentSection'
 import { PlayerLinksSection } from '@/components/PlayerLinksSection'
+import { PlayerReachControls } from '@/components/PlayerReachControls'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
 import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { PlayerAvailability } from '@/components/PlayerAvailability'
 import { SeasonSelect } from '@/components/ui/SeasonSelect'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
+import { track } from '@/lib/track'
 import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, CHART_TOOLTIP_BG, CHART_TOOLTIP_BORDER } from '../lib/theme-constants'
 
@@ -306,6 +308,14 @@ export function PlayerPage() {
     const [watchedIds, setWatchedIds] = useState(null)
     const playerApiId = parseInt(playerId, 10)
     const isWatched = !!watchedIds?.has(playerApiId)
+    const emittedProfileViewIdsRef = useRef(new Set())
+
+    const handlePublicConfirmed = useCallback((signedId) => {
+        const numericId = Number(signedId)
+        if (!Number.isInteger(numericId) || numericId === 0 || emittedProfileViewIdsRef.current.has(numericId)) return
+        emittedProfileViewIdsRef.current.add(numericId)
+        track('profile_view', { player_api_id: numericId })
+    }, [])
 
     useEffect(() => {
         if (!auth?.token) {
@@ -747,6 +757,11 @@ export function PlayerPage() {
                             </div>
                         </div>
                     </div>
+                    <PlayerReachControls
+                        key={playerApiId}
+                        signedId={playerApiId}
+                        onPublicConfirmed={handlePublicConfirmed}
+                    />
                 </div>
             </div>
 
