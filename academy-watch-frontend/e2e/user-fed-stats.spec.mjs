@@ -312,7 +312,9 @@ test('approved local player uses the reserved negative id for totals and games',
       && !url.searchParams.has('season')
       && url.searchParams.get('per_page') === '100'
   ))).toBe(true)
-  expect(signedRequests.some(({ url }) => url.pathname === '/api/players/-7/season-stats')).toBe(true)
+  await expect.poll(() => (
+    signedRequests.some(({ url }) => url.pathname === '/api/players/-7/season-stats')
+  )).toBe(true)
   let seasonStatsRequestCount = signedRequests.filter(({ url }) => (
     url.pathname === '/api/players/-7/season-stats' && url.searchParams.get('season') === '2026'
   )).length
@@ -462,12 +464,15 @@ test('public games stay hidden while loading and can load the next page', async 
       if (url.searchParams.get('page') === '2') {
         return route.fulfill({
           json: {
-            matches: [{
-              ...firstPageMatches[0],
-              id: 101,
-              match_date: '2026-09-01',
-              opponent: 'Final Opponent',
-            }],
+            matches: [
+              firstPageMatches[0],
+              {
+                ...firstPageMatches[0],
+                id: 101,
+                match_date: '2026-09-01',
+                opponent: 'Final Opponent',
+              },
+            ],
             total: 101,
             page: 2,
             per_page: 100,
@@ -491,10 +496,13 @@ test('public games stay hidden while loading and can load the next page', async 
   expect(matchUrls[0].searchParams.get('page')).toBe('1')
   expect(matchUrls[0].searchParams.get('per_page')).toBe('100')
   await page.getByRole('button', { name: 'Load more games' }).click()
+  await expect.poll(() => matchUrls.some((url) => (
+    url.searchParams.get('page') === '2' && url.searchParams.get('per_page') === '100'
+  ))).toBe(true)
+  await expect(page.getByText('vs Opponent 1', { exact: true })).toHaveCount(1)
   await expect(page.getByText('vs Final Opponent')).toBeVisible()
   await expect(page.getByText('vs Final Opponent')).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Load more games' })).toHaveCount(0)
-  expect(matchUrls.some((url) => url.searchParams.get('page') === '2' && url.searchParams.get('per_page') === '100')).toBe(true)
 })
 
 test('Scout source filter reaches browse, boards, signed compare, and CSV while rendering chips', async ({ page }) => {
@@ -663,8 +671,7 @@ test('club manager records both video-linked and no-video results with roster st
         program_id: 7,
         available: true,
         subject_type: 'local',
-        player_api_id: -11,
-        api_player_id: 711,
+        player_api_id: null,
         local_player_id: 11,
         display_name: 'Kai Mori',
         position: 'Goalkeeper',
@@ -733,7 +740,7 @@ test('club manager records both video-linked and no-video results with roster st
           matches: body.entries.map((entry, index) => ({
             id: 1000 + index,
             player_api_id: entry.club_roster_member_id === 51
-              ? 7001
+              ? (body.video_match_id == null ? 7001 : 7999)
               : entry.club_roster_member_id === 52 ? -11 : 7003,
             ...entry,
             source: 'club',
@@ -741,9 +748,16 @@ test('club manager records both video-linked and no-video results with roster st
           })),
           season_stats_by_player: {
             7001: { club_roster_member_id: 51, player_name: 'Mina Sato — verified', season: 2026, appearances: 4, minutes: 320, goals: 2, assists: 2, yellows: 1, reds: 0 },
-            [body.video_match_id == null ? '-11' : '711']: { club_roster_member_id: 52, season: 2026, appearances: 4, minutes: 320, goals: 0, assists: 0, yellows: 0, reds: 0, saves: 12, goals_conceded: 3 },
+            '-11': { club_roster_member_id: 52, season: 2026, appearances: 4, minutes: 320, goals: 0, assists: 0, yellows: 0, reds: 0, saves: 12, goals_conceded: 3 },
             ...(body.video_match_id == null ? {
-              7003: { club_roster_member_id: 53, withheld: 'minor' },
+              7003: {
+                club_roster_member_id: 53,
+                player_name: 'Noa Tanaka',
+                season: 2026,
+                level_group: 'youth',
+                source: 'club',
+                withheld: 'minor',
+              },
             } : {}),
           },
         },

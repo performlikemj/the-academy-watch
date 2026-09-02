@@ -199,8 +199,8 @@ def _decision_notes() -> str:
 
 
 def _claim_owner_ids(suppression: PlayerSuppression) -> set[int]:
-    """Return distinct claimants for the suppression's exact subject."""
-    query = db.session.query(PlayerProfileClaim.user_account_id)
+    """Return distinct approved claim owners for the exact subject."""
+    query = db.session.query(PlayerProfileClaim.user_account_id).filter(PlayerProfileClaim.status == "approved")
     if suppression.local_player_id is not None:
         query = query.filter(
             PlayerProfileClaim.local_player_id == suppression.local_player_id,

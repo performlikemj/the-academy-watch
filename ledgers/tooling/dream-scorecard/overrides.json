@@ -1,0 +1,204 @@
+{
+ "1.1": {
+  "score": 3,
+  "reach": "LIVE_WEB_IOS",
+  "why": "[S0 A LIVE #957] web self-claim now sends contract_status (dialog mirrors iOS); local self-claims require birth_date \u226518 or fail-closed year (D1); birth_date stored (lp01) so exact-18 adults are public. Remaining: every claim still needs one admin review; iOS local-create lacks birthDate.",
+  "blocker": "Every claim still waits on one human admin review; iOS local-create does not send birth_date yet."
+ },
+ "1.2": {
+  "score": 3,
+  "reach": "LIVE_WEB",
+  "why": "[S1 P5] trust-tiered auto-approval: allow-listed low-risk fields keep the profile approved for accounts past the configured age with no adverse moderation events (fail-closed until SHOWCASE_TRUST_MIN_ACCOUNT_AGE_DAYS is set in prod). Remaining: flag must be set in prod; photos/contract fields still queue for admin.",
+  "blocker": "Prod threshold not yet configured (default off); photos and contract fields still need admin review."
+ },
+ "1.3": {
+  "score": 3,
+  "reach": "LIVE_WEB",
+  "why": "[S1 P1+P4] player_match_entries grain (pm01) + owner CRUD /api/players/<signed id>/matches; web 'Add a game' on PlayerPage/LocalPlayerPage; self-reported cells feed season totals with provenance. Remaining: iOS has no entry form; no photo/video attachment per game.",
+  "blocker": "iOS cannot add games yet; only web. No attachment per game."
+ },
+ "1.4": {
+  "score": 3,
+  "reach": "LIVE_WEB_IOS",
+  "why": "[S1 P2] approved adult local players get negative synthetic ids + shadow rows and join scout browse/leaderboards/compare/CSV (flag ON in prod), watchlists, follows and the contact rail with provenance chips. Remaining: youth-competition rows never enter the senior union; link-api graduation is admin-only.",
+  "blocker": "Local players in youth competitions stay out of the senior desk; graduation to an API identity needs an admin."
+ },
+ "1.5": {
+  "score": 3,
+  "why": "[adversary-1 up] Prod CONTACT_RAIL_ENABLED=1 opens the 404 gate (contact.py:83-93). Player accept/decline is live on web (App.jsx:4215 route, :590 nav; IntroductionsPage.jsx:49) and iOS (IncomingContactRequestsView.swift:249); replies at ContactThread.jsx:82. Gap: only tracked-player self-claims are contactable (contact.py:419).",
+  "reach": "LIVE_WEB_IOS"
+ },
+ "1.6": {
+  "score": 3,
+  "why": "[adversary-1 up] Flag is on in prod; iOS owner card (PlayerDetailView.swift:199) reads showcase.py:1805 for approved self-claims. Codex's 'labelled scouts' claim is wrong: labels are Watchlists/Follows (PlayerInterestSignalsViewModel.swift:13-15). No web surface, so LIVE_IOS, but usable.",
+  "reach": "LIVE_IOS"
+ },
+ "1.7": {
+  "score": 2,
+  "why": "[adversary-1 down] Fan surface exists only for API-Football TrackedPlayers: comments (PlayerPage.jsx:1426) and a scout-branded watchlist star (PlayerPage.jsx:319). LocalPlayerPage.jsx:1-11 mounts no comments, follow, or share; no fan concept in code; no public counts. The dream's self-showcased player cannot have fans.",
+  "reach": "LIVE_WEB"
+ },
+ "1.8": {
+  "score": 3,
+  "why": "[adversary-1 keep] Public match history, season totals and journey (players.py:241, :697, journey.py:36) render on web (PlayerPage.jsx:393, :1059, JourneyTimeline via :364) and iOS (PlayerDetailView.swift:273); rollup read surfaces are on in prod. TrackedPlayer-only; local players get no growth view."
+ },
+ "3.1": {
+  "score": 3,
+  "why": "[adversary-1 keep] Web (ScoutVerificationPage.jsx:100) and iOS (ScoutVerificationView.swift:192) applications reach trust.py:200; is_verified_scout (services/trust.py:14) derives status live from the approved row; admin review at trust.py:301. One-time human review is a known gap, not per-use admin action. One approved in prod."
+ },
+ "3.2": {
+  "score": 3,
+  "why": "[adversary-1 keep] Public discovery and leaderboards (scout.py:383/465/507/625/801; /scout/players at :680 needs no auth) render on ScoutPage.jsx:817/933 and ScoutDeskView.swift:59. TrackedPlayer-only, so user-created players stay invisible (see 1.4)."
+ },
+ "3.3": {
+  "score": 3,
+  "why": "[adversary-1 keep] Charts/match log (PlayerPage.jsx:393, :1059), iOS season+compare (PlayerDetailView.swift:213, CompareView.swift:202), verified appearances (showcase.py:1142, ShowcaseSection.jsx:1403) are live. Two cites mischaracterized: vision_worker.py:279 persists box tracks; PlayerReel.jsx:608 is bbox status text, not captions."
+ },
+ "3.4": {
+  "score": 3,
+  "reach": "LIVE_WEB_IOS",
+  "why": "[S0 C LIVE #958 + ACA job] weekly scout digest job scheduled (Mon 07:00 UTC) with API budget and resend guard; watchlists/lists live on web+iOS. Remaining: email only (no push), digest opt-in has no users yet.",
+  "blocker": "Alerts are email-only; no push; no opted-in users yet."
+ },
+ "3.5": {
+  "score": 3,
+  "why": "[adversary-1 up] Prod flag is on. Web Send button + IntroduceDialog (ScoutPage.jsx:986-996, :1110; IntroduceDialog.jsx:33) and iOS (PlayerDetailView.swift:259) post contact.py:405. Reachable only from the ScoutPage table and only to approved self-claimed TrackedPlayers (one in prod).",
+  "reach": "LIVE_WEB_IOS"
+ },
+ "3.6": {
+  "score": 1,
+  "why": "[adversary-1 keep] PricingPage.jsx:27 says 'Free during beta'; scout_tier is stored (league.py:521) and echoed (scout.py:1280) but never gates anything. No checkout, webhook, or /stripe route exists in the backend (grep); prod has zero subscriptions and revenue."
+ },
+ "3.7": {
+  "score": 3,
+  "why": "[adversary-1 keep] derive_account_role (account_roles.py:18) and is_verified_scout are independent; verification (trust.py:200) and outreach (contact.py:415) check verification only; Scout nav shows for every persona on web (App.jsx:570-573) and iOS (RootTabView.swift:139-141). Thin capability, nothing blocks it."
+ },
+ "2.1": {
+  "score": 3,
+  "reach": "LIVE_WEB",
+  "why": "[S0 B LIVE #959] approving a club-official claim now grants the console (bridge \u2192 program + approved claim + active manager); console-first clubs can adopt into a public funding league on claim. Remaining: one admin approval step; adoption pauses the console until funding review; local console programs not yet adoptable.",
+  "blocker": "One admin approval remains between claim and console; adoption into funding pauses the console until the funding claim is approved."
+ },
+ "2.2": {
+  "score": 3,
+  "why": "[adversary-1 keep] Roster CRUD (club.py:237-318; creator-only local rule :271-277), squad PUT (:520, :570-578), console dialogs (MyClubConsole.jsx:213, :301-304, :393, :823) and test :333-347 all verified. Live for any manager who clears the 2.1 gate; iOS absent."
+ },
+ "2.3": {
+  "score": 3,
+  "reach": "LIVE_WEB",
+  "why": "[S1 P3+P4] clubs record a result and per-player lineup stats without video (POST /api/club/<program>/results) from the MyClub console; rows are club-confirmed and feed the rollup. Remaining: video_match link not persisted; program-scoped uniqueness is app-level until a partial unique index migration.",
+  "blocker": "Video link not persisted on result rows; uniqueness enforced in code, not yet by the database."
+ },
+ "2.4": {
+  "score": 3,
+  "why": "[adversary-1 keep] Public team roster (api.py:12746) with pathway statuses and season stats renders on TeamDetailPage.jsx:438; TrackedPlayer/journey spine verified (tracked_player.py:15, journey_sync.py:424, :1844). Provider-covered clubs only; community ClubPrograms without team_api_id get nothing and MyClub has no tab."
+ },
+ "2.5": {
+  "score": 3,
+  "why": "[adversary-1 up] Prod SEASON_ROLLUP_READS lists every surface in feature_flags.py:5, so codex's only blocker is gone. JourneyTimeline.jsx:21-61 reads journey stops (PlayerPage.jsx:364), never the flag; compare on ScoutPage.jsx:324 and CompareView.swift:202. No MyClub view, locals excluded, backfill state unverified.",
+  "reach": "LIVE_WEB_IOS"
+ },
+ "2.6": {
+  "score": 2,
+  "why": "[adversary-1 keep] Manager /process records a timestamp only (club.py:601-616); job creation lives in admin video.py:300-315. Codex's 'no proven scheduler' for maintenance is wrong (scripts/azure/README.md:318-321; prod job exists) but that is retention, not processing. ADMIN_ONLY stands."
+ },
+ "2.7": {
+  "score": 1,
+  "why": "[adversary-1 keep] Only artefact is a 500-char note written at roster creation (club.py:293; funding.py:331); no feedback, coaching, goal or plan models (grep across models), no player-visible report route; showcase.py:1164 keeps club reports off profiles."
+ },
+ "2.8": {
+  "score": 2,
+  "why": "[adversary-1 down] Every 'club tool' is a public provider benchmark: cohorts are admin-seeded and synced (cohort.py:31-163, all /admin/), analytics filtered to seeded cohorts (:339); ProgramPage.jsx:150 says support is not live; is_fundable False (funding.py:208). A manager gets nothing for their own club.",
+  "reach": "LIVE_WEB"
+ },
+ "2.9": {
+  "score": 3,
+  "why": "[adversary-1 keep] Prod flag on. ClubIntroductionsPanel is mounted at MyClubConsole.jsx:1289 (gated on contactRail) and hits contact.py:914; signed email consent at contact.py:993 plus ClubConsentPage (App.jsx:4208); routing at contact.py:173-191. iOS lacks the club box (FullCircleModels.swift:84-87). Zero manager grants in prod."
+ },
+ "5.8": {
+  "score": 1,
+  "name": "Real adoption (people actually using it)",
+  "reach": "LIVE_WEB_IOS",
+  "exists": [
+   "prod SQL 2026-09-02: user_accounts=9 (5 team/journalist, 4 plain), player_profile_claims=1 approved, scout_verifications=1 approved, tracked_players=9654, newsletters=20 (last 2026-04-21), product_events=569 pageviews"
+  ],
+  "missing": [
+   "local_players=0",
+   "club_programs/claims/managers/roster=0",
+   "watchlist entries=0, follow lists=0",
+   "contact_requests=0",
+   "video_matches=2 smoke fixtures only",
+   "stripe_subscriptions=0, stripe_platform_revenue=0"
+  ],
+  "blocker": "Nobody outside the team has claimed a profile, claimed a club, watchlisted, introduced, uploaded, or paid; the content engine (newsletters) has been idle since April.",
+  "next_step": "Pick ONE beachhead cohort (e.g. the Forest academy contact or one grassroots club) and drive 10 real participants through claim \u2192 console \u2192 intro by hand; instrument the funnel first (5.6).",
+  "effort": "M",
+  "confidence": "high",
+  "why": "[orchestrator] measured directly in prod; a dream with 0 participants is a 1 regardless of code."
+ },
+ "4.1": {
+  "score": 2,
+  "why": "[adversary-2 keep] Claim form and public slug page are live, but no directory/list route exists (funding.py route inventory 377-1100), no manager revision route, and prod club_programs=0; every program needs admin work.",
+  "blocker": "Claim form and public program page work, but there is no program directory, no manager edit route (the ClubProgramProfileRevision table exists unused), is_fundable is hard-coded False, and prod has 0 programs."
+ },
+ "4.2": {
+  "score": 1,
+  "why": "[adversary-2 keep] Only test-mode Connect onboarding (stripe_connect.py:26-28) and an admin-only credit ledger (video.py:718). No Checkout, webhook, or donation model. Ledger cite is not in origin/main."
+ },
+ "4.3": {
+  "score": 0,
+  "why": "[adversary-2 keep] No membership/tier/subscription model or route for clubs; funding.py:1041 stores only notify_when_fundable on a Follow. Legacy writer StripeSubscription tables (league.py:993) have no writers."
+ },
+ "4.4": {
+  "score": 0,
+  "why": "[adversary-2 keep] Only artefact is the platform's own BuyMeACoffee footer button (App.jsx:4150, slug 'TheAcademyWatch' at bmcButtonConfig.js:5). No club-level URL field, OAuth, or import; ClubProgram has no external-support column."
+ },
+ "4.5": {
+  "score": 0,
+  "why": "[adversary-2 keep] Nothing on shares/stakes/cap-table in code (reviewer 1 grep confirmed). ClubProgramClaim (funding.py:212) is a management claim. Codex's ledger cite points at a file that is not in origin/main."
+ },
+ "4.6": {
+  "score": 2,
+  "why": "[adversary-2 keep] Public page renders and a signed-in visitor can 'Save this program' (ProgramPage.jsx:115-118 -> funding.py:1041). Only reachable via exact slug; sole in-app link is AdminFunding.jsx:424; zero programs exist in prod.",
+  "blocker": "Public program page + 'Save this program' work, but it is reachable only by exact slug (the only in-app link is in the admin UI) and shows 'Support is not live yet'."
+ },
+ "4.7": {
+  "score": 3,
+  "reach": "LIVE_WEB",
+  "why": "[S1] the same grain gives grassroots clubs a club-confirmed data path with provenance labels (api/club/self) on every surface. Remaining: no attestation text at entry time; no dispute flow on entries.",
+  "blocker": "No attestation/dispute flow on club-entered rows yet."
+ },
+ "5.1": {
+  "score": 2,
+  "why": "[adversary-2 keep] Adult gate covers self-claims only (showcase.py:1656-1664, 1672-1675); upload-complete has no rights/age attestation (club.py:398-434). iOS has takedown/report/delete; web has none (grep), yet Terms promise website deletion (LegalPages.jsx:23).",
+  "blocker": "Adult gate covers self-claims only; guardian/agent/club-official claims and local-player creation skip it; Film Room upload-complete has no rights/age/consent attestation (club.py:398-434); web has no delete, takedown, or report component although the Terms promise website deletion (LegalPages.jsx:23) \u2014 only iOS has them."
+ },
+ "5.2": {
+  "score": 3,
+  "why": "[adversary-2 keep] Real public dispute path: PlayerPage.jsx:634-643 flag button -> FlagDataDialog.jsx:51 -> api.js:879 -> POST /flags/submit (api.py:6551, public, rate-limited) -> AdminFlags.jsx via api.js:884-890 -> api.py:6675. Web-only; no reporter notification."
+ },
+ "5.3": {
+  "score": 2,
+  "why": "[adversary-2 keep] Newsletter pages carry OG tags but player/club pages are SPA-generic (index.html:13-25, no sitemap/robots in public/). Emails fire for login, claim and scout decisions, club consent; no push (no APNs code); digest has no scheduler.",
+  "blocker": "Player and club pages are SPA-generic (homepage-only OG tags, no sitemap), no push (no APNs code), digests have no scheduler; emails do fire for login, claim/scout decisions and club consent."
+ },
+ "5.4": {
+  "score": 2,
+  "why": "[adversary-2 keep] Queue/heartbeat/retention code is solid, but no KEDA/worker manifest or alerts anywhere (grep scripts/.github/infra empty), and deploy.yml:224 never refreshes job-video-maintenance's image, so the sweeper runs a frozen build.",
+  "blocker": "No managed worker deployment, KEDA or alerts anywhere; deploy.yml:224 leaves job-video-maintenance out of image updates so the retention sweeper runs a frozen build; every club processing request still needs an admin."
+ },
+ "5.5": {
+  "score": 2,
+  "why": "[adversary-2 keep] Credit ledger + admin grant/debit/refund work for concierge sales only (video.py:297/718/745 all require_api_key). No Checkout or webhook; pricing CTA disabled (PricingPage.jsx:94); writer UI targets absent /stripe routes and VITE_API_URL.",
+  "blocker": "Credit ledger + admin grant/debit/refund serve concierge sales only (require_api_key); no Checkout or webhook; pricing CTA disabled (PricingPage.jsx:94); writer subscribe UI targets /stripe routes that do not exist."
+ },
+ "5.6": {
+  "score": 3,
+  "why": "[adversary-2 keep] Web emits six allowlisted events (pageview plus ShowcaseSection.jsx:507, ScoutPage.jsx:658, ListsPage.jsx:110/588/639/641) and AdminDashboard.jsx:80-88 renders them. Prod is pageview-only because no web user has done those actions; iOS emits nothing.",
+  "blocker": "Six web events are wired (pageview, claim_submitted, search_performed, list_created, follow added/removed) and shown on AdminDashboard; prod is pageview-only because nobody has acted yet; iOS emits nothing."
+ },
+ "5.7": {
+  "score": 2,
+  "why": "[adversary-2 keep] Terms/Privacy/Rules/Support are live on web and iOS, but Terms:23 and Privacy:141/148 promise website/in-app deletion and export that only iOS exposes; no Film Room, footage, donation or API-Football licence text (grep)."
+ }
+}

@@ -135,7 +135,7 @@ def is_active_program_manager(user_id: int | None, program_id: int | None) -> bo
     )
 
 
-def _is_manager_of_approved_program(user_id: int | None, program_id: int | None) -> bool:
+def is_manager_of_approved_program(user_id: int | None, program_id: int | None) -> bool:
     """Strict console authorization: active grant, claim, and program standing."""
 
     program_columns = _table_columns(PROGRAMS_TABLE)
@@ -181,7 +181,7 @@ def require_club_manager(program_id_arg: str = "program_id"):
         @wraps(view)
         def manager_checked(*args, **kwargs):
             program_id = kwargs.get(program_id_arg)
-            if not _is_manager_of_approved_program(getattr(g, "user_id", None), program_id):
+            if not is_manager_of_approved_program(getattr(g, "user_id", None), program_id):
                 return jsonify({"error": "Club manager access denied"}), 403
             return view(*args, **kwargs)
 
@@ -382,6 +382,7 @@ __all__ = [
     "find_club_notice_target",
     "get_club_program",
     "is_active_program_manager",
+    "is_manager_of_approved_program",
     "manager_program_ids",
     "program_has_active_manager",
     "program_manager_user_ids",

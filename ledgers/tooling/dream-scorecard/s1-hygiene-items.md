@@ -1,0 +1,11 @@
+# S1 hygiene items (accumulated from checker P3s; one codex sweep after all S1 merges)
+- club.py results: FOR UPDATE only same-program identity rows (cross-program rows read without lock) or map deadlock OperationalError → 409; opponent identity + history grouping case-insensitive (func.lower), header correction rewrites spelling; raise 409 when fixture_rows holds two rows for one player (legacy duplicates).
+- Later migration: partial unique index (player_api_id, match_date, opponent, club_program_id) WHERE source='club' (dedupe first); nullable player_match_entries.video_match_id FK persisted on POST/GET.
+- player_matches.py: import club_registry's manager rule via a public name; extract resolve_reported_subject() shared by route + rollup feeder; refresh_player cell re-insert race → IntegrityError retry-once or pg_advisory_xact_lock(player, season).
+- auth.py: extract resolve_bearer_user() used by require_user_auth and _optional_authenticated_user.
+- players.py: (done in P2) ; scout.py: SCOUT_INCLUDE_LOCAL_PLAYERS as a single kill-switch (gate watchlist add + follow selectors) — decide.
+- P4: spec ordering nits (poll before assert), page-2 dedupe assertion, whitespace; club dialog withheld rows (P4 micro-2 in flight).
+- P5: (pending check round 2).
+- P4 polish: withheld mock row with real shape (season/level_group/source/player_name); re-open pre-fill keyed by match.club_roster_member_id; drop the inert member.api_player_id branch.
+- P5 polish: _claim_owner_ids should tag only approved (or approved+pending) claimants for the suppressed event; docstring note on the FOR UPDATE test.
+- PRE-EXISTING on main (not S1): tests/test_local_clubs.py TestAffiliationVisibility ×3 and tests/test_account.py ×1 fail — investigate/fix in a later sweep.

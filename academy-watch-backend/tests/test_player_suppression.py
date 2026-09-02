@@ -617,6 +617,26 @@ def test_admin_queue_activate_reject_lift_and_shadow_lifecycle(client, seeded_pl
 def test_api_suppression_activation_records_one_event_per_claim_owner(client, seeded_players):
     first_owner, _, _ = _approved_player_claim("first-owner@example.com", SUPPRESSED_ID)
     second_owner, _, _ = _approved_player_claim("second-owner@example.com", SUPPRESSED_ID)
+    pending_owner, _ = _user_headers("pending-claimant@example.com")
+    rejected_owner, _ = _user_headers("rejected-claimant@example.com")
+    db.session.add_all(
+        [
+            PlayerProfileClaim(
+                user_account_id=pending_owner.id,
+                player_api_id=SUPPRESSED_ID,
+                relationship_type="player",
+                contract_status="free_agent",
+                status="pending",
+            ),
+            PlayerProfileClaim(
+                user_account_id=rejected_owner.id,
+                player_api_id=SUPPRESSED_ID,
+                relationship_type="player",
+                contract_status="free_agent",
+                status="rejected",
+            ),
+        ]
+    )
     suppression = PlayerSuppression(
         player_api_id=SUPPRESSED_ID,
         reason_code="guardian_request",
@@ -637,6 +657,7 @@ def test_api_suppression_activation_records_one_event_per_claim_owner(client, se
     assert response.status_code == 200
     events = ShowcaseModerationEvent.query.order_by(ShowcaseModerationEvent.user_account_id).all()
     assert [event.user_account_id for event in events] == sorted([first_owner.id, second_owner.id])
+    assert {pending_owner.id, rejected_owner.id}.isdisjoint(event.user_account_id for event in events)
     assert {(event.target_kind, event.target_id, event.action, event.actor_email) for event in events} == {
         ("suppression", suppression.id, "suppressed", "tf2-admin@example.com")
     }

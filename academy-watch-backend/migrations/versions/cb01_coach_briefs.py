@@ -1,7 +1,7 @@
 """Add private coach and system briefs to their owning club rows.
 
 Revision ID: cb01
-Revises: pm01
+Revises: s2f1
 Create Date: 2026-09-02
 
 All DDL is guarded because production has drifted out-of-band. Both owning
@@ -18,7 +18,7 @@ from alembic import op
 from migrations._migration_helpers import add_column_safe, column_exists, table_exists
 
 revision = "cb01"
-down_revision = "pm01"
+down_revision = "s2f1"
 branch_labels = None
 depends_on = None
 

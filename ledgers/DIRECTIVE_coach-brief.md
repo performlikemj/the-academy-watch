@@ -99,7 +99,7 @@ field to the model; the UI says "describe behaviours, not people"; the server re
 roster `player_name` / `display_name` token of that program (case- and accent-insensitive, ≥2 chars; whole-word for Latin tokens,
 substring for tokens containing any non-Latin letter) with a plain message (B3).
 
-**C1 — Storage + API (backend, migration `cb01` ← `pm01` (main moved)).** Six guarded `add_column`s on the owning rows (RLS
+**C1 — Storage + API (backend, migration `cb01` ← `s2f1`).** Six guarded `add_column`s on the owning rows (RLS
 already enabled; deletion cascades naturally; no new table):
 `club_roster_members.coach_brief_body` Text, `.brief_updated_at`, `.brief_updated_by_user_id` FK
 `user_accounts` nullable ON DELETE SET NULL; `club_programs.system_brief_body` Text, `.system_brief_updated_at`,

@@ -108,6 +108,7 @@ const CLUB_REEL_MEDIA_SOURCE = {
   footageUrl: (matchId, token) => APIService.videoFootageUrl(matchId, token),
   cropUrl: (matchId, file, token) => APIService.videoCropUrl(matchId, file, token),
 }
+
 function errorText(error, fallback) {
   return error?.body?.error || error?.message || fallback
 }
@@ -214,13 +215,18 @@ function resultEntryValues(member, returnedMatch, included) {
 }
 
 function resultEntriesValues(members, savedResult, defaultIncluded) {
-  const returnedByPlayerId = new Map((Array.isArray(savedResult?.matches) ? savedResult.matches : []).map((match) => [
+  const returnedMatches = Array.isArray(savedResult?.matches) ? savedResult.matches : []
+  const returnedByMemberId = new Map(returnedMatches.flatMap((match) => (
+    match.club_roster_member_id == null ? [] : [[String(match.club_roster_member_id), match]]
+  )))
+  const returnedByPlayerId = new Map(returnedMatches.map((match) => [
     String(match.player_api_id),
     match,
   ]))
   return members.map((member) => resultEntryValues(
     member,
-    returnedByPlayerId.get(signedPlayerIdForMember(member)),
+    returnedByMemberId.get(String(member.id))
+      || returnedByPlayerId.get(signedPlayerIdForMember(member)),
     defaultIncluded,
   ))
 }
@@ -668,12 +674,8 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
   const errorRef = useRef(null)
   const memberById = useMemo(() => new Map(members.map((member) => [Number(member.id), member])), [members])
   const memberByPlayerId = useMemo(() => new Map(members.flatMap((member) => {
-    const playerIds = []
-    const apiPlayerId = Number(member.api_player_id)
-    if (Number.isInteger(apiPlayerId) && apiPlayerId > 0) playerIds.push(String(apiPlayerId))
     const signedPlayerId = signedPlayerIdForMember(member)
-    if (signedPlayerId && !playerIds.includes(signedPlayerId)) playerIds.push(signedPlayerId)
-    return playerIds.map((playerId) => [playerId, member])
+    return signedPlayerId ? [[signedPlayerId, member]] : []
   })), [members])
   const seasonStats = result?.season_stats_by_player && typeof result.season_stats_by_player === 'object'
     ? Object.entries(result.season_stats_by_player)

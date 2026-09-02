@@ -1,0 +1,88 @@
+{
+ "stages": [
+  {
+   "id": "S0",
+   "name": "Unbreak the front door",
+   "overall_after": 59.8,
+   "pillars_after": {
+    "P1": 71.9,
+    "P2": 63.9,
+    "P3": 67.9,
+    "P4": 28.6,
+    "P5": 53.1
+   }
+  },
+  {
+   "id": "S1",
+   "name": "One player universe + a games grain",
+   "overall_after": 59.8,
+   "pillars_after": {
+    "P1": 71.9,
+    "P2": 63.9,
+    "P3": 67.9,
+    "P4": 28.6,
+    "P5": 53.1
+   }
+  },
+  {
+   "id": "S2",
+   "name": "Fans and reach",
+   "overall_after": 61.0,
+   "pillars_after": {
+    "P1": 75.0,
+    "P2": 63.9,
+    "P3": 67.9,
+    "P4": 28.6,
+    "P5": 56.2
+   }
+  },
+  {
+   "id": "S3",
+   "name": "Money rails",
+   "overall_after": 66.1,
+   "pillars_after": {
+    "P1": 75.0,
+    "P2": 63.9,
+    "P3": 75.0,
+    "P4": 50.0,
+    "P5": 59.4
+   }
+  },
+  {
+   "id": "S4",
+   "name": "Film Room self-serve + club tools",
+   "overall_after": 69.4,
+   "pillars_after": {
+    "P1": 75.0,
+    "P2": 75.0,
+    "P3": 75.0,
+    "P4": 50.0,
+    "P5": 62.5
+   }
+  },
+  {
+   "id": "S5",
+   "name": "Part-ownership",
+   "overall_after": 72.1,
+   "pillars_after": {
+    "P1": 75.0,
+    "P2": 75.0,
+    "P3": 75.0,
+    "P4": 67.9,
+    "P5": 62.5
+   }
+  },
+  {
+   "id": "S6",
+   "name": "Ten real participants",
+   "overall_after": 73.0,
+   "pillars_after": {
+    "P1": 75.0,
+    "P2": 75.0,
+    "P3": 75.0,
+    "P4": 67.9,
+    "P5": 68.8
+   }
+  }
+ ]
+}

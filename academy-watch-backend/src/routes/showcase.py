@@ -4622,6 +4622,10 @@ def _rekey_rollup_rows(old_player_api_id: int, player_api_id: int) -> dict:
 
 
 def _refresh_graduated_rollup(old_player_api_id: int, player_api_id: int) -> tuple[dict, dict]:
+    extra_counts = _rekey_extra_tables(old_player_api_id, player_api_id, db.session)
+    for locked_player_api_id in sorted((old_player_api_id, player_api_id)):
+        season_rollup_service._lock_player_refresh(db.session, locked_player_api_id)
+
     visible_reported_sources = {
         row.source
         for row in PlayerSeasonCell.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
@@ -4632,7 +4636,6 @@ def _refresh_graduated_rollup(old_player_api_id: int, player_api_id: int) -> tup
         for row in PlayerSeasonTotal.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
         if row.primary_source in {"club", "user"}
     )
-    extra_counts = _rekey_extra_tables(old_player_api_id, player_api_id, db.session)
     rollup_counts = _rekey_rollup_rows(old_player_api_id, player_api_id)
     rollup = season_rollup_service.refresh_player(player_api_id, session=db.session)
     rebuilt_sources = {

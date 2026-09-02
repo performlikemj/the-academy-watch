@@ -258,12 +258,13 @@ def test_pm01_downgrade_refuses_to_discard_moderation_history(engine, pm01):
     }
 
 
-def test_pm01_chains_from_lp01_and_cb01_is_the_single_head():
+def test_cb01_to_s2f1_to_pm01_is_the_single_head():
     repo_root = Path(__file__).resolve().parent.parent
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "migrations"))
     script = ScriptDirectory.from_config(config)
 
     assert script.get_heads() == ["cb01"]
-    assert script.get_revision("cb01").down_revision == "pm01"
+    assert script.get_revision("cb01").down_revision == "s2f1"
+    assert script.get_revision("s2f1").down_revision == "pm01"
     assert script.get_revision("pm01").down_revision == "lp01"

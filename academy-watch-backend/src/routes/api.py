@@ -6953,7 +6953,7 @@ def admin_delete_team_data(team_id: int):
         if affected_pids:
             from src.services.season_rollup_service import refresh_player as _refresh_rollup
 
-            for _pid in affected_pids:
+            for _pid in sorted(affected_pids):
                 with db.session.begin_nested():
                     _refresh_rollup(_pid, season=None)
 

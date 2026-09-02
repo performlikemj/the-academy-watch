@@ -459,6 +459,61 @@ def require_curator_auth(f):
     return decorated
 
 
+def resolve_bearer_user() -> UserAccount | None:
+    """Resolve the request's Bearer token to its bound, active account.
+
+    Missing credentials return ``None`` so optional-auth callers can remain
+    anonymous. Invalid signatures and expired tokens retain their
+    ``itsdangerous`` exceptions; malformed payloads raise ``ValueError`` and
+    stale or deleted account bindings raise ``LookupError``.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    token = auth.split(" ", 1)[1].strip()
+    if not token:
+        return None
+
+    data = _user_serializer().loads(token, max_age=USER_TOKEN_TTL_SECONDS)
+    if not isinstance(data, dict):
+        raise ValueError("invalid token payload")
+    raw_email = data.get("email")
+    if not isinstance(raw_email, str) or not (email := raw_email.strip()):
+        raise ValueError("invalid token payload")
+
+    token_user_id = data.get("user_id")
+    if token_user_id is None:
+        # Backward compatibility for tokens issued before account binding
+        # shipped. A recreated account cannot revive an older token.
+        user = UserAccount.query.filter_by(email=email).first()
+        token_iat = data.get("iat")
+        if user is not None and user.created_at is not None and isinstance(token_iat, int):
+            created_at = user.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=UTC)
+            if int(created_at.timestamp()) > token_iat:
+                user = None
+    else:
+        if isinstance(token_user_id, bool):
+            raise ValueError("invalid token payload")
+        try:
+            token_user_id = int(token_user_id)
+        except (TypeError, ValueError):
+            raise ValueError("invalid token payload") from None
+        user = db.session.get(UserAccount, token_user_id)
+        if user is not None and (user.email or "").strip().lower() != email.lower():
+            user = None
+        account_created_at = data.get("account_created_at")
+        if account_created_at is not None and (
+            user is None or user.created_at is None or user.created_at.isoformat() != account_created_at
+        ):
+            user = None
+
+    if user is None or getattr(user, "is_tombstone", False):
+        raise LookupError("account not found")
+    return user
+
+
 def require_user_auth(f):
     """Decorator to require user authentication via Bearer token.
 
@@ -467,59 +522,21 @@ def require_user_auth(f):
 
     @wraps(f)
     def decorated(*args, **kwargs):
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth.split(" ", 1)[1]
-        else:
-            token = None
-        if not token:
-            return jsonify({"error": "missing auth token"}), 401
-        s = _user_serializer()
         try:
-            # Accept tokens up to 30 days old by default
-            data = s.loads(token, max_age=60 * 60 * 24 * 30)
-            email = (data.get("email") or "").strip()
-            if not email:
-                return jsonify({"error": "invalid token payload"}), 401
-            g.user_email = email
-            token_user_id = data.get("user_id")
-            if token_user_id is not None:
-                if isinstance(token_user_id, bool):
-                    return jsonify({"error": "invalid token payload"}), 401
-                try:
-                    token_user_id = int(token_user_id)
-                except (TypeError, ValueError):
-                    return jsonify({"error": "invalid token payload"}), 401
-                user = db.session.get(UserAccount, token_user_id)
-                if user is not None and (user.email or "").strip().lower() != email.lower():
-                    user = None
-                account_created_at = data.get("account_created_at")
-                if (
-                    user is not None
-                    and account_created_at is not None
-                    and (user.created_at is None or user.created_at.isoformat() != account_created_at)
-                ):
-                    user = None
-            else:
-                # Backward compatibility for tokens issued before account
-                # binding shipped. A recreated account normally has a later
-                # creation second and therefore cannot revive the old token.
-                user = UserAccount.query.filter_by(email=email).first()
-                token_iat = data.get("iat")
-                if user is not None and user.created_at is not None and isinstance(token_iat, int):
-                    created_at = user.created_at
-                    if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=UTC)
-                    if int(created_at.timestamp()) > token_iat:
-                        user = None
-            if user is None or getattr(user, "is_tombstone", False):
-                return jsonify({"error": "account not found"}), 401
-            g.user = user
-            g.user_id = user.id
+            user = resolve_bearer_user()
         except SignatureExpired:
             return jsonify({"error": "auth token expired"}), 401
         except BadSignature:
             return jsonify({"error": "invalid auth token"}), 401
+        except ValueError:
+            return jsonify({"error": "invalid token payload"}), 401
+        except LookupError:
+            return jsonify({"error": "account not found"}), 401
+        if user is None:
+            return jsonify({"error": "missing auth token"}), 401
+        g.user_email = (user.email or "").strip()
+        g.user = user
+        g.user_id = user.id
         return f(*args, **kwargs)
 
     return decorated

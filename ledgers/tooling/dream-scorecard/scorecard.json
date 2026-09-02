@@ -1,0 +1,1250 @@
+{
+  "overall_pct": 59.8,
+  "pillars": {
+    "P1": {
+      "name": "Players: share, be found, have fans",
+      "weight": 25,
+      "pct": 71.9,
+      "capabilities": [
+        {
+          "id": "1.1",
+          "name": "Create or claim my profile",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/routes/showcase.py:1117 \u2014 Rejects under-eighteen and unknown-age tracked self-claims.",
+            "academy-watch-backend/src/routes/showcase.py:1350 \u2014 Creates pending local identity and owner claim together.",
+            "academy-watch-backend/src/routes/showcase.py:3864 \u2014 Admin reviews claims; local approvals skip age recheck.",
+            "academy-watch-frontend/src/pages/LocalPlayerCreate.jsx:101 \u2014 Web submits local-player creation and automatic claim.",
+            "academy-watch-ios/AcademyWatch/Features/Onboarding/OnboardingViewModels.swift:59 \u2014 iOS creates local players with contract attestation.",
+            "academy-watch-backend/tests/test_local_players.py:314 \u2014 Test accepts an underage local self-claim."
+          ],
+          "missing": [
+            "Web tracked-claim attestation controls are missing; ShowcaseSection omits required contract_status.",
+            "Server-side adult enforcement for local self-claims and approval rechecks is missing.",
+            "Web claim and local-create E2E coverage is missing; scoped e2e grep returned no matches."
+          ],
+          "blocker": "[S0 A LIVE #957] web self-claim now sends contract_status (dialog mirrors iOS); local self-claims require birth_date \u226518 or fail-closed year (D1); birth_date stored (lp01) so exact-18 adults are public. Remaining: every claim still needs one admin review; iOS local-create lacks birthDate.",
+          "next_step": "Pass contract_status through ShowcaseSection.submitClaim and APIService.submitProfileClaim; enforce is_minor_birth_year in create_local_player and admin_review_claim.",
+          "effort": "S",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[S0 A LIVE #957] web self-claim now sends contract_status (dialog mirrors iOS); local self-claims require birth_date \u226518 or fail-closed year (D1); birth_date stored (lp01) so exact-18 adults are public. Remaining: every claim still needs one admin review; iOS local-create lacks birthDate.",
+          "codex_reach": "LIVE_IOS",
+          "codex_blocker": "Every claim still waits on one human admin review; iOS local-create does not send birth_date yet."
+        },
+        {
+          "id": "1.2",
+          "name": "Share about myself",
+          "score": 3,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/models/showcase.py:199 \u2014 Stores biography, position, foot, height, contract, and availability.",
+            "academy-watch-backend/src/routes/showcase.py:2576 \u2014 Every profile save resets moderation status to pending.",
+            "academy-watch-backend/src/routes/showcase.py:2601 \u2014 Owners upload moderated profile photos through signed storage.",
+            "academy-watch-backend/src/routes/showcase.py:2930 \u2014 Owners submit moderated YouTube highlight reels.",
+            "academy-watch-frontend/src/components/ShowcaseSection.jsx:1004 \u2014 Web owners edit profiles, photos, and video links.",
+            "academy-watch-backend/tests/test_local_players.py:709 \u2014 Lifecycle test confirms edits disappear pending reapproval."
+          ],
+          "missing": [
+            "An iOS biography, photo, and reel authoring component is missing.",
+            "An approved-profile snapshot or low-risk auto-approval mechanism is missing.",
+            "Web E2E coverage for profile editing and media submission is missing."
+          ],
+          "blocker": "[S1 P5] trust-tiered auto-approval: allow-listed low-risk fields keep the profile approved for accounts past the configured age with no adverse moderation events (fail-closed until SHOWCASE_TRUST_MIN_ACCOUNT_AGE_DAYS is set in prod). Remaining: flag must be set in prod; photos/contract fields still queue for admin.",
+          "next_step": "Diff fields inside _upsert_subject_showcase_profile, preserving approved low-risk fields while staging contract, club, and agent changes.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[S1 P5] trust-tiered auto-approval: allow-listed low-risk fields keep the profile approved for accounts past the configured age with no adverse moderation events (fail-closed until SHOWCASE_TRUST_MIN_ACCOUNT_AGE_DAYS is set in prod). Remaining: flag must be set in prod; photos/contract fields still queue for admin.",
+          "codex_reach": "LIVE_WEB",
+          "codex_blocker": "Prod threshold not yet configured (default off); photos and contract fields still need admin review."
+        },
+        {
+          "id": "1.3",
+          "name": "Add my own games and stats",
+          "score": 3,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "ledgers/DIRECTIVE_phase1-user-fed-data.md:51 \u2014 Designs match entries, owner CRUD, and a user feeder.",
+            "academy-watch-backend/src/models/season_rollup.py:36 \u2014 Stores source-grained player-season statistic cells.",
+            "academy-watch-backend/src/services/season_rollup_service.py:557 \u2014 Current feeders cover fixtures, journey, APSS, and shadows.",
+            "academy-watch-backend/src/services/season_rollup_service.py:668 \u2014 refresh_player is the existing rollup integration point."
+          ],
+          "missing": [
+            "PlayerMatchEntry model and player_match_entries table are missing.",
+            "Owner POST, PATCH, and DELETE match routes are missing.",
+            "_user_cells feeder and user-supplied provenance source are missing.",
+            "Web and iOS add-game forms are missing.",
+            "rg -n 'PlayerMatchEntry|player_match_entries|self_reported' across clients and backend returned no matches."
+          ],
+          "blocker": "[S1 P1+P4] player_match_entries grain (pm01) + owner CRUD /api/players/<signed id>/matches; web 'Add a game' on PlayerPage/LocalPlayerPage; self-reported cells feed season totals with provenance. Remaining: iOS has no entry form; no photo/video attachment per game.",
+          "next_step": "Implement PlayerMatchEntry and owner-gated CRUD, append _user_cells to _FEEDERS, call refresh_player, then add the web form.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 1,
+          "override_why": "[S1 P1+P4] player_match_entries grain (pm01) + owner CRUD /api/players/<signed id>/matches; web 'Add a game' on PlayerPage/LocalPlayerPage; self-reported cells feed season totals with provenance. Remaining: iOS has no entry form; no photo/video attachment per game.",
+          "codex_reach": "DESIGNED_ONLY",
+          "codex_blocker": "iOS cannot add games yet; only web. No attachment per game."
+        },
+        {
+          "id": "1.4",
+          "name": "Be found in scout discovery",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/routes/scout.py:383 \u2014 Discovery selects active TrackedPlayer rows only.",
+            "academy-watch-backend/src/routes/scout.py:801 \u2014 Leaderboards reuse the TrackedPlayer-only query.",
+            "academy-watch-backend/src/routes/scout.py:1288 \u2014 Watchlists require positive TrackedPlayer API identifiers.",
+            "academy-watch-backend/src/routes/showcase.py:3606 \u2014 Admins can bridge LocalPlayer to an API identifier.",
+            "ledgers/DIRECTIVE_phase1-user-fed-data.md:46 \u2014 Designs local shadows and an optional discovery union."
+          ],
+          "missing": [
+            "LocalPlayer or PlayerShadow union in scout search and leaderboards is missing.",
+            "Local subject support in ScoutWatchlistEntry and Follow selectors is missing.",
+            "Web and iOS scout-row routing for local players is missing.",
+            "SCOUT_INCLUDE_LOCAL_PLAYERS implementation is missing; source-tree grep returned no matches."
+          ],
+          "blocker": "[S1 P2] approved adult local players get negative synthetic ids + shadow rows and join scout browse/leaderboards/compare/CSV (flag ON in prod), watchlists, follows and the contact rail with provenance chips. Remaining: youth-competition rows never enter the senior union; link-api graduation is admin-only.",
+          "next_step": "Mint PlayerShadow during local approval, union eligible local shadows in _base_scout_query, then extend watchlist, follow, and client subject routing.",
+          "effort": "L",
+          "confidence": "high",
+          "codex_score": 1,
+          "override_why": "[S1 P2] approved adult local players get negative synthetic ids + shadow rows and join scout browse/leaderboards/compare/CSV (flag ON in prod), watchlists, follows and the contact rail with provenance chips. Remaining: youth-competition rows never enter the senior union; link-api graduation is admin-only.",
+          "codex_reach": "DESIGNED_ONLY",
+          "codex_blocker": "Local players in youth competitions stay out of the senior desk; graduation to an API identity needs an admin."
+        },
+        {
+          "id": "1.5",
+          "name": "Be contacted safely",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/services/contact.py:83 \u2014 CONTACT_RAIL_ENABLED defaults false.",
+            "academy-watch-backend/src/services/contact.py:188 \u2014 Messaging opens after acceptance and required club consent.",
+            "academy-watch-backend/src/routes/contact.py:842 \u2014 Player owners accept or decline locked requests.",
+            "academy-watch-backend/src/routes/contact.py:1105 \u2014 Replies reject blocked counterpart relationships.",
+            "academy-watch-frontend/src/pages/IntroductionsPage.jsx:49 \u2014 Web players accept and decline introduction requests.",
+            "academy-watch-frontend/src/components/contact/ContactThread.jsx:82 \u2014 Web participants reply within accepted threads.",
+            "academy-watch-ios/AcademyWatch/Features/Contact/IncomingContactRequestsView.swift:249 \u2014 iOS offers accept, decline, report, and block.",
+            "academy-watch-ios/AcademyWatch/Features/Contact/ContactThreadView.swift:62 \u2014 iOS renders individually reportable messages."
+          ],
+          "missing": [
+            "Checked-in production CONTACT_RAIL_ENABLED=true configuration is missing; template and code default false.",
+            "Ordinary web block and report API methods and thread controls are missing."
+          ],
+          "blocker": "Prod CONTACT_RAIL_ENABLED=1 opens the 404 gate (contact.py:83-93). Player accept/decline is live on web (App.jsx:4215 route, :590 nav; IntroductionsPage.jsx:49) and iOS (IncomingContactRequestsView.swift:249); replies at ContactThread.jsx:82. Gap: only tracked-player self-claims are contactable (contact.py:419).",
+          "next_step": "Encode CONTACT_RAIL_ENABLED=true in deployment configuration after smoke-checking the existing direct, notified, and club-included flows.",
+          "effort": "S",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-1 up] Prod CONTACT_RAIL_ENABLED=1 opens the 404 gate (contact.py:83-93). Player accept/decline is live on web (App.jsx:4215 route, :590 nav; IntroductionsPage.jsx:49) and iOS (IncomingContactRequestsView.swift:249); replies at ContactThread.jsx:82. Gap: only tracked-player self-claims are contactable (contact.py:419).",
+          "codex_reach": "FLAGGED_OFF",
+          "codex_blocker": "The default-off flag makes every contact endpoint return 404."
+        },
+        {
+          "id": "1.6",
+          "name": "Know I am being watched",
+          "score": 3,
+          "reach": "LIVE_IOS",
+          "exists": [
+            "academy-watch-backend/src/routes/showcase.py:1805 \u2014 Returns interest for approved tracked-player self-claims.",
+            "academy-watch-backend/src/routes/showcase.py:1845 \u2014 Counts distinct watchlist accounts while excluding blocks.",
+            "academy-watch-backend/src/routes/showcase.py:1868 \u2014 Counts distinct direct player follows.",
+            "academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift:199 \u2014 Approved owners see the native interest card.",
+            "academy-watch-ios/AcademyWatch/Features/Showcase/PlayerInterestSignalsCard.swift:124 \u2014 Card separates watchlist and follow totals."
+          ],
+          "missing": [
+            "Player-profile view telemetry model and route are missing.",
+            "A web interest-signals component and API call are missing.",
+            "Local-player interest aggregation is missing.",
+            "Verified-scout filtering is missing; generic accounts are labelled scouts."
+          ],
+          "blocker": "Flag is on in prod; iOS owner card (PlayerDetailView.swift:199) reads showcase.py:1805 for approved self-claims. Codex's 'labelled scouts' claim is wrong: labels are Watchlists/Follows (PlayerInterestSignalsViewModel.swift:13-15). No web surface, so LIVE_IOS, but usable.",
+          "next_step": "Filter aggregates through approved ScoutVerification rows, then enable CONTACT_RAIL_ENABLED and reuse the existing iOS card.",
+          "effort": "S",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-1 up] Flag is on in prod; iOS owner card (PlayerDetailView.swift:199) reads showcase.py:1805 for approved self-claims. Codex's 'labelled scouts' claim is wrong: labels are Watchlists/Follows (PlayerInterestSignalsViewModel.swift:13-15). No web surface, so LIVE_IOS, but usable.",
+          "codex_reach": "FLAGGED_OFF",
+          "codex_blocker": "The only client is flagged off and its counts do not identify scouts truthfully."
+        },
+        {
+          "id": "1.7",
+          "name": "Have fans",
+          "score": 2,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-frontend/src/App.jsx:4190 \u2014 Web exposes public tracked-player pages.",
+            "academy-watch-frontend/src/App.jsx:4193 \u2014 Web exposes public local-player pages.",
+            "academy-watch-frontend/src/pages/PlayerPage.jsx:319 \u2014 Any signed-in account can star tracked players.",
+            "academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift:203 \u2014 iOS exposes add-to-list on player details.",
+            "academy-watch-backend/src/routes/api.py:1789 \u2014 Anonymous visitors can read tracked-player comments.",
+            "academy-watch-backend/src/routes/api.py:1803 \u2014 Signed-in users can post tracked-player comments.",
+            "academy-watch-frontend/src/components/CommentSection.jsx:24 \u2014 Web renders and creates player comments.",
+            "academy-watch-backend/src/templates/newsletter_email.html:317 \u2014 Newsletter names link to public player profiles."
+          ],
+          "missing": [
+            "A fan-specific relationship, role, public fan count, and notifications are missing.",
+            "Local-player following and comments are missing.",
+            "Player share controls and per-player og:image metadata are missing.",
+            "iOS comments and player-card sharing components are missing.",
+            "Automated follow-digest scheduling is missing; sending remains admin-triggered."
+          ],
+          "blocker": "Fan surface exists only for API-Football TrackedPlayers: comments (PlayerPage.jsx:1426) and a scout-branded watchlist star (PlayerPage.jsx:319). LocalPlayerPage.jsx:1-11 mounts no comments, follow, or share; no fan concept in code; no public counts. The dream's self-showcased player cannot have fans.",
+          "next_step": "Extend follow_resolver._validate_player and Follow.selector for local_player_id, then expose generic Follow controls on both player pages.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-1 down] Fan surface exists only for API-Football TrackedPlayers: comments (PlayerPage.jsx:1426) and a scout-branded watchlist star (PlayerPage.jsx:319). LocalPlayerPage.jsx:1-11 mounts no comments, follow, or share; no fan concept in code; no public counts. The dream's self-showcased player cannot have fans.",
+          "codex_reach": "LIVE_WEB_IOS",
+          "codex_blocker": "The usable relationship remains scout-branded and TrackedPlayer-only."
+        },
+        {
+          "id": "1.8",
+          "name": "Player growth view",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/routes/players.py:241 \u2014 Returns season-scoped match history with provenance.",
+            "academy-watch-backend/src/routes/players.py:697 \u2014 Returns reconciled season totals and sources.",
+            "academy-watch-backend/src/routes/journey.py:36 \u2014 Returns career journey and historical stops.",
+            "academy-watch-frontend/src/pages/PlayerPage.jsx:393 \u2014 Web loads matches, totals, commentary, and academy data.",
+            "academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift:273 \u2014 iOS shows seasons and provenance badges.",
+            "academy-watch-backend/src/routes/showcase.py:1142 \u2014 Builds human-confirmed Film Room appearance evidence.",
+            "academy-watch-frontend/src/components/ShowcaseSection.jsx:1403 \u2014 Web labels appearance evidence club-verified.",
+            "academy-watch-ios/AcademyWatch/Features/Showcase/ShowcaseSectionView.swift:121 \u2014 iOS labels appearance evidence club-verified."
+          ],
+          "missing": [
+            "Local-player stats, season totals, journey routes, and growth UI are missing.",
+            "Verified-versus-self-reported stat reconciliation is missing because user stats are absent.",
+            "Grounded Qwen notes and playable evidence are missing from player serializers.",
+            "Club-console Film Room evidence remains excluded from public profiles."
+          ],
+          "blocker": "Growth storage and routes remain keyed solely by player_api_id.",
+          "next_step": "After PlayerMatchEntry exists, extend season-rollup subjects for LocalPlayer and expose approved Qwen evidence through _verified_footage.",
+          "effort": "L",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-1 keep] Public match history, season totals and journey (players.py:241, :697, journey.py:36) render on web (PlayerPage.jsx:393, :1059, JourneyTimeline via :364) and iOS (PlayerDetailView.swift:273); rollup read surfaces are on in prod. TrackedPlayer-only; local players get no growth view."
+        }
+      ]
+    },
+    "P2": {
+      "name": "Clubs: track, analyze growth, tools to improve",
+      "weight": 25,
+      "pct": 63.9,
+      "capabilities": [
+        {
+          "id": "2.1",
+          "name": "Claim, verify my club, and reach the console",
+          "score": 3,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/routes/showcase.py:1200-1260 \u2014 Searches provider and approved community clubs.",
+            "academy-watch-backend/src/routes/showcase.py:1267-1343 \u2014 Creates pending community clubs through showcase ownership.",
+            "academy-watch-backend/src/routes/showcase.py:1931-2012 \u2014 Submits legacy claims and mints external verification codes.",
+            "academy-watch-backend/src/routes/showcase.py:2045-2076 \u2014 Checks social proof but never grants console authority.",
+            "academy-watch-backend/src/routes/showcase.py:3109-3148 \u2014 Admin review changes only legacy claim status.",
+            "academy-watch-backend/src/routes/funding.py:547-688 \u2014 Submits authority-evidence claims used by console authorization.",
+            "academy-watch-backend/src/routes/funding.py:749-834 \u2014 Approval creates the required active manager grant.",
+            "academy-watch-backend/src/services/club_registry.py:138-188 \u2014 Console requires that grant and its approved source claim.",
+            "academy-watch-frontend/src/pages/ProgramClaimPage.jsx:224-250 \u2014 Web exposes the correct four-stage program application.",
+            "academy-watch-frontend/src/pages/MyClub.jsx:802-809 \u2014 Visible My Club CTA opens the non-granting legacy flow.",
+            "academy-watch-ios/AcademyWatch/Core/Networking/APIClient.swift:691-711 \u2014 iOS submits only the non-granting legacy claim."
+          ],
+          "missing": [
+            "MISSING bridge from ClubOfficialClaim/LocalClub into ClubProgramClaim and ClubProgramManager.",
+            "MISSING MyClub/Home navigation to ProgramClaimPage; `git grep -n 'programs/claim' origin/main -- academy-watch-frontend/src` finds only the route and ProgramPage link.",
+            "MISSING iOS ClubProgramClaim API and application view.",
+            "MISSING successful `verification_status == code_found` precondition in `admin_review_club_claim()`.",
+            "MISSING any self-serve approval path or coded review SLA.",
+            "MISSING community-club creation control in MyClub; creation is showcase-only."
+          ],
+          "blocker": "[S0 B LIVE #959] approving a club-official claim now grants the console (bridge \u2192 program + approved claim + active manager); console-first clubs can adopt into a public funding league on claim. Remaining: one admin approval step; adoption pauses the console until funding review; local console programs not yet adoptable.",
+          "next_step": "Extract the grant logic from approve_program_claim() into a shared service; after verified social proof plus authority evidence, create the ClubProgramClaim and ClubProgramManager automatically, routing ambiguous claims to admin review.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[S0 B LIVE #959] approving a club-official claim now grants the console (bridge \u2192 program + approved claim + active manager); console-first clubs can adopt into a public funding league on claim. Remaining: one admin approval step; adoption pauses the console until funding review; local console programs not yet adoptable.",
+          "codex_reach": "ADMIN_ONLY",
+          "codex_blocker": "One admin approval remains between claim and console; adoption into funding pauses the console until the funding claim is approved."
+        },
+        {
+          "id": "2.2",
+          "name": "Roster, local-profile adoption, tracked links, and match squads",
+          "score": 3,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/models/funding.py:331-365 \u2014 Stores one tracked or local roster subject.",
+            "academy-watch-backend/src/routes/club.py:237-318 \u2014 Lists, adds, and removes program-scoped roster members.",
+            "academy-watch-backend/src/routes/club.py:267-285 \u2014 Rejects locals not created by the manager.",
+            "academy-watch-frontend/src/pages/MyClubConsole.jsx:213-267 \u2014 Web searches tracked players and adds roster members.",
+            "academy-watch-frontend/src/pages/MyClubConsole.jsx:301-366 \u2014 Local tab accepts creator-owned numeric IDs only.",
+            "academy-watch-backend/src/routes/club.py:520-592 \u2014 Validates match squad membership and unique jerseys.",
+            "academy-watch-backend/src/routes/club.py:570-578 \u2014 Persists resolved TrackedPlayer links on squad entries.",
+            "academy-watch-frontend/src/pages/MyClubConsole.jsx:393-455 \u2014 Web removes roster members.",
+            "academy-watch-frontend/src/pages/MyClubConsole.jsx:823-860 \u2014 Web saves match squads.",
+            "academy-watch-backend/tests/test_club_console.py:333-348 \u2014 Tests lock in creator-only local adoption."
+          ],
+          "missing": [
+            "MISSING roster-invitation model and player-consent routes for player-created LocalPlayer profiles.",
+            "MISSING local-player search endpoint and console component; only numeric ID entry exists.",
+            "MISSING program-academy-scoped TrackedPlayer resolver; `_tracked_player()` selects the first active API-ID row.",
+            "MISSING native iOS roster and squad APIs or views."
+          ],
+          "blocker": "The creator-only check in add_club_roster_member() prevents clubs adopting profiles created by their own players.",
+          "next_step": "Add program-scoped LocalPlayer roster invitations, resolve the profile owner through PlayerProfileClaim, require owner acceptance, then create the existing ClubRosterMember and expose local search.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-1 keep] Roster CRUD (club.py:237-318; creator-only local rule :271-277), squad PUT (:520, :570-578), console dialogs (MyClubConsole.jsx:213, :301-304, :393, :823) and test :333-347 all verified. Live for any manager who clears the 2.1 gate; iOS absent."
+        },
+        {
+          "id": "2.3",
+          "name": "Track games without video",
+          "score": 3,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/routes/club.py:321-360 \u2014 Creates quota-limited VideoMatch metadata and reserves MP4 storage.",
+            "academy-watch-backend/src/routes/club.py:366-380 \u2014 Lists program matches server-side, newest first.",
+            "academy-watch-backend/src/routes/club.py:437-460 \u2014 Edits metadata and video timeline fields only.",
+            "academy-watch-backend/src/routes/club.py:520-592 \u2014 Saves selected roster members and jersey numbers.",
+            "academy-watch-frontend/src/pages/MyClubConsole.jsx:496-546 \u2014 Web creates metadata, then explicitly requests an MP4.",
+            "academy-watch-frontend/src/pages/MyClubConsole.jsx:1060-1093 \u2014 Web lists account-saved matches across devices.",
+            "academy-watch-frontend/tests/club-console-match-list.test.mjs:10-24 \u2014 Tests forbid a localStorage match index."
+          ],
+          "missing": [
+            "MISSING ClubFixture, ClubMatch, and MatchAppearance models; `git grep -n -E 'class (ClubFixture|ClubMatch|MatchAppearance)' origin/main -- academy-watch-backend/src/models` returned none.",
+            "MISSING home score, away score, and result fields on VideoMatch.",
+            "MISSING starter, substitute, minutes, goals, assists, and cards on VideoRosterEntry.",
+            "MISSING manager result/appearance routes and web entry forms.",
+            "MISSING native iOS fixture, result-entry, and club match-list views."
+          ],
+          "blocker": "[S1 P3+P4] clubs record a result and per-player lineup stats without video (POST /api/club/<program>/results) from the MyClub console; rows are club-confirmed and feed the rollup. Remaining: video_match link not persisted; program-scoped uniqueness is app-level until a partial unique index migration.",
+          "next_step": "Add ClubMatch and ClubMatchAppearance keyed to ClubProgram and ClubRosterMember, with manager CRUD for scores, lineups, minutes, goals, and an optional VideoMatch link.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[S1 P3+P4] clubs record a result and per-player lineup stats without video (POST /api/club/<program>/results) from the MyClub console; rows are club-confirmed and feed the rollup. Remaining: video_match link not persisted; program-scoped uniqueness is app-level until a partial unique index migration.",
+          "codex_reach": "LIVE_WEB",
+          "codex_blocker": "Video link not persisted on result rows; uniqueness enforced in code, not yet by the database."
+        },
+        {
+          "id": "2.4",
+          "name": "Track academy graduates and loanees",
+          "score": 3,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/models/tracked_player.py:15-68 \u2014 Stores academy origin, pathway status, current club, and journey.",
+            "academy-watch-backend/src/services/journey_sync.py:424-527 \u2014 Synchronizes complete multi-season journey entries.",
+            "academy-watch-backend/src/services/journey_sync.py:1844-1904 \u2014 Projects evidenced current loan and owner status.",
+            "academy-watch-backend/src/models/season_rollup.py:107-145 \u2014 Stores provenance-aware totals per player, season, and level.",
+            "academy-watch-backend/src/routes/api.py:12746-13013 \u2014 Public roster returns statuses, loan clubs, and season stats.",
+            "academy-watch-frontend/src/pages/TeamDetailPage.jsx:438-565 \u2014 Web filters pathways and shows loan clubs plus stats."
+          ],
+          "missing": [
+            "MISSING manager-scoped TrackedPlayer route and MyClub academy-pathway tab.",
+            "MISSING TrackedPlayer linkage for community ClubProgram rows without `team_api_id`.",
+            "MISSING native iOS team or program academy-roster view."
+          ],
+          "blocker": "MyClub's ClubRosterMember roster is not joined through ClubProgram.team_api_id to Team and TrackedPlayer. Provider-covered managers can use the public page, but community clubs cannot.",
+          "next_step": "Add manager-gated GET /club/<program_id>/tracked-players using require_club_manager(), ClubProgram.team_api_id, TrackedPlayer, and rollup_stats_by_player(); render a MyClub Academy Pathway tab.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-1 keep] Public team roster (api.py:12746) with pathway statuses and season stats renders on TeamDetailPage.jsx:438; TrackedPlayer/journey spine verified (tracked_player.py:15, journey_sync.py:424, :1844). Provider-covered clubs only; community ClubPrograms without team_api_id get nothing and MyClub has no tab."
+        },
+        {
+          "id": "2.5",
+          "name": "Analyze player growth over time and compare roster players",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/models/season_rollup.py:107-145 \u2014 Stores provenance-aware season totals.",
+            "academy-watch-backend/src/services/season_rollup_service.py:668-744 \u2014 Rebuilds source cells and selected totals transactionally.",
+            "academy-watch-backend/src/utils/feature_flags.py:5-22 \u2014 Defaults rollup read surfaces to an empty allow-list.",
+            "academy-watch-frontend/src/components/JourneyTimeline.jsx:68-196 \u2014 Web shows season progression, levels, appearances, goals, and assists.",
+            "academy-watch-frontend/src/pages/ScoutPage.jsx:324-430 \u2014 Web compares four players for one season.",
+            "academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift:283-389 \u2014 iOS renders selectable season totals and development journey.",
+            "academy-watch-ios/AcademyWatch/Features/Compare/CompareView.swift:201-364 \u2014 iOS compares season, per-90, and career metrics."
+          ],
+          "missing": [
+            "MISSING production `SEASON_ROLLUP_READS` assignment; grep found only feature code, tests, and a design proposal.",
+            "MISSING MyClub growth/analytics tab and roster-scoped comparison launcher.",
+            "MISSING season-over-season minutes trend chart or trend-series component.",
+            "MISSING comparison support for local ClubRosterMember subjects."
+          ],
+          "blocker": "Prod SEASON_ROLLUP_READS lists every surface in feature_flags.py:5, so codex's only blocker is gone. JourneyTimeline.jsx:21-61 reads journey stops (PlayerPage.jsx:364), never the flag; compare on ScoutPage.jsx:324 and CompareView.swift:202. No MyClub view, locals excluded, backfill state unverified.",
+          "next_step": "Backfill PlayerSeasonTotal with refresh_player(), verify /api/admin/season-rollup/status, then deploy SEASON_ROLLUP_READS=season_stats,player_stats,scout,teams.",
+          "effort": "S",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-1 up] Prod SEASON_ROLLUP_READS lists every surface in feature_flags.py:5, so codex's only blocker is gone. JourneyTimeline.jsx:21-61 reads journey stops (PlayerPage.jsx:364), never the flag; compare on ScoutPage.jsx:324 and CompareView.swift:202. No MyClub view, locals excluded, backfill state unverified.",
+          "codex_reach": "FLAGGED_OFF",
+          "codex_blocker": "`SEASON_ROLLUP_READS` defaults to an empty allow-list, disabling historical season selection on the Player, Scout, and Team rollup surfaces despite visible client controls."
+        },
+        {
+          "id": "2.6",
+          "name": "Film Room upload, analysis, reports, and reels",
+          "score": 2,
+          "reach": "ADMIN_ONLY",
+          "exists": [
+            "academy-watch-backend/src/routes/club.py:34-36,213-218 \u2014 Defaults quota to three lifetime rows and retention to 90 days.",
+            "academy-watch-backend/src/routes/club.py:321-360 \u2014 Managers create matches and receive blob upload grants.",
+            "academy-watch-backend/src/routes/club.py:398-429 \u2014 Completion verifies blobs and stamps 90-day expiry.",
+            "academy-watch-backend/src/routes/club.py:598-616 \u2014 Processing request records a timestamp but creates no job.",
+            "academy-watch-backend/src/services/video_report.py:13-16,193-210 \u2014 Reports expose only identity, coverage, and on-camera minutes reliably.",
+            "academy-watch-frontend/src/pages/MyClubConsole.jsx:633-705 \u2014 Managers play tokenized processed reels read-only.",
+            "academy-watch-frontend/src/lib/api.js:3122-3157 \u2014 Uploads blocks sequentially from offset zero.",
+            "academy-watch-backend/src/workers/vision_worker.py:211-257,279-295 \u2014 Worker persists box tracks for player-grounded Qwen context.",
+            "spike/video-analysis/qwen_match_analysis.py:44-45,1875-1907 \u2014 Qwen withholds clip text lacking tracked-box grounding.",
+            "academy-watch-frontend/src/components/video/PlayerReel.jsx:104-123,672-684,744-775 \u2014 MyClub labels verified notes and withholds ungrounded text.",
+            "academy-watch-backend/src/services/video_retention.py:83-149 \u2014 Sweeper deletes due blobs and marks uploads expired.",
+            "academy-watch-backend/src/jobs/run_video_maintenance.py:21-36 \u2014 Maintenance entrypoint invokes stale-job reaping and retention.",
+            "academy-watch-ios/AcademyWatch/Features/Onboarding/ClubOnboardingViews.swift:74 \u2014 iOS routes Film Room work to web."
+          ],
+          "missing": [
+            "MISSING automatic VideoAnalysisJob creation from `request_club_match_processing()`; admin-only processing, identity binding, analysis, and finalization remain required per upload.",
+            "MISSING MyClub raw-upload or full-match preview before processing.",
+            "MISSING committed-block discovery and resume cursor; renewed SAS uploads restart at zero.",
+            "MISSING quota period, reset, subscription, or bundle mechanism; every VideoMatch counts toward three lifetime.",
+            "MISSING performance outputs: no ball association, event detector, real distance, speed, sprints, touches, or heatmaps.",
+            "MISSING proven production scheduler for `run_video_maintenance`; `.github` and `infra` contain no job binding.",
+            "MISSING native iOS upload, playback, report, and reel surfaces."
+          ],
+          "blocker": "Each club upload stops at a request timestamp; only an admin can queue computer vision, review identities, run Qwen, and finalize.",
+          "next_step": "Factor routes/video.py:process_match() job creation into a shared service called by request_club_match_processing(), then expose club-scoped identity binding and finalization through require_club_manager() and the existing PlayerReels UI.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-1 keep] Manager /process records a timestamp only (club.py:601-616); job creation lives in admin video.py:300-315. Codex's 'no proven scheduler' for maintenance is wrong (scripts/azure/README.md:318-321; prod job exists) but that is retention, not processing. ADMIN_ONLY stands."
+        },
+        {
+          "id": "2.7",
+          "name": "Tools to improve players",
+          "score": 1,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/models/funding.py:331-360 \u2014 Roster members have one unstructured 500-character note.",
+            "academy-watch-backend/src/routes/club.py:287-297 \u2014 Note saves only during roster-member creation.",
+            "academy-watch-frontend/src/pages/MyClubConsole.jsx:370-377,448-451 \u2014 Web labels and displays the note as manager-only.",
+            "academy-watch-backend/src/routes/showcase.py:1164-1167 \u2014 Club reports are excluded from player showcases."
+          ],
+          "missing": [
+            "MISSING coaching-note, feedback, development-goal, development-plan, drill, recommendation, and report-share models/routes/components; targeted `git grep` across backend, web, and iOS returned no matches.",
+            "MISSING roster-note edit and history route.",
+            "MISSING player-visible endpoint or share grant for VideoPlayerReport.",
+            "MISSING web or iOS player inbox for club feedback, goals, plans, or reports.",
+            "MISSING editable coaching layer over Qwen observations; current evidence is read-only."
+          ],
+          "blocker": "There is no player-addressable development record with permissioned delivery from manager to player.",
+          "next_step": "Add append-only ClubRosterFeedback keyed to ClubRosterMember, manager CRUD in routes/club.py, recipient reads resolving player_api_id or local_player_id, then MyClub composer and player inbox views.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 1,
+          "override_why": "[adversary-1 keep] Only artefact is a 500-char note written at roster creation (club.py:293; funding.py:331); no feedback, coaching, goal or plan models (grep across models), no player-visible report route; showcase.py:1164 keeps club reports off profiles."
+        },
+        {
+          "id": "2.8",
+          "name": "Tools to improve the club",
+          "score": 2,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/routes/teams.py:631-702 \u2014 Public academy network derives player pathways.",
+            "academy-watch-backend/src/routes/teams.py:799-889 \u2014 Computes pathway statuses, destinations, and appearances.",
+            "academy-watch-backend/src/routes/cohort.py:334-386 \u2014 Public endpoint compares first-team conversion across seeded clubs.",
+            "academy-watch-frontend/src/pages/CohortAnalytics.jsx:119-236 \u2014 Web charts cross-club conversion outcomes.",
+            "academy-watch-backend/src/routes/funding.py:1009-1038 \u2014 Publishes approved program identity, overview, and roster links.",
+            "academy-watch-backend/src/models/funding.py:184-209 \u2014 Public programs always report is_fundable false.",
+            "academy-watch-frontend/src/pages/ProgramPage.jsx:94-151 \u2014 Public profile displays verification, overview, roster, and support status."
+          ],
+          "missing": [
+            "MISSING manager dashboard endpoint and MyClub analytics, pathway, demand, revenue, or billing tab.",
+            "MISSING self-serve community-club analytics population; cohort creation and synchronization are admin-only.",
+            "MISSING donation checkout, payment route, and payment ledger.",
+            "MISSING club subscription or bundle model, route, and UI.",
+            "MISSING live Stripe Connect money movement; `stripe_connect.py:1-6` explicitly forbids payments and transfers.",
+            "MISSING manager ClubProgram profile-revision POST route and editor component.",
+            "MISSING native iOS program profile, cohort analytics, dashboard, and funding surfaces."
+          ],
+          "blocker": "Every 'club tool' is a public provider benchmark: cohorts are admin-seeded and synced (cohort.py:31-163, all /admin/), analytics filtered to seeded cohorts (:339); ProgramPage.jsx:150 says support is not live; is_fundable False (funding.py:208). A manager gets nothing for their own club.",
+          "next_step": "Build a manager ClubProgram dashboard joining team_api_id to AcademyCohort and academy-network outcomes, add demand metrics, recurring Checkout and a payment ledger, then expose equivalent iOS views.",
+          "effort": "L",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-1 down] Every 'club tool' is a public provider benchmark: cohorts are admin-seeded and synced (cohort.py:31-163, all /admin/), analytics filtered to seeded cohorts (:339); ProgramPage.jsx:150 says support is not live; is_fundable False (funding.py:208). A manager gets nothing for their own club.",
+          "codex_reach": "LIVE_WEB",
+          "codex_blocker": "ClubProgram is public metadata rather than a manager-scoped analytics and commerce product, leaving MyClub disconnected from the existing pathway data."
+        },
+        {
+          "id": "2.9",
+          "name": "Club-to-scout consent loop",
+          "score": 3,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/services/contact.py:173-191 \u2014 Routes contract status into club involvement and dual-consent gating.",
+            "academy-watch-backend/src/routes/contact.py:405-533 \u2014 Verified scouts create requests awaiting club consent.",
+            "academy-watch-backend/src/routes/contact.py:749-835,889-958 \u2014 Managers list club requests and grant or decline.",
+            "academy-watch-backend/src/routes/contact.py:993-1038 \u2014 Signed actions require pending operational requests.",
+            "academy-watch-backend/src/services/contact.py:355-423 \u2014 Active managers receive signed 14-day consent emails.",
+            "academy-watch-backend/src/services/contact.py:263-342 \u2014 Registry contacts receive neutral courtesy emails.",
+            "academy-watch-frontend/src/components/contact/ClubIntroductionsPanel.jsx:24-115 \u2014 MyClub exposes Allow and Decline actions.",
+            "academy-watch-frontend/src/pages/ClubConsentPage.jsx:17-168 \u2014 Email landing page requires explicit confirmation.",
+            "academy-watch-backend/src/services/contact.py:83-94 \u2014 Contact rail defaults off.",
+            "ledgers/CONTINUITY_platform-review-qwen.md:131 \u2014 Deployment smoke recorded contact_rail true and introductions 200.",
+            "academy-watch-ios/AcademyWatch/Core/Models/FullCircleModels.swift:84-99 \u2014 iOS decodes consent but lacks the club request box."
+          ],
+          "missing": [
+            "MISSING native iOS `ContactRequestBox.club`, club-request fetch, consent mutation, and manager decision screen.",
+            "MISSING durable consent-email outbox, retry policy, and delivery audit.",
+            "MISSING committed workflow or infrastructure assignment for production `CONTACT_RAIL_ENABLED`; live evidence is the smoke ledger while the code default remains false."
+          ],
+          "blocker": "A club manager cannot list or decide club-consent requests natively on iOS.",
+          "next_step": "Extend iOS ContactRequestBox and APIClient with box=club plus the existing club-consent POST, add an Account-tab manager inbox, and pin the production flag in deployment configuration.",
+          "effort": "M",
+          "confidence": "med",
+          "codex_score": 3,
+          "override_why": "[adversary-1 keep] Prod flag on. ClubIntroductionsPanel is mounted at MyClubConsole.jsx:1289 (gated on contactRail) and hits contact.py:914; signed email consent at contact.py:993 plus ClubConsentPage (App.jsx:4208); routing at contact.py:173-191. iOS lacks the club box (FullCircleModels.swift:84-87). Zero manager grants in prod."
+        }
+      ]
+    },
+    "P3": {
+      "name": "Scouts: find and analyze",
+      "weight": 20,
+      "pct": 67.9,
+      "capabilities": [
+        {
+          "id": "3.1",
+          "name": "Scout account and verification",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/routes/auth_routes.py:150 \u2014 Sends passwordless login codes and creates accounts.",
+            "academy-watch-backend/src/models/trust.py:18 \u2014 Stores organization, role, statement, evidence, and review state.",
+            "academy-watch-backend/src/routes/trust.py:97 \u2014 Requires safe absolute HTTPS evidence links.",
+            "academy-watch-backend/src/routes/trust.py:200 \u2014 Authenticated applicants submit for human review.",
+            "academy-watch-backend/src/services/trust.py:14 \u2014 Derives verified status from approved, revocable records.",
+            "academy-watch-backend/src/routes/trust.py:301 \u2014 Admins approve, reject, or revoke applications.",
+            "academy-watch-frontend/src/pages/ScoutVerificationPage.jsx:100 \u2014 Web collects the complete verification application.",
+            "academy-watch-ios/AcademyWatch/Features/Account/ScoutVerificationView.swift:192 \u2014 iOS provides application and resubmission."
+          ],
+          "missing": [
+            "Scout date-of-birth, adult-verification field, and server gate are missing.",
+            "A credential issuer or reference-validation service is missing.",
+            "Verification currently relies on self-entered fields, links, and reviewer judgement."
+          ],
+          "blocker": "Approval records neither D1 adult verification nor authoritative credential validation.",
+          "next_step": "Extend ScoutVerification with adult_verified_at, credential_issuer, and credential_reference; enforce them inside _review_scout_verification.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-1 keep] Web (ScoutVerificationPage.jsx:100) and iOS (ScoutVerificationView.swift:192) applications reach trust.py:200; is_verified_scout (services/trust.py:14) derives status live from the approved row; admin review at trust.py:301. One-time human review is a known gap, not per-use admin action. One approved in prod."
+        },
+        {
+          "id": "3.2",
+          "name": "Find players",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/routes/scout.py:383 \u2014 Builds discovery from active TrackedPlayer rows.",
+            "academy-watch-backend/src/routes/scout.py:465 \u2014 Excludes inactive, owning-club, suppressed, and minor-bridged rows.",
+            "academy-watch-backend/src/routes/scout.py:507 \u2014 Filters position, status, age, nationality, name, and minutes.",
+            "academy-watch-backend/src/routes/scout.py:625 \u2014 Sorts totals, phase, age, and per-90 metrics.",
+            "academy-watch-backend/src/routes/scout.py:801 \u2014 Produces phase-specific tracked-player leaderboards.",
+            "academy-watch-frontend/src/pages/ScoutPage.jsx:817 \u2014 Web exposes leaderboards, filters, sorting, and pagination.",
+            "academy-watch-ios/AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift:59 \u2014 iOS provides native discovery, filtering, and comparison.",
+            "academy-watch-frontend/src/pages/ScoutPage.jsx:933 \u2014 Web results remain horizontally scrolling tables."
+          ],
+          "missing": [
+            "Approved LocalPlayer rows are missing from search and leaderboards.",
+            "Local players lack watchlist, follow-list, and comparison participation.",
+            "Responsive web result cards are missing; tables require 760/920-pixel widths."
+          ],
+          "blocker": "User-created players remain invisible throughout scout discovery.",
+          "next_step": "Add local subject support to ScoutWatchlistEntry, Follow, and comparison, then union eligible LocalPlayer rows into _base_scout_query.",
+          "effort": "L",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-1 keep] Public discovery and leaderboards (scout.py:383/465/507/625/801; /scout/players at :680 needs no auth) render on ScoutPage.jsx:817/933 and ScoutDeskView.swift:59. TrackedPlayer-only, so user-created players stay invisible (see 1.4)."
+        },
+        {
+          "id": "3.3",
+          "name": "Analyze players",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-frontend/src/pages/PlayerPage.jsx:393 \u2014 Loads profile, matches, totals, commentary, and academy data.",
+            "academy-watch-frontend/src/pages/PlayerPage.jsx:1059 \u2014 Shows charts, match logs, and pathway history.",
+            "academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift:213 \u2014 Shows season, form, journey, and availability.",
+            "academy-watch-ios/AcademyWatch/Features/Compare/CompareView.swift:202 \u2014 Compares season, per-90, availability, and career metrics.",
+            "academy-watch-backend/src/routes/showcase.py:1142 \u2014 Selects finalized human-confirmed Film Room appearances.",
+            "academy-watch-frontend/src/components/ShowcaseSection.jsx:1403 \u2014 Shows verified opponent, date, minutes, and coverage.",
+            "academy-watch-backend/src/workers/vision_worker.py:279 \u2014 Builds grounded caption windows for Qwen jobs.",
+            "academy-watch-frontend/src/components/video/PlayerReel.jsx:608 \u2014 Renders grounded captions inside club and admin reels."
+          ],
+          "missing": [
+            "Scout-facing Qwen-note serialization and UI are missing.",
+            "Public verified_footage omits reel clips, captions, and qualitative notes.",
+            "Club-console footage remains deliberately excluded from public player attribution.",
+            "Local-player season and comparison analysis is missing."
+          ],
+          "blocker": "Grounded video notes remain confined to club and admin consoles.",
+          "next_step": "Project sanitized capture_meta.qwen_analysis from eligible finalized matches through _verified_footage, then render it in ShowcaseSection and iOS PlayerDetail.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-1 keep] Charts/match log (PlayerPage.jsx:393, :1059), iOS season+compare (PlayerDetailView.swift:213, CompareView.swift:202), verified appearances (showcase.py:1142, ShowcaseSection.jsx:1403) are live. Two cites mischaracterized: vision_worker.py:279 persists box tracks; PlayerReel.jsx:608 is bbox status text, not captions."
+        },
+        {
+          "id": "3.4",
+          "name": "Organize prospects and receive alerts",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/routes/scout.py:1253 \u2014 Returns enriched watchlists and digest preferences.",
+            "academy-watch-backend/src/routes/scout.py:1379 \u2014 Saves private per-player watchlist notes.",
+            "academy-watch-backend/src/models/follow.py:24 \u2014 Stores named heterogeneous follow lists and cadence.",
+            "academy-watch-backend/src/routes/scout.py:1791 \u2014 Returns named lists and resolved follows.",
+            "academy-watch-backend/src/services/scout_digest_service.py:472 \u2014 Builds and sends real digest email.",
+            "academy-watch-backend/src/services/scout_digest_service.py:592 \u2014 Commits snapshots only after successful sends.",
+            "academy-watch-frontend/src/pages/WatchlistPage.jsx:121 \u2014 Web updates digest preferences.",
+            "academy-watch-ios/AcademyWatch/Features/Lists/ListsView.swift:291 \u2014 iOS displays named lists and resolved contents."
+          ],
+          "missing": [
+            "A recurring digest scheduler or deployment workflow is missing.",
+            "ScoutAlert model, rule routes, push delivery, and alerts UI are missing.",
+            "iOS watchlist-note editing and digest controls have no view callers."
+          ],
+          "blocker": "Alerts are email-only; no push; no opted-in users yet.",
+          "next_step": "Add a scheduled deployment job that pages send_scout_digests with dry_run=False until next_cursor is null.",
+          "effort": "S",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[S0 C LIVE #958 + ACA job] weekly scout digest job scheduled (Mon 07:00 UTC) with API budget and resend guard; watchlists/lists live on web+iOS. Remaining: email only (no push), digest opt-in has no users yet.",
+          "codex_reach": "LIVE_WEB_IOS",
+          "codex_blocker": "Digest delivery requires an administrator-triggered POST instead of running weekly."
+        },
+        {
+          "id": "3.5",
+          "name": "Reach out",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/services/contact.py:83 \u2014 CONTACT_RAIL_ENABLED defaults false.",
+            "academy-watch-backend/src/routes/contact.py:405 \u2014 Verified scouts create requests for approved self-claims.",
+            "academy-watch-backend/src/services/contact.py:173 \u2014 Routes direct, club-included, or club-notified conservatively.",
+            "academy-watch-backend/src/routes/contact.py:914 \u2014 Active managers grant or decline required consent.",
+            "academy-watch-backend/src/routes/contact.py:1070 \u2014 Accepted participants read and send thread messages.",
+            "academy-watch-backend/src/routes/contact.py:1179 \u2014 Scouts and players record introduction outcomes.",
+            "academy-watch-frontend/src/components/contact/IntroduceDialog.jsx:33 \u2014 Web scouts submit introduction requests.",
+            "academy-watch-frontend/src/components/contact/ClubIntroductionsPanel.jsx:53 \u2014 Web managers grant or decline club consent.",
+            "academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift:259 \u2014 iOS exposes introduction controls to verified scouts.",
+            "academy-watch-ios/AcademyWatch/Features/Contact/ContactThreadView.swift:201 \u2014 iOS threads display and record outcomes."
+          ],
+          "missing": [
+            "Checked-in production CONTACT_RAIL_ENABLED=true configuration is missing.",
+            "An iOS club-manager consent inbox and mutation are missing.",
+            "Web thread block and content-report controls are missing."
+          ],
+          "blocker": "Prod flag is on. Web Send button + IntroduceDialog (ScoutPage.jsx:986-996, :1110; IntroduceDialog.jsx:33) and iOS (PlayerDetailView.swift:259) post contact.py:405. Reachable only from the ScoutPage table and only to approved self-claimed TrackedPlayers (one in prod).",
+          "next_step": "Smoke-test each routing mode, then encode CONTACT_RAIL_ENABLED=true in the deployed Container App configuration.",
+          "effort": "S",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-1 up] Prod flag is on. Web Send button + IntroduceDialog (ScoutPage.jsx:986-996, :1110; IntroduceDialog.jsx:33) and iOS (PlayerDetailView.swift:259) post contact.py:405. Reachable only from the ScoutPage table and only to approved self-claimed TrackedPlayers (one in prod).",
+          "codex_reach": "FLAGGED_OFF",
+          "codex_blocker": "Executable configuration still defaults the complete contact rail off."
+        },
+        {
+          "id": "3.6",
+          "name": "Pay for Scout Pro",
+          "score": 1,
+          "reach": "DESIGNED_ONLY",
+          "exists": [
+            "academy-watch-frontend/src/pages/PricingPage.jsx:25 \u2014 Advertises Scout Pro as free during beta.",
+            "academy-watch-frontend/src/pages/PricingPage.jsx:82 \u2014 Pro CTA opens watchlist or login.",
+            "academy-watch-backend/src/models/league.py:521 \u2014 Stores scout_tier with a free default.",
+            "academy-watch-backend/src/routes/scout.py:1279 \u2014 Returns scout tier without enforcing entitlement."
+          ],
+          "missing": [
+            "Scout Stripe Checkout, subscription, webhook, portal, and cancellation artifacts are missing.",
+            "A scout-tier entitlement guard is missing.",
+            "No scout feature is gated by UserAccount.scout_tier.",
+            "Billing grep across backend and clients found no scout checkout implementation."
+          ],
+          "blocker": "Scout Pro is marketing copy plus an unused tier column.",
+          "next_step": "Add Stripe Checkout and webhook handling that updates UserAccount.scout_tier, then gate selected Pro features through one entitlement helper.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 1,
+          "override_why": "[adversary-1 keep] PricingPage.jsx:27 says 'Free during beta'; scout_tier is stored (league.py:521) and echoed (scout.py:1280) but never gates anything. No checkout, webhook, or /stripe route exists in the backend (grep); prod has zero subscriptions and revenue."
+        },
+        {
+          "id": "3.7",
+          "name": "Club managers recruit as scouts",
+          "score": 3,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/services/account_roles.py:18 \u2014 Derives club-manager persona from active grants.",
+            "academy-watch-backend/src/services/trust.py:14 \u2014 Scout verification remains an independent status.",
+            "academy-watch-backend/src/routes/auth_routes.py:424 \u2014 Authentication returns persona and scout status separately.",
+            "academy-watch-backend/src/routes/trust.py:200 \u2014 Verification submission imposes no persona exclusion.",
+            "academy-watch-backend/src/routes/contact.py:415 \u2014 Outreach checks verification, not exclusive account persona.",
+            "academy-watch-frontend/src/App.jsx:570 \u2014 Web exposes Scout navigation regardless of persona.",
+            "academy-watch-ios/AcademyWatch/App/RootTabView.swift:139 \u2014 iOS exposes Scout Desk across personas."
+          ],
+          "missing": [
+            "Originating-club attribution on scouting actions is missing.",
+            "ContactRequest stores the target club but not recruiting club.",
+            "ScoutVerification.organization is not linked to ClubProgramManager.",
+            "A manager-plus-scout cross-role regression test is missing."
+          ],
+          "blocker": "Recruitment cannot prove which managed club the scout represents.",
+          "next_step": "Add acting_club_program_id to ContactRequest, validate it through is_active_program_manager, and expose a managed-club selector before outreach.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-1 keep] derive_account_role (account_roles.py:18) and is_verified_scout are independent; verification (trust.py:200) and outreach (contact.py:415) check verification only; Scout nav shows for every persona on web (App.jsx:570-573) and iOS (RootTabView.swift:139-141). Thin capability, nothing blocks it."
+        }
+      ]
+    },
+    "P4": {
+      "name": "Funding: Patreon/BMAC \u2192 club part-ownership",
+      "weight": 15,
+      "pct": 28.6,
+      "capabilities": [
+        {
+          "id": "4.1",
+          "name": "Club funding registry / programs",
+          "score": 2,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/migrations/versions/gf01_grassroots_identity.py:32 \u2014 Creates registry, claims, managers, revisions, Connect, and audit tables.",
+            "academy-watch-backend/src/routes/funding.py:547 \u2014 Accepts authenticated club-program admission claims.",
+            "academy-watch-frontend/src/pages/ProgramClaimPage.jsx:153 \u2014 Submits authority and safeguarding evidence from web.",
+            "academy-watch-backend/src/routes/funding.py:749 \u2014 Approval grants manager authority and recalculates program verification.",
+            "academy-watch-backend/src/routes/funding.py:1009 \u2014 Serves approved visible programs by slug.",
+            "academy-watch-backend/src/routes/funding.py:1041 \u2014 Stores future-funding notification intent on follows.",
+            "academy-watch-frontend/src/pages/ProgramPage.jsx:94 \u2014 Renders identity, purpose, provenance, roster, and save action.",
+            "academy-watch-backend/src/models/funding.py:208 \u2014 Always exposes programs as not fundable."
+          ],
+          "missing": [
+            "MISSING manager profile-revision submission route and MyClubConsole editor.",
+            "MISSING public program directory or search; visitors need an exact slug.",
+            "MISSING notify_when_fundable dispatcher, outbox, email, or push consumer; intent is stored-only.",
+            "MISSING iOS registry, claim, program-page, and save surfaces.",
+            "donations_enabled defaults false and no code path enables it."
+          ],
+          "blocker": "Claim form and public program page work, but there is no program directory, no manager edit route (the ClubProgramProfileRevision table exists unused), is_fundable is hard-coded False, and prod has 0 programs.",
+          "next_step": "Add manager-gated ClubProgramProfileRevision creation through ClubProgramManager, safe-field publication, and a MyClubConsole editor.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-2 keep] Claim form and public slug page are live, but no directory/list route exists (funding.py route inventory 377-1100), no manager revision route, and prod club_programs=0; every program needs admin work.",
+          "codex_blocker": "A verified club cannot self-publish or edit its program without manual admin work."
+        },
+        {
+          "id": "4.2",
+          "name": "Money movement",
+          "score": 1,
+          "reach": "DESIGNED_ONLY",
+          "exists": [
+            "academy-watch-backend/src/services/stripe_connect.py:1 \u2014 Forbids payments, transfers, Checkout, and live-mode Connect.",
+            "academy-watch-backend/src/models/video.py:371 \u2014 Stores replay-resistant credit cells, not purchased money.",
+            "academy-watch-backend/src/routes/video.py:718 \u2014 Allows admin-only credit grants and accounting refunds.",
+            "ledgers/CONTINUITY_grassroots-funding.md:183 \u2014 Designs one-time destination charges without implementing them.",
+            "academy-watch-frontend/src/pages/ProgramPage.jsx:150 \u2014 Explicitly says checkout and money processing are absent.",
+            "academy-watch-backend/src/models/league.py:993 \u2014 Marks legacy journalist payment integration removed."
+          ],
+          "missing": [
+            "MISSING ProgramDonation, payment-event, payout, receipt, and cash-refund models.",
+            "MISSING Stripe Checkout, signed webhook, transfer reconciliation, and refund routes.",
+            "MISSING D3 optional-tip field, calculation, disclosure, and accounting.",
+            "MISSING production Stripe configuration evidence in workflows or infrastructure.",
+            "MISSING live enablement; is_fundable is always false.",
+            "The writer subscription UI calls absent /api/stripe routes and is not live."
+          ],
+          "blocker": "The donation payment, transfer, webhook, receipt, and refund state machine does not exist.",
+          "next_step": "Extend ClubProgram and ClubConnectAccount with idempotent donation records, signed Checkout webhooks, destination transfers, receipts, tips, and refunds.",
+          "effort": "L",
+          "confidence": "high",
+          "codex_score": 1,
+          "override_why": "[adversary-2 keep] Only test-mode Connect onboarding (stripe_connect.py:26-28) and an admin-only credit ledger (video.py:718). No Checkout, webhook, or donation model. Ledger cite is not in origin/main."
+        },
+        {
+          "id": "4.3",
+          "name": "Recurring support",
+          "score": 0,
+          "reach": "MISSING",
+          "exists": [
+            "academy-watch-backend/src/routes/funding.py:1041 \u2014 Stores notification intent, not paid membership.",
+            "academy-watch-backend/src/models/league.py:993 \u2014 Preserves unrelated legacy subscription tables only."
+          ],
+          "missing": [
+            "MISSING club membership, subscription, tier, perk, and renewal models.",
+            "MISSING recurring Checkout and subscription-webhook lifecycle.",
+            "MISSING supporter roster and privacy controls.",
+            "MISSING club update model, manager composer, and supporter feed.",
+            "ROADMAP future-phase mentions do not provide an implementable recurring-support design."
+          ],
+          "blocker": "There is no recurring-support domain model or subscription lifecycle.",
+          "next_step": "Define ClubProgram-keyed tiers, subscriptions, supporter visibility, and ProgramUpdate rows before wiring recurring Checkout.",
+          "effort": "L",
+          "confidence": "high",
+          "codex_score": 0,
+          "override_why": "[adversary-2 keep] No membership/tier/subscription model or route for clubs; funding.py:1041 stores only notify_when_fundable on a Follow. Legacy writer StripeSubscription tables (league.py:993) have no writers."
+        },
+        {
+          "id": "4.4",
+          "name": "External platform connection",
+          "score": 0,
+          "reach": "MISSING",
+          "exists": [
+            "academy-watch-frontend/src/App.jsx:4150 \u2014 Links the site footer to The Academy Watch BMC.",
+            "academy-watch-frontend/src/components/bmcButtonConfig.js:3 \u2014 Hard-codes the platform recipient slug, not clubs."
+          ],
+          "missing": [
+            "MISSING club-specific Patreon, BuyMeACoffee, or Ko-fi URL fields.",
+            "MISSING provider OAuth and connection routes.",
+            "MISSING supporter webhook/import models and reconciliation jobs.",
+            "MISSING club-configurable external-support link on ProgramPage or MyClubConsole.",
+            "The existing BuyMeACoffee link funds The Academy Watch, not grassroots clubs."
+          ],
+          "blocker": "No external funding identity or URL is associated with ClubProgram.",
+          "next_step": "Add moderated provider and external_support_url fields to ClubProgramProfileRevision and render a labeled ProgramPage link-out.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 0,
+          "override_why": "[adversary-2 keep] Only artefact is the platform's own BuyMeACoffee footer button (App.jsx:4150, slug 'TheAcademyWatch' at bmcButtonConfig.js:5). No club-level URL field, OAuth, or import; ClubProgram has no external-support column."
+        },
+        {
+          "id": "4.5",
+          "name": "Part-ownership / investment mechanic",
+          "score": 0,
+          "reach": "MISSING",
+          "exists": [
+            "academy-watch-backend/src/models/funding.py:212 \u2014 Represents club management claims, not beneficial ownership.",
+            "ledgers/CONTINUITY_grassroots-funding.md:268 \u2014 Notes generic crowdfunding duties but omits securities design."
+          ],
+          "missing": [
+            "MISSING share, unit, stake, investor, cap-table, and beneficial-owner models.",
+            "MISSING investment purchase, transfer, voting, governance, and distribution routes.",
+            "MISSING investor UI, statements, and suitability checks.",
+            "MISSING securities disclaimers, jurisdictional analysis, and counsel-approved structure.",
+            "Repository grep found no part-owner, shareholder, cap-table, or voting-rights product artefact."
+          ],
+          "blocker": "No counsel-approved securities structure or regulatory posture exists.",
+          "next_step": "Complete jurisdiction-specific securities scoping before defining any ClubProgram-linked stake, governance, or investment mechanism.",
+          "effort": "L",
+          "confidence": "high",
+          "codex_score": 0,
+          "override_why": "[adversary-2 keep] Nothing on shares/stakes/cap-table in code (reviewer 1 grep confirmed). ClubProgramClaim (funding.py:212) is a management claim. Codex's ledger cite points at a file that is not in origin/main."
+        },
+        {
+          "id": "4.6",
+          "name": "Supporter/fan-facing club page",
+          "score": 2,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/routes/funding.py:1009 \u2014 Serves approved programs without authentication.",
+            "academy-watch-frontend/src/pages/ProgramPage.jsx:126 \u2014 Renders overview, purpose, provenance, and covered roster.",
+            "academy-watch-frontend/src/pages/ProgramPage.jsx:115 \u2014 Lets signed-in fans save future-support interest.",
+            "academy-watch-frontend/src/pages/ProgramPage.jsx:150 \u2014 Warns that support and checkout are not live."
+          ],
+          "missing": [
+            "MISSING public program directory and discovery.",
+            "MISSING program updates, impact records, campaigns, and totals.",
+            "MISSING donor wall and supporter roster.",
+            "MISSING club-manager publishing UI.",
+            "MISSING iOS supporter page.",
+            "MISSING claim-to-public-page and fan-save E2E coverage."
+          ],
+          "blocker": "Public program page + 'Save this program' work, but it is reachable only by exact slug (the only in-app link is in the admin UI) and shows 'Support is not live yet'.",
+          "next_step": "Add moderated ClubProgram updates and impact entries through ClubProgramManager and render them on ProgramPage.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-2 keep] Public page renders and a signed-in visitor can 'Save this program' (ProgramPage.jsx:115-118 -> funding.py:1041). Only reachable via exact slug; sole in-app link is AdminFunding.jsx:424; zero programs exist in prod.",
+          "codex_blocker": "The public shell has no supporter-content or transaction data layer."
+        },
+        {
+          "id": "4.7",
+          "name": "Grassroots attested manual-data path",
+          "score": 3,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/models/funding.py:37 \u2014 Classifies leagues as self-reported without storing statistics.",
+            "academy-watch-backend/src/models/video.py:80 \u2014 Stores video metadata, not manual scores or player stats.",
+            "ledgers/DIRECTIVE_phase2-club-fixtures-uploads.md:25 \u2014 Designs fixture and player-entry grains; remains unratified."
+          ],
+          "missing": [
+            "MISSING ClubFixture and PlayerMatchEntry models or tables.",
+            "MISSING score, minutes, goals, assists, cards, provenance, and attestation fields.",
+            "MISSING manager fixture/stat CRUD routes and console forms.",
+            "MISSING dispute workflow and rollup into public player/program data.",
+            "Provider fixture synchronization is not a club-attested manual-data path."
+          ],
+          "blocker": "[S1] the same grain gives grassroots clubs a club-confirmed data path with provenance labels (api/club/self) on every surface. Remaining: no attestation text at entry time; no dispute flow on entries.",
+          "next_step": "Implement ClubFixture and PlayerMatchEntry through ClubRosterMember manager routes, then invoke season_rollup_service.refresh_player.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 1,
+          "override_why": "[S1] the same grain gives grassroots clubs a club-confirmed data path with provenance labels (api/club/self) on every surface. Remaining: no attestation text at entry time; no dispute flow on entries.",
+          "codex_reach": "DESIGNED_ONLY",
+          "codex_blocker": "No attestation/dispute flow on club-entered rows yet."
+        }
+      ]
+    },
+    "P5": {
+      "name": "Foundation: safety, correctness, reach, ops, money, adoption",
+      "weight": 15,
+      "pct": 53.1,
+      "capabilities": [
+        {
+          "id": "5.1",
+          "name": "Minor safety",
+          "score": 2,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-backend/src/models/showcase.py:31-42 \u2014 Treats unknown and ambiguous birth years as minors.",
+            "academy-watch-backend/src/routes/showcase.py:1085-1134 \u2014 Blocks unknown and under-18 self-claims.",
+            "academy-watch-backend/src/routes/showcase.py:1506-1516 \u2014 Keeps local minors claimant-private.",
+            "academy-watch-backend/src/services/player_suppression.py:21-106 \u2014 Centralizes suppression predicates and neutral player responses.",
+            "academy-watch-backend/src/routes/scout.py:450-470 \u2014 Excludes suppressions and bridged minors from discovery.",
+            "academy-watch-backend/src/routes/showcase.py:1519-1577 \u2014 Applies suppression to showcase profile responses.",
+            "academy-watch-backend/src/services/player_shadow_service.py:215-252 \u2014 Filters suppressions and minor bridges from shadows.",
+            "academy-watch-backend/src/agents/weekly_newsletter_agent.py:2017-2023 \u2014 Excludes active suppressions from new newsletters.",
+            "academy-watch-backend/src/routes/contact.py:426 \u2014 Rejects contact targeting a suppressed player.",
+            "academy-watch-backend/src/routes/player_suppression.py:71-147 \u2014 Accepts neutral player and guardian takedown requests.",
+            "academy-watch-backend/src/routes/account.py:20-50 \u2014 Provides authenticated export and confirmed deletion.",
+            "academy-watch-backend/src/services/account.py:568-829 \u2014 Atomically erases, redacts, and tombstones account dependencies.",
+            "academy-watch-ios/AcademyWatch/Features/Account/AccountView.swift:412-525 \u2014 Exposes account export and deletion on iOS.",
+            "academy-watch-backend/src/routes/trust.py:386-475 \u2014 Persists user reports and admin moderation outcomes.",
+            "academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift:131-160 \u2014 Exposes profile removal and reporting on iOS."
+          ],
+          "missing": [
+            "MISSING adult gate for agent, guardian, club-official, and local-player claims.",
+            "MISSING age re-audit before approved claims enter contact or media flows.",
+            "MISSING Film Room consent, guardian warranty, rights, and indemnity fields or checkbox.",
+            "MISSING CSAM hash/vendor scanning, quarantine state, NCMEC posture, and upload runbook.",
+            "MISSING web account export/delete, takedown, and user-report components.",
+            "MISSING iOS showcase-content and club-program report entry points.",
+            "Stored newsletter HTML is not retroactively scrubbed after suppression.",
+            "The iOS scout disk cache can briefly republish stale suppressed rows.",
+            "CONTACT_RAIL_ENABLED defaults false with no checked-in production enablement evidence."
+          ],
+          "blocker": "Adult gate covers self-claims only; guardian/agent/club-official claims and local-player creation skip it; Film Room upload-complete has no rights/age/consent attestation (club.py:398-434); web has no delete, takedown, or report component although the Terms promise website deletion (LegalPages.jsx:23) \u2014 only iOS has them.",
+          "next_step": "Extract a subject-eligibility guard from _adult_player_claim_error, enforce it across claims/contact/media, and require versioned VideoMatch attestation plus quarantine scanning.",
+          "effort": "L",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-2 keep] Adult gate covers self-claims only (showcase.py:1656-1664, 1672-1675); upload-complete has no rights/age attestation (club.py:398-434). iOS has takedown/report/delete; web has none (grep), yet Terms promise website deletion (LegalPages.jsx:23).",
+          "codex_blocker": "No universal participation and upload-safety boundary closes every age, consent, suppression, and illegal-content bypass."
+        },
+        {
+          "id": "5.2",
+          "name": "Data correctness and dispute",
+          "score": 3,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/utils/academy_classifier.py:742-931 \u2014 Resolves on-loan, left, sold, and released states.",
+            "academy-watch-backend/src/utils/academy_classifier.py:780-836 \u2014 Separates provider failure from authoritative empty history.",
+            "academy-watch-backend/src/utils/academy_classifier.py:1040-1071 \u2014 Makes transfer reconciliation the classification source of truth.",
+            "academy-watch-backend/src/jobs/run_transfer_window_heal.py:1060-1091 \u2014 Scheduled healer reclassifies tracked players.",
+            "academy-watch-backend/src/models/league.py:376-433 \u2014 Stores categorized factual disputes and workflow status.",
+            "academy-watch-backend/src/routes/api.py:6551-6625 \u2014 Accepts rate-limited public correction submissions.",
+            "academy-watch-frontend/src/pages/PlayerPage.jsx:634-643 \u2014 Exposes incorrect-data action on player pages.",
+            "academy-watch-backend/src/routes/api.py:6631-6754 \u2014 Lists, resolves, bulk-updates, and counts disputes.",
+            "academy-watch-backend/src/services/manual_transfer.py:624 \u2014 Applies durable audited manual transfer evidence.",
+            "academy-watch-frontend/src/pages/admin/AdminPlayers.jsx:269-443 \u2014 Lets admins edit players and record transfers."
+          ],
+          "missing": [
+            "MISSING automatic linkage between PlayerFlag resolution and authoritative correction events.",
+            "MISSING reporter notification when a dispute is resolved.",
+            "MISSING iOS incorrect-data component and flags/submit API method.",
+            "AdminPlayers sends sale_fee, but admin_update_tracked_player excludes that field.",
+            "Provider correction is copied as email text without tracked delivery or result."
+          ],
+          "blocker": "The public dispute queue and authoritative correction mechanisms remain disconnected manual workflows.",
+          "next_step": "Link PlayerFlag resolution to apply_manual_transfer or admin_update_tracked_player, persist the correction event, notify reporters, and expose flags/submit on iOS.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-2 keep] Real public dispute path: PlayerPage.jsx:634-643 flag button -> FlagDataDialog.jsx:51 -> api.js:879 -> POST /flags/submit (api.py:6551, public, rate-limited) -> AdminFlags.jsx via api.js:884-890 -> api.py:6675. Web-only; no reporter notification."
+        },
+        {
+          "id": "5.3",
+          "name": "Reach",
+          "score": 2,
+          "reach": "LIVE_WEB",
+          "exists": [
+            "academy-watch-backend/src/templates/newsletter_web.html:7 \u2014 Renders newsletter-specific title and social metadata.",
+            "academy-watch-backend/src/templates/newsletter_web.html:17 \u2014 Emits newsletter Open Graph and Twitter images.",
+            "academy-watch-backend/src/templates/newsletter_web.html:1647 \u2014 Deep-links newsletter cards to player profiles.",
+            "academy-watch-backend/src/routes/auth_routes.py:93 \u2014 Sends email login codes.",
+            "academy-watch-backend/src/routes/showcase.py:3901 \u2014 Triggers player-claim decision email.",
+            "academy-watch-backend/src/routes/trust.py:342 \u2014 Triggers scout-verification decision email.",
+            "academy-watch-backend/src/routes/contact.py:594 \u2014 Triggers club courtesy or consent email.",
+            "academy-watch-backend/src/services/scout_digest_service.py:472 \u2014 Builds and persists opted-in scout digests.",
+            "academy-watch-frontend/index.html:13 \u2014 Uses one home-page canonical URL for the SPA."
+          ],
+          "missing": [
+            "MISSING sitemap, robots policy, prerendering, and player/club metadata routes.",
+            "MISSING player or club social-card generator and resource-specific og:image.",
+            "MISSING APNs entitlement, device-token model, registration route, and push sender.",
+            "MISSING scheduled scout-digest job; sending remains API-key initiated.",
+            "MISSING newsletter follow, claim, or introduction marketplace CTAs.",
+            "MISSING workflow or infrastructure evidence that Mailgun/SMTP is configured in production."
+          ],
+          "blocker": "Player and club pages are SPA-generic (homepage-only OG tags, no sitemap), no push (no APNs code), digests have no scheduler; emails do fire for login, claim/scout decisions and club consent.",
+          "next_step": "Add sitemap and player/program metadata endpoints backed by TrackedPlayer and ClubProgram, then generate OG cards for those URLs.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-2 keep] Newsletter pages carry OG tags but player/club pages are SPA-generic (index.html:13-25, no sitemap/robots in public/). Emails fire for login, claim and scout decisions, club consent; no push (no APNs code); digest has no scheduler.",
+          "codex_blocker": "Player and club growth surfaces remain SPA-generic, unshareable, and pull-only."
+        },
+        {
+          "id": "5.4",
+          "name": "Ops and scale",
+          "score": 2,
+          "reach": "ADMIN_ONLY",
+          "exists": [
+            "docs/agents/invariants.md:61 \u2014 Documents production as 0.5 CPU and 1GiB.",
+            "academy-watch-backend/src/services/video_queue.py:4 \u2014 Keeps the database authoritative when queue signals disappear.",
+            "academy-watch-backend/src/services/video_queue.py:83 \u2014 Claims queued jobs using SKIP LOCKED.",
+            "academy-watch-backend/src/services/video_queue.py:107 \u2014 Fences stale or cancelled workers with heartbeats.",
+            "academy-watch-backend/src/jobs/run_video_maintenance.py:21 \u2014 Reaps stale jobs and invokes retention.",
+            "academy-watch-backend/src/services/video_retention.py:114 \u2014 Deletes expired footage before clearing database paths.",
+            "academy-watch-backend/src/workers/vision_worker.py:279 \u2014 Persists production box tracks to Blob storage.",
+            "academy-watch-backend/src/routes/club.py:366 \u2014 Lists club match history server-side.",
+            "academy-watch-backend/src/routes/club.py:598 \u2014 Records manager processing requests for admin handling.",
+            "academy-watch-frontend/e2e/club-reels.spec.mjs:246 \u2014 Covers mocked manager reel access."
+          ],
+          "missing": [
+            "MISSING KEDA, ScaledJob, or managed vision-worker deployment manifest.",
+            "MISSING durable chunk checkpointing; the worker uses temporary storage and one subprocess.",
+            "MISSING vision-image CI/deployment and committed video-maintenance scheduling.",
+            "MISSING metric alerts, scheduled-query alerts, and paging destination.",
+            "MISSING real E2E for claim, local creation, club upload-report, and watchlist-contact.",
+            "MISSING measured production container image size.",
+            "The backend image includes bulk dependencies despite the 1GiB production limit."
+          ],
+          "blocker": "No managed worker deployment, KEDA or alerts anywhere; deploy.yml:224 leaves job-video-maintenance out of image updates so the retention sweeper runs a frozen build; every club processing request still needs an admin.",
+          "next_step": "Deploy vision_worker.main through ACA Service Bus/KEDA, persist chunk checkpoints, schedule maintenance, and alert on queued, stale, and failed VideoAnalysisJob rows.",
+          "effort": "L",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-2 keep] Queue/heartbeat/retention code is solid, but no KEDA/worker manifest or alerts anywhere (grep scripts/.github/infra empty), and deploy.yml:224 never refreshes job-video-maintenance's image, so the sweeper runs a frozen build.",
+          "codex_blocker": "Every club processing request still depends on concierge admin execution and unwired worker resilience."
+        },
+        {
+          "id": "5.5",
+          "name": "Revenue rails",
+          "score": 2,
+          "reach": "ADMIN_ONLY",
+          "exists": [
+            "academy-watch-backend/src/models/video.py:371 \u2014 Implements an append-only team credit ledger.",
+            "academy-watch-backend/src/models/video.py:382 \u2014 Deduplicates purchase credits by Stripe session identifier.",
+            "academy-watch-backend/src/routes/video.py:297 \u2014 Atomically debits admin-started processing jobs.",
+            "academy-watch-backend/src/routes/video.py:718 \u2014 Allows concierge credit grants.",
+            "academy-watch-backend/src/routes/video.py:745 \u2014 Allows one accounting refund per match.",
+            "academy-watch-backend/src/services/stripe_connect.py:26 \u2014 Requires explicit test mode and sk_test credentials.",
+            "academy-watch-backend/src/models/league.py:992 \u2014 Marks writer Stripe tables deprecated and preservation-only.",
+            "academy-watch-frontend/src/pages/PricingPage.jsx:27 \u2014 Advertises Scout Pro as free during beta.",
+            "academy-watch-frontend/src/pages/PricingPage.jsx:43 \u2014 Labels Film Room pay-per-match as in development.",
+            "academy-watch-frontend/src/pages/PricingPage.jsx:93 \u2014 Disables the Film Room purchase button."
+          ],
+          "missing": [
+            "MISSING Checkout Session creation and signed webhook handler.",
+            "MISSING user credit-purchase route, receipt, entitlement, and live-mode evidence.",
+            "MISSING registered Stripe payment blueprint.",
+            "Writer subscription UI calls nonexistent backend /stripe routes.",
+            "Writer subscription UI uses VITE_API_URL while production injects VITE_API_BASE.",
+            "Film Room lists physical metrics that remain suppressed or unwired."
+          ],
+          "blocker": "Credit ledger + admin grant/debit/refund serve concierge sales only (require_api_key); no Checkout or webhook; pricing CTA disabled (PricingPage.jsx:94); writer subscribe UI targets /stripe routes that do not exist.",
+          "next_step": "Create Checkout and signed webhook routes that append VideoCreditLedger purchase rows, then enable the Film Room pricing CTA.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-2 keep] Credit ledger + admin grant/debit/refund work for concierge sales only (video.py:297/718/745 all require_api_key). No Checkout or webhook; pricing CTA disabled (PricingPage.jsx:94); writer UI targets absent /stripe routes and VITE_API_URL.",
+          "codex_blocker": "No user-facing Checkout and verified webhook can create credits or entitlements."
+        },
+        {
+          "id": "5.6",
+          "name": "Adoption instrumentation",
+          "score": 3,
+          "reach": "ADMIN_ONLY",
+          "exists": [
+            "academy-watch-backend/src/models/product_event.py:1 \u2014 Stores privacy-light events without IP or user-agent.",
+            "academy-watch-backend/src/routes/events.py:61 \u2014 Persists anonymous batches of allowlisted events.",
+            "academy-watch-backend/src/routes/events.py:110 \u2014 Returns totals, sessions, daily counts, and top paths.",
+            "academy-watch-frontend/src/lib/track.js:18 \u2014 Scrubs login-capability query parameters before tracking.",
+            "academy-watch-frontend/src/App.jsx:4127 \u2014 Emits pageviews for every web route change.",
+            "academy-watch-frontend/src/pages/admin/AdminDashboard.jsx:88 \u2014 Renders the analytics summary for admins.",
+            "academy-watch-backend/src/routes/trust.py:268 \u2014 Returns an exact filtered scout-verification total.",
+            "academy-watch-backend/src/routes/contact.py:648 \u2014 Returns an exact filtered introduction total.",
+            "academy-watch-backend/src/routes/funding.py:1100 \u2014 Counts future-funding opt-ins by program and geography."
+          ],
+          "missing": [
+            "MISSING unified counts for users, claims, approved clubs, scouts, introductions, and donations.",
+            "User and claim endpoints return arrays without totals.",
+            "MISSING Donation model, transaction analytics, and donation-count endpoint.",
+            "MISSING dedicated profile_view event; views are inferred from URL paths.",
+            "MISSING iOS analytics ingestion.",
+            "ScoutPage emits scout_phase_changed, but the backend allowlist silently drops it."
+          ],
+          "blocker": "Six web events are wired (pageview, claim_submitted, search_performed, list_created, follow added/removed) and shown on AdminDashboard; prod is pageview-only because nobody has acted yet; iOS emits nothing.",
+          "next_step": "Extend analytics_summary with counts from UserAccount, PlayerProfileClaim, ClubProgram, ScoutVerification, and ContactRequest, then surface them in AdminDashboard.",
+          "effort": "M",
+          "confidence": "high",
+          "codex_score": 3,
+          "override_why": "[adversary-2 keep] Web emits six allowlisted events (pageview plus ShowcaseSection.jsx:507, ScoutPage.jsx:658, ListsPage.jsx:110/588/639/641) and AdminDashboard.jsx:80-88 renders them. Prod is pageview-only because no web user has done those actions; iOS emits nothing.",
+          "codex_blocker": "There is no authoritative accounts-to-claims-to-clubs-to-introductions-to-money funnel."
+        },
+        {
+          "id": "5.7",
+          "name": "Legal and paper",
+          "score": 2,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "academy-watch-frontend/src/pages/LegalPages.jsx:4-31 \u2014 Identifies the operator and adults-only participation policy.",
+            "academy-watch-frontend/src/pages/LegalPages.jsx:35-65 \u2014 Covers claims, contact, conduct, data, and removal.",
+            "academy-watch-frontend/src/pages/LegalPages.jsx:100-155 \u2014 Covers processors, rights, retention, and children.",
+            "academy-watch-frontend/src/pages/LegalPages.jsx:167-186 \u2014 Prohibits minor contact, harassment, and sexual content.",
+            "academy-watch-frontend/src/App.jsx:4218-4221 \u2014 Exposes terms, privacy, rules, and support routes.",
+            "academy-watch-ios/AcademyWatch/Features/Legal/LegalSafariLink.swift:4-31 \u2014 Links iOS users to every legal page.",
+            "academy-watch-frontend/src/pages/ProgramPage.jsx:150-152 \u2014 Disclaims live funding and badge accreditation.",
+            "academy-watch-backend/src/services/video_retention.py:114-149 \u2014 Enforces raw-footage deletion while retaining derived data."
+          ],
+          "missing": [
+            "MISSING Film Room uploader-rights, consent, guardian warranty, and indemnity acceptance.",
+            "MISSING written API-Football paid redistribution confirmation artefact.",
+            "MISSING donation, charitable-solicitation, tax-labeling, and AB 488 regulatory memo.",
+            "MISSING securities and crowd-equity regulatory analysis.",
+            "Privacy omits DOB, local profiles, Film Room footage, analytics, and suppression evidence.",
+            "Terms promise website deletion, but only iOS exposes the action.",
+            "Terms claim universal adults-only participation while non-self claims bypass the gate.",
+            "MISSING funding, recurring-support, ownership, and investment terms."
+          ],
+          "blocker": "Phase-0 counsel artefacts are incomplete and not mechanically bound to uploads or funding.",
+          "next_step": "Version legal acceptance, require VideoMatch attestation fields, obtain redistribution and donation opinions, and update Privacy to the actual data inventory.",
+          "effort": "L",
+          "confidence": "high",
+          "codex_score": 2,
+          "override_why": "[adversary-2 keep] Terms/Privacy/Rules/Support are live on web and iOS, but Terms:23 and Privacy:141/148 promise website/in-app deletion and export that only iOS exposes; no Film Room, footage, donation or API-Football licence text (grep)."
+        },
+        {
+          "id": "5.8",
+          "name": "Real adoption (people actually using it)",
+          "score": 1,
+          "reach": "LIVE_WEB_IOS",
+          "exists": [
+            "prod SQL 2026-09-02: user_accounts=9 (5 team/journalist, 4 plain), player_profile_claims=1 approved, scout_verifications=1 approved, tracked_players=9654, newsletters=20 (last 2026-04-21), product_events=569 pageviews"
+          ],
+          "missing": [
+            "local_players=0",
+            "club_programs/claims/managers/roster=0",
+            "watchlist entries=0, follow lists=0",
+            "contact_requests=0",
+            "video_matches=2 smoke fixtures only",
+            "stripe_subscriptions=0, stripe_platform_revenue=0"
+          ],
+          "blocker": "Nobody outside the team has claimed a profile, claimed a club, watchlisted, introduced, uploaded, or paid; the content engine (newsletters) has been idle since April.",
+          "next_step": "Pick ONE beachhead cohort (e.g. the Forest academy contact or one grassroots club) and drive 10 real participants through claim \u2192 console \u2192 intro by hand; instrument the funnel first (5.6).",
+          "effort": "M",
+          "confidence": "high",
+          "override_why": "[orchestrator] measured directly in prod; a dream with 0 participants is a 1 regardless of code."
+        }
+      ]
+    }
+  },
+  "surprises": [
+    "Prior C1 is now WRONG: academy-watch-frontend/src/pages/ScoutPage.jsx:986 and academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift:259 now initiate contact.",
+    "Prior C2 is now WRONG on web: academy-watch-frontend/src/components/contact/ClubIntroductionsPanel.jsx:53 executes club consent from My Club.",
+    "Prior B2 is now WRONG: academy-watch-backend/src/routes/club.py:366 persists club match history, consumed at academy-watch-frontend/src/pages/MyClubConsole.jsx:1198.",
+    "Prior B3 is now WRONG: academy-watch-frontend/src/pages/MyClubConsole.jsx:633 loads private media and mounts PlayerReels.",
+    "Prior C5 is now WRONG: academy-watch-backend/src/models/scout_watchlist.py:26 has the leading watchlist player index.",
+    "The prior empty-box-track claim is now WRONG: origin/main:academy-watch-backend/src/models/video.py:91 persists boxes and origin/main:academy-watch-backend/src/services/video_boxes.py:129 reloads them; crop remains a 501 stub.",
+    "The prior web tracked-claim lifecycle claim is now WRONG: academy-watch-backend/src/routes/showcase.py:479 requires contract_status, while academy-watch-frontend/src/lib/api.js:1403 omits it.",
+    "Grounded Qwen3-VL notes shipped at academy-watch-frontend/src/components/video/PlayerReel.jsx:608, but PlayerPage and ShowcaseSection still expose none to scouts.",
+    "D1 is incompletely enforced: academy-watch-backend/tests/test_local_players.py:314 demonstrates an underage local self-claim is accepted.",
+    "Audit basis: the checked-out main branch is 16 commits behind local origin/main; code evidence uses origin/main, which contains PRs #936-#938.",
+    "Prior audit line 56 is WRONG: legacy social-proof approval only changes ClubOfficialClaim at showcase.py:3109-3148; only funding.py:749-834 creates ClubProgramManager.",
+    "Prior B2 is now WRONG: club.py:366-380 and MyClubConsole.jsx:1060-1093 provide server-backed cross-device match history.",
+    "Prior B1 remains correct for results and player statistics; VideoMatch only adds metadata and shirt-number squads at club.py:321-592.",
+    "Prior B5 remains correct: club.py:267-285 and test_club_console.py:333-348 enforce creator-only local adoption.",
+    "Prior B3 is now partly WRONG: MyClubConsole.jsx:633-705 plays processed reels, although raw uploaded-match playback remains missing.",
+    "Prior B4 and B6 remain correct: club.py:331-338 keeps a three-lifetime quota and api.js:3122-3157 remains sequential and non-resumable.",
+    "Prior retention claim is now WRONG in code: video_retention.py:83-149 deletes blobs and marks expiry; production scheduling remains unproven.",
+    "Prior report description is incomplete: qwen_match_analysis.py:1875-1907 adds tracking-grounded qualitative notes, while video_report.py:13-16 remains visibility-only numerically.",
+    "Prior C1 and C2 are now WRONG for web: ClubIntroductionsPanel.jsx:24-115 and ClubConsentPage.jsx:17-168 perform consent decisions; native iOS still cannot.",
+    "The contact rail is default-off in contact.py:83-94, but CONTINUITY_platform-review-qwen.md:131 records a successful production smoke with it enabled.",
+    "Prior audit C1/C2 is now WRONG: components/contact/IntroduceDialog.jsx:11, MyClubConsole.jsx:1289, and routes/contact.py:914 provide scout initiation and club consent; CONTACT_RAIL_ENABLED still defaults off.",
+    "Prior audit B2 is now WRONG: academy-watch-backend/src/routes/club.py:366 and MyClubConsole.jsx:1193 replace browser-local match history with a server list.",
+    "Prior audit retention claims are now WRONG in code: video_retention.py:114-149 and run_video_maintenance.py:21-36 enforce expiry; deploy.yml:222-234 still does not prove scheduling.",
+    "Prior audit production-artifact claim is partly WRONG: vision_worker.py:279-300 and video_boxes.py:129-146 persist and read box tracks; video.py:878-889 still returns 501 for crops.",
+    "Prior audit's 'minor gates everywhere' claim is WRONG: showcase.py:1639-1675 gates only self-claims, and club.py:398-434 accepts footage without age or consent attestation.",
+    "Prior audit's 'suppression applied consistently across every surface' claim is WRONG: routes/api.py:1184-1189 serves stored newsletter content unchanged, and ScoutResponseCache.swift:74-90 ignores cache age.",
+    "Prior audit's zero club-manager E2E claim is narrowly stale because club-reels.spec.mjs:246 now exists, but every requested core write journey remains uncovered."
+  ],
+  "strong_already": [
+    "academy-watch-backend/src/routes/showcase.py:1085 \u2014 Keep persisted-DOB claim eligibility resolution.",
+    "academy-watch-backend/src/models/showcase.py:457 \u2014 Keep exclusive tracked-or-local showcase ownership constraints.",
+    "academy-watch-backend/src/routes/scout.py:383 \u2014 Keep suppression-aware TrackedPlayer discovery and extend it.",
+    "academy-watch-backend/src/routes/scout.py:625 \u2014 Keep the broad phase and per-90 sorting.",
+    "academy-watch-backend/src/services/trust.py:14 \u2014 Keep live derivation of revocable scout verification.",
+    "academy-watch-backend/src/services/contact.py:173 \u2014 Keep conservative contract-aware contact routing.",
+    "academy-watch-backend/src/routes/contact.py:1070 \u2014 Keep participant authorization, blocking, and message gates.",
+    "academy-watch-backend/src/services/scout_digest_service.py:472 \u2014 Keep cursor-paged digest generation and sending.",
+    "academy-watch-backend/src/services/video_analysis_store.py:10 \u2014 Keep fenced atomic Qwen analysis persistence.",
+    "academy-watch-ios/AcademyWatch/Features/Compare/CompareView.swift:202 \u2014 Keep the deep native comparison surface.",
+    "academy-watch-backend/src/services/club_registry.py:138-188 \u2014 Preserve the strict grant, source-claim, approval, and emergency-hide gate.",
+    "academy-watch-backend/src/routes/club.py:237-318,520-592 \u2014 Preserve scoped roster CRUD and squad validation.",
+    "academy-watch-backend/src/models/tracked_player.py:15-68 \u2014 TrackedPlayer remains the correct academy-pathway spine.",
+    "academy-watch-backend/src/services/journey_sync.py:424-669 \u2014 Preserve multi-season journey synchronization and rollup refresh.",
+    "academy-watch-frontend/src/pages/TeamDetailPage.jsx:438-565 \u2014 Public pathway roster is already useful end-to-end.",
+    "academy-watch-backend/src/routes/cohort.py:334-386 \u2014 Public provider-club conversion benchmarking already works.",
+    "spike/video-analysis/grounding.py:124-174 \u2014 Grounding fails closed across gaps and weak overlaps.",
+    "academy-watch-frontend/e2e/club-reels.spec.mjs:224-266 \u2014 Grounded and withheld club reel notes have browser coverage.",
+    "academy-watch-backend/src/services/contact.py:173-191 \u2014 Preserve conservative routing and dual-consent messaging gates.",
+    "academy-watch-backend/src/routes/contact.py:993-1038 \u2014 Preserve state-bound, single-use signed consent actions.",
+    "academy-watch-backend/migrations/versions/gf01_grassroots_identity.py:339 \u2014 Default-deny RLS protects funding tables.",
+    "academy-watch-backend/src/services/funding_evidence_crypto.py:27 \u2014 Claim evidence is encrypted and authenticated.",
+    "academy-watch-backend/src/services/player_suppression.py:21-106 \u2014 Reuse the centralized suppression primitives.",
+    "academy-watch-backend/src/services/account.py:568-829 \u2014 Reuse atomic account erasure orchestration.",
+    "academy-watch-backend/src/utils/academy_classifier.py:742-931 \u2014 Preserve transfer-aware status classification.",
+    "academy-watch-backend/src/services/manual_transfer.py:624 \u2014 Preserve durable audited manual corrections.",
+    "academy-watch-backend/src/services/video_queue.py:83-121 \u2014 Preserve authoritative job claims and heartbeat fencing.",
+    "academy-watch-backend/src/services/video_retention.py:114-149 \u2014 Preserve retry-safe retention deletion.",
+    "academy-watch-backend/src/models/video.py:371-395 \u2014 Preserve append-only idempotent credit accounting.",
+    "academy-watch-backend/src/models/product_event.py:1-30 \u2014 Preserve privacy-light product analytics."
+  ],
+  "admin_count_endpoints": [
+    "GET /api/admin/contact/requests \u2014 returns filtered introduction-request totals.",
+    "GET /api/admin/scout-verifications \u2014 returns filtered scout-verification totals.",
+    "GET /api/admin/dashboard-stats \u2014 returns active tracked-player and tracked-team counts.",
+    "GET /api/admin/subscriber-stats \u2014 returns active newsletter subscriber and team counts.",
+    "GET /api/admin/funding/demand \u2014 returns distinct supporter-save counts by club program.",
+    "GET /api/admin/journalist-stats \u2014 returns journalist user and subscription totals.",
+    "GET /api/admin/dashboard-stats \u2014 returns active tracked-player status, tracked-team, and newsletter counts",
+    "GET /api/admin/subscriber-stats \u2014 returns active unique subscriber and per-team subscriber counts",
+    "GET /api/admin/contact/requests \u2014 returns filtered introduction-request totals and pages",
+    "GET /api/admin/scout-verifications \u2014 returns filtered scout-verification application totals",
+    "GET /api/admin/funding/demand \u2014 returns distinct saved-user counts by program, region, and league",
+    "GET /api/admin/cohorts/seed-status \u2014 returns total seeded academy-cohort rows",
+    "GET /api/admin/users \u2014 returns all user rows; count the array client-side.",
+    "GET /api/admin/showcase/claims?status=... \u2014 returns player-claim rows without a total.",
+    "GET /api/admin/club-claims?status=... \u2014 returns club-official claim rows without a total.",
+    "GET /api/admin/funding/claims?status=all \u2014 returns up to 200 program-claim rows.",
+    "GET /api/admin/scout-verifications?status=approved \u2014 returns the exact verified-scout total.",
+    "GET /api/admin/contact/requests?status=... \u2014 returns the exact introduction total.",
+    "GET /api/admin/analytics/summary?days=N \u2014 returns event totals, sessions, daily counts, and top paths.",
+    "GET /api/admin/dashboard-stats \u2014 returns tracked-player, tracked-team, and newsletter counts.",
+    "GET /api/admin/subscriber-stats \u2014 returns unique active subscribers and per-team counts.",
+    "GET /api/admin/funding/demand \u2014 returns future-support saver counts, not donations.",
+    "MISSING \u2014 no donation model or admin donation-count endpoint exists."
+  ]
+}

@@ -455,6 +455,32 @@ def test_minor_positive_reads_are_guardian_or_rostered_active_manager_only(clien
     assert client.get("/api/players/6002/matches").status_code == 404
 
 
+def test_optional_and_required_bearer_resolution_share_account_binding(client):
+    guardian, _ = _user("stale-binding-guardian@example.com")
+    _shadow(6003, birth_date=date(2010, 1, 1))
+    _claim(guardian, player_api_id=6003, relationship="guardian")
+    _entry(6003, guardian)
+    stale_token = _user_serializer().dumps(
+        {
+            "email": guardian.email,
+            "user_id": guardian.id,
+            "account_created_at": "2000-01-01T00:00:00+00:00",
+            "iat": int(guardian.created_at.timestamp()),
+        }
+    )
+    stale_headers = {"Authorization": f"Bearer {stale_token}"}
+
+    optional_read = client.get("/api/players/6003/matches", headers=stale_headers)
+    required_write = client.post(
+        "/api/players/6003/matches",
+        json=_payload(),
+        headers=stale_headers,
+    )
+
+    assert (optional_read.status_code, optional_read.get_json()) == (404, {"error": "Player not found"})
+    assert (required_write.status_code, required_write.get_json()) == (401, {"error": "account not found"})
+
+
 @pytest.mark.parametrize("platform_status", ["pending", "suspended"])
 def test_minor_manager_requires_an_approved_program(client, platform_status):
     reporter, _ = _user(f"{platform_status}-reporter@example.com")
