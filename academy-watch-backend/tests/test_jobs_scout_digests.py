@@ -1,11 +1,12 @@
 """Scheduled scout digests page safely and preserve an honest dry run."""
 
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from src.jobs import run_scout_digests as job
-from src.models.follow import FollowList, FollowPlayerSnapshot
+from src.models.follow import FollowList, FollowPlayerSnapshot, PlayerShadow
 from src.models.league import UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.services import scout_digest_service
@@ -45,7 +46,14 @@ def test_run_pages_to_exhaustion_and_aggregates(monkeypatch):
 
     monkeypatch.setattr(job, "send_scout_digests", fake_send_scout_digests)
 
-    assert job.run() == {"users_considered": 3, "sent": 2, "skipped": 1, "errors": 0}
+    assert job.run() == {
+        "users_considered": 3,
+        "sent": 2,
+        "skipped": 1,
+        "errors": 0,
+        "dry_run": False,
+        "would_send": 2,
+    }
     assert [call["cursor"] for call in calls] == [0, 41]
     assert all(call["limit"] == job.MAX_DIGEST_USERS for call in calls)
     assert all(call["api_client"] is api_client for call in calls)
@@ -67,12 +75,19 @@ def test_dry_run_is_forwarded_and_prints_one_json_line(monkeypatch, capsys):
     assert job.main(["--dry-run", "--min-interval-hours", "0"]) == 0
     output_lines = capsys.readouterr().out.splitlines()
     assert len(output_lines) == 1
-    assert json.loads(output_lines[0]) == {"users_considered": 1, "sent": 0, "skipped": 0, "errors": 0}
+    assert json.loads(output_lines[0]) == {
+        "users_considered": 1,
+        "sent": 0,
+        "skipped": 0,
+        "errors": 0,
+        "dry_run": True,
+        "would_send": 1,
+    }
     assert calls[0]["dry_run"] is True
     assert calls[0]["skip_sent_since"] is None
 
 
-def test_service_failure_reports_error_and_nonzero_exit(monkeypatch, capsys):
+def test_service_failure_reports_error_and_nonzero_exit(monkeypatch, capsys, caplog):
     monkeypatch.setattr(job, "_get_api_client", lambda: object())
     monkeypatch.setattr(
         job,
@@ -80,13 +95,47 @@ def test_service_failure_reports_error_and_nonzero_exit(monkeypatch, capsys):
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("page failed")),
     )
 
-    assert job.main([]) == 1
+    with caplog.at_level(logging.ERROR, logger=job.__name__):
+        assert job.main([]) == 1
     assert json.loads(capsys.readouterr().out) == {
         "users_considered": 0,
         "sent": 0,
         "skipped": 0,
         "errors": 1,
+        "dry_run": False,
+        "would_send": 0,
     }
+    assert "cursor=0" in caplog.text
+
+
+def test_run_refuses_non_advancing_cursor_and_exits_nonzero(monkeypatch, capsys, caplog):
+    calls = []
+    monkeypatch.setattr(job, "_get_api_client", lambda: object())
+
+    def fake_send_scout_digests(**kwargs):
+        calls.append(kwargs)
+        return {
+            "users_considered": 7,
+            "users_processed": 1,
+            "sent": 0,
+            "skipped": 1,
+            "errors": 0,
+            "next_cursor": kwargs["cursor"],
+        }
+
+    monkeypatch.setattr(job, "send_scout_digests", fake_send_scout_digests)
+
+    with caplog.at_level(logging.WARNING, logger=job.__name__):
+        summary = job.run()
+
+    assert [call["cursor"] for call in calls] == [0]
+    assert summary["errors"] == 1
+    assert "cursor=0" in caplog.text
+    assert "users_considered=7" in caplog.text
+
+    monkeypatch.setattr(job, "run", lambda **kwargs: summary)
+    assert job.main([]) == 1
+    assert json.loads(capsys.readouterr().out)["errors"] == 1
 
 
 def test_interval_guard_uses_watchlist_and_follow_send_markers(app):
@@ -106,6 +155,7 @@ def test_interval_guard_uses_watchlist_and_follow_send_markers(app):
     db.session.flush()
     db.session.add_all(
         (
+            PlayerShadow(player_api_id=101, player_name="Due Prospect"),
             ScoutWatchlistEntry(
                 user_account_id=due.id,
                 player_api_id=101,
@@ -135,7 +185,8 @@ def test_interval_guard_uses_watchlist_and_follow_send_markers(app):
 
     assert result["users_considered"] == 1
     assert result["users_processed"] == 1
-    assert result["skipped"] == 1
+    assert result["skipped"] == 0
+    assert result["previews"][0]["email"] == "due@example.com"
     assert result["next_cursor"] is None
 
 

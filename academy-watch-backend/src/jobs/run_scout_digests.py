@@ -32,7 +32,14 @@ def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HO
     if min_interval_hours < 0:
         raise ValueError("min_interval_hours must be non-negative")
 
-    summary = {"users_considered": 0, "sent": 0, "skipped": 0, "errors": 0}
+    summary = {
+        "users_considered": 0,
+        "sent": 0,
+        "skipped": 0,
+        "errors": 0,
+        "dry_run": dry_run,
+        "would_send": 0,
+    }
     cursor = 0
     skip_sent_since = _utcnow() - timedelta(hours=min_interval_hours) if min_interval_hours else None
 
@@ -55,14 +62,20 @@ def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HO
             if next_cursor is None:
                 break
             if isinstance(next_cursor, bool) or not isinstance(next_cursor, int) or next_cursor <= cursor:
-                logger.error("Scout digest paging returned a non-advancing cursor")
+                logger.warning(
+                    "Scout digest paging returned a non-advancing cursor: cursor=%r next_cursor=%r users_considered=%r",
+                    cursor,
+                    next_cursor,
+                    page.get("users_considered"),
+                )
                 summary["errors"] += 1
                 break
             cursor = next_cursor
     except Exception:
-        logger.exception("Scout digest job failed")
+        logger.exception("Scout digest job failed at cursor=%r", cursor)
         summary["errors"] += 1
 
+    summary["would_send"] = summary["users_considered"] - summary["skipped"]
     return summary
 
 
