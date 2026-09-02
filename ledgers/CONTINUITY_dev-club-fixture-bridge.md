@@ -40,7 +40,10 @@ Owner: `/root`
 - Done: `/Users/michaeljones/Projects/loanarmy/.loan/bin/pytest -q tests/test_dev_bridge_match_to_club.py tests/test_club_console.py` → 53 passed in 3.42s.
 - Done: `ruff check academy-watch-backend && ruff format --check academy-watch-backend` → clean; 445 files already formatted.
 - Done: scoped commit pushed and PR #975 opened against `main`: `https://github.com/performlikemj/the-academy-watch/pull/975`.
-- Now: review round complete and verified for delivery as the single requested commit; PR remains open and unmerged.
+- Done: fix round 2 imports the showcase route before the fixture calls `db.create_all()`, registering the legacy-conflict models when this test module runs in isolation.
+- Done: isolated `pytest tests/test_dev_bridge_match_to_club.py -q` → 17 passed in 1.21s; paired bridge/club-console suite → 60 passed in 4.03s.
+- Done: backend-wide `ruff check` passed; `ruff format --check` reports 445 files already formatted.
+- Now: fix round 2 complete; PR #975 remains open and unmerged.
 - Next: reviewer/Fable may run the repair tool on basecamp only after C1 merges; this workstream did not access basecamp/production or merge the PR.
 
 ## Links
@@ -67,3 +70,4 @@ Owner: `/root`
 - 2026-09-02: delivery complete in PR #975; basecamp execution and C1-dependent brief-key behavior remain intentionally unverified here.
 - 2026-09-02: PR review found bridged approved local players lacked the synthetic `api_player_id = -id` required by club result recording; all requested review changes accepted.
 - 2026-09-02: review-round focused suite passed 60 tests; backend-wide Ruff check and format check passed.
+- 2026-09-02: fix round 2 removed order dependence by loading showcase route model metadata before the isolated test database is created.

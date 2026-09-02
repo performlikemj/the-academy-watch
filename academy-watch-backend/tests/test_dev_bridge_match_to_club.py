@@ -30,6 +30,7 @@ from src.models.showcase import LocalPlayer
 from src.models.video import VideoMatch, VideoRosterEntry, VideoTracklet
 from src.routes.club import club_bp
 from src.routes.funding import funding_bp
+from src.routes.showcase import showcase_bp  # noqa: F401 - registers models for db.create_all()
 from src.routes.video import video_bp
 
 MANAGER_EMAIL = "fixture-manager@example.com"
