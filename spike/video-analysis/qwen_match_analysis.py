@@ -80,6 +80,15 @@ ACTION_TYPES = (
     "goalkeeping",
     "unclear",
 )
+CLAIM_CONFIDENCE_LEVELS = ("low", "medium", "high")
+CLAIM_VISIBILITY_LEVELS = ("clear", "partial", "unclear")
+PLAYER_CONFIDENCE_LEVELS = ("low", "medium")
+CAPTION_FAULT_COUNTERS = (
+    "captions_action_type_coerced",
+    "captions_action_type_recovered",
+    "captions_zone_coerced",
+    "captions_claims_dropped",
+)
 
 HONEST_LIMIT_TEMPLATES = (
     "Single-camera sampled-frame analysis.",
@@ -372,6 +381,10 @@ def build_caption_prompt(window: dict, *, grounded_contract: bool = False) -> st
         else "in the target kit"
     )
     if grounded_contract:
+        action_types = ", ".join(ACTION_TYPES)
+        pitch_zones = ", ".join(PITCH_ZONES)
+        claim_confidence_levels = ", ".join(CLAIM_CONFIDENCE_LEVELS)
+        claim_visibility_levels = ", ".join(CLAIM_VISIBILITY_LEVELS)
         return f"""These are up to three time-spread frames from one football clip, ordered earliest to latest.
 The first image identifies the tracked player {kit_description} #{int(window["roster_jersey_number"])} with a red
 rectangle. The other images are unlabelled: find that same player yourself and box the evidence for each claim.
@@ -380,9 +393,12 @@ frames; never say a shot scores or becomes a goal unless the goal is visibly sco
 Return at most 3 claims, most important first.
 Return one JSON object only with this exact shape:
 {{"claims":[{{"claim":str,"t0":number,"t1":number,"box_t":number,
-"box":[x1,y1,x2,y2],"confidence":"low|medium|high","visibility":"clear|partial|unclear"}}],
-"action_type":"pass|carry|duel|shot|defensive_action|set_piece|off_ball|goalkeeping|unclear",
-"visible_pitch_zone":"left|central|right|unclear"}}
+"box":[x1,y1,x2,y2],"confidence":str,"visibility":str}}],
+"action_type":str,"visible_pitch_zone":str}}
+action_type must be exactly one of: {action_types} — a single word, never a list or several joined by '|'.
+visible_pitch_zone must be exactly one of: {pitch_zones} — a single value, never a list or several joined by '|'.
+confidence must be exactly one of: {claim_confidence_levels} — a single word, never a list or several joined by '|'.
+visibility must be exactly one of: {claim_visibility_levels} — a single word, never a list or several joined by '|'.
 Times must be absolute source seconds inside [{float(window["start_s"]):.3f}, {float(window["end_s"]):.3f}].
 Return each box in Qwen normalized_1000 coordinates: integer axes from 0 to 1000 relative to the cited image.
 box_t must be the timestamp of the frame containing that box. The evidence box must cover only the tracked player
@@ -492,13 +508,15 @@ def build_player_prompt(
         compact_evidence, separators=(",", ":"), ensure_ascii=False
     )
     if grounded_contract:
+        player_confidence_levels = ", ".join(PLAYER_CONFIDENCE_LEVELS)
         return f"""Write a trustworthy scout's read for the football player wearing {kit_color} #{jersey_number}.
 The first attached image identifies the tracked player with a red rectangle. Other images are unlabelled: find the
 same player yourself. The images are ordered across time. Evidence timestamps and sampled context: {evidence_json}
 
 Return one JSON object only with this exact shape:
 {{"observations":[{{"observation":str,"box_t":number,"box":[x1,y1,x2,y2]}}],
-"confidence":"low|medium"}}
+"confidence":str}}
+confidence must be exactly one of: {player_confidence_levels} — a single word, never a list or several joined by '|'.
 Return at most 3 observations, most important first. Each box must cover only the tracked player region supporting
 its observation and use Qwen normalized_1000 coordinates (integer axes 0 to 1000) in the image at box_t. box_t
 must equal one of
@@ -725,9 +743,15 @@ def parse_observation(content: str) -> dict:
 
 
 def parse_window_caption(
-    content: str, window: dict | None = None, *, grounded_contract: bool = False
+    content: str,
+    window: dict | None = None,
+    *,
+    grounded_contract: bool = False,
+    fault_counts: dict[str, int] | None = None,
 ) -> dict:
     caption = json.loads(content)
+    if grounded_contract:
+        _normalize_grounded_window_caption(caption, window, fault_counts)
     validate_window_caption_schema(
         caption, window=window, grounded_contract=grounded_contract
     )
@@ -832,10 +856,102 @@ def _validate_grounded_claim(claim: object, window: dict | None = None) -> None:
     box = claim["box"]
     if not isinstance(box, list) or len(box) != 4 or not all(_number(v) for v in box):
         raise ValueError("grounded claim box must contain four numbers")
-    if claim["confidence"] not in ("low", "medium", "high"):
+    if claim["confidence"] not in CLAIM_CONFIDENCE_LEVELS:
         raise ValueError("grounded claim confidence is invalid")
-    if claim["visibility"] not in ("clear", "partial", "unclear"):
+    if claim["visibility"] not in CLAIM_VISIBILITY_LEVELS:
         raise ValueError("grounded claim visibility is invalid")
+
+
+def _validate_grounded_caption_container(caption: object) -> None:
+    if not isinstance(caption, dict):
+        raise ValueError("window caption must be a JSON object")
+    required = {"claims", "action_type", "visible_pitch_zone"}
+    missing = required - caption.keys()
+    if missing:
+        raise ValueError(
+            "window caption is missing required keys: " + ", ".join(sorted(missing))
+        )
+    if not isinstance(caption["claims"], list):
+        raise ValueError("window caption.claims must be a list")
+
+
+def _increment_caption_fault(fault_counts: dict[str, int] | None, counter: str) -> None:
+    if fault_counts is not None:
+        fault_counts[counter] = fault_counts.get(counter, 0) + 1
+
+
+def _normalize_grounded_window_caption(
+    caption: object,
+    window: dict | None,
+    fault_counts: dict[str, int] | None,
+) -> None:
+    _validate_grounded_caption_container(caption)
+    tracklet_id = window.get("tracklet_id") if window is not None else None
+    start_s = window.get("start_s") if window is not None else None
+
+    if caption["action_type"] not in ACTION_TYPES:
+        raw_value = caption["action_type"]
+        valid_tokens = (
+            {
+                token.strip()
+                for token in raw_value.split("|")
+                if token.strip() in ACTION_TYPES
+            }
+            if isinstance(raw_value, str) and "|" in raw_value
+            else set()
+        )
+        recovered = next(iter(valid_tokens)) if len(valid_tokens) == 1 else None
+        caption["action_type"] = recovered or "unclear"
+        _increment_caption_fault(fault_counts, "captions_action_type_coerced")
+        if recovered is not None and recovered != "unclear":
+            _increment_caption_fault(fault_counts, "captions_action_type_recovered")
+            log.warning(
+                "grounded caption action_type %r not in vocabulary; "
+                "single-choice recovered as %r (tracklet %s at %ss)",
+                raw_value,
+                recovered,
+                tracklet_id,
+                start_s,
+            )
+        else:
+            log.warning(
+                "grounded caption action_type %r not in vocabulary; coerced to "
+                "'unclear' (tracklet %s at %ss)",
+                raw_value,
+                tracklet_id,
+                start_s,
+            )
+    if caption["visible_pitch_zone"] not in PITCH_ZONES:
+        raw_value = caption["visible_pitch_zone"]
+        caption["visible_pitch_zone"] = "unclear"
+        _increment_caption_fault(fault_counts, "captions_zone_coerced")
+        log.warning(
+            "grounded caption visible_pitch_zone %r not in vocabulary; coerced to "
+            "'unclear' (tracklet %s at %ss)",
+            raw_value,
+            tracklet_id,
+            start_s,
+        )
+
+    valid_claims = []
+    for claim in caption["claims"]:
+        try:
+            _validate_grounded_claim(claim, window)
+        except ValueError as exc:
+            _increment_caption_fault(fault_counts, "captions_claims_dropped")
+            raw_claim = repr(claim)
+            if len(raw_claim) > 200:
+                raw_claim = raw_claim[:197] + "..."
+            log.warning(
+                "grounded caption claim dropped: %s; raw claim %s (tracklet %s at %ss)",
+                exc,
+                raw_claim,
+                tracklet_id,
+                start_s,
+            )
+        else:
+            valid_claims.append(claim)
+    caption["claims"] = valid_claims
 
 
 def validate_window_caption_schema(
@@ -847,14 +963,7 @@ def validate_window_caption_schema(
     if not isinstance(caption, dict):
         raise ValueError("window caption must be a JSON object")
     if grounded_contract:
-        required = {"claims", "action_type", "visible_pitch_zone"}
-        missing = required - caption.keys()
-        if missing:
-            raise ValueError(
-                "window caption is missing required keys: " + ", ".join(sorted(missing))
-            )
-        if not isinstance(caption["claims"], list):
-            raise ValueError("window caption.claims must be a list")
+        _validate_grounded_caption_container(caption)
         for claim in caption["claims"]:
             _validate_grounded_claim(claim, window)
         if caption["action_type"] not in ACTION_TYPES:
@@ -919,7 +1028,7 @@ def validate_player_read_schema(
         or not all(observation.strip() for observation in observations)
     ):
         raise ValueError("player read must contain 1 to 3 non-empty observations")
-    if player_read["confidence"] not in ("low", "medium"):
+    if player_read["confidence"] not in PLAYER_CONFIDENCE_LEVELS:
         raise ValueError("player read confidence must be low or medium")
     if evidence_frames is not None:
         evidence_timestamps = {
@@ -1030,10 +1139,11 @@ def validate_analysis_schema(
             raise ValueError(
                 "sampling.zone_coverage counts must be non-negative integers"
             )
-        if not isinstance(sampling.get("captions_failed"), int) or isinstance(
-            sampling.get("captions_failed"), bool
-        ):
-            raise ValueError("sampling.captions_failed must be an integer")
+        for key in ("captions_failed", *CAPTION_FAULT_COUNTERS):
+            if not isinstance(sampling.get(key), int) or isinstance(
+                sampling.get(key), bool
+            ):
+                raise ValueError(f"sampling.{key} must be an integer")
         if sampling.get("notes_scope") not in ("ours", "all"):
             raise ValueError("sampling.notes_scope must be ours or all")
         grounding_counts = sampling.get("grounding")
@@ -1155,7 +1265,7 @@ def validate_analysis_schema(
             player["times_seen"], bool
         ):
             raise ValueError("player_note.times_seen must be an integer")
-        if player["confidence"] not in ("low", "medium"):
+        if player["confidence"] not in PLAYER_CONFIDENCE_LEVELS:
             raise ValueError("player_note.confidence must be low or medium")
         player_pair = (
             _normalized_kit_color(player["kit_color"]),
@@ -1389,6 +1499,10 @@ def finalize_analysis(
         "in_play_windows": sampling["in_play_windows"],
         "zone_coverage": zone_coverage_counts(observations),
         "captions_failed": 0,
+        "captions_action_type_coerced": 0,
+        "captions_action_type_recovered": 0,
+        "captions_zone_coerced": 0,
+        "captions_claims_dropped": 0,
         "notes_scope": notes_scope,
         "grounding": {
             "caption_windows": 0,
@@ -1837,6 +1951,7 @@ def generate_window_captions(
     timeout_s: float,
     frame_size: tuple[int, int] | None = None,
     grounding_counts: dict[str, int] | None = None,
+    fault_counts: dict[str, int] | None = None,
 ) -> tuple[list[dict], int]:
     """Caption windows independently; no one window can fail the analysis job."""
     captions_dir = out_dir / "frames" / "captions"
@@ -1904,6 +2019,7 @@ def generate_window_captions(
                         content,
                         window,
                         grounded_contract=grounded_contract,
+                        fault_counts=fault_counts,
                     )
                     break
                 except Exception as exc:
@@ -2134,6 +2250,7 @@ def run(argv: list[str] | None = None) -> int:
         "read_observations": 0,
         "read_grounded": 0,
     }
+    caption_fault_counts = {key: 0 for key in CAPTION_FAULT_COUNTERS}
     frame_size = tuple(context["frame_size"]) if "frame_size" in context else None
     player_notes, player_failure_limits, omitted_player_pairs = generate_player_reads(
         required_player_pairs,
@@ -2217,6 +2334,7 @@ def run(argv: list[str] | None = None) -> int:
                 timeout_s=timeout_s,
                 frame_size=frame_size,
                 grounding_counts=grounding_counts,
+                fault_counts=caption_fault_counts,
             )
         except Exception as exc:
             log.warning("caption stage failed without failing analysis: %s", exc)
@@ -2224,6 +2342,7 @@ def run(argv: list[str] | None = None) -> int:
             captions_failed = len(context["caption_windows"])
         final["window_captions"] = captions
         final["sampling"]["captions_failed"] = captions_failed
+    final["sampling"].update(caption_fault_counts)
     final["sampling"]["grounding"].update(grounding_counts)
     grounding_limit = (
         f"{grounding_counts['caption_grounded']} of "

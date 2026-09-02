@@ -135,7 +135,10 @@ def without_minor_local_bridge(api_player_id):
 
     return ~sa.exists().where(
         sa.and_(
-            LocalPlayer.api_player_id == api_player_id,
+            sa.or_(
+                LocalPlayer.api_player_id == api_player_id,
+                LocalPlayer.id == -api_player_id,
+            ),
             local_player_is_minor(LocalPlayer),
         )
     )

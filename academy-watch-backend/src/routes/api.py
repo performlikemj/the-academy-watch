@@ -84,7 +84,9 @@ from src.models.sponsor import Sponsor
 from src.models.tracked_player import TrackedPlayer
 from src.models.transfer_event import PlayerTransferEvent
 from src.services.email_service import email_service
-from src.services.player_suppression import hide_suppressed_player, without_active_suppression
+from src.services.player_shadow_service import is_external_player_id
+from src.services.player_subject import resolve_player_subject
+from src.services.player_suppression import hide_suppressed_player, neutral_player_not_found, without_active_suppression
 from src.services.transfer_resolver import resolve_transfer_state
 from src.utils.academy_classifier import (
     _club_matches_parent,
@@ -126,6 +128,8 @@ from werkzeug.exceptions import HTTPException
 logger = logging.getLogger(__name__)
 
 api_bp = Blueprint("api", __name__)
+
+TRACKED_PLAYER_STATUSES = frozenset({"academy", "on_loan", "first_team", "released", "sold", "left"})
 
 # Background job functions (_create_background_job, _update_job, _get_job) are imported from src.utils.background_jobs
 
@@ -1537,6 +1541,10 @@ def _sync_player_club_fixtures(
     a matching player name is found with a different ID, updates the TrackedPlayer
     record and syncs with the correct ID.
     """
+    if not is_external_player_id(player_id):
+        logger.info("Skipping upstream fixture sync for local player %s", player_id)
+        return 0
+
     from src.api_football_client import APIFootballClient
     from src.models.weekly import Fixture, FixturePlayerStats
 
@@ -3752,7 +3760,13 @@ def _lookup_recent_injury(player_api_id: Any, week_start, week_end, season: int 
     """Best-effort injury reason for a player whose most recent injury record
     falls within [week_start - 7d, week_end + 1d]. Never raises."""
     try:
-        records = api_client.get_player_injuries(int(player_api_id), season=season) or []
+        player_api_id = int(player_api_id)
+    except (TypeError, ValueError):
+        return None
+    if not is_external_player_id(player_api_id):
+        return None
+    try:
+        records = api_client.get_player_injuries(player_api_id, season=season) or []
     except Exception:
         return None
     window_start = week_start - timedelta(days=7)
@@ -5332,6 +5346,7 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
     # TrackedPlayer (primary source)
     tracked = TrackedPlayer.query.filter(
         TrackedPlayer.is_active.is_(True),
+        TrackedPlayer.player_api_id > 0,
         TrackedPlayer.status.in_(["on_loan", "first_team", "academy"]),
     ).all()
 
@@ -5341,6 +5356,7 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
     # Sold/released players — discover their current team via API-Football
     sold_released = TrackedPlayer.query.filter(
         TrackedPlayer.is_active.is_(True),
+        TrackedPlayer.player_api_id > 0,
         TrackedPlayer.status.in_(["sold", "released", "left"]),
     ).all()
 
@@ -6096,7 +6112,11 @@ def admin_backfill_ages():
             db.session.commit()
 
         # ── Phase B: API-based fill ──
-        api_q = TrackedPlayer.query.filter(TrackedPlayer.is_active.is_(True), TrackedPlayer.age.is_(None))
+        api_q = TrackedPlayer.query.filter(
+            TrackedPlayer.is_active.is_(True),
+            TrackedPlayer.player_api_id > 0,
+            TrackedPlayer.age.is_(None),
+        )
         if team_api_id:
             from src.models.league import Team
 
@@ -6323,6 +6343,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
         tracked_players = TrackedPlayer.query.filter(
             TrackedPlayer.team_id == team_id,
             TrackedPlayer.is_active.is_(True),
+            TrackedPlayer.player_api_id > 0,
             TrackedPlayer.status.in_(["on_loan", "first_team", "academy"]),
         ).all()
 
@@ -9609,6 +9630,8 @@ def admin_update_player(player_id):
         # Get or create Player record
         player_record = Player.query.filter_by(player_id=player_id).first()
         if not player_record:
+            if not is_external_player_id(player_id):
+                return jsonify({"error": "negative player ids are reserved for approved local players"}), 400
             player_record = Player(player_id=player_id)
             player_record.created_at = datetime.now(UTC)
             db.session.add(player_record)
@@ -9704,8 +9727,13 @@ def admin_bulk_update_sofascore():
 
             try:
                 # Get or create player record
+                if isinstance(player_id, bool):
+                    raise ValueError("player_id must be an integer")
+                player_id = int(player_id)
                 player_record = Player.query.filter_by(player_id=player_id).first()
                 if not player_record:
+                    if not is_external_player_id(player_id):
+                        raise ValueError("negative player ids are reserved for approved local players")
                     player_record = Player(player_id=player_id)
                     player_record.name = update.get("player_name", f"Player {player_id}")
                     player_record.created_at = datetime.now(UTC)
@@ -9777,50 +9805,61 @@ def admin_get_player_field_options():
 @require_api_key
 def admin_create_player():
     """
-    Create a new manual player with loan association.
+    Add a known API-Football player to tracking from the admin form.
 
-    This creates both a Player record and a TrackedPlayer record to properly
-    track the player's loan status and team associations.
+    Positive IDs are supplied explicitly. Synthetic negative IDs are reserved
+    for approved LocalPlayer rows and are never minted by this legacy endpoint.
+    The older loan-shaped payload remains accepted for admin API callers.
     """
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
+
+        player_api_id = data.get("player_api_id")
+        if (
+            isinstance(player_api_id, bool)
+            or not isinstance(player_api_id, int)
+            or not is_external_player_id(player_api_id)
+        ):
+            return jsonify({"error": "player_api_id must be a positive integer"}), 400
 
         # Validate required fields
-        name = (data.get("name") or "").strip()
+        name = (data.get("player_name") or data.get("name") or "").strip()
         if not name:
             return jsonify({"error": "Player name is required"}), 400
 
-        window_key = data.get("window_key")
-        if not window_key:
+        modern_payload = data.get("team_id") is not None
+        if not modern_payload and not data.get("window_key"):
             return jsonify({"error": "Season/window is required"}), 400
+        tracked_status = data.get("status", "academy") if modern_payload else "on_loan"
+        if modern_payload and (not isinstance(tracked_status, str) or tracked_status not in TRACKED_PLAYER_STATUSES):
+            return jsonify({"error": f"status must be one of: {', '.join(sorted(TRACKED_PLAYER_STATUSES))}"}), 400
 
         # Handle primary team (either from database or custom)
-        primary_team_id = data.get("primary_team_id")
+        primary_team_id = data.get("team_id") if modern_payload else data.get("primary_team_id")
         custom_primary_team_name = (data.get("custom_primary_team_name") or "").strip()
 
         if primary_team_id:
             # Using team from database
-            primary_team = Team.query.get(primary_team_id)
+            primary_team = db.session.get(Team, primary_team_id)
             if not primary_team:
                 return jsonify({"error": f"Primary team ID {primary_team_id} not found"}), 404
             primary_team_name = primary_team.name
-            primary_team_api_id = primary_team.team_id
         elif custom_primary_team_name:
             # Using custom team name
             primary_team = None
             primary_team_id = None
             primary_team_name = custom_primary_team_name
-            primary_team_api_id = None
         else:
             return jsonify({"error": "Primary team or custom primary team name is required"}), 400
 
         # Handle loan team (either from database or custom)
-        loan_team_id = data.get("loan_team_id")
-        custom_loan_team_name = (data.get("custom_loan_team_name") or "").strip()
+        loan_team_id = data.get("current_club_db_id") if modern_payload else data.get("loan_team_id")
+        custom_loan_team_name = data.get("current_club_name") if modern_payload else data.get("custom_loan_team_name")
+        custom_loan_team_name = (custom_loan_team_name or "").strip()
 
         if loan_team_id:
             # Using team from database
-            loan_team = Team.query.get(loan_team_id)
+            loan_team = db.session.get(Team, loan_team_id)
             if not loan_team:
                 return jsonify({"error": f"Loan team ID {loan_team_id} not found"}), 404
             loan_team_name = loan_team.name
@@ -9830,55 +9869,72 @@ def admin_create_player():
             loan_team = None
             loan_team_id = None
             loan_team_name = custom_loan_team_name
-            loan_team_api_id = None
-        else:
+            loan_team_api_id = data.get("current_club_api_id") if modern_payload else None
+        elif not modern_payload:
             return jsonify({"error": "Loan team or custom loan team name is required"}), 400
-
-        # Generate a unique player_id for manual players (negative IDs to avoid conflicts with API-Football)
-        existing_manual_players = Player.query.filter(Player.player_id < 0).order_by(Player.player_id.asc()).all()
-        if existing_manual_players:
-            new_player_id = existing_manual_players[0].player_id - 1
         else:
-            new_player_id = -1
+            loan_team_name = None
+            loan_team_api_id = data.get("current_club_api_id")
 
-        # Create player record
-        player_record = Player(player_id=new_player_id)
+        existing_tracked = TrackedPlayer.query.filter_by(
+            player_api_id=player_api_id,
+            team_id=primary_team_id,
+        ).first()
+        if existing_tracked is not None:
+            return jsonify({"error": "Player is already tracked for this team"}), 409
+
+        # Create or enrich the legacy profile row used by admin read surfaces.
+        player_record = Player.query.filter_by(player_id=player_api_id).first()
+        if player_record is None:
+            player_record = Player(player_id=player_api_id)
+            player_record.created_at = datetime.now(UTC)
+            db.session.add(player_record)
         player_record.name = name
-        player_record.firstname = data.get("firstname")
-        player_record.lastname = data.get("lastname")
-        player_record.position = data.get("position")
-        player_record.nationality = data.get("nationality")
-        player_record.age = data.get("age")
-        player_record.height = data.get("height")
-        player_record.weight = data.get("weight")
-        player_record.photo_url = data.get("photo_url")
-        player_record.created_at = datetime.now(UTC)
+        for field in (
+            "firstname",
+            "lastname",
+            "position",
+            "nationality",
+            "age",
+            "height",
+            "weight",
+            "photo_url",
+        ):
+            if data.get(field) is not None:
+                setattr(player_record, field, data[field])
         player_record.updated_at = datetime.now(UTC)
 
         # Handle sofascore_id with duplicate check
         sofascore_id = data.get("sofascore_id")
         if sofascore_id:
-            existing = Player.query.filter_by(sofascore_id=sofascore_id).first()
+            existing = Player.query.filter(
+                Player.sofascore_id == sofascore_id,
+                Player.player_id != player_api_id,
+            ).first()
             if existing:
                 return jsonify(
                     {"error": f"Sofascore ID {sofascore_id} is already assigned to player #{existing.player_id}"}
                 ), 409
             player_record.sofascore_id = sofascore_id
 
-        db.session.add(player_record)
-        db.session.flush()  # Get player_id before creating tracked player record
+        db.session.flush()
 
-        # Create TrackedPlayer record to track the loan
+        # Create the tracked subject used by the admin and scout surfaces.
         tracked_player = TrackedPlayer(
-            player_api_id=new_player_id,
+            player_api_id=player_api_id,
             player_name=name,
             team_id=primary_team_id,
-            status="on_loan",
+            status=tracked_status,
+            current_level=data.get("current_level"),
+            position=data.get("position"),
+            nationality=data.get("nationality"),
+            age=data.get("age"),
             current_club_db_id=loan_team_id,
             current_club_api_id=loan_team_api_id,
             current_club_name=loan_team_name,
             is_active=True,
             data_source="manual",
+            notes=data.get("notes"),
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -9886,12 +9942,11 @@ def admin_create_player():
         db.session.add(tracked_player)
         db.session.commit()
 
+        message = f'Player "{name}" added to tracking for {primary_team_name}'
+        if not modern_payload:
+            message = f'Player "{name}" created successfully with loan from {primary_team_name} to {loan_team_name}'
         return jsonify(
-            {
-                "message": f'Player "{name}" created successfully with loan from {primary_team_name} to {loan_team_name}',
-                "player": player_record.to_dict(),
-                "tracked_player": tracked_player.to_dict(),
-            }
+            {"message": message, "player": player_record.to_dict(), "tracked_player": tracked_player.to_dict()}
         ), 201
     except Exception as e:
         logger.exception("admin_create_player failed")
@@ -10547,7 +10602,7 @@ def admin_review_manual_player(submission_id):
 # Only the /journey/map sub-route lives here.
 
 
-@api_bp.route("/players/<int:player_id>/journey/map", methods=["GET"])
+@api_bp.route("/players/<int(signed=True):player_id>/journey/map", methods=["GET"])
 @hide_suppressed_player("player_id")
 def get_player_journey_map(player_id: int):
     """
@@ -10556,6 +10611,23 @@ def get_player_journey_map(player_id: int):
     Query params:
     - sync: bool - Trigger sync if journey doesn't exist (default: false)
     """
+    if not is_external_player_id(player_id):
+        subject = resolve_player_subject(player_id)
+        if subject is None or not subject.is_public:
+            return neutral_player_not_found()
+        local_player = subject.local_player
+        shadow = subject.shadow
+        return jsonify(
+            {
+                "player_api_id": player_id,
+                "player_name": local_player.display_name,
+                "player_photo": shadow.photo_url if shadow is not None else None,
+                "stops": [],
+                "path": [],
+                "source": "local-player",
+            }
+        )
+
     try:
         from src.models.journey import ClubLocation, PlayerJourney
 
@@ -10698,11 +10770,16 @@ def admin_bulk_sync_journeys():
         player_ids = data.get("player_ids", [])
         force_full = data.get("force_full", False)
 
-        if not player_ids:
+        if not isinstance(player_ids, list) or not player_ids:
             return jsonify({"error": "No player_ids provided"}), 400
 
         if len(player_ids) > 50:
             return jsonify({"error": "Maximum 50 players per bulk sync"}), 400
+        if any(
+            isinstance(player_id, bool) or not isinstance(player_id, int) or not is_external_player_id(player_id)
+            for player_id in player_ids
+        ):
+            return jsonify({"error": "player_ids must contain only positive integers"}), 400
 
         service = JourneySyncService()
         results = {"success": [], "failed": []}
@@ -10810,6 +10887,7 @@ def admin_repair_journeys():
                 .join(TrackedPlayer, TrackedPlayer.journey_id == PlayerJourney.id)
                 .filter(
                     TrackedPlayer.is_active,
+                    TrackedPlayer.player_api_id > 0,
                     PlayerJourney.sync_error.isnot(None),
                 )
                 .distinct()
@@ -10826,6 +10904,7 @@ def admin_repair_journeys():
                 .join(TrackedPlayer, TrackedPlayer.journey_id == PlayerJourney.id)
                 .filter(
                     TrackedPlayer.is_active,
+                    TrackedPlayer.player_api_id > 0,
                     ~PlayerJourney.id.in_(db.session.query(journeys_with_entries.c.journey_id)),
                 )
                 .distinct()
@@ -10838,6 +10917,7 @@ def admin_repair_journeys():
             unlinked = (
                 TrackedPlayer.query.filter(
                     TrackedPlayer.is_active,
+                    TrackedPlayer.player_api_id > 0,
                     TrackedPlayer.journey_id.is_(None),
                 )
                 .limit(limit - len(player_ids_to_sync))
@@ -11083,6 +11163,8 @@ def admin_test_classify():
         player_api_id = int(player_api_id)
     except (ValueError, TypeError):
         return jsonify({"error": "player_api_id must be an integer"}), 400
+    if not is_external_player_id(player_api_id):
+        return jsonify({"error": "player_api_id must be a positive integer"}), 400
 
     force_sync = data.get("force_sync", False)
 
@@ -11236,6 +11318,8 @@ def admin_explain_academy():
         player_api_id = int(player_api_id)
     except (ValueError, TypeError):
         return jsonify({"error": "player_api_id must be an integer"}), 400
+    if not is_external_player_id(player_api_id):
+        return jsonify({"error": "player_api_id must be a positive integer"}), 400
 
     team_api_id = data.get("team_api_id")
     if team_api_id:
@@ -11624,11 +11708,13 @@ def admin_create_tracked_player():
         if not team_id:
             return jsonify({"error": "team_id is required"}), 400
 
-        # Auto-generate a negative player_api_id for manual entries
         player_api_id = data.get("player_api_id")
-        if not player_api_id:
-            min_id = db.session.query(func.min(TrackedPlayer.player_api_id)).scalar() or 0
-            player_api_id = min(min_id, 0) - 1
+        if (
+            isinstance(player_api_id, bool)
+            or not isinstance(player_api_id, int)
+            or not is_external_player_id(player_api_id)
+        ):
+            return jsonify({"error": "player_api_id must be a positive integer"}), 400
 
         player = TrackedPlayer(
             player_api_id=player_api_id,
@@ -12626,6 +12712,7 @@ def admin_sync_tracked_player_journeys():
 
         unlinked = TrackedPlayer.query.filter(
             TrackedPlayer.is_active,
+            TrackedPlayer.player_api_id > 0,
             TrackedPlayer.journey_id.is_(None),
         ).all()
 
@@ -12675,6 +12762,7 @@ def admin_sync_tracked_player_journeys():
         broken_linked = (
             TrackedPlayer.query.filter(
                 TrackedPlayer.is_active,
+                TrackedPlayer.player_api_id > 0,
                 TrackedPlayer.journey_id.isnot(None),
             )
             .join(PlayerJourney, TrackedPlayer.journey_id == PlayerJourney.id)

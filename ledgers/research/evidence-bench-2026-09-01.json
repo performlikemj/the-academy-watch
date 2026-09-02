@@ -1,0 +1,75 @@
+{
+ "experiment": "E1 \u2014 grounded-claim contract (DIRECTIVE_evidence-bench.md)",
+ "date": "2026-09-01/02",
+ "frozen_set": "match 4, 20 uploader-side reel windows (frozen_set_id 1f68e2755002b359)",
+ "basecamp": "ollama 0.33.2, launchd com.mj.ollama, OLLAMA_CONTEXT_LENGTH=65536",
+ "baseline": {
+  "model": "qwen3.8:27b-obliterated-q8",
+  "adapter": "baseline (per-frame observation prompt, no boxes by construction)",
+  "run": "e1-baseline",
+  "metrics": {
+   "scored_clips": 20,
+   "failed_clips": 0,
+   "claim_count": 157,
+   "claims_per_clip": 7.85,
+   "supported_rate": 0.0,
+   "time_only_rate": 1.0,
+   "unsupported_rate": 1.0,
+   "hollow_rate": 1.0,
+   "malformed_rate": 0.0064,
+   "echo_suspect_count": 0,
+   "untracked_gap": 5,
+   "wall_s_per_clip": 144.612
+  }
+ },
+ "candidate": {
+  "model": "qwen3-vl:8b",
+  "adapter": "qwen3vl_ollama anchor-first, box_space normalized_1000, box_t contract",
+  "run": "e1-qwen3vl-v5",
+  "metrics": {
+   "scored_clips": 20,
+   "failed_clips": 0,
+   "claim_count": 20,
+   "claims_per_clip": 1.0,
+   "supported_rate": 0.7,
+   "box_grounded_rate": 0.7,
+   "box_grounded_at_midpoint_rate": 0.0,
+   "time_only_rate": 0.3,
+   "unsupported_rate": 0.3,
+   "hollow_rate": 0.0,
+   "malformed_rate": 0.0,
+   "box_sanity_guard_count": 0,
+   "echo_suspect_count": 0,
+   "untracked_gap": 1,
+   "wall_s_per_clip": 16.468
+  }
+ },
+ "verdict": "Qwen3-VL grounds 14/20 claims (70%) on the tracked player at 16.5 s/clip vs 145 s; baseline is structurally 0% (never returns a box). Passes 'supported >= 2x baseline' and 'hollow < 5%'; misses 'unsupported <= 10%' (30%).",
+ "recommendation_D3": "ADOPT qwen3-vl:8b for reel captions/clip claims WITH the honesty gate (publish only box-grounded claims); keep qwen3.8 for the long-form per-player read until benchmarked the same way. MJ to confirm.",
+ "bench_faults_found_and_fixed": [
+  {
+   "pr": 927,
+   "fault": "ollama returns qwen3-vl answer in message.thinking with empty content under think:false+format:json"
+  },
+  {
+   "pr": 928,
+   "fault": "frames sent at 1280 wide while prompt claimed 1920 source coordinates"
+  },
+  {
+   "pr": 929,
+   "fault": "qwen3-vl boxes are 0-1000 normalized, not pixels; impossible boxes now flagged malformed"
+  },
+  {
+   "pr": 930,
+   "fault": "boxes scored at claim-span midpoint instead of the observed frame; box_t added to contract (0% -> 48% on the same data, 70% on the rerun)"
+  }
+ ],
+ "wasted_runs": [
+  "e1-qwen3vl-first (empty content)",
+  "e1-qwen3vl-first-v2 (wrong coord space)",
+  "e1-qwen3vl-v3 (wrong convention)",
+  "e1-qwen3vl-v4 (midpoint scoring)"
+ ],
+ "artifact": "https://claude.ai/code/artifact/ab0a131b-8c31-48c0-b889-d0eef56d845f",
+ "reports_on_basecamp": "~/Projects/loanarmy-bench-reports/{e1-baseline,e1-qwen3vl-v5}/report.{json,md}"
+}

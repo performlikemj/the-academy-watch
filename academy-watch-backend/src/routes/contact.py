@@ -45,7 +45,12 @@ from src.services.contact import (
     send_club_courtesy_notice,
     utcnow,
 )
-from src.services.player_suppression import is_player_suppressed, without_active_suppression
+from src.services.player_subject import resolve_player_subject
+from src.services.player_suppression import (
+    active_local_suppression_exists,
+    is_player_suppressed,
+    without_active_suppression,
+)
 from src.services.trust import is_verified_scout
 from src.services.user_blocks import (
     block_related_user_ids,
@@ -109,9 +114,9 @@ def _json_object() -> dict:
     return payload
 
 
-def _positive_player_id(value) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError("player_api_id must be a positive integer")
+def _signed_player_id(value) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value == 0:
+        raise ValueError("player_api_id must be a non-zero integer")
     return value
 
 
@@ -247,11 +252,21 @@ def _admin_contact_request_payload(row, verification, created_metadata: dict | N
 def _target_claim(player_api_id: int, *, for_update: bool = False) -> PlayerProfileClaim | None:
     # FC-B1 permits multiple approved claimants. The newest approved self-claim
     # is the deterministic introduction target and remains pinned by claim_id.
-    query = PlayerProfileClaim.query.filter_by(
-        player_api_id=player_api_id,
-        relationship_type="player",
-        status="approved",
-    ).filter(without_active_suppression(PlayerProfileClaim.player_api_id))
+    if player_api_id < 0:
+        subject = resolve_player_subject(player_api_id)
+        if subject is None or not subject.is_public or subject.local_player is None:
+            return None
+        query = PlayerProfileClaim.query.filter_by(
+            local_player_id=subject.local_player.id,
+            relationship_type="player",
+            status="approved",
+        ).filter(~active_local_suppression_exists(subject.local_player.id))
+    else:
+        query = PlayerProfileClaim.query.filter_by(
+            player_api_id=player_api_id,
+            relationship_type="player",
+            status="approved",
+        ).filter(without_active_suppression(PlayerProfileClaim.player_api_id))
     query = query.order_by(PlayerProfileClaim.reviewed_at.desc(), PlayerProfileClaim.id.desc())
     if for_update:
         query = query.populate_existing().with_for_update()
@@ -416,12 +431,17 @@ def create_contact_request():
             return jsonify({"error": "Scout verification is required", "code": "scout_not_verified"}), 403
 
         payload = _json_object()
-        player_api_id = _positive_player_id(payload.get("player_api_id"))
+        player_api_id = _signed_player_id(payload.get("player_api_id"))
         message = clean_plain_text(
             payload.get("message"),
             "message",
             max_len=MAX_REQUEST_MESSAGE_LENGTH,
         )
+
+        if player_api_id < 0:
+            subject = resolve_player_subject(player_api_id)
+            if subject is None or not subject.is_public or subject.local_player is None:
+                return _player_not_claimable()
 
         if is_player_suppressed(player_api_id):
             return _player_not_claimable()

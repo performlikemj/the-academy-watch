@@ -1,22 +1,26 @@
 """Tests for scout blueprint endpoints in src/routes/scout.py."""
 
 import os
-from datetime import datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from flask import Flask
+from src.models.follow import PlayerShadow
 from src.models.journey import PlayerJourney
 from src.models.league import League, PlayerStatsCache, Team, UserAccount, db
-from src.models.showcase import PlayerProfileClaim
+from src.models.season_rollup import PlayerSeasonTotal
+from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 
 
 @pytest.fixture
-def scout_app():
+def scout_app(monkeypatch):
     """Create a minimal Flask app with scout blueprint registered."""
     os.environ.setdefault("SKIP_API_HANDSHAKE", "1")
     os.environ.setdefault("API_USE_STUB_DATA", "true")
+    monkeypatch.delenv("SCOUT_INCLUDE_LOCAL_PLAYERS", raising=False)
+    monkeypatch.delenv("SEASON_ROLLUP_READS", raising=False)
 
     from src.routes.scout import scout_bp
 
@@ -236,6 +240,56 @@ def seeded_players(scout_app):
         db.session.commit()
 
 
+@pytest.fixture
+def approved_local_player(scout_app):
+    """Approved adult local identity with a self-reported season total."""
+
+    local = LocalPlayer(
+        display_name="Local Breakout",
+        normalized_name="local breakout",
+        birth_date=date(2001, 2, 3),
+        birth_year=2001,
+        position="Attacker",
+        country="Scotland",
+        club_name="Community FC",
+        status="approved",
+    )
+    db.session.add(local)
+    db.session.flush()
+    signed_id = -local.id
+    local.api_player_id = signed_id
+    db.session.add(
+        PlayerShadow(
+            player_api_id=signed_id,
+            player_name=local.display_name,
+            position=local.position,
+            nationality=local.country,
+            birth_date=local.birth_date,
+            current_club_name=local.club_name,
+            is_active=True,
+        )
+    )
+    db.session.add(
+        PlayerSeasonTotal(
+            player_api_id=signed_id,
+            season=2025,
+            level_group="senior",
+            appearances=9,
+            goals=7,
+            assists=4,
+            minutes=720,
+            yellows=1,
+            reds=0,
+            primary_source="user",
+            fixtures_minutes=0,
+            journey_minutes=0,
+            computed_at=datetime(2026, 9, 2, tzinfo=UTC),
+        )
+    )
+    db.session.commit()
+    return signed_id
+
+
 class TestScoutPlayers:
     def test_browse_returns_deduped_players_with_stats(self, scout_client, seeded_players):
         resp = scout_client.get("/api/scout/players")
@@ -352,6 +406,134 @@ class TestScoutPlayers:
         assert data["total"] == 3
         resp = scout_client.get("/api/scout/players?status=first_team")
         assert resp.get_json()["total"] == 0
+
+
+class TestLocalPlayerUniverse:
+    def test_accidental_negative_tracked_row_never_bypasses_local_gate(self, scout_client, seeded_players, monkeypatch):
+        parent = Team.query.filter_by(team_id=33).one()
+        db.session.add(
+            TrackedPlayer(
+                player_api_id=-999,
+                player_name="Legacy Negative",
+                position="Attacker",
+                age=21,
+                team_id=parent.id,
+                status="academy",
+                is_active=True,
+            )
+        )
+        db.session.commit()
+
+        assert -999 not in {
+            player["player_id"] for player in scout_client.get("/api/scout/players").get_json()["players"]
+        }
+        monkeypatch.setenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "1")
+        assert -999 not in {
+            player["player_id"] for player in scout_client.get("/api/scout/players").get_json()["players"]
+        }
+
+    def test_local_union_is_off_by_default_and_self_reported_when_enabled(
+        self, scout_client, seeded_players, approved_local_player, monkeypatch
+    ):
+        hidden = scout_client.get("/api/scout/players?search=Local%20Breakout")
+        assert hidden.status_code == 200
+        assert hidden.get_json()["players"] == []
+
+        monkeypatch.setenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "1")
+        shown = scout_client.get("/api/scout/players?search=Local%20Breakout")
+        assert shown.status_code == 200
+        row = shown.get_json()["players"][0]
+        assert row["player_id"] == approved_local_player
+        assert (row["appearances"], row["goals"], row["assists"], row["minutes_played"]) == (9, 7, 4, 720)
+        assert row["provenance"] == {
+            "source_category": "self",
+            "source_label": "Self-reported",
+            "primary_source": "user",
+        }
+
+    def test_source_filter_has_identical_categories(
+        self, scout_client, seeded_players, approved_local_player, monkeypatch
+    ):
+        monkeypatch.setenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "true")
+        db.session.add(
+            PlayerSeasonTotal(
+                player_api_id=1002,
+                season=2025,
+                level_group="senior",
+                appearances=1,
+                goals=6,
+                assists=2,
+                minutes=90,
+                primary_source="club",
+                fixtures_minutes=0,
+                journey_minutes=0,
+                computed_at=datetime(2026, 9, 2, tzinfo=UTC),
+            )
+        )
+        db.session.commit()
+
+        all_ids = {
+            player["player_id"] for player in scout_client.get("/api/scout/players?sort=name").get_json()["players"]
+        }
+        assert approved_local_player in all_ids
+        assert {
+            player["player_id"]
+            for player in scout_client.get("/api/scout/players?source=self&sort=name").get_json()["players"]
+        } == {approved_local_player}
+        club_rows = scout_client.get("/api/scout/players?source=club&sort=name").get_json()["players"]
+        assert {player["player_id"] for player in club_rows} == {1002}
+        assert club_rows[0]["goals"] == 6
+        api_ids = {
+            player["player_id"]
+            for player in scout_client.get("/api/scout/players?source=api&sort=name").get_json()["players"]
+        }
+        assert approved_local_player not in api_ids
+        assert 1002 not in api_ids
+
+        compared = scout_client.get("/api/scout/compare?ids=1002&source=club").get_json()["players"][0]
+        assert compared["totals"]["goals"] == 6
+        assert compared["provenance"]["source_category"] == "club"
+
+    def test_default_leaderboards_exclude_self_but_explicit_self_includes_it(
+        self, scout_client, seeded_players, approved_local_player, monkeypatch
+    ):
+        monkeypatch.setenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "yes")
+        default_boards = scout_client.get("/api/scout/leaderboards").get_json()["leaderboards"]
+        assert all(row["player_id"] != approved_local_player for entries in default_boards.values() for row in entries)
+
+        self_boards = scout_client.get("/api/scout/leaderboards?source=self").get_json()["leaderboards"]
+        assert self_boards["top_scorers"][0]["player_id"] == approved_local_player
+        assert self_boards["top_scorers"][0]["provenance"]["source_category"] == "self"
+
+    def test_negative_compare_is_db_only(self, scout_client, seeded_players, approved_local_player, monkeypatch):
+        import src.routes.scout as scout_module
+
+        monkeypatch.setenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "on")
+
+        def _must_not_construct_client():
+            raise AssertionError("negative compare attempted API-Football availability")
+
+        monkeypatch.setattr(scout_module, "_get_api_client", _must_not_construct_client)
+        response = scout_client.get(
+            f"/api/scout/compare?ids={approved_local_player}&include_availability=true&source=self"
+        )
+        assert response.status_code == 200
+        compared = response.get_json()["players"][0]
+        assert compared["profile"]["player_id"] == approved_local_player
+        assert compared["totals"]["goals"] == 7
+        assert compared["availability"] is None
+        assert compared["provenance"]["source_category"] == "self"
+
+    @pytest.mark.parametrize(
+        "path",
+        (
+            "/api/scout/players?source=bogus",
+            "/api/scout/leaderboards?source=bogus",
+            "/api/scout/compare?ids=1001&source=bogus",
+        ),
+    )
+    def test_invalid_source_is_rejected(self, scout_client, seeded_players, path):
+        assert scout_client.get(path).status_code == 400
 
 
 class TestScoutLeaderboards:

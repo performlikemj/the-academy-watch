@@ -36,10 +36,27 @@ from src.auth import (
     require_user_auth,
 )
 from src.extensions import limiter
-from src.models.follow import Follow, FollowList, PlayerShadow
+from src.models.contact import ContactRequest
+from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerShadow, PlayerShadowStats
+from src.models.funding import ClubRosterMember
 from src.models.journey import PlayerJourney
-from src.models.league import NewsletterPlayerYoutubeLink, PlayerLink, Team, UserAccount, db
+from src.models.league import (
+    CommunityTake,
+    NewsletterCommentary,
+    NewsletterPlayerYoutubeLink,
+    Player,
+    PlayerComment,
+    PlayerFlag,
+    PlayerLink,
+    QuickTakeSubmission,
+    Team,
+    UserAccount,
+    db,
+)
+from src.models.player_suppression import PlayerSuppression
+from src.models.pulse import PlayerCardCache, PlayerPulse
 from src.models.scout_watchlist import ScoutWatchlistEntry
+from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.showcase import (
     ClubOfficialClaim,
     LocalClub,
@@ -53,7 +70,7 @@ from src.models.showcase import (
 )
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
-from src.services import showcase_media_storage, social_proof
+from src.services import season_rollup_service, showcase_media_storage, social_proof
 from src.services.club_console_bridge import (
     ClubConsoleBridgeConflict,
     grant_console_for_official_claim,
@@ -64,6 +81,7 @@ from src.services.contact import (
     CONTRACT_STATUSES as CLAIM_CONTRACT_STATUSES,
 )
 from src.services.contact import (
+    add_audit_event,
     clean_plain_text,
     contact_rail_enabled,
     has_status_contradiction,
@@ -72,6 +90,8 @@ from src.services.contact import (
 )
 from src.services.photo_processing import process_photo, validate_photo
 from src.services.player_identity import retained_shadow_identity_exists
+from src.services.player_shadow_service import mint_shadow
+from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import (
     hide_suppressed_player,
     is_local_player_suppressed,
@@ -85,6 +105,11 @@ from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 logger = logging.getLogger(__name__)
 
 showcase_bp = Blueprint("showcase", __name__)
+
+# A handful of production rows predate D1 and occupy its reserved negative-id
+# namespace without being referenced anywhere. Keep the warning useful instead
+# of emitting it on every re-approval attempt or worker request.
+_logged_orphan_legacy_player_ids: set[int] = set()
 
 
 @showcase_bp.before_app_request
@@ -1619,7 +1644,7 @@ def get_local_player_showcase(lp_id: int):
         return jsonify(_safe_error_payload(e, "Failed to load showcase")), 500
 
 
-@showcase_bp.route("/players/<int:player_api_id>/showcase", methods=["GET"])
+@showcase_bp.route("/players/<int(signed=True):player_api_id>/showcase", methods=["GET"])
 @hide_suppressed_player("player_api_id")
 def get_player_showcase(player_api_id: int):
     """Showcase payload: approved profile + reel + verified footage + claim status.
@@ -1630,10 +1655,20 @@ def get_player_showcase(player_api_id: int):
     or bad-token callers get the approved-only public view — never a 401.
     """
     try:
-        visible = db.session.query(literal(1)).filter(without_minor_local_bridge(player_api_id)).first()
-        if visible is None:
+        resolved = resolve_player_subject(player_api_id)
+        if resolved is None or not resolved.is_public:
             return neutral_player_not_found()
-        return jsonify(_subject_showcase_payload(_api_subject(player_api_id)))
+        if resolved.is_local:
+            player = resolved.local_player
+            if player is None or _local_player_is_suppressed(player):
+                return neutral_player_not_found()
+            subject = _local_subject(player.id)
+        else:
+            visible = db.session.query(literal(1)).filter(without_minor_local_bridge(player_api_id)).first()
+            if visible is None:
+                return neutral_player_not_found()
+            subject = _api_subject(player_api_id)
+        return jsonify(_subject_showcase_payload(subject))
     except Exception as e:
         logger.error("Error in get_player_showcase: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load showcase")), 500
@@ -3403,6 +3438,35 @@ def admin_list_local_players():
         return jsonify(_safe_error_payload(e, "Failed to load local players")), 500
 
 
+def _legacy_negative_identity_conflict(player_api_id: int):
+    """Lock and return a referenced legacy identity occupying D1's namespace.
+
+    An unreferenced ``players`` row is inert legacy data and must not prevent a
+    LocalPlayer from receiving its deterministic signed id. References in any
+    player-universe table make the collision ambiguous, so those fail closed.
+    """
+
+    followed_player_id = Follow.selector["player_api_id"].as_integer()
+    reference_queries = (
+        TrackedPlayer.query.filter_by(player_api_id=player_api_id),
+        PlayerShadow.query.filter_by(player_api_id=player_api_id),
+        PlayerProfileClaim.query.filter_by(player_api_id=player_api_id),
+        ScoutWatchlistEntry.query.filter_by(player_api_id=player_api_id),
+        Follow.query.filter(Follow.kind == "player", followed_player_id == player_api_id),
+        FollowPlayerSnapshot.query.filter_by(player_api_id=player_api_id),
+    )
+    for query in reference_queries:
+        reference = query.with_for_update().first()
+        if reference is not None:
+            return reference
+
+    legacy_player = Player.query.filter_by(player_id=player_api_id).with_for_update().first()
+    if legacy_player is not None and player_api_id not in _logged_orphan_legacy_player_ids:
+        logger.warning("Ignoring orphan legacy players row for reserved negative id %s", player_api_id)
+        _logged_orphan_legacy_player_ids.add(player_api_id)
+    return None
+
+
 @showcase_bp.route("/admin/local-players/<int:lp_id>/review", methods=["POST"])
 @require_api_key
 def admin_review_local_player(lp_id: int):
@@ -3418,17 +3482,43 @@ def admin_review_local_player(lp_id: int):
         action = raw_action.strip().lower() if isinstance(raw_action, str) else ""
         if action not in ("approve", "reject"):
             return jsonify({"error": "action must be approve or reject"}), 400
-        if player.status != "pending":
+        repeated_approval = action == "approve" and player.status == "approved"
+        if player.status != "pending" and not repeated_approval:
             return jsonify({"error": f"cannot {action} a {player.status} local player"}), 409
         if action == "approve" and _local_player_is_suppressed(player):
             return jsonify({"error": "local player not found"}), 404
+        synthetic_player_api_id = player.api_player_id if player.api_player_id is not None else -player.id
+        if (
+            action == "approve"
+            and not repeated_approval
+            and synthetic_player_api_id < 0
+            and _legacy_negative_identity_conflict(synthetic_player_api_id) is not None
+        ):
+            return jsonify({"error": "synthetic player id conflicts with a legacy manual player"}), 409
 
         now = datetime.now(UTC)
-        player.status = "approved" if action == "approve" else "rejected"
-        player.review_note = _clean_optional_text(payload.get("note"), MAX_REVIEW_NOTE_LENGTH)
-        player.reviewed_by = getattr(g, "user_email", None)
-        player.reviewed_at = now
-        player.updated_at = now
+        if not repeated_approval:
+            player.status = "approved" if action == "approve" else "rejected"
+            player.review_note = _clean_optional_text(payload.get("note"), MAX_REVIEW_NOTE_LENGTH)
+            player.reviewed_by = getattr(g, "user_email", None)
+            player.reviewed_at = now
+            player.updated_at = now
+        if action == "approve":
+            if player.api_player_id is None:
+                player.api_player_id = -player.id
+                player.updated_at = now
+            mint_shadow(
+                player.api_player_id,
+                seed={
+                    "name": player.display_name,
+                    "position": player.position,
+                    "nationality": player.country,
+                    "birth_date": player.birth_date,
+                    "birth_year": player.birth_year,
+                    "club_name": player.club_name,
+                },
+                requested_by=player.created_by_user_id,
+            )
         db.session.commit()
         return jsonify({"player": _local_player_admin_dict(player)})
     except Exception as e:
@@ -3450,6 +3540,13 @@ _PROFILE_MERGE_FIELDS = (
     "nationality_secondary",
     "languages",
 )
+_PENDING_PROFILE_MERGE_FIELDS = (
+    "pending_contract_claim_id",
+    "pending_contract_status",
+    "pending_current_club_name",
+    "pending_club_program_id",
+    "pending_status_contradiction",
+)
 _CLAIM_MERGE_STATUS_RANK = {
     "pending": 0,
     "approved": 1,
@@ -3463,7 +3560,7 @@ _CLAIM_EVIDENCE_STATUS_RANK = {
 }
 
 
-def _merge_local_player_claims(source_id: int, target_id: int) -> int:
+def _merge_subject_claims(source_subject: ShowcaseSubject, target_subject: ShowcaseSubject) -> int:
     """Move claims while retaining one canonical row per claimant.
 
     A user may have claimed both duplicate identities before an admin discovers
@@ -3471,8 +3568,6 @@ def _merge_local_player_claims(source_id: int, target_id: int) -> int:
     (revoked/rejected cannot be resurrected), while the strongest independent
     social-proof evidence and club-vouch provenance are retained.
     """
-    source_subject = _local_subject(source_id)
-    target_subject = _local_subject(target_id)
     source_claims = (
         PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, source_subject)).with_for_update().all()
     )
@@ -3546,22 +3641,36 @@ def _merge_local_player_claims(source_id: int, target_id: int) -> int:
             target_claim.created_at is None or source_claim.created_at < target_claim.created_at
         ):
             target_claim.created_at = source_claim.created_at
+        ContactRequest.query.filter_by(claim_id=source_claim.id).update(
+            {ContactRequest.claim_id: target_claim.id},
+            synchronize_session=False,
+        )
+        PlayerShowcaseProfile.query.filter_by(pending_contract_claim_id=source_claim.id).update(
+            {PlayerShowcaseProfile.pending_contract_claim_id: target_claim.id},
+            synchronize_session=False,
+        )
         db.session.delete(source_claim)
 
     # Flush duplicate removals before the bulk move meets the local claimant
     # uniqueness constraint.
     db.session.flush()
+    target_values = _subject_values(target_subject)
     PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, source_subject)).update(
-        {PlayerProfileClaim.local_player_id: target_id},
+        {
+            PlayerProfileClaim.player_api_id: target_values["player_api_id"],
+            PlayerProfileClaim.local_player_id: target_values["local_player_id"],
+        },
         synchronize_session=False,
     )
     return len(source_claims)
 
 
-def _merge_local_player_profiles(source_id: int, target_id: int, now: datetime) -> int:
+def _merge_local_player_claims(source_id: int, target_id: int) -> int:
+    return _merge_subject_claims(_local_subject(source_id), _local_subject(target_id))
+
+
+def _merge_subject_profiles(source_subject: ShowcaseSubject, target_subject: ShowcaseSubject, now: datetime) -> int:
     """Move the source profile, consolidating a target collision safely."""
-    source_subject = _local_subject(source_id)
-    target_subject = _local_subject(target_id)
     source_profile = (
         PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, source_subject))
         .with_for_update()
@@ -3576,9 +3685,11 @@ def _merge_local_player_profiles(source_id: int, target_id: int, now: datetime) 
         .first()
     )
     if target_profile is None:
+        target_values = _subject_values(target_subject)
         return PlayerShowcaseProfile.query.filter(PlayerShowcaseProfile.id == source_profile.id).update(
             {
-                PlayerShowcaseProfile.local_player_id: target_id,
+                PlayerShowcaseProfile.player_api_id: target_values["player_api_id"],
+                PlayerShowcaseProfile.local_player_id: target_values["local_player_id"],
                 PlayerShowcaseProfile.updated_at: now,
             },
             synchronize_session=False,
@@ -3589,6 +3700,10 @@ def _merge_local_player_profiles(source_id: int, target_id: int, now: datetime) 
         if getattr(target_profile, field) is None and getattr(source_profile, field) is not None:
             setattr(target_profile, field, getattr(source_profile, field))
             changed = True
+    if target_profile.pending_contract_status is None and source_profile.pending_contract_status is not None:
+        for field in _PENDING_PROFILE_MERGE_FIELDS:
+            setattr(target_profile, field, getattr(source_profile, field))
+        changed = True
     if changed:
         # Any source-authored material entering the canonical card must pass
         # through pre-moderation again before becoming public.
@@ -3600,6 +3715,10 @@ def _merge_local_player_profiles(source_id: int, target_id: int, now: datetime) 
     db.session.delete(source_profile)
     db.session.flush()
     return 1
+
+
+def _merge_local_player_profiles(source_id: int, target_id: int, now: datetime) -> int:
+    return _merge_subject_profiles(_local_subject(source_id), _local_subject(target_id), now)
 
 
 @showcase_bp.route("/admin/local-players/<int:lp_id>/merge", methods=["POST"])
@@ -3674,12 +3793,652 @@ def admin_merge_local_player(lp_id: int):
         return jsonify(_safe_error_payload(e, "Failed to merge local player")), 500
 
 
+class _GraduationConflict(RuntimeError):
+    """A collision that cannot be merged without changing user-owned history."""
+
+
+def _naive_utc(value):
+    if value is not None and value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    return value
+
+
+def _earliest(left, right):
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return left if _naive_utc(left) <= _naive_utc(right) else right
+
+
+def _latest(left, right):
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return left if _naive_utc(left) >= _naive_utc(right) else right
+
+
+def _merge_snapshot_state(target, source) -> None:
+    """Keep the newest digest baseline and avoid discarding a useful note."""
+    if not target.note and source.note:
+        target.note = source.note
+    source_is_newer = source.last_digest_at is not None and (
+        target.last_digest_at is None or _naive_utc(source.last_digest_at) > _naive_utc(target.last_digest_at)
+    )
+    if source.last_snapshot is not None and (target.last_snapshot is None or source_is_newer):
+        target.last_snapshot = source.last_snapshot
+    target.last_digest_at = _latest(target.last_digest_at, source.last_digest_at)
+    target.created_at = _earliest(target.created_at, source.created_at)
+    if hasattr(target, "updated_at"):
+        target.updated_at = _latest(target.updated_at, source.updated_at)
+
+
+def _merge_media_state(target, source) -> None:
+    # Graduation must never make an explicitly denied duplicate public again.
+    status_rank = {"pending_upload": 0, "pending": 1, "approved": 2, "rejected": 3}
+    if status_rank.get(source.status, -1) > status_rank.get(target.status, -1):
+        for field in ("status", "reviewed_by", "reviewed_at", "review_note"):
+            setattr(target, field, getattr(source, field))
+    for field in ("public_url", "content_type", "size_bytes", "uploaded_by_user_id"):
+        if getattr(target, field) is None and getattr(source, field) is not None:
+            setattr(target, field, getattr(source, field))
+    target.is_primary = bool(target.is_primary or source.is_primary)
+    target.created_at = _earliest(target.created_at, source.created_at)
+    target.updated_at = _latest(target.updated_at, source.updated_at)
+
+
+def _rekey_showcase_media(source: ShowcaseSubject, target: ShowcaseSubject, player_api_id: int, now: datetime) -> int:
+    source_rows = (
+        PlayerShowcaseMedia.query.filter(*_subject_filters(PlayerShowcaseMedia, source)).with_for_update().all()
+    )
+    target_rows = (
+        PlayerShowcaseMedia.query.filter(*_subject_filters(PlayerShowcaseMedia, target)).with_for_update().all()
+    )
+    target_by_blob = {}
+    for row in target_rows:
+        existing = target_by_blob.get(row.blob_path)
+        if existing is None or (row.status == "rejected" and existing.status != "rejected"):
+            target_by_blob[row.blob_path] = row
+    to_move = []
+    for row in source_rows:
+        duplicate = target_by_blob.get(row.blob_path)
+        if duplicate is None:
+            target_by_blob[row.blob_path] = row
+            to_move.append(row)
+            continue
+        _merge_media_state(duplicate, row)
+        db.session.delete(row)
+    db.session.flush()
+    for row in to_move:
+        row.player_api_id = player_api_id
+        row.local_player_id = None
+        row.updated_at = now
+
+    combined = [row for row in [*target_rows, *to_move] if row not in db.session.deleted and row.kind == "photo"]
+    eligible_primaries = [row for row in combined if row.is_primary and row.status != "rejected"]
+    if not eligible_primaries:
+        eligible_primaries = [row for row in combined if row.is_primary]
+    canonical_primary = min(eligible_primaries, key=lambda row: (row.sort_order or 0, row.id or 0), default=None)
+    ordered = sorted(
+        combined,
+        key=lambda row: (
+            0 if row is canonical_primary else 1,
+            row.sort_order or 0,
+            _naive_utc(row.created_at) or datetime.min,
+            row.id or 0,
+        ),
+    )
+    for sort_order, row in enumerate(ordered):
+        row.is_primary = row is canonical_primary
+        row.sort_order = sort_order
+    return len(source_rows)
+
+
+def _merge_affiliation_state(target, source, now: datetime) -> None:
+    # Graduation is not a new moderation decision, so rejection wins.
+    status_rank = {"pending": 0, "self_reported": 1, "club_confirmed": 2, "rejected": 3}
+    if status_rank.get(source.status, -1) > status_rank.get(target.status, -1):
+        for field in ("status", "reviewed_by", "reviewed_at", "review_note"):
+            setattr(target, field, getattr(source, field))
+    if target.season is None and source.season is not None:
+        target.season = source.season
+    if target.created_by_user_id is None and source.created_by_user_id is not None:
+        target.created_by_user_id = source.created_by_user_id
+    target.created_at = _earliest(target.created_at, source.created_at)
+    target.updated_at = now
+
+
+def _rekey_affiliations(source: ShowcaseSubject, player_api_id: int, now: datetime) -> int:
+    source_rows = (
+        PlayerClubAffiliation.query.filter(*_subject_filters(PlayerClubAffiliation, source)).with_for_update().all()
+    )
+    target_rows = PlayerClubAffiliation.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    target_by_club = {}
+    for row in target_rows:
+        key = (row.local_club_id, row.team_api_id)
+        existing = target_by_club.get(key)
+        if existing is None or (row.status == "rejected" and existing.status != "rejected"):
+            target_by_club[key] = row
+    to_move = []
+    for row in source_rows:
+        key = (row.local_club_id, row.team_api_id)
+        duplicate = target_by_club.get(key)
+        if duplicate is None:
+            target_by_club[key] = row
+            to_move.append(row)
+            continue
+        _merge_affiliation_state(duplicate, row, now)
+        db.session.delete(row)
+    db.session.flush()
+    for row in to_move:
+        row.player_api_id = player_api_id
+        row.local_player_id = None
+        row.updated_at = now
+    return len(source_rows)
+
+
+def _link_dedup_key(row: PlayerLink) -> tuple[str | None, str]:
+    url = (row.url or "").strip()
+    return row.link_type, _youtube_video_id(url) or url
+
+
+def _merge_link_state(target, source) -> None:
+    status_rank = {"pending": 0, "approved": 1, "rejected": 2}
+    if status_rank.get(source.status, -1) > status_rank.get(target.status, -1):
+        target.status = source.status
+    if not target.title and source.title:
+        target.title = source.title
+    if target.user_id is None and source.user_id is not None:
+        target.user_id = source.user_id
+    target.upvotes = max(target.upvotes or 0, source.upvotes or 0)
+    target.sort_order = min(target.sort_order or 0, source.sort_order or 0)
+    target.created_at = _earliest(target.created_at, source.created_at)
+
+
+def _rekey_links(source: ShowcaseSubject, player_api_id: int) -> int:
+    source_rows = (
+        PlayerLink.query.filter(*_subject_filters(PlayerLink, source, api_field="player_id")).with_for_update().all()
+    )
+    target_rows = PlayerLink.query.filter_by(player_id=player_api_id).with_for_update().all()
+    target_by_key = {}
+    for row in target_rows:
+        key = _link_dedup_key(row)
+        existing = target_by_key.get(key)
+        if existing is None or (row.status == "rejected" and existing.status != "rejected"):
+            target_by_key[key] = row
+    to_move = []
+    for row in source_rows:
+        key = _link_dedup_key(row)
+        duplicate = target_by_key.get(key)
+        if duplicate is None:
+            target_by_key[key] = row
+            to_move.append(row)
+            continue
+        _merge_link_state(duplicate, row)
+        db.session.delete(row)
+    db.session.flush()
+    for row in to_move:
+        row.player_id = player_api_id
+        row.local_player_id = None
+    highlights = sorted(
+        [row for row in [*target_rows, *to_move] if row not in db.session.deleted and row.link_type == "highlight"],
+        key=lambda row: (row.sort_order or 0, _naive_utc(row.created_at) or datetime.min, row.id or 0),
+    )
+    for sort_order, row in enumerate(highlights):
+        row.sort_order = sort_order
+    return len(source_rows)
+
+
+def _rekey_showcase_rows(local_player_id: int, player_api_id: int, now: datetime) -> dict:
+    source = _local_subject(local_player_id)
+    target = _api_subject(player_api_id)
+    counts = {
+        "claims": _merge_subject_claims(source, target),
+        "profiles": _merge_subject_profiles(source, target, now),
+        "media": _rekey_showcase_media(source, target, player_api_id, now),
+        "affiliations": _rekey_affiliations(source, player_api_id, now),
+        "links": _rekey_links(source, player_api_id),
+    }
+    return counts
+
+
+def _local_birth_date_for_shadow(player: LocalPlayer):
+    return player.birth_date
+
+
+def _rekey_shadow(
+    old_player_api_id: int,
+    player_api_id: int,
+    local_player: LocalPlayer,
+) -> tuple[int, bool]:
+    source = PlayerShadow.query.filter_by(player_api_id=old_player_api_id).with_for_update().first()
+    target = PlayerShadow.query.filter_by(player_api_id=player_api_id).with_for_update().first()
+    if source is None:
+        if target is not None:
+            return 0, False
+        db.session.add(
+            PlayerShadow(
+                player_api_id=player_api_id,
+                player_name=local_player.display_name,
+                position=local_player.position,
+                nationality=local_player.country,
+                birth_date=_local_birth_date_for_shadow(local_player),
+                current_club_name=local_player.club_name,
+                requested_by_user_id=local_player.created_by_user_id,
+                is_active=True,
+            )
+        )
+        db.session.flush()
+        return 1, False
+    if target is None:
+        source.player_api_id = player_api_id
+        return 1, False
+
+    for field in (
+        "photo_url",
+        "position",
+        "nationality",
+        "birth_date",
+        "current_club_name",
+        "current_club_api_id",
+        "requested_by_user_id",
+    ):
+        if getattr(target, field) is None and getattr(source, field) is not None:
+            setattr(target, field, getattr(source, field))
+    target.last_profile_sync_at = _latest(target.last_profile_sync_at, source.last_profile_sync_at)
+    target.last_stats_sync_at = _latest(target.last_stats_sync_at, source.last_stats_sync_at)
+    target.created_at = _earliest(target.created_at, source.created_at)
+    target.is_active = bool(target.is_active or source.is_active)
+    db.session.delete(source)
+    return 1, True
+
+
+def _rekey_shadow_stats(old_player_api_id: int, player_api_id: int) -> int:
+    source_rows = PlayerShadowStats.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+    if not source_rows:
+        return 0
+    target_rows = PlayerShadowStats.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    target_by_key = {(row.team_api_id, row.season): row for row in target_rows}
+    to_move = []
+    for source in source_rows:
+        key = (source.team_api_id, source.season)
+        target = target_by_key.get(key)
+        if target is None:
+            target_by_key[key] = source
+            to_move.append(source)
+            continue
+        for field in ("team_name", "appearances", "goals", "assists", "minutes"):
+            if getattr(target, field) is None and getattr(source, field) is not None:
+                setattr(target, field, getattr(source, field))
+        target.updated_at = _latest(target.updated_at, source.updated_at)
+        db.session.delete(source)
+    db.session.flush()
+    for source in to_move:
+        source.player_api_id = player_api_id
+    return len(source_rows)
+
+
+def _rekey_watchlists(old_player_api_id: int, player_api_id: int) -> int:
+    source_rows = ScoutWatchlistEntry.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+    targets = {
+        row.user_account_id: row
+        for row in ScoutWatchlistEntry.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    }
+    to_move = []
+    for source in source_rows:
+        target = targets.get(source.user_account_id)
+        if target is None:
+            targets[source.user_account_id] = source
+            to_move.append(source)
+            continue
+        _merge_snapshot_state(target, source)
+        db.session.delete(source)
+    db.session.flush()
+    for source in to_move:
+        source.player_api_id = player_api_id
+    return len(source_rows)
+
+
+def _rekey_follow_snapshots(old_player_api_id: int, player_api_id: int) -> int:
+    source_rows = FollowPlayerSnapshot.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+    targets = {
+        row.user_account_id: row
+        for row in FollowPlayerSnapshot.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    }
+    to_move = []
+    for source in source_rows:
+        target = targets.get(source.user_account_id)
+        if target is None:
+            targets[source.user_account_id] = source
+            to_move.append(source)
+            continue
+        _merge_snapshot_state(target, source)
+        db.session.delete(source)
+    db.session.flush()
+    for source in to_move:
+        source.player_api_id = player_api_id
+    return len(source_rows)
+
+
+def _rekey_follow_selectors(old_player_api_id: int, player_api_id: int) -> int:
+    followed_player_id = Follow.selector["player_api_id"].as_integer()
+    player_follows = (
+        Follow.query.filter(
+            Follow.kind == "player",
+            followed_player_id.in_((old_player_api_id, player_api_id)),
+        )
+        .with_for_update()
+        .all()
+    )
+    source_rows = [row for row in player_follows if (row.selector or {}).get("player_api_id") == old_player_api_id]
+    target_by_list = {
+        row.list_id: row for row in player_follows if (row.selector or {}).get("player_api_id") == player_api_id
+    }
+    to_move = []
+    for source in source_rows:
+        target = target_by_list.get(source.list_id)
+        if target is None:
+            target_by_list[source.list_id] = source
+            to_move.append(source)
+            continue
+        if not target.note and source.note:
+            target.note = source.note
+        target.notify_when_fundable = bool(target.notify_when_fundable or source.notify_when_fundable)
+        target.created_at = _earliest(target.created_at, source.created_at)
+        db.session.delete(source)
+    db.session.flush()
+    for source in to_move:
+        source.selector = {**(source.selector or {}), "player_api_id": player_api_id}
+    return len(source_rows)
+
+
+def _rekey_roster(local_player_id: int, old_player_api_id: int, player_api_id: int) -> tuple[int, int]:
+    source_rows = (
+        ClubRosterMember.query.filter(
+            or_(
+                ClubRosterMember.local_player_id == local_player_id,
+                ClubRosterMember.player_api_id == old_player_api_id,
+            )
+        )
+        .with_for_update()
+        .all()
+    )
+    targets = {
+        row.program_id: row
+        for row in ClubRosterMember.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    }
+    to_move = []
+    video_rows = 0
+    for source in source_rows:
+        target = targets.get(source.program_id)
+        if target is None:
+            targets[source.program_id] = source
+            to_move.append(source)
+            continue
+        if not target.role and source.role:
+            target.role = source.role
+        if not target.note and source.note:
+            target.note = source.note
+        target.created_at = _earliest(target.created_at, source.created_at)
+        video_rows += VideoRosterEntry.query.filter_by(club_roster_member_id=source.id).update(
+            {VideoRosterEntry.club_roster_member_id: target.id},
+            synchronize_session=False,
+        )
+        db.session.delete(source)
+    db.session.flush()
+    for source in to_move:
+        source.player_api_id = player_api_id
+        source.local_player_id = None
+    return len(source_rows), video_rows
+
+
+def _rekey_video_report_subjects(local_player_id: int, player_api_id: int) -> int:
+    return VideoPlayerReport.query.filter_by(club_local_player_id_at_finalize=local_player_id).update(
+        {
+            VideoPlayerReport.club_player_api_id_at_finalize: player_api_id,
+            VideoPlayerReport.club_local_player_id_at_finalize: None,
+        },
+        synchronize_session=False,
+    )
+
+
+def _rekey_contacts(old_player_api_id: int, player_api_id: int) -> int:
+    source_rows = ContactRequest.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+    active_statuses = {"pending", "accepted"}
+    target_active_by_scout = {
+        row.scout_user_id: row
+        for row in ContactRequest.query.filter(
+            ContactRequest.player_api_id == player_api_id,
+            ContactRequest.status.in_(active_statuses),
+        )
+        .with_for_update()
+        .all()
+    }
+    status_rank = {"pending": 0, "accepted": 1}
+    now = utcnow()
+    for source in source_rows:
+        target = target_active_by_scout.get(source.scout_user_id)
+        if source.status not in active_statuses or target is None:
+            continue
+        if status_rank[source.status] > status_rank[target.status]:
+            winner, loser = source, target
+            target_active_by_scout[source.scout_user_id] = source
+        else:
+            winner, loser = target, source
+        loser.status = "withdrawn"
+        loser.responded_at = loser.responded_at or now
+        add_audit_event(
+            loser,
+            "withdrawn",
+            actor_user_id=None,
+            metadata={
+                "reason": "identity_graduation_deduplication",
+                "canonical_request_id": winner.id,
+            },
+            created_at=now,
+        )
+    db.session.flush()
+    for row in source_rows:
+        row.player_api_id = player_api_id
+    return len(source_rows)
+
+
+def _rekey_suppressions(local_player_id: int, old_player_api_id: int, player_api_id: int) -> int:
+    source_rows = (
+        PlayerSuppression.query.filter(
+            or_(
+                PlayerSuppression.local_player_id == local_player_id,
+                PlayerSuppression.player_api_id == old_player_api_id,
+            )
+        )
+        .with_for_update()
+        .all()
+    )
+    target_rows = PlayerSuppression.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    open_statuses = {"requested", "active"}
+    open_rows = [row for row in [*source_rows, *target_rows] if row.status in open_statuses]
+    if len(open_rows) > 1:
+        target_ids = {row.id for row in target_rows}
+        status_rank = {"requested": 0, "active": 1}
+        winner = max(
+            open_rows,
+            key=lambda row: (status_rank[row.status], row.id in target_ids, row.id),
+        )
+        decided_at = datetime.now(UTC)
+        note = "Consolidated into the canonical identity during local-to-API graduation."
+        for row in open_rows:
+            if row is winner:
+                continue
+            row.status = "lifted" if row.status == "active" else "rejected"
+            row.decided_at = decided_at
+            row.decided_by = "system:identity-graduation"
+            row.notes = f"{row.notes}\n{note}"[-2000:] if row.notes else note
+        db.session.flush()
+    for row in source_rows:
+        row.player_api_id = player_api_id
+        row.local_player_id = None
+    return len(source_rows)
+
+
+def _rekey_windowed_player_rows(model, old_player_api_id: int, player_api_id: int) -> int:
+    """Move pulse/card rows, retaining the newest payload on key collisions."""
+
+    source_rows = model.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+    if not source_rows:
+        return 0
+    target_by_window = {
+        row.window_end: row for row in model.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    }
+    to_move = []
+    for source in source_rows:
+        target = target_by_window.get(source.window_end)
+        if target is None:
+            target_by_window[source.window_end] = source
+            to_move.append(source)
+            continue
+        source_created = _naive_utc(source.created_at)
+        target_created = _naive_utc(target.created_at)
+        if source_created is not None and (target_created is None or source_created > target_created):
+            if isinstance(source, PlayerPulse):
+                target.score = source.score
+                target.delta_json = source.delta_json
+            else:
+                target.card_html = source.card_html
+                target.card_text = source.card_text
+                target.model = source.model
+            target.created_at = source.created_at
+        db.session.delete(source)
+    db.session.flush()
+    for source in to_move:
+        source.player_api_id = player_api_id
+    return len(source_rows)
+
+
+def _rekey_newsletter_youtube_links(old_player_api_id: int, player_api_id: int) -> int:
+    source_rows = NewsletterPlayerYoutubeLink.query.filter_by(player_id=old_player_api_id).with_for_update().all()
+    target_by_newsletter = {
+        row.newsletter_id: row
+        for row in NewsletterPlayerYoutubeLink.query.filter_by(player_id=player_api_id).with_for_update().all()
+    }
+    to_move = []
+    for source in source_rows:
+        if source.newsletter_id in target_by_newsletter:
+            db.session.delete(source)
+        else:
+            target_by_newsletter[source.newsletter_id] = source
+            to_move.append(source)
+    db.session.flush()
+    for source in to_move:
+        source.player_id = player_api_id
+    return len(source_rows)
+
+
+def _rekey_content_references(old_player_api_id: int, player_api_id: int) -> dict:
+    """Move signed-id content that can be created for followed/local players."""
+
+    return {
+        "player_pulses": _rekey_windowed_player_rows(PlayerPulse, old_player_api_id, player_api_id),
+        "player_card_cache": _rekey_windowed_player_rows(PlayerCardCache, old_player_api_id, player_api_id),
+        "newsletter_youtube_links": _rekey_newsletter_youtube_links(old_player_api_id, player_api_id),
+        "player_flags": PlayerFlag.query.filter_by(player_api_id=old_player_api_id).update(
+            {PlayerFlag.player_api_id: player_api_id},
+            synchronize_session=False,
+        ),
+        "quick_take_submissions": QuickTakeSubmission.query.filter_by(player_id=old_player_api_id).update(
+            {QuickTakeSubmission.player_id: player_api_id},
+            synchronize_session=False,
+        ),
+        "community_takes": CommunityTake.query.filter_by(player_id=old_player_api_id).update(
+            {CommunityTake.player_id: player_api_id},
+            synchronize_session=False,
+        ),
+        "newsletter_commentary": NewsletterCommentary.query.filter_by(player_id=old_player_api_id).update(
+            {NewsletterCommentary.player_id: player_api_id},
+            synchronize_session=False,
+        ),
+        "player_comments": PlayerComment.query.filter_by(player_id=old_player_api_id).update(
+            {PlayerComment.player_id: player_api_id},
+            synchronize_session=False,
+        ),
+    }
+
+
+def _rekey_extra_tables(old_player_api_id: int, player_api_id: int, session) -> dict:
+    """Integration hook for tables owned by later S1 packages.
+
+    TODO(S1-player-match-entries): re-key ``player_match_entries`` here before
+    refreshing the rollup once that model lands. P2 must not import a model
+    that does not exist in this worktree.
+    """
+    del old_player_api_id, player_api_id, session
+    return {}
+
+
+def _rekey_rollup_rows(old_player_api_id: int, player_api_id: int) -> dict:
+    """Re-key derived rows collision-safely before rebuilding them from source.
+
+    This branch can rebuild only the shadow feeder after re-keying its source.
+    Fail closed if another source is present until its owning package wires the
+    source table into :func:`_rekey_extra_tables` and ``refresh_player``.
+    """
+    source_cells = PlayerSeasonCell.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+    source_totals = PlayerSeasonTotal.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+    # P2 can re-key only PlayerShadowStats. API fixture/journey/APSS rows should
+    # never exist for a synthetic local id; fail closed if malformed historical
+    # data says otherwise instead of refreshing those totals into zeros.
+    rebuildable_sources = {"shadow"}
+    observed_sources = {row.source for row in source_cells} | {row.primary_source for row in source_totals}
+    unsupported_sources = sorted(source for source in observed_sources if source not in rebuildable_sources)
+    if unsupported_sources:
+        raise _GraduationConflict(f"rollup sources require graduation integration: {', '.join(unsupported_sources)}")
+
+    target_cells = PlayerSeasonCell.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    target_cells_by_key = {(row.season, row.source, row.club_api_id, row.competition_tier): row for row in target_cells}
+    cells_to_move = []
+    for source in source_cells:
+        key = (source.season, source.source, source.club_api_id, source.competition_tier)
+        if key in target_cells_by_key:
+            db.session.delete(source)
+        else:
+            target_cells_by_key[key] = source
+            cells_to_move.append(source)
+
+    target_totals_by_key = {
+        (row.season, row.level_group): row
+        for row in PlayerSeasonTotal.query.filter_by(player_api_id=player_api_id).with_for_update().all()
+    }
+    totals_to_move = []
+    for source in source_totals:
+        key = (source.season, source.level_group)
+        if key in target_totals_by_key:
+            db.session.delete(source)
+        else:
+            target_totals_by_key[key] = source
+            totals_to_move.append(source)
+
+    db.session.flush()
+    for source in cells_to_move:
+        source.player_api_id = player_api_id
+    for source in totals_to_move:
+        source.player_api_id = player_api_id
+    db.session.flush()
+    return {"season_cells": len(source_cells), "season_totals": len(source_totals)}
+
+
+def _refresh_graduated_rollup(old_player_api_id: int, player_api_id: int) -> tuple[dict, dict]:
+    extra_counts = _rekey_extra_tables(old_player_api_id, player_api_id, db.session)
+    rollup_counts = _rekey_rollup_rows(old_player_api_id, player_api_id)
+    rollup = season_rollup_service.refresh_player(player_api_id, session=db.session)
+    return {**rollup_counts, **extra_counts}, rollup
+
+
 @showcase_bp.route("/admin/local-players/<int:lp_id>/link-api", methods=["POST"])
 @require_api_key
 def admin_link_local_player_api(lp_id: int):
-    """Store a future API-Football bridge without moving or syncing content."""
+    """Atomically graduate a synthetic local identity to an API-Football id."""
     try:
-        player = db.session.get(LocalPlayer, lp_id)
+        player = LocalPlayer.query.filter_by(id=lp_id).with_for_update().first()
         if player is None:
             return jsonify({"error": "local player not found"}), 404
         payload, payload_error = _json_object_or_400()
@@ -3688,12 +4447,61 @@ def admin_link_local_player_api(lp_id: int):
         player_api_id = payload.get("player_api_id")
         if isinstance(player_api_id, bool) or not isinstance(player_api_id, int) or player_api_id <= 0:
             return jsonify({"error": "player_api_id must be a positive integer"}), 400
-        if is_player_suppressed(player_api_id):
-            return neutral_player_not_found()
+        if player.status != "approved":
+            return jsonify({"error": "only an approved local player can be linked"}), 409
+        conflict = (
+            LocalPlayer.query.filter(
+                LocalPlayer.id != player.id,
+                LocalPlayer.api_player_id == player_api_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if conflict is not None:
+            return jsonify({"error": "player_api_id is already linked to another local player"}), 409
+
+        old_player_api_id = -player.id
+        if player.api_player_id is None and _legacy_negative_identity_conflict(old_player_api_id) is not None:
+            return jsonify({"error": "synthetic player id conflicts with a legacy manual player"}), 409
+        if player.api_player_id not in (None, old_player_api_id, player_api_id):
+            return jsonify({"error": "local player is already linked to a different API player"}), 409
+
+        now = datetime.now(UTC)
+        rekeyed = _rekey_showcase_rows(player.id, player_api_id, now)
+        shadow_count, shadow_merged = _rekey_shadow(old_player_api_id, player_api_id, player)
+        rekeyed["player_shadows"] = shadow_count
+        rekeyed["shadow_stats"] = _rekey_shadow_stats(old_player_api_id, player_api_id)
+        rekeyed["watchlist_entries"] = _rekey_watchlists(old_player_api_id, player_api_id)
+        rekeyed["follow_selectors"] = _rekey_follow_selectors(old_player_api_id, player_api_id)
+        rekeyed["follow_snapshots"] = _rekey_follow_snapshots(old_player_api_id, player_api_id)
+        roster_rows, video_rows = _rekey_roster(player.id, old_player_api_id, player_api_id)
+        rekeyed["roster_members"] = roster_rows
+        rekeyed["video_roster_entries"] = video_rows
+        rekeyed["video_player_reports"] = _rekey_video_report_subjects(player.id, player_api_id)
+        rekeyed["contact_requests"] = _rekey_contacts(old_player_api_id, player_api_id)
+        rekeyed["suppressions"] = _rekey_suppressions(player.id, old_player_api_id, player_api_id)
+        rekeyed.update(_rekey_content_references(old_player_api_id, player_api_id))
+        rollup_counts, rollup = _refresh_graduated_rollup(old_player_api_id, player_api_id)
+        rekeyed.update(rollup_counts)
+
         player.api_player_id = player_api_id
-        player.updated_at = datetime.now(UTC)
+        player.updated_at = now
         db.session.commit()
-        return jsonify({"player": _local_player_admin_dict(player)})
+        return jsonify(
+            {
+                "player": _local_player_admin_dict(player),
+                "graduation": {
+                    "from_player_api_id": old_player_api_id,
+                    "to_player_api_id": player_api_id,
+                    "rekeyed": rekeyed,
+                    "shadow_merged": shadow_merged,
+                    "rollup": rollup,
+                },
+            }
+        )
+    except _GraduationConflict as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 409
     except Exception as e:
         db.session.rollback()
         logger.error("Error in admin_link_local_player_api: %s", e)

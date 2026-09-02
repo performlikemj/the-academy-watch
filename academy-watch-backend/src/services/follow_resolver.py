@@ -40,6 +40,16 @@ def _positive_int(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
+def _signed_player_int(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value != 0
+
+
+def _resolve_subject(player_api_id: int):
+    from src.services.player_subject import resolve_player_subject
+
+    return resolve_player_subject(player_api_id)
+
+
 def _non_negative_int(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
@@ -64,8 +74,12 @@ def _validate_player(selector: dict):
     if extra:
         return None, f"unexpected keys for player selector: {sorted(extra)}"
     pid = selector.get("player_api_id")
-    if not _positive_int(pid):
-        return None, "player_api_id must be a positive integer"
+    if not _signed_player_int(pid):
+        return None, "player_api_id must be a non-zero integer"
+    if pid < 0:
+        subject = _resolve_subject(pid)
+        if subject is None or not subject.is_public or subject.local_player is None or subject.shadow is None:
+            return None, "player not found"
     return {"player_api_id": int(pid)}, None
 
 
@@ -194,6 +208,11 @@ def _resolve_player(selector: dict) -> list[tuple[int, str]]:
     pid = selector.get("player_api_id")
     if not pid:
         return []
+    if pid < 0:
+        subject = _resolve_subject(pid)
+        if subject is None or not subject.is_public or subject.local_player is None or subject.shadow is None:
+            return []
+        return [(pid, "shadow")]
     tracked = (
         TrackedPlayer.query.filter_by(player_api_id=pid, is_active=True)
         .filter(TrackedPlayer.data_source != "owning-club")
@@ -222,11 +241,11 @@ def _resolve_academy_club(selector: dict, limit: int | None) -> list[tuple[int, 
     team_id = selector.get("team_id")
     if not team_id:
         return []
-    query, _ = _base_scout_query()
-    query = query.filter(TrackedPlayer.team_id == team_id)
+    query, columns = _base_scout_query()
+    query = query.filter(columns["primary_team_id"] == team_id)
     cap = min(limit or MAX_RESOLVE_PER_FOLLOW, MAX_RESOLVE_PER_FOLLOW)
-    rows = query.order_by(TrackedPlayer.id).limit(cap).all()
-    return [(row[0].player_api_id, "tracked") for row in rows]
+    rows = query.order_by(columns["player_api_id"]).limit(cap).all()
+    return [(row.player_api_id, "shadow" if row.is_local else "tracked") for row in rows]
 
 
 def _resolve_geo(selector: dict, limit: int | None) -> list[tuple[int, str]]:
@@ -240,47 +259,47 @@ def _resolve_geo(selector: dict, limit: int | None) -> list[tuple[int, str]]:
         return []
     match = selector.get("match") or "playing_in"
     lowered = [c.lower() for c in countries]
-    query, _ = _base_scout_query()
+    query, columns = _base_scout_query()
     if match == "nationality":
-        query = query.filter(func.lower(TrackedPlayer.nationality).in_(lowered))
+        query = query.filter(func.lower(columns["nationality"]).in_(lowered))
     else:
         # current_club_db_id is nullable; the inner join naturally drops players
         # with no resolved current club (correct for "players playing in X").
         current_club = aliased(Team)
-        query = query.join(current_club, current_club.id == TrackedPlayer.current_club_db_id).filter(
+        query = query.join(current_club, current_club.id == columns["loan_team_db_id"]).filter(
             func.lower(current_club.country).in_(lowered)
         )
     cap = min(limit or MAX_RESOLVE_PER_FOLLOW, MAX_RESOLVE_PER_FOLLOW)
-    rows = query.order_by(TrackedPlayer.id).limit(cap).all()
-    return [(row[0].player_api_id, "tracked") for row in rows]
+    rows = query.order_by(columns["player_api_id"]).limit(cap).all()
+    return [(row.player_api_id, "shadow" if row.is_local else "tracked") for row in rows]
 
 
 def _resolve_query(selector: dict, limit: int | None) -> list[tuple[int, str]]:
-    from src.routes.scout import _age_expression, _base_scout_query
+    from src.routes.scout import _base_scout_query
 
     scout_args = selector.get("scout_args") or {}
     query, columns = _base_scout_query()
 
     if scout_args.get("position"):
-        query = query.filter(TrackedPlayer.position == scout_args["position"])
+        query = query.filter(columns["position"] == scout_args["position"])
     if scout_args.get("status"):
         query = query.filter(columns["effective_status"].in_(scout_args["status"]))
     min_age = scout_args.get("min_age")
     max_age = scout_args.get("max_age")
     if min_age is not None or max_age is not None:
-        age_expr = _age_expression()
+        age_expr = columns["age"]
         if min_age is not None:
             query = query.filter(age_expr >= min_age)
         if max_age is not None:
             query = query.filter(age_expr <= max_age)
     if scout_args.get("nationality"):
-        query = query.filter(TrackedPlayer.nationality.ilike(f"%{scout_args['nationality']}%"))
+        query = query.filter(columns["nationality"].ilike(f"%{scout_args['nationality']}%"))
     if scout_args.get("min_minutes"):
         query = query.filter(columns["minutes_played"] >= scout_args["min_minutes"])
 
     cap = min(limit or QUERY_FOLLOW_CAP, QUERY_FOLLOW_CAP)
-    rows = query.order_by(TrackedPlayer.id).limit(cap).all()
-    return [(row[0].player_api_id, "tracked") for row in rows]
+    rows = query.order_by(columns["player_api_id"]).limit(cap).all()
+    return [(row.player_api_id, "shadow" if row.is_local else "tracked") for row in rows]
 
 
 def resolve_list(follow_list, limit: int | None = None) -> list[dict]:
