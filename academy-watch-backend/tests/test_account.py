@@ -1,7 +1,7 @@
 """Self-service account export and deletion contract tests (FC-TF1)."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -29,8 +29,10 @@ from src.models.league import (
     UserSubscription,
     db,
 )
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
+from src.models.showcase_moderation import ShowcaseModerationEvent
 from src.models.trust import ContentReport, ScoutVerification
 from src.models.user_block import UserBlock
 
@@ -588,6 +590,7 @@ def test_export_is_complete_safe_and_scoped_to_the_authenticated_user(client):
         "scout_verifications",
         "watchlist_entries",
         "follow_lists",
+        "match_entries",
         "showcase_claims",
         "showcase_profiles",
         "submitted_links",
@@ -603,6 +606,7 @@ def test_export_is_complete_safe_and_scoped_to_the_authenticated_user(client):
     assert payload["scout_verifications"][0]["full_name"] == "Subject Scout"
     assert len(payload["watchlist_entries"]) == 1
     assert payload["watchlist_entries"][0]["note"] == "subject private watchlist note"
+    assert payload["match_entries"] == []
 
     assert len(payload["follow_lists"]) == 1
     exported_list = payload["follow_lists"][0]
@@ -672,6 +676,91 @@ def test_export_is_complete_safe_and_scoped_to_the_authenticated_user(client):
         "unrelated-secret-unsubscribe-token",
     ):
         assert forbidden not in serialized
+
+
+def test_export_includes_every_field_from_all_authored_match_entry_sources(client):
+    subject = _add_account(96011, "match-export@example.com", "Match Export")
+    unrelated = _add_account(96012, "other-match-export@example.com", "Other Match Export")
+    created_at = datetime(2025, 9, 3, 12, 30, tzinfo=UTC)
+    self_entry = PlayerMatchEntry(
+        player_api_id=-301,
+        season=2025,
+        source="self",
+        status="self_reported",
+        reported_by_user_id=subject.id,
+        club_program_id=None,
+        match_date=date(2025, 9, 1),
+        competition="County League",
+        opponent="Self Opponent",
+        home_away="home",
+        result_for=3,
+        result_against=2,
+        minutes=89,
+        goals=2,
+        assists=1,
+        yellows=1,
+        reds=0,
+        saves=None,
+        goals_conceded=None,
+        note="Self-authored note",
+        created_at=created_at,
+        updated_at=created_at + timedelta(minutes=5),
+    )
+    club_entry = PlayerMatchEntry(
+        player_api_id=302,
+        season=2025,
+        source="club",
+        status="club_confirmed",
+        reported_by_user_id=subject.id,
+        club_program_id=44,
+        match_date=date(2025, 9, 2),
+        competition="Academy Cup",
+        opponent="Club Opponent",
+        home_away="away",
+        result_for=1,
+        result_against=0,
+        minutes=90,
+        goals=0,
+        assists=0,
+        yellows=0,
+        reds=0,
+        saves=6,
+        goals_conceded=0,
+        note="Club-authored note",
+        created_at=created_at + timedelta(days=1),
+        updated_at=created_at + timedelta(days=1, minutes=5),
+    )
+    unrelated_entry = PlayerMatchEntry(
+        player_api_id=303,
+        season=2025,
+        source="self",
+        status="self_reported",
+        reported_by_user_id=unrelated.id,
+        match_date=date(2025, 9, 3),
+        opponent="UNRELATED MATCH ENTRY SENTINEL",
+        home_away="neutral",
+        minutes=10,
+        goals=0,
+        assists=0,
+        yellows=0,
+        reds=0,
+    )
+    db.session.add_all([self_entry, club_entry, unrelated_entry])
+    db.session.commit()
+
+    response = client.get("/api/account/export", headers=_headers(subject.email))
+
+    assert response.status_code == 200, response.get_json()
+    exported = response.get_json()["match_entries"]
+    assert [row["source"] for row in exported] == ["self", "club"]
+    assert {row["id"] for row in exported} == {self_entry.id, club_entry.id}
+    expected_fields = {column.name for column in PlayerMatchEntry.__table__.columns}
+    assert all(set(row) == expected_fields for row in exported)
+    assert exported[0]["reported_by_user_id"] == subject.id
+    assert exported[0]["match_date"] == "2025-09-01"
+    assert exported[1]["club_program_id"] == 44
+    assert exported[1]["saves"] == 6
+    assert "UNRELATED MATCH ENTRY SENTINEL" not in json.dumps(exported)
 
 
 def test_export_matches_live_contact_authorization(client, monkeypatch):
@@ -934,6 +1023,197 @@ def test_delete_rolls_back_every_effect_when_a_late_step_fails(client, monkeypat
     db.session.expire_all()
     assert UserAccount.query.filter_by(id=user_id, is_tombstone=False).one_or_none() is not None
     assert ScoutWatchlistEntry.query.filter_by(id=watchlist_id).one_or_none() is not None
+    assert UserAccount.query.filter_by(is_tombstone=True).count() == 0
+    assert AccountDeletionEvent.query.count() == 0
+
+
+def test_delete_erases_self_matches_refreshes_rollups_and_tombstones_shared_rows(client, monkeypatch):
+    import src.services.account as account_service
+
+    subject = _add_account(98111, "match-delete@example.com", "Match Delete")
+    unrelated = _add_account(98112, "other-match-delete@example.com", "Other Match Delete")
+    self_entries = [
+        PlayerMatchEntry(
+            player_api_id=7401,
+            season=2025,
+            source="self",
+            status="self_reported",
+            reported_by_user_id=subject.id,
+            match_date=date(2025, 9, 1),
+            opponent="First self opponent",
+            home_away="home",
+            minutes=90,
+            goals=1,
+            assists=0,
+            yellows=0,
+            reds=0,
+        ),
+        PlayerMatchEntry(
+            player_api_id=7401,
+            season=2025,
+            source="self",
+            status="self_reported",
+            reported_by_user_id=subject.id,
+            match_date=date(2025, 9, 2),
+            opponent="Second self opponent",
+            home_away="away",
+            minutes=45,
+            goals=0,
+            assists=1,
+            yellows=0,
+            reds=0,
+        ),
+        PlayerMatchEntry(
+            player_api_id=-7402,
+            season=2024,
+            source="self",
+            status="self_reported",
+            reported_by_user_id=subject.id,
+            match_date=date(2024, 9, 1),
+            opponent="Local self opponent",
+            home_away="neutral",
+            minutes=30,
+            goals=0,
+            assists=0,
+            yellows=0,
+            reds=0,
+        ),
+    ]
+    club_entry = PlayerMatchEntry(
+        player_api_id=7401,
+        season=2025,
+        source="club",
+        status="club_confirmed",
+        reported_by_user_id=subject.id,
+        match_date=date(2025, 9, 1),
+        opponent="First self opponent",
+        home_away="home",
+        minutes=90,
+        goals=1,
+        assists=0,
+        yellows=0,
+        reds=0,
+    )
+    unrelated_entry = PlayerMatchEntry(
+        player_api_id=7401,
+        season=2025,
+        source="self",
+        status="self_reported",
+        reported_by_user_id=unrelated.id,
+        match_date=date(2025, 9, 1),
+        opponent="First self opponent",
+        home_away="home",
+        minutes=5,
+        goals=0,
+        assists=0,
+        yellows=0,
+        reds=0,
+    )
+    subject_event = ShowcaseModerationEvent(
+        user_account_id=subject.id,
+        target_kind="profile",
+        target_id=7401,
+        action="rejected",
+        actor_email=subject.email,
+        event_metadata={"reason": "retained audit"},
+    )
+    unrelated_event = ShowcaseModerationEvent(
+        user_account_id=unrelated.id,
+        target_kind="profile",
+        target_id=7402,
+        action="approved",
+        actor_email=unrelated.email,
+    )
+    db.session.add_all([*self_entries, club_entry, unrelated_entry, subject_event, unrelated_event])
+    db.session.commit()
+    subject_id = subject.id
+    unrelated_id = unrelated.id
+    self_entry_ids = [row.id for row in self_entries]
+    club_entry_id = club_entry.id
+    unrelated_entry_id = unrelated_entry.id
+    subject_event_id = subject_event.id
+    unrelated_event_id = unrelated_event.id
+    headers = _headers(subject.email)
+    refreshes = []
+    commits = []
+    real_commit = db.session.commit
+
+    def _refresh(player_api_id, season=None, session=None):
+        assert session is db.session
+        assert PlayerMatchEntry.query.filter_by(reported_by_user_id=subject_id, source="self").count() == 0
+        refreshes.append((player_api_id, season))
+        return {"cells": 0, "totals": 0}
+
+    def _commit():
+        commits.append("commit")
+        return real_commit()
+
+    monkeypatch.setattr(account_service.season_rollup_service, "refresh_player", _refresh)
+    monkeypatch.setattr(db.session, "commit", _commit)
+
+    response = client.post("/api/account/delete", json={"confirm": "DELETE"}, headers=headers)
+
+    assert response.status_code == 200, response.get_json()
+    assert refreshes == [(-7402, 2024), (7401, 2025)]
+    assert commits == ["commit"]
+    event = AccountDeletionEvent.query.one()
+    tombstone_id = event.tombstone_user_id
+    assert event.counts["deleted"]["self_match_entries"] == 3
+    assert event.counts["anonymized"]["user_fk_references"] == {
+        "player_match_entries.reported_by_user_id": 1,
+        "showcase_moderation_events.user_account_id": 1,
+    }
+    assert PlayerMatchEntry.query.filter(PlayerMatchEntry.id.in_(self_entry_ids)).count() == 0
+    assert db.session.get(PlayerMatchEntry, club_entry_id).reported_by_user_id == tombstone_id
+    assert db.session.get(PlayerMatchEntry, unrelated_entry_id).reported_by_user_id == unrelated_id
+    retained_event = db.session.get(ShowcaseModerationEvent, subject_event_id)
+    unrelated_retained_event = db.session.get(ShowcaseModerationEvent, unrelated_event_id)
+    assert retained_event.user_account_id == tombstone_id
+    assert retained_event.actor_email == "Account deleted"
+    assert unrelated_retained_event.user_account_id == unrelated_id
+    assert unrelated_retained_event.actor_email == unrelated.email
+    assert db.session.get(UserAccount, subject_id) is None
+
+
+def test_delete_rolls_back_match_erasure_when_rollup_refresh_fails(client, monkeypatch):
+    import src.services.account as account_service
+
+    subject = _add_account(98113, "match-refresh-rollback@example.com", "Match Refresh Rollback")
+    entry = PlayerMatchEntry(
+        player_api_id=7403,
+        season=2025,
+        source="self",
+        status="self_reported",
+        reported_by_user_id=subject.id,
+        match_date=date(2025, 9, 1),
+        opponent="Rollback opponent",
+        home_away="home",
+        minutes=90,
+        goals=0,
+        assists=0,
+        yellows=0,
+        reds=0,
+    )
+    db.session.add(entry)
+    db.session.commit()
+    subject_id = subject.id
+    entry_id = entry.id
+
+    def _fail_refresh(*_args, **_kwargs):
+        raise RuntimeError("forced match rollup refresh failure")
+
+    monkeypatch.setattr(account_service.season_rollup_service, "refresh_player", _fail_refresh)
+
+    response = client.post(
+        "/api/account/delete",
+        json={"confirm": "DELETE"},
+        headers=_headers(subject.email),
+    )
+
+    assert response.status_code == 500
+    db.session.expire_all()
+    assert db.session.get(UserAccount, subject_id) is not None
+    assert db.session.get(PlayerMatchEntry, entry_id) is not None
     assert UserAccount.query.filter_by(is_tombstone=True).count() == 0
     assert AccountDeletionEvent.query.count() == 0
 

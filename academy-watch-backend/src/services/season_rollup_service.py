@@ -26,16 +26,20 @@ Sources (feeders)
   sea01 backfill runs), so the feeder is correct pre- and post-backfill.
 - ``apss``     — :class:`AcademyPlayerSeasonStats` → ``level_group='youth'``.
 - ``shadow``   — :class:`PlayerShadowStats` → ``source='shadow'``.
+- ``club``     — club-confirmed :class:`PlayerMatchEntry` rows, grouped by
+  season, club program, and competition.
+- ``user``     — self-reported :class:`PlayerMatchEntry` rows at the same grain.
 
 Totals resolution (the double-count guard — proposal §2, non-negotiable)
 -----------------------------------------------------------------------
 Per ``(player, season, level_group)`` totals NEVER sum across sources. Each
-source's own total is computed independently; the HEADLINE is the larger-minutes
-source taken WHOLE (``journey`` wins ties / ``>=`` — the cup-inclusive
-convention; ``fixtures`` wins only when strictly larger →
-``journey-under-sync``). ``fixtures_minutes`` and ``journey_minutes`` are always
-both stored; ``reconcile_flag`` follows the coverage-map buckets; ``avg_rating``
-is ALWAYS fixtures-sourced (NULL when there are no fixtures).
+source's own total is computed independently. Any API-derived source outranks
+club-confirmed data, which outranks self-reported data. Within the API tier the
+HEADLINE remains the larger-minutes source taken WHOLE (``journey`` wins ties /
+``>=`` — the cup-inclusive convention). ``fixtures_minutes`` and
+``journey_minutes`` are always both stored; ``reconcile_flag`` follows the
+coverage-map buckets; ``avg_rating`` is ALWAYS fixtures-sourced (NULL when there
+are no fixtures).
 
 Transactionality
 ----------------
@@ -55,12 +59,18 @@ Noise filter: feeders skip any source row with 0 apps AND 0 minutes AND 0 goals
 
 import logging
 from datetime import UTC, datetime
+from hashlib import sha256
 
-from src.models.follow import PlayerShadowStats
+from src.models.follow import PlayerShadow, PlayerShadowStats
+from src.models.funding import ClubProgram
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, db
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
+from src.models.showcase import LocalPlayer, local_player_is_minor
+from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
+from src.utils.academy_window import age_from_birth_date
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +79,8 @@ SOURCE_FIXTURES = "fixtures"
 SOURCE_JOURNEY = "journey"
 SOURCE_APSS = "apss"
 SOURCE_SHADOW = "shadow"
+SOURCE_CLUB = "club"
+SOURCE_USER = "user"
 
 LEVEL_SENIOR = "senior"
 LEVEL_YOUTH = "youth"
@@ -81,10 +93,18 @@ TIER_CONTINENTAL = "continental"
 TIER_OTHER = "other"
 TIER_YOUTH = "youth"
 
-# Headline tie-break priority: on EQUAL minutes the higher-priority source wins
-# the headline. journey beats fixtures (cup-inclusive convention, proposal §2);
-# the supplementary sources only win when strictly larger in minutes.
-_SOURCE_PRIORITY = {SOURCE_JOURNEY: 4, SOURCE_FIXTURES: 3, SOURCE_APSS: 2, SOURCE_SHADOW: 1}
+# Explicit ``(authority, tie-break)`` ranks. Authority is compared before
+# minutes, so any API source beats club data and club data beats user data.
+# Within the API authority tier, minutes remain the primary selector and the
+# second number preserves the existing journey > fixtures > apss > shadow tie.
+_SOURCE_PRIORITY = {
+    SOURCE_JOURNEY: (3, 4),
+    SOURCE_FIXTURES: (3, 3),
+    SOURCE_APSS: (3, 2),
+    SOURCE_SHADOW: (3, 1),
+    SOURCE_CLUB: (2, 1),
+    SOURCE_USER: (1, 1),
+}
 
 # Per-session dirty set (player_api_id, season) awaiting a post-commit refresh.
 _DIRTY_KEY = "_season_rollup_dirty"
@@ -554,7 +574,189 @@ def _shadow_cells(player_api_id: int, season: int | None, session, now: datetime
     return cells
 
 
-_FEEDERS = (_fixture_cells, _journey_cells, _apss_cells, _shadow_cells)
+def _reported_competition_key(competition: str | None) -> str:
+    """Canonical key so visually equivalent labels aggregate into one cell."""
+    return " ".join((competition or "").split()).casefold()
+
+
+def _reported_competition_tier(level_group: str, competition_key: str) -> str:
+    """Stable <=20-char discriminator for the cell key's competition slot.
+
+    ``competition_tier`` participates in the cell unique key while the actual
+    competition and ``level_group`` do not. Hash both so two competitions in
+    one club-season cannot overwrite each other and the tier-to-level mapping
+    remains one-to-one.
+    """
+    digest = sha256(f"{level_group}\x1f{competition_key}".encode()).hexdigest()[:18]
+    return f"{level_group[0]}-{digest}"
+
+
+def positive_subject_is_minor(
+    player_api_id: int,
+    tracked_rows: list[TrackedPlayer],
+    shadow: PlayerShadow | None,
+    *,
+    session,
+    today=None,
+) -> bool:
+    """Conservative shared age rule for a known positive player identity."""
+    today = today or datetime.now(UTC).date()
+    bridged_locals = session.query(LocalPlayer).filter_by(api_player_id=player_api_id).all()
+    if any(local_player_is_minor(local, today=today) for local in bridged_locals):
+        return True
+
+    birth_dates = [row.birth_date for row in tracked_rows if row.birth_date]
+    journey = session.query(PlayerJourney).filter_by(player_api_id=player_api_id).first()
+    if journey is not None and journey.birth_date:
+        birth_dates.append(journey.birth_date)
+    if shadow is not None and shadow.birth_date:
+        birth_dates.append(shadow.birth_date)
+
+    ages = [age for value in birth_dates if (age := age_from_birth_date(value, today=today)) is not None]
+    if ages:
+        return any(age < 18 for age in ages)
+
+    stored_ages = [row.age for row in tracked_rows if row.age is not None]
+    if stored_ages:
+        return any(age < 18 for age in stored_ages)
+    return True
+
+
+def _reported_subject_is_minor(player_api_id: int, session) -> bool:
+    """Apply the player-match route's conservative age rule at cell emission.
+
+    Match entries remain durable while the subject is a minor. This decision
+    is recomputed on every refresh, so the first refresh after the subject's
+    18th birthday emits the previously withheld user/club cells.
+    """
+    today = datetime.now(UTC).date()
+    if player_api_id >= 0:
+        if player_api_id == 0:
+            return True
+
+        tracked_rows = session.query(TrackedPlayer).filter_by(player_api_id=player_api_id).all()
+        shadow = session.query(PlayerShadow).filter_by(player_api_id=player_api_id, is_active=True).first()
+        if not tracked_rows and shadow is None:
+            return True
+        return positive_subject_is_minor(
+            player_api_id,
+            tracked_rows,
+            shadow,
+            session=session,
+            today=today,
+        )
+
+    local = session.get(LocalPlayer, -player_api_id)
+    if (
+        local is None
+        or local.status != "approved"
+        or (local.api_player_id is not None and local.api_player_id != player_api_id)
+        or local.merged_into_local_player_id is not None
+    ):
+        return True
+    return bool(local_player_is_minor(local, today=today))
+
+
+def _reported_match_cells(
+    player_api_id: int,
+    season: int | None,
+    session,
+    now: datetime,
+    *,
+    entry_source: str,
+    entry_status: str,
+    cell_source: str,
+) -> list[dict]:
+    """Aggregate one trusted PlayerMatchEntry source at competition grain."""
+    q = (
+        session.query(PlayerMatchEntry, ClubProgram.name)
+        .outerjoin(ClubProgram, PlayerMatchEntry.club_program_id == ClubProgram.id)
+        .filter(
+            PlayerMatchEntry.player_api_id == player_api_id,
+            PlayerMatchEntry.source == entry_source,
+            PlayerMatchEntry.status == entry_status,
+        )
+    )
+    if season is not None:
+        q = q.filter(PlayerMatchEntry.season == season)
+    rows = q.all()
+    if not rows or _reported_subject_is_minor(player_api_id, session):
+        return []
+
+    groups: dict[tuple, dict] = {}
+    club_names: dict[tuple, str | None] = {}
+    competition_names: dict[tuple, str | None] = {}
+    for entry, club_name in rows:
+        club_program_id = entry.club_program_id or 0
+        competition_key = _reported_competition_key(entry.competition)
+        key = (entry.season, club_program_id, competition_key)
+        agg = groups.get(key)
+        if agg is None:
+            agg = _blank_agg()
+            groups[key] = agg
+            club_names[key] = club_name
+            competition_names[key] = " ".join((entry.competition or "").split()) or None
+        if (entry.minutes or 0) > 0:
+            _add(agg, "appearances", 1)
+        _add(agg, "goals", entry.goals)
+        _add(agg, "assists", entry.assists)
+        _add(agg, "minutes", entry.minutes)
+        _add(agg, "yellows", entry.yellows)
+        _add(agg, "reds", entry.reds)
+        _add(agg, "saves", entry.saves)
+        _add(agg, "goals_conceded", entry.goals_conceded)
+
+    cells = []
+    for key, agg in groups.items():
+        entry_season, club_program_id, competition_key = key
+        competition = competition_names[key]
+        level_group = LEVEL_YOUTH if _is_youth_competition(competition_key) else LEVEL_SENIOR
+        # ``club_api_id`` is a shared namespace: positive values are provider
+        # team IDs, negative values are platform ClubProgram IDs, and 0 means
+        # the report is not assigned to a club.
+        cell_club_id = -club_program_id if club_program_id else 0
+        cell = _finish_cell(
+            agg,
+            player_api_id=player_api_id,
+            season=entry_season,
+            source=cell_source,
+            club_api_id=cell_club_id,
+            club_name=club_names.get(key),
+            competition_tier=_reported_competition_tier(level_group, competition_key),
+            level_group=level_group,
+            now=now,
+        )
+        if cell:
+            cell["detail"] = {"competition": competition}
+            cells.append(cell)
+    return cells
+
+
+def _user_cells(player_api_id: int, season: int | None, session, now: datetime) -> list[dict]:
+    return _reported_match_cells(
+        player_api_id,
+        season,
+        session,
+        now,
+        entry_source="self",
+        entry_status="self_reported",
+        cell_source=SOURCE_USER,
+    )
+
+
+def _club_cells(player_api_id: int, season: int | None, session, now: datetime) -> list[dict]:
+    return _reported_match_cells(
+        player_api_id,
+        season,
+        session,
+        now,
+        entry_source="club",
+        entry_status="club_confirmed",
+        cell_source=SOURCE_CLUB,
+    )
+
+
+_FEEDERS = (_fixture_cells, _journey_cells, _apss_cells, _shadow_cells, _club_cells, _user_cells)
 
 
 # ---------------------------------------------------------------------------
@@ -594,11 +796,16 @@ def _resolve_totals(cells: list[dict], now: datetime) -> list[dict]:
         fixtures_minutes = (subtotals.get(SOURCE_FIXTURES) or {}).get("minutes") or 0
         journey_minutes = (subtotals.get(SOURCE_JOURNEY) or {}).get("minutes") or 0
 
-        # Headline = larger-minutes source taken whole; tie → higher priority
-        # (journey > fixtures > apss > shadow). NEVER a cross-source sum.
+        # Headline = highest-authority source, taken whole. Within the API tier,
+        # larger minutes win and journey > fixtures > apss > shadow breaks ties.
+        # Club outranks user regardless of volume. NEVER a cross-source sum.
         headline_src = max(
             subtotals.keys(),
-            key=lambda s: ((subtotals[s].get("minutes") or 0), _SOURCE_PRIORITY.get(s, 0)),
+            key=lambda s: (
+                _SOURCE_PRIORITY[s][0],
+                subtotals[s].get("minutes") or 0,
+                _SOURCE_PRIORITY[s][1],
+            ),
         )
         headline = subtotals[headline_src]
 
@@ -650,8 +857,14 @@ def _clubs_array(headline_cells: list[dict]) -> list[dict]:
         club["appearances"] += c["appearances"] or 0
         club["goals"] += c["goals"] or 0
         club["assists"] += c["assists"] or 0
-        if c["competition_tier"] not in club["competition_tiers"]:
-            club["competition_tiers"].append(c["competition_tier"])
+        # Reported competition_tier values are hashed key discriminators, not
+        # presentation labels. The read-side clubs adapter forwards this list.
+        if c["source"] in {SOURCE_CLUB, SOURCE_USER}:
+            competition_label = (c.get("detail") or {}).get("competition")
+        else:
+            competition_label = c["competition_tier"]
+        if competition_label and competition_label not in club["competition_tiers"]:
+            club["competition_tiers"].append(competition_label)
     return sorted(by_club.values(), key=lambda x: (-(x["minutes"] or 0), x["id"]))
 
 

@@ -34,10 +34,12 @@ from src.models.league import (
     WriterCoverageRequest,
     db,
 )
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.product_event import ProductEvent
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.trust import ContentReport, ScoutVerification
+from src.services import season_rollup_service
 from src.services.club_registry import active_manager_program_ids, program_is_operational
 from src.services.player_suppression import active_suppressed_player_ids
 from src.services.user_blocks import delete_user_block_rows_for_account
@@ -67,8 +69,10 @@ ANONYMIZED_USER_FOREIGN_KEYS = {
     "newsletter_commentary.author_id",
     "newsletter_comments.user_id",
     "player_comments.user_id",
+    "player_match_entries.reported_by_user_id",
     "player_shadows.requested_by_user_id",
     "quick_take_submissions.reviewed_by",
+    "showcase_moderation_events.user_account_id",
     "user_accounts.managed_by_user_id",
     "writer_coverage_requests.reviewed_by",
 }
@@ -158,6 +162,35 @@ def _subscription_dict(subscription: UserSubscription) -> dict:
         "email_bounced": bool(subscription.email_bounced),
         "created_at": _iso(subscription.created_at),
         "updated_at": _iso(subscription.updated_at),
+    }
+
+
+def _match_entry_dict(entry: PlayerMatchEntry) -> dict:
+    """Serialize every current persisted field, explicitly and portably."""
+    return {
+        "id": entry.id,
+        "player_api_id": entry.player_api_id,
+        "season": entry.season,
+        "source": entry.source,
+        "status": entry.status,
+        "reported_by_user_id": entry.reported_by_user_id,
+        "club_program_id": entry.club_program_id,
+        "match_date": _iso(entry.match_date),
+        "competition": entry.competition,
+        "opponent": entry.opponent,
+        "home_away": entry.home_away,
+        "result_for": entry.result_for,
+        "result_against": entry.result_against,
+        "minutes": entry.minutes,
+        "goals": entry.goals,
+        "assists": entry.assists,
+        "yellows": entry.yellows,
+        "reds": entry.reds,
+        "saves": entry.saves,
+        "goals_conceded": entry.goals_conceded,
+        "note": entry.note,
+        "created_at": _iso(entry.created_at),
+        "updated_at": _iso(entry.updated_at),
     }
 
 
@@ -281,6 +314,12 @@ def build_account_export(user: UserAccount) -> dict:
         ],
         "watchlist_entries": watchlist_payloads,
         "follow_lists": [_follow_list_dict(row, suppressed_player_ids) for row in follow_lists],
+        "match_entries": [
+            _match_entry_dict(row)
+            for row in PlayerMatchEntry.query.filter_by(reported_by_user_id=user.id)
+            .order_by(PlayerMatchEntry.created_at.asc(), PlayerMatchEntry.id.asc())
+            .all()
+        ],
         "showcase_claims": [claim.to_dict() for claim in claims],
         "showcase_profiles": [_showcase_profile_dict(profile, own_claim_ids) for profile in profiles],
         "submitted_links": [
@@ -417,6 +456,7 @@ def _redact_string_identity_columns(schema: _SchemaView, email: str) -> tuple[in
         ("club_program_managers", "granted_by"),
         ("club_program_managers", "revoked_by"),
         ("player_suppressions", "decided_by"),
+        ("showcase_moderation_events", "actor_email"),
     )
     for table, column in targets:
         if not schema.has_columns(table, column):
@@ -631,6 +671,7 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             "user_blocks": 0,
             "email_subscriptions": 0,
             "email_tokens": 0,
+            "self_match_entries": 0,
             "showcase_claims": len(claim_ids),
             "showcase_profiles": 0,
             "submitted_links": 0,
@@ -731,6 +772,31 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         synchronize_session=False
     )
     counts["deleted"]["user_blocks"] = delete_user_block_rows_for_account(user_id=user_id)
+
+    # Self reports are the user's own data and leave with the account. Club
+    # reports belong to the club, so the exhaustive FK pass below retains them
+    # and repoints their reporter to this deletion's anonymous tombstone.
+    self_match_refresh_pairs = (
+        db.session.query(PlayerMatchEntry.player_api_id, PlayerMatchEntry.season)
+        .filter(
+            PlayerMatchEntry.reported_by_user_id == user_id,
+            PlayerMatchEntry.source == "self",
+        )
+        .distinct()
+        .order_by(PlayerMatchEntry.player_api_id.asc(), PlayerMatchEntry.season.asc())
+        .all()
+    )
+    counts["deleted"]["self_match_entries"] = PlayerMatchEntry.query.filter_by(
+        reported_by_user_id=user_id,
+        source="self",
+    ).delete(synchronize_session=False)
+    db.session.flush()
+    for player_api_id, season in self_match_refresh_pairs:
+        season_rollup_service.refresh_player(
+            player_api_id,
+            season,
+            session=db.session,
+        )
 
     if email:
         subscriptions = UserSubscription.query.filter(func.lower(UserSubscription.email) == email)
