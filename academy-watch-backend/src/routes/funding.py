@@ -23,6 +23,11 @@ from src.models.funding import (
     FundingLeague,
 )
 from src.models.league import League, TeamProfile, UserAccount, db
+from src.services.club_console_bridge import (
+    get_bridge_console_grant,
+    is_bridge_owned_program,
+    is_console_league,
+)
 from src.services.stripe_connect import (
     StripeConnectConfigurationError,
     create_express_organization_onboarding,
@@ -458,6 +463,17 @@ def admin_update_funding_league(league_id):
         reason = _clean(payload.get("reason"), "reason", max_len=2000)
         before = {"admission_state": league.admission_state, "registry_status": league.registry_status}
 
+        if is_console_league(league):
+            requested_registry_status = str(payload.get("registry_status", "")).strip().lower()
+            requested_admission_state = str(payload.get("admission_state", "")).strip().lower()
+            identity_fields = {"name", "country", "region", "data_tier", "league_api_id"}
+            if (
+                requested_registry_status == "approved"
+                or requested_admission_state == "open"
+                or identity_fields.intersection(payload)
+            ):
+                return jsonify({"error": "console-only league must remain unlisted and closed"}), 409
+
         if league.existing_league_id and any(
             key in payload for key in ("name", "country", "data_tier", "league_api_id")
         ):
@@ -618,8 +634,34 @@ def submit_program_claim():
         if not _same_country(country, league.country):
             raise ValueError("club country must match the selected league country")
         program = ClubProgram.query.filter_by(team_api_id=team_api_id).first() if team_api_id else None
+        console_adoption = None
         if program is not None and program.funding_league_id != league.id:
-            return jsonify({"error": "this covered club is already registered in another league"}), 409
+            bridge_grant = (
+                get_bridge_console_grant(program, user.id)
+                if not proposed and is_console_league(program.league) and is_bridge_owned_program(program)
+                else None
+            )
+            if bridge_grant is None:
+                conflict_message = (
+                    f"club program '{program.name}' ({program.slug}) is already registered "
+                    "in another league and is not eligible for console adoption"
+                )
+                db.session.rollback()
+                return jsonify({"error": conflict_message}), 409
+            program, bridge_claim, bridge_manager, released_official_claim_ids = bridge_grant
+            console_adoption = {
+                "from_league_id": program.funding_league_id,
+                "manager": bridge_manager,
+                "released_official_claim_ids": released_official_claim_ids,
+            }
+        existing_claim = (
+            ClubProgramClaim.query.filter_by(program_id=program.id, user_account_id=user.id).first()
+            if program is not None
+            else None
+        )
+        if console_adoption is not None and (existing_claim is None or existing_claim.id != bridge_claim.id):
+            db.session.rollback()
+            return jsonify({"error": "console program ownership could not be verified"}), 409
         if program is None:
             base_slug = _slug(name)
             slug = base_slug
@@ -646,17 +688,30 @@ def submit_program_claim():
             db.session.add(program)
             db.session.flush()
 
-        existing_claim = ClubProgramClaim.query.filter_by(program_id=program.id, user_account_id=user.id).first()
-        if existing_claim and existing_claim.status not in {"rejected", "revoked"}:
+        if existing_claim and existing_claim.status not in {"rejected", "revoked"} and console_adoption is None:
             return jsonify(
                 {"error": "you already have a claim for this program", "claim": _claim_dict(existing_claim)}
             ), 409
+        if console_adoption is not None:
+            program.funding_league_id = league.id
+            program.league = league
+            program.platform_status = "pending"
+            program.donations_enabled = False
+            program.reviewed_by = None
+            program.review_reason = None
+            program.reviewed_at = None
+            program.verified_at = None
+            program.next_review_at = None
         if existing_claim:
             claim = existing_claim
             claim.status = "pending"
             claim.reviewed_by = None
             claim.review_reason = None
             claim.reviewed_at = None
+            if console_adoption is not None:
+                claim.applicant_message = _clean(
+                    payload.get("applicant_message"), "applicant_message", required=False, max_len=1000
+                )
             if claim.evidence:
                 for key, value in evidence_values.items():
                     setattr(claim.evidence, key, value)
@@ -677,6 +732,21 @@ def submit_program_claim():
             db.session.add(ClubClaimEvidence(claim=claim, **evidence_values))
         db.session.flush()
         league_waitlisted = league.registry_status != "approved" or league.admission_state != "open"
+        if console_adoption is not None:
+            bridge_manager = console_adoption["manager"]
+            _audit(
+                "program.console_adopted",
+                "program",
+                program.id,
+                "Console-only program adopted through a funding claim",
+                {
+                    "from_league_id": console_adoption["from_league_id"],
+                    "to_league_id": league.id,
+                    "program_claim_id": claim.id,
+                    "manager_grant_id": bridge_manager.id,
+                    "released_official_claim_ids": console_adoption["released_official_claim_ids"],
+                },
+            )
         _audit(
             "claim.resubmitted" if existing_claim else "claim.submitted",
             "claim",
@@ -1006,9 +1076,23 @@ def _approved_revision(program):
     )
 
 
+def _public_program_by_slug(slug):
+    """Return only programs admitted through an approved public league."""
+    return (
+        ClubProgram.query.join(FundingLeague, ClubProgram.funding_league_id == FundingLeague.id)
+        .filter(
+            ClubProgram.slug == slug,
+            ClubProgram.platform_status == "approved",
+            ClubProgram.emergency_hidden.is_(False),
+            FundingLeague.registry_status == "approved",
+        )
+        .first()
+    )
+
+
 @funding_bp.route("/programs/<string:slug>", methods=["GET"])
 def public_program(slug):
-    program = ClubProgram.query.filter_by(slug=slug, platform_status="approved", emergency_hidden=False).first()
+    program = _public_program_by_slug(slug)
     if program is None:
         return jsonify({"error": "program not found"}), 404
     payload = program.public_dict()
@@ -1046,7 +1130,7 @@ def save_program(slug):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        program = ClubProgram.query.filter_by(slug=slug, platform_status="approved", emergency_hidden=False).first()
+        program = _public_program_by_slug(slug)
         if program is None:
             return jsonify({"error": "program not found"}), 404
         payload = request.get_json(silent=True) or {}

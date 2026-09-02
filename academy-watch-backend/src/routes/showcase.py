@@ -54,6 +54,11 @@ from src.models.showcase import (
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
 from src.services import showcase_media_storage, social_proof
+from src.services.club_console_bridge import (
+    ClubConsoleBridgeConflict,
+    grant_console_for_official_claim,
+    revoke_console_for_official_claim,
+)
 from src.services.club_registry import get_club_program
 from src.services.contact import (
     CONTRACT_STATUSES as CLAIM_CONTRACT_STATUSES,
@@ -3163,7 +3168,7 @@ def admin_list_club_claims():
 @showcase_bp.route("/admin/club-claims/<int:claim_id>/review", methods=["POST"])
 @require_api_key
 def admin_review_club_claim(claim_id: int):
-    """Approve/reject a pending official claim, or revoke an approved one."""
+    """Approve/reject a pending claim or revoke an approved grant."""
     try:
         claim = ClubOfficialClaim.query.filter_by(id=claim_id).with_for_update().first()
         if claim is None:
@@ -3191,6 +3196,15 @@ def admin_review_club_claim(claim_id: int):
         claim.reviewed_by = getattr(g, "user_email", None)
         claim.reviewed_at = now
         claim.updated_at = now
+        if action == "approve":
+            grant_console_for_official_claim(claim, actor=claim.reviewed_by, now=now)
+        elif action == "revoke":
+            revoke_console_for_official_claim(
+                claim,
+                actor=claim.reviewed_by,
+                now=now,
+                reason=claim.review_note,
+            )
         db.session.commit()
         if action in {"approve", "reject"}:
             try:
@@ -3200,6 +3214,9 @@ def admin_review_club_claim(claim_id: int):
             except Exception:
                 logger.exception("Failed to dispatch %s email for club claim %s", action, claim_id)
         return jsonify({"claim": _club_claim_dict(claim, include_verification_code=False)})
+    except ClubConsoleBridgeConflict as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 409
     except Exception as e:
         db.session.rollback()
         logger.error("Error in admin_review_club_claim: %s", e)
