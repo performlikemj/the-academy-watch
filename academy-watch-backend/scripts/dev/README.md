@@ -1,0 +1,3 @@
+# Development scripts
+
+`bridge_match_to_club.py` attaches an existing local video fixture to a private club console without re-running the video pipeline. From `academy-watch-backend/`, run `ALLOW_FIXTURE_BRIDGE=1 python scripts/dev/bridge_match_to_club.py --match-id 4 --manager-email mj@bywayofmj.com [--program-name "AFC Yorkies"] [--dry-run]`. The script refuses production-like environments and Supabase/pooler hosts, creates or reuses the approved fixture league/program/manager grant and local roster identities, and prints the resulting member mapping plus `/my-club`. It is for development databases only; never run it against production.
