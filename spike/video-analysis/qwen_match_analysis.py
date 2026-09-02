@@ -52,8 +52,9 @@ DEFAULT_TRANSIENT_RETRY_DELAYS_S = (5.0, 15.0, 30.0, 60.0, 60.0)
 FRAME_NUM_PREDICT = 600
 CAPTION_NUM_PREDICT = 300
 PLAYER_NUM_PREDICT = 500
-# Three grounded items at about 220 tokens each plus 150 tokens of headroom = 810;
-# round up to 900 while keeping the initial cap below 1000.
+# Grounded captions: 3 items × ~220 tokens + 150 tokens of headroom = 810.
+# Grounded reads: 3 items × ~100 tokens plus generous headroom. Use 900 for both;
+# one doubled retry reaches 1800, so the 2000 ceiling only guards future cap changes.
 GROUNDED_CAPTION_NUM_PREDICT = 900
 GROUNDED_PLAYER_NUM_PREDICT = 900
 TEAM_NUM_PREDICT = 1500
@@ -682,10 +683,6 @@ def ollama_chat(
     done_reason = payload.get("done_reason")
     if response_metadata is not None:
         response_metadata["done_reason"] = done_reason
-    if done_reason == "length":
-        raise OllamaOutputTruncated(
-            f"Ollama output truncated for model {model} at num_predict={num_predict}"
-        )
     message_payload = payload.get("message", {})
     content = message_payload.get("content")
     if not isinstance(content, str):
@@ -704,6 +701,18 @@ def ollama_chat(
                     model,
                 )
                 _thinking_fallback_warning_emitted = True
+    if done_reason == "length":
+        try:
+            json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise OllamaOutputTruncated(
+                f"Ollama output truncated for model {model} at num_predict={num_predict}"
+            ) from exc
+        log.warning(
+            "ollama hit num_predict=%s for model %s but the JSON is complete; using it",
+            num_predict,
+            model,
+        )
     if response_metadata is not None:
         response_metadata["from_thinking"] = from_thinking
     return content
@@ -1696,9 +1705,7 @@ def generate_player_reads(
         parsed = None
         last_error: Exception | None = None
         num_predict = (
-            GROUNDED_PLAYER_NUM_PREDICT
-            if grounded_contract
-            else PLAYER_NUM_PREDICT
+            GROUNDED_PLAYER_NUM_PREDICT if grounded_contract else PLAYER_NUM_PREDICT
         )
         for attempt in range(2):
             try:
@@ -1723,15 +1730,15 @@ def generate_player_reads(
             except Exception as exc:
                 last_error = exc
                 if attempt == 0:
-                    if grounded_contract and isinstance(
-                        exc, OllamaOutputTruncated
-                    ):
+                    if grounded_contract and isinstance(exc, OllamaOutputTruncated):
                         retry_num_predict = min(num_predict * 2, 2000)
                         log.warning(
                             "player read output truncated at %s tokens; "
-                            "retrying with %s",
+                            "retrying with %s for %s #%s",
                             num_predict,
                             retry_num_predict,
+                            player_pair[0],
+                            player_pair[1],
                         )
                         num_predict = retry_num_predict
                     else:
@@ -1902,15 +1909,15 @@ def generate_window_captions(
                 except Exception as exc:
                     last_error = exc
                     if attempt == 0:
-                        if grounded_contract and isinstance(
-                            exc, OllamaOutputTruncated
-                        ):
+                        if grounded_contract and isinstance(exc, OllamaOutputTruncated):
                             retry_num_predict = min(num_predict * 2, 2000)
                             log.warning(
                                 "caption output truncated at %s tokens; "
-                                "retrying with %s",
+                                "retrying with %s (tracklet %s at %ss)",
                                 num_predict,
                                 retry_num_predict,
+                                window["tracklet_id"],
+                                window["start_s"],
                             )
                             num_predict = retry_num_predict
                         else:
