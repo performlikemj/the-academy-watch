@@ -10,7 +10,7 @@ forces anyway:
 
   $VIDEO_PIPELINE_CMD --video <local mp4> --out <artifacts dir> \
       [--kickoff-s N] [--halftime-s N] [--second-half-kickoff-s N] [--end-s N] \
-      [--context-json <path>]
+      [--context-json <path>] [--brief-json <path>]
 
 The timeline markers window the run to in-play time: the pipeline processes [kickoff, end]
 and skips the halftime gap [halftime, second-half-kickoff] (see game_time.in_play_plan /
@@ -33,6 +33,7 @@ the stale-reaper recover from evictions, and a re-delivered queue message
 no-ops against an already-claimed job.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -56,6 +57,7 @@ DEFAULT_QWEN_CAPTION_TOP_K = 5
 MAX_QWEN_CAPTION_WINDOWS = 80
 MAX_ANALYSIS_CONTEXT_BYTES = 20 * 1024 * 1024
 OVERSIZE_CONTEXT_HZ = 2
+BRIEF_CONTEXT_SCHEMA_VERSION = "brief-context-v1"
 
 
 def _row_value(row, name, default=None):
@@ -258,6 +260,101 @@ def _analysis_context(
     }
 
 
+def _brief_payload(body, *, max_lines: int) -> tuple[dict | None, int]:
+    if not isinstance(body, str):
+        return None, 0
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines:
+        return None, 0
+    if len(lines) > max_lines:
+        return None, len(lines)
+    normalized_body = "\n".join(lines)
+    return (
+        {
+            "lines": lines,
+            "hash": hashlib.sha256(normalized_body.encode("utf-8")).hexdigest(),
+        },
+        len(lines),
+    )
+
+
+def _brief_context(match, roster_entries, roster_members) -> dict | None:
+    """Build private brief input separately from the team-visible analysis context."""
+    from src.services.coach_brief import MAX_BRIEF_LINES
+
+    program_id = _row_value(match, "club_program_id")
+    if program_id is None:
+        return None
+    members_by_id = {
+        int(_row_value(member, "id")): member
+        for member in roster_members
+        if _row_value(member, "id") is not None and _row_value(member, "program_id") == program_id
+    }
+    kit_color = _row_value(match, "our_kit_color")
+    brief_entries = [
+        (entry, members_by_id.get(int(member_id)))
+        for entry in roster_entries
+        if (member_id := _row_value(entry, "club_roster_member_id")) is not None and int(member_id) in members_by_id
+    ]
+    if not isinstance(kit_color, str) or not kit_color.strip():
+        skipped_roster = {}
+        for entry, member in brief_entries:
+            _, line_count = _brief_payload(
+                _row_value(member, "coach_brief_body"),
+                max_lines=MAX_BRIEF_LINES,
+            )
+            if line_count:
+                skipped_roster[str(int(_row_value(entry, "id")))] = {
+                    "jersey_number": int(_row_value(entry, "jersey_number")),
+                    "reason": "no_kit_colour",
+                }
+        if skipped_roster:
+            log.warning(
+                "video match %s: roster briefs skipped because the match has no kit colour",
+                _row_value(match, "id", "unknown"),
+            )
+        return {
+            "schema_version": BRIEF_CONTEXT_SCHEMA_VERSION,
+            "max_lines": MAX_BRIEF_LINES,
+            "roster": {},
+            "skipped_roster": skipped_roster,
+            "system_brief": None,
+        }
+
+    roster = {}
+    skipped_roster = {}
+    for entry, member in brief_entries:
+        body = _row_value(member, "coach_brief_body")
+        payload, line_count = _brief_payload(body, max_lines=MAX_BRIEF_LINES)
+        if payload is not None:
+            roster[str(int(_row_value(entry, "id")))] = {
+                **payload,
+                "jersey_number": int(_row_value(entry, "jersey_number")),
+                "kit_color": kit_color.strip(),
+            }
+        elif line_count > MAX_BRIEF_LINES:
+            skipped_roster[str(int(_row_value(entry, "id")))] = {
+                "jersey_number": int(_row_value(entry, "jersey_number")),
+                "reason": "brief_longer_than_max_lines",
+            }
+    program = _row_value(match, "club_program")
+    system_brief, _ = _brief_payload(
+        _row_value(program, "system_brief_body"),
+        max_lines=MAX_BRIEF_LINES,
+    )
+    return {
+        "schema_version": BRIEF_CONTEXT_SCHEMA_VERSION,
+        "max_lines": MAX_BRIEF_LINES,
+        "roster": roster,
+        "skipped_roster": skipped_roster,
+        "system_brief": system_brief,
+    }
+
+
+def _has_brief_entries(context: dict | None) -> bool:
+    return bool(context and (context.get("roster") or context.get("skipped_roster")))
+
+
 def _encode_analysis_context(context: dict) -> bytes:
     from src.services.video_boxes import sample_box_track
 
@@ -331,6 +428,7 @@ def _build_pipeline_cmd(
     out_dir: Path,
     match,
     context_path: Path | None = None,
+    brief_path: Path | None = None,
 ) -> list[str]:
     """Assemble the pipeline argv, forwarding the operator's timeline markers.
 
@@ -351,6 +449,8 @@ def _build_pipeline_cmd(
             cmd += [flag, str(value)]
     if context_path is not None:
         cmd += ["--context-json", str(context_path)]
+    if brief_path is not None:
+        cmd += ["--brief-json", str(brief_path)]
     return cmd
 
 
@@ -371,11 +471,17 @@ def _keepalive(app, job_id: str, stop: threading.Event, fenced: threading.Event,
                 return
 
 
-def _run_pipeline(video_path: Path, out_dir: Path, match, context_path: Path | None = None) -> None:
+def _run_pipeline(
+    video_path: Path,
+    out_dir: Path,
+    match,
+    context_path: Path | None = None,
+    brief_path: Path | None = None,
+) -> None:
     cmd_template = os.getenv("VIDEO_PIPELINE_CMD")
     if not cmd_template:
         raise RuntimeError("VIDEO_PIPELINE_CMD is not set (vision image misconfigured)")
-    cmd = _build_pipeline_cmd(cmd_template, video_path, out_dir, match, context_path)
+    cmd = _build_pipeline_cmd(cmd_template, video_path, out_dir, match, context_path, brief_path)
     log.info("running pipeline: %s", " ".join(cmd))
     subprocess.run(cmd, check=True)
 
@@ -436,7 +542,9 @@ def process_job(app, job_id: str) -> bool:
             out_dir = tmp_path / "artifacts"
             out_dir.mkdir()
             context_path = None
+            brief_path = None
             if pipeline_kind == "qwen_analysis":
+                from src.models.funding import ClubRosterMember
                 from src.services import video_boxes, video_dev_artifacts
 
                 context_path = tmp_path / "context.json"
@@ -457,6 +565,23 @@ def process_job(app, job_id: str) -> bool:
                 )
                 top_k = int(os.getenv("QWEN_CAPTION_TOP_K", str(DEFAULT_QWEN_CAPTION_TOP_K)))
                 roster_entries = list(match.roster_entries)
+                roster_members = []
+                club_program_id = _row_value(match, "club_program_id")
+                if club_program_id is not None:
+                    member_ids = {
+                        _row_value(entry, "club_roster_member_id")
+                        for entry in roster_entries
+                        if _row_value(entry, "club_roster_member_id") is not None
+                    }
+                    if member_ids:
+                        roster_members = list(
+                            db.session.query(ClubRosterMember)
+                            .filter(
+                                ClubRosterMember.program_id == club_program_id,
+                                ClubRosterMember.id.in_(member_ids),
+                            )
+                            .all()
+                        )
                 box_tracks = {int(tracklet.id): video_boxes.box_track_for(match, tracklet) for tracklet in tracklets}
                 frame_size = _stored_frame_size(match) or _probe_frame_size(video_path)
                 context_path.write_bytes(
@@ -472,11 +597,30 @@ def process_job(app, job_id: str) -> bool:
                         )
                     )
                 )
+                try:
+                    brief_context = _brief_context(match, roster_entries, roster_members)
+                    if _has_brief_entries(brief_context):
+                        brief_path = tmp_path / "brief.json"
+                        brief_path.write_text(
+                            json.dumps(
+                                brief_context,
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
+                            encoding="utf-8",
+                        )
+                except Exception as exc:
+                    log.warning(
+                        "video match %s: private brief input could not be prepared: %s",
+                        match.id,
+                        type(exc).__name__,
+                    )
+                    raise RuntimeError("private brief input could not be prepared") from None
             stop, fenced = threading.Event(), threading.Event()
             keeper = threading.Thread(target=_keepalive, args=(app, job_id, stop, fenced), daemon=True)
             keeper.start()
             try:
-                _run_pipeline(video_path, out_dir, match, context_path)
+                _run_pipeline(video_path, out_dir, match, context_path, brief_path)
             finally:
                 stop.set()
                 keeper.join(timeout=30)

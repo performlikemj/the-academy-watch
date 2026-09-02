@@ -13,7 +13,9 @@ if str(HERE) not in sys.path:
 
 import qwen_match_analysis as qwen_analysis  # noqa: E402
 from qwen_match_analysis import (  # noqa: E402
+    _load_brief_context,
     append_honest_limits,
+    build_brief_checks_prompt,
     build_caption_prompt,
     build_player_prompt,
     build_sampling_plan,
@@ -21,13 +23,17 @@ from qwen_match_analysis import (  # noqa: E402
     build_team_prompt,
     caption_frame_timestamps,
     compute_player_confidence,
+    eligible_brief_reads,
     filter_player_notes,
     finalize_analysis,
+    gate_brief_checks,
     generate_player_reads,
     generate_team_pass,
     generate_window_captions,
+    grounded_brief_checks_schema,
     grounded_caption_schema,
     grounded_read_schema,
+    parse_brief_checks,
     parse_observation,
     parse_player_read,
     parse_window_caption,
@@ -59,6 +65,9 @@ def _good_analysis():
             "captions_action_type_recovered": 0,
             "captions_zone_coerced": 0,
             "captions_claims_dropped": 0,
+            "brief_checks_total": 0,
+            "brief_checks_evidence_found": 0,
+            "brief_checks_downgraded": 0,
             "notes_scope": "ours",
             "grounding": {
                 "caption_windows": 0,
@@ -340,6 +349,30 @@ def test_grounded_player_prompt_bounds_observations_by_importance():
     )
     assert prompt.count(expected_sentence) == 1
     assert "|".join(qwen_analysis.PLAYER_CONFIDENCE_LEVELS) not in prompt
+
+
+def test_grounded_player_prompt_without_brief_is_byte_identical_snapshot():
+    prompt = build_player_prompt(
+        ("blue", 8),
+        [
+            {
+                "timestamp_s": 10,
+                "observation": {
+                    "teams": [],
+                    "ball_visible": True,
+                    "phase_of_play": "attack",
+                    "visible_pitch_zone": "central",
+                    "observation": "sample",
+                    "notable_actions": [],
+                },
+            }
+        ],
+        grounded_contract=True,
+    )
+
+    assert hashlib.sha256(prompt.encode()).hexdigest() == (
+        "d0351da91685738b3d18f65ef4696da228bcd9d495b793ec48a4f11cd7baf45e"
+    )
 
 
 def _schema_definition(schema, name):
@@ -1952,8 +1985,7 @@ def test_ollama_chat_returns_complete_json_at_length_cap(monkeypatch, caplog):
     assert result == answer
     assert metadata == {"done_reason": "length", "from_thinking": False}
     assert (
-        "ollama hit num_predict=321 for model qwen3-vl:8b but the JSON is complete; "
-        "using it"
+        "ollama hit num_predict=321 for model qwen3-vl:8b but the JSON is complete; using it"
     ) in caplog.text
 
 
@@ -2143,6 +2175,45 @@ def test_ollama_chat_retries_connection_refused_then_succeeds(monkeypatch, caplo
     assert attempts == 3
     assert sleeps == [0.25, 0.25]
     assert [record.levelname for record in caplog.records] == ["WARNING", "WARNING"]
+
+
+def test_private_ollama_retry_logs_only_exception_type(monkeypatch, caplog):
+    sentinel = "SENTINEL_PRIVATE_NETWORK_ERROR"
+    attempts = 0
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return json.dumps({"message": {"content": "result"}}).encode()
+
+    def fake_urlopen(request, timeout):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise urllib.error.URLError(OSError(errno.ECONNRESET, sentinel))
+        return FakeResponse()
+
+    monkeypatch.setenv("QWEN_TRANSIENT_RETRY_S", "0")
+    monkeypatch.setattr(qwen_analysis.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(qwen_analysis.time, "sleep", lambda _delay: None)
+
+    with caplog.at_level("WARNING", logger="qwen_match_analysis"):
+        result = qwen_analysis.ollama_chat(
+            "private prompt",
+            ollama_url="http://ollama.invalid",
+            model="vision-model",
+            timeout_s=17,
+            private_input=True,
+        )
+
+    assert result == "result"
+    assert sentinel not in caplog.text
+    assert "URLError" in caplog.text
 
 
 def test_ollama_chat_raises_after_transient_retries_are_exhausted(monkeypatch):
@@ -2352,3 +2423,859 @@ def test_more_than_half_failure_rule(total, failed, expected):
 )
 def test_more_than_half_player_read_failure_rule(total, failed, expected):
     assert too_many_player_read_failures(total, failed) is expected
+
+
+def test_brief_checks_prompt_numbers_expectations_and_forbids_negative_claims():
+    sentinel = "SENTINEL_PRIVATE_EXPECTATION"
+    prompt = build_brief_checks_prompt(
+        ("blue", 8),
+        [{"timestamp_s": 10, "observation": _good_observation()}],
+        {"lines": [sentinel, "Recover inside"], "hash": "a" * 64},
+        {"lines": ["Press together"], "hash": "b" * 64},
+    )
+
+    assert (
+        f"The coach's expectations for this player, numbered: 1. {sentinel} 2. Recover inside"
+        in prompt
+    )
+    assert "How the team plays: Press together" in prompt
+    assert "Use evidence_found only when a supplied frame visibly supports" in prompt
+    assert "otherwise use no_evidence with null box_t and box" in prompt
+    assert "Never state or imply that an expectation was not met" in prompt
+    assert '"expectation_checks"' in prompt
+
+
+def test_team_pass_prompt_never_receives_separate_brief_text():
+    sentinel = "SENTINEL_TEAM_MUST_NOT_SEE"
+    analysis_context = {"our_kit_color": "blue"}
+    brief_context = {
+        "roster": {"42": {"lines": [sentinel], "hash": "a" * 64}},
+        "system_brief": None,
+    }
+
+    prompt = build_team_prompt(
+        [{"timestamp_s": 10, "observation": _good_observation()}],
+        analysis_context,
+    )
+
+    assert sentinel not in prompt
+    assert "brief" not in prompt.casefold()
+    assert brief_context["roster"]["42"]["lines"][0] == sentinel
+
+
+def test_brief_checks_schema_is_checks_only_strict_bounded_and_uses_verdict_vocabulary():
+    schema = grounded_brief_checks_schema(8)
+    container = _schema_definition(schema, "GroundedBriefChecks")
+    check = _schema_definition(schema, "GroundedExpectationCheck")
+
+    checks_schema = container["properties"]["expectation_checks"]
+    assert checks_schema["minItems"] == 1
+    assert checks_schema["maxItems"] == 8
+    assert check["properties"]["verdict"]["enum"] == list(
+        qwen_analysis.BRIEF_CHECK_VERDICTS
+    )
+    assert check["properties"]["expectation_index"]["minimum"] == 1
+    assert check["properties"]["expectation_index"]["maximum"] == 8
+    assert set(container["properties"]) == {"expectation_checks"}
+    assert check["additionalProperties"] is False
+    assert schema["additionalProperties"] is False
+
+
+def test_brief_checks_model_accepts_exact_checks_and_rejects_contract_violations():
+    evidence = [{"timestamp_s": 10, "observation": _good_observation()}]
+    valid = {
+        "expectation_checks": [
+            {
+                "expectation_index": 1,
+                "verdict": "evidence_found",
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+            },
+            {
+                "expectation_index": 2,
+                "verdict": "no_evidence",
+                "box_t": None,
+                "box": None,
+            },
+        ]
+    }
+
+    assert (
+        parse_brief_checks(
+            json.dumps(valid),
+            evidence,
+            expectation_count=2,
+            max_expectations=8,
+        )
+        == valid
+    )
+
+    missing = {**valid, "expectation_checks": valid["expectation_checks"][:1]}
+    with pytest.raises(ValueError, match="exactly one check per expectation"):
+        parse_brief_checks(
+            json.dumps(missing),
+            evidence,
+            expectation_count=2,
+            max_expectations=8,
+        )
+
+    duplicate = {
+        **valid,
+        "expectation_checks": [
+            valid["expectation_checks"][0],
+            {**valid["expectation_checks"][1], "expectation_index": 1},
+        ],
+    }
+    with pytest.raises(ValueError, match="each supplied index exactly once"):
+        parse_brief_checks(
+            json.dumps(duplicate),
+            evidence,
+            expectation_count=2,
+            max_expectations=8,
+        )
+
+    non_null_no_evidence = {
+        **valid,
+        "expectation_checks": [
+            valid["expectation_checks"][0],
+            {
+                **valid["expectation_checks"][1],
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+            },
+        ],
+    }
+    with pytest.raises(ValueError, match="no_evidence requires null"):
+        parse_brief_checks(
+            json.dumps(non_null_no_evidence),
+            evidence,
+            expectation_count=2,
+            max_expectations=8,
+        )
+
+    out_of_bounds = {
+        "expectation_checks": [
+            {
+                "expectation_index": 9,
+                "verdict": "no_evidence",
+                "box_t": None,
+                "box": None,
+            }
+        ]
+    }
+    with pytest.raises(ValueError, match="less than or equal to 8"):
+        parse_brief_checks(
+            json.dumps(out_of_bounds),
+            evidence,
+            expectation_count=1,
+            max_expectations=8,
+        )
+
+
+@pytest.mark.parametrize("stray", ["stray", [{"foo": 1}]])
+def test_legacy_player_read_ignores_stray_expectation_checks(stray):
+    payload = {
+        "observations": ["Stayed central in possession at t=10."],
+        "confidence": "low",
+        "expectation_checks": stray,
+    }
+
+    assert (
+        parse_player_read(
+            json.dumps(payload),
+            [{"timestamp_s": 10, "observation": _good_observation()}],
+        )
+        == payload
+    )
+
+
+def test_brief_context_load_failure_logs_no_private_input(tmp_path, caplog):
+    sentinel = "SENTINEL_PRIVATE_INVALID_BRIEF"
+    brief_path = tmp_path / "brief.json"
+    payload = {
+        "schema_version": "brief-context-v1",
+        "max_lines": 1,
+        "roster": {
+            "42": {
+                "jersey_number": 8,
+                "kit_color": "blue",
+                "lines": ["Hold width", "Recover inside"],
+                "hash": "a" * 64,
+                "private_extra": sentinel,
+            }
+        },
+        "system_brief": None,
+    }
+    brief_path.write_text(json.dumps(payload))
+
+    with caplog.at_level("WARNING", logger="qwen_match_analysis"):
+        with pytest.raises(
+            qwen_analysis.PrivateBriefError,
+            match="brief context could not be loaded: invalid brief input",
+        ):
+            _load_brief_context(brief_path)
+
+    assert sentinel not in caplog.text
+    assert "ValidationError" in caplog.text
+    assert "extra_forbidden" in caplog.text
+
+
+def test_brief_context_rejects_lines_beyond_payload_cap_safely(tmp_path):
+    brief_path = tmp_path / "brief.json"
+    brief_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "brief-context-v1",
+                "max_lines": 1,
+                "roster": {
+                    "42": {
+                        "jersey_number": 8,
+                        "kit_color": "blue",
+                        "lines": ["Hold width", "Recover inside"],
+                        "hash": "a" * 64,
+                    }
+                },
+                "system_brief": None,
+            }
+        )
+    )
+
+    with pytest.raises(
+        qwen_analysis.PrivateBriefError,
+        match="brief context could not be loaded: invalid brief input",
+    ):
+        _load_brief_context(brief_path)
+
+
+def test_gate_brief_checks_keeps_all_and_counts_downgrade():
+    counts = {
+        "brief_checks_total": 0,
+        "brief_checks_evidence_found": 0,
+        "brief_checks_downgraded": 0,
+    }
+    checks = [
+        {
+            "expectation_index": 1,
+            "verdict": "evidence_found",
+            "box_t": 10,
+            "box": [100, 100, 200, 200],
+        },
+        {
+            "expectation_index": 2,
+            "verdict": "evidence_found",
+            "box_t": 10,
+            "box": [800, 800, 900, 900],
+        },
+        {
+            "expectation_index": 3,
+            "verdict": "no_evidence",
+            "box_t": None,
+            "box": None,
+        },
+    ]
+
+    gated = gate_brief_checks(
+        checks,
+        "a" * 64,
+        [[10, 100, 100, 200, 200]],
+        (1000, 1000),
+        counts,
+    )
+
+    assert [check["verdict"] for check in gated] == [
+        "evidence_found",
+        "no_evidence",
+        "no_evidence",
+    ]
+    assert gated[0]["iou"] == 1.0
+    assert set(gated[1]) == {"expectation_index", "brief_hash", "verdict"}
+    assert counts == {
+        "brief_checks_total": 3,
+        "brief_checks_evidence_found": 1,
+        "brief_checks_downgraded": 1,
+    }
+
+
+def test_analysis_accepts_zero_observations_when_brief_checks_are_non_empty():
+    analysis = _good_analysis()
+    analysis["player_notes"][0].update(
+        {
+            "observations": [],
+            "brief_checks": [
+                {
+                    "expectation_index": 1,
+                    "brief_hash": "a" * 64,
+                    "verdict": "no_evidence",
+                }
+            ],
+            "system_brief_hash": "b" * 64,
+        }
+    )
+    analysis["sampling"].update(
+        {
+            "brief_checks_total": 1,
+            "brief_checks_evidence_found": 0,
+            "brief_checks_downgraded": 0,
+        }
+    )
+
+    validate_analysis_schema(analysis, required_player_pairs={("blue", 8)})
+
+
+def test_analysis_rejects_missing_brief_check_counter():
+    analysis = _good_analysis()
+    del analysis["sampling"]["brief_checks_downgraded"]
+
+    with pytest.raises(
+        ValueError,
+        match="sampling.brief_checks_downgraded must be a non-negative integer",
+    ):
+        validate_analysis_schema(analysis)
+
+
+def test_brief_eligibility_is_independent_of_recurrence_and_reports_ineligible():
+    observations = [
+        {
+            "timestamp_s": 10,
+            "filename": "frame_10.jpg",
+            "observation": _good_observation(),
+        }
+    ]
+    context = {
+        "schema_version": "brief-context-v1",
+        "max_lines": 8,
+        "roster": {
+            "42": {
+                "jersey_number": 8,
+                "kit_color": "blue",
+                "lines": ["Hold width"],
+                "hash": "a" * 64,
+            },
+            "43": {
+                "jersey_number": 11,
+                "kit_color": "blue",
+                "lines": ["Recover inside"],
+                "hash": "b" * 64,
+            },
+            "44": {
+                "jersey_number": 12,
+                "kit_color": "blue",
+                "lines": ["Protect the centre"],
+                "hash": "d" * 64,
+            },
+        },
+        "system_brief": {"lines": ["Press together"], "hash": "c" * 64},
+    }
+
+    eligible, limits = eligible_brief_reads(
+        context,
+        observations,
+        {"42": [[10, 100, 100, 200, 200]], "43": []},
+        (1000, 1000),
+    )
+
+    assert recurring_jersey_evidence(observations) == set()
+    assert set(eligible) == {("blue", 8)}
+    assert eligible[("blue", 8)]["system_brief"]["hash"] == "c" * 64
+    assert limits == [
+        "brief for roster entry 43 (#11) could not be checked: no tracked window",
+        "brief for roster entry 44 (#12) could not be checked: no tracked window",
+    ]
+
+
+def test_brief_eligibility_reports_no_kit_and_payload_driven_overlong_skip(tmp_path):
+    context = {
+        "schema_version": "brief-context-v1",
+        "max_lines": 6,
+        "roster": {},
+        "skipped_roster": {
+            "42": {
+                "jersey_number": 8,
+                "reason": "no_kit_colour",
+            },
+            "43": {
+                "jersey_number": 11,
+                "reason": "brief_longer_than_max_lines",
+            },
+        },
+        "system_brief": None,
+    }
+
+    brief_path = tmp_path / "brief.json"
+    brief_path.write_text(json.dumps(context))
+
+    eligible, limits = eligible_brief_reads(
+        _load_brief_context(brief_path),
+        [],
+        {"42": [[10, 100, 100, 200, 200]]},
+        (1000, 1000),
+    )
+
+    assert eligible == {}
+    assert limits == [
+        "brief for roster entry 42 (#8) could not be checked: no kit colour on the match",
+        "brief for roster entry 43 (#11) could not be checked: brief longer than 6 lines",
+    ]
+
+
+def test_no_kit_brief_limit_schedules_no_checks_and_keeps_counters_zero(
+    monkeypatch, tmp_path
+):
+    video_path = tmp_path / "match.mp4"
+    video_path.write_bytes(b"video")
+    out_dir = tmp_path / "out"
+    context_path = tmp_path / "context.json"
+    context_path.write_text(
+        json.dumps(
+            {
+                "our_kit_color": None,
+                "frame_size": [1000, 1000],
+                "caption_windows": [],
+                "player_tracks": {},
+            }
+        )
+    )
+    brief_path = tmp_path / "brief.json"
+    brief_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "brief-context-v1",
+                "max_lines": 8,
+                "roster": {},
+                "skipped_roster": {
+                    "42": {"jersey_number": 8, "reason": "no_kit_colour"}
+                },
+                "system_brief": None,
+            }
+        )
+    )
+    calls = []
+
+    def fake_ollama_chat(prompt, **kwargs):
+        calls.append(kwargs)
+        if "image_path" in kwargs:
+            return json.dumps(_good_observation())
+        assert "image_paths" not in kwargs
+        return json.dumps(
+            {
+                "match_summary": "A compact sampled match summary.",
+                "team_analysis": _good_analysis()["team_analysis"],
+                "honest_limits": [],
+            }
+        )
+
+    monkeypatch.setenv("VIDEO_DECODE_SANDBOX", "0")
+    monkeypatch.setenv("QWEN_CAPTIONS", "0")
+    monkeypatch.setattr(
+        qwen_analysis.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"ffmpeg", "ffprobe"} else None,
+    )
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    assert (
+        qwen_analysis.run(
+            [
+                "--video",
+                str(video_path),
+                "--out",
+                str(out_dir),
+                "--kickoff-s",
+                "0",
+                "--end-s",
+                "1",
+                "--context-json",
+                str(context_path),
+                "--brief-json",
+                str(brief_path),
+            ]
+        )
+        == 0
+    )
+
+    assert not any("image_paths" in kwargs for kwargs in calls)
+    analysis = json.loads((out_dir / "analysis.json").read_text())
+    assert analysis["sampling"]["brief_checks_total"] == 0
+    assert analysis["sampling"]["brief_checks_evidence_found"] == 0
+    assert analysis["sampling"]["brief_checks_downgraded"] == 0
+    assert (
+        "brief for roster entry 42 (#8) could not be checked: no kit colour on the match"
+        in analysis["honest_limits"]
+    )
+    assert qwen_analysis.COACHS_BRIEF_HONEST_LIMIT not in analysis["honest_limits"]
+
+
+def test_briefed_player_uses_separate_ordinary_and_checks_only_calls(
+    monkeypatch, tmp_path
+):
+    sentinel = "SENTINEL_BRIEF_MUST_NOT_PERSIST"
+    system_sentinel = "SENTINEL_SYSTEM_MUST_NOT_PERSIST"
+    ordinary_response = {
+        "observations": [
+            {
+                "observation": "Stayed wide in possession.",
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+            }
+        ],
+        "confidence": "low",
+    }
+    checks_response = {
+        "expectation_checks": [
+            {
+                "expectation_index": 1,
+                "verdict": "no_evidence",
+                "box_t": None,
+                "box": None,
+            }
+        ]
+    }
+    calls = []
+
+    def fake_ollama_chat(prompt, **kwargs):
+        calls.append((prompt, kwargs))
+        if "Check the coach's expectations" in prompt:
+            return json.dumps(checks_response)
+        return json.dumps(ordinary_response)
+
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+    monkeypatch.setattr(qwen_analysis.shutil, "copyfile", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    brief_counts = {
+        "brief_checks_total": 0,
+        "brief_checks_evidence_found": 0,
+        "brief_checks_downgraded": 0,
+    }
+
+    notes, limits, omitted = generate_player_reads(
+        set(),
+        [
+            {
+                "timestamp_s": 10,
+                "filename": "frame_10.jpg",
+                "observation": _good_observation(),
+            }
+        ],
+        frames_dir=tmp_path,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=17,
+        frame_size=(1000, 1000),
+        player_tracks={"42": [[10, 100, 100, 200, 200]]},
+        player_roster_ids={("blue", 8): 42},
+        player_briefs={
+            ("blue", 8): {
+                "brief": {"lines": [sentinel], "hash": "a" * 64},
+                "system_brief": {
+                    "lines": [system_sentinel],
+                    "hash": "b" * 64,
+                },
+                "max_lines": 8,
+            }
+        },
+        brief_counts=brief_counts,
+    )
+
+    assert limits == []
+    assert omitted == set()
+    assert notes[0]["observations"] == ["Stayed wide in possession."]
+    assert notes[0]["brief_checks"] == [
+        {
+            "expectation_index": 1,
+            "brief_hash": "a" * 64,
+            "verdict": "no_evidence",
+        }
+    ]
+    assert notes[0]["system_brief_hash"] == "b" * 64
+    persisted = json.dumps(notes)
+    assert sentinel not in persisted
+    assert system_sentinel not in persisted
+    assert len(calls) == 2
+    assert sentinel not in calls[0][0]
+    assert system_sentinel not in calls[0][0]
+    assert sentinel in calls[1][0]
+    assert system_sentinel in calls[1][0]
+    assert calls[0][1]["response_schema"] == grounded_read_schema()
+    assert calls[0][1]["num_predict"] == qwen_analysis.GROUNDED_PLAYER_NUM_PREDICT
+    assert calls[1][1]["response_schema"] == grounded_brief_checks_schema(8)
+    assert set(calls[1][1]["response_schema"]["properties"]) == {"expectation_checks"}
+    assert calls[1][1]["num_predict"] == qwen_analysis.BRIEF_CHECK_NUM_PREDICT
+    assert calls[1][1]["private_input"] is True
+
+
+def test_brief_checks_cap_fits_eight_checks_with_headroom():
+    response = {
+        "expectation_checks": [
+            {
+                "expectation_index": index,
+                "verdict": "evidence_found",
+                "box_t": 10,
+                "box": [100, 100, 200, 200],
+            }
+            for index in range(1, 9)
+        ]
+    }
+
+    compact_response = json.dumps(response, separators=(",", ":"))
+    conservative_token_estimate = len(compact_response) / 2.5
+
+    assert qwen_analysis.BRIEF_CHECK_NUM_PREDICT == 600
+    assert conservative_token_estimate < 300
+    assert qwen_analysis.BRIEF_CHECK_NUM_PREDICT - conservative_token_estimate > 300
+
+
+def test_run_keeps_brief_out_of_team_prompt_and_persisted_analysis(
+    monkeypatch, tmp_path
+):
+    sentinel = "SENTINEL_PRIVATE_RUN_BRIEF"
+    system_sentinel = "SENTINEL_PRIVATE_RUN_SYSTEM"
+    video_path = tmp_path / "match.mp4"
+    video_path.write_bytes(b"video")
+    out_dir = tmp_path / "out"
+    context_path = tmp_path / "context.json"
+    context_path.write_text(
+        json.dumps(
+            {
+                "our_kit_color": "blue",
+                "frame_size": [1000, 1000],
+                "caption_windows": [
+                    {
+                        "tracklet_id": 7,
+                        "roster_entry_id": 42,
+                        "roster_jersey_number": 8,
+                        "kit_color": "blue",
+                        "start_s": 0,
+                        "end_s": 3,
+                        "box_track": [[0, 100, 100, 200, 200]],
+                    }
+                ],
+                "player_tracks": {"42": [[0, 100, 100, 200, 200]]},
+            }
+        )
+    )
+    brief_path = tmp_path / "brief.json"
+    brief_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "brief-context-v1",
+                "max_lines": 8,
+                "roster": {
+                    "42": {
+                        "jersey_number": 8,
+                        "kit_color": "blue",
+                        "lines": [sentinel],
+                        "hash": "a" * 64,
+                    },
+                },
+                "system_brief": {
+                    "lines": [system_sentinel],
+                    "hash": "b" * 64,
+                },
+            }
+        )
+    )
+    prompts = {"player": [], "team": []}
+
+    def fake_ollama_chat(prompt, **kwargs):
+        if "image_path" in kwargs:
+            return json.dumps(_good_observation())
+        if "image_paths" in kwargs:
+            prompts["player"].append(prompt)
+            if "Check the coach's expectations" in prompt:
+                return json.dumps(
+                    {
+                        "expectation_checks": [
+                            {
+                                "expectation_index": 1,
+                                "verdict": "no_evidence",
+                                "box_t": None,
+                                "box": None,
+                            }
+                        ]
+                    }
+                )
+            return json.dumps({"observations": [], "confidence": "low"})
+        prompts["team"].append(prompt)
+        return json.dumps(
+            {
+                "match_summary": "A compact sampled match summary.",
+                "team_analysis": _good_analysis()["team_analysis"],
+                "honest_limits": [],
+            }
+        )
+
+    monkeypatch.setenv("VIDEO_DECODE_SANDBOX", "0")
+    monkeypatch.setenv("QWEN_CAPTIONS", "0")
+    monkeypatch.setattr(
+        qwen_analysis.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"ffmpeg", "ffprobe"} else None,
+    )
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis.shutil, "copyfile", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    assert (
+        qwen_analysis.run(
+            [
+                "--video",
+                str(video_path),
+                "--out",
+                str(out_dir),
+                "--kickoff-s",
+                "0",
+                "--end-s",
+                "1",
+                "--context-json",
+                str(context_path),
+                "--brief-json",
+                str(brief_path),
+            ]
+        )
+        == 0
+    )
+
+    assert len(prompts["player"]) == 2
+    assert sentinel not in prompts["player"][0]
+    assert system_sentinel not in prompts["player"][0]
+    assert sentinel in prompts["player"][1]
+    assert system_sentinel in prompts["player"][1]
+    assert sentinel not in prompts["team"][0]
+    assert system_sentinel not in prompts["team"][0]
+    analysis = json.loads((out_dir / "analysis.json").read_text())
+    serialized = json.dumps(analysis)
+    assert sentinel not in serialized
+    assert system_sentinel not in serialized
+    assert analysis["sampling"]["brief_checks_total"] == 1
+    assert analysis["sampling"]["brief_checks_evidence_found"] == 0
+    assert analysis["sampling"]["brief_checks_downgraded"] == 0
+    assert analysis["player_notes"][0]["brief_checks"][0]["brief_hash"] == "a" * 64
+    assert analysis["player_notes"][0]["system_brief_hash"] == "b" * 64
+    assert qwen_analysis.COACHS_BRIEF_HONEST_LIMIT in analysis["honest_limits"]
+
+
+@pytest.mark.parametrize("reply_kind", ["prose", "extra-key"])
+def test_invalid_brief_checks_never_persist_or_log_model_output(
+    monkeypatch, tmp_path, caplog, reply_kind
+):
+    sentinel = "SENTINEL_PRIVATE_CHECKS_OUTPUT"
+    video_path = tmp_path / "match.mp4"
+    video_path.write_bytes(b"video")
+    out_dir = tmp_path / "out"
+    context_path = tmp_path / "context.json"
+    context_path.write_text(
+        json.dumps(
+            {
+                "our_kit_color": "blue",
+                "frame_size": [1000, 1000],
+                "caption_windows": [],
+                "player_tracks": {"42": [[0, 100, 100, 200, 200]]},
+            }
+        )
+    )
+    brief_path = tmp_path / "brief.json"
+    brief_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "brief-context-v1",
+                "max_lines": 8,
+                "roster": {
+                    "42": {
+                        "jersey_number": 8,
+                        "kit_color": "blue",
+                        "lines": ["Hold width"],
+                        "hash": "a" * 64,
+                    }
+                },
+                "system_brief": None,
+            }
+        )
+    )
+    valid_check = {
+        "expectation_index": 1,
+        "verdict": "no_evidence",
+        "box_t": None,
+        "box": None,
+    }
+    checks_reply = (
+        f"prose containing {sentinel}"
+        if reply_kind == "prose"
+        else json.dumps(
+            {
+                "expectation_checks": [valid_check],
+                "unexpected": sentinel,
+            }
+        )
+    )
+
+    def fake_ollama_chat(prompt, **kwargs):
+        if "image_path" in kwargs:
+            return json.dumps(_good_observation())
+        if "image_paths" in kwargs:
+            if "Check the coach's expectations" in prompt:
+                return checks_reply
+            return json.dumps(
+                {
+                    "observations": [
+                        {
+                            "observation": "Stayed wide in possession.",
+                            "box_t": 0,
+                            "box": [100, 100, 200, 200],
+                        }
+                    ],
+                    "confidence": "low",
+                }
+            )
+        return json.dumps(
+            {
+                "match_summary": "A compact sampled match summary.",
+                "team_analysis": _good_analysis()["team_analysis"],
+                "honest_limits": [],
+            }
+        )
+
+    monkeypatch.setenv("VIDEO_DECODE_SANDBOX", "0")
+    monkeypatch.setenv("QWEN_CAPTIONS", "0")
+    monkeypatch.setattr(
+        qwen_analysis.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"ffmpeg", "ffprobe"} else None,
+    )
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis.shutil, "copyfile", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    monkeypatch.setattr(qwen_analysis, "ollama_chat", fake_ollama_chat)
+
+    with caplog.at_level("WARNING", logger="qwen_match_analysis"):
+        assert (
+            qwen_analysis.run(
+                [
+                    "--video",
+                    str(video_path),
+                    "--out",
+                    str(out_dir),
+                    "--kickoff-s",
+                    "0",
+                    "--end-s",
+                    "1",
+                    "--context-json",
+                    str(context_path),
+                    "--brief-json",
+                    str(brief_path),
+                ]
+            )
+            == 0
+        )
+
+    analysis = json.loads((out_dir / "analysis.json").read_text())
+    assert sentinel not in json.dumps(analysis)
+    assert sentinel not in caplog.text
+    assert (
+        "brief checks not produced for blue #8: invalid checks output"
+        in analysis["honest_limits"]
+    )
+    assert "ValidationError" in caplog.text
+    expected_error_type = "json_invalid" if reply_kind == "prose" else "extra_forbidden"
+    assert expected_error_type in caplog.text

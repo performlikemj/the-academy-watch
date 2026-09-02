@@ -4,6 +4,11 @@ Directive: `ledgers/DIRECTIVE_coach-brief.md` (authored 2026-09-02; MJ chose "br
 Parent: `CONTINUITY.md` §Now 2026-09-02. Related: `DIRECTIVE_evidence-bench.md` (E2/E3), `CONTINUITY_video-analysis.md`.
 
 ## State
+- 2026-09-03: PR #985 review round complete: briefed players now use an unchanged ordinary read plus a checks-only call; the 8-line/versioned worker payload supplies roster kit/number identity, and eligibility comes from roster tracks plus interpolated evidence rather than caption windows. Spike 170 and requested backend 87 pass; backend and bare-spike Ruff gates clean; no Basecamp/Ollama calls.
+- 2026-09-03: C2 implementation started on `feat/coach-brief-c2` from merged C1 commit `34f003e`; child ledger `CONTINUITY_coach-brief-c2.md`. Prerequisite model field confirmed; no Basecamp/Ollama calls and no frontend changes.
+- 2026-09-03: C2 implementation verified: spike 167 passed; worker 25 passed; backend-config and bare-spike Ruff check/format pass; no-brief grounded prompt remains byte-identical. Exact backend suite retains its 12 known collection errors; collectible diagnostic 1,975 passed / 42 unrelated failures / 3 skipped. Commit/push/PR delivery next.
+- 2026-09-03: C2 delivered as one scoped commit on `feat/coach-brief-c2`; PR #985 open and unmerged: https://github.com/performlikemj/the-academy-watch/pull/985.
+- 2026-09-03: PR #985 CI green: Backend Lint, Frontend Dependency Security / osv-scan, and Frontend Build & Lint passed.
 - 2026-09-02: directive authored from a codex read-only recon of main `bea9ec6`, then REVISED after a codex critique (21 findings, 11 blockers folded in: columns-on-owning-rows, hash+index persistence, evidence_found/no_evidence verdicts, fixture bridge for match 4, brief.json separate from the team pass, synthetic-only sims);
   decisions B1–B5 recorded from MJ. C1 storage, club routes, and sentinel leak tests are open as PR #973: https://github.com/performlikemj/the-academy-watch/pull/973.
 - 2026-09-02: `cb01` now chains from main's moved single head `s2f1` (`s2f1` ← `pm01`), not as a second head from `pm01`. Six guarded columns, manager routes, roster-name validation, and requested leak coverage implemented; the prior focused command passed 80 tests.
