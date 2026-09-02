@@ -9,27 +9,33 @@ the existing admin-only concierge routes.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy import func, text
+from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
 from src.auth import mint_media_token
 from src.models.funding import ClubProgram, ClubRosterMember
 from src.models.league import Team, db
+from src.models.player_match_entry import PlayerMatchEntry
+from src.models.season_rollup import PlayerSeasonTotal
 from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
-from src.services import video_retention, video_storage
+from src.services import season_rollup_service, video_retention, video_storage
 from src.services.club_registry import require_club_manager
 from src.services.player_identity import retained_shadow_identity_exists
+from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
+from src.utils.academy_window import current_stats_season
 from src.utils.sanitize import sanitize_plain_text
 
 club_bp = Blueprint("club", __name__)
+logger = logging.getLogger(__name__)
 
 RAW_RETENTION_DAYS = 90
 DEFAULT_MATCH_QUOTA = 3
@@ -40,6 +46,9 @@ MAX_CAPTURE_META_DEPTH = 4
 MAX_CAPTURE_META_KEYS = 50
 MAX_TIMELINE_SECONDS = 6 * 60 * 60
 CLUB_EDITABLE_MATCH_STATUSES = {"created", "uploaded"}
+RESULT_COUNT_FIELDS = ("goals", "assists", "yellows", "reds")
+RESULT_OPTIONAL_COUNT_FIELDS = ("saves", "goals_conceded")
+RESULT_STAT_FIELDS = ("appearances", "minutes", *RESULT_COUNT_FIELDS, *RESULT_OPTIONAL_COUNT_FIELDS)
 TEXT_LIMITS = {
     "opponent_name": 200,
     "competition": 200,
@@ -105,6 +114,84 @@ def _match_date(value):
         raise ValueError("match_date must be YYYY-MM-DD or null") from exc
 
 
+class _ClubResultConflict(Exception):
+    pass
+
+
+def _result_match_date(value) -> date:
+    if not isinstance(value, str):
+        raise ValueError("match_date must be an ISO date in YYYY-MM-DD format")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        raise ValueError("match_date must be an ISO date in YYYY-MM-DD format") from None
+    if value != parsed.isoformat():
+        raise ValueError("match_date must be an ISO date in YYYY-MM-DD format")
+    if parsed < date(1970, 1, 1):
+        raise ValueError("match_date cannot be before 1970-01-01")
+    if parsed > datetime.now(UTC).date() + timedelta(days=1):
+        raise ValueError("match_date cannot be more than one day in the future")
+    return parsed
+
+
+def _bounded_result_int(value, field: str, maximum: int, *, nullable: bool = False) -> int | None:
+    if value is None and nullable:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        suffix = " or null" if nullable else ""
+        raise ValueError(f"{field} must be an integer{suffix}")
+    if not 0 <= value <= maximum:
+        raise ValueError(f"{field} must be between 0 and {maximum}")
+    return value
+
+
+def _result_header_values(data: dict) -> dict:
+    for field in ("match_date", "opponent", "home_away", "result_for", "result_against"):
+        if field not in data:
+            raise ValueError(f"{field} is required")
+    opponent = _clean_optional(data.get("opponent"), "opponent", 120)
+    if opponent is None:
+        raise ValueError("opponent is required")
+    home_away = data.get("home_away")
+    if not isinstance(home_away, str) or home_away not in {"home", "away", "neutral"}:
+        raise ValueError("home_away must be one of ['away', 'home', 'neutral']")
+    return {
+        "match_date": _result_match_date(data.get("match_date")),
+        "opponent": opponent,
+        "competition": _clean_optional(data.get("competition"), "competition", 120),
+        "home_away": home_away,
+        "result_for": _bounded_result_int(data.get("result_for"), "result_for", 20),
+        "result_against": _bounded_result_int(data.get("result_against"), "result_against", 20),
+    }
+
+
+def _result_entry_values(data: dict) -> dict:
+    values = {
+        "minutes": _bounded_result_int(data.get("minutes", 0), "minutes", 130),
+        "note": _clean_optional(data.get("note"), "note", 500),
+    }
+    values.update({field: _bounded_result_int(data.get(field, 0), field, 20) for field in RESULT_COUNT_FIELDS})
+    values.update(
+        {
+            field: _bounded_result_int(data.get(field), field, 20, nullable=True)
+            for field in RESULT_OPTIONAL_COUNT_FIELDS
+        }
+    )
+    return values
+
+
+def _normalized_result(header: dict, video_match_id: int | None) -> dict:
+    return {
+        "video_match_id": video_match_id,
+        "match_date": header["match_date"].isoformat(),
+        "opponent": header["opponent"],
+        "competition": header["competition"],
+        "home_away": header["home_away"],
+        "result_for": header["result_for"],
+        "result_against": header["result_against"],
+    }
+
+
 def _capture_meta(value):
     if value is None:
         return None
@@ -163,21 +250,19 @@ def _local_player_available(player: LocalPlayer | None) -> bool:
 
 def _member_subject(member: ClubRosterMember) -> tuple[dict | None, object | None]:
     if member.player_api_id is not None:
-        if is_player_suppressed(member.player_api_id):
-            return None, None
-        tracked = _tracked_player(member.player_api_id)
-        if tracked is None:
+        subject = resolve_player_subject(member.player_api_id)
+        if subject is None or subject.is_suppressed:
             return None, None
         return (
             {
                 "subject_type": "tracked",
-                "player_api_id": member.player_api_id,
+                "player_api_id": subject.player_api_id,
                 "local_player_id": None,
-                "display_name": tracked.player_name,
-                "position": tracked.position,
-                "is_minor": False,
+                "display_name": subject.display_name,
+                "position": subject.position,
+                "is_minor": subject.is_minor,
             },
-            tracked,
+            subject.tracked_player or subject.shadow,
         )
     local = db.session.get(LocalPlayer, member.local_player_id)
     if not _local_player_available(local):
@@ -208,6 +293,60 @@ def _member_dict(member: ClubRosterMember) -> dict:
     if subject is not None:
         out.update(subject)
     return out
+
+
+def _result_player(member: ClubRosterMember) -> tuple[int, str | None]:
+    if member.player_api_id is not None:
+        subject, _ = _member_subject(member)
+        if member.player_api_id <= 0 or subject is None:
+            raise _ClubResultConflict("Every result player must be an available club roster member")
+        return member.player_api_id, subject["display_name"]
+
+    local = db.session.get(LocalPlayer, member.local_player_id)
+    if (
+        local is None
+        or local.status != "approved"
+        or local.api_player_id != -local.id
+        or local.merged_into_local_player_id is not None
+    ):
+        raise _ClubResultConflict(
+            "Local roster members need an approved local player identity before stats can be recorded"
+        )
+    if not _local_player_available(local):
+        raise _ClubResultConflict("Every result player must be an available club roster member")
+    return -local.id, local.display_name
+
+
+def _result_entry_dict(entry: PlayerMatchEntry, member_id: int | None) -> dict:
+    out = entry.to_dict()
+    out["club_roster_member_id"] = member_id
+    return out
+
+
+def _club_season_stats(
+    player_api_id: int,
+    season: int,
+    level_group: str,
+    member_id: int,
+    player_name: str | None,
+) -> dict | None:
+    total = PlayerSeasonTotal.query.filter_by(
+        player_api_id=player_api_id,
+        season=season,
+        level_group=level_group,
+    ).one_or_none()
+    breakdown = total.source_breakdown if total is not None else None
+    club_stats = breakdown.get("club") if isinstance(breakdown, dict) else None
+    if not isinstance(club_stats, dict):
+        return None
+    return {
+        "club_roster_member_id": member_id,
+        "player_name": player_name,
+        "season": season,
+        "level_group": level_group,
+        "source": "club",
+        **{field: club_stats.get(field) for field in RESULT_STAT_FIELDS},
+    }
 
 
 def _quota() -> int:
@@ -316,6 +455,224 @@ def delete_club_roster_member(program_id: int, member_id: int):
     db.session.delete(member)
     db.session.commit()
     return "", 204
+
+
+@club_bp.route("/club/<int:program_id>/results", methods=["POST"])
+@require_club_manager()
+def record_club_result(program_id: int):
+    try:
+        data = _payload()
+        header = _result_header_values(data)
+        video_match_id = data.get("video_match_id")
+        if video_match_id is not None:
+            video_match_id = _positive_int(video_match_id, "video_match_id")
+
+        requested_entries = data.get("entries")
+        if not isinstance(requested_entries, list) or not requested_entries:
+            raise ValueError("entries must be a non-empty list")
+        parsed_entries = []
+        member_ids = []
+        for requested_entry in requested_entries:
+            if not isinstance(requested_entry, dict):
+                raise ValueError("each entry must be an object")
+            member_id = _positive_int(
+                requested_entry.get("club_roster_member_id"),
+                "club_roster_member_id",
+            )
+            if member_id in member_ids:
+                raise ValueError(f"duplicate club_roster_member_id {member_id}")
+            member_ids.append(member_id)
+            parsed_entries.append((member_id, _result_entry_values(requested_entry)))
+
+        program = db.session.get(ClubProgram, program_id)
+        if program is None:
+            raise _ClubResultConflict("Club manager access denied")
+        _lock_program_quota(program_id)
+
+        if video_match_id is not None:
+            video_match = (
+                VideoMatch.query.filter_by(id=video_match_id, club_program_id=program_id).with_for_update().first()
+            )
+            if video_match is None or video_match.status not in CLUB_EDITABLE_MATCH_STATUSES:
+                raise _ClubResultConflict("Video match must belong to this club program and remain editable")
+
+        members = {
+            row.id: row
+            for row in ClubRosterMember.query.filter(
+                ClubRosterMember.program_id == program_id,
+                ClubRosterMember.id.in_(member_ids),
+            )
+            .with_for_update()
+            .all()
+        }
+        if len(members) != len(member_ids):
+            raise _ClubResultConflict("Every result player must belong to this club program")
+
+        resolved_entries = []
+        seen_player_ids = set()
+        for member_id, values in parsed_entries:
+            player_api_id, player_name = _result_player(members[member_id])
+            if player_api_id in seen_player_ids:
+                raise _ClubResultConflict("Each result player may appear only once")
+            seen_player_ids.add(player_api_id)
+            resolved_entries.append((member_id, player_api_id, player_name, values))
+
+        season = current_stats_season(header["match_date"])
+        identity_rows = (
+            PlayerMatchEntry.query.filter(
+                PlayerMatchEntry.match_date == header["match_date"],
+                PlayerMatchEntry.opponent == header["opponent"],
+                PlayerMatchEntry.source == "club",
+                PlayerMatchEntry.reported_by_user_id == g.user_id,
+                or_(
+                    PlayerMatchEntry.club_program_id == program_id,
+                    PlayerMatchEntry.player_api_id.in_(seen_player_ids),
+                ),
+            )
+            .order_by(PlayerMatchEntry.id)
+            .with_for_update()
+            .all()
+        )
+        existing = {}
+        fixture_rows = []
+        for row in identity_rows:
+            if row.club_program_id == program_id:
+                fixture_rows.append(row)
+            if row.player_api_id not in seen_player_ids:
+                continue
+            if row.club_program_id != program_id:
+                raise _ClubResultConflict("A matching result entry already belongs to another club program")
+            existing[row.player_api_id] = row
+
+        for entry in fixture_rows:
+            for field, value in header.items():
+                setattr(entry, field, value)
+            entry.season = season
+
+        created = False
+        response_rows = []
+        touched_player_ids = {entry.player_api_id for entry in fixture_rows}
+        for member_id, player_api_id, _player_name, values in resolved_entries:
+            entry = existing.get(player_api_id)
+            if entry is None:
+                entry = PlayerMatchEntry()
+                db.session.add(entry)
+                created = True
+                for field, value in header.items():
+                    setattr(entry, field, value)
+            for field, value in values.items():
+                setattr(entry, field, value)
+            entry.player_api_id = player_api_id
+            entry.season = season
+            entry.source = "club"
+            entry.status = "club_confirmed"
+            entry.club_program_id = program_id
+            entry.reported_by_user_id = g.user_id
+            response_rows.append((entry, member_id))
+            touched_player_ids.add(player_api_id)
+
+        try:
+            db.session.flush()
+        except IntegrityError:
+            raise _ClubResultConflict("Club result conflicts with an existing entry") from None
+
+        for player_api_id in sorted(touched_player_ids):
+            season_rollup_service.refresh_player(
+                player_api_id,
+                season,
+                session=db.session,
+            )
+
+        level_group = "youth" if season_rollup_service._is_youth_competition(header["competition"]) else "senior"
+        season_stats_by_player = {}
+        for member_id, player_api_id, player_name, _values in resolved_entries:
+            stats = _club_season_stats(player_api_id, season, level_group, member_id, player_name)
+            if stats is not None:
+                season_stats_by_player[str(player_api_id)] = stats
+        matches = [_result_entry_dict(entry, member_id) for entry, member_id in response_rows]
+        db.session.commit()
+        return (
+            jsonify(
+                {
+                    "result": _normalized_result(header, video_match_id),
+                    "matches": matches,
+                    "season_stats_by_player": season_stats_by_player,
+                }
+            ),
+            201 if created else 200,
+        )
+    except ValueError as exc:
+        db.session.rollback()
+        return _bad_request(str(exc))
+    except _ClubResultConflict as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 409
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to record club result for program %s", program_id)
+        return jsonify({"error": "Failed to record club result"}), 500
+
+
+@club_bp.route("/club/<int:program_id>/results", methods=["GET"])
+@require_club_manager()
+def list_club_results(program_id: int):
+    try:
+        season = request.args.get("season")
+        if season is not None:
+            try:
+                season = int(season)
+            except (TypeError, ValueError):
+                raise ValueError("season must be an integer") from None
+
+        query = PlayerMatchEntry.query.filter_by(
+            club_program_id=program_id,
+            source="club",
+            status="club_confirmed",
+        )
+        if season is not None:
+            query = query.filter(PlayerMatchEntry.season == season)
+        rows = query.order_by(PlayerMatchEntry.match_date.desc(), PlayerMatchEntry.id.desc()).all()
+
+        member_id_by_player = {}
+        for member in ClubRosterMember.query.filter_by(program_id=program_id).all():
+            player_api_id = member.player_api_id if member.player_api_id is not None else -member.local_player_id
+            member_id_by_player[player_api_id] = member.id
+
+        grouped = {}
+        for entry in rows:
+            key = (
+                entry.season,
+                entry.match_date,
+                entry.opponent,
+                entry.competition,
+                entry.home_away,
+                entry.result_for,
+                entry.result_against,
+                entry.reported_by_user_id,
+            )
+            group = grouped.get(key)
+            if group is None:
+                header = {
+                    "match_date": entry.match_date,
+                    "opponent": entry.opponent,
+                    "competition": entry.competition,
+                    "home_away": entry.home_away,
+                    "result_for": entry.result_for,
+                    "result_against": entry.result_against,
+                }
+                group = {
+                    "result": _normalized_result(header, None),
+                    "matches": [],
+                }
+                grouped[key] = group
+            group["matches"].append(_result_entry_dict(entry, member_id_by_player.get(entry.player_api_id)))
+        results = list(grouped.values())
+        return jsonify({"results": results, "total": len(results)})
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    except Exception:
+        logger.exception("Failed to list club results for program %s", program_id)
+        return jsonify({"error": "Failed to load club results"}), 500
 
 
 @club_bp.route("/club/<int:program_id>/matches", methods=["POST"])
