@@ -52,6 +52,9 @@ def _good_analysis():
             "in_play_windows": [[100, 1900], [2200, 4000]],
             "zone_coverage": {"left": 1, "central": 1, "right": 0, "unclear": 0},
             "captions_failed": 0,
+            "captions_action_type_coerced": 0,
+            "captions_zone_coerced": 0,
+            "captions_claims_dropped": 0,
             "notes_scope": "ours",
             "grounding": {
                 "caption_windows": 0,
@@ -702,6 +705,9 @@ def test_finalize_overwrites_model_times_seen_from_frame_evidence():
         "unclear": 0,
     }
     assert final["sampling"]["captions_failed"] == 0
+    assert final["sampling"]["captions_action_type_coerced"] == 0
+    assert final["sampling"]["captions_zone_coerced"] == 0
+    assert final["sampling"]["captions_claims_dropped"] == 0
     assert final["window_captions"] == []
 
 
@@ -837,6 +843,165 @@ def test_caption_validation_accepts_good_shape_and_rejects_bad_fields():
         bad = {**good, key: value}
         with pytest.raises(ValueError):
             parse_window_caption(json.dumps(bad))
+
+
+def test_grounded_caption_coerces_unknown_action_and_keeps_window(
+    monkeypatch, tmp_path, caplog
+):
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    monkeypatch.setattr(
+        qwen_analysis,
+        "ollama_chat",
+        lambda *args, **kwargs: json.dumps(
+            {
+                "claims": [],
+                "action_type": "progressive dribble",
+                "visible_pitch_zone": "central",
+            }
+        ),
+    )
+    counts = {"captions_action_type_coerced": 0}
+
+    with caplog.at_level("WARNING", logger="qwen_match_analysis"):
+        captions, failed = generate_window_captions(
+            [
+                {
+                    "tracklet_id": 10,
+                    "roster_entry_id": 42,
+                    "roster_jersey_number": 8,
+                    "kit_color": "blue",
+                    "start_s": 10.0,
+                    "end_s": 20.0,
+                    "box_track": [[10.0, 100, 100, 200, 200]],
+                }
+            ],
+            video_path=tmp_path / "match.mp4",
+            out_dir=tmp_path / "out",
+            ffmpeg_path=tmp_path / "ffmpeg",
+            ffmpeg_dir=tmp_path,
+            profile_path=tmp_path / "decode.sb",
+            sandboxed=False,
+            sandbox_exec=None,
+            ollama_url="http://ollama.invalid",
+            model="qwen3-vl:8b",
+            timeout_s=30,
+            frame_size=(1000, 1000),
+            fault_counts=counts,
+        )
+
+    assert failed == 0
+    assert captions[0]["action_type"] == "unclear"
+    assert counts["captions_action_type_coerced"] == 1
+    assert (
+        "grounded caption action_type 'progressive dribble' not in vocabulary; "
+        "coerced to 'unclear' (tracklet 10 at 10.0s)" in caplog.text
+    )
+
+
+def test_grounded_caption_drops_only_malformed_claim(caplog):
+    good_claim = {
+        "claim": "Blue #8 checks toward the ball.",
+        "t0": 10,
+        "t1": 20,
+        "box_t": 10,
+        "box": [100, 100, 200, 200],
+        "confidence": "high",
+        "visibility": "clear",
+    }
+    malformed_claim = {"claim": "Blue #8 turns."}
+    counts = {"captions_claims_dropped": 0}
+
+    with caplog.at_level("WARNING", logger="qwen_match_analysis"):
+        parsed = parse_window_caption(
+            json.dumps(
+                {
+                    "claims": [good_claim, malformed_claim],
+                    "action_type": "off_ball",
+                    "visible_pitch_zone": "central",
+                }
+            ),
+            {"tracklet_id": 10, "start_s": 10.0, "end_s": 20.0},
+            grounded_contract=True,
+            fault_counts=counts,
+        )
+
+    assert parsed["claims"] == [good_claim]
+    assert counts["captions_claims_dropped"] == 1
+    assert "grounded claim is missing required keys" in caplog.text
+    assert repr(malformed_claim) in caplog.text
+
+
+def test_grounded_caption_keeps_window_when_all_claims_are_malformed(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(qwen_analysis, "extract_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(qwen_analysis, "_draw_first_anchor", lambda *args: None)
+    monkeypatch.setattr(
+        qwen_analysis,
+        "ollama_chat",
+        lambda *args, **kwargs: json.dumps(
+            {
+                "claims": [{"claim": "Missing evidence."}, "not an object"],
+                "action_type": "unclear",
+                "visible_pitch_zone": "unclear",
+            }
+        ),
+    )
+    gated_claims = []
+    original_gate = qwen_analysis._gate_model_items
+
+    def capture_gate(items, *args):
+        gated_claims.append(items)
+        return original_gate(items, *args)
+
+    monkeypatch.setattr(qwen_analysis, "_gate_model_items", capture_gate)
+    counts = {"captions_claims_dropped": 0}
+
+    captions, failed = generate_window_captions(
+        [
+            {
+                "tracklet_id": 10,
+                "roster_entry_id": 42,
+                "roster_jersey_number": 8,
+                "kit_color": "blue",
+                "start_s": 10.0,
+                "end_s": 20.0,
+                "box_track": [[10.0, 100, 100, 200, 200]],
+            }
+        ],
+        video_path=tmp_path / "match.mp4",
+        out_dir=tmp_path / "out",
+        ffmpeg_path=tmp_path / "ffmpeg",
+        ffmpeg_dir=tmp_path,
+        profile_path=tmp_path / "decode.sb",
+        sandboxed=False,
+        sandbox_exec=None,
+        ollama_url="http://ollama.invalid",
+        model="qwen3-vl:8b",
+        timeout_s=30,
+        frame_size=(1000, 1000),
+        fault_counts=counts,
+    )
+
+    assert failed == 0
+    assert gated_claims == [[]]
+    assert captions[0]["grounded"] is False
+    assert counts["captions_claims_dropped"] == 2
+
+
+def test_legacy_caption_still_rejects_unknown_action_type():
+    caption = {
+        "caption": "Blue #8 moves through midfield.",
+        "action_type": "progressive dribble",
+        "player_visible": True,
+        "visible_pitch_zone": "central",
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        parse_window_caption(json.dumps(caption))
+
+    assert str(exc_info.value) == "window caption.action_type is invalid"
 
 
 def test_caption_frame_timestamps_are_evenly_spaced():
