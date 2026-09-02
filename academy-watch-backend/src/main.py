@@ -18,8 +18,10 @@ from werkzeug.exceptions import HTTPException
 # includes them even before a route/service imports the model directly.
 import src.models.account  # noqa: E402, F401
 import src.models.contact  # noqa: E402, F401
+import src.models.player_match_entry  # noqa: E402, F401
 import src.models.player_suppression  # noqa: E402, F401
 import src.models.season_rollup  # noqa: E402, F401
+import src.models.showcase_moderation  # noqa: E402, F401
 import src.models.transfer_event  # noqa: E402, F401
 import src.models.trust  # noqa: E402, F401
 import src.models.user_block  # noqa: E402, F401
@@ -45,6 +47,7 @@ from src.routes.journalist import journalist_bp
 from src.routes.journey import journey_bp
 from src.routes.newsletter_deadline import newsletter_deadline_bp
 from src.routes.ops import ops_bp
+from src.routes.player_matches import player_matches_bp
 from src.routes.player_suppression import player_suppression_bp
 from src.routes.players import players_bp
 from src.routes.scout import scout_bp
@@ -112,6 +115,7 @@ for name in ("mcp", "agents.mcp", "mcp.shared.session", "mcp.client"):
 
 app.register_blueprint(journey_bp, url_prefix="/api")
 app.register_blueprint(players_bp, url_prefix="/api")
+app.register_blueprint(player_matches_bp, url_prefix="/api")
 app.register_blueprint(scout_bp, url_prefix="/api")
 app.register_blueprint(seasons_bp, url_prefix="/api")
 # Registered BEFORE api_bp (mirroring players_bp) so /players/<id>/showcase*

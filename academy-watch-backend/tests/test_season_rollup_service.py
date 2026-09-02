@@ -7,6 +7,8 @@ stays fixtures-only. Plus the other coverage-map buckets, level_group split,
 the noise filter, refresh idempotency/transactionality, and real sync hooks.
 """
 
+from datetime import date
+
 import pytest
 from flask import Flask
 
@@ -16,6 +18,7 @@ from flask import Flask
 from src.models.follow import PlayerShadowStats
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, db
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services import season_rollup_service as svc
@@ -713,3 +716,186 @@ def test_competition_tier_classifier():
     assert svc.classify_competition_tier("Carabao Cup") == "league_cup"
     assert svc.classify_competition_tier("UEFA Champions League") == "continental"
     assert svc.classify_competition_tier(None) == "league"
+
+
+# ---------------------------------------------------------------------------
+# user / club match-entry feeders
+# ---------------------------------------------------------------------------
+def _reported_entry(
+    player,
+    *,
+    source,
+    status,
+    match_date,
+    competition,
+    minutes,
+    goals=0,
+    assists=0,
+    reporter=1,
+    club_program_id=None,
+):
+    entry = PlayerMatchEntry(
+        player_api_id=player,
+        season=match_date.year if match_date.month >= 8 else match_date.year - 1,
+        source=source,
+        status=status,
+        reported_by_user_id=reporter,
+        club_program_id=club_program_id,
+        match_date=match_date,
+        competition=competition,
+        opponent=f"Opponent {match_date.isoformat()}",
+        home_away="home",
+        minutes=minutes,
+        goals=goals,
+        assists=assists,
+        yellows=0,
+        reds=0,
+    )
+    db.session.add(entry)
+    return entry
+
+
+def test_user_feeder_preserves_two_competitions_for_negative_player_and_never_commits(app):
+    player = -42
+    _reported_entry(
+        player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 1),
+        competition="County League",
+        minutes=90,
+        goals=1,
+    )
+    _reported_entry(
+        player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 8),
+        competition="County Cup",
+        minutes=75,
+        assists=1,
+    )
+    _reported_entry(
+        player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 15),
+        competition="  county   league ",
+        minutes=30,
+    )
+
+    result = svc.refresh_player(player, season=2025, session=db.session)
+
+    assert result == {"cells": 2, "totals": 1}
+    cells = PlayerSeasonCell.query.filter_by(player_api_id=player, source="user").all()
+    assert len(cells) == 2
+    assert len({cell.competition_tier for cell in cells}) == 2
+    assert all(len(cell.competition_tier) == 20 for cell in cells)
+    assert {cell.detail["competition"] for cell in cells} == {"County League", "County Cup"}
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025).one()
+    assert (total.primary_source, total.minutes, total.goals, total.assists) == ("user", 195, 1, 1)
+    assert total.source_breakdown["user"]["minutes"] == 195
+
+    db.session.rollback()
+    assert PlayerMatchEntry.query.filter_by(player_api_id=player).count() == 0
+    assert PlayerSeasonCell.query.filter_by(player_api_id=player).count() == 0
+    assert PlayerSeasonTotal.query.filter_by(player_api_id=player).count() == 0
+
+
+def test_user_feeder_canonicalizes_youth_competition_before_classification(app):
+    player = -43
+    _reported_entry(
+        player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 1),
+        competition="Youth   League",
+        minutes=60,
+    )
+    _reported_entry(
+        player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 8),
+        competition="youth league",
+        minutes=30,
+    )
+
+    assert svc.refresh_player(player, season=2025, session=db.session) == {"cells": 1, "totals": 1}
+    cell = PlayerSeasonCell.query.filter_by(player_api_id=player, source="user").one()
+    assert (cell.level_group, cell.detail["competition"], cell.minutes) == ("youth", "Youth League", 90)
+
+
+def test_club_source_beats_larger_user_source_without_cross_source_sum(app):
+    player = 8010
+    _reported_entry(
+        player,
+        source="self",
+        status="self_reported",
+        match_date=date(2025, 9, 1),
+        competition="Community League",
+        minutes=120,
+        goals=5,
+        reporter=1,
+    )
+    _reported_entry(
+        player,
+        source="club",
+        status="club_confirmed",
+        match_date=date(2025, 9, 2),
+        competition="Community League",
+        minutes=30,
+        goals=1,
+        reporter=2,
+    )
+    db.session.commit()
+
+    svc.refresh_player(player, season=2025)
+    db.session.commit()
+
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025).one()
+    assert (total.primary_source, total.minutes, total.goals) == ("club", 30, 1)
+    assert total.source_breakdown["user"]["minutes"] == 120
+    assert total.source_breakdown["club"]["minutes"] == 30
+
+
+def test_every_api_source_has_higher_authority_than_club_and_user():
+    api_sources = {svc.SOURCE_FIXTURES, svc.SOURCE_JOURNEY, svc.SOURCE_APSS, svc.SOURCE_SHADOW}
+    assert {svc._SOURCE_PRIORITY[source][0] for source in api_sources} == {3}
+    assert svc._SOURCE_PRIORITY[svc.SOURCE_CLUB][0] == 2
+    assert svc._SOURCE_PRIORITY[svc.SOURCE_USER][0] == 1
+
+
+def test_api_cell_beats_larger_club_and_disputed_rows_are_excluded(app):
+    player = 8011
+    fixture = _fixture(8011, 2025)
+    _fps(fixture, player, 77, minutes=10, goals=1)
+    _reported_entry(
+        player,
+        source="club",
+        status="club_confirmed",
+        match_date=date(2025, 9, 1),
+        competition="Community League",
+        minutes=130,
+        goals=10,
+        reporter=2,
+    )
+    _reported_entry(
+        player,
+        source="self",
+        status="disputed",
+        match_date=date(2025, 9, 2),
+        competition="Community League",
+        minutes=120,
+        goals=9,
+        reporter=1,
+    )
+    db.session.commit()
+
+    svc.refresh_player(player, season=2025)
+    db.session.commit()
+
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player, season=2025).one()
+    assert (total.primary_source, total.minutes, total.goals) == ("fixtures", 10, 1)
+    assert set(total.source_breakdown) == {"fixtures", "club"}
+    assert PlayerSeasonCell.query.filter_by(player_api_id=player, source="user").count() == 0
