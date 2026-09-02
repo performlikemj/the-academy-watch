@@ -135,6 +135,7 @@ function LocalPlayerProfile({ numericPlayerId, onRetry }) {
                   </Badge>
                 ) : null}
               </div>
+              {/* Web-only local:<canonical id> subject_id; backend accepts free text (≤200 chars), disambiguating the two ID spaces. */}
               <ContentReportDialog subjectId={`local:${player.id}`} />
             </div>
             <h1 className="break-words text-3xl font-bold tracking-tight text-foreground sm:text-4xl">

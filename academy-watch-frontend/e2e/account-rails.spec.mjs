@@ -1,3 +1,4 @@
+// Run: E2E_BASE_URL=http://127.0.0.1:<port> pnpm exec playwright test e2e/account-rails.spec.mjs
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 
@@ -6,20 +7,30 @@ const PLAYER_ID = 284324
 const LOCAL_PLAYER_URL_ID = 17
 const LOCAL_PLAYER_CANONICAL_ID = 23
 
-test.use({ baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:5180' })
-
-async function mockSignedInApi(page, customHandler) {
-  await page.addInitScript(({ email }) => {
-    localStorage.setItem('academy_watch_user_token', 'mock-user-token')
-    localStorage.setItem('academy_watch_display_name', 'Alex Scout')
-    localStorage.setItem('academy_watch_is_admin', 'false')
-    localStorage.setItem('academy_watch_is_journalist', 'false')
-    localStorage.setItem('academy_watch_is_curator', 'false')
-    localStorage.setItem('academy_watch_admin_key', 'mock-admin-key')
-    localStorage.setItem('academy_watch_curator_key', 'mock-curator-key')
+async function mockApi(page, customHandler, { signedIn = true } = {}) {
+  await page.addInitScript(({ hasSession }) => {
+    for (const key of [
+      'academy_watch_user_token',
+      'academy_watch_display_name',
+      'academy_watch_is_admin',
+      'academy_watch_is_journalist',
+      'academy_watch_is_curator',
+      'academy_watch_admin_key',
+      'academy_watch_curator_key',
+    ]) {
+      localStorage.removeItem(key)
+    }
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
-    localStorage.setItem('account-rails-fixture-email', email)
-  }, { email: ACCOUNT_EMAIL })
+    if (hasSession) {
+      localStorage.setItem('academy_watch_user_token', 'mock-user-token')
+      localStorage.setItem('academy_watch_display_name', 'Alex Scout')
+      localStorage.setItem('academy_watch_is_admin', 'false')
+      localStorage.setItem('academy_watch_is_journalist', 'false')
+      localStorage.setItem('academy_watch_is_curator', 'false')
+      localStorage.setItem('academy_watch_admin_key', 'mock-admin-key')
+      localStorage.setItem('academy_watch_curator_key', 'mock-curator-key')
+    }
+  }, { hasSession: signedIn })
 
   await page.route('**/api/**', async (route) => {
     const request = route.request()
@@ -27,6 +38,7 @@ async function mockSignedInApi(page, customHandler) {
     if (customHandler && await customHandler({ route, request, url })) return
 
     if (url.pathname === '/api/auth/me') {
+      if (!signedIn) return route.fulfill({ status: 401, json: { error: 'authentication required' } })
       return route.fulfill({
         json: {
           email: ACCOUNT_EMAIL,
@@ -106,7 +118,7 @@ test('account export downloads the authenticated user data as JSON', async ({ pa
     watchlist_entries: [],
   }
 
-  await mockSignedInApi(page, async ({ route, request, url }) => {
+  await mockApi(page, async ({ route, request, url }) => {
     if (url.pathname === '/api/account/export' && request.method() === 'GET') {
       await route.fulfill({ json: exportPayload })
       return true
@@ -126,10 +138,25 @@ test('account export downloads the authenticated user data as JSON', async ({ pa
   expect(body).toEqual(exportPayload)
 })
 
+test('account export explains when the authenticated user is rate limited', async ({ page }) => {
+  await mockApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/account/export' && request.method() === 'GET') {
+      await route.fulfill({ status: 429, json: { error: 'rate limit exceeded' } })
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/settings')
+  await page.getByRole('button', { name: 'Download my data' }).click()
+
+  await expect(page.getByText('You recently exported your data; try again later.')).toBeVisible()
+})
+
 test('account deletion requires the account email, posts confirmation, logs out, and returns home', async ({ page }) => {
   const deleteRequests = []
 
-  await mockSignedInApi(page, async ({ route, request, url }) => {
+  await mockApi(page, async ({ route, request, url }) => {
     if (url.pathname === '/api/account/delete' && request.method() === 'POST') {
       deleteRequests.push({
         body: request.postDataJSON(),
@@ -173,10 +200,30 @@ test('account deletion requires the account email, posts confirmation, logs out,
   await expect.poll(() => page.evaluate(() => localStorage.getItem('academy_watch_curator_key'))).toBeNull()
 })
 
+test('an unauthorized account deletion clears the dead session and returns home', async ({ page }) => {
+  await mockApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/account/delete' && request.method() === 'POST') {
+      await route.fulfill({ status: 401, json: { error: 'account not found' } })
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/settings')
+  await page.getByRole('button', { name: 'Delete my account' }).click()
+  await page.getByLabel('Type your account email to confirm').fill(ACCOUNT_EMAIL)
+  await page.getByRole('button', { name: 'Delete account now' }).click()
+
+  await expect(page).toHaveURL('/')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('academy_watch_user_token'))).toBeNull()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('academy_watch_admin_key'))).toBeNull()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('academy_watch_curator_key'))).toBeNull()
+})
+
 test('player report dialog posts the moderation subject, reason, and optional details', async ({ page }) => {
   const reportRequests = []
 
-  await mockSignedInApi(page, async ({ route, request, url }) => {
+  await mockApi(page, async ({ route, request, url }) => {
     if (url.pathname === '/api/reports' && request.method() === 'POST') {
       const body = request.postDataJSON()
       reportRequests.push({ body, authorization: request.headers().authorization })
@@ -219,10 +266,30 @@ test('player report dialog posts the moderation subject, reason, and optional de
   }])
 })
 
+test('signed-out report opens the login flow without posting a report', async ({ page }) => {
+  const reportRequests = []
+
+  await mockApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/reports') {
+      reportRequests.push(request.method())
+      await route.fulfill({ status: 401, json: { error: 'authentication required' } })
+      return true
+    }
+    return false
+  }, { signedIn: false })
+
+  await page.goto(`/players/${PLAYER_ID}`)
+  await page.getByRole('button', { name: 'Report', exact: true }).click()
+
+  await expect(page.getByRole('heading', { name: 'Sign in to The Academy Watch' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Report profile' })).toHaveCount(0)
+  expect(reportRequests).toEqual([])
+})
+
 test('local player report uses the loaded canonical local identity', async ({ page }) => {
   const reportRequests = []
 
-  await mockSignedInApi(page, async ({ route, request, url }) => {
+  await mockApi(page, async ({ route, request, url }) => {
     if (url.pathname === '/api/reports' && request.method() === 'POST') {
       const body = request.postDataJSON()
       reportRequests.push(body)
@@ -247,7 +314,7 @@ test('local player report uses the loaded canonical local identity', async ({ pa
 })
 
 test('an expired report session is cleared and returned to the login flow', async ({ page }) => {
-  await mockSignedInApi(page, async ({ route, request, url }) => {
+  await mockApi(page, async ({ route, request, url }) => {
     if (url.pathname === '/api/reports' && request.method() === 'POST') {
       await route.fulfill({ status: 401, json: { error: 'authentication required' } })
       return true

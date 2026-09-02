@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 const EXPORT_ERROR_MESSAGE = 'We couldn’t prepare your export. Check your connection and try again.'
+const EXPORT_RATE_LIMIT_MESSAGE = 'You recently exported your data; try again later.'
 const DELETE_ERROR_MESSAGE = 'We couldn’t delete your account. Please check your connection and try again.'
 
 function exportFileName() {
@@ -80,8 +81,11 @@ export function AccountDataControls() {
       const data = await APIService.exportAccountData()
       downloadJson(data)
       setExportStatus({ type: 'success', message: 'Your data download is ready.' })
-    } catch {
-      setExportStatus({ type: 'error', message: EXPORT_ERROR_MESSAGE })
+    } catch (error) {
+      setExportStatus({
+        type: 'error',
+        message: error?.status === 429 ? EXPORT_RATE_LIMIT_MESSAGE : EXPORT_ERROR_MESSAGE,
+      })
     } finally {
       setExporting(false)
     }
@@ -118,7 +122,13 @@ export function AccountDataControls() {
       APIService.setCuratorKey('')
       logout({ clearAdminKey: true })
       navigate('/', { replace: true })
-    } catch {
+    } catch (error) {
+      if (error?.status === 401) {
+        APIService.setCuratorKey('')
+        logout({ clearAdminKey: true })
+        navigate('/', { replace: true })
+        return
+      }
       setDeleteError(DELETE_ERROR_MESSAGE)
       setDeleting(false)
     }
