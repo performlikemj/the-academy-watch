@@ -6,7 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-import { computeExitCode, computeTotals, createDriver, ensureShotDirectory, loadChromium } from './lib/driver.mjs'
+import { computeExitCode, computeTotals, createDriver, ensureShotDirectory, loadChromium, shapeStepRecord } from './lib/driver.mjs'
 import { gradeRecords } from './lib/grade.mjs'
 import scoutDesk from './journeys/scout-desk.mjs'
 import playerReels from './journeys/player-reels.mjs'
@@ -129,6 +129,19 @@ function seedSimFixture({ python, backendEnv, adminEmail, secrets }) {
   }
   const summary = result.stdout.trim().split(/\r?\n/).filter(Boolean).at(-1)
   if (summary) console.log(summary)
+}
+
+export function recordFixtureSeedJourneyError(records, error) {
+  const message = error instanceof Error ? error.message : String(error)
+  records.push(shapeStepRecord({
+    journey: 'club-console',
+    id: 'journey-error',
+    expectation: null,
+    url: '',
+    ok: false,
+    error: message,
+    shot: 'shots/club-console__journey-error.png',
+  }))
 }
 
 function redact(text, secrets) {
@@ -401,7 +414,14 @@ async function main() {
     console.log(`Credentials: secret_key: ${backend.credentials.secretKey.source}; admin_api_key: ${backend.credentials.adminApiKey.source}`)
     const token = mintAuth({ python, secretKey, adminEmail })
     secrets.push(token)
-    if (seedFixture) seedSimFixture({ python, backendEnv: env, adminEmail, secrets })
+    if (seedFixture) {
+      try {
+        seedSimFixture({ python, backendEnv: env, adminEmail, secrets })
+      } catch (error) {
+        recordFixtureSeedJourneyError(records, error)
+        throw error
+      }
+    }
 
     if (external) {
       await waitForHealth(baseUrl, null, 30_000)

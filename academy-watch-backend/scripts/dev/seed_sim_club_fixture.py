@@ -148,6 +148,17 @@ def seed_sim_fixture(*, manager_email: str) -> dict:
         raise SimFixtureRefused(f"sim fixture manager account {normalized_email!r} was not found")
 
     now = datetime.now(UTC)
+    program = ClubProgram.query.filter_by(slug=SIM_PROGRAM_SLUG).first()
+    members = []
+    if program is not None:
+        if program.name != SIM_PROGRAM_NAME or program.country != "Development":
+            raise SimFixtureRefused("existing sim program marker has incompatible identity fields")
+        if program.system_brief_body not in (None, SYNTHETIC_BRIEF):
+            raise SimFixtureRefused("sim program contains a non-synthetic system brief")
+        members = ClubRosterMember.query.filter_by(program_id=program.id).all()
+        if any(member.coach_brief_body not in (None, SYNTHETIC_BRIEF) for member in members):
+            raise SimFixtureRefused("sim program contains a non-synthetic coach brief")
+
     league = FundingLeague.query.filter_by(
         name=SIM_LEAGUE_NAME,
         country="Development",
@@ -173,7 +184,6 @@ def seed_sim_fixture(*, manager_email: str) -> dict:
         db.session.add(league)
         db.session.flush()
 
-    program = ClubProgram.query.filter_by(slug=SIM_PROGRAM_SLUG).first()
     if program is None:
         program = ClubProgram(
             funding_league_id=league.id,
@@ -194,8 +204,6 @@ def seed_sim_fixture(*, manager_email: str) -> dict:
         )
         db.session.add(program)
         db.session.flush()
-    elif program.name != SIM_PROGRAM_NAME or program.country != "Development":
-        raise SimFixtureRefused("existing sim program marker has incompatible identity fields")
 
     program.platform_status = "approved"
     program.emergency_hidden = False
@@ -236,7 +244,8 @@ def seed_sim_fixture(*, manager_email: str) -> dict:
         grant.revoked_reason = None
         grant.revoked_at = None
 
-    members = ClubRosterMember.query.filter_by(program_id=program.id).all()
+    if not members:
+        members = ClubRosterMember.query.filter_by(program_id=program.id).all()
     if any(member.note != SIM_MEMBER_MARKER for member in members):
         raise SimFixtureRefused("sim program contains an unmarked roster member")
     member = members[0] if members else None

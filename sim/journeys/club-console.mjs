@@ -40,6 +40,24 @@ async function requireSyntheticFixture(page) {
   return assertSyntheticFixture(result.program, result.roster)
 }
 
+export async function selectSyntheticFixtureProgram(page, fixtureProgram) {
+  const fixtureHeading = page.getByRole('heading', { name: fixtureProgram.name, exact: true })
+  try {
+    try {
+      await fixtureHeading.waitFor({ state: 'visible', timeout: 3_000 })
+    } catch {
+      const programSwitcher = page.getByLabel('Switch club program')
+      await programSwitcher.waitFor({ state: 'visible', timeout: 20_000 })
+      await programSwitcher.click()
+      await page.getByRole('option', { name: fixtureProgram.name, exact: true }).click()
+    }
+    await fixtureHeading.waitFor({ state: 'visible', timeout: 20_000 })
+  } catch (error) {
+    await page.goto('about:blank')
+    throw error
+  }
+}
+
 export default async function clubConsole({ journey, step, goto, page }) {
   await journey('club-console', async () => {
     const { program: fixtureProgram } = await requireSyntheticFixture(page)
@@ -48,16 +66,7 @@ export default async function clubConsole({ journey, step, goto, page }) {
       'page communicates clearly what the club user should do, showing either console tabs such as Roster or Matches, or an honest access or empty state',
       async (page) => {
         await goto('/my-club')
-        const fixtureHeading = page.getByRole('heading', { name: fixtureProgram.name })
-        try {
-          await fixtureHeading.waitFor({ state: 'visible', timeout: 3_000 })
-        } catch {
-          const programSwitcher = page.getByLabel('Switch club program')
-          await programSwitcher.waitFor({ state: 'visible', timeout: 20_000 })
-          await programSwitcher.click()
-          await page.getByRole('option', { name: fixtureProgram.name, exact: true }).click()
-        }
-        await fixtureHeading.waitFor({ state: 'visible', timeout: 20_000 })
+        await selectSyntheticFixtureProgram(page, fixtureProgram)
       },
     )
     await step(

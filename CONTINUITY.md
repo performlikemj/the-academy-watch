@@ -97,7 +97,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
-- **2026-09-03 Coach's brief C3/P1 PR #989 open; review fix round applied:** dedicated synthetic sim program + real-brief refusal, post-C2 fixture analysis, preflight 400s, shared hash-helper parity, DOM leak proof, canonical brief lines, unavailable-time verdict, and 8-line hint. Requested focused gates and live ungraded sim 11/11 pass. See `ledgers/CONTINUITY_coach-brief-c3.md`.
+- **2026-09-03 Coach's brief C3/P1 PR #989 open; review fix round 2 complete:** the seeder refuses persisted real system/coach briefs before mutation, seed refusal is reported as a club-console journey error, and a failed sim-program switch blanks the page before capture. The accepted worker delegation to `coach_brief.brief_payload` remains. Focused backend 82, sim pure 20, Ruff/syntax checks, and live ungraded sim 11/11 pass. See `ledgers/CONTINUITY_coach-brief-c3.md`.
 - **2026-09-03 Coach's brief C2 PR #985 review round 3 complete (open, unmerged):** no-kit roster briefs surface as structured honest limits without scheduling checks; overlength text uses payload `max_lines`; brief normalization is single-source.
   Spike 176; requested backend 85; backend Ruff (460 files) and bare spike Ruff (2 files) clean. See `ledgers/CONTINUITY_coach-brief-c2.md`.
 - **2026-09-02 Coach's brief C1 PR #973 OPEN:** backend-only `cb01` storage, manager-scoped club routes, 2+ character/non-Latin roster-name screening, sentinel leak tests, and FK-by-column guard; review round 2 adds script-aware Latin boundaries, case/accent folding, and original blank-line numbering. After merging main, `cb01` was re-chained onto stamped main head `s2f1` (`cb01 → s2f1 → pm01`); Alembic reports one `cb01` head, 111 focused tests pass, and Ruff check/format are green.
@@ -989,7 +989,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 CONTINUITY.md
   └─ ledgers/CONTINUITY_coach-brief.md (Track C/P/M directive workstream)
        ├─ ledgers/CONTINUITY_coach-brief-c2.md (C2 complete; PR #985 open, @owner:/root)
-       ├─ ledgers/CONTINUITY_coach-brief-c3.md (PR #989 open; review fix round applied, @owner:/root)
+       ├─ ledgers/CONTINUITY_coach-brief-c3.md (PR #989 open; review fix round 2 complete, @owner:/root)
        └─ ledgers/CONTINUITY_dev-club-fixture-bridge.md (B1 complete; PR #975 open, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-json-schema-format.md (review round complete; PR #972 open, @owner:/root)
   └─ ledgers/CONTINUITY_grounded-caption-enum-prompt.md (verified; PR delivery next, @owner:/root)
@@ -1011,7 +1011,7 @@ CONTINUITY.md
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|
-| CONTINUITY_coach-brief-c3.md | PR #989 open; review fix round applied | /root | none |
+| CONTINUITY_coach-brief-c3.md | PR #989 open; review fix round 2 complete | /root | none |
 | CONTINUITY_coach-brief-c2.md | C2 complete; PR #985 open | /root | none |
 | CONTINUITY_dev-club-fixture-bridge.md | B1 complete; PR #975 open | /root | none |
 | CONTINUITY_grounded-json-schema-format.md | review round complete; PR #972 open | /root | none |

@@ -6,8 +6,8 @@ import test from 'node:test'
 
 import { computeExitCode, computeTotals, shapeStepRecord } from '../lib/driver.mjs'
 import { gradeRecords, normalizeGrade, parseGradeJSON, validateProposal } from '../lib/grade.mjs'
-import { assertSyntheticFixture, SYNTHETIC_BRIEF } from '../journeys/club-console.mjs'
-import { createTeardownController, resolveCredentials, signalExitCode } from '../run.mjs'
+import { assertSyntheticFixture, selectSyntheticFixtureProgram, SYNTHETIC_BRIEF } from '../journeys/club-console.mjs'
+import { createTeardownController, recordFixtureSeedJourneyError, resolveCredentials, signalExitCode } from '../run.mjs'
 
 function journeys(...steps) {
   return [{ name: 'sample', steps }]
@@ -46,6 +46,51 @@ test('club-console guard allows only the clean dedicated sim fixture', () => {
     program: cleanSimProgram,
     roster: cleanSimRoster,
   })
+})
+
+test('club-console failed program switch blanks the page before rethrowing', async () => {
+  const calls = []
+  const switchError = new Error('program switch timed out')
+  const fixtureHeading = {
+    waitFor: async ({ timeout }) => {
+      calls.push(`heading:${timeout}`)
+      throw switchError
+    },
+  }
+  const programSwitcher = {
+    waitFor: async () => { calls.push('switcher:wait') },
+    click: async () => { calls.push('switcher:click') },
+  }
+  const option = { click: async () => { calls.push('option:click') } }
+  const page = {
+    getByRole: (role) => role === 'heading' ? fixtureHeading : option,
+    getByLabel: () => programSwitcher,
+    goto: async (url) => { calls.push(`goto:${url}`) },
+  }
+
+  await assert.rejects(selectSyntheticFixtureProgram(page, { name: 'Synthetic Sim' }), switchError)
+  assert.deepEqual(calls, [
+    'heading:3000',
+    'switcher:wait',
+    'switcher:click',
+    'option:click',
+    'heading:20000',
+    'goto:about:blank',
+  ])
+})
+
+test('fixture seed refusal is recorded as a club-console journey error', () => {
+  const records = []
+  recordFixtureSeedJourneyError(records, new Error('Synthetic sim fixture seeding failed: real brief'))
+  assert.deepEqual(records, [{
+    journey: 'club-console',
+    id: 'journey-error',
+    expectation: null,
+    url: '',
+    ok: false,
+    shot: 'shots/club-console__journey-error.png',
+    error: 'Synthetic sim fixture seeding failed: real brief',
+  }])
 })
 
 test('computeTotals counts actions and grading verdicts', () => {

@@ -27,9 +27,9 @@ Owner: /root
 
 ## State
 
-- Done: Applied the PR #989 blocker, should-fixes, and nits; the dedicated synthetic sim passes 11/11.
-- Now: PR #989 open; review fix round applied.
-- Next: Commit and push the review round without merging.
+- Done: Applied review fix round 2; persisted real system/coach briefs are refused before mutation, seed refusal becomes a club-console journey error, and failed program switches blank the page before capture. Focused backend 82, sim pure 20, Ruff, syntax checks, and synthetic sim 11/11 pass.
+- Now: Commit and push the single requested review-round commit to PR #989.
+- Next: Await review; do not merge.
 
 ## Links
 
@@ -78,3 +78,8 @@ Owner: /root
 - 2026-09-03: `pnpm exec playwright test e2e/club-reels.spec.mjs --config=playwright.club-reels.config.js` — 3 passed; admin brief-leak assertion now checks rendered body text after opening the AI read.
 - 2026-09-03: `node --test sim/test/sim-lane.test.mjs` plus syntax checks — 18 passed.
 - 2026-09-03: Final self-boot live sim used backend `5099` and frontend `5277` with `SIM_GRADE=0`: 11/11 steps OK after explicitly selecting the guarded sim program; report `sim/report/2026-09-02T21-39-13-222Z/report.json`.
+- 2026-09-03: Review round 2 retains the accepted worker delegation to `coach_brief.brief_payload`; no worker normalization change is needed.
+- 2026-09-03: `/Users/michaeljones/Projects/loanarmy/.loan/bin/python -m pytest tests/test_dev_bridge_match_to_club.py tests/test_club_console.py -q` — 82 passed, including real system/coach brief refusal with no row changes and synthetic reset success.
+- 2026-09-03: `ruff check . && ruff format --check .` — passed; 467 files already formatted.
+- 2026-09-03: `node --test sim/test/sim-lane.test.mjs` plus `node --check sim/run.mjs` and `node --check sim/journeys/club-console.mjs` — 20 passed; syntax checks passed.
+- 2026-09-03: Fresh self-boot synthetic sim used backend `5108` and frontend `5288` with `SIM_GRADE=0`: 11/11 steps OK; report `sim/report/2026-09-02T21-49-26-343Z/report.json`.

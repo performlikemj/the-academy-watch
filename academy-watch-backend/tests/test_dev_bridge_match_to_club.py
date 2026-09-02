@@ -15,6 +15,15 @@ from scripts.dev.bridge_match_to_club import (
     guard_database_target,
     guard_runtime_environment,
 )
+from scripts.dev.seed_sim_club_fixture import (
+    ALLOW_ENV as SIM_ALLOW_ENV,
+)
+from scripts.dev.seed_sim_club_fixture import (
+    SIM_PROGRAM_SLUG,
+    SYNTHETIC_BRIEF,
+    SimFixtureRefused,
+    execute_seed,
+)
 from src.auth import issue_user_token
 from src.extensions import limiter
 from src.models.follow import PlayerShadow
@@ -141,6 +150,10 @@ def _row_counts() -> dict[str, int]:
     }
 
 
+def _run_sim_seed(app):
+    return execute_seed(app, manager_email=MANAGER_EMAIL)
+
+
 def test_bridge_refuses_without_explicit_opt_in(monkeypatch):
     monkeypatch.delenv(ALLOW_ENV, raising=False)
     monkeypatch.setenv("FLASK_ENV", "development")
@@ -220,6 +233,63 @@ def test_bridge_allows_explicit_database_name_override():
         "postgresql+psycopg://dev:secret@localhost/fixture_copy",
         allow_db_name="fixture_copy",
     )
+
+
+@pytest.mark.parametrize("brief_kind", ["system", "coach"])
+def test_sim_seed_refuses_real_brief_without_changing_rows(bridge_app, monkeypatch, brief_kind):
+    monkeypatch.setenv(SIM_ALLOW_ENV, "1")
+    summary = _run_sim_seed(bridge_app)
+    program = db.session.get(ClubProgram, summary["program_id"])
+    member = db.session.get(ClubRosterMember, summary["member_id"])
+    if brief_kind == "system":
+        program.system_brief_body = "A real system brief must be preserved."
+    else:
+        member.coach_brief_body = "A real coach brief must be preserved."
+    program.platform_status = "suspended"
+    db.session.commit()
+    counts_before = _row_counts()
+
+    with pytest.raises(SimFixtureRefused, match=f"non-synthetic {brief_kind} brief"):
+        _run_sim_seed(bridge_app)
+
+    db.session.expire_all()
+    program = ClubProgram.query.filter_by(slug=SIM_PROGRAM_SLUG).one()
+    member = ClubRosterMember.query.filter_by(program_id=program.id).one()
+    assert _row_counts() == counts_before
+    assert program.platform_status == "suspended"
+    if brief_kind == "system":
+        assert program.system_brief_body == "A real system brief must be preserved."
+        assert member.coach_brief_body is None
+    else:
+        assert program.system_brief_body is None
+        assert member.coach_brief_body == "A real coach brief must be preserved."
+
+
+def test_sim_seed_resets_only_synthetic_briefs(bridge_app, monkeypatch):
+    monkeypatch.setenv(SIM_ALLOW_ENV, "1")
+    summary = _run_sim_seed(bridge_app)
+    program = db.session.get(ClubProgram, summary["program_id"])
+    member = db.session.get(ClubRosterMember, summary["member_id"])
+    manager_id = bridge_app.bridge["manager_id"]
+    updated_at = datetime.now(UTC)
+    program.system_brief_body = SYNTHETIC_BRIEF
+    program.system_brief_updated_at = updated_at
+    program.system_brief_updated_by_user_id = manager_id
+    member.coach_brief_body = SYNTHETIC_BRIEF
+    member.brief_updated_at = updated_at
+    member.brief_updated_by_user_id = manager_id
+    db.session.commit()
+
+    _run_sim_seed(bridge_app)
+
+    db.session.refresh(program)
+    db.session.refresh(member)
+    assert program.system_brief_body is None
+    assert program.system_brief_updated_at is None
+    assert program.system_brief_updated_by_user_id is None
+    assert member.coach_brief_body is None
+    assert member.brief_updated_at is None
+    assert member.brief_updated_by_user_id is None
 
 
 def test_bridge_refuses_match_already_assigned_to_different_program(bridge_app):
