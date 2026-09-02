@@ -143,6 +143,92 @@ def _program_claim_creation_event(program_claim: ClubProgramClaim) -> FundingAdm
     return None
 
 
+def is_bridge_owned_program(program: ClubProgram) -> bool:
+    """Whether the bridge created this exact program identity."""
+    return _program_creation_event(program) is not None
+
+
+def get_bridge_console_grant(
+    program: ClubProgram,
+    user_account_id: int,
+) -> tuple[ClubProgram, ClubProgramClaim, ClubProgramManager, list[int]] | None:
+    """Return the user's locked, audit-proven bridge grant for adoption."""
+    _lock_bridge_writes()
+    program = ClubProgram.query.filter_by(id=program.id).populate_existing().with_for_update().first()
+    console_league = (
+        FundingLeague.query.filter_by(id=program.funding_league_id).populate_existing().with_for_update().first()
+        if program is not None
+        else None
+    )
+    if (
+        program is None
+        or not is_console_league(console_league)
+        or not is_bridge_owned_program(program)
+        or program.platform_status != "approved"
+        or program.emergency_hidden
+    ):
+        return None
+
+    program_claim = (
+        ClubProgramClaim.query.filter_by(
+            program_id=program.id,
+            user_account_id=user_account_id,
+        )
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if program_claim is None or program_claim.status != "approved":
+        return None
+    creation_event = _program_claim_creation_event(program_claim)
+    if creation_event is None:
+        return None
+    creation_metadata = creation_event.event_metadata or {}
+    manager = (
+        ClubProgramManager.query.filter_by(id=creation_metadata.get("manager_grant_id"))
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if (
+        manager is None
+        or manager.program_id != program.id
+        or manager.user_account_id != user_account_id
+        or manager.source_claim_id != program_claim.id
+        or manager.status != "active"
+    ):
+        return None
+
+    approved_official_claim_ids = set()
+    grant_events = FundingAdminEvent.query.filter_by(
+        action="claim.console_bridge_granted",
+        target_type="claim",
+        target_id=program_claim.id,
+    ).all()
+    for event in grant_events:
+        metadata = event.event_metadata or {}
+        official_claim_id = metadata.get("official_claim_id")
+        if (
+            isinstance(official_claim_id, bool)
+            or not isinstance(official_claim_id, int)
+            or metadata.get("program_id") != program.id
+            or metadata.get("manager_grant_id") != manager.id
+        ):
+            return None
+        official_claim = db.session.get(ClubOfficialClaim, official_claim_id)
+        if (
+            official_claim is None
+            or official_claim.user_account_id != user_account_id
+            or not _program_matches_official_claim(program, official_claim)
+        ):
+            return None
+        if official_claim.status == "approved":
+            approved_official_claim_ids.add(official_claim_id)
+    if not approved_official_claim_ids:
+        return None
+    return program, program_claim, manager, sorted(approved_official_claim_ids)
+
+
 def _console_league() -> FundingLeague:
     league = FundingLeague.query.filter_by(
         name=CONSOLE_LEAGUE_NAME,
@@ -170,7 +256,7 @@ def _console_league() -> FundingLeague:
         (
             program
             for program in ClubProgram.query.filter_by(funding_league_id=league.id).with_for_update().all()
-            if _program_creation_event(program) is None
+            if not is_bridge_owned_program(program)
         ),
         None,
     )
@@ -258,6 +344,16 @@ def _canonical_local_club(local_club_id: int) -> tuple[int, LocalClub | None]:
         return canonical_id, source
     target = LocalClub.query.filter_by(id=canonical_id).with_for_update().first()
     return canonical_id, target or source
+
+
+def _local_program_identity_values(local_club_id: int, local_club: LocalClub | None) -> dict[str, str | None]:
+    full_name = local_club.name if local_club else f"Local club {local_club_id}"
+    return {
+        "name": full_name[:180],
+        "legal_name": full_name[:220],
+        "country": ((local_club.country if local_club else None) or "Unknown")[:80],
+        "city": local_club.city[:120] if local_club and local_club.city else None,
+    }
 
 
 def _available_team_program_slug(team_api_id: int) -> str:
@@ -410,7 +506,7 @@ def grant_console_for_official_claim(
     program, program_created = _program_for_official_claim(claim, create=True)
     if program is None:  # pragma: no cover - create=True guarantees a row
         raise RuntimeError("club console program could not be created")
-    program_owned_by_bridge = program_created or _program_creation_event(program) is not None
+    program_owned_by_bridge = program_created or is_bridge_owned_program(program)
     local_claim_program_mismatch = claim.local_club_id is not None and program.team_api_id is not None
     if not is_console_league(program.league) or local_claim_program_mismatch:
         raise ClubConsoleBridgeConflict(
@@ -422,8 +518,10 @@ def grant_console_for_official_claim(
     if program.platform_status in {"rejected", "suspended"}:
         raise ClubConsoleBridgeConflict(f"club program is {program.platform_status}; console access was not granted")
 
-    if program_owned_by_bridge and claim.local_club_id is not None:
-        canonical_local_club_id, _ = _canonical_local_club(int(claim.local_club_id))
+    canonical_slug = None
+    canonical_identity = None
+    if program_owned_by_bridge and not program_created and claim.local_club_id is not None:
+        canonical_local_club_id, canonical_local_club = _canonical_local_club(int(claim.local_club_id))
         canonical_slug = _local_program_slug(canonical_local_club_id)
         if program.slug != canonical_slug:
             slug_owner = ClubProgram.query.filter_by(slug=canonical_slug).with_for_update().first()
@@ -431,7 +529,7 @@ def grant_console_for_official_claim(
                 raise ClubConsoleBridgeConflict(
                     f"club already has a registry program ({slug_owner.slug}); approve it via the funding claim path"
                 )
-            program.slug = canonical_slug
+            canonical_identity = _local_program_identity_values(canonical_local_club_id, canonical_local_club)
 
     program_claim = ClubProgramClaim.query.filter_by(
         program_id=program.id,
@@ -459,6 +557,10 @@ def grant_console_for_official_claim(
         ):
             raise ClubConsoleBridgeConflict("club console manager ownership could not be verified")
 
+    if canonical_identity is not None:
+        program.slug = canonical_slug
+        for field, value in canonical_identity.items():
+            setattr(program, field, value)
     program.league = console_league
     program.platform_status = "approved"
     program.donations_enabled = False
@@ -548,6 +650,41 @@ def grant_console_for_official_claim(
     return manager
 
 
+def _console_binding_released(
+    claim: ClubOfficialClaim,
+    program: ClubProgram,
+    program_claim: ClubProgramClaim,
+    manager: ClubProgramManager,
+) -> bool:
+    # Adoption reuses the bridge-created program claim. Until the normal
+    # funding review approves it, the official claim remains authoritative.
+    if program_claim.status != "approved":
+        return False
+    events = FundingAdminEvent.query.filter_by(
+        action="program.console_adopted",
+        target_type="program",
+        target_id=program.id,
+    ).all()
+    for event in events:
+        metadata = event.event_metadata or {}
+        if metadata.get("program_claim_id") != program_claim.id:
+            continue
+        released_claim_ids = metadata.get("released_official_claim_ids")
+        if (
+            metadata.get("manager_grant_id") != manager.id
+            or isinstance(metadata.get("from_league_id"), bool)
+            or not isinstance(metadata.get("from_league_id"), int)
+            or isinstance(metadata.get("to_league_id"), bool)
+            or not isinstance(metadata.get("to_league_id"), int)
+            or not isinstance(released_claim_ids, list)
+            or any(isinstance(claim_id, bool) or not isinstance(claim_id, int) for claim_id in released_claim_ids)
+        ):
+            raise ClubConsoleBridgeConflict("club console adoption ownership could not be verified")
+        if claim.id in released_claim_ids:
+            return True
+    return False
+
+
 def revoke_console_for_official_claim(
     claim: ClubOfficialClaim,
     *,
@@ -627,6 +764,8 @@ def revoke_console_for_official_claim(
         or manager.source_claim_id != program_claim.id
     ):
         raise ClubConsoleBridgeConflict("club console grant ownership could not be verified")
+    if _console_binding_released(claim, program, program_claim, manager):
+        return None
     remaining_claim = _other_approved_claim_for_user(claim)
     if remaining_claim is not None:
         program_claim.applicant_message = _claim_evidence_reference(remaining_claim, program_claim)

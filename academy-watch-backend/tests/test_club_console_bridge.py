@@ -40,6 +40,10 @@ def bridge_app(monkeypatch):
     monkeypatch.setenv("ADMIN_API_KEY", ADMIN_KEY)
     monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
     monkeypatch.setenv("SKIP_API_HANDSHAKE", "1")
+    monkeypatch.setenv(
+        "FUNDING_EVIDENCE_ENCRYPTION_KEY",
+        "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+    )
     sent_emails = []
 
     def _capture_email(**kwargs):
@@ -323,12 +327,145 @@ def test_console_league_cannot_be_opened_listed_or_renamed(client):
     assert client.get(f"/api/programs/{program.slug}").status_code == 404
 
 
-def test_console_program_funding_conflict_names_admin_adoption_path(bridge_app, client):
+def test_console_program_is_adopted_into_public_funding_flow(bridge_app, client):
     official_claim = _submit_claim(client, TEAM_EMAIL, {"team_api_id": TEAM_API_ID})
     _review(client, official_claim.id, "approve")
     program, bridge_program_claim, bridge_manager = _bridge_rows(official_claim)
+    console_league_id = program.funding_league_id
+    original_ids = (program.id, bridge_program_claim.id, bridge_manager.id)
+    manager_before_adoption = (
+        bridge_manager.source_claim_id,
+        bridge_manager.status,
+        bridge_manager.granted_by,
+        bridge_manager.granted_at,
+        bridge_manager.revoked_by,
+        bridge_manager.revoked_reason,
+        bridge_manager.revoked_at,
+    )
     public_league = FundingLeague(
         name="Bridge Public Funding League",
+        country="Japan",
+        region="Kanto",
+        level="youth_regional",
+        age_bands=["U18"],
+        gender_program="both",
+        season_calendar="calendar_year",
+        data_tier="self_reported",
+        registry_status="approved",
+        admission_state="open",
+    )
+    db.session.add(public_league)
+    db.session.commit()
+    emails_before = len(bridge_app.bridge["sent_emails"])
+
+    response = client.post(
+        "/api/funding/claims",
+        json=_funding_claim_payload(public_league.id),
+        headers=_user_headers(TEAM_EMAIL),
+    )
+
+    assert response.status_code == 201, response.get_json()
+    assert response.get_json()["claim"]["id"] == bridge_program_claim.id
+    db.session.expire_all()
+    adopted_program = db.session.get(ClubProgram, program.id)
+    funding_claim = db.session.get(ClubProgramClaim, bridge_program_claim.id)
+    preserved_manager = db.session.get(ClubProgramManager, bridge_manager.id)
+    assert (adopted_program.id, funding_claim.id, preserved_manager.id) == original_ids
+    assert adopted_program.funding_league_id == public_league.id
+    assert adopted_program.platform_status == "pending"
+    assert adopted_program.donations_enabled is False
+    assert adopted_program.reviewed_by is None
+    assert adopted_program.review_reason is None
+    assert adopted_program.reviewed_at is None
+    assert adopted_program.verified_at is None
+    assert adopted_program.next_review_at is None
+    assert adopted_program.public_dict()["is_fundable"] is False
+    assert funding_claim.status == "pending"
+    assert funding_claim.applicant_message == "Funding registry adoption test."
+    assert funding_claim.evidence is not None
+    assert funding_claim.evidence.adult_authority_attested is True
+    assert (
+        preserved_manager.source_claim_id,
+        preserved_manager.status,
+        preserved_manager.granted_by,
+        preserved_manager.granted_at,
+        preserved_manager.revoked_by,
+        preserved_manager.revoked_reason,
+        preserved_manager.revoked_at,
+    ) == manager_before_adoption
+    adoption_event = FundingAdminEvent.query.filter_by(action="program.console_adopted").one()
+    assert adoption_event.target_type == "program"
+    assert adoption_event.target_id == adopted_program.id
+    assert adoption_event.event_metadata == {
+        "from_league_id": console_league_id,
+        "to_league_id": public_league.id,
+        "program_claim_id": funding_claim.id,
+        "manager_grant_id": preserved_manager.id,
+        "released_official_claim_ids": [official_claim.id],
+    }
+    assert FundingAdminEvent.query.filter_by(action="claim.resubmitted", target_id=funding_claim.id).count() == 1
+    assert ClubProgram.query.count() == 1
+    assert ClubProgramClaim.query.count() == 1
+    assert ClubProgramManager.query.count() == 1
+    assert client.get(f"/api/programs/{adopted_program.slug}").status_code == 404
+    assert client.get(f"/api/club/{adopted_program.id}/roster", headers=_user_headers(TEAM_EMAIL)).status_code == 403
+    assert len(bridge_app.bridge["sent_emails"]) == emails_before
+
+    approval = client.post(
+        f"/api/admin/funding/claims/{funding_claim.id}/approve",
+        json={"reason": "Funding evidence verified"},
+        headers=_admin_headers(),
+    )
+    assert approval.status_code == 200, approval.get_json()
+    db.session.expire_all()
+    funded_program = db.session.get(ClubProgram, program.id)
+    approved_claim = db.session.get(ClubProgramClaim, bridge_program_claim.id)
+    funded_manager = db.session.get(ClubProgramManager, bridge_manager.id)
+    assert funded_program.platform_status == "approved"
+    assert approved_claim.status == "approved"
+    assert funded_manager.status == "active"
+    assert funded_manager.source_claim_id == approved_claim.id
+    assert client.get(f"/api/programs/{funded_program.slug}").status_code == 200
+    assert client.get(f"/api/club/{funded_program.id}/roster", headers=_user_headers(TEAM_EMAIL)).status_code == 200
+
+    funding_state = (
+        funded_program.funding_league_id,
+        funded_program.platform_status,
+        funded_program.donations_enabled,
+        approved_claim.status,
+        approved_claim.applicant_message,
+        funded_manager.status,
+        funded_manager.source_claim_id,
+        funded_manager.granted_by,
+        funded_manager.granted_at,
+    )
+    _review(client, official_claim.id, "revoke")
+    db.session.expire_all()
+    assert db.session.get(ClubOfficialClaim, official_claim.id).status == "revoked"
+    funded_program = db.session.get(ClubProgram, program.id)
+    approved_claim = db.session.get(ClubProgramClaim, bridge_program_claim.id)
+    funded_manager = db.session.get(ClubProgramManager, bridge_manager.id)
+    assert (
+        funded_program.funding_league_id,
+        funded_program.platform_status,
+        funded_program.donations_enabled,
+        approved_claim.status,
+        approved_claim.applicant_message,
+        funded_manager.status,
+        funded_manager.source_claim_id,
+        funded_manager.granted_by,
+        funded_manager.granted_at,
+    ) == funding_state
+    assert FundingAdminEvent.query.filter_by(action="claim.console_bridge_revoked").count() == 0
+
+
+def test_other_user_cannot_adopt_a_bridge_console_program(bridge_app, client):
+    official_claim = _submit_claim(client, TEAM_EMAIL, {"team_api_id": TEAM_API_ID})
+    _review(client, official_claim.id, "approve")
+    program, program_claim, manager = _bridge_rows(official_claim)
+    console_league_id = program.funding_league_id
+    public_league = FundingLeague(
+        name="Unauthorized Adoption Target",
         country="Japan",
         region="Kanto",
         level="youth_regional",
@@ -347,20 +484,65 @@ def test_console_program_funding_conflict_names_admin_adoption_path(bridge_app, 
     response = client.post(
         "/api/funding/claims",
         json=_funding_claim_payload(public_league.id),
+        headers=_user_headers(LOCAL_EMAIL),
+    )
+
+    assert response.status_code == 409, response.get_json()
+    assert response.get_json()["error"] == (
+        f"club program '{program.name}' ({program.slug}) is already registered in another league "
+        "and is not eligible for console adoption"
+    )
+    db.session.expire_all()
+    assert db.session.get(ClubProgram, program.id).funding_league_id == console_league_id
+    assert db.session.get(ClubProgram, program.id).platform_status == "approved"
+    assert db.session.get(ClubProgramClaim, program_claim.id).status == "approved"
+    assert db.session.get(ClubProgramManager, manager.id).status == "active"
+    assert ClubProgramClaim.query.count() == 1
+    assert ClubProgramManager.query.count() == 1
+    assert FundingAdminEvent.query.count() == audit_count
+    assert len(bridge_app.bridge["sent_emails"]) == emails_before
+
+
+def test_foreign_registry_program_still_cannot_be_adopted(client):
+    original_league, program = _seed_team_program(
+        slug="foreign-registry-program",
+        platform_status="approved",
+        donations_enabled=True,
+    )
+    requested_league = FundingLeague(
+        name="Foreign Program Requested League",
+        country="Japan",
+        region="Kansai",
+        level="youth_regional",
+        age_bands=["U18"],
+        gender_program="both",
+        season_calendar="calendar_year",
+        data_tier="self_reported",
+        registry_status="approved",
+        admission_state="open",
+    )
+    db.session.add(requested_league)
+    db.session.commit()
+
+    response = client.post(
+        "/api/funding/claims",
+        json=_funding_claim_payload(requested_league.id),
         headers=_user_headers(TEAM_EMAIL),
     )
 
     assert response.status_code == 409, response.get_json()
     assert response.get_json()["error"] == (
-        f"console program '{program.name}' ({program.slug}) already exists; "
-        "an admin must adopt it into a public league before funding claims can be submitted"
+        "club program 'Bridge Academy' (foreign-registry-program) is already registered in another league "
+        "and is not eligible for console adoption"
     )
-    db.session.refresh(program)
-    assert program.league.name == CONSOLE_LEAGUE_NAME
-    assert ClubProgramClaim.query.one().id == bridge_program_claim.id
-    assert ClubProgramManager.query.one().id == bridge_manager.id
-    assert FundingAdminEvent.query.count() == audit_count
-    assert len(bridge_app.bridge["sent_emails"]) == emails_before
+    db.session.expire_all()
+    unchanged_program = db.session.get(ClubProgram, program.id)
+    assert unchanged_program.funding_league_id == original_league.id
+    assert unchanged_program.platform_status == "approved"
+    assert unchanged_program.donations_enabled is True
+    assert ClubProgramClaim.query.count() == 0
+    assert ClubProgramManager.query.count() == 0
+    assert FundingAdminEvent.query.count() == 0
 
 
 def test_pending_registry_program_conflicts_without_mutation_or_email(bridge_app, client):
@@ -910,8 +1092,8 @@ def test_local_grant_revoke_survives_merge_and_reuses_canonical_rows(bridge_app,
     source_club = LocalClub(
         name="Riverside Juniors",
         normalized_name="riverside juniors",
-        country="Japan",
-        city="Kobe",
+        country="South Korea",
+        city="Busan",
         level="youth",
         status="verified",
         provenance="user",
@@ -925,6 +1107,12 @@ def test_local_grant_revoke_survives_merge_and_reuses_canonical_rows(bridge_app,
     program, program_claim, manager = _bridge_rows(source_claim)
     original_ids = (program.id, program_claim.id, manager.id)
     assert program.slug == f"console-local-club-{source_club.id}"
+    assert program.name == "Riverside Juniors"
+    assert program.legal_name == "Riverside Juniors"
+    assert program.country == "South Korea"
+    assert program.city == "Busan"
+    program.region = "Source region sentinel"
+    db.session.commit()
 
     merge = client.post(
         f"/api/admin/local-clubs/{source_club.id}/merge",
@@ -944,6 +1132,11 @@ def test_local_grant_revoke_survives_merge_and_reuses_canonical_rows(bridge_app,
     restored_program, restored_claim, restored_manager = _bridge_rows(replacement_claim)
     assert (restored_program.id, restored_claim.id, restored_manager.id) == original_ids
     assert restored_program.slug == f"console-local-club-{target_id}"
+    assert restored_program.name == "Harbour Juniors"
+    assert restored_program.legal_name == "Harbour Juniors"
+    assert restored_program.country == "Japan"
+    assert restored_program.city == "Kobe"
+    assert restored_program.region == "Source region sentinel"
     assert restored_claim.status == "approved"
     assert restored_manager.status == "active"
     assert ClubProgram.query.count() == 1
