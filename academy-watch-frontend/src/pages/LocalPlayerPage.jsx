@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowRight, MapPin, ShieldAlert, UserPlus } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { ContentReportDialog } from '@/components/ContentReportDialog'
+import { PlayerReachControls } from '@/components/PlayerReachControls'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
 import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useAuth } from '@/context/AuthContext'
@@ -12,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatSeasonLabel } from '@/lib/seasons'
+import { track } from '@/lib/track'
 
 function LoadingState() {
   return (
@@ -111,7 +113,7 @@ function LocalSeasonStats({ stats, position }) {
   )
 }
 
-function LocalPlayerProfile({ numericPlayerId, onRetry }) {
+function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
   const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -119,8 +121,9 @@ function LocalPlayerProfile({ numericPlayerId, onRetry }) {
   const [seasonStats, setSeasonStats] = useState(null)
   const signedPlayerApiId = `-${String(numericPlayerId)}`
   const canonicalPlayerApiId = player?.api_player_id == null
-    ? signedPlayerApiId
+    ? null
     : String(player.api_player_id)
+  const matchPlayerApiId = canonicalPlayerApiId ?? signedPlayerApiId
 
   useEffect(() => {
     let cancelled = false
@@ -151,7 +154,7 @@ function LocalPlayerProfile({ numericPlayerId, onRetry }) {
   useEffect(() => {
     if (!player) return undefined
     let cancelled = false
-    APIService.getPublicPlayerSeasonStats(canonicalPlayerApiId)
+    APIService.getPublicPlayerSeasonStats(matchPlayerApiId)
       .then((response) => {
         if (!cancelled) setSeasonStats(response || null)
       })
@@ -159,7 +162,7 @@ function LocalPlayerProfile({ numericPlayerId, onRetry }) {
         if (!cancelled) setSeasonStats(null)
     })
     return () => { cancelled = true }
-  }, [canonicalPlayerApiId, player])
+  }, [matchPlayerApiId, player])
 
   if (loading) return <LoadingState />
   if (notFound) return <MissingState />
@@ -225,6 +228,13 @@ function LocalPlayerProfile({ numericPlayerId, onRetry }) {
                 ) : null}
               </div>
             ) : null}
+            {canonicalPlayerApiId != null ? (
+              <PlayerReachControls
+                key={canonicalPlayerApiId}
+                signedId={canonicalPlayerApiId}
+                onPublicConfirmed={onPublicConfirmed}
+              />
+            ) : null}
           </div>
         </header>
 
@@ -254,8 +264,16 @@ export function LocalPlayerPage() {
   const { localPlayerId } = useParams()
   const { token } = useAuth()
   const [attempt, setAttempt] = useState(0)
+  const emittedProfileViewIdsRef = useRef(new Set())
   const numericPlayerId = Number(localPlayerId)
   const validPlayerId = Number.isInteger(numericPlayerId) && numericPlayerId > 0
+
+  const handlePublicConfirmed = useCallback((signedId) => {
+    const numericId = Number(signedId)
+    if (!Number.isInteger(numericId) || numericId === 0 || emittedProfileViewIdsRef.current.has(numericId)) return
+    emittedProfileViewIdsRef.current.add(numericId)
+    track('profile_view', { player_api_id: numericId })
+  }, [])
 
   if (!validPlayerId) return <MissingState />
 
@@ -263,6 +281,7 @@ export function LocalPlayerPage() {
     <LocalPlayerProfile
       key={`${numericPlayerId}-${attempt}-${token || 'public'}`}
       numericPlayerId={numericPlayerId}
+      onPublicConfirmed={handlePublicConfirmed}
       onRetry={() => setAttempt((value) => value + 1)}
     />
   )

@@ -48,6 +48,7 @@ import { isYouTubeUrl } from '@/lib/youtube'
 import { VideoEmbed } from '@/components/VideoEmbed'
 import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { VerificationCode, VerificationInstructions } from '@/components/showcase/VerificationCode'
+import { WatchingMeCard } from '@/components/WatchingMeCard'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 
 const RELATIONSHIP_OPTIONS = [
@@ -695,6 +696,9 @@ export function ShowcaseSection({
     return apiClaimMatches || localClaimMatches
   })
   const isOwner = myClaim?.status === 'approved'
+  const canViewInterestSignals = isOwner
+    && myClaim?.relationship_type === 'player'
+    && (!local || canonicalPlayerApiId != null)
   const canManageGames = isOwner && GAME_OWNER_RELATIONSHIPS.has(myClaim?.relationship_type)
   const canLoadMoreGames = gamesLoaded && gamesTotal > visibleGames.length
   const visibleAffiliations = affiliations.filter(
@@ -1618,6 +1622,8 @@ export function ShowcaseSection({
             You manage this profile. Photos, videos and profile edits are reviewed before they appear publicly.
           </p>
         )}
+
+        {canViewInterestSignals ? <WatchingMeCard signedId={matchPlayerApiId} /> : null}
 
         {/* 1. Photos */}
         {(visiblePhotos.length > 0 || isOwner) && (
