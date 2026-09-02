@@ -41,7 +41,12 @@ from src.models.tracked_player import TrackedPlayer
 from src.models.trust import ScoutVerification
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services.contact import utcnow
-from src.services.player_suppression import PlayerSuppressedError
+from src.services.player_suppression import (
+    PlayerSuppressedError,
+    active_suppressed_player_ids,
+    is_player_suppressed,
+    without_active_suppression,
+)
 
 VISIBLE_ID = 910_001
 SUPPRESSED_ID = 910_002
@@ -395,6 +400,45 @@ def _intake_payload(*, contact="Guardian@Example.com", statement=None):
         "contact_email": contact,
         "statement": statement or "<b>Please remove this profile</b><script>alert(1)</script>",
     }
+
+
+def test_synthetic_negative_id_correlates_local_suppression_without_breaking_xor(suppression_app):
+    local_player = LocalPlayer(
+        display_name="Suppressed Local Adult",
+        birth_year=1990,
+        status="approved",
+        provenance="user",
+    )
+    db.session.add(local_player)
+    db.session.flush()
+    synthetic_id = -local_player.id
+    local_player.api_player_id = synthetic_id
+    shadow = PlayerShadow(
+        player_api_id=synthetic_id,
+        player_name=local_player.display_name,
+        is_active=True,
+    )
+    suppression = PlayerSuppression(
+        local_player_id=local_player.id,
+        reason_code="player_request",
+        requester_role="player",
+        requester_contact="player@example.com",
+        request_statement="Please hide my local profile.",
+        status="active",
+    )
+    db.session.add_all([shadow, suppression])
+    db.session.commit()
+
+    assert suppression.player_api_id is None
+    assert is_player_suppressed(synthetic_id) is True
+    assert active_suppressed_player_ids([synthetic_id, VISIBLE_ID]) == {synthetic_id}
+    visible = PlayerShadow.query.filter(without_active_suppression(PlayerShadow.player_api_id)).all()
+    assert visible == []
+
+    suppression.status = "lifted"
+    db.session.commit()
+    assert is_player_suppressed(synthetic_id) is False
+    assert PlayerShadow.query.filter(without_active_suppression(PlayerShadow.player_api_id)).one() is shadow
 
 
 def test_public_intake_is_neutral_sanitized_encrypted_and_not_contact_gated(client, seeded_players, monkeypatch):

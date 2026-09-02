@@ -1,7 +1,7 @@
 """FC-B2/B3 contact-rail lifecycle, routing, privacy, and migration tests."""
 
 import time
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
@@ -13,11 +13,11 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError
 from src.auth import _ensure_user_account, issue_user_token
 from src.extensions import limiter
 from src.models.contact import ContactAuditEvent, ContactMessage, ContactOutcome, ContactRequest
-from src.models.follow import Follow, FollowList
+from src.models.follow import Follow, FollowList, PlayerShadow
 from src.models.journey import PlayerJourney
 from src.models.league import UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
-from src.models.showcase import PlayerProfileClaim
+from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.models.trust import ContentReport, ScoutVerification
 from src.models.user_block import UserBlock
 from src.services.club_registry import program_is_operational
@@ -155,6 +155,45 @@ def _claim(
     db.session.add(claim)
     db.session.commit()
     return user, headers, claim
+
+
+def _local_claim(email: str, *, birth_date: date):
+    user, headers = _headers(email)
+    local_player = LocalPlayer(
+        display_name=f"Local {email}",
+        normalized_name="ignored by validator",
+        birth_date=birth_date,
+        position="Midfielder",
+        country="England",
+        status="approved",
+        created_by_user_id=user.id,
+    )
+    db.session.add(local_player)
+    db.session.flush()
+    player_api_id = -local_player.id
+    local_player.api_player_id = player_api_id
+    db.session.add(
+        PlayerShadow(
+            player_api_id=player_api_id,
+            player_name=local_player.display_name,
+            position=local_player.position,
+            nationality=local_player.country,
+            birth_date=local_player.birth_date,
+            requested_by_user_id=user.id,
+            is_active=True,
+        )
+    )
+    claim = PlayerProfileClaim(
+        user_account_id=user.id,
+        local_player_id=local_player.id,
+        relationship_type="player",
+        contract_status="free_agent",
+        status="approved",
+        reviewed_at=utcnow(),
+    )
+    db.session.add(claim)
+    db.session.commit()
+    return user, headers, claim, player_api_id
 
 
 def _create(
@@ -930,6 +969,41 @@ class TestUserBlocks:
 
 
 class TestContactAuthorizationAndFlag:
+    def test_approved_adult_local_subject_uses_same_claim_gate(self, client):
+        _, scout_headers = _verified_scout("local-target-scout@example.com")
+        _, _, claim, player_api_id = _local_claim(
+            "local-target-player@example.com",
+            birth_date=date(2000, 1, 1),
+        )
+
+        response = _create(client, scout_headers, player_api_id)
+
+        assert response.status_code == 201
+        created = response.get_json()["contact_request"]
+        assert created["player_api_id"] == player_api_id
+        assert ContactRequest.query.one().claim_id == claim.id
+
+    def test_minor_and_unknown_local_subjects_share_neutral_denial(self, client):
+        _, scout_headers = _verified_scout("local-private-scout@example.com")
+        _, _, _, minor_player_api_id = _local_claim(
+            "local-minor-player@example.com",
+            birth_date=date(2012, 1, 1),
+        )
+
+        minor = _create(client, scout_headers, minor_player_api_id)
+        unknown = _create(client, scout_headers, -999_999)
+
+        assert minor.status_code == unknown.status_code == 403
+        assert (
+            minor.get_json()
+            == unknown.get_json()
+            == {
+                "error": "Player is not available for contact",
+                "code": "player_not_claimable",
+            }
+        )
+        assert ContactRequest.query.count() == 0
+
     def test_unverified_scout_and_unclaimed_player_have_clear_codes(self, client):
         _, unverified_headers = _headers("unverified@example.com")
         _claim("claimed-player@example.com", 5501)

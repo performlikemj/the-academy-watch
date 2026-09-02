@@ -1,9 +1,9 @@
-"""Tests for showcase-only local player identities.
+"""Tests for moderated local players and their unified signed identities.
 
-Local players never enter API-Football tracking, stats, journeys, Scout, or
-Film Room. These tests exercise the explicit local subject columns, claimant
-visibility, owner curation, moderation, merge tooling, and collision isolation
-from an API player that happens to have the same positive integer id.
+Approved adults gain a DB-only negative player id while remaining isolated
+from API-Football. These tests cover claimant visibility, owner curation,
+moderation, signed showcase reads, local merges, and graduation to a real API
+identity without weakening moderation or losing linked records.
 """
 
 import re
@@ -17,8 +17,23 @@ from flask import Flask
 from PIL import Image
 from src.auth import _ensure_user_account, issue_user_token
 from src.extensions import limiter
-from src.models.funding import ClubProgram  # noqa: F401 - registers the FK target for db.create_all()
-from src.models.league import PlayerLink, Team, db
+from src.models.contact import ContactRequest
+from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerShadow, PlayerShadowStats
+from src.models.funding import ClubRosterMember
+from src.models.league import (
+    CommunityTake,
+    NewsletterCommentary,
+    NewsletterPlayerYoutubeLink,
+    PlayerFlag,
+    PlayerLink,
+    QuickTakeSubmission,
+    Team,
+    db,
+)
+from src.models.player_suppression import PlayerSuppression
+from src.models.pulse import PlayerCardCache, PlayerPulse
+from src.models.scout_watchlist import ScoutWatchlistEntry
+from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.showcase import (
     LocalClub,
     LocalPlayer,
@@ -29,6 +44,7 @@ from src.models.showcase import (
     without_minor_local_bridge,
 )
 from src.models.tracked_player import TrackedPlayer
+from src.models.video import VideoPlayerReport, VideoRosterEntry
 from src.services import social_proof
 
 ADMIN_KEY = "test-admin-key"
@@ -1258,11 +1274,72 @@ def test_api_rows_with_same_numeric_id_do_not_consume_local_caps(app, client):
 
 
 class TestSubjectIsolation:
+    def test_signed_showcase_resolves_only_approved_adult_local_subjects(self, app, client, monkeypatch):
+        from src.routes import showcase as showcase_routes
+        from src.services import player_shadow_service
+
+        monkeypatch.setattr(
+            player_shadow_service,
+            "_resolve_client",
+            lambda _client: (_ for _ in ()).throw(AssertionError("negative mint reached API client resolution")),
+        )
+        monkeypatch.setattr(
+            showcase_routes,
+            "_verified_footage",
+            lambda _player_api_id: (_ for _ in ()).throw(AssertionError("local showcase loaded Film Room")),
+        )
+
+        adult = _create_local_player(client, display_name="Signed Adult")
+        adult_id = adult["player"]["id"]
+        approved = client.post(
+            f"/api/admin/local-players/{adult_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert approved.status_code == 200, approved.get_json()
+
+        minor = _create_local_player(
+            client,
+            email="minor-creator@example.com",
+            display_name="Private Minor",
+            birth_year=datetime.now(UTC).year - 12,
+            relationship_type="guardian",
+        )
+        minor_id = minor["player"]["id"]
+        assert (
+            client.post(
+                f"/api/admin/local-players/{minor_id}/review",
+                json={"action": "approve"},
+                headers=_admin_headers(),
+            ).status_code
+            == 200
+        )
+
+        with app.app_context():
+            db.session.add(
+                PlayerShowcaseProfile(
+                    local_player_id=adult_id,
+                    bio="Local profile through the signed universe",
+                    status="approved",
+                )
+            )
+            db.session.commit()
+
+        response = client.get(f"/api/players/{-adult_id}/showcase")
+        assert response.status_code == 200, response.get_json()
+        assert response.get_json()["local_player_id"] == adult_id
+        assert response.get_json()["profile"]["bio"] == "Local profile through the signed universe"
+        assert response.get_json()["verified_footage"] == []
+        assert client.get(f"/api/players/{-minor_id}/showcase").status_code == 404
+        assert client.get("/api/players/-999999/showcase").status_code == 404
+
     def test_local_and_api_payloads_do_not_cross_on_equal_ids(self, app, client):
         with app.app_context():
             player = _seed_local_player(status="approved")
             db.session.commit()
             player_id = player.id
+
+            db.session.add(PlayerShadow(player_api_id=player_id, player_name="API identity"))
 
             db.session.add_all(
                 [
@@ -1479,7 +1556,7 @@ class TestAdminLocalPlayers:
         ("action", "expected_status"),
         [("approve", "approved"), ("reject", "rejected")],
     )
-    def test_list_creator_email_and_pending_only_review(self, client, action, expected_status):
+    def test_list_creator_email_and_pending_only_review(self, app, client, action, expected_status):
         created = _create_local_player(
             client,
             email="creator@example.com",
@@ -1514,7 +1591,22 @@ class TestAdminLocalPlayers:
             json={"action": action},
             headers=_admin_headers(),
         )
-        assert second.status_code == 409, second.get_json()
+        assert second.status_code == (200 if action == "approve" else 409), second.get_json()
+
+        with app.app_context():
+            stored = db.session.get(LocalPlayer, player_id)
+            shadows = PlayerShadow.query.all()
+            if action == "approve":
+                assert stored.api_player_id == -player_id
+                assert len(shadows) == 1
+                assert shadows[0].player_api_id == -player_id
+                assert shadows[0].player_name == f"{action.title()} Prospect"
+                assert shadows[0].position == "Midfielder"
+                assert shadows[0].nationality == "England"
+                assert shadows[0].requested_by_user_id == stored.created_by_user_id
+            else:
+                assert stored.api_player_id is None
+                assert shadows == []
 
     def test_merge_repoints_every_local_subject_with_exact_counts(self, app, client):
         with app.app_context():
@@ -1850,22 +1942,291 @@ class TestAdminLocalPlayers:
 
         assert response.status_code == 409, response.get_json()
 
-    def test_link_api_validates_and_never_repoints_or_tracks_content(self, app, client):
+    def test_link_api_graduates_every_subject_store_and_is_idempotent(self, app, client):
         with app.app_context():
-            player = _seed_local_player("Bridge Prospect", status="approved")
-            db.session.commit()
+            creator = _make_user("bridge-creator@example.com")
+            owner = _make_user("bridge-owner@example.com")
+            scout = _make_user("bridge-scout@example.com")
+            player = _seed_local_player(
+                "Bridge Prospect",
+                status="approved",
+                created_by_user_id=creator.id,
+            )
+            db.session.flush()
             player_id = player.id
+            old_player_api_id = -player_id
+            player.api_player_id = old_player_api_id
+            target_player_api_id = 5001
+
+            source_claim = PlayerProfileClaim(
+                local_player_id=player_id,
+                user_account_id=owner.id,
+                relationship_type="player",
+                status="approved",
+                verification_status="code_found",
+            )
+            target_claim = PlayerProfileClaim(
+                player_api_id=target_player_api_id,
+                user_account_id=owner.id,
+                relationship_type="guardian",
+                status="pending",
+                verification_status="unverified",
+            )
+            source_profile = PlayerShowcaseProfile(
+                local_player_id=player_id,
+                bio="Local biography",
+                positions="CM",
+                status="approved",
+            )
+            target_profile = PlayerShowcaseProfile(
+                player_api_id=target_player_api_id,
+                bio="API biography",
+                status="approved",
+            )
             local_link = PlayerLink(
                 player_id=None,
                 local_player_id=player_id,
-                url="https://youtu.be/stays-local",
+                url="https://youtu.be/graduates",
                 link_type="highlight",
                 status="approved",
             )
-            db.session.add(local_link)
+            local_media = _seed_media(local_player_id=player_id, suffix="graduates")
+            affiliation = PlayerClubAffiliation(
+                local_player_id=player_id,
+                team_api_id=77,
+                status="self_reported",
+            )
+            source_shadow = PlayerShadow(
+                player_api_id=old_player_api_id,
+                player_name="Bridge Prospect",
+                position="Midfielder",
+                requested_by_user_id=creator.id,
+            )
+            target_shadow = PlayerShadow(
+                player_api_id=target_player_api_id,
+                player_name="API Bridge Prospect",
+                nationality="England",
+            )
+            shadow_stats = PlayerShadowStats(
+                player_api_id=old_player_api_id,
+                team_api_id=77,
+                team_name="Bridge FC",
+                season=2025,
+                appearances=4,
+                goals=2,
+                assists=1,
+                minutes=300,
+            )
+            source_watchlist = ScoutWatchlistEntry(
+                user_account_id=scout.id,
+                player_api_id=old_player_api_id,
+                note="local note",
+                last_snapshot='{"goals": 2}',
+                last_digest_at=datetime.now(UTC),
+            )
+            target_watchlist = ScoutWatchlistEntry(
+                user_account_id=scout.id,
+                player_api_id=target_player_api_id,
+            )
+            follow_list = FollowList(user_account_id=scout.id, name="Graduation list")
+            db.session.add(follow_list)
+            db.session.flush()
+            source_follow = Follow(
+                list_id=follow_list.id,
+                kind="player",
+                selector={"player_api_id": old_player_api_id},
+                note="follow note",
+            )
+            target_follow = Follow(
+                list_id=follow_list.id,
+                kind="player",
+                selector={"player_api_id": target_player_api_id},
+            )
+            source_snapshot = FollowPlayerSnapshot(
+                user_account_id=scout.id,
+                player_api_id=old_player_api_id,
+                last_snapshot='{"goals": 2}',
+                last_digest_at=datetime.now(UTC),
+            )
+            target_snapshot = FollowPlayerSnapshot(
+                user_account_id=scout.id,
+                player_api_id=target_player_api_id,
+            )
+            source_roster = ClubRosterMember(
+                program_id=1,
+                local_player_id=player_id,
+                added_by_user_id=scout.id,
+                role="Captain",
+            )
+            target_roster = ClubRosterMember(
+                program_id=1,
+                player_api_id=target_player_api_id,
+                added_by_user_id=scout.id,
+            )
+            now = datetime.now(UTC)
+            old_cell = PlayerSeasonCell(
+                player_api_id=old_player_api_id,
+                season=2025,
+                source="shadow",
+                club_api_id=77,
+                club_name="Bridge FC",
+                competition_tier="league",
+                level_group="senior",
+                appearances=4,
+                goals=2,
+                assists=1,
+                minutes=300,
+                synced_at=now,
+            )
+            old_total = PlayerSeasonTotal(
+                player_api_id=old_player_api_id,
+                season=2025,
+                level_group="senior",
+                appearances=4,
+                goals=2,
+                assists=1,
+                minutes=300,
+                primary_source="shadow",
+                computed_at=now,
+            )
+            suppression = PlayerSuppression(
+                local_player_id=player_id,
+                reason_code="player_request",
+                requester_role="player",
+                requester_contact="owner@example.com",
+                request_statement="Historical lifted request",
+                status="lifted",
+            )
+            target_suppression = PlayerSuppression(
+                player_api_id=target_player_api_id,
+                reason_code="legal",
+                requester_role="other",
+                requester_contact="legal@example.com",
+                request_statement="Keep the graduated identity hidden",
+                status="active",
+            )
+            pulse = PlayerPulse(
+                player_api_id=old_player_api_id,
+                window_end=now.date(),
+                score=4.0,
+                delta_json={"player": {"name": "Bridge Prospect"}},
+                created_at=now,
+            )
+            card = PlayerCardCache(
+                player_api_id=old_player_api_id,
+                window_end=now.date(),
+                card_html="<p>Bridge prospect</p>",
+                card_text="Bridge prospect",
+                model="test-model",
+                created_at=now,
+            )
+            newsletter_link = NewsletterPlayerYoutubeLink(
+                newsletter_id=999,
+                player_id=old_player_api_id,
+                player_name="Bridge Prospect",
+                youtube_link="https://youtu.be/newsletter-bridge",
+            )
+            player_flag = PlayerFlag(
+                player_api_id=old_player_api_id,
+                reason="Bridge this identity",
+                status="pending",
+            )
+            quick_take = QuickTakeSubmission(
+                player_id=old_player_api_id,
+                player_name="Bridge Prospect",
+                content="A pending local observation",
+                status="pending",
+            )
+            community_take = CommunityTake(
+                source_type="submission",
+                source_author="Local observer",
+                content="An approved local observation",
+                player_id=old_player_api_id,
+                player_name="Bridge Prospect",
+                status="approved",
+            )
+            commentary = NewsletterCommentary(
+                player_id=old_player_api_id,
+                commentary_type="player",
+                content="Local player commentary",
+                author_id=owner.id,
+                author_name="Bridge Owner",
+            )
+            db.session.add_all(
+                [
+                    source_claim,
+                    target_claim,
+                    source_profile,
+                    target_profile,
+                    local_link,
+                    affiliation,
+                    source_shadow,
+                    target_shadow,
+                    shadow_stats,
+                    source_watchlist,
+                    target_watchlist,
+                    source_follow,
+                    target_follow,
+                    source_snapshot,
+                    target_snapshot,
+                    source_roster,
+                    target_roster,
+                    old_cell,
+                    old_total,
+                    suppression,
+                    target_suppression,
+                    pulse,
+                    card,
+                    newsletter_link,
+                    player_flag,
+                    quick_take,
+                    community_take,
+                    commentary,
+                ]
+            )
+            db.session.flush()
+            contact = ContactRequest(
+                scout_user_id=scout.id,
+                player_api_id=old_player_api_id,
+                claim_id=source_claim.id,
+                message="Introduction",
+                status="pending",
+                routing_mode="direct",
+                expires_at=(datetime.now(UTC) + timedelta(days=7)).replace(tzinfo=None),
+            )
+            video_roster = VideoRosterEntry(
+                video_match_id=1,
+                player_name="Bridge Prospect",
+                jersey_number=8,
+                club_roster_member_id=source_roster.id,
+            )
+            db.session.add_all([contact, video_roster])
+            db.session.flush()
+            video_report = VideoPlayerReport(
+                video_match_id=1,
+                roster_entry_id=video_roster.id,
+                club_program_id_at_finalize=1,
+                club_roster_member_id_at_finalize=source_roster.id,
+                club_local_player_id_at_finalize=player_id,
+                minutes_visible=45.0,
+                model_version="test-model",
+            )
+            db.session.add(video_report)
             db.session.commit()
             local_link_id = local_link.id
-            assert TrackedPlayer.query.count() == 0
+            local_media_id = local_media.id
+            target_claim_id = target_claim.id
+            target_profile_id = target_profile.id
+            source_roster_id = source_roster.id
+            target_roster_id = target_roster.id
+            contact_id = contact.id
+            video_roster_id = video_roster.id
+            video_report_id = video_report.id
+            newsletter_link_id = newsletter_link.id
+            player_flag_id = player_flag.id
+            quick_take_id = quick_take.id
+            community_take_id = community_take.id
+            commentary_id = commentary.id
 
         for invalid in (0, -1, "5001", True):
             response = client.post(
@@ -1877,19 +2238,205 @@ class TestAdminLocalPlayers:
 
         linked = client.post(
             f"/api/admin/local-players/{player_id}/link-api",
-            json={"player_api_id": 5001},
+            json={"player_api_id": target_player_api_id},
             headers=_admin_headers(),
         )
         assert linked.status_code == 200, linked.get_json()
-        assert linked.get_json()["player"]["api_player_id"] == 5001
+        body = linked.get_json()
+        assert set(body) == {"player", "graduation"}
+        assert body["player"]["api_player_id"] == target_player_api_id
+        assert body["graduation"]["from_player_api_id"] == old_player_api_id
+        assert body["graduation"]["to_player_api_id"] == target_player_api_id
+        assert body["graduation"]["shadow_merged"] is True
+        assert body["graduation"]["rollup"] == {"cells": 1, "totals": 1}
+        assert body["graduation"]["rekeyed"] == {
+            "claims": 1,
+            "profiles": 1,
+            "media": 1,
+            "affiliations": 1,
+            "links": 1,
+            "player_shadows": 1,
+            "shadow_stats": 1,
+            "watchlist_entries": 1,
+            "follow_selectors": 1,
+            "follow_snapshots": 1,
+            "roster_members": 1,
+            "video_roster_entries": 1,
+            "video_player_reports": 1,
+            "contact_requests": 1,
+            "suppressions": 1,
+            "player_pulses": 1,
+            "player_card_cache": 1,
+            "newsletter_youtube_links": 1,
+            "player_flags": 1,
+            "quick_take_submissions": 1,
+            "community_takes": 1,
+            "newsletter_commentary": 1,
+            "season_cells": 1,
+            "season_totals": 1,
+        }
 
-        local_showcase = client.get(f"/api/local-players/{player_id}/showcase").get_json()
-        api_showcase = client.get("/api/players/5001/showcase").get_json()
-        assert [item["url"] for item in local_showcase["reel"]] == ["https://youtu.be/stays-local"]
-        assert local_showcase["verified_footage"] == []
-        assert api_showcase["reel"] == []
         with app.app_context():
-            assert db.session.get(LocalPlayer, player_id).api_player_id == 5001
-            assert db.session.get(PlayerLink, local_link_id).local_player_id == player_id
-            assert db.session.get(PlayerLink, local_link_id).player_id is None
-            assert TrackedPlayer.query.count() == 0
+            assert db.session.get(LocalPlayer, player_id).api_player_id == target_player_api_id
+            assert db.session.get(PlayerLink, local_link_id).local_player_id is None
+            assert db.session.get(PlayerLink, local_link_id).player_id == target_player_api_id
+            assert db.session.get(PlayerShowcaseMedia, local_media_id).local_player_id is None
+            assert db.session.get(PlayerShowcaseMedia, local_media_id).player_api_id == target_player_api_id
+            claim = db.session.get(PlayerProfileClaim, target_claim_id)
+            assert claim.status == "approved"
+            assert claim.relationship_type == "player"
+            assert claim.verification_status == "code_found"
+            profile = db.session.get(PlayerShowcaseProfile, target_profile_id)
+            assert profile.bio == "API biography"
+            assert profile.positions == "CM"
+            assert profile.status == "pending"
+            assert PlayerShadow.query.filter_by(player_api_id=old_player_api_id).first() is None
+            assert PlayerShadow.query.filter_by(player_api_id=target_player_api_id).count() == 1
+            assert PlayerShadowStats.query.filter_by(player_api_id=target_player_api_id).count() == 1
+            assert ScoutWatchlistEntry.query.filter_by(player_api_id=target_player_api_id).count() == 1
+            assert ScoutWatchlistEntry.query.one().note == "local note"
+            assert Follow.query.count() == 1
+            assert Follow.query.one().selector == {"player_api_id": target_player_api_id}
+            assert Follow.query.one().note == "follow note"
+            assert FollowPlayerSnapshot.query.filter_by(player_api_id=target_player_api_id).count() == 1
+            assert ClubRosterMember.query.count() == 1
+            assert db.session.get(ClubRosterMember, target_roster_id).role == "Captain"
+            assert db.session.get(VideoRosterEntry, video_roster_id).club_roster_member_id == target_roster_id
+            report = db.session.get(VideoPlayerReport, video_report_id)
+            assert report.club_roster_member_id_at_finalize == source_roster_id
+            assert report.club_player_api_id_at_finalize == target_player_api_id
+            assert report.club_local_player_id_at_finalize is None
+            assert db.session.get(ContactRequest, contact_id).player_api_id == target_player_api_id
+            assert db.session.get(ContactRequest, contact_id).claim_id == target_claim_id
+            suppression_rows = PlayerSuppression.query.all()
+            assert len(suppression_rows) == 2
+            assert all(row.player_api_id == target_player_api_id for row in suppression_rows)
+            assert all(row.local_player_id is None for row in suppression_rows)
+            assert any(row.status == "active" for row in suppression_rows)
+            assert PlayerPulse.query.filter_by(player_api_id=target_player_api_id).count() == 1
+            assert PlayerCardCache.query.filter_by(player_api_id=target_player_api_id).count() == 1
+            assert db.session.get(NewsletterPlayerYoutubeLink, newsletter_link_id).player_id == target_player_api_id
+            assert db.session.get(PlayerFlag, player_flag_id).player_api_id == target_player_api_id
+            assert db.session.get(QuickTakeSubmission, quick_take_id).player_id == target_player_api_id
+            assert db.session.get(CommunityTake, community_take_id).player_id == target_player_api_id
+            assert db.session.get(NewsletterCommentary, commentary_id).player_id == target_player_api_id
+            assert PlayerSeasonCell.query.filter_by(player_api_id=old_player_api_id).count() == 0
+            assert PlayerSeasonTotal.query.filter_by(player_api_id=old_player_api_id).count() == 0
+            assert PlayerSeasonCell.query.filter_by(player_api_id=target_player_api_id).count() == 1
+            assert PlayerSeasonTotal.query.filter_by(player_api_id=target_player_api_id).count() == 1
+
+        stale_negative = client.get(f"/api/players/{old_player_api_id}/showcase")
+        assert stale_negative.status_code == 404
+
+        repeated = client.post(
+            f"/api/admin/local-players/{player_id}/link-api",
+            json={"player_api_id": target_player_api_id},
+            headers=_admin_headers(),
+        )
+        assert repeated.status_code == 200, repeated.get_json()
+        assert all(value == 0 for value in repeated.get_json()["graduation"]["rekeyed"].values())
+        assert repeated.get_json()["graduation"]["rollup"] == {"cells": 1, "totals": 1}
+
+    def test_link_api_rejects_another_local_player_and_rolls_back_refresh_failure(self, app, client, monkeypatch):
+        with app.app_context():
+            first = _seed_local_player("First", status="approved")
+            second = _seed_local_player("Second", status="approved", api_player_id=6001)
+            db.session.flush()
+            first.api_player_id = -first.id
+            db.session.add(PlayerShadow(player_api_id=-first.id, player_name="First"))
+            db.session.commit()
+            first_id = first.id
+            second_id = second.id
+            old_player_api_id = -first_id
+
+        conflict = client.post(
+            f"/api/admin/local-players/{first_id}/link-api",
+            json={"player_api_id": 6001},
+            headers=_admin_headers(),
+        )
+        assert conflict.status_code == 409, conflict.get_json()
+
+        from src.routes import showcase as showcase_routes
+
+        monkeypatch.setattr(
+            showcase_routes.season_rollup_service,
+            "refresh_player",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("refresh failed")),
+        )
+        failed = client.post(
+            f"/api/admin/local-players/{first_id}/link-api",
+            json={"player_api_id": 6002},
+            headers=_admin_headers(),
+        )
+        assert failed.status_code == 500, failed.get_json()
+        with app.app_context():
+            assert db.session.get(LocalPlayer, first_id).api_player_id == old_player_api_id
+            assert db.session.get(LocalPlayer, second_id).api_player_id == 6001
+            assert PlayerShadow.query.filter_by(player_api_id=old_player_api_id).count() == 1
+            assert PlayerShadow.query.filter_by(player_api_id=6002).count() == 0
+
+    def test_link_api_does_not_resurrect_rejected_showcase_duplicates(self, app, client):
+        with app.app_context():
+            player = _seed_local_player("Denied Duplicate", status="approved")
+            db.session.flush()
+            player_id = player.id
+            old_player_api_id = -player_id
+            target_player_api_id = 7001
+            player.api_player_id = old_player_api_id
+            db.session.add(PlayerShadow(player_api_id=old_player_api_id, player_name=player.display_name))
+
+            source_media = _seed_media(local_player_id=player_id, suffix="same-photo", status="approved")
+            target_media = _seed_media(
+                player_api_id=target_player_api_id,
+                suffix="target-photo",
+                status="rejected",
+            )
+            target_media.blob_path = source_media.blob_path
+            source_affiliation = PlayerClubAffiliation(
+                local_player_id=player_id,
+                team_api_id=77,
+                status="club_confirmed",
+            )
+            target_affiliation = PlayerClubAffiliation(
+                player_api_id=target_player_api_id,
+                team_api_id=77,
+                status="rejected",
+            )
+            source_link = PlayerLink(
+                local_player_id=player_id,
+                url="https://youtu.be/denied-duplicate",
+                link_type="highlight",
+                status="approved",
+            )
+            target_link = PlayerLink(
+                player_id=target_player_api_id,
+                url="https://youtube.com/watch?v=denied-duplicate",
+                link_type="highlight",
+                status="rejected",
+            )
+            db.session.add_all([source_affiliation, target_affiliation, source_link, target_link])
+            db.session.commit()
+            source_ids = (source_media.id, source_affiliation.id, source_link.id)
+            target_ids = (target_media.id, target_affiliation.id, target_link.id)
+
+        response = client.post(
+            f"/api/admin/local-players/{player_id}/link-api",
+            json={"player_api_id": target_player_api_id},
+            headers=_admin_headers(),
+        )
+
+        assert response.status_code == 200, response.get_json()
+        with app.app_context():
+            assert [
+                db.session.get(model, row_id)
+                for model, row_id in zip(
+                    (PlayerShowcaseMedia, PlayerClubAffiliation, PlayerLink), source_ids, strict=True
+                )
+            ] == [None, None, None]
+            target_rows = [
+                db.session.get(model, row_id)
+                for model, row_id in zip(
+                    (PlayerShowcaseMedia, PlayerClubAffiliation, PlayerLink), target_ids, strict=True
+                )
+            ]
+            assert [row.status for row in target_rows] == ["rejected", "rejected", "rejected"]

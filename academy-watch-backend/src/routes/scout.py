@@ -29,9 +29,9 @@ from datetime import date
 
 import bleach
 from flask import Blueprint, Response, g, jsonify, request
-from sqlalchemy import Integer, and_, case, cast, exists, func, literal, or_, tuple_
+from sqlalchemy import Integer, String, and_, case, cast, exists, func, literal, or_, tuple_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy.orm import aliased
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
 from src.extensions import limiter
 from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerShadow
@@ -39,7 +39,12 @@ from src.models.journey import PlayerJourney
 from src.models.league import PlayerStatsCache, Team, UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.season_rollup import PlayerSeasonTotal
-from src.models.showcase import PlayerProfileClaim, without_minor_local_bridge
+from src.models.showcase import (
+    LocalPlayer,
+    PlayerProfileClaim,
+    local_player_is_minor,
+    without_minor_local_bridge,
+)
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services.follow_resolver import derive_label, resolve_list, validate_selector
@@ -51,12 +56,14 @@ from src.services.player_shadow_service import (
 )
 from src.services.player_suppression import (
     PlayerSuppressedError,
+    active_local_suppression_exists,
     active_suppressed_player_ids,
     is_player_suppressed,
     neutral_player_not_found,
     without_active_suppression,
 )
 from src.utils.feature_flags import rollup_reads_enabled
+from src.utils.player_names import clean_name
 from src.utils.sanitize import sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -147,7 +154,36 @@ CSV_HEADER = [
     "goal_contributions",
     "contributions_per90",
     *CSV_PHASE_KEYS,
+    "source_category",
+    "source_label",
+    "primary_source",
 ]
+
+VALID_SOURCES = frozenset({"api", "club", "self"})
+API_ROLLUP_SOURCES = ("fixtures", "journey", "apss", "shadow")
+SOURCE_LABELS = {
+    "api": "API-reported",
+    "club": "Club-confirmed",
+    "self": "Self-reported",
+}
+
+
+def _local_players_enabled() -> bool:
+    """Whether approved local identities join public Scout discovery.
+
+    Read dynamically so an operator can roll the union back without a process
+    restart in tests and so the safe default remains an empty local branch.
+    """
+
+    return os.getenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_subject(player_api_id: int):
+    """Lazy import avoids a route/service import cycle during app startup."""
+
+    from src.services.player_subject import resolve_player_subject
+
+    return resolve_player_subject(player_api_id)
 
 
 # Lazy import for api_client to avoid circular imports and early initialization
@@ -324,7 +360,7 @@ def _cache_stats_subquery():
     )
 
 
-def _age_expression(today=None):
+def _age_expression(birth_date=None, fallback_age=None, birth_year=None, today=None):
     """Player age as a SQL expression.
 
     Derived from birth_date ('YYYY-MM-DD' string) when present, because the
@@ -333,27 +369,35 @@ def _age_expression(today=None):
     work on both Postgres and SQLite).
     """
     today = today or date.today()
-    birth_year_text = func.substr(TrackedPlayer.birth_date, 1, 4)
-    birth_year = cast(birth_year_text, Integer)
-    birth_month_day = func.substr(TrackedPlayer.birth_date, 6, 5)
+    birth_date = TrackedPlayer.birth_date if birth_date is None else birth_date
+    fallback_age = TrackedPlayer.age if fallback_age is None else fallback_age
+    birth_date_text = cast(birth_date, String)
+    birth_year_text = func.substr(birth_date_text, 1, 4)
+    parsed_birth_year = cast(birth_year_text, Integer)
+    birth_month_day = func.substr(birth_date_text, 6, 5)
     derived = case(
-        (birth_month_day > today.strftime("%m-%d"), today.year - birth_year - 1),
-        else_=today.year - birth_year,
+        (birth_month_day > today.strftime("%m-%d"), today.year - parsed_birth_year - 1),
+        else_=today.year - parsed_birth_year,
     )
+    fallback = fallback_age
+    if birth_year is not None:
+        # A year-only DOB cannot tell whether this year's birthday passed. Use
+        # the conservative lower bound, matching the minor bridge's fail-safe.
+        fallback = func.coalesce(fallback_age, today.year - birth_year - 1)
     # The year-range text comparison keeps a malformed value (e.g. a stray
     # "unknown" string) from reaching CAST, which raises on Postgres and
     # would 500 every age-filtered query.
     return case(
         (
             and_(
-                TrackedPlayer.birth_date.isnot(None),
-                func.length(TrackedPlayer.birth_date) >= 10,
+                birth_date.isnot(None),
+                func.length(birth_date_text) >= 10,
                 birth_year_text >= "1900",
                 birth_year_text <= "2100",
             ),
             derived,
         ),
-        else_=TrackedPlayer.age,
+        else_=fallback,
     )
 
 
@@ -380,10 +424,110 @@ def _preferred_row_filter():
     return ~better_row
 
 
-def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season=None):
-    """TrackedPlayer rows joined to aggregated stats, deduped per player."""
+def _scout_identity_subquery(*, include_local=None):
+    """Normalized public identity relation for tracked and approved local rows."""
+
+    parent_team = aliased(Team)
+    current_team = aliased(Team)
+    tracked = (
+        db.session.query(
+            TrackedPlayer.id.label("row_id"),
+            TrackedPlayer.player_api_id.label("player_api_id"),
+            TrackedPlayer.player_name.label("player_name"),
+            TrackedPlayer.photo_url.label("player_photo"),
+            TrackedPlayer.position.label("position"),
+            TrackedPlayer.nationality.label("nationality"),
+            TrackedPlayer.birth_date.label("birth_date"),
+            literal(None, type_=Integer).label("birth_year"),
+            TrackedPlayer.age.label("stored_age"),
+            TrackedPlayer.team_id.label("primary_team_id"),
+            parent_team.name.label("primary_team_name"),
+            parent_team.team_id.label("primary_team_api_id"),
+            TrackedPlayer.current_club_name.label("loan_team_name"),
+            TrackedPlayer.current_club_api_id.label("loan_team_api_id"),
+            TrackedPlayer.current_club_db_id.label("loan_team_db_id"),
+            current_team.logo.label("loan_team_logo"),
+            TrackedPlayer.is_active.label("is_active"),
+            TrackedPlayer.status.label("status"),
+            TrackedPlayer.current_level.label("current_level"),
+            TrackedPlayer.data_source.label("data_source"),
+            TrackedPlayer.data_depth.label("data_depth"),
+            TrackedPlayer.sale_fee.label("sale_fee"),
+            TrackedPlayer.created_at.label("created_at"),
+            TrackedPlayer.updated_at.label("updated_at"),
+            literal(False).label("is_local"),
+        )
+        .select_from(TrackedPlayer)
+        .outerjoin(parent_team, parent_team.id == TrackedPlayer.team_id)
+        .outerjoin(current_team, current_team.id == TrackedPlayer.current_club_db_id)
+        .filter(
+            TrackedPlayer.is_active.is_(True),
+            TrackedPlayer.player_api_id > 0,
+            TrackedPlayer.data_source != "owning-club",
+            without_active_suppression(TrackedPlayer.player_api_id),
+            without_minor_local_bridge(TrackedPlayer.player_api_id),
+            _preferred_row_filter(),
+        )
+    )
+
+    if include_local is None:
+        include_local = _local_players_enabled()
+    if not include_local:
+        return tracked.subquery("scout_identity")
+
+    local = (
+        db.session.query(
+            (-PlayerShadow.id).label("row_id"),
+            PlayerShadow.player_api_id.label("player_api_id"),
+            func.coalesce(PlayerShadow.player_name, LocalPlayer.display_name).label("player_name"),
+            PlayerShadow.photo_url.label("player_photo"),
+            func.coalesce(PlayerShadow.position, LocalPlayer.position).label("position"),
+            func.coalesce(PlayerShadow.nationality, LocalPlayer.country).label("nationality"),
+            cast(func.coalesce(PlayerShadow.birth_date, LocalPlayer.birth_date), String).label("birth_date"),
+            LocalPlayer.birth_year.label("birth_year"),
+            literal(None, type_=Integer).label("stored_age"),
+            literal(None, type_=Integer).label("primary_team_id"),
+            literal(None, type_=String).label("primary_team_name"),
+            literal(None, type_=Integer).label("primary_team_api_id"),
+            func.coalesce(PlayerShadow.current_club_name, LocalPlayer.club_name).label("loan_team_name"),
+            PlayerShadow.current_club_api_id.label("loan_team_api_id"),
+            literal(None, type_=Integer).label("loan_team_db_id"),
+            literal(None, type_=String).label("loan_team_logo"),
+            PlayerShadow.is_active.label("is_active"),
+            literal(None, type_=String).label("status"),
+            literal(None, type_=String).label("current_level"),
+            literal("local-player", type_=String).label("data_source"),
+            literal("self_reported", type_=String).label("data_depth"),
+            literal(None, type_=String).label("sale_fee"),
+            PlayerShadow.created_at.label("created_at"),
+            LocalPlayer.updated_at.label("updated_at"),
+            literal(True).label("is_local"),
+        )
+        .select_from(PlayerShadow)
+        .join(
+            LocalPlayer,
+            and_(
+                LocalPlayer.id == -PlayerShadow.player_api_id,
+                LocalPlayer.api_player_id == PlayerShadow.player_api_id,
+            ),
+        )
+        .filter(
+            PlayerShadow.player_api_id < 0,
+            PlayerShadow.is_active.is_(True),
+            LocalPlayer.status == "approved",
+            ~local_player_is_minor(LocalPlayer),
+            without_active_suppression(PlayerShadow.player_api_id),
+            ~active_local_suppression_exists(LocalPlayer.id),
+        )
+    )
+    return tracked.union_all(local).subquery("scout_identity")
+
+
+def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season=None, include_local=None):
+    """Normalized player-universe rows joined to one season's stats."""
     from src.utils.academy_window import resolve_stats_season, stats_season_with_data
 
+    identity = _scout_identity_subquery(include_local=include_local)
     rollup_enabled = allow_rollup and rollup_reads_enabled("scout")
     if rollup_enabled:
         # Keep the same fixtures-keyed discovery resolver used everywhere else;
@@ -417,17 +561,51 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season
             PlayerSeasonTotal.computed_at.label("rollup_computed_at"),
         ]
     else:
-        # Legacy path is intentionally unchanged when the flag is off.
+        # API-backed rows retain the legacy aggregate when the flag is off;
+        # club/self rows still read their indivisible authoritative total.
         season = legacy_season if legacy_season is not None else stats_season_with_data(db.session)
         fps = _fixture_stats_subquery(season)
         cache = _cache_stats_subquery()
+        # Club/self totals are the only authoritative representation of those
+        # sources. They must never be relabelled while displaying API fixture
+        # values, even while the general Scout rollup cutover flag is off.
+        uses_reported_total = or_(
+            identity.c.is_local,
+            PlayerSeasonTotal.primary_source.in_(("club", "user")),
+        )
 
-        goals = func.coalesce(fps.c.goals, cache.c.goals, 0).label("goals")
-        assists = func.coalesce(fps.c.assists, cache.c.assists, 0).label("assists")
-        minutes = func.coalesce(fps.c.minutes_played, cache.c.minutes_played, 0).label("minutes_played")
-        appearances = func.coalesce(fps.c.appearances, cache.c.appearances, 0).label("appearances")
-        avg_rating = fps.c.avg_rating.label("avg_rating")
-        phase_column_exprs = {key: getattr(fps.c, key).label(key) for key in PHASE_STAT_KEYS}
+        goals = case(
+            (uses_reported_total, func.coalesce(PlayerSeasonTotal.goals, 0)),
+            else_=func.coalesce(fps.c.goals, cache.c.goals, 0),
+        ).label("goals")
+        assists = case(
+            (uses_reported_total, func.coalesce(PlayerSeasonTotal.assists, 0)),
+            else_=func.coalesce(fps.c.assists, cache.c.assists, 0),
+        ).label("assists")
+        minutes = case(
+            (uses_reported_total, func.coalesce(PlayerSeasonTotal.minutes, 0)),
+            else_=func.coalesce(fps.c.minutes_played, cache.c.minutes_played, 0),
+        ).label("minutes_played")
+        appearances = case(
+            (uses_reported_total, func.coalesce(PlayerSeasonTotal.appearances, 0)),
+            else_=func.coalesce(fps.c.appearances, cache.c.appearances, 0),
+        ).label("appearances")
+        avg_rating = case((uses_reported_total, PlayerSeasonTotal.avg_rating), else_=fps.c.avg_rating).label(
+            "avg_rating"
+        )
+        reported_phase_columns = {
+            "yellows": PlayerSeasonTotal.yellows,
+            "reds": PlayerSeasonTotal.reds,
+            "saves": PlayerSeasonTotal.saves,
+            "goals_conceded": PlayerSeasonTotal.goals_conceded,
+        }
+        phase_column_exprs = {
+            key: case(
+                (uses_reported_total, reported_phase_columns.get(key, literal(None, type_=Integer))),
+                else_=getattr(fps.c, key),
+            ).label(key)
+            for key in PHASE_STAT_KEYS
+        }
         rollup_fields = []
 
     # Player-level CURRENT situation overrides the academy-relative
@@ -440,7 +618,21 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season
     journey_status = PlayerJourney.current_status.label("journey_status")
     journey_owner_id = PlayerJourney.current_owner_api_id.label("journey_owner_id")
     journey_owner_name = PlayerJourney.current_owner_name.label("journey_owner_name")
-    effective_status = func.coalesce(PlayerJourney.current_status, TrackedPlayer.status).label("effective_status")
+    effective_status = func.coalesce(PlayerJourney.current_status, identity.c.status).label("effective_status")
+    computed_age = _age_expression(
+        identity.c.birth_date,
+        identity.c.stored_age,
+        identity.c.birth_year,
+    ).label("age")
+
+    primary_source = PlayerSeasonTotal.primary_source.label("provenance_primary_source")
+    source_category = case(
+        (PlayerSeasonTotal.primary_source == "club", literal("club")),
+        (PlayerSeasonTotal.primary_source == "user", literal("self")),
+        (PlayerSeasonTotal.primary_source.in_(API_ROLLUP_SOURCES), literal("api")),
+        (identity.c.player_api_id < 0, literal("self")),
+        else_=literal("api"),
+    ).label("source_category")
 
     # Phase-of-play stats are fixture-coverage only: no cache fallback, no outer
     # COALESCE — the whole block stays NULL for players without fixture rows so
@@ -449,7 +641,8 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season
 
     query = (
         db.session.query(
-            TrackedPlayer,
+            *identity.c,
+            computed_age,
             goals,
             assists,
             minutes,
@@ -460,36 +653,37 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season
             journey_owner_name,
             *phase_stats,
             *rollup_fields,
+            primary_source,
+            source_category,
         )
-        .outerjoin(PlayerJourney, PlayerJourney.player_api_id == TrackedPlayer.player_api_id)
-        .filter(TrackedPlayer.is_active.is_(True))
-        # owning-club rows are deprecated (senior signings, not academy
-        # products) — never surface them even before a data repair runs.
-        .filter(TrackedPlayer.data_source != "owning-club")
-        .filter(without_active_suppression(TrackedPlayer.player_api_id))
-        .filter(without_minor_local_bridge(TrackedPlayer.player_api_id))
-        .filter(_preferred_row_filter())
-        # to_public_dict touches .team and .current_club — eager-load so a
-        # page (or 1000-row CSV export) doesn't lazy-load per distinct club.
-        .options(joinedload(TrackedPlayer.team), joinedload(TrackedPlayer.current_club))
+        .select_from(identity)
+        .outerjoin(PlayerJourney, PlayerJourney.player_api_id == identity.c.player_api_id)
     )
-    if rollup_enabled:
-        query = query.outerjoin(
-            PlayerSeasonTotal,
-            and_(
-                PlayerSeasonTotal.player_api_id == TrackedPlayer.player_api_id,
-                PlayerSeasonTotal.season == season,
-                PlayerSeasonTotal.level_group == "senior",
-            ),
-        )
-    else:
+    if not rollup_enabled:
         # Stats join per player (not per current club): the aggregates are one
         # season figure per player regardless of the current-club pointer.
-        query = query.outerjoin(fps, fps.c.player_api_id == TrackedPlayer.player_api_id).outerjoin(
+        query = query.outerjoin(fps, fps.c.player_api_id == identity.c.player_api_id).outerjoin(
             cache,
-            cache.c.player_api_id == TrackedPlayer.player_api_id,
+            cache.c.player_api_id == identity.c.player_api_id,
         )
+    query = query.outerjoin(
+        PlayerSeasonTotal,
+        and_(
+            PlayerSeasonTotal.player_api_id == identity.c.player_api_id,
+            PlayerSeasonTotal.season == season,
+            PlayerSeasonTotal.level_group == "senior",
+        ),
+    )
     columns = {
+        "row_id": identity.c.row_id,
+        "player_api_id": identity.c.player_api_id,
+        "position": identity.c.position,
+        "nationality": identity.c.nationality,
+        "player_name": identity.c.player_name,
+        "primary_team_id": identity.c.primary_team_id,
+        "loan_team_db_id": identity.c.loan_team_db_id,
+        "is_local": identity.c.is_local,
+        "age": computed_age,
         "goals": goals,
         "assists": assists,
         "minutes_played": minutes,
@@ -498,19 +692,35 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season
         # status filter matches what the row displays (current situation,
         # falling back to academy-relative status).
         "effective_status": effective_status,
+        "source_category": source_category,
     }
     for key in PHASE_STAT_KEYS:
         columns[key] = phase_column_exprs[key]
     return query, columns
 
 
-def _apply_filters(query, columns):
+def _apply_source_filter(query, columns, *, exclude_self_by_default=False):
+    raw_source = request.args.get("source", "").strip().lower()
+    if raw_source and raw_source not in VALID_SOURCES:
+        return query, (jsonify({"error": f"Invalid source. One of: {sorted(VALID_SOURCES)}"}), 400)
+    if raw_source:
+        query = query.filter(columns["source_category"] == raw_source)
+    elif exclude_self_by_default:
+        query = query.filter(columns["source_category"] != "self")
+    return query, None
+
+
+def _apply_filters(query, columns, *, exclude_self_by_default=False):
     """Apply shared request filters; returns (query, error_response_or_none)."""
+    query, error = _apply_source_filter(query, columns, exclude_self_by_default=exclude_self_by_default)
+    if error:
+        return query, error
+
     position = request.args.get("position", "").strip()
     if position:
         if position not in VALID_POSITIONS:
             return query, (jsonify({"error": f"Invalid position. One of: {sorted(VALID_POSITIONS)}"}), 400)
-        query = query.filter(TrackedPlayer.position == position)
+        query = query.filter(columns["position"] == position)
 
     statuses = [s.strip() for s in request.args.get("status", "").split(",") if s.strip()]
     if statuses:
@@ -522,7 +732,7 @@ def _apply_filters(query, columns):
     min_age = request.args.get("min_age", type=int)
     max_age = request.args.get("max_age", type=int)
     if min_age is not None or max_age is not None:
-        age_expr = _age_expression()
+        age_expr = columns["age"]
         if min_age is not None:
             query = query.filter(age_expr >= min_age)
         if max_age is not None:
@@ -530,11 +740,11 @@ def _apply_filters(query, columns):
 
     nationality = request.args.get("nationality", "").strip()
     if nationality:
-        query = query.filter(TrackedPlayer.nationality.ilike(f"%{nationality}%"))
+        query = query.filter(columns["nationality"].ilike(f"%{nationality}%"))
 
     search = request.args.get("search", "").strip()
     if search:
-        query = query.filter(TrackedPlayer.player_name.ilike(f"%{search}%"))
+        query = query.filter(columns["player_name"].ilike(f"%{search}%"))
 
     min_minutes = request.args.get("min_minutes", type=int)
     if min_minutes:
@@ -544,8 +754,31 @@ def _apply_filters(query, columns):
 
 
 def _row_to_dict(row):
-    tracked_player = row[0]
-    payload = tracked_player.to_public_dict()
+    payload = {
+        "id": row.row_id,
+        "player_id": row.player_api_id,
+        "player_name": clean_name(row.player_name),
+        "player_photo": row.player_photo,
+        "position": row.position,
+        "age": int(row.age) if row.age is not None else None,
+        "nationality": row.nationality,
+        "primary_team_id": row.primary_team_id,
+        "primary_team_name": row.primary_team_name,
+        "primary_team_api_id": row.primary_team_api_id,
+        "loan_team_name": row.loan_team_name,
+        "loan_team_api_id": row.loan_team_api_id,
+        "loan_team_db_id": row.loan_team_db_id,
+        "loan_team_logo": row.loan_team_logo,
+        "is_active": bool(row.is_active),
+        "status": row.status,
+        "pathway_status": row.status,
+        "current_level": row.current_level,
+        "data_source": row.data_source,
+        "data_depth": row.data_depth,
+        "sale_fee": row.sale_fee,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
     is_rollup_row = "rollup_missing" in row._mapping
     if is_rollup_row:
         payload["appearances"] = int(row.appearances) if row.appearances is not None else None
@@ -564,17 +797,6 @@ def _row_to_dict(row):
             round(contributions * 90.0 / minutes, 2) if contributions is not None and minutes else None
         )
         payload["rollup_missing"] = bool(row.rollup_missing)
-        payload["provenance"] = (
-            None
-            if row.rollup_missing
-            else {
-                "primary_source": row.rollup_primary_source,
-                "reconcile_flag": row.rollup_reconcile_flag,
-                "fixtures_minutes": row.rollup_fixtures_minutes,
-                "journey_minutes": row.rollup_journey_minutes,
-                "computed_at": row.rollup_computed_at.isoformat() if row.rollup_computed_at else None,
-            }
-        )
     else:
         payload["appearances"] = int(row.appearances or 0)
         payload["goals"] = int(row.goals or 0)
@@ -585,6 +807,22 @@ def _row_to_dict(row):
         contributions = payload["goals"] + payload["assists"]
         payload["goal_contributions"] = contributions
         payload["contributions_per90"] = round(contributions * 90.0 / minutes, 2) if minutes else None
+
+    source_category = row.source_category
+    payload["provenance"] = {
+        "source_category": source_category,
+        "source_label": SOURCE_LABELS[source_category],
+        "primary_source": row.provenance_primary_source,
+    }
+    if is_rollup_row and not row.rollup_missing:
+        payload["provenance"].update(
+            {
+                "reconcile_flag": row.rollup_reconcile_flag,
+                "fixtures_minutes": row.rollup_fixtures_minutes,
+                "journey_minutes": row.rollup_journey_minutes,
+                "computed_at": row.rollup_computed_at.isoformat() if row.rollup_computed_at else None,
+            }
+        )
 
     # Phase-of-play stats: the fixture aggregate never yields NULL for a player
     # WITH fixture rows (per-column COALESCE inside the subquery), so a NULL
@@ -635,8 +873,8 @@ def _sort_expression(sort, columns):
         "rating": columns["avg_rating"],
         "contributions": contributions,
         "per90": per90,
-        "age": _age_expression(),
-        "name": TrackedPlayer.player_name,
+        "age": columns["age"],
+        "name": columns["player_name"],
         # Phase-of-play keys (NULL for players without fixture coverage — they
         # sort last via nullslast either direction).
         "shots": columns["shots_total"],
@@ -662,7 +900,7 @@ def _attach_contactable(players: list[dict]) -> None:
     ids = {p["player_id"] for p in players if p.get("player_id")}
     claimed = set()
     if ids:
-        rows = (
+        api_rows = (
             db.session.query(PlayerProfileClaim.player_api_id)
             .filter(
                 PlayerProfileClaim.player_api_id.in_(ids),
@@ -672,7 +910,20 @@ def _attach_contactable(players: list[dict]) -> None:
             .distinct()
             .all()
         )
-        claimed = {row[0] for row in rows}
+        claimed = {row[0] for row in api_rows}
+        local_ids = {-player_id for player_id in ids if player_id < 0}
+        if local_ids:
+            local_rows = (
+                db.session.query(PlayerProfileClaim.local_player_id)
+                .filter(
+                    PlayerProfileClaim.local_player_id.in_(local_ids),
+                    PlayerProfileClaim.relationship_type == "player",
+                    PlayerProfileClaim.status == "approved",
+                )
+                .distinct()
+                .all()
+            )
+            claimed.update(-row[0] for row in local_rows)
     for player in players:
         player["contactable"] = player.get("player_id") in claimed
 
@@ -715,9 +966,9 @@ def scout_players():
         default_order = "asc" if sort in ("name", "age") else "desc"
         order = request.args.get("order", default_order).strip().lower()
         if order == "desc":
-            query = query.order_by(sort_expr.desc().nullslast(), TrackedPlayer.id)
+            query = query.order_by(sort_expr.desc().nullslast(), columns["player_api_id"])
         else:
-            query = query.order_by(sort_expr.asc().nullslast(), TrackedPlayer.id)
+            query = query.order_by(sort_expr.asc().nullslast(), columns["player_api_id"])
 
         page = max(request.args.get("page", 1, type=int), 1)
         per_page = min(max(request.args.get("per_page", 25, type=int), 1), MAX_PER_PAGE)
@@ -831,20 +1082,20 @@ def scout_leaderboards():
                 allow_rollup=board_uses_rollup,
                 legacy_season=season if use_rollup and not board_uses_rollup else None,
             )
-            query, error = _apply_filters(query, columns)
+            query, error = _apply_filters(query, columns, exclude_self_by_default=True)
             if error:
                 return None, error
             if phase == "gk":
                 # Outfielders aggregate goals_conceded/saves as 0, which would
                 # top every ascending GK board — clamp regardless of the
                 # caller's position filter.
-                query = query.filter(TrackedPlayer.position == "Goalkeeper")
+                query = query.filter(columns["position"] == "Goalkeeper")
             if extra_min_minutes:
                 query = query.filter(columns["minutes_played"] >= extra_min_minutes)
             sort_expr = _sort_expression(sort_key, columns)
             query = query.filter(columns["appearances"] > 0)
             ordered = sort_expr.asc().nullslast() if board_order == "asc" else sort_expr.desc().nullslast()
-            rows = query.order_by(ordered, TrackedPlayer.id).limit(limit).all()
+            rows = query.order_by(ordered, columns["player_api_id"]).limit(limit).all()
             return [_row_to_dict(row) for row in rows], None
 
         boards = {}
@@ -990,6 +1241,52 @@ def _compare_rollup_totals(total: PlayerSeasonTotal | None) -> tuple[dict, dict 
     )
 
 
+def _compare_candidate_totals(candidate):
+    """Project a normalized Scout row without crossing its chosen source."""
+
+    return {
+        "appearances": candidate["appearances"],
+        "goals": candidate["goals"],
+        "assists": candidate["assists"],
+        "minutes_played": candidate["minutes_played"],
+        "avg_rating": candidate["avg_rating"],
+        "yellows": candidate["yellows"],
+        "reds": candidate["reds"],
+        "saves": candidate["saves"],
+        "goals_conceded": candidate["goals_conceded"],
+        "shots_total": candidate["shots_total"],
+        "shots_on": candidate["shots_on"],
+        "passes_total": candidate["passes_total"],
+        "key_passes": candidate["key_passes"],
+        "dribbles_attempts": candidate["dribbles_attempts"],
+        "dribbles_success": candidate["dribbles_success"],
+        "tackles": candidate["tackles"],
+        "interceptions": None,
+        "duels_total": candidate["duels_total"],
+        "duels_won": candidate["duels_won"],
+        "fouls_drawn": candidate["fouls_drawn"],
+        "penalty_saved": candidate["penalty_saved"],
+        "clean_sheets": candidate["clean_sheets"],
+        "stats_coverage": "season-rollup",
+        "rollup_missing": candidate.get("rollup_missing", False),
+    }
+
+
+def _compare_per90_payload(totals):
+    minutes = totals.get("minutes_played") or 0
+    return {
+        "goals": _per90(totals.get("goals"), minutes),
+        "assists": _per90(totals.get("assists"), minutes),
+        "goal_contributions": _per90((totals.get("goals") or 0) + (totals.get("assists") or 0), minutes),
+        "key_passes": _per90(totals.get("key_passes"), minutes),
+        "shots_total": _per90(totals.get("shots_total"), minutes),
+        "dribbles_success": _per90(totals.get("dribbles_success"), minutes),
+        "tackles": _per90(totals.get("tackles"), minutes),
+        "interceptions": _per90(totals.get("interceptions"), minutes),
+        "duels_won": _per90(totals.get("duels_won"), minutes),
+    }
+
+
 @scout_bp.route("/scout/compare", methods=["GET"])
 def scout_compare():
     """Compare up to 4 players side by side.
@@ -1045,8 +1342,62 @@ def scout_compare():
             else {}
         )
 
+        candidate_query, candidate_columns = _base_scout_query(requested_season)
+        candidate_query = candidate_query.filter(candidate_columns["player_api_id"].in_(player_ids))
+        candidate_query, source_error = _apply_source_filter(candidate_query, candidate_columns)
+        if source_error:
+            return source_error
+        candidate_payloads = {}
+        for candidate_row in candidate_query.all():
+            candidate_payload = _row_to_dict(candidate_row)
+            candidate_payloads[candidate_payload["player_id"]] = candidate_payload
+
         players = []
         for player_id in player_ids:
+            candidate = candidate_payloads.get(player_id)
+            if candidate is None:
+                continue
+
+            if player_id < 0:
+                subject = _resolve_subject(player_id)
+                if subject is None or not subject.is_public or subject.local_player is None or subject.shadow is None:
+                    continue
+                totals = _compare_candidate_totals(candidate)
+                per90 = _compare_per90_payload(totals)
+                profile_keys = (
+                    "id",
+                    "player_id",
+                    "player_name",
+                    "player_photo",
+                    "position",
+                    "age",
+                    "nationality",
+                    "primary_team_id",
+                    "primary_team_name",
+                    "primary_team_api_id",
+                    "loan_team_name",
+                    "loan_team_api_id",
+                    "loan_team_db_id",
+                    "loan_team_logo",
+                    "is_active",
+                    "status",
+                    "pathway_status",
+                    "current_level",
+                    "data_source",
+                    "data_depth",
+                )
+                players.append(
+                    {
+                        "profile": {key: candidate.get(key) for key in profile_keys},
+                        "totals": totals,
+                        "per90": per90,
+                        "career": None,
+                        "availability": None,
+                        "provenance": candidate["provenance"],
+                    }
+                )
+                continue
+
             tracked_player = (
                 TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True)
                 .filter(TrackedPlayer.data_source != "owning-club")
@@ -1058,10 +1409,13 @@ def scout_compare():
             if not tracked_player:
                 continue
 
-            provenance = None
-            if use_rollup:
+            uses_reported_candidate = candidate["provenance"]["source_category"] in {"club", "self"}
+            if uses_reported_candidate:
+                totals = _compare_candidate_totals(candidate)
+                row = None
+            elif use_rollup:
                 total = rollup_totals.get(player_id)
-                totals, provenance = _compare_rollup_totals(total)
+                totals, _legacy_provenance = _compare_rollup_totals(total)
                 row = (
                     _compare_fixture_totals(player_id, resolved_season)
                     if total is not None and total.primary_source == "fixtures"
@@ -1180,9 +1534,8 @@ def scout_compare():
                 "per90": per90,
                 "career": career,
                 "availability": availability,
+                "provenance": candidate["provenance"],
             }
-            if use_rollup:
-                comparison["provenance"] = provenance
             players.append(comparison)
 
         missing = [pid for pid in player_ids if pid not in {p["profile"]["player_id"] for p in players}]
@@ -1231,11 +1584,30 @@ def _watched_player_dicts(player_api_ids):
     ids = [pid for pid in set(player_api_ids) if pid]
     if not ids:
         return {}
-    query, _ = _base_scout_query()
-    rows = query.filter(TrackedPlayer.player_api_id.in_(ids)).all()
+    query, columns = _base_scout_query(include_local=True)
+    rows = query.filter(columns["player_api_id"].in_(ids)).all()
     players = [_row_to_dict(row) for row in rows]
     _attach_recent_form(players)
     return {p["player_id"]: p for p in players}
+
+
+def _active_suppressed_subject_ids(player_api_ids):
+    """Batched API and synthetic-local suppression lookup for watchlists."""
+
+    ids = {int(player_id) for player_id in player_api_ids if player_id is not None}
+    suppressed = active_suppressed_player_ids(ids)
+    negative_ids = {player_id for player_id in ids if player_id < 0}
+    if negative_ids:
+        local_rows = (
+            db.session.query(LocalPlayer.api_player_id)
+            .filter(
+                LocalPlayer.api_player_id.in_(negative_ids),
+                active_local_suppression_exists(LocalPlayer.id),
+            )
+            .all()
+        )
+        suppressed.update(row[0] for row in local_rows)
+    return suppressed
 
 
 def _entry_payload(entry, player=None, *, unavailable=False):
@@ -1264,7 +1636,7 @@ def scout_watchlist():
             .order_by(ScoutWatchlistEntry.created_at.desc(), ScoutWatchlistEntry.id.desc())
             .all()
         )
-        suppressed_ids = active_suppressed_player_ids(entry.player_api_id for entry in entries)
+        suppressed_ids = _active_suppressed_subject_ids(entry.player_api_id for entry in entries)
         players = _watched_player_dicts([entry.player_api_id for entry in entries])
         return jsonify(
             {
@@ -1291,9 +1663,9 @@ def scout_watchlist():
 def scout_watchlist_add():
     """Add a player to the watchlist. Idempotent: re-adding returns 200.
 
-    Watchlist entries stay TrackedPlayer-only (the 404 below is unchanged);
-    worldwide/shadow players are followable only via follow lists. Every add is
-    also mirrored into the user's default follow list.
+    Positive additions stay TrackedPlayer-only; approved adult local subjects
+    join through their synthetic negative id. Other shadow-only players remain
+    follow-list only. Every add is mirrored into the user's default follow list.
     """
     try:
         user = _current_user_account()
@@ -1301,8 +1673,13 @@ def scout_watchlist_add():
             return jsonify({"error": "auth context missing email"}), 401
         payload = request.get_json(silent=True) or {}
         player_api_id = payload.get("player_api_id")
-        if not isinstance(player_api_id, int) or isinstance(player_api_id, bool) or player_api_id <= 0:
-            return jsonify({"error": "player_api_id must be a positive integer"}), 400
+        if not isinstance(player_api_id, int) or isinstance(player_api_id, bool) or player_api_id == 0:
+            return jsonify({"error": "player_api_id must be a non-zero integer"}), 400
+
+        subject = _resolve_subject(player_api_id)
+        if player_api_id < 0:
+            if subject is None or not subject.is_public or subject.local_player is None or subject.shadow is None:
+                return neutral_player_not_found()
 
         existing = ScoutWatchlistEntry.query.filter_by(user_account_id=user.id, player_api_id=player_api_id).first()
         if is_player_suppressed(player_api_id):
@@ -1317,12 +1694,16 @@ def scout_watchlist_add():
         # Same row set the watchlist enrichment uses — owning-club rows are
         # excluded there, so allowing them here would create entries that
         # forever render empty.
-        active = (
-            TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
-            .filter(TrackedPlayer.data_source != "owning-club")
-            .filter(without_active_suppression(TrackedPlayer.player_api_id))
-            .first()
-        )
+        active = subject
+        if player_api_id > 0:
+            active = (
+                subject.tracked_player
+                if subject is not None
+                and subject.is_public
+                and subject.tracked_player is not None
+                and subject.tracked_player.is_active
+                else None
+            )
         if not active:
             if is_player_suppressed(player_api_id):
                 return neutral_player_not_found()
@@ -1354,7 +1735,7 @@ def scout_watchlist_add():
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
-@scout_bp.route("/scout/watchlist/<int:player_api_id>", methods=["DELETE"])
+@scout_bp.route("/scout/watchlist/<int(signed=True):player_api_id>", methods=["DELETE"])
 @require_user_auth
 @limiter.limit("30/minute", key_func=_user_rate_limit_key)
 def scout_watchlist_remove(player_api_id):
@@ -1363,8 +1744,15 @@ def scout_watchlist_remove(player_api_id):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
+        subject = _resolve_subject(player_api_id)
         entry = ScoutWatchlistEntry.query.filter_by(user_account_id=user.id, player_api_id=player_api_id).first()
+        if player_api_id < 0 and (
+            subject is None or subject.is_minor or subject.local_player is None or subject.shadow is None
+        ):
+            return neutral_player_not_found()
         if entry is None:
+            if player_api_id < 0 and not subject.is_public:
+                return neutral_player_not_found()
             return jsonify({"removed": False})
         db.session.delete(entry)
         db.session.commit()
@@ -1376,7 +1764,7 @@ def scout_watchlist_remove(player_api_id):
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
-@scout_bp.route("/scout/watchlist/<int:player_api_id>", methods=["PATCH"])
+@scout_bp.route("/scout/watchlist/<int(signed=True):player_api_id>", methods=["PATCH"])
 @require_user_auth
 @limiter.limit("30/minute", key_func=_user_rate_limit_key)
 def scout_watchlist_note(player_api_id):
@@ -1385,6 +1773,11 @@ def scout_watchlist_note(player_api_id):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
+        subject = _resolve_subject(player_api_id)
+        if subject is None or not subject.is_public:
+            return neutral_player_not_found()
+        if player_api_id < 0 and (subject.local_player is None or subject.shadow is None):
+            return neutral_player_not_found()
         entry = ScoutWatchlistEntry.query.filter_by(user_account_id=user.id, player_api_id=player_api_id).first()
         if entry is None:
             return jsonify({"error": "Player is not on your watchlist"}), 404
@@ -1481,7 +1874,10 @@ def scout_export_csv():
                 player_ids = [int(p) for p in raw_ids]
             except ValueError:
                 return jsonify({"error": "ids must be integers"}), 400
-            query = query.filter(TrackedPlayer.player_api_id.in_(player_ids))
+            query = query.filter(columns["player_api_id"].in_(player_ids))
+            query, error = _apply_source_filter(query, columns)
+            if error:
+                return error
         else:
             query, error = _apply_filters(query, columns)
             if error:
@@ -1498,9 +1894,9 @@ def scout_export_csv():
         default_order = "asc" if sort in ("name", "age") else "desc"
         order = request.args.get("order", default_order).strip().lower()
         if order == "desc":
-            query = query.order_by(sort_expr.desc().nullslast(), TrackedPlayer.id)
+            query = query.order_by(sort_expr.desc().nullslast(), columns["player_api_id"])
         else:
-            query = query.order_by(sort_expr.asc().nullslast(), TrackedPlayer.id)
+            query = query.order_by(sort_expr.asc().nullslast(), columns["player_api_id"])
 
         buffer = io.StringIO()
         writer = csv.writer(buffer)
@@ -1525,6 +1921,9 @@ def scout_export_csv():
                     p["goal_contributions"],
                     p["contributions_per90"] if p["contributions_per90"] is not None else "",
                     *[p[key] if p[key] is not None else "" for key in CSV_PHASE_KEYS],
+                    p["provenance"]["source_category"],
+                    p["provenance"]["source_label"],
+                    p["provenance"]["primary_source"] or "",
                 ]
             )
 
@@ -1576,6 +1975,11 @@ def scout_admin_send_digests():
 
 def _player_display_name(player_api_id):
     """Best-effort display name for a follow label (tracked, else shadow)."""
+    if player_api_id < 0:
+        subject = _resolve_subject(player_api_id)
+        if subject is None or not subject.is_public or subject.local_player is None or subject.shadow is None:
+            return None
+        return subject.shadow.player_name or subject.local_player.display_name
     tracked = (
         TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
         .filter(TrackedPlayer.data_source != "owning-club")
@@ -1670,9 +2074,15 @@ def _follow_label_maps(follows):
         elif follow.kind == "academy_club" and selector.get("team_id"):
             team_ids.add(selector["team_id"])
 
-    unavailable_player_ids = active_suppressed_player_ids(player_ids)
+    unavailable_player_ids = _active_suppressed_subject_ids(player_ids)
     name_map = {}
     if player_ids:
+        for player_api_id in (player_id for player_id in player_ids if player_id < 0):
+            subject = _resolve_subject(player_api_id)
+            if subject is None or not subject.is_public or subject.local_player is None or subject.shadow is None:
+                unavailable_player_ids.add(player_api_id)
+                continue
+            name_map[player_api_id] = subject.shadow.player_name or subject.local_player.display_name
         for tp in TrackedPlayer.query.filter(
             TrackedPlayer.player_api_id.in_(player_ids),
             TrackedPlayer.is_active.is_(True),
@@ -1680,7 +2090,7 @@ def _follow_label_maps(follows):
             without_active_suppression(TrackedPlayer.player_api_id),
         ).all():
             name_map.setdefault(tp.player_api_id, tp.player_name)
-        remaining = player_ids - set(name_map) - unavailable_player_ids
+        remaining = {player_id for player_id in player_ids if player_id > 0} - set(name_map) - unavailable_player_ids
         if remaining:
             for shadow in PlayerShadow.query.filter(
                 PlayerShadow.player_api_id.in_(remaining),
@@ -1977,30 +2387,42 @@ def scout_list_add_follow(list_id):
         shadow_created = False
         if kind == "player":
             player_api_id = clean_selector["player_api_id"]
-            tracked = (
-                TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
-                .filter(TrackedPlayer.data_source != "owning-club")
-                .filter(without_active_suppression(TrackedPlayer.player_api_id))
-                .first()
-            )
-            if tracked:
-                label = derive_label("player", clean_selector, tracked.player_name)
+            if player_api_id < 0:
+                subject = _resolve_subject(player_api_id)
+                if subject is None or not subject.is_public or subject.local_player is None or subject.shadow is None:
+                    return neutral_player_not_found()
+                label = derive_label(
+                    "player",
+                    clean_selector,
+                    subject.shadow.player_name or subject.local_player.display_name,
+                )
             else:
-                shadow = (
-                    PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True)
-                    .filter(without_active_suppression(PlayerShadow.player_api_id))
+                tracked = (
+                    TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
+                    .filter(TrackedPlayer.data_source != "owning-club")
+                    .filter(without_active_suppression(TrackedPlayer.player_api_id))
                     .first()
                 )
-                # Cap distinct worldwide follows per user (a new shadow, or an
-                # existing shadow this user does not already follow).
-                if not _user_already_follows_player(user.id, player_api_id):
-                    if user_shadow_follow_count(user.id) >= SHADOW_FOLLOW_LIMIT:
-                        return jsonify({"error": f"worldwide follow limit reached ({SHADOW_FOLLOW_LIMIT})"}), 403
-                if shadow is None:
-                    seed = payload.get("seed") if isinstance(payload.get("seed"), dict) else None
-                    shadow = mint_shadow(player_api_id, seed=seed, requested_by=user.id, api_client=_get_api_client())
-                    shadow_created = True
-                label = derive_label("player", clean_selector, shadow.player_name)
+                if tracked:
+                    label = derive_label("player", clean_selector, tracked.player_name)
+                else:
+                    shadow = (
+                        PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True)
+                        .filter(without_active_suppression(PlayerShadow.player_api_id))
+                        .first()
+                    )
+                    # Cap distinct worldwide follows per user (a new shadow, or an
+                    # existing shadow this user does not already follow).
+                    if not _user_already_follows_player(user.id, player_api_id):
+                        if user_shadow_follow_count(user.id) >= SHADOW_FOLLOW_LIMIT:
+                            return jsonify({"error": f"worldwide follow limit reached ({SHADOW_FOLLOW_LIMIT})"}), 403
+                    if shadow is None:
+                        seed = payload.get("seed") if isinstance(payload.get("seed"), dict) else None
+                        shadow = mint_shadow(
+                            player_api_id, seed=seed, requested_by=user.id, api_client=_get_api_client()
+                        )
+                        shadow_created = True
+                    label = derive_label("player", clean_selector, shadow.player_name)
         elif kind == "academy_club":
             if clean_selector.get("program_id"):
                 from src.models.funding import ClubProgram

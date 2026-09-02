@@ -66,12 +66,15 @@ def app(monkeypatch):
                 )
             )
         db.create_all()
-        db.session.add(
-            PlayerJourney(
-                player_api_id=5001,
-                player_name="Kobbie Mainoo",
-                birth_date="2000-01-01",
-            )
+        db.session.add_all(
+            [
+                PlayerJourney(
+                    player_api_id=5001,
+                    player_name="Kobbie Mainoo",
+                    birth_date="2000-01-01",
+                ),
+                PlayerShadow(player_api_id=5001, player_name="Kobbie Mainoo"),
+            ]
         )
         db.session.commit()
         yield flask_app

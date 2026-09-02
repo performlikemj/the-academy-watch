@@ -2,15 +2,18 @@
 
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from flask import Flask
+from src.models.follow import PlayerShadow
 from src.models.league import League, PlayerStatsCache, Team, UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
+from src.models.season_rollup import PlayerSeasonTotal
+from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 
@@ -21,15 +24,17 @@ CSV_HEADER_LINE = (
     # consumers' column positions stay stable
     "shots_total,shots_on,passes_total,key_passes,dribbles_success,tackles,duels_total,"
     "duels_won,duel_win_pct,fouls_drawn,fouls_committed,yellows,reds,saves,goals_conceded,"
-    "clean_sheets,penalty_saved"
+    "clean_sheets,penalty_saved,source_category,source_label,primary_source"
 )
 
 
 @pytest.fixture
-def watchlist_app():
+def watchlist_app(monkeypatch):
     """Minimal Flask app with scout blueprint + templates for digest rendering."""
     os.environ.setdefault("SKIP_API_HANDSHAKE", "1")
     os.environ.setdefault("API_USE_STUB_DATA", "true")
+    monkeypatch.delenv("SCOUT_INCLUDE_LOCAL_PLAYERS", raising=False)
+    monkeypatch.delenv("SEASON_ROLLUP_READS", raising=False)
 
     from src.routes.scout import scout_bp
 
@@ -158,6 +163,52 @@ def seeded(watchlist_app):
     db.session.commit()
 
 
+@pytest.fixture
+def local_watchlist_player(watchlist_app):
+    local = LocalPlayer(
+        display_name="Local Watch",
+        normalized_name="local watch",
+        birth_date=date(2000, 5, 1),
+        birth_year=2000,
+        position="Midfielder",
+        country="Wales",
+        club_name="Town FC",
+        status="approved",
+    )
+    db.session.add(local)
+    db.session.flush()
+    signed_id = -local.id
+    local.api_player_id = signed_id
+    db.session.add(
+        PlayerShadow(
+            player_api_id=signed_id,
+            player_name=local.display_name,
+            position=local.position,
+            nationality=local.country,
+            birth_date=local.birth_date,
+            current_club_name=local.club_name,
+            is_active=True,
+        )
+    )
+    db.session.add(
+        PlayerSeasonTotal(
+            player_api_id=signed_id,
+            season=2025,
+            level_group="senior",
+            appearances=4,
+            goals=1,
+            assists=2,
+            minutes=300,
+            primary_source="user",
+            fixtures_minutes=0,
+            journey_minutes=0,
+            computed_at=datetime(2026, 9, 2, tzinfo=UTC),
+        )
+    )
+    db.session.commit()
+    return signed_id
+
+
 def _make_user(email, **overrides):
     from src.auth import _ensure_user_account
 
@@ -245,7 +296,9 @@ class TestAddAndRemove:
         headers = _headers()
         assert client.post("/api/scout/watchlist", json={}, headers=headers).status_code == 400
         assert client.post("/api/scout/watchlist", json={"player_api_id": "abc"}, headers=headers).status_code == 400
-        assert client.post("/api/scout/watchlist", json={"player_api_id": -3}, headers=headers).status_code == 400
+        # Signed ids are syntactically valid; an unknown local subject gets the
+        # same neutral denial as every other unavailable player.
+        assert client.post("/api/scout/watchlist", json={"player_api_id": -3}, headers=headers).status_code == 404
 
     def test_watchlist_limit_409(self, client, seeded, monkeypatch):
         import src.routes.scout as scout_module
@@ -266,6 +319,34 @@ class TestAddAndRemove:
         resp = client.delete("/api/scout/watchlist/1001", headers=headers)
         assert resp.status_code == 200
         assert resp.get_json() == {"removed": False}
+
+    def test_approved_adult_negative_can_be_watched_enriched_edited_and_removed(
+        self, client, seeded, local_watchlist_player
+    ):
+        headers = _headers()
+        created = client.post(
+            "/api/scout/watchlist",
+            json={"player_api_id": local_watchlist_player},
+            headers=headers,
+        )
+        assert created.status_code == 201
+        assert created.get_json()["entry"]["player"]["player_id"] == local_watchlist_player
+        assert created.get_json()["entry"]["player"]["goals"] == 1
+
+        listed = client.get("/api/scout/watchlist", headers=headers).get_json()["entries"]
+        assert listed[0]["player"]["provenance"]["source_category"] == "self"
+
+        patched = client.patch(
+            f"/api/scout/watchlist/{local_watchlist_player}",
+            json={"note": "local prospect"},
+            headers=headers,
+        )
+        assert patched.status_code == 200
+        assert patched.get_json()["entry"]["note"] == "local prospect"
+
+        removed = client.delete(f"/api/scout/watchlist/{local_watchlist_player}", headers=headers)
+        assert removed.status_code == 200
+        assert removed.get_json() == {"removed": True}
 
 
 class TestNote:
@@ -392,7 +473,7 @@ class TestCsvExport:
             # CS, pen saved) is blank for outfielders — it is gated to rows
             # where the player actually kept goal (per-fixture position 'G')
             "1001,Alfie Striker,19,Attacker,England,on_loan,Manchester United,Loan FC,2,3,1,170,7.6,4,2.12,"
-            "0,0,0,0,0,0,0,0,,0,0,0,0,,,,"
+            "0,0,0,0,0,0,0,0,,0,0,0,0,,,,,api,API-reported,"
         )
         assert len(lines) == 3  # header + striker + keeper
 
@@ -404,6 +485,22 @@ class TestCsvExport:
 
     def test_export_invalid_ids_400(self, client, seeded):
         assert client.get("/api/scout/export.csv?ids=a,b", headers=_headers()).status_code == 400
+
+    def test_export_local_row_and_provenance_columns(self, client, seeded, local_watchlist_player, monkeypatch):
+        monkeypatch.setenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "1")
+        resp = client.get(
+            f"/api/scout/export.csv?ids={local_watchlist_player}&source=self",
+            headers=_headers(),
+        )
+        assert resp.status_code == 200
+        lines = resp.data.decode().splitlines()
+        assert lines[0] == CSV_HEADER_LINE
+        assert len(lines) == 2
+        assert lines[1].startswith(f"{local_watchlist_player},Local Watch,")
+        assert lines[1].endswith(",self,Self-reported,user")
+
+    def test_export_invalid_source_400(self, client, seeded):
+        assert client.get("/api/scout/export.csv?source=bogus", headers=_headers()).status_code == 400
 
 
 @pytest.fixture

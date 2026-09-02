@@ -17,6 +17,7 @@ from src.models.journey import PlayerJourney
 from src.models.league import Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.journey_sync import JourneySyncService
+from src.services.player_shadow_service import is_external_player_id
 from src.services.transfer_resolver import resolve_transfer_state
 from src.utils.academy_classifier import (
     _get_latest_season,
@@ -79,7 +80,7 @@ def refresh_and_heal(
     a fixture sync fails for an individual player.
     """
     orphan_cap = MAX_ORPHAN_REQUEUE if orphan_budget is None else max(int(orphan_budget), 0)
-    query = TrackedPlayer.query.filter_by(is_active=True)
+    query = TrackedPlayer.query.filter_by(is_active=True).filter(TrackedPlayer.player_api_id > 0)
     if team_id:
         query = query.filter_by(team_id=team_id)
 
@@ -116,7 +117,7 @@ def refresh_and_heal(
             TrackedPlayer.is_active.is_(False),
             TrackedPlayer.pinned_parent.isnot(True),
             TrackedPlayer.data_source != "manual",
-            TrackedPlayer.player_api_id.isnot(None),
+            TrackedPlayer.player_api_id > 0,
             db.or_(
                 TrackedPlayer.last_academy_season >= window_start,
                 TrackedPlayer.status == "academy",
@@ -173,7 +174,7 @@ def refresh_and_heal(
 
     # Batch pre-fetch transfers
     api_client = api_client or APIFootballClient()
-    player_api_ids = [tp.player_api_id for tp in players if tp.player_api_id]
+    player_api_ids = [tp.player_api_id for tp in players if is_external_player_id(tp.player_api_id)]
     raw_transfers_map = api_client.batch_get_player_transfers(player_api_ids)
     transfers_map = {pid: flatten_transfers(raw) for pid, raw in raw_transfers_map.items()}
 
@@ -226,7 +227,9 @@ def refresh_and_heal(
     # cannot distinguish a real empty list from a failed fetch for a
     # batch-call, so we only flag players we received NO key for at all.
     transfer_fetch_missing = {
-        tp.player_api_id for tp in players if tp.player_api_id and tp.player_api_id not in raw_transfers_map
+        tp.player_api_id
+        for tp in players
+        if is_external_player_id(tp.player_api_id) and tp.player_api_id not in raw_transfers_map
     }
     if transfer_fetch_missing:
         logger.warning(
@@ -244,7 +247,7 @@ def refresh_and_heal(
         was_inactive = not tp.is_active
 
         # Re-sync journey from API-Football if requested
-        if resync_journeys and journey_svc and tp.player_api_id:
+        if resync_journeys and journey_svc and is_external_player_id(tp.player_api_id):
             try:
                 journey = journey_svc.sync_player(tp.player_api_id, force_full=True)
                 if journey:
