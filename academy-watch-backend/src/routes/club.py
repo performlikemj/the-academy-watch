@@ -29,8 +29,9 @@ from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services import season_rollup_service, video_retention, video_storage
+from src.services.capture_meta import merge_preflight
 from src.services.club_registry import require_club_manager
-from src.services.coach_brief import MAX_BRIEF_CHARS, MAX_BRIEF_LINE_CHARS, MAX_BRIEF_LINES
+from src.services.coach_brief import MAX_BRIEF_CHARS, MAX_BRIEF_LINE_CHARS, MAX_BRIEF_LINES, brief_payload
 from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
@@ -299,10 +300,7 @@ def _member_dict(member: ClubRosterMember) -> dict:
         "program_id": member.program_id,
         "role": member.role,
         "note": member.note,
-        "brief": {
-            "body": member.coach_brief_body,
-            "updated_at": member.brief_updated_at.isoformat() if member.brief_updated_at else None,
-        },
+        "brief": _brief_dict(member.coach_brief_body, member.brief_updated_at),
         "created_at": member.created_at.isoformat() if member.created_at else None,
         "available": subject is not None,
     }
@@ -312,9 +310,11 @@ def _member_dict(member: ClubRosterMember) -> dict:
 
 
 def _brief_dict(body: str | None, updated_at: datetime | None) -> dict:
+    payload = brief_payload(body)
     return {
         "body": body,
         "updated_at": updated_at.isoformat() if updated_at else None,
+        "hash": payload["hash"] if payload else None,
     }
 
 
@@ -867,6 +867,8 @@ def create_club_match(program_id: int):
     try:
         data = _payload()
         capture_meta = _capture_meta(data.get("capture_meta"))
+        capture_meta = merge_preflight(capture_meta, capture_meta or {})
+        capture_meta = merge_preflight(capture_meta, data)
         program = db.session.get(ClubProgram, program_id)
         if program is None:
             return jsonify({"error": "Club manager access denied"}), 403
@@ -996,7 +998,9 @@ def update_club_match(program_id: int, match_id: int):
             if field in data:
                 setattr(match, field, _timeline_value(data[field], field))
         if "capture_meta" in data:
-            match.capture_meta = _capture_meta(data["capture_meta"])
+            incoming_meta = _capture_meta(data["capture_meta"])
+            match.capture_meta = merge_preflight(match.capture_meta, incoming_meta or {})
+        match.capture_meta = merge_preflight(match.capture_meta, data)
     except ValueError as exc:
         return _bad_request(str(exc))
     db.session.commit()

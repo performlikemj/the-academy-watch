@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
 
+const SYNTHETIC_BRIEF = 'Maintain wide support before receiving\nRecover inside after possession changes.'
+const SYNTHETIC_BRIEF_HASH = '93c166d205e6ea0b4e1984af522912598458a6329bf60be454b0d5c93d4cb53a'
+
 const programClaim = {
   id: 301,
   status: 'approved',
@@ -27,9 +30,15 @@ const roster = {
     is_minor: false,
     role: null,
     note: null,
+    brief: {
+      body: SYNTHETIC_BRIEF,
+      updated_at: '2026-09-03T09:15:00Z',
+      hash: SYNTHETIC_BRIEF_HASH,
+    },
     created_at: '2026-08-20T10:00:00Z',
   }],
   count: 1,
+  system_brief: { body: 'Synthetic compact possession structure.', updated_at: '2026-09-03T09:10:00Z', hash: 'system-hash' },
 }
 
 const qwenAnalysis = {
@@ -44,6 +53,18 @@ const qwenAnalysis = {
       { t: 31.5, box: [210, 100, 340, 440], iou: 0.66 },
     ],
     read_model: 'qwen3-vl:8b',
+    brief_checks: [{
+      expectation_index: 1,
+      brief_hash: SYNTHETIC_BRIEF_HASH,
+      verdict: 'evidence_found',
+      t: 21.25,
+      box: [180, 90, 310, 430],
+      iou: 0.72,
+    }, {
+      expectation_index: 2,
+      brief_hash: SYNTHETIC_BRIEF_HASH,
+      verdict: 'no_evidence',
+    }],
   }],
   window_captions: [{
     roster_entry_id: 61,
@@ -74,6 +95,7 @@ const qwenAnalysis = {
     evidence_iou: null,
     caption_model: 'qwen3-vl:8b',
   }],
+  honest_limits: ['Sampled frames cannot establish what happened between samples.'],
 }
 
 function matchPayload(id = 41) {
@@ -183,6 +205,7 @@ async function installClubMocks(page, { denyReel = false, reelResponses = [reel]
 }
 
 async function installAdminMocks(page) {
+  const matchPayloads = []
   await page.addInitScript(() => {
     localStorage.setItem('academy_watch_user_token', 'mock-admin-token')
     localStorage.setItem('academy_watch_is_admin', 'true')
@@ -192,7 +215,11 @@ async function installAdminMocks(page) {
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === '/api/admin/auth-check') return route.fulfill({ json: { ok: true } })
-    if (url.pathname === '/api/admin/video/matches/41') return route.fulfill({ json: matchPayload() })
+    if (url.pathname === '/api/admin/video/matches/41') {
+      const payload = matchPayload()
+      matchPayloads.push(payload)
+      return route.fulfill({ json: payload })
+    }
     if (url.pathname === '/api/admin/video/matches/41/tracklets') return route.fulfill({ json: { tracklets: [] } })
     if (url.pathname === '/api/admin/video/matches/41/reel') return route.fulfill({ json: reel })
     if (url.pathname === '/api/admin/video/matches/41/report') return route.fulfill({ json: { reports: [] } })
@@ -219,6 +246,7 @@ async function installAdminMocks(page) {
     if (url.pathname.endsWith('/bbox-track')) return route.fulfill({ json: { boxes: [[20, 180, 90, 310, 430]], available: true } })
     return route.fulfill({ json: {} })
   })
+  return { matchPayloads }
 }
 
 async function expectVerifiedAndWithheldReel(page, screenshotPaths) {
@@ -264,6 +292,12 @@ test('club manager opens a read-only player reel without admin credentials', asy
     verified: 'club-reels-allowed.png',
     withheld: 'club-reels-withheld.png',
   })
+  await expect(page.getByText("Coach's brief", { exact: true })).toBeVisible()
+  await expect(page.getByText('Maintain wide support before receiving')).toBeVisible()
+  await expect(page.getByText('Evidence at 0:21')).toBeVisible()
+  await expect(page.getByText('No evidence in sampled frames')).toBeVisible()
+  await expect(page.getByText("An evidence frame verifies the player's identity and location, not the behaviour itself.")).toBeVisible()
+  await expect(page.getByText('What this read cannot tell you')).toBeVisible()
 
   await page.getByRole('button', { name: 'Hide player reels' }).click()
   await page.getByRole('button', { name: 'View player reels' }).click()
@@ -274,7 +308,7 @@ test('club manager opens a read-only player reel without admin credentials', asy
 })
 
 test('admin reel shows verified notes and honestly withholds ungrounded prose', async ({ page }) => {
-  await installAdminMocks(page)
+  const { matchPayloads } = await installAdminMocks(page)
   await page.goto('/admin/video/41')
 
   await expect(page.getByRole('heading', { name: 'Player reels' })).toBeVisible()
@@ -282,6 +316,9 @@ test('admin reel shows verified notes and honestly withholds ungrounded prose', 
     verified: 'admin-reels-verified.png',
     withheld: 'admin-reels-withheld.png',
   })
+  await expect(page.getByText('Expectation 1 — evidence at 0:21')).toBeVisible()
+  await expect(page.getByText('Expectation 2 — no evidence in sampled frames')).toBeVisible()
+  expect(JSON.stringify(matchPayloads)).not.toContain(SYNTHETIC_BRIEF)
 })
 
 test('foreign reel denial renders the same neutral unavailable state', async ({ page }) => {

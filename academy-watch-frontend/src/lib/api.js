@@ -1387,6 +1387,20 @@ export class APIService {
         })
     }
 
+    static async setRosterMemberBrief(programId, memberId, body) {
+        return this.request(`/club/${encodeURIComponent(programId)}/roster/${encodeURIComponent(memberId)}/brief`, {
+            method: 'PUT',
+            body: JSON.stringify({ body }),
+        })
+    }
+
+    static async setClubSystemBrief(programId, body) {
+        return this.request(`/club/${encodeURIComponent(programId)}/system-brief`, {
+            method: 'PUT',
+            body: JSON.stringify({ body }),
+        })
+    }
+
     static async createClubMatch(programId, payload) {
         return this.request(`/club/${encodeURIComponent(programId)}/matches`, {
             method: 'POST',

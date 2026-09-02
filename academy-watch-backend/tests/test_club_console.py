@@ -413,6 +413,7 @@ def test_coach_and_system_briefs_are_scoped_written_read_and_cleared(club_app, c
     member_brief = member_response.get_json()["member"]["brief"]
     assert member_brief["body"] == "Hold width before receiving\nScan before turning"
     assert member_brief["updated_at"] is not None
+    assert member_brief["hash"] == "d6724bb443f8f5940034b1ce9bda9df788656bcf0ff391f224b6eec354a99e82"
 
     system_response = client.put(
         f"/api/club/{a}/system-brief",
@@ -423,6 +424,7 @@ def test_coach_and_system_briefs_are_scoped_written_read_and_cleared(club_app, c
     system_brief = system_response.get_json()["system_brief"]
     assert system_brief["body"] == "Stay compact across phases"
     assert system_brief["updated_at"] is not None
+    assert system_brief["hash"] == "e16f595f115eea3bb79739a331187d53213a543a3d19892a4810d2db7e1d5447"
 
     roster = client.get(f"/api/club/{a}/roster", headers=_headers("a"))
     assert roster.status_code == 200
@@ -461,8 +463,8 @@ def test_coach_and_system_briefs_are_scoped_written_read_and_cleared(club_app, c
         json={"body": ""},
         headers=_headers("a"),
     )
-    assert cleared_member.get_json()["member"]["brief"] == {"body": None, "updated_at": None}
-    assert cleared_system.get_json()["system_brief"] == {"body": None, "updated_at": None}
+    assert cleared_member.get_json()["member"]["brief"] == {"body": None, "updated_at": None, "hash": None}
+    assert cleared_system.get_json()["system_brief"] == {"body": None, "updated_at": None, "hash": None}
     db.session.refresh(member)
     db.session.refresh(program)
     assert (member.coach_brief_body, member.brief_updated_at, member.brief_updated_by_user_id) == (None, None, None)
@@ -575,7 +577,7 @@ def test_empty_brief_clears_before_building_roster_name_tokens(club_app, client,
     )
 
     assert response.status_code == 200
-    assert response.get_json()["system_brief"] == {"body": None, "updated_at": None}
+    assert response.get_json()["system_brief"] == {"body": None, "updated_at": None, "hash": None}
 
 
 @pytest.mark.parametrize(
@@ -1224,7 +1226,7 @@ def test_shadow_only_positive_roster_member_remains_available(club_app, client):
             "program_id": program_id,
             "role": None,
             "note": None,
-            "brief": {"body": None, "updated_at": None},
+            "brief": {"body": None, "updated_at": None, "hash": None},
             "created_at": response.get_json()["members"][0]["created_at"],
             "available": True,
             "subject_type": "tracked",
@@ -1458,6 +1460,69 @@ def test_capture_meta_bounds_are_enforced_on_create_and_update(club_app, client,
     )
     assert updated.status_code == 400
     assert "capture_meta" in updated.get_json()["error"]
+
+
+def test_club_preflight_create_and_patch_preserve_existing_capture_metadata(club_app, client):
+    program_id = club_app.c2["program_a"]
+    created = client.post(
+        f"/api/club/{program_id}/matches",
+        json={
+            "camera_view": "broadcast",
+            "camera_motion": "panning",
+            "pitch_lines_visible": "partial",
+        },
+        headers=_headers("a"),
+    )
+    assert created.status_code == 201
+    match_id = created.get_json()["id"]
+    match = db.session.get(VideoMatch, match_id)
+    match.capture_meta = {
+        **match.capture_meta,
+        "qwen_analysis": {"match_summary": "keep"},
+        "local": {"video": "/fixtures/keep.mp4"},
+    }
+    db.session.commit()
+
+    updated = client.patch(
+        f"/api/club/{program_id}/matches/{match_id}",
+        json={
+            "capture_meta": {
+                "camera_view": "panoramic",
+                "qwen_analysis": {"match_summary": "replace"},
+                "local": {"video": "/fixtures/replace.mp4"},
+            },
+            "camera_motion": "fixed",
+            "pitch_lines_visible": "all",
+        },
+        headers=_headers("a"),
+    )
+
+    assert updated.status_code == 200
+    assert updated.get_json()["capture_meta"] == {
+        "camera_view": "panoramic",
+        "camera_motion": "fixed",
+        "pitch_lines_visible": "all",
+        "qwen_analysis": {"match_summary": "keep"},
+        "local": {"video": "/fixtures/keep.mp4"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("camera_view", "touchline"),
+        ("camera_motion", "tripod"),
+        ("pitch_lines_visible", "most"),
+    ],
+)
+def test_club_preflight_rejects_unknown_values(club_app, client, field, value):
+    response = client.post(
+        f"/api/club/{club_app.c2['program_a']}/matches",
+        json={field: value},
+        headers=_headers("a"),
+    )
+    assert response.status_code == 400
+    assert field in response.get_json()["error"]
 
 
 @pytest.mark.parametrize("timeline_value", [True, 6 * 60 * 60 + 1], ids=("boolean", "over-six-hours"))
@@ -1845,7 +1910,7 @@ def test_local_takedown_hides_public_roster_and_finalized_report(club_app, clien
     assert roster == [
         {
             "available": False,
-            "brief": {"body": None, "updated_at": None},
+            "brief": {"body": None, "updated_at": None, "hash": None},
             "created_at": roster[0]["created_at"],
             "id": member["id"],
             "note": None,

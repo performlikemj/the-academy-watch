@@ -147,6 +147,55 @@ export function playerReadEvidence(note) {
     }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
+export function formatBriefEvidenceTime(value) {
+    if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null
+    const seconds = Number(value)
+    return Number.isFinite(seconds) && seconds >= 0 ? formatSeconds(seconds) : null
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function briefChecksPresentation(note, matchRoster, clubRoster) {
+    const checks = Array.isArray(note?.brief_checks) ? note.brief_checks : []
+    if (!checks.length) return null
+
+    if (!Array.isArray(clubRoster)) {
+        return {
+            changed: false,
+            items: checks.map((check) => {
+                const time = formatBriefEvidenceTime(check.t)
+                const verdict = check.verdict === 'evidence_found' && time
+                    ? `evidence at ${time}`
+                    : 'no evidence in sampled frames'
+                return { expectationIndex: check.expectation_index, label: `Expectation ${check.expectation_index} — ${verdict}`, verdict: check.verdict }
+            }),
+        }
+    }
+
+    const rosterEntry = Array.isArray(matchRoster)
+        ? matchRoster.find((entry) => (
+            entry?.club_roster_member_id != null
+            && Number(entry?.jersey_number) === Number(note?.jersey_number)
+        ))
+        : null
+    const member = clubRoster.find((row) => Number(row?.id) === Number(rosterEntry?.club_roster_member_id))
+    const brief = member?.brief
+    const expectedHash = checks[0]?.brief_hash
+    if (!brief?.body || !brief?.hash || !expectedHash || checks.some((check) => check.brief_hash !== expectedHash) || brief.hash !== expectedHash) {
+        return { changed: true, items: [] }
+    }
+
+    const lines = brief.body.split('\n')
+    const items = checks.map((check) => ({
+        expectationIndex: check.expectation_index,
+        expectation: lines[check.expectation_index - 1],
+        verdict: check.verdict,
+        time: formatBriefEvidenceTime(check.t),
+    }))
+    if (items.some((item) => !item.expectation)) return { changed: true, items: [] }
+    return { changed: false, items }
+}
+
 function evidenceEntry(matchId, trackletId, sourceKey = 'admin') {
     const key = `${sourceKey}:${matchId}:${trackletId}`
     let entry = EVIDENCE_CACHE.get(key)
@@ -686,7 +735,7 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError, media
     )
 }
 
-function TeamOverview({ match, overview, onRunAnalysis, analysisRunning }) {
+function TeamOverview({ match, overview, onRunAnalysis, analysisRunning, clubRoster }) {
     const clusters = overview?.clusters || []
     const analysis = match.capture_meta?.qwen_analysis
     return (
@@ -744,6 +793,7 @@ function TeamOverview({ match, overview, onRunAnalysis, analysisRunning }) {
                         {(analysis.player_notes || []).map((note, noteIndex) => {
                             const evidenceSummary = playerReadEvidence(note)
                             const observations = Array.isArray(note.observations) ? note.observations : []
+                            const briefPresentation = briefChecksPresentation(note, match.roster, clubRoster)
                             return (
                                 <div key={`${note.kit_color || 'player'}-${note.jersey_number ?? noteIndex}`} className="rounded border bg-background p-3">
                                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -770,9 +820,45 @@ function TeamOverview({ match, overview, onRunAnalysis, analysisRunning }) {
                                             })}
                                         </ul>
                                     ) : null}
+                                    {briefPresentation ? (
+                                        <div className="mt-3 border-t pt-3">
+                                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground">Coach&apos;s brief</p>
+                                            {briefPresentation.changed ? (
+                                                <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-300">Brief changed — rerun analysis</p>
+                                            ) : (
+                                                <ul className="mt-2 space-y-2">
+                                                    {briefPresentation.items.map((item) => (
+                                                        <li key={item.expectationIndex} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                                                            <span className={item.expectation ? 'font-medium text-foreground' : 'text-muted-foreground'}>
+                                                                {item.expectation || item.label}
+                                                            </span>
+                                                            {item.expectation ? (
+                                                                item.verdict === 'evidence_found' && item.time ? (
+                                                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                                                                        <ShieldCheck className="h-3 w-3" /> Evidence at {item.time}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-xs text-muted-foreground">No evidence in sampled frames</span>
+                                                                )
+                                                            ) : null}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">An evidence frame verifies the player&apos;s identity and location, not the behaviour itself.</p>
+                                        </div>
+                                    ) : null}
                                 </div>
                             )
                         })}
+                        {Array.isArray(analysis.honest_limits) && analysis.honest_limits.length ? (
+                            <details className="rounded border bg-background">
+                                <summary className="cursor-pointer px-3 py-2 font-medium">What this read cannot tell you</summary>
+                                <ul className="space-y-1.5 border-t px-6 py-3 text-muted-foreground">
+                                    {analysis.honest_limits.map((limit, index) => <li key={`${index}-${limit}`} className="list-disc">{limit}</li>)}
+                                </ul>
+                            </details>
+                        ) : null}
                     </div>
                 </details>
             )}
@@ -796,6 +882,7 @@ export function PlayerReels({
     mediaSource,
     onRunAnalysis,
     analysisRunning,
+    clubRoster,
 }) {
     const players = reel?.players || []
     const unassigned = reel?.unassigned || { count: 0, visible_s: 0 }
@@ -818,6 +905,7 @@ export function PlayerReels({
                     overview={reel?.team_overview}
                     onRunAnalysis={onRunAnalysis}
                     analysisRunning={analysisRunning}
+                    clubRoster={clubRoster}
                 />
 
                 {!readOnly ? (

@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from flask import Flask
 from src.models.league import db
-from src.routes.video import update_video_match
+from src.routes.video import create_video_match, update_video_match
 from src.services.video_reels import (
     aggregate_votes,
     build_reel_payload,
@@ -18,6 +18,52 @@ from src.services.video_reels import (
 
 def _window(start, end, tracklet_id=1):
     return {"start_s": start, "end_s": end, "tracklet_id": tracklet_id}
+
+
+def test_admin_create_validates_and_stores_camera_preflight():
+    app = Flask(__name__)
+    app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI="sqlite:///:memory:")
+    db.init_app(app)
+    created = type(
+        "Match",
+        (),
+        {
+            "id": 42,
+            "blob_path": None,
+            "capture_meta": None,
+            "to_dict": lambda self: {"id": self.id, "capture_meta": self.capture_meta},
+        },
+    )()
+
+    def build_match(**kwargs):
+        created.capture_meta = kwargs["capture_meta"]
+        return created
+
+    with app.test_request_context(
+        json={
+            "team_id": 9,
+            "capture_meta": {"source_width": 1920, "camera_view": "wide_fixed"},
+            "camera_motion": "fixed",
+            "pitch_lines_visible": "all",
+        }
+    ):
+        with (
+            patch.object(db.session, "get", return_value=object()),
+            patch.object(db.session, "add"),
+            patch.object(db.session, "flush"),
+            patch.object(db.session, "commit"),
+            patch("src.routes.video.VideoMatch", side_effect=build_match),
+            patch("src.routes.video.video_storage.is_configured", return_value=False),
+        ):
+            response, status = create_video_match.__wrapped__()
+
+    assert status == 201
+    assert response.json["capture_meta"] == {
+        "source_width": 1920,
+        "camera_view": "wide_fixed",
+        "camera_motion": "fixed",
+        "pitch_lines_visible": "all",
+    }
 
 
 def _ranked_window(start, end, tracklet_id, rank):
@@ -477,3 +523,42 @@ def test_markers_patch_rejects_unknown_attack_direction_without_committing():
     assert response.json == {"error": "attack_direction_first_half must be left or right"}
     assert match.capture_meta == {"camera": "touchline"}
     commit.assert_not_called()
+
+
+def test_preflight_patch_preserves_analysis_and_local_capture_metadata():
+    app = Flask(__name__)
+    app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI="sqlite:///:memory:")
+    db.init_app(app)
+    existing_local = {"video": "/fixtures/match.mp4"}
+    existing_analysis = {"match_summary": "kept"}
+    match = type(
+        "Match",
+        (),
+        {
+            "capture_meta": {"local": existing_local, "qwen_analysis": existing_analysis},
+            "status": "uploaded",
+            "to_dict": lambda self: {"capture_meta": self.capture_meta},
+        },
+    )()
+
+    with app.test_request_context(
+        json={
+            "capture_meta": {
+                "camera_view": "panoramic",
+                "local": {"video": "/attacker/replacement.mp4"},
+                "qwen_analysis": {"match_summary": "replaced"},
+            },
+            "camera_motion": "panning",
+            "pitch_lines_visible": "partial",
+        }
+    ):
+        with patch.object(db.session, "get", return_value=match), patch.object(db.session, "commit"):
+            response = update_video_match.__wrapped__(1)
+
+    assert response.json["capture_meta"] == {
+        "local": existing_local,
+        "qwen_analysis": existing_analysis,
+        "camera_view": "panoramic",
+        "camera_motion": "panning",
+        "pitch_lines_visible": "partial",
+    }
