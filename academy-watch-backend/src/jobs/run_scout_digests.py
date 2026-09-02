@@ -154,7 +154,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    dry_run = args.dry_run or os.getenv("SCOUT_DIGEST_DRY_RUN", "").strip() == "1"
+    dry_run = args.dry_run or os.getenv("SCOUT_DIGEST_DRY_RUN", "").strip().lower() in ("1", "true", "yes", "on")
     with app.app_context():
         summary = run(dry_run=dry_run, min_interval_hours=args.min_interval_hours)
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")), flush=True)

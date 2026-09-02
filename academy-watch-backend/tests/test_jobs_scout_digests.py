@@ -112,9 +112,10 @@ def test_dry_run_is_forwarded_and_prints_one_json_line(monkeypatch, capsys):
     assert calls[0]["skip_sent_since"] is None
 
 
-def test_dry_run_env_is_equivalent_to_cli_switch(monkeypatch, capsys):
+@pytest.mark.parametrize("env_value", ["1", "true", "yes", "on", " TRUE ", "Yes", "ON"])
+def test_dry_run_env_is_equivalent_to_cli_switch(monkeypatch, capsys, env_value):
     calls = []
-    monkeypatch.setenv("SCOUT_DIGEST_DRY_RUN", "1")
+    monkeypatch.setenv("SCOUT_DIGEST_DRY_RUN", env_value)
     monkeypatch.setattr(job, "_get_api_client", lambda: SimpleNamespace(call_budget=None))
 
     def fake_send_scout_digests(**kwargs):

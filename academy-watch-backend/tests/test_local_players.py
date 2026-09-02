@@ -550,24 +550,28 @@ class TestLocalPlayerCreation:
         assert owner.status_code == 200, owner.get_json()
 
     @pytest.mark.parametrize("relationship_type", ["agent", "guardian"])
-    @pytest.mark.parametrize(("years_ago", "retains_birth_date"), [(16, False), (18, True)])
+    @pytest.mark.parametrize(
+        ("days_after_eighteenth_birthday", "retains_birth_date"),
+        [(1, False), (0, True)],
+        ids=["one-day-short-of-18", "exactly-18"],
+    )
     def test_non_player_claim_birth_date_is_minimized_unless_it_proves_adulthood(
         self,
         app,
         client,
         relationship_type,
-        years_ago,
+        days_after_eighteenth_birthday,
         retains_birth_date,
     ):
-        birth_date = _birth_date_years_ago(years_ago)
+        birth_date = _birth_date_years_ago(18) + timedelta(days=days_after_eighteenth_birthday)
         response = client.post(
             "/api/local-players",
             json={
-                "display_name": f"{relationship_type.title()} Date Prospect {years_ago}",
+                "display_name": f"{relationship_type.title()} Date Prospect {days_after_eighteenth_birthday}",
                 "birth_date": birth_date.isoformat(),
                 "relationship_type": relationship_type,
             },
-            headers=_user_headers(f"{relationship_type}-{years_ago}@example.com"),
+            headers=_user_headers(f"{relationship_type}-{days_after_eighteenth_birthday}@example.com"),
         )
 
         assert response.status_code == 201, response.get_json()
