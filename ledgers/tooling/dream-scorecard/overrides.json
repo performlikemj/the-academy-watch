@@ -68,8 +68,8 @@
   "reach": "LIVE_WEB_IOS"
  },
  "3.6": {
-  "score": 1,
-  "why": "[adversary-1 keep] PricingPage.jsx:27 says 'Free during beta'; scout_tier is stored (league.py:521) and echoed (scout.py:1280) but never gates anything. No checkout, webhook, or /stripe route exists in the backend (grep); prod has zero subscriptions and revenue."
+  "score": 3,
+  "why": "[S3 orchestrator verdict, integrated review 2026-09-04] Real rail in code: Stripe Checkout (server-side price map, idempotent per client_key, one open session per scope), signed webhook on the raw body (replay/out-of-order/equal-created/failed-retry/late-after-deletion all handled), entitlement DERIVED from billing_subscriptions with scout_tier projection, Billing Portal, /auth/me + /api/scout/entitlements. Owner re-scoped the paid feature to the GOL chatbot (we sell only data we generate; API-Football terms forbid reselling theirs) — chat/PDF now require login. Dark in prod (BILLING_ENABLED unset); not 4 because $0 has moved and live acceptance (a real card purchase) has not run."
  },
  "3.7": {
   "score": 3,
@@ -139,9 +139,8 @@
   "why": "[orchestrator] measured directly in prod; a dream with 0 participants is a 1 regardless of code."
  },
  "4.1": {
-  "score": 2,
-  "why": "[adversary-2 keep] Claim form and public slug page are live, but no directory/list route exists (funding.py route inventory 377-1100), no manager revision route, and prod club_programs=0; every program needs admin work.",
-  "blocker": "Claim form and public program page work, but there is no program directory, no manager edit route (the ClubProgramProfileRevision table exists unused), is_fundable is hard-coded False, and prod has 0 programs."
+  "score": 3,
+  "why": "[S3 orchestrator verdict] Managers now edit a PENDING ClubProgramProfileRevision (GET/PUT /api/club/<id>/profile, one pending per program, replace-in-place); dual-admin approve/reject with FundingAdminEvent audit; the approved revision changes only via the review route; MyClubConsole editor + AdminFunding queues shipped. No program directory (exact slug only) and prod still has 0 programs — not 4."
  },
  "4.2": {
   "score": 1,
@@ -152,17 +151,16 @@
   "why": "[adversary-2 keep] No membership/tier/subscription model or route for clubs; funding.py:1041 stores only notify_when_fundable on a Follow. Legacy writer StripeSubscription tables (league.py:993) have no writers."
  },
  "4.4": {
-  "score": 0,
-  "why": "[adversary-2 keep] Only artefact is the platform's own BuyMeACoffee footer button (App.jsx:4150, slug 'TheAcademyWatch' at bmcButtonConfig.js:5). No club-level URL field, OAuth, or import; ClubProgram has no external-support column."
+  "score": 3,
+  "why": "[S3 orchestrator verdict] Moderated external_support {patreon|buy_me_a_coffee} on the revision with strict host/userinfo/port/query/fragment validation and normalisation; only the APPROVED revision reaches /api/programs/<slug>; ProgramPage renders 'Support on <label>' with rel=noopener noreferrer. Supporter import deferred by design (needs Privacy changes + a real club) — not 4."
  },
  "4.5": {
   "score": 0,
   "why": "[adversary-2 keep] Nothing on shares/stakes/cap-table in code (reviewer 1 grep confirmed). ClubProgramClaim (funding.py:212) is a management claim. Codex's ledger cite points at a file that is not in origin/main."
  },
  "4.6": {
-  "score": 2,
-  "why": "[adversary-2 keep] Public page renders and a signed-in visitor can 'Save this program' (ProgramPage.jsx:115-118 -> funding.py:1041). Only reachable via exact slug; sole in-app link is AdminFunding.jsx:424; zero programs exist in prod.",
-  "blocker": "Public program page + 'Save this program' work, but it is reachable only by exact slug (the only in-app link is in the admin UI) and shows 'Support is not live yet'."
+  "score": 3,
+  "why": "[S3 orchestrator verdict] Moderated club_program_updates (pending cap 5, approve sets published_at, withdraw hides) render as 'Latest from the program'; the link-out replaces 'Support is not live yet' only when a link exists; is_fundable still false everywhere (donations gated on counsel). Discoverability unchanged (exact slug) and no real supporters yet — not 4."
  },
  "4.7": {
   "score": 3,
@@ -191,9 +189,9 @@
   "blocker": "No managed worker deployment, KEDA or alerts anywhere; deploy.yml:224 leaves job-video-maintenance out of image updates so the retention sweeper runs a frozen build; every club processing request still needs an admin."
  },
  "5.5": {
-  "score": 2,
-  "why": "[adversary-2 keep] Credit ledger + admin grant/debit/refund work for concierge sales only (video.py:297/718/745 all require_api_key). No Checkout or webhook; pricing CTA disabled (PricingPage.jsx:94); writer UI targets absent /stripe routes and VITE_API_URL.",
-  "blocker": "Credit ledger + admin grant/debit/refund serve concierge sales only (require_api_key); no Checkout or webhook; pricing CTA disabled (PricingPage.jsx:94); writer subscribe UI targets /stripe routes that do not exist."
+  "score": 3,
+  "why": "[S3 orchestrator verdict] Subscription rail complete end-to-end (Checkout, webhook, four billing tables with RLS, receipts/status emails, admin revenue tile from billing_subscriptions with per-currency MRR, account export/delete integration incl. Stripe cancellation and open-session expiry). Film Room credit purchase and its CTA deliberately out of S3 scope, and revenue is $0 until lit — hence 3 not 4.",
+  "blocker": "Flip BILLING_ENABLED only after the Stripe webhook endpoint + STRIPE_PRICE_SCOUT_PRO_* exist and the owner approves the Terms copy (VITE_BILLING_TERMS=1)."
  },
  "5.6": {
   "score": 3,

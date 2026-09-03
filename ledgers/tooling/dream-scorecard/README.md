@@ -14,4 +14,5 @@ Every script starts with `S=<scratchpad dir>`; set `S` to your own session scrat
 - `prod_preapply_pm01.sh` + `pm01_preapply.sql`, `prod_stamp_pm01.sh` — the pattern for pre-applying a guarded migration's DDL to prod BEFORE merge and stamping `alembic_version` AFTER merge (nothing runs migrations automatically in prod).
 - `codex-brief-common.md` — the shared header for codex package briefs (fences, gates, port fence, decisions). `checker-brief-template.md` — the Fable-subagent adversarial checker brief (JSON verdict contract).
 - `s2/` — frozen S2 common brief, contracts, checker template, ACA job-creation script, and guarded `s2f1` pre-apply SQL.
-- `overrides.json` / `scorecard.json` / `projection.json` — the current post-S2 generated state. `s1-hygiene-items.md` — leftover polish list.
+- `s3/` — frozen S3 common/package briefs, contracts, checker template, and guarded `s3b1`/`s3c1` pre-apply + stamp tooling.
+- `overrides.json` / `scorecard.json` / `projection.json` — the current post-S3 generated state. `s1-hygiene-items.md` — leftover polish list.

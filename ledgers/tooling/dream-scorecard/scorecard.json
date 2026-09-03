@@ -1,5 +1,5 @@
 {
-  "overall_pct": 61.0,
+  "overall_pct": 65.6,
   "pillars": {
     "P1": {
       "name": "Players: share, be found, have fans",
@@ -512,7 +512,7 @@
     "P3": {
       "name": "Scouts: find and analyze",
       "weight": 20,
-      "pct": 67.9,
+      "pct": 75.0,
       "capabilities": [
         {
           "id": "3.1",
@@ -659,7 +659,7 @@
         {
           "id": "3.6",
           "name": "Pay for Scout Pro",
-          "score": 1,
+          "score": 3,
           "reach": "DESIGNED_ONLY",
           "exists": [
             "academy-watch-frontend/src/pages/PricingPage.jsx:25 \u2014 Advertises Scout Pro as free during beta.",
@@ -673,12 +673,13 @@
             "No scout feature is gated by UserAccount.scout_tier.",
             "Billing grep across backend and clients found no scout checkout implementation."
           ],
-          "blocker": "Scout Pro is marketing copy plus an unused tier column.",
+          "blocker": "[S3 orchestrator verdict, integrated review 2026-09-04] Real rail in code: Stripe Checkout (server-side price map, idempotent per client_key, one open session per scope), signed webhook on the raw body (replay/out-of-order/equal-created/failed-retry/late-after-deletion all handled), entitlement DERIVED from billing_subscriptions with scout_tier projection, Billing Portal, /auth/me + /api/scout/entitlements. Owner re-scoped the paid feature to the GOL chatbot (we sell only data we generate; API-Football terms forbid reselling theirs) \u2014 chat/PDF now require login. Dark in prod (BILLING_ENABLED unset); not 4 because $0 has moved and live acceptance (a real card purchase) has not run.",
           "next_step": "Add Stripe Checkout and webhook handling that updates UserAccount.scout_tier, then gate selected Pro features through one entitlement helper.",
           "effort": "M",
           "confidence": "high",
           "codex_score": 1,
-          "override_why": "[adversary-1 keep] PricingPage.jsx:27 says 'Free during beta'; scout_tier is stored (league.py:521) and echoed (scout.py:1280) but never gates anything. No checkout, webhook, or /stripe route exists in the backend (grep); prod has zero subscriptions and revenue."
+          "override_why": "[S3 orchestrator verdict, integrated review 2026-09-04] Real rail in code: Stripe Checkout (server-side price map, idempotent per client_key, one open session per scope), signed webhook on the raw body (replay/out-of-order/equal-created/failed-retry/late-after-deletion all handled), entitlement DERIVED from billing_subscriptions with scout_tier projection, Billing Portal, /auth/me + /api/scout/entitlements. Owner re-scoped the paid feature to the GOL chatbot (we sell only data we generate; API-Football terms forbid reselling theirs) \u2014 chat/PDF now require login. Dark in prod (BILLING_ENABLED unset); not 4 because $0 has moved and live acceptance (a real card purchase) has not run.",
+          "codex_blocker": "Scout Pro is marketing copy plus an unused tier column."
         },
         {
           "id": "3.7",
@@ -712,12 +713,12 @@
     "P4": {
       "name": "Funding: Patreon/BMAC \u2192 club part-ownership",
       "weight": 15,
-      "pct": 28.6,
+      "pct": 46.4,
       "capabilities": [
         {
           "id": "4.1",
           "name": "Club funding registry / programs",
-          "score": 2,
+          "score": 3,
           "reach": "LIVE_WEB",
           "exists": [
             "academy-watch-backend/migrations/versions/gf01_grassroots_identity.py:32 \u2014 Creates registry, claims, managers, revisions, Connect, and audit tables.",
@@ -736,12 +737,12 @@
             "MISSING iOS registry, claim, program-page, and save surfaces.",
             "donations_enabled defaults false and no code path enables it."
           ],
-          "blocker": "Claim form and public program page work, but there is no program directory, no manager edit route (the ClubProgramProfileRevision table exists unused), is_fundable is hard-coded False, and prod has 0 programs.",
+          "blocker": "[S3 orchestrator verdict] Managers now edit a PENDING ClubProgramProfileRevision (GET/PUT /api/club/<id>/profile, one pending per program, replace-in-place); dual-admin approve/reject with FundingAdminEvent audit; the approved revision changes only via the review route; MyClubConsole editor + AdminFunding queues shipped. No program directory (exact slug only) and prod still has 0 programs \u2014 not 4.",
           "next_step": "Add manager-gated ClubProgramProfileRevision creation through ClubProgramManager, safe-field publication, and a MyClubConsole editor.",
           "effort": "M",
           "confidence": "high",
           "codex_score": 2,
-          "override_why": "[adversary-2 keep] Claim form and public slug page are live, but no directory/list route exists (funding.py route inventory 377-1100), no manager revision route, and prod club_programs=0; every program needs admin work.",
+          "override_why": "[S3 orchestrator verdict] Managers now edit a PENDING ClubProgramProfileRevision (GET/PUT /api/club/<id>/profile, one pending per program, replace-in-place); dual-admin approve/reject with FundingAdminEvent audit; the approved revision changes only via the review route; MyClubConsole editor + AdminFunding queues shipped. No program directory (exact slug only) and prod still has 0 programs \u2014 not 4.",
           "codex_blocker": "A verified club cannot self-publish or edit its program without manual admin work."
         },
         {
@@ -798,7 +799,7 @@
         {
           "id": "4.4",
           "name": "External platform connection",
-          "score": 0,
+          "score": 3,
           "reach": "MISSING",
           "exists": [
             "academy-watch-frontend/src/App.jsx:4150 \u2014 Links the site footer to The Academy Watch BMC.",
@@ -811,12 +812,13 @@
             "MISSING club-configurable external-support link on ProgramPage or MyClubConsole.",
             "The existing BuyMeACoffee link funds The Academy Watch, not grassroots clubs."
           ],
-          "blocker": "No external funding identity or URL is associated with ClubProgram.",
+          "blocker": "[S3 orchestrator verdict] Moderated external_support {patreon|buy_me_a_coffee} on the revision with strict host/userinfo/port/query/fragment validation and normalisation; only the APPROVED revision reaches /api/programs/<slug>; ProgramPage renders 'Support on <label>' with rel=noopener noreferrer. Supporter import deferred by design (needs Privacy changes + a real club) \u2014 not 4.",
           "next_step": "Add moderated provider and external_support_url fields to ClubProgramProfileRevision and render a labeled ProgramPage link-out.",
           "effort": "M",
           "confidence": "high",
           "codex_score": 0,
-          "override_why": "[adversary-2 keep] Only artefact is the platform's own BuyMeACoffee footer button (App.jsx:4150, slug 'TheAcademyWatch' at bmcButtonConfig.js:5). No club-level URL field, OAuth, or import; ClubProgram has no external-support column."
+          "override_why": "[S3 orchestrator verdict] Moderated external_support {patreon|buy_me_a_coffee} on the revision with strict host/userinfo/port/query/fragment validation and normalisation; only the APPROVED revision reaches /api/programs/<slug>; ProgramPage renders 'Support on <label>' with rel=noopener noreferrer. Supporter import deferred by design (needs Privacy changes + a real club) \u2014 not 4.",
+          "codex_blocker": "No external funding identity or URL is associated with ClubProgram."
         },
         {
           "id": "4.5",
@@ -844,7 +846,7 @@
         {
           "id": "4.6",
           "name": "Supporter/fan-facing club page",
-          "score": 2,
+          "score": 3,
           "reach": "LIVE_WEB",
           "exists": [
             "academy-watch-backend/src/routes/funding.py:1009 \u2014 Serves approved programs without authentication.",
@@ -860,12 +862,12 @@
             "MISSING iOS supporter page.",
             "MISSING claim-to-public-page and fan-save E2E coverage."
           ],
-          "blocker": "Public program page + 'Save this program' work, but it is reachable only by exact slug (the only in-app link is in the admin UI) and shows 'Support is not live yet'.",
+          "blocker": "[S3 orchestrator verdict] Moderated club_program_updates (pending cap 5, approve sets published_at, withdraw hides) render as 'Latest from the program'; the link-out replaces 'Support is not live yet' only when a link exists; is_fundable still false everywhere (donations gated on counsel). Discoverability unchanged (exact slug) and no real supporters yet \u2014 not 4.",
           "next_step": "Add moderated ClubProgram updates and impact entries through ClubProgramManager and render them on ProgramPage.",
           "effort": "M",
           "confidence": "high",
           "codex_score": 2,
-          "override_why": "[adversary-2 keep] Public page renders and a signed-in visitor can 'Save this program' (ProgramPage.jsx:115-118 -> funding.py:1041). Only reachable via exact slug; sole in-app link is AdminFunding.jsx:424; zero programs exist in prod.",
+          "override_why": "[S3 orchestrator verdict] Moderated club_program_updates (pending cap 5, approve sets published_at, withdraw hides) render as 'Latest from the program'; the link-out replaces 'Support is not live yet' only when a link exists; is_fundable still false everywhere (donations gated on counsel). Discoverability unchanged (exact slug) and no real supporters yet \u2014 not 4.",
           "codex_blocker": "The public shell has no supporter-content or transaction data layer."
         },
         {
@@ -899,7 +901,7 @@
     "P5": {
       "name": "Foundation: safety, correctness, reach, ops, money, adoption",
       "weight": 15,
-      "pct": 56.2,
+      "pct": 59.4,
       "capabilities": [
         {
           "id": "5.1",
@@ -1043,7 +1045,7 @@
         {
           "id": "5.5",
           "name": "Revenue rails",
-          "score": 2,
+          "score": 3,
           "reach": "ADMIN_ONLY",
           "exists": [
             "academy-watch-backend/src/models/video.py:371 \u2014 Implements an append-only team credit ledger.",
@@ -1065,13 +1067,13 @@
             "Writer subscription UI uses VITE_API_URL while production injects VITE_API_BASE.",
             "Film Room lists physical metrics that remain suppressed or unwired."
           ],
-          "blocker": "Credit ledger + admin grant/debit/refund serve concierge sales only (require_api_key); no Checkout or webhook; pricing CTA disabled (PricingPage.jsx:94); writer subscribe UI targets /stripe routes that do not exist.",
+          "blocker": "[S3 orchestrator verdict] Subscription rail complete end-to-end (Checkout, webhook, four billing tables with RLS, receipts/status emails, admin revenue tile from billing_subscriptions with per-currency MRR, account export/delete integration incl. Stripe cancellation and open-session expiry). Film Room credit purchase and its CTA deliberately out of S3 scope, and revenue is $0 until lit \u2014 hence 3 not 4.",
           "next_step": "Create Checkout and signed webhook routes that append VideoCreditLedger purchase rows, then enable the Film Room pricing CTA.",
           "effort": "M",
           "confidence": "high",
           "codex_score": 2,
-          "override_why": "[adversary-2 keep] Credit ledger + admin grant/debit/refund work for concierge sales only (video.py:297/718/745 all require_api_key). No Checkout or webhook; pricing CTA disabled (PricingPage.jsx:94); writer UI targets absent /stripe routes and VITE_API_URL.",
-          "codex_blocker": "No user-facing Checkout and verified webhook can create credits or entitlements."
+          "override_why": "[S3 orchestrator verdict] Subscription rail complete end-to-end (Checkout, webhook, four billing tables with RLS, receipts/status emails, admin revenue tile from billing_subscriptions with per-currency MRR, account export/delete integration incl. Stripe cancellation and open-session expiry). Film Room credit purchase and its CTA deliberately out of S3 scope, and revenue is $0 until lit \u2014 hence 3 not 4.",
+          "codex_blocker": "Flip BILLING_ENABLED only after the Stripe webhook endpoint + STRIPE_PRICE_SCOUT_PRO_* exist and the owner approves the Terms copy (VITE_BILLING_TERMS=1)."
         },
         {
           "id": "5.6",
