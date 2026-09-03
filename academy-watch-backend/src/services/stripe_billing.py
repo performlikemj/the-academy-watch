@@ -371,6 +371,9 @@ def upsert_subscription(sub, *, event_created: int | None) -> BillingSubscriptio
         scope_id = customer.user_account_id
         purchaser_user_id = customer.user_account_id
 
+    if scope_type == "user":
+        db.session.execute(select(UserAccount.id).where(UserAccount.id == scope_id).with_for_update())
+
     previous_status = row.status if row is not None else None
     if row is None:
         row = BillingSubscription(stripe_subscription_id=subscription_id)
@@ -451,6 +454,15 @@ def _retrieve_event_watermark(subscription_id: str, event_created: int | None) -
     return max(value for value in (existing, event_created, int(time.time())) if value is not None)
 
 
+def _cancel_duplicate_subscription(subscription_id: str) -> None:
+    try:
+        stripe.Subscription.cancel(subscription_id)
+    except stripe.InvalidRequestError:
+        snapshot = stripe.Subscription.retrieve(subscription_id)
+        if _get(snapshot, "status") != "canceled":
+            raise
+
+
 def _expire_other_open_checkouts(completed: BillingCheckoutSession) -> None:
     siblings = BillingCheckoutSession.query.filter(
         BillingCheckoutSession.scope_type == completed.scope_type,
@@ -460,6 +472,9 @@ def _expire_other_open_checkouts(completed: BillingCheckoutSession) -> None:
         BillingCheckoutSession.id != completed.id,
     ).all()
     for sibling in siblings:
+        if not sibling.stripe_session_id:
+            sibling.status = "expired"
+            continue
         snapshot = _expire_or_retrieve_checkout(sibling)
         status = _get(snapshot, "status")
         if status == "expired":
@@ -469,7 +484,7 @@ def _expire_other_open_checkouts(completed: BillingCheckoutSession) -> None:
             subscription_id = _stripe_id(_get(snapshot, "subscription"))
             if not subscription_id:
                 raise BillingError("checkout_expiry_failed", 500)
-            stripe.Subscription.cancel(subscription_id)
+            _cancel_duplicate_subscription(subscription_id)
             sibling.status = "complete"
             sibling.completed_at = sibling.completed_at or utcnow()
             continue
@@ -517,6 +532,7 @@ def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
             and applied
             and not was_active
             and row.status not in ACTIVE_STATUSES
+            and active_subscription(row.scope_type, row.scope_id, row.product_code) is None
         ):
             _write_transition_event("billing_subscription_ended", row)
             _queue_email("subscription_ended", row)

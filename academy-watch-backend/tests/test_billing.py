@@ -9,10 +9,12 @@ from unittest.mock import Mock
 import pytest
 import stripe
 from flask import Flask
+from sqlalchemy.dialects import postgresql
 from src.auth import issue_user_token
 from src.extensions import limiter
 from src.models.billing import BillingCheckoutSession, BillingCustomer, BillingSubscription, StripeWebhookEvent
 from src.models.league import UserAccount, db
+from src.models.product_event import ProductEvent
 from src.routes.events import ALLOWED_EVENTS
 
 WEBHOOK_SECRET = "billing_webhook_test_placeholder"
@@ -336,6 +338,77 @@ def test_subscription_lifecycle_replay_ordering_and_email_after_commit(client, m
     assert sent[-1]["subject"] == "Your Scout Pro subscription has ended"
 
 
+def test_unknown_deleted_duplicate_is_silent_while_kept_subscription_is_active(client, monkeypatch):
+    _enable(monkeypatch)
+    user = _add_user()
+    db.session.add(
+        BillingSubscription(
+            scope_type="user",
+            scope_id=user.id,
+            product_code="scout_pro",
+            price_code="monthly",
+            purchaser_user_id=user.id,
+            stripe_customer_id=f"cus_{user.id}",
+            stripe_subscription_id="sub_kept_active",
+            stripe_price_id="price_test_monthly",
+            status="active",
+        )
+    )
+    db.session.commit()
+    sent = []
+    from src.services.email_service import email_service
+
+    monkeypatch.setattr(
+        email_service,
+        "send_email",
+        lambda **kwargs: sent.append(kwargs) or SimpleNamespace(success=True),
+    )
+    deleted = _subscription(user, subscription_id="sub_unknown_duplicate", status="canceled")
+
+    response = _post_event(
+        client,
+        _event("evt_unknown_duplicate_deleted", "customer.subscription.deleted", deleted, created=300),
+    )
+
+    assert response.status_code == 200
+    assert BillingSubscription.query.filter_by(stripe_subscription_id="sub_kept_active").one().status == "active"
+    assert ProductEvent.query.filter_by(event_name="billing_subscription_ended").count() == 0
+    assert sent == []
+
+
+def test_upsert_subscription_locks_user_before_billing_write(client, monkeypatch):
+    user = _add_user()
+    import src.services.stripe_billing as billing_service
+
+    operations = []
+    real_execute = db.session.execute
+    real_add = db.session.add
+
+    def tracked_execute(statement, *args, **kwargs):
+        result = real_execute(statement, *args, **kwargs)
+        if getattr(statement, "_for_update_arg", None) is not None:
+            sql = str(statement.compile(dialect=postgresql.dialect()))
+            operations.append(("user_lock", sql))
+        return result
+
+    def tracked_add(instance, *args, **kwargs):
+        if isinstance(instance, BillingSubscription):
+            operations.append(("billing_write", None))
+        return real_add(instance, *args, **kwargs)
+
+    monkeypatch.setattr(db.session, "execute", tracked_execute)
+    monkeypatch.setattr(db.session, "add", tracked_add)
+
+    row = billing_service.upsert_subscription(
+        _subscription(user, subscription_id="sub_user_lock"),
+        event_created=200,
+    )
+
+    assert row.stripe_subscription_id == "sub_user_lock"
+    assert [operation for operation, _detail in operations] == ["user_lock", "billing_write"]
+    assert "FOR UPDATE" in operations[0][1]
+
+
 def test_failed_webhook_is_persisted_then_retried(client, monkeypatch):
     _enable(monkeypatch)
     user = _add_user()
@@ -649,6 +722,30 @@ def test_checkout_completion_expires_open_sibling(client, monkeypatch):
     assert call_order == ["user_lock", "expire"]
 
 
+def test_checkout_completion_locally_expires_sibling_without_stripe_session(client, monkeypatch):
+    _enable(monkeypatch)
+    user = _add_user()
+    completed = _add_checkout(user, "cs_completed_local_only", "completed_local_only")
+    sibling = _add_checkout(user, None, "sibling_local_only")
+    db.session.commit()
+    expire = Mock(side_effect=AssertionError("a local-only checkout has nothing to expire at Stripe"))
+    monkeypatch.setattr(stripe.checkout.Session, "expire", expire)
+
+    response = _post_event(
+        client,
+        _event(
+            "evt_sibling_local_only",
+            "checkout.session.completed",
+            {"id": "cs_completed_local_only"},
+        ),
+    )
+
+    assert response.status_code == 200
+    assert db.session.get(BillingCheckoutSession, completed.id).status == "complete"
+    assert db.session.get(BillingCheckoutSession, sibling.id).status == "expired"
+    expire.assert_not_called()
+
+
 @pytest.mark.parametrize(
     ("remote_status", "expected_status", "subscription_id"),
     [("expired", "expired", None), ("complete", "complete", "sub_duplicate")],
@@ -754,6 +851,83 @@ def test_checkout_completion_duplicate_subscription_cancel_failure_retries(clien
     db.session.expire_all()
     assert db.session.get(BillingCheckoutSession, completed.id).status == "open"
     assert db.session.get(BillingCheckoutSession, sibling.id).status == "open"
+
+
+def test_checkout_completion_accepts_duplicate_subscription_already_canceled(client, monkeypatch):
+    _enable(monkeypatch)
+    user = _add_user()
+    completed = _add_checkout(user, "cs_completed_already_canceled", "completed_already_canceled")
+    sibling = _add_checkout(user, "cs_sibling_already_canceled", "sibling_already_canceled")
+    db.session.commit()
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "expire",
+        Mock(side_effect=stripe.InvalidRequestError("Checkout Session is not open", param=None)),
+    )
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "retrieve",
+        Mock(return_value={"status": "complete", "subscription": "sub_already_canceled"}),
+    )
+    cancel = Mock(side_effect=stripe.InvalidRequestError("Subscription is canceled", param=None))
+    retrieve_subscription = Mock(return_value={"id": "sub_already_canceled", "status": "canceled"})
+    monkeypatch.setattr(stripe.Subscription, "cancel", cancel)
+    monkeypatch.setattr(stripe.Subscription, "retrieve", retrieve_subscription)
+
+    response = _post_event(
+        client,
+        _event(
+            "evt_sibling_already_canceled",
+            "checkout.session.completed",
+            {"id": "cs_completed_already_canceled"},
+        ),
+    )
+
+    assert response.status_code == 200
+    assert db.session.get(BillingCheckoutSession, completed.id).status == "complete"
+    assert db.session.get(BillingCheckoutSession, sibling.id).status == "complete"
+    cancel.assert_called_once_with("sub_already_canceled")
+    retrieve_subscription.assert_called_once_with("sub_already_canceled")
+
+
+def test_checkout_completion_retries_when_duplicate_subscription_is_not_canceled(client, monkeypatch):
+    _enable(monkeypatch)
+    user = _add_user()
+    completed = _add_checkout(user, "cs_completed_still_active", "completed_still_active")
+    sibling = _add_checkout(user, "cs_sibling_still_active", "sibling_still_active")
+    db.session.commit()
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "expire",
+        Mock(side_effect=stripe.InvalidRequestError("Checkout Session is not open", param=None)),
+    )
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "retrieve",
+        Mock(return_value={"status": "complete", "subscription": "sub_still_active"}),
+    )
+    monkeypatch.setattr(
+        stripe.Subscription,
+        "cancel",
+        Mock(side_effect=stripe.InvalidRequestError("Subscription cannot be canceled", param=None)),
+    )
+    retrieve_subscription = Mock(return_value={"id": "sub_still_active", "status": "active"})
+    monkeypatch.setattr(stripe.Subscription, "retrieve", retrieve_subscription)
+
+    response = _post_event(
+        client,
+        _event(
+            "evt_sibling_still_active",
+            "checkout.session.completed",
+            {"id": "cs_completed_still_active"},
+        ),
+    )
+
+    assert response.status_code == 500
+    db.session.expire_all()
+    assert db.session.get(BillingCheckoutSession, completed.id).status == "open"
+    assert db.session.get(BillingCheckoutSession, sibling.id).status == "open"
+    retrieve_subscription.assert_called_once_with("sub_still_active")
 
 
 def test_expired_checkout_can_be_recreated_with_same_client_key(client, monkeypatch):
