@@ -16,6 +16,63 @@ def _iso(value):
     return value.isoformat() if value else None
 
 
+def _utcnow_naive():
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def revision_dict(revision):
+    """Serialize the one profile-revision contract shared by every audience."""
+    return {
+        "id": revision.id,
+        "status": revision.status,
+        "summary": revision.summary,
+        "age_groups": revision.age_groups or [],
+        "activities": revision.activities or [],
+        "funding_purpose": revision.funding_purpose,
+        "official_url": revision.official_url,
+        "safeguarding_url": revision.safeguarding_url,
+        "media_urls": revision.media_urls or [],
+        "external_support": (
+            {
+                "provider": revision.external_support_provider,
+                "url": revision.external_support_url,
+            }
+            if revision.external_support_provider and revision.external_support_url
+            else None
+        ),
+        "review_reason": revision.review_reason,
+        "reviewed_at": _iso(revision.reviewed_at),
+        "created_at": _iso(revision.created_at),
+    }
+
+
+def approved_revision_for(program):
+    """Resolve the currently approved profile revision for any route audience."""
+    if program.approved_profile_revision_id:
+        revision = db.session.get(ClubProgramProfileRevision, program.approved_profile_revision_id)
+        if revision and revision.program_id == program.id and revision.status == "approved":
+            return revision
+    return (
+        ClubProgramProfileRevision.query.filter_by(program_id=program.id, status="approved")
+        .order_by(ClubProgramProfileRevision.created_at.desc(), ClubProgramProfileRevision.id.desc())
+        .first()
+    )
+
+
+def update_dict(update):
+    """Serialize the one program-update contract shared by every audience."""
+    return {
+        "id": update.id,
+        "title": update.title,
+        "body": update.body,
+        "impact": update.impact,
+        "status": update.status,
+        "review_reason": update.review_reason,
+        "created_at": _iso(update.created_at),
+        "published_at": _iso(update.published_at),
+    }
+
+
 class FundingLeague(db.Model):
     """MJ-controlled league registry, optionally bridged to API-Football."""
 
@@ -323,6 +380,8 @@ class ClubProgramProfileRevision(db.Model):
     official_url = db.Column(db.String(500))
     safeguarding_url = db.Column(db.String(500))
     media_urls = db.Column(db.JSON, nullable=False, default=list)
+    external_support_provider = db.Column(db.String(30))
+    external_support_url = db.Column(db.String(500))
     reviewed_by = db.Column(db.String(200))
     review_reason = db.Column(db.Text)
     reviewed_at = db.Column(db.DateTime)
@@ -333,6 +392,57 @@ class ClubProgramProfileRevision(db.Model):
         foreign_keys=[program_id],
         backref=db.backref("profile_revisions", lazy="dynamic"),
     )
+
+
+class ClubProgramUpdate(db.Model):
+    __tablename__ = "club_program_updates"
+    __table_args__ = (
+        db.CheckConstraint(
+            "status IN ('pending','approved','rejected','withdrawn')",
+            name="ck_club_program_updates_status",
+        ),
+        db.Index(
+            "ix_club_program_updates_program_status_published",
+            "program_id",
+            "status",
+            "published_at",
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(
+        db.Integer,
+        db.ForeignKey("club_programs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    author_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user_accounts.id", ondelete="SET NULL"),
+    )
+    title = db.Column(db.String(140), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    impact = db.Column(db.Text)
+    status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending")
+    reviewed_by = db.Column(db.String(200))
+    review_reason = db.Column(db.Text)
+    reviewed_at = db.Column(db.DateTime)
+    published_at = db.Column(db.DateTime)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=_utcnow_naive,
+        server_default=db.func.now(),
+    )
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=_utcnow_naive,
+        onupdate=_utcnow_naive,
+        server_default=db.func.now(),
+    )
+
+    program = db.relationship("ClubProgram", backref=db.backref("updates", lazy="dynamic"))
+    author = db.relationship("UserAccount", foreign_keys=[author_user_id])
 
 
 class ClubRosterMember(db.Model):

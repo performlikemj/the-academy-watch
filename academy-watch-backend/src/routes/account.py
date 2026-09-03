@@ -7,6 +7,7 @@ from src.auth import _safe_error_payload, require_user_auth
 from src.extensions import limiter
 from src.models.league import db
 from src.services.account import AccountDeletionUnavailable, build_account_export, delete_account
+from src.services.stripe_billing import BillingError
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,9 @@ def delete_current_account():
     except AccountDeletionUnavailable:
         db.session.rollback()
         return jsonify({"error": "account not found"}), 401
+    except BillingError as exc:
+        db.session.rollback()
+        return jsonify({"error": exc.code}), exc.status
     except Exception as exc:
         db.session.rollback()
         logger.exception("Failed to delete account")
