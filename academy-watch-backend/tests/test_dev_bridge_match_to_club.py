@@ -16,6 +16,9 @@ from scripts.dev.bridge_match_to_club import (
     guard_runtime_environment,
 )
 from scripts.dev.seed_sim_club_fixture import (
+    ALLOW_DB_NAME_ENV as SIM_ALLOW_DB_NAME_ENV,
+)
+from scripts.dev.seed_sim_club_fixture import (
     ALLOW_ENV as SIM_ALLOW_ENV,
 )
 from scripts.dev.seed_sim_club_fixture import (
@@ -233,6 +236,33 @@ def test_bridge_allows_explicit_database_name_override():
         "postgresql+psycopg://dev:secret@localhost/fixture_copy",
         allow_db_name="fixture_copy",
     )
+
+
+def test_sim_seed_passes_env_database_allowance_and_explicit_value_overrides_it(bridge_app, monkeypatch):
+    monkeypatch.setenv(SIM_ALLOW_ENV, "1")
+    monkeypatch.setenv(SIM_ALLOW_DB_NAME_ENV, "  sim_20260903111540  ")
+    summary = {"ok": True}
+
+    with (
+        patch("scripts.dev.bridge_match_to_club.guard_database_target") as guard,
+        patch("scripts.dev.seed_sim_club_fixture.seed_sim_fixture", return_value=summary),
+    ):
+        assert execute_seed(bridge_app, manager_email=MANAGER_EMAIL) == summary
+        guard.assert_called_once_with(
+            db.engine.url,
+            allow_db_name="sim_20260903111540",
+        )
+
+        guard.reset_mock()
+        assert (
+            execute_seed(
+                bridge_app,
+                manager_email=MANAGER_EMAIL,
+                allow_db_name="  cli_copy  ",
+            )
+            == summary
+        )
+        guard.assert_called_once_with(db.engine.url, allow_db_name="cli_copy")
 
 
 @pytest.mark.parametrize("brief_kind", ["system", "coach"])

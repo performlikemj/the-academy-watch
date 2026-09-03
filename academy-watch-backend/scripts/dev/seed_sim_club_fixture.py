@@ -16,6 +16,7 @@ if str(BACKEND_ROOT) not in sys.path:
 os.environ.setdefault("SKIP_API_HANDSHAKE", "1")
 
 ALLOW_ENV = "ALLOW_SIM_FIXTURE_SEED"
+ALLOW_DB_NAME_ENV = "SIM_ALLOW_DB_NAME"
 SCRIPT_ACTOR = "sim-fixture-seed"
 SIM_LEAGUE_NAME = "Synthetic sim fixture league"
 SIM_PROGRAM_NAME = "Academy Watch Synthetic Sim"
@@ -371,13 +372,23 @@ def seed_sim_fixture(*, manager_email: str) -> dict:
     }
 
 
-def execute_seed(app, *, manager_email: str) -> dict:
+def _resolve_allow_db_name(explicit_value: str | None) -> str | None:
+    raw_value = os.getenv(ALLOW_DB_NAME_ENV) if explicit_value is None else explicit_value
+    if raw_value is None:
+        return None
+    return raw_value.strip() or None
+
+
+def execute_seed(app, *, manager_email: str, allow_db_name: str | None = None) -> dict:
     from scripts.dev.bridge_match_to_club import guard_database_target
     from src.models.league import db
 
     guard_runtime_environment()
     with app.app_context():
-        guard_database_target(db.engine.url)
+        guard_database_target(
+            db.engine.url,
+            allow_db_name=_resolve_allow_db_name(allow_db_name),
+        )
         try:
             return seed_sim_fixture(manager_email=manager_email)
         except Exception:
@@ -388,6 +399,7 @@ def execute_seed(app, *, manager_email: str) -> dict:
 def _parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manager-email", required=True)
+    parser.add_argument("--allow-db-name")
     return parser.parse_args(argv)
 
 
@@ -397,7 +409,11 @@ def main(argv=None) -> int:
         guard_runtime_environment()
         from src.main import app
 
-        summary = execute_seed(app, manager_email=args.manager_email)
+        summary = execute_seed(
+            app,
+            manager_email=args.manager_email,
+            allow_db_name=args.allow_db_name,
+        )
     except SimFixtureRefused as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
