@@ -1,9 +1,11 @@
 """S3-P2a club profile editing and moderated program-update coverage."""
 
+import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from flask import Flask
+from sqlalchemy import event
 from sqlalchemy.dialects import postgresql
 from src.auth import issue_user_token
 from src.extensions import limiter
@@ -719,3 +721,69 @@ def test_program_update_field_limits(client, payload, field):
     assert response.status_code == 400
     assert response.get_json()["error"] == "validation_failed"
     assert field in response.get_json()["fields"]
+
+
+def test_admin_review_routes_lock_program_before_target(client):
+    program, _, manager, _ = _seed_programs()
+    revision = ClubProgramProfileRevision(
+        program_id=program.id,
+        submitted_by_user_id=manager.id,
+        status="pending",
+        summary="Pending profile for route-level lock-order coverage.",
+        age_groups=["U12"],
+        activities=["Training"],
+        media_urls=[],
+    )
+    update = ClubProgramUpdate(
+        program_id=program.id,
+        author_user_id=manager.id,
+        title="Pending lock-order update",
+        body="This pending update exercises route-level lock ordering.",
+        status="pending",
+    )
+    db.session.add_all([revision, update])
+    db.session.commit()
+    program_id = program.id
+    revision_id = revision.id
+    update_id = update.id
+
+    def capture_review(path):
+        statements = []
+
+        def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany):
+            statements.append(statement)
+
+        event.listen(db.engine, "before_cursor_execute", capture_statement)
+        try:
+            response = client.post(
+                path,
+                json={"decision": "approve", "reason": "Route-level lock-order fixture."},
+                headers=_admin_headers(),
+            )
+        finally:
+            event.remove(db.engine, "before_cursor_execute", capture_statement)
+        return response, statements
+
+    def first_table_statement(statements, table_name):
+        table_pattern = re.compile(rf"(?<![a-z_]){re.escape(table_name)}(?![a-z_])", re.IGNORECASE)
+        return next(index for index, statement in enumerate(statements) if table_pattern.search(statement))
+
+    revision_response, revision_statements = capture_review(
+        f"/api/admin/funding/programs/{program_id}/profile-revisions/{revision_id}/review"
+    )
+    assert revision_response.status_code == 200, revision_response.get_json()
+    assert revision_response.get_json()["revision"]["status"] == "approved"
+    assert first_table_statement(revision_statements, "club_programs") < first_table_statement(
+        revision_statements, "club_program_profile_revisions"
+    )
+
+    update_response, update_statements = capture_review(
+        f"/api/admin/funding/programs/{program_id}/updates/{update_id}/review"
+    )
+    assert update_response.status_code == 200, update_response.get_json()
+    assert update_response.get_json()["update"]["status"] == "approved"
+    assert first_table_statement(update_statements, "club_programs") < first_table_statement(
+        update_statements, "club_program_updates"
+    )
+    assert db.session.get(ClubProgramProfileRevision, revision_id).status == "approved"
+    assert db.session.get(ClubProgramUpdate, update_id).status == "approved"

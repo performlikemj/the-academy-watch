@@ -1,7 +1,7 @@
 """Add moderated club program profiles and updates.
 
 Revision ID: s3c1
-Revises: cb01
+Revises: s3b1
 Create Date: 2026-09-03
 
 All DDL is guarded because production may contain partially pre-applied schema.
@@ -20,7 +20,7 @@ from migrations._migration_helpers import (
 )
 
 revision = "s3c1"
-down_revision = "cb01"  # The S3 orchestrator will re-chain this to s3b1 before merge.
+down_revision = "s3b1"
 branch_labels = None
 depends_on = None
 
