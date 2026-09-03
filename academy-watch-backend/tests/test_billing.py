@@ -236,6 +236,8 @@ def test_stripe_configuration_is_resolved_at_call_time(monkeypatch):
         ("get", "/api/billing/checkout"),
         ("options", "/api/admin/billing/summary"),
         ("post", "/api/admin/billing/summary"),
+        ("options", "/api/scout/entitlements"),
+        ("post", "/api/scout/entitlements"),
     ],
 )
 def test_billing_routes_are_dark_by_default(client, method, path):
@@ -318,6 +320,10 @@ def test_subscription_lifecycle_replay_ordering_and_email_after_commit(client, m
     assert len(sent) == 1
 
     older = _subscription(user, status="canceled")
+    authoritative_active = _subscription(user, status="active")
+    deleted = _subscription(user, status="canceled")
+    retrieve = Mock(side_effect=[authoritative_active, deleted])
+    monkeypatch.setattr(stripe.Subscription, "retrieve", retrieve)
     response = _post_event(
         client,
         _event("evt_old", "customer.subscription.updated", older, created=100),
@@ -326,7 +332,6 @@ def test_subscription_lifecycle_replay_ordering_and_email_after_commit(client, m
     assert BillingSubscription.query.one().status == "active"
     assert db.session.get(UserAccount, user.id).scout_tier == "pro"
 
-    deleted = _subscription(user, status="canceled")
     response = _post_event(
         client,
         _event("evt_deleted", "customer.subscription.deleted", deleted, created=300),
@@ -336,6 +341,118 @@ def test_subscription_lifecycle_replay_ordering_and_email_after_commit(client, m
     assert db.session.get(UserAccount, user.id).scout_tier == "free"
     assert len(sent) == 2
     assert sent[-1]["subject"] == "Your Scout Pro subscription has ended"
+    assert retrieve.call_count == 2
+
+
+def test_late_webhook_after_account_deletion_with_fk_enforcement(client, monkeypatch):
+    engine = db.engine
+
+    def enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    event.listen(engine, "connect", enable_sqlite_foreign_keys)
+    raw_connection = engine.raw_connection()
+    try:
+        enable_sqlite_foreign_keys(raw_connection.driver_connection, None)
+    finally:
+        raw_connection.close()
+
+    try:
+        _enable(monkeypatch)
+        monkeypatch.setenv("STRIPE_SECRET_KEY", "billing_secret_test_placeholder")
+        user = _add_user("late-webhook@example.com")
+        user_id = user.id
+        deleted = _subscription(user, subscription_id="sub_late_delete", status="canceled")
+        db.session.add(
+            BillingSubscription(
+                scope_type="user",
+                scope_id=user.id,
+                product_code="scout_pro",
+                price_code="monthly",
+                purchaser_user_id=user.id,
+                stripe_customer_id=f"cus_{user.id}",
+                stripe_subscription_id="sub_late_delete",
+                stripe_price_id="price_test_monthly",
+                status="active",
+            )
+        )
+        db.session.commit()
+        cancel = Mock(return_value={"id": "sub_late_delete", "status": "canceled"})
+        monkeypatch.setattr(stripe.Subscription, "cancel", cancel)
+
+        response = client.post("/api/account/delete", json={"confirm": "DELETE"}, headers=_headers(user))
+        assert response.status_code == 200
+        assert db.session.get(UserAccount, user_id) is None
+        assert BillingSubscription.query.count() == 0
+
+        response = _post_event(
+            client,
+            _event("evt_late_delete", "customer.subscription.deleted", deleted, created=300),
+        )
+
+        assert response.status_code == 200
+        assert response.get_json() == {"received": True, "duplicate": False}
+        assert BillingSubscription.query.count() == 0
+        assert StripeWebhookEvent.query.filter_by(event_id="evt_late_delete", status="processed").count() == 1
+    finally:
+        event.remove(engine, "connect", enable_sqlite_foreign_keys)
+
+
+def test_existing_subscription_clears_a_missing_purchaser(client):
+    user = _add_user("deleted-purchaser@example.com")
+    user_id = user.id
+    row = BillingSubscription(
+        scope_type="user",
+        scope_id=user_id,
+        product_code="scout_pro",
+        price_code="monthly",
+        purchaser_user_id=user_id,
+        stripe_customer_id=f"cus_{user_id}",
+        stripe_subscription_id="sub_missing_purchaser",
+        stripe_price_id="price_test_monthly",
+        status="active",
+    )
+    db.session.add(row)
+    db.session.commit()
+    db.session.execute(UserAccount.__table__.delete().where(UserAccount.id == user_id))
+    db.session.commit()
+    db.session.expire_all()
+    from src.services.stripe_billing import upsert_subscription
+
+    updated = _subscription(
+        SimpleNamespace(id=user_id),
+        subscription_id="sub_missing_purchaser",
+        status="active",
+    )
+    upsert_subscription(updated, event_created=300)
+
+    assert BillingSubscription.query.one().purchaser_user_id is None
+
+
+def test_deleted_subscription_that_was_never_active_has_no_ended_notification(client, monkeypatch):
+    _enable(monkeypatch)
+    user = _add_user("incomplete@example.com")
+    sent = []
+    from src.services.email_service import email_service
+
+    monkeypatch.setattr(
+        email_service,
+        "send_email",
+        lambda **kwargs: sent.append(kwargs) or SimpleNamespace(success=True),
+    )
+    deleted = _subscription(user, subscription_id="sub_never_active", status="incomplete_expired")
+
+    response = _post_event(
+        client,
+        _event("evt_never_active_deleted", "customer.subscription.deleted", deleted, created=300),
+    )
+
+    assert response.status_code == 200
+    assert BillingSubscription.query.one().status == "incomplete_expired"
+    assert ProductEvent.query.filter_by(event_name="billing_subscription_ended").count() == 0
+    assert sent == []
 
 
 def test_unknown_deleted_duplicate_is_silent_while_kept_subscription_is_active(client, monkeypatch):
@@ -907,6 +1024,55 @@ def test_checkout_completion_reconciles_closed_sibling(
         cancel.assert_not_called()
 
 
+def test_checkout_completion_records_duplicate_cancellation(client, monkeypatch, caplog):
+    _enable(monkeypatch)
+    user = _add_user("duplicate-checkout@example.com")
+    completed = _add_checkout(user, "cs_kept", "kept_checkout")
+    sibling = _add_checkout(user, "cs_duplicate", "duplicate_checkout")
+    db.session.commit()
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "expire",
+        Mock(side_effect=stripe.InvalidRequestError("Checkout Session is not open", param=None)),
+    )
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "retrieve",
+        Mock(return_value={"status": "complete", "subscription": "sub_duplicate"}),
+    )
+    cancel = Mock(return_value={"id": "sub_duplicate", "status": "canceled"})
+    retrieve = Mock(return_value=_subscription(user, subscription_id="sub_kept", status="active"))
+    monkeypatch.setattr(stripe.Subscription, "cancel", cancel)
+    monkeypatch.setattr(stripe.Subscription, "retrieve", retrieve)
+    from src.services.email_service import email_service
+
+    monkeypatch.setattr(email_service, "send_email", Mock(return_value=SimpleNamespace(success=True)))
+    caplog.set_level("WARNING", logger="src.services.stripe_billing")
+
+    response = _post_event(
+        client,
+        _event(
+            "evt_duplicate_canceled",
+            "checkout.session.completed",
+            {"id": completed.stripe_session_id, "subscription": "sub_kept"},
+        ),
+    )
+
+    assert response.status_code == 200
+    assert db.session.get(BillingCheckoutSession, sibling.id).status == "complete"
+    cancel.assert_called_once_with("sub_duplicate")
+    retrieve.assert_called_once_with("sub_kept", expand=["items.data.price"])
+    duplicate_event = ProductEvent.query.filter_by(event_name="billing_duplicate_canceled").one()
+    assert duplicate_event.props == {
+        "kept_subscription_id": "sub_kept",
+        "canceled_subscription_id": "sub_duplicate",
+        "product_code": "scout_pro",
+        "scope_type": "user",
+    }
+    assert "sub_kept" in caplog.text
+    assert "sub_duplicate" in caplog.text
+
+
 def test_checkout_completion_transient_sibling_expiry_failure_retries(client, monkeypatch):
     _enable(monkeypatch)
     user = _add_user()
@@ -1222,6 +1388,7 @@ def test_retrieved_invoice_snapshot_blocks_intermediate_stale_subscription_event
     )
     assert _post_event(client, stale_event).status_code == 200
     assert BillingSubscription.query.one().status == "canceled"
+    assert retrieve.call_count == 2
     assert not any(message["subject"] == "Your Scout Pro subscription is active" for message in sent)
 
 
@@ -1711,3 +1878,4 @@ def test_client_event_allowlist_has_only_public_billing_events():
     assert "checkout_started" in ALLOWED_EVENTS
     assert "checkout_completed" in ALLOWED_EVENTS
     assert "billing_checkout_started" not in ALLOWED_EVENTS
+    assert "billing_duplicate_canceled" not in ALLOWED_EVENTS
