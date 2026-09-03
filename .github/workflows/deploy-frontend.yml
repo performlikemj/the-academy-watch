@@ -98,6 +98,7 @@ jobs:
         working-directory: academy-watch-frontend
         env:
           VITE_API_BASE: ${{ vars.API_BASE_URL || 'https://api.theacademywatch.com/api' }}
+          VITE_BILLING_TERMS: ${{ vars.VITE_BILLING_TERMS || '0' }}
         run: |
           if [ -z "$VITE_API_BASE" ]; then
             echo "::error::VITE_API_BASE is empty — refusing to ship the frontend bundle"

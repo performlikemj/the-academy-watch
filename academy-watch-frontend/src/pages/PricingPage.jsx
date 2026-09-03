@@ -1,5 +1,8 @@
-import { useNavigate, Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
+import { APIService } from '@/lib/api'
+import { track } from '@/lib/track'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Check, Star, Clapperboard, Telescope } from 'lucide-react'
@@ -70,6 +73,72 @@ export function PricingPage() {
   const auth = useAuth()
   const { openLoginModal } = useAuthUI()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const [config, setConfig] = useState(undefined)
+  const [configFailed, setConfigFailed] = useState(false)
+  const [configAttempt, setConfigAttempt] = useState(0)
+  const [priceCode, setPriceCode] = useState('monthly')
+  const [checkoutBusy, setCheckoutBusy] = useState(false)
+  const [checkoutError, setCheckoutError] = useState(null)
+  const [showCanceled, setShowCanceled] = useState(searchParams.get('checkout') === 'canceled')
+
+  useEffect(() => {
+    let cancelled = false
+    APIService.getBillingConfig()
+      .then((data) => { if (!cancelled) setConfig(data) })
+      .catch(() => { if (!cancelled) setConfigFailed(true) })
+    return () => { cancelled = true }
+  }, [configAttempt])
+
+  const retryConfig = () => {
+    setConfig(undefined)
+    setConfigFailed(false)
+    setConfigAttempt((attempt) => attempt + 1)
+  }
+
+  const scoutProduct = useMemo(() => config?.enabled
+    ? config.products?.find((product) => product.code === 'scout_pro')
+    : null, [config])
+  const prices = useMemo(() => scoutProduct?.prices || [], [scoutProduct])
+  const selectedPrice = prices.find((price) => price.price_code === priceCode) || prices[0]
+  const billingLive = Boolean(config?.enabled && scoutProduct && selectedPrice)
+
+  const priceText = selectedPrice && Number.isFinite(selectedPrice.unit_amount) && selectedPrice.currency
+    ? new Intl.NumberFormat(undefined, { style: 'currency', currency: selectedPrice.currency }).format(selectedPrice.unit_amount / 100)
+    : 'See price at checkout'
+
+  const subscribe = async () => {
+    if (!auth?.token) {
+      openLoginModal()
+      return
+    }
+    if (!selectedPrice) return
+    setCheckoutBusy(true)
+    setCheckoutError(null)
+    try {
+      const storageKey = `academyWatch.checkout.scout_pro.${selectedPrice.price_code}`
+      let clientKey = sessionStorage.getItem(storageKey)
+      if (!clientKey) {
+        clientKey = crypto.randomUUID()
+        sessionStorage.setItem(storageKey, clientKey)
+      }
+      const result = await APIService.createBillingCheckout({
+        product_code: 'scout_pro',
+        price_code: selectedPrice.price_code,
+        client_key: clientKey,
+      })
+      track('checkout_started', { product_code: 'scout_pro', price_code: selectedPrice.price_code })
+      window.location.assign(result.checkout_url)
+    } catch (error) {
+      if (error?.status === 409 && error?.body?.error === 'already_subscribed') {
+        setCheckoutError({ alreadySubscribed: true, message: 'You already have Scout Pro.' })
+      } else {
+        setCheckoutError({ message: error?.body?.error || error?.message || 'Checkout could not be started. Try again.' })
+      }
+    } finally {
+      setCheckoutBusy(false)
+    }
+  }
 
   const renderCta = (tierKey) => {
     if (tierKey === 'stand') {
@@ -80,6 +149,21 @@ export function PricingPage() {
       )
     }
     if (tierKey === 'pro') {
+      if (billingLive) {
+        return (
+          <div className="space-y-2">
+            <Button className="w-full shadow-sm" onClick={subscribe} disabled={checkoutBusy}>
+              {checkoutBusy ? 'Starting checkout…' : auth?.token ? 'Subscribe' : 'Sign in to subscribe'}
+            </Button>
+            {checkoutError ? (
+              <p className="text-center text-xs text-destructive">
+                {checkoutError.message}{' '}
+                {checkoutError.alreadySubscribed ? <Link className="underline" to="/account/billing">View billing</Link> : null}
+              </p>
+            ) : null}
+          </div>
+        )
+      }
       return auth?.token ? (
         <Button className="w-full shadow-sm" onClick={() => navigate('/scout/watchlist')}>
           Open your watchlist
@@ -100,6 +184,12 @@ export function PricingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
       <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
+        {showCanceled ? (
+          <div role="status" className="mx-auto mb-8 flex max-w-2xl items-center justify-between gap-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <span>Checkout canceled — nothing was charged.</span>
+            <Button variant="ghost" size="sm" onClick={() => setShowCanceled(false)}>Dismiss</Button>
+          </div>
+        ) : null}
         {/* Editorial header */}
         <header className="mx-auto mb-12 max-w-2xl text-center lg:mb-16">
           <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">Plans</p>
@@ -112,8 +202,22 @@ export function PricingPage() {
           </p>
         </header>
 
-        {/* Tier cards */}
-        <div className="relative">
+        {configFailed ? (
+          <Card className="mx-auto max-w-xl border-border/80">
+            <CardContent className="p-8 text-center">
+              <h2 className="text-xl font-bold text-foreground">Pricing is temporarily unavailable</h2>
+              <p className="mt-2 text-sm text-muted-foreground">We couldn&apos;t load the current plans. Please try again.</p>
+              <Button className="mt-5" variant="outline" onClick={retryConfig}>Retry</Button>
+            </CardContent>
+          </Card>
+        ) : config === undefined ? (
+          <Card className="mx-auto max-w-xl border-border/80">
+            <CardContent className="p-8 text-center text-sm text-muted-foreground">Loading pricing…</CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Tier cards */}
+            <div className="relative">
           {/* Soft radial glow behind the elevated middle card */}
           <div
             aria-hidden="true"
@@ -146,7 +250,7 @@ export function PricingPage() {
                                 : 'border border-border bg-secondary text-muted-foreground'
                             }`}
                           >
-                            {tier.chip}
+                            {tier.key === 'pro' && billingLive ? 'SCOUT PRO' : tier.chip}
                           </span>
                         )}
                       </div>
@@ -155,8 +259,19 @@ export function PricingPage() {
                     </div>
 
                     <div className="mb-6 border-y border-border/60 py-4">
-                      <p className="text-2xl font-bold tracking-tight text-foreground tabular-nums">{tier.priceLine}</p>
-                      {tier.priceNote && (
+                      <p className="text-2xl font-bold tracking-tight text-foreground tabular-nums">{tier.key === 'pro' && billingLive ? priceText : tier.priceLine}</p>
+                      {tier.key === 'pro' && billingLive ? (
+                        <>
+                          <p className="mt-0.5 text-xs text-muted-foreground">per {selectedPrice.interval}</p>
+                          {prices.length > 1 ? (
+                            <div className="mt-3 inline-flex rounded-lg border border-border bg-secondary p-1" aria-label="Billing period">
+                              {prices.map((price) => (
+                                <button key={price.price_code} type="button" onClick={() => setPriceCode(price.price_code)} className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize ${selectedPrice.price_code === price.price_code ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}>{price.price_code}</button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : tier.priceNote && (
                         <p className="mt-0.5 text-xs text-muted-foreground">{tier.priceNote}</p>
                       )}
                     </div>
@@ -173,30 +288,32 @@ export function PricingPage() {
               )
             })}
           </div>
-        </div>
+            </div>
 
-        {/* FAQ strip */}
-        <section aria-label="Questions" className="mx-auto mt-16 max-w-4xl border-t border-border/60 pt-10">
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Why is Pro free right now?</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                We&apos;re in beta and building Scout Pro with the people who use it.
-                Everything in the Pro tier is free while we refine it — when pricing
-                launches, beta users will hear about it first, with plenty of notice.
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">What is Film Room?</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                Film Room turns your own match footage into physical reports using
-                computer vision — minutes visible, distances, speed bands, sprints and
-                heatmaps for every player on your team. It&apos;s in active development
-                and will be priced per processed match, so you only pay for what you use.
-              </p>
-            </div>
-          </div>
-        </section>
+            {/* FAQ strip */}
+            <section aria-label="Questions" className="mx-auto mt-16 max-w-4xl border-t border-border/60 pt-10">
+              <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">{billingLive ? 'Can I cancel any time?' : 'Why is Pro free right now?'}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    {billingLive
+                      ? 'Yes. Manage or cancel your subscription from Billing in your account; access continues through the paid period.'
+                      : <>We&apos;re in beta and building Scout Pro with the people who use it. Everything in the Pro tier is free while we refine it — when pricing launches, beta users will hear about it first, with plenty of notice.</>}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">What is Film Room?</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    Film Room turns your own match footage into physical reports using
+                    computer vision — minutes visible, distances, speed bands, sprints and
+                    heatmaps for every player on your team. It&apos;s in active development
+                    and will be priced per processed match, so you only pay for what you use.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
       </div>
     </div>
   )

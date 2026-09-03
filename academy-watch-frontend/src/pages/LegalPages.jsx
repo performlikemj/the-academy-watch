@@ -1,7 +1,9 @@
+// Set VITE_BILLING_TERMS=1 at build time to include the owner-approved paid-subscription legal copy.
 import { Link } from 'react-router-dom'
 import { LegalPageLayout } from '@/components/layouts/LegalPageLayout'
 
 const EFFECTIVE_DATE = '2026-08-09'
+const BILLING_TERMS_ENABLED = import.meta.env.VITE_BILLING_TERMS === '1'
 
 export function TermsPage() {
   return (
@@ -93,6 +95,13 @@ export function TermsPage() {
           By Way of MJ LLC · 418 Broadway, Ste R, Albany, NY 12207, USA · <a href="mailto:mj@bywayofmj.com">mj@bywayofmj.com</a>
         </p>
       </section>
+
+      {BILLING_TERMS_ENABLED ? (
+        <section>
+          <h2>13. Paid subscriptions</h2>
+          <p>Paid subscriptions renew automatically each period. You can cancel at any time through the billing portal; cancellation takes effect at the end of the paid period. Prices are shown before purchase. Stripe processes payments, and we never store card numbers. We do not refund partial periods except where required by law.</p>
+        </section>
+      ) : null}
     </LegalPageLayout>
   )
 }
@@ -129,10 +138,11 @@ export function PrivacyPage() {
           <li><strong>Supabase</strong> (database hosting, USA)</li>
           <li><strong>Microsoft Azure</strong> (application hosting, USA)</li>
           <li><strong>Mailgun</strong> (email delivery)</li>
-          <li><strong>Stripe</strong> (payments — contributing writers only)</li>
+          {BILLING_TERMS_ENABLED ? <li><strong>Stripe</strong> (optional paid features)</li> : null}
           <li><strong>API-Football</strong> (sports data source — receives no personal account data)</li>
           <li><strong>OpenAI / OpenRouter / Groq</strong> (newsletter text generation — receives sports data, not your account data)</li>
         </ul>
+        {BILLING_TERMS_ENABLED ? <p>When you buy an optional paid feature, Stripe processes the payment and receives your payment details; we store only your Stripe customer id and subscription status.</p> : null}
       </section>
 
       <section>
