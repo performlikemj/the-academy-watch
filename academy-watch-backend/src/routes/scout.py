@@ -29,7 +29,7 @@ from datetime import date
 
 import bleach
 from flask import Blueprint, Response, g, jsonify, request
-from sqlalchemy import Integer, String, and_, case, cast, exists, func, literal, or_, tuple_
+from sqlalchemy import Integer, String, and_, case, cast, exists, func, literal, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
@@ -62,7 +62,12 @@ from src.services.player_suppression import (
     neutral_player_not_found,
     without_active_suppression,
 )
-from src.services.scout_entitlements import list_limit_for, require_scout_entitlement, scout_entitlements
+from src.services.scout_entitlements import (
+    list_is_within_entitlement,
+    list_limit_for,
+    require_scout_entitlement,
+    scout_entitlements,
+)
 from src.services.stripe_billing import require_billing_rail
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.player_names import clean_name
@@ -2203,6 +2208,19 @@ def _clean_list_name(raw):
     return name, None
 
 
+def _scout_pro_required(feature):
+    return (
+        jsonify(
+            {
+                "error": "scout_pro_required",
+                "feature": feature,
+                "upgrade_path": "/pricing",
+            }
+        ),
+        403,
+    )
+
+
 @scout_bp.route("/scout/entitlements", methods=["GET"])
 @require_billing_rail
 @require_user_auth
@@ -2272,19 +2290,12 @@ def scout_lists_create():
         name, error = _clean_list_name(payload.get("name", ""))
         if error:
             return jsonify({"error": error}), 400
-        list_count = FollowList.query.filter_by(user_account_id=user.id).count()
+        db.session.execute(select(UserAccount.id).where(UserAccount.id == user.id).with_for_update())
+        custom_list_count = FollowList.query.filter_by(user_account_id=user.id, is_default=False).count()
         list_limit = list_limit_for(user)
-        if list_count >= list_limit and list_limit < MAX_FOLLOW_LISTS:
-            return (
-                jsonify(
-                    {
-                        "error": "scout_pro_required",
-                        "feature": "custom_lists",
-                        "upgrade_path": "/pricing",
-                    }
-                ),
-                403,
-            )
+        if custom_list_count >= list_limit and list_limit < MAX_FOLLOW_LISTS:
+            return _scout_pro_required("custom_lists")
+        list_count = FollowList.query.filter_by(user_account_id=user.id).count()
         if list_count >= MAX_FOLLOW_LISTS:
             return jsonify({"error": f"list limit reached ({MAX_FOLLOW_LISTS})"}), 409
         if FollowList.query.filter_by(user_account_id=user.id, name=name).first():
@@ -2315,6 +2326,8 @@ def scout_list_update(list_id):
         follow_list = _owned_list(user, list_id)
         if follow_list is None:
             return jsonify({"error": "list not found"}), 404
+        if not list_is_within_entitlement(user, follow_list):
+            return _scout_pro_required("custom_lists")
         payload = request.get_json(silent=True) or {}
         if "name" in payload:
             name, error = _clean_list_name(payload.get("name"))
@@ -2385,6 +2398,8 @@ def scout_list_add_follow(list_id):
         follow_list = _owned_list(user, list_id)
         if follow_list is None:
             return jsonify({"error": "list not found"}), 404
+        if not list_is_within_entitlement(user, follow_list):
+            return _scout_pro_required("custom_lists")
 
         payload = request.get_json(silent=True) or {}
         kind = payload.get("kind")
@@ -2504,6 +2519,8 @@ def scout_list_remove_follow(list_id, follow_id):
         follow_list = _owned_list(user, list_id)
         if follow_list is None:
             return jsonify({"error": "list not found"}), 404
+        if not list_is_within_entitlement(user, follow_list):
+            return _scout_pro_required("custom_lists")
         follow = Follow.query.filter_by(id=follow_id, list_id=follow_list.id).first()
         if follow is None:
             return jsonify({"removed": False})

@@ -8,6 +8,7 @@ from functools import wraps
 
 from flask import g, jsonify
 from src.config.stripe_config import billing_enabled
+from src.models.follow import FollowList
 from src.services.stripe_billing import active_subscription
 
 FREE_LIST_LIMIT = 3
@@ -110,6 +111,20 @@ def list_limit_for(user) -> int:
     return scout_entitlements(user)["features"]["custom_lists_max"]
 
 
+def list_is_within_entitlement(user, follow_list) -> bool:
+    """Whether mutations inside this list are included in the user's tier."""
+    entitlements = scout_entitlements(user)
+    if not entitlements["billing_enabled"] or entitlements["tier"] == "pro" or follow_list.is_default:
+        return True
+
+    rank = FollowList.query.filter(
+        FollowList.user_account_id == user.id,
+        FollowList.is_default.is_(False),
+        FollowList.id < follow_list.id,
+    ).count()
+    return rank < entitlements["features"]["custom_lists_max"]
+
+
 def require_scout_entitlement(feature: str):
     """Reject authenticated users who lack a Scout Pro feature."""
 
@@ -138,6 +153,7 @@ def require_scout_entitlement(feature: str):
 __all__ = [
     "FREE_LIST_LIMIT",
     "is_pro",
+    "list_is_within_entitlement",
     "list_limit_for",
     "require_scout_entitlement",
     "scout_entitlements",

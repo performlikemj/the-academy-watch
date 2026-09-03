@@ -7,8 +7,15 @@ from flask import Flask
 from src.auth import issue_user_token
 from src.extensions import limiter
 from src.models.billing import BillingSubscription
+from src.models.follow import Follow, FollowList
 from src.models.league import UserAccount, db
 from src.services.scout_entitlements import FREE_LIST_LIMIT, is_pro, list_limit_for, scout_entitlements
+
+CUSTOM_LISTS_REQUIRED = {
+    "error": "scout_pro_required",
+    "feature": "custom_lists",
+    "upgrade_path": "/pricing",
+}
 
 
 @pytest.fixture
@@ -91,6 +98,30 @@ def _add_subscription(user, *, status="active", current_period_end=None, cancel_
     db.session.add(row)
     db.session.commit()
     return row
+
+
+def _add_custom_lists(user, count, *, include_default=False, with_follows=False):
+    if include_default:
+        db.session.add(FollowList(user_account_id=user.id, name="My Watchlist", is_default=True))
+    lists = [
+        FollowList(user_account_id=user.id, name=f"List {number}", is_default=False) for number in range(1, count + 1)
+    ]
+    db.session.add_all(lists)
+    db.session.flush()
+    follow_ids = []
+    if with_follows:
+        for number, follow_list in enumerate(lists, start=1):
+            follow = Follow(
+                list_id=follow_list.id,
+                kind="geo",
+                selector={"countries": [f"Country {number}"], "match": "playing_in"},
+                label=f"Playing in: Country {number}",
+            )
+            db.session.add(follow)
+            db.session.flush()
+            follow_ids.append(follow.id)
+    db.session.commit()
+    return lists, follow_ids
 
 
 def _enable_billing(monkeypatch):
@@ -230,22 +261,106 @@ def test_csv_export_allows_grandfathered_user(app, client, monkeypatch):
     assert response.mimetype == "text/csv"
 
 
-def test_free_user_can_create_three_lists_then_requires_pro(app, client, monkeypatch):
+def test_default_list_does_not_consume_free_custom_list_entitlement(app, client, monkeypatch):
     _enable_billing(monkeypatch)
     user = _add_user()
+    _add_custom_lists(user, FREE_LIST_LIMIT - 1, include_default=True)
     headers = _headers(user)
 
-    for number in range(1, FREE_LIST_LIMIT + 1):
-        response = client.post("/api/scout/lists", json={"name": f"List {number}"}, headers=headers)
-        assert response.status_code == 201
+    response = client.post("/api/scout/lists", json={"name": "List 3"}, headers=headers)
+    assert response.status_code == 201
 
     response = client.post("/api/scout/lists", json={"name": "List 4"}, headers=headers)
     assert response.status_code == 403
-    assert response.get_json() == {
-        "error": "scout_pro_required",
-        "feature": "custom_lists",
-        "upgrade_path": "/pricing",
+    assert response.get_json() == CUSTOM_LISTS_REQUIRED
+
+
+def test_free_user_can_read_and_delete_over_limit_lists_but_cannot_mutate_them(app, client, monkeypatch):
+    _enable_billing(monkeypatch)
+    user = _add_user()
+    lists, follow_ids = _add_custom_lists(user, 5, with_follows=True)
+    headers = _headers(user)
+    follow_payload = {
+        "kind": "query",
+        "selector": {"scout_args": {"position": "Attacker"}},
     }
+
+    for index, follow_list in enumerate(lists):
+        response = client.post(f"/api/scout/lists/{follow_list.id}/follows", json=follow_payload, headers=headers)
+        if index < FREE_LIST_LIMIT:
+            assert response.status_code == 201
+        else:
+            assert response.status_code == 403
+            assert response.get_json() == CUSTOM_LISTS_REQUIRED
+
+    listing = client.get("/api/scout/lists", headers=headers)
+    assert listing.status_code == 200
+    assert [row["id"] for row in listing.get_json()["lists"]] == [follow_list.id for follow_list in lists]
+
+    assert (
+        client.patch(f"/api/scout/lists/{lists[2].id}", json={"is_active": False}, headers=headers).status_code == 200
+    )
+    blocked_patch = client.patch(f"/api/scout/lists/{lists[3].id}", json={"is_active": False}, headers=headers)
+    assert blocked_patch.status_code == 403
+    assert blocked_patch.get_json() == CUSTOM_LISTS_REQUIRED
+
+    allowed_remove = client.delete(f"/api/scout/lists/{lists[2].id}/follows/{follow_ids[2]}", headers=headers)
+    assert allowed_remove.status_code == 200
+    blocked_remove = client.delete(f"/api/scout/lists/{lists[3].id}/follows/{follow_ids[3]}", headers=headers)
+    assert blocked_remove.status_code == 403
+    assert blocked_remove.get_json() == CUSTOM_LISTS_REQUIRED
+
+    delete_list = client.delete(f"/api/scout/lists/{lists[4].id}", headers=headers)
+    assert delete_list.status_code == 200
+    assert delete_list.get_json() == {"deleted": True}
+
+
+@pytest.mark.parametrize("mode", ("pro", "billing_off"))
+def test_over_limit_list_mutations_are_ungated_for_pro_or_dark_billing(app, client, monkeypatch, mode):
+    user = _add_user()
+    if mode == "pro":
+        _enable_billing(monkeypatch)
+        _add_subscription(user)
+    lists, follow_ids = _add_custom_lists(user, 5, with_follows=True)
+    target = lists[4]
+    headers = _headers(user)
+
+    added = client.post(
+        f"/api/scout/lists/{target.id}/follows",
+        json={"kind": "query", "selector": {"scout_args": {"position": "Attacker"}}},
+        headers=headers,
+    )
+    assert added.status_code == 201
+    assert client.patch(f"/api/scout/lists/{target.id}", json={"is_active": False}, headers=headers).status_code == 200
+    assert client.delete(f"/api/scout/lists/{target.id}/follows/{follow_ids[4]}", headers=headers).status_code == 200
+
+
+def test_list_creation_recounts_after_acquiring_user_lock(app, client, monkeypatch):
+    _enable_billing(monkeypatch)
+    user = _add_user()
+    _add_custom_lists(user, FREE_LIST_LIMIT - 1)
+    headers = _headers(user)
+    real_execute = db.session.execute
+    competing_create_inserted = False
+
+    def execute_with_competing_create(statement, *args, **kwargs):
+        nonlocal competing_create_inserted
+        result = real_execute(statement, *args, **kwargs)
+        if not competing_create_inserted and getattr(statement, "_for_update_arg", None) is not None:
+            competing_create_inserted = True
+            db.session.add(FollowList(user_account_id=user.id, name="Competing list", is_default=False))
+            db.session.flush()
+        return result
+
+    monkeypatch.setattr(db.session, "execute", execute_with_competing_create)
+
+    response = client.post("/api/scout/lists", json={"name": "Requested list"}, headers=headers)
+
+    assert competing_create_inserted is True
+    assert response.status_code == 403
+    assert response.get_json() == CUSTOM_LISTS_REQUIRED
+    assert FollowList.query.filter_by(user_account_id=user.id, is_default=False).count() == FREE_LIST_LIMIT
+    assert FollowList.query.filter_by(user_account_id=user.id, name="Requested list").first() is None
 
 
 def test_pro_user_reaches_existing_ten_list_cap(app, client, monkeypatch):
