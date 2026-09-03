@@ -147,6 +147,8 @@ def _checkout_key(scope_type: str, scope_id: int, product_code: str, user_id: in
 def create_checkout(user, *, product_code, price_code, client_key, scope_id=None) -> dict:
     if not isinstance(client_key, str) or not _CLIENT_KEY_RE.fullmatch(client_key):
         raise BillingError("invalid_client_key", 400)
+    if not isinstance(product_code, str) or not isinstance(price_code, str):
+        raise BillingError("unknown_product", 400)
 
     product = offered_products().get(product_code)
     price_id = resolve_price(product_code, price_code)
@@ -172,7 +174,7 @@ def create_checkout(user, *, product_code, price_code, client_key, scope_id=None
 
     customer = ensure_customer(user)
     if row is None:
-        row = BillingCheckoutSession(
+        contender = BillingCheckoutSession(
             scope_type=product["scope_type"],
             scope_id=resolved_scope_id,
             product_code=product_code,
@@ -180,7 +182,26 @@ def create_checkout(user, *, product_code, price_code, client_key, scope_id=None
             purchaser_user_id=user.id,
             client_key=client_key,
         )
-        db.session.add(row)
+        try:
+            with db.session.begin_nested():
+                db.session.add(contender)
+                db.session.flush()
+            row = contender
+        except IntegrityError:
+            row = BillingCheckoutSession.query.filter_by(
+                scope_type=product["scope_type"],
+                scope_id=resolved_scope_id,
+                product_code=product_code,
+                purchaser_user_id=user.id,
+                client_key=client_key,
+            ).first()
+            if row is None:
+                raise
+            if row.status == "open" and row.expires_at is not None and row.expires_at > now:
+                return {"checkout_url": row.checkout_url, "session_id": row.stripe_session_id}
+            row.price_code = price_code
+            row.status = "open"
+            row.completed_at = None
     else:
         row.price_code = price_code
         row.status = "open"
@@ -375,6 +396,16 @@ def _retrieve_subscription(subscription_id: str):
     return stripe.Subscription.retrieve(subscription_id, expand=["items.data.price"])
 
 
+def _retrieve_event_watermark(subscription_id: str, event_created: int | None) -> int | None:
+    row = BillingSubscription.query.filter_by(stripe_subscription_id=subscription_id).first()
+    existing = row.last_event_created if row is not None else None
+    if event_created is None:
+        return existing
+    if existing is None:
+        return event_created
+    return max(event_created, existing)
+
+
 def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
     if event_type == "checkout.session.completed":
         row = _checkout_row(obj)
@@ -383,7 +414,11 @@ def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
             row.completed_at = utcnow()
         subscription_id = _stripe_id(_get(obj, "subscription"))
         if subscription_id:
-            upsert_subscription(_retrieve_subscription(subscription_id), event_created=event_created)
+            snapshot = _retrieve_subscription(subscription_id)
+            upsert_subscription(
+                snapshot,
+                event_created=_retrieve_event_watermark(subscription_id, event_created),
+            )
         return True
     if event_type == "checkout.session.expired":
         row = _checkout_row(obj)
@@ -408,7 +443,11 @@ def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
         subscription_id = _invoice_subscription_id(obj)
         row = None
         if subscription_id:
-            row = upsert_subscription(_retrieve_subscription(subscription_id), event_created=event_created)
+            snapshot = _retrieve_subscription(subscription_id)
+            row = upsert_subscription(
+                snapshot,
+                event_created=_retrieve_event_watermark(subscription_id, event_created),
+            )
         if event_type == "invoice.payment_failed" and row is not None:
             _queue_email("payment_failed", row)
         return True
@@ -465,7 +504,7 @@ def handle_webhook(raw_body: bytes, signature_header: str | None) -> tuple[dict,
         return {"error": "invalid_signature"}, 400
     try:
         event = stripe.Webhook.construct_event(raw_body, signature_header, secret)
-    except (ValueError, stripe.SignatureVerificationError):
+    except Exception:
         return {"error": "invalid_signature"}, 400
 
     event_id = str(_get(event, "id"))

@@ -241,19 +241,42 @@ def test_bad_or_missing_signature_writes_no_event(client, monkeypatch):
     assert StripeWebhookEvent.query.count() == 0
 
 
+def test_signed_non_object_webhook_body_is_rejected_without_a_write(client, monkeypatch):
+    _enable(monkeypatch)
+    raw, signature = _signed([])
+    response = client.post(
+        "/api/billing/stripe/webhook",
+        data=raw,
+        headers={"Stripe-Signature": signature, "Content-Type": "application/json"},
+    )
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "invalid_signature"}
+    assert StripeWebhookEvent.query.count() == 0
+
+
 def test_subscription_lifecycle_replay_ordering_and_email_after_commit(client, monkeypatch):
     _enable(monkeypatch)
     user = _add_user()
     sent = []
+    real_commit = db.session.commit
+    commit_count = 0
+    enforce_first_send_order = True
+
+    def counted_commit():
+        nonlocal commit_count
+        commit_count += 1
+        return real_commit()
 
     def send_email(**kwargs):
-        assert StripeWebhookEvent.query.filter_by(status="processed").count() >= 1
+        if enforce_first_send_order:
+            assert commit_count == 1
         sent.append(kwargs)
         return SimpleNamespace(success=True)
 
     from src.services.email_service import email_service
 
     monkeypatch.setattr(email_service, "send_email", send_email)
+    monkeypatch.setattr(db.session, "commit", counted_commit)
     active = _subscription(user, status="active")
     created = _event("evt_created", "customer.subscription.created", active, created=200)
 
@@ -265,6 +288,9 @@ def test_subscription_lifecycle_replay_ordering_and_email_after_commit(client, m
     assert db.session.get(UserAccount, user.id).scout_tier == "pro"
     assert StripeWebhookEvent.query.filter_by(status="processed").count() == 1
     assert len(sent) == 1
+    assert commit_count == 1
+    enforce_first_send_order = False
+    monkeypatch.setattr(db.session, "commit", real_commit)
 
     response = _post_event(client, created)
     assert response.get_json() == {"received": True, "duplicate": True}
@@ -344,6 +370,16 @@ def test_checkout_idempotency_validation_and_active_conflict(client, monkeypatch
         "error": "invalid_client_key"
     }
     assert client.post("/api/billing/checkout", json=[], headers=headers).get_json() == {"error": "invalid_json"}
+    for field in ("product_code", "price_code"):
+        typed_payload = {
+            "product_code": "scout_pro",
+            "price_code": "monthly",
+            "client_key": f"typed_{field}",
+        }
+        typed_payload[field] = []
+        response = client.post("/api/billing/checkout", json=typed_payload, headers=headers)
+        assert response.status_code == 400
+        assert response.get_json() == {"error": "unknown_product"}
 
     monkeypatch.delenv("STRIPE_PRICE_SCOUT_PRO_MONTHLY")
     unknown = client.post("/api/billing/checkout", json=payload, headers=headers)
@@ -369,6 +405,52 @@ def test_checkout_idempotency_validation_and_active_conflict(client, monkeypatch
     response = client.post("/api/billing/checkout", json=payload, headers=headers)
     assert response.status_code == 409
     assert response.get_json() == {"error": "already_subscribed"}
+
+
+def test_checkout_unique_race_returns_winner_without_second_stripe_call(client, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("STRIPE_PRICE_SCOUT_PRO_MONTHLY", "price_monthly")
+    user = _add_user()
+    headers = _headers(user)
+    customer = BillingCustomer(user_account_id=user.id, stripe_customer_id="cus_race")
+    db.session.add(customer)
+    db.session.commit()
+
+    import src.services.stripe_billing as billing_service
+
+    def concurrent_winner(_user):
+        db.session.add(
+            BillingCheckoutSession(
+                scope_type="user",
+                scope_id=user.id,
+                product_code="scout_pro",
+                price_code="monthly",
+                purchaser_user_id=user.id,
+                client_key="checkout_race",
+                stripe_session_id="cs_race_winner",
+                checkout_url="https://checkout.example/winner",
+                status="open",
+                expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1),
+            )
+        )
+        db.session.commit()
+        return customer
+
+    checkout_create = Mock(side_effect=AssertionError("loser must not call Stripe"))
+    monkeypatch.setattr(billing_service, "ensure_customer", concurrent_winner)
+    monkeypatch.setattr(stripe.checkout.Session, "create", checkout_create)
+    response = client.post(
+        "/api/billing/checkout",
+        json={"product_code": "scout_pro", "price_code": "monthly", "client_key": "checkout_race"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "checkout_url": "https://checkout.example/winner",
+        "session_id": "cs_race_winner",
+    }
+    assert BillingCheckoutSession.query.count() == 1
+    checkout_create.assert_not_called()
 
 
 def test_expired_checkout_can_be_recreated_with_same_client_key(client, monkeypatch):
@@ -404,13 +486,63 @@ def test_config_price_lookup_failure_omits_money(client, monkeypatch):
             raise RuntimeError("lookup unavailable")
         return {"unit_amount": 900, "currency": "USD"}
 
-    monkeypatch.setattr(stripe.Price, "retrieve", retrieve)
+    retrieve_mock = Mock(side_effect=retrieve)
+    monkeypatch.setattr(stripe.Price, "retrieve", retrieve_mock)
     response = client.get("/api/billing/config")
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
     prices = response.get_json()["products"][0]["prices"]
     assert prices[0] == {"price_code": "monthly", "interval": "month", "unit_amount": 900, "currency": "usd"}
     assert prices[1] == {"price_code": "yearly", "interval": "year"}
+    assert client.get("/api/billing/config").status_code == 200
+    assert retrieve_mock.call_count == 2
+
+
+def test_retrieved_subscription_uses_existing_event_watermark(client, monkeypatch):
+    _enable(monkeypatch)
+    user = _add_user()
+    db.session.add(
+        BillingSubscription(
+            scope_type="user",
+            scope_id=user.id,
+            product_code="scout_pro",
+            price_code="monthly",
+            purchaser_user_id=user.id,
+            stripe_customer_id=f"cus_{user.id}",
+            stripe_subscription_id="sub_watermark",
+            stripe_price_id="price_test_monthly",
+            status="canceled",
+            last_event_created=150,
+        )
+    )
+    db.session.commit()
+
+    retrieved = _subscription(user, subscription_id="sub_watermark", status="active")
+    monkeypatch.setattr(stripe.Subscription, "retrieve", Mock(return_value=retrieved))
+    sent = []
+    from src.services.email_service import email_service
+
+    monkeypatch.setattr(
+        email_service,
+        "send_email",
+        lambda **kwargs: sent.append(kwargs) or SimpleNamespace(success=True),
+    )
+    completed = _event(
+        "evt_checkout_completed_watermark",
+        "checkout.session.completed",
+        {"id": "cs_watermark", "subscription": "sub_watermark"},
+        created=100,
+    )
+    assert _post_event(client, completed).status_code == 200
+    row = BillingSubscription.query.one()
+    assert row.status == "active"
+    assert row.last_event_created == 150
+
+    stale = _subscription(user, subscription_id="sub_watermark", status="canceled")
+    updated = _event("evt_stale_after_checkout", "customer.subscription.updated", stale, created=90)
+    assert _post_event(client, updated).status_code == 200
+    assert BillingSubscription.query.one().status == "active"
+    assert not any(message["subject"] == "Your Scout Pro subscription has ended" for message in sent)
 
 
 def test_billing_me_and_portal(client, monkeypatch):

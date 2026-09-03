@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 billing_bp = Blueprint("billing", __name__)
 
 _PRICE_CACHE_SECONDS = 600
+_PRICE_FAILURE_CACHE_SECONDS = 60
 _price_cache: dict[str, tuple[float, dict]] = {}
 
 
@@ -53,8 +54,10 @@ def _stripe_value(value, key, default=None):
 def _price_details(price_id: str) -> dict:
     cached = _price_cache.get(price_id)
     now = time.monotonic()
-    if cached is not None and now - cached[0] < _PRICE_CACHE_SECONDS:
-        return cached[1]
+    if cached is not None:
+        ttl = _PRICE_CACHE_SECONDS if cached[1] else _PRICE_FAILURE_CACHE_SECONDS
+        if now - cached[0] < ttl:
+            return cached[1]
     try:
         configure_stripe()
         price = stripe.Price.retrieve(price_id)
@@ -63,11 +66,13 @@ def _price_details(price_id: str) -> dict:
             "currency": str(_stripe_value(price, "currency")).lower(),
         }
         if details["unit_amount"] is None or not _stripe_value(price, "currency"):
+            _price_cache[price_id] = (now, {})
             return {}
         _price_cache[price_id] = (now, details)
         return details
     except Exception:
         logger.warning("Stripe price lookup failed for configured price %s", price_id, exc_info=True)
+        _price_cache[price_id] = (now, {})
         return {}
 
 
