@@ -8,6 +8,7 @@ from uuid import uuid4
 import sqlalchemy as sa
 from sqlalchemy import func, or_
 from src.models.account import AccountDeletionEvent
+from src.models.billing import BillingCheckoutSession, BillingCustomer, BillingSubscription
 from src.models.contact import ContactAuditEvent, ContactMessage, ContactOutcome, ContactRequest
 from src.models.follow import Follow, FollowList, FollowPlayerSnapshot
 from src.models.league import (
@@ -43,6 +44,11 @@ from src.models.trust import ContentReport, ScoutVerification
 from src.services import season_rollup_service
 from src.services.club_registry import active_manager_program_ids, program_is_operational
 from src.services.player_suppression import active_suppressed_player_ids
+from src.services.stripe_billing import (
+    cancel_subscriptions_for_account_deletion,
+    subscription_payload,
+    subscriptions_for_user,
+)
 from src.services.user_blocks import delete_user_block_rows_for_account
 
 DELETED_DISPLAY_NAME = "Account deleted"
@@ -308,6 +314,10 @@ def build_account_export(user: UserAccount) -> dict:
     return {
         "exported_at": datetime.now(UTC).isoformat(),
         "account": account,
+        "billing": {
+            "has_billing_account": BillingCustomer.query.filter_by(user_account_id=user.id).first() is not None,
+            "subscriptions": [subscription_payload(row) for row in subscriptions_for_user(user)],
+        },
         "scout_verifications": [
             row.to_dict()
             for row in ScoutVerification.query.filter_by(user_account_id=user.id)
@@ -461,6 +471,7 @@ def _redact_string_identity_columns(schema: _SchemaView, email: str) -> tuple[in
         ("club_programs", "reviewed_by"),
         ("club_program_claims", "reviewed_by"),
         ("club_program_profile_revisions", "reviewed_by"),
+        ("club_program_updates", "reviewed_by"),
         ("club_program_managers", "granted_by"),
         ("club_program_managers", "revoked_by"),
         ("player_suppressions", "decided_by"),
@@ -620,6 +631,8 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     commit, so the tombstone, anonymization, owned-row deletion, original-user
     deletion, and append-only event either all persist or all roll back.
     """
+    cancel_subscriptions_for_account_deletion(user)
+
     locked_user = (
         db.session.execute(
             sa.select(UserAccount)
@@ -692,6 +705,9 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             "writer_coverage_requests": 0,
             "manual_player_submissions": 0,
             "product_events": 0,
+            "billing_customers": 0,
+            "billing_subscriptions": 0,
+            "billing_checkout_sessions": 0,
             "stripe_connected_accounts": 0,
             "stripe_subscription_plans": 0,
             "stripe_subscriptions": 0,
@@ -827,6 +843,19 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             JournalistSubscription.journalist_user_id == user_id,
         )
     ).delete(synchronize_session=False)
+
+    billing_checkout_query = BillingCheckoutSession.query.filter_by(purchaser_user_id=user_id)
+    counts["deleted"]["billing_checkout_sessions"] = billing_checkout_query.delete(synchronize_session=False)
+    billing_subscription_query = BillingSubscription.query.filter(
+        or_(
+            BillingSubscription.purchaser_user_id == user_id,
+            (BillingSubscription.scope_type == "user") & (BillingSubscription.scope_id == user_id),
+        )
+    )
+    counts["deleted"]["billing_subscriptions"] = billing_subscription_query.delete(synchronize_session=False)
+    counts["deleted"]["billing_customers"] = BillingCustomer.query.filter_by(user_account_id=user_id).delete(
+        synchronize_session=False
+    )
     # The Stripe rail is deprecated and has no live product/legal-integrity
     # consumer. Remove its sensitive external identifiers instead of retaining
     # them behind a tombstone; a subscription row involving the caller is
@@ -870,6 +899,16 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         string_identities, funding_events = _redact_string_identity_columns(schema, email)
         counts["anonymized"]["cached_identity_rows"] += string_identities
         counts["anonymized"]["funding_admin_events"] = funding_events
+
+    if schema.has_columns("club_program_updates", "author_user_id"):
+        author_column = schema.quote("author_user_id")
+        _update_where(
+            schema,
+            "club_program_updates",
+            f"{author_column} = NULL",
+            f"{author_column} = :user_id",
+            {"user_id": user_id},
+        )
 
     if claim_ids:
         PlayerProfileClaim.query.filter(PlayerProfileClaim.id.in_(claim_ids)).delete(synchronize_session=False)

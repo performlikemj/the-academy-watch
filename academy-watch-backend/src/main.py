@@ -17,6 +17,7 @@ from werkzeug.exceptions import HTTPException
 # migrate` autogenerate sees them (no spurious drop/create) and db.create_all()
 # includes them even before a route/service imports the model directly.
 import src.models.account  # noqa: E402, F401
+import src.models.billing  # noqa: E402, F401
 import src.models.contact  # noqa: E402, F401
 import src.models.player_fan  # noqa: E402, F401
 import src.models.player_match_entry  # noqa: E402, F401
@@ -33,6 +34,7 @@ from src.routes.academy import academy_bp
 from src.routes.account import account_bp
 from src.routes.api import api_bp, require_api_key
 from src.routes.auth_routes import auth_bp
+from src.routes.billing import billing_bp
 from src.routes.blocks import blocks_bp
 from src.routes.club import club_bp
 from src.routes.cohort import cohort_bp
@@ -127,6 +129,7 @@ app.register_blueprint(funding_bp, url_prefix="/api")
 app.register_blueprint(club_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")
 app.register_blueprint(contact_bp, url_prefix="/api")
+app.register_blueprint(billing_bp, url_prefix="/api")
 app.register_blueprint(blocks_bp, url_prefix="/api")
 app.register_blueprint(account_bp, url_prefix="/api")
 app.register_blueprint(player_suppression_bp, url_prefix="/api")
