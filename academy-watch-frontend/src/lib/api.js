@@ -26,6 +26,7 @@ export class APIService {
     static displayNameConfirmedFlag = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_display_name_confirmed') === 'true') || false
     static scoutPro = null
     static authEventName = 'loan_auth_changed'
+    static golAccessEventName = 'gol_access_denied'
 
     static _emitAuthChanged(extra = {}) {
         if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return
@@ -46,6 +47,22 @@ export class APIService {
         } catch (err) {
             console.warn('Failed to dispatch auth event', err)
         }
+    }
+
+    static async _emitGolAccessDenied(response) {
+        let state = null
+        if (response.status === 401) {
+            state = 'signed_out'
+        } else if (response.status === 403) {
+            try {
+                const body = await response.clone().json()
+                if (body?.error === 'scout_pro_required' && body?.feature === 'gol_chat') state = 'locked'
+            } catch (_) { /* non-JSON response is not a recognized access denial */ }
+        }
+        if (!state || typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return
+        window.dispatchEvent(new CustomEvent(this.golAccessEventName, {
+            detail: { state, token: this.userToken },
+        }))
     }
 
     static displayNameConfirmed() {
@@ -3091,12 +3108,14 @@ export class APIService {
     static async streamChat(message, history, sessionId, signal) {
         const headers = { 'Content-Type': 'application/json' }
         if (this.userToken) headers['Authorization'] = `Bearer ${this.userToken}`
-        return fetch(`${API_BASE_URL}/gol/chat`, {
+        const response = await fetch(`${API_BASE_URL}/gol/chat`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ message, history, session_id: sessionId }),
             signal,
         })
+        if (!response.ok) await this._emitGolAccessDenied(response)
+        return response
     }
 
     static async golExportPdf(messages) {
@@ -3111,13 +3130,19 @@ export class APIService {
             body: JSON.stringify({ messages }),
         })
         if (!res.ok) {
+            await this._emitGolAccessDenied(res)
             let message = `HTTP ${res.status}`
+            let parsed = null
             try {
                 const body = await res.text()
-                if (body) message = body
+                if (body) {
+                    try { parsed = JSON.parse(body) } catch (_) { /* keep plain text */ }
+                    message = parsed?.error || body
+                }
             } catch (_) { /* ignore */ }
             const err = new Error(message)
             err.status = res.status
+            err.body = parsed
             throw err
         }
         const blob = await res.blob()

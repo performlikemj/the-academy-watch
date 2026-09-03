@@ -6,9 +6,10 @@ import { PlayerPreviewDrawer } from './PlayerPreviewDrawer'
 import { exportChatAsMarkdown } from './exportChat'
 import { APIService } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Download, FileDown, Loader2, Trash2 } from 'lucide-react'
+import { Download, FileDown, Loader2, LockKeyhole, LogIn, Trash2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
-export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, stopStreaming, expanded }) {
+export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, stopStreaming, expanded, accessState, onSignIn }) {
   const [previewPlayerId, setPreviewPlayerId] = useState(null)
   const [pdfExporting, setPdfExporting] = useState(false)
   const [pdfError, setPdfError] = useState(null)
@@ -29,7 +30,11 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
       await APIService.golExportPdf(messages)
     } catch (err) {
       console.error('GOL PDF export failed', err)
-      setPdfError(err?.message || 'PDF export failed')
+      const isSignInRequired = err?.status === 401
+      const isScoutProRequired = err?.status === 403
+        && err?.body?.error === 'scout_pro_required'
+        && err?.body?.feature === 'gol_chat'
+      if (!isSignInRequired && !isScoutProRequired) setPdfError('PDF export failed. Please try again.')
     } finally {
       setPdfExporting(false)
     }
@@ -42,7 +47,7 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3"
       >
         {messages.length === 0 ? (
-          <GolSuggestions onSelect={sendMessage} />
+          <GolSuggestions onSelect={sendMessage} disabled={accessState !== 'available'} />
         ) : (
           <div className="space-y-4 min-w-0">
             {messages.map(msg => (
@@ -79,7 +84,7 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
                 size="sm"
                 className="text-xs text-muted-foreground"
                 onClick={handleExportPdf}
-                disabled={pdfExporting || isStreaming}
+                disabled={pdfExporting || isStreaming || accessState !== 'available'}
                 title="Download as PDF"
               >
                 {pdfExporting ? (
@@ -100,7 +105,36 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
             )}
           </>
         )}
-        <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
+        {accessState === 'signed_out' ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/35 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Sign in to ask GOL</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Your suggestions will be waiting when you return.</p>
+            </div>
+            <Button size="sm" onClick={onSignIn}>
+              <LogIn className="mr-1.5 h-4 w-4" />
+              Sign in
+            </Button>
+          </div>
+        ) : accessState === 'locked' ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-amber-950">
+              <div className="flex min-w-0 items-start gap-2.5">
+                <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <div>
+                  <p className="text-sm font-semibold">Scout Pro unlocks GOL</p>
+                  <p className="mt-0.5 text-xs text-amber-900/80">Upgrade to keep chatting and export GOL conversations as PDF.</p>
+                </div>
+              </div>
+              <Button size="sm" variant="outline" asChild>
+                <Link to="/pricing">View Scout Pro</Link>
+              </Button>
+            </div>
+            <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} disabled />
+          </div>
+        ) : (
+          <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
+        )}
       </div>
 
       <PlayerPreviewDrawer

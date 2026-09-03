@@ -1,5 +1,5 @@
-// Run: pnpm dev --host 127.0.0.1 --port 5181 --strictPort
-// Then: E2E_BASE_URL=http://127.0.0.1:5181 pnpm exec playwright test e2e/billing.spec.mjs
+// Run: pnpm dev --host 127.0.0.1 --port 5194 --strictPort
+// Then: E2E_BASE_URL=http://127.0.0.1:5194 pnpm exec playwright test e2e/billing.spec.mjs
 import { expect, test } from '@playwright/test'
 
 const ACCOUNT = {
@@ -13,7 +13,7 @@ const ACCOUNT = {
   is_curator: false,
   is_verified_scout: true,
   scout_tier: 'free',
-  scout_pro: { enabled: true, tier: 'free', features: { csv_export: false, custom_lists_max: 3 } },
+  scout_pro: { enabled: true, tier: 'pro', features: { gol_chat: true } },
 }
 
 const BILLING_CONFIG = {
@@ -26,7 +26,7 @@ const BILLING_CONFIG = {
   }],
 }
 
-async function installApi(page, handler, { signedIn = false } = {}) {
+async function installApi(page, handler, { signedIn = false, account = ACCOUNT } = {}) {
   await page.addInitScript(({ authenticated }) => {
     localStorage.clear()
     sessionStorage.clear()
@@ -44,10 +44,11 @@ async function installApi(page, handler, { signedIn = false } = {}) {
     const request = route.request()
     const url = new URL(request.url())
     if (handler && await handler({ route, request, url })) return
-    if (url.pathname === '/api/auth/me' && signedIn) return route.fulfill({ json: ACCOUNT })
+    if (url.pathname === '/api/auth/me' && signedIn) return route.fulfill({ json: account })
     if (url.pathname === '/api/features') return route.fulfill({ json: { contact_rail: false } })
     if (url.pathname === '/api/sync-status') return route.fulfill({ json: { running: false } })
     if (url.pathname === '/api/journalists') return route.fulfill({ json: [] })
+    if (url.pathname === '/api/sponsors') return route.fulfill({ json: [] })
     if (url.pathname === '/api/events' && request.method() === 'POST') return route.fulfill({ json: { accepted: true } })
     throw new Error(`Unmocked API request: ${request.method()} ${url.pathname}${url.search}`)
   })
@@ -141,7 +142,7 @@ test('account billing records one sanitized completion and opens the billing por
       return true
     }
     if (url.pathname === '/api/scout/entitlements') {
-      await route.fulfill({ json: { entitlements: { billing_enabled: true, tier: 'pro', source: 'subscription', subscription_status: 'active', current_period_end: '2026-10-03T00:00:00', cancel_at_period_end: false, grandfathered_until: null, features: { csv_export: true, custom_lists_max: 25 } } } })
+      await route.fulfill({ json: { entitlements: { billing_enabled: true, tier: 'pro', source: 'subscription', subscription_status: 'active', current_period_end: '2026-10-03T00:00:00', cancel_at_period_end: false, grandfathered_until: null, features: { gol_chat: true } } } })
       return true
     }
     if (url.pathname === '/api/billing/portal' && request.method() === 'POST') {
@@ -183,7 +184,7 @@ test('account billing failure hides partial subscription and entitlement data', 
     if (url.pathname === '/api/billing/config') return route.fulfill({ json: BILLING_CONFIG }).then(() => true)
     if (url.pathname === '/api/billing/me') return route.fulfill({ status: 500, json: { error: 'temporary_failure' } }).then(() => true)
     if (url.pathname === '/api/scout/entitlements') {
-      await route.fulfill({ json: { entitlements: { billing_enabled: true, tier: 'pro', source: 'subscription', subscription_status: 'active', current_period_end: '2026-10-03T00:00:00', cancel_at_period_end: false, grandfathered_until: null, features: { csv_export: true, custom_lists_max: 25 } } } })
+      await route.fulfill({ json: { entitlements: { billing_enabled: true, tier: 'pro', source: 'subscription', subscription_status: 'active', current_period_end: '2026-10-03T00:00:00', cancel_at_period_end: false, grandfathered_until: null, features: { gol_chat: true } } } })
       return true
     }
     return false
@@ -362,51 +363,71 @@ test('club profile blocks mutations after a failed load and retries both request
   expect(updateGets).toBe(2)
 })
 
-test('custom-list Pro badge excludes the default watchlist from its limit', async ({ page }) => {
-  let customLists = 2
-  await installApi(page, async ({ route, request, url }) => {
-    if (url.pathname === '/api/scout/lists' && request.method() === 'GET') {
-      const lists = [
-        { id: 1, name: 'Watchlist', is_default: true, is_active: true, follows: [], follow_count: 0 },
-        ...Array.from({ length: customLists }, (_, index) => ({ id: index + 2, name: `Custom ${index + 1}`, is_default: false, is_active: true, follows: [], follow_count: 0 })),
-      ]
-      await route.fulfill({ json: { lists } })
-      return true
-    }
-    if (/^\/api\/scout\/lists\/\d+\/resolve$/.test(url.pathname)) {
-      await route.fulfill({ json: { players: [], total: 0, offset: 0 } })
-      return true
-    }
-    if (url.pathname === '/api/teams') return route.fulfill({ json: [] }).then(() => true)
+test('GOL asks signed-out visitors to sign in without showing a composer', async ({ page }) => {
+  await installApi(page, async ({ route, url }) => {
+    if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: ['Compare two academy pathways'] } }).then(() => true)
     return false
-  }, { signedIn: true })
+  })
 
-  await page.goto('/scout/lists')
-  await expect(page.getByText('Custom 2', { exact: true })).toBeVisible()
-  let newList = page.getByRole('button', { name: /New list/ }).first()
-  await expect(newList.getByText('Pro', { exact: true })).toHaveCount(0)
-
-  customLists = 3
-  await page.reload()
-  await expect(page.getByText('Custom 3', { exact: true })).toBeVisible()
-  newList = page.getByRole('button', { name: /New list/ }).first()
-  await expect(newList.getByText('Pro', { exact: true })).toBeVisible()
+  await page.goto('/terms')
+  await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+  await expect(page.getByText('Sign in to ask GOL', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+  await expect(page.getByPlaceholder('Ask about any player or team…')).toHaveCount(0)
 })
 
-test('CSV entitlement rejection surfaces an inline Scout Pro upgrade prompt', async ({ page }) => {
+test('GOL shows the Scout Pro lock only for an explicit false entitlement', async ({ page }) => {
+  const account = { ...ACCOUNT, scout_tier: 'free', scout_pro: { enabled: true, tier: 'free', features: { gol_chat: false } } }
+  await installApi(page, async ({ route, url }) => {
+    if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: ['Compare two academy pathways'] } }).then(() => true)
+    return false
+  }, { signedIn: true, account })
+
+  await page.goto('/terms')
+  await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+  await expect(page.getByText('Scout Pro unlocks GOL', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'View Scout Pro' })).toHaveAttribute('href', '/pricing')
+  await expect(page.getByPlaceholder('Ask about any player or team…')).toBeDisabled()
+})
+
+test('GOL composer is usable with an explicit true entitlement', async ({ page }) => {
+  const chatBodies = []
   await installApi(page, async ({ route, request, url }) => {
-    if (url.pathname === '/api/scout/watchlist' && request.method() === 'GET') {
-      await route.fulfill({ json: { entries: [{ player_api_id: 101, note: null, player: { player_name: 'Jamie Prospect', position: 'Midfielder', status: 'academy' } }], digest_opt_in: true } })
-      return true
-    }
-    if (url.pathname === '/api/scout/export.csv') {
-      await route.fulfill({ status: 403, json: { error: 'scout_pro_required', feature: 'csv_export', upgrade_path: '/pricing' } })
+    if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: ['Compare two academy pathways'] } }).then(() => true)
+    if (url.pathname === '/api/gol/chat' && request.method() === 'POST') {
+      chatBodies.push(request.postDataJSON())
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'event: token\ndata: {"content":"Academy answer"}\n\nevent: done\ndata: {}\n\n' })
       return true
     }
     return false
   }, { signedIn: true })
-  await page.goto('/scout/watchlist')
-  await page.getByRole('button', { name: /Export CSV/ }).click()
-  await expect(page.getByText(/Scout Pro unlocks csv export/)).toBeVisible()
+
+  await page.goto('/terms')
+  await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+  const composer = page.getByPlaceholder('Ask about any player or team…')
+  await expect(composer).toBeEnabled()
+  await composer.fill('Which academy has the strongest pathway?')
+  await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+  await expect.poll(() => chatBodies.length).toBe(1)
+  expect(chatBodies[0].message).toBe('Which academy has the strongest pathway?')
+})
+
+test('GOL switches to the locked state after a mid-session Scout Pro rejection', async ({ page }) => {
+  await installApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: ['Compare two academy pathways'] } }).then(() => true)
+    if (url.pathname === '/api/gol/chat' && request.method() === 'POST') {
+      await route.fulfill({ status: 403, json: { error: 'scout_pro_required', feature: 'gol_chat', upgrade_path: '/pricing' } })
+      return true
+    }
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/terms')
+  await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+  await page.getByPlaceholder('Ask about any player or team…').fill('Compare academy pathways')
+  await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+  await expect(page.getByText('Scout Pro unlocks GOL', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'View Scout Pro' })).toHaveAttribute('href', '/pricing')
+  await expect(page.getByPlaceholder('Ask about any player or team…')).toBeDisabled()
+  await expect(page.getByText('scout_pro_required', { exact: true })).toHaveCount(0)
 })

@@ -4,7 +4,6 @@ import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -94,7 +93,6 @@ export function WatchlistPage() {
   const [digestOptIn, setDigestOptIn] = useState(true)
   const [savingDigest, setSavingDigest] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [upgradePrompt, setUpgradePrompt] = useState(null)
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -162,15 +160,10 @@ export function WatchlistPage() {
   const handleExportCsv = useCallback(async () => {
     if (!entries.length) return
     setExporting(true)
-    setUpgradePrompt(null)
     try {
       await APIService.downloadScoutCsv({ ids: entries.map((e) => e.player_api_id).join(',') })
     } catch (err) {
-      if (err?.status === 403 && err?.body?.error === 'scout_pro_required' && err.body.feature && err.body.upgrade_path) {
-        setUpgradePrompt(err.body)
-      } else {
-        console.error('CSV export failed', err)
-      }
+      console.error('CSV export failed', err)
     } finally {
       setExporting(false)
     }
@@ -206,7 +199,7 @@ export function WatchlistPage() {
           <div>
             <p className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
               <Star className="h-3.5 w-3.5" />
-              {auth.scoutPro?.enabled === true ? 'Scout Pro workspace' : 'Scout Pro — free during beta'}
+              Scout Pro — free during beta
             </p>
             <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
               Your Watchlist
@@ -234,7 +227,6 @@ export function WatchlistPage() {
             <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting || !entries.length}>
               {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
               Export CSV
-              {auth.scoutPro?.enabled === true && auth.scoutPro?.features?.csv_export === false ? <Badge className="ml-1.5 px-1.5 py-0 text-[10px]">Pro</Badge> : null}
             </Button>
             <Button size="sm" asChild>
               <Link to="/scout" className="no-underline hover:no-underline">
@@ -244,8 +236,6 @@ export function WatchlistPage() {
             </Button>
           </div>
         </header>
-
-        {upgradePrompt ? <p className="mb-4 text-sm text-amber-800">Scout Pro unlocks {upgradePrompt.feature.replaceAll('_', ' ')}. <Link to={upgradePrompt.upgrade_path} className="font-semibold underline">View Scout Pro</Link></p> : null}
 
         {/* Lists cross-link */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-primary/5 px-4 py-2.5">

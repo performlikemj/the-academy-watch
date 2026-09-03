@@ -535,7 +535,6 @@ export function ScoutPage() {
   const [introducePlayer, setIntroducePlayer] = useState(null)
   const [watchedIds, setWatchedIds] = useState(null)
   const [exporting, setExporting] = useState(false)
-  const [upgradePrompt, setUpgradePrompt] = useState(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedSource = searchParams.get('source')
   const source = SOURCE_VALUES.has(requestedSource) ? requestedSource : 'all'
@@ -664,7 +663,6 @@ export function ScoutPage() {
       return
     }
     setExporting(true)
-    setUpgradePrompt(null)
     try {
       const params = {}
       if (debouncedSearch) params.search = debouncedSearch
@@ -676,11 +674,7 @@ export function ScoutPage() {
       if (selectedSeason != null) params.season = selectedSeason
       await APIService.downloadScoutCsv({ ...params, sort, order })
     } catch (err) {
-      if (err?.status === 403 && err?.body?.error === 'scout_pro_required' && err.body.feature && err.body.upgrade_path) {
-        setUpgradePrompt(err.body)
-      } else {
-        console.error('CSV export failed', err)
-      }
+      console.error('CSV export failed', err)
     } finally {
       setExporting(false)
     }
@@ -852,12 +846,9 @@ export function ScoutPage() {
             <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting}>
               {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
               Export CSV
-              {auth.scoutPro?.enabled === true && auth.scoutPro?.features?.csv_export === false ? <Badge className="ml-1.5 px-1.5 py-0 text-[10px]">Pro</Badge> : null}
             </Button>
           </div>
         </header>
-
-        {upgradePrompt ? <p className="mb-4 text-sm text-amber-800">Scout Pro unlocks {upgradePrompt.feature.replaceAll('_', ' ')}. <Link to={upgradePrompt.upgrade_path} className="font-semibold underline">View Scout Pro</Link></p> : null}
 
         {/* Phase-of-play view switcher */}
         <section aria-label="Phase of play" className="mb-6">
