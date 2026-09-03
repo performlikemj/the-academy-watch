@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Mail, Users, Shield, GraduationCap, Inbox, Sprout, ArrowRight, Activity, BarChart3 } from 'lucide-react'
+import { Mail, Users, Shield, GraduationCap, Inbox, Sprout, ArrowRight, Activity, BarChart3, CircleDollarSign } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { APIService } from '@/lib/api'
@@ -72,6 +72,34 @@ function StatTile({ label, value, ok, okLabel = 'OK', warnLabel = 'needs repair'
                 )}
             </div>
         </div>
+    )
+}
+
+function formatMinorCurrency(amount, currency) {
+    if (!Number.isFinite(amount)) return null
+    const code = typeof currency === 'string' ? currency.trim() : ''
+    if (!code) return (amount / 100).toFixed(2)
+    try {
+        return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(amount / 100)
+    } catch {
+        return `${code.toUpperCase()} ${(amount / 100).toFixed(2)}`
+    }
+}
+
+function MonthlyRecurringRevenue({ summary }) {
+    if (Number.isFinite(summary?.mrr_cents)) {
+        return formatMinorCurrency(summary.mrr_cents, summary.currency) || '—'
+    }
+    const byCurrency = summary?.mrr_by_currency && typeof summary.mrr_by_currency === 'object'
+        ? Object.entries(summary.mrr_by_currency)
+            .filter(([currency, amount]) => currency && Number.isFinite(amount))
+            .sort(([left], [right]) => left.localeCompare(right))
+        : []
+    if (!byCurrency.length) return '—'
+    return (
+        <span className="flex flex-col items-start gap-1 text-base">
+            {byCurrency.map(([currency, amount]) => <span key={currency}>{currency.toUpperCase()} · {formatMinorCurrency(amount, currency)}</span>)}
+        </span>
     )
 }
 
@@ -355,6 +383,7 @@ function InboxPendingStrip() {
 
 export function AdminDashboard() {
     const [stats, setStats] = useState(null)
+    const [revenue, setRevenue] = useState(undefined)
 
     useEffect(() => {
         let cancelled = false
@@ -374,6 +403,14 @@ export function AdminDashboard() {
             }
         }
         loadStats()
+        return () => { cancelled = true }
+    }, [])
+
+    useEffect(() => {
+        let cancelled = false
+        APIService.getAdminBillingSummary()
+            .then((data) => { if (!cancelled) setRevenue(data) })
+            .catch(() => { if (!cancelled) setRevenue(null) })
         return () => { cancelled = true }
     }, [])
 
@@ -448,6 +485,18 @@ export function AdminDashboard() {
                     </CardContent>
                 </Card>
             </div>
+
+            {revenue ? (
+                <Card data-testid="revenue-summary">
+                    <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><CircleDollarSign className="h-4 w-4" />Revenue</CardTitle><CardDescription>Stripe subscriptions and rail health</CardDescription></CardHeader>
+                    <CardContent className="grid gap-3 grid-cols-2 md:grid-cols-4">
+                        <StatTile label="Active subscriptions" value={revenue.active_subscriptions ?? 0} />
+                        <StatTile label="Monthly recurring revenue" value={<MonthlyRecurringRevenue summary={revenue} />} />
+                        <StatTile label="Past due" value={revenue.past_due ?? 0} ok={(revenue.past_due ?? 0) === 0} />
+                        <StatTile label="Webhook failures · 24h" value={revenue.webhook_failed_last_24h ?? 0} ok={(revenue.webhook_failed_last_24h ?? 0) === 0} />
+                    </CardContent>
+                </Card>
+            ) : null}
 
             {/* Ops snapshot + Inbox pending */}
             <div className="grid gap-4 lg:grid-cols-2">

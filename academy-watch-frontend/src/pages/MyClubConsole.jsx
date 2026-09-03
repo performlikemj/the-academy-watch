@@ -1759,7 +1759,30 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
   )
 }
 
-function ClubProfile({ program, claim }) {
+const EMPTY_PROFILE_FORM = {
+  summary: '', age_groups: '', activities: '', funding_purpose: '', official_url: '', safeguarding_url: '', media_urls: '', external_support_provider: 'none', external_support_url: '',
+}
+
+function profileForm(revision) {
+  if (!revision) return EMPTY_PROFILE_FORM
+  return {
+    summary: revision.summary || '',
+    age_groups: (revision.age_groups || []).join(', '),
+    activities: (revision.activities || []).join(', '),
+    funding_purpose: revision.funding_purpose || '',
+    official_url: revision.official_url || '',
+    safeguarding_url: revision.safeguarding_url || '',
+    media_urls: (revision.media_urls || []).join('\n'),
+    external_support_provider: revision.external_support?.provider || 'none',
+    external_support_url: revision.external_support?.url || '',
+  }
+}
+
+function splitValues(value, separator) {
+  return String(value || '').split(separator).map((item) => item.trim()).filter(Boolean)
+}
+
+function ReadOnlyClubProfile({ program, claim }) {
   const location = [program.city, program.region, program.country].filter(Boolean).join(', ')
   return (
     <Card className="overflow-hidden border-border/80">
@@ -1785,6 +1808,162 @@ function ClubProfile({ program, claim }) {
         ))}
       </CardContent>
     </Card>
+  )
+}
+
+function ClubProfile({ program, claim, onAccessDenied }) {
+  const deniedRef = useRef(onAccessDenied)
+  const [profile, setProfile] = useState(null)
+  const [updates, setUpdates] = useState([])
+  const [loadState, setLoadState] = useState('loading')
+  const [form, setForm] = useState(EMPTY_PROFILE_FORM)
+  const [updateForm, setUpdateForm] = useState({ title: '', body: '', impact: '' })
+  const [saving, setSaving] = useState(false)
+  const [posting, setPosting] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState({})
+  const [updateErrors, setUpdateErrors] = useState({})
+  const [message, setMessage] = useState(null)
+
+  useEffect(() => {
+    deniedRef.current = onAccessDenied
+  }, [onAccessDenied])
+
+  const load = useCallback(async () => {
+    setLoadState('loading')
+    setMessage(null)
+    try {
+      const [profileResult, updateResult] = await Promise.allSettled([
+        APIService.getClubProfile(program.id),
+        APIService.listClubUpdates(program.id),
+      ])
+      const profileData = profileResult.status === 'fulfilled' ? profileResult.value : undefined
+      const updateData = updateResult.status === 'fulfilled' ? updateResult.value : undefined
+      if (profileData === null || updateData === null) {
+        setLoadState('unavailable')
+        return
+      }
+      if (profileResult.status === 'rejected') throw profileResult.reason
+      if (updateResult.status === 'rejected') throw updateResult.reason
+      setProfile(profileData)
+      setUpdates(updateData?.updates || [])
+      setForm(profileForm(profileData?.pending || profileData?.approved))
+      setLoadState('ready')
+    } catch (error) {
+      setLoadState('failed')
+      if (error?.status === 403) deniedRef.current()
+    }
+  }, [program.id])
+
+  useEffect(() => {
+    const timer = setTimeout(load, 0)
+    return () => clearTimeout(timer)
+  }, [load])
+
+  const save = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+    setFieldErrors({})
+    setMessage(null)
+    const externalSupport = form.external_support_provider === 'none'
+      ? null
+      : { provider: form.external_support_provider, url: form.external_support_url.trim() }
+    const payload = {
+      summary: form.summary,
+      age_groups: splitValues(form.age_groups, ','),
+      activities: splitValues(form.activities, ','),
+      funding_purpose: form.funding_purpose,
+      official_url: form.official_url,
+      safeguarding_url: form.safeguarding_url,
+      media_urls: splitValues(form.media_urls, /\n/),
+      external_support: externalSupport,
+    }
+    try {
+      const result = await APIService.putClubProfile(program.id, payload)
+      setProfile((current) => ({ ...current, pending: result.pending }))
+      setForm(profileForm(result.pending))
+      setMessage({ type: 'success', text: 'Profile submitted for review.' })
+    } catch (error) {
+      if (error?.status === 403) deniedRef.current()
+      else if (error?.status === 400 && error?.body?.error === 'validation_failed') setFieldErrors(error.body.fields || {})
+      else setMessage({ type: 'error', text: errorText(error, 'Profile could not be saved.') })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const postUpdate = async (event) => {
+    event.preventDefault()
+    setPosting(true)
+    setMessage(null)
+    setUpdateErrors({})
+    try {
+      const result = await APIService.createClubUpdate(program.id, updateForm)
+      setUpdates((current) => [result.update, ...current])
+      setUpdateForm({ title: '', body: '', impact: '' })
+      setMessage({ type: 'success', text: 'Update submitted for review.' })
+    } catch (error) {
+      if (error?.status === 403) deniedRef.current()
+      else if (error?.status === 409 && error?.body?.error === 'pending_limit_reached') setMessage({ type: 'error', text: 'You already have 5 updates pending review.' })
+      else if (error?.status === 400 && error?.body?.error === 'validation_failed') setUpdateErrors(error.body.fields || {})
+      else setMessage({ type: 'error', text: errorText(error, 'Update could not be submitted.') })
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  const removeUpdate = async (update) => {
+    try {
+      const result = await APIService.deleteClubUpdate(program.id, update.id)
+      setUpdates((current) => result.deleted
+        ? current.filter((item) => item.id !== update.id)
+        : current.map((item) => item.id === update.id ? { ...item, status: result.status } : item))
+    } catch (error) {
+      if (error?.status === 403) deniedRef.current()
+      else setMessage({ type: 'error', text: errorText(error, 'Update could not be removed.') })
+    }
+  }
+
+  if (loadState === 'loading') return <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading club profile…</CardContent></Card>
+  if (loadState === 'unavailable') return <ReadOnlyClubProfile program={program} claim={claim} />
+  if (loadState === 'failed') return <Card><CardHeader><CardTitle>Club profile couldn&apos;t be loaded.</CardTitle><CardDescription>Your existing profile and updates have not been changed.</CardDescription></CardHeader><CardContent><Button variant="outline" onClick={load}>Retry</Button></CardContent></Card>
+
+  const edit = (field, value) => setForm((current) => ({ ...current, [field]: value }))
+  const selectSupportProvider = (value) => setForm((current) => ({
+    ...current,
+    external_support_provider: value,
+    external_support_url: value === 'none' ? '' : current.external_support_url,
+  }))
+  const profileField = (id, label, control) => <div className="space-y-1.5"><Label htmlFor={id}>{label}</Label>{control}{fieldErrors[id] ? <p className="text-xs text-destructive">{fieldErrors[id]}</p> : null}</div>
+
+  return (
+    <div className="space-y-6">
+      {message ? <Alert className={message.type === 'error' ? 'border-rose-300 bg-rose-50' : 'border-emerald-300 bg-emerald-50'}><AlertCircle className="h-4 w-4" /><AlertDescription>{message.text}</AlertDescription></Alert> : null}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card><CardHeader><CardTitle>Approved</CardTitle><CardDescription>The profile currently visible to the public.</CardDescription></CardHeader><CardContent>{profile?.approved ? <><Badge>{profile.approved.status}</Badge><p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">{profile.approved.summary || 'No summary supplied.'}</p></> : <p className="text-sm text-muted-foreground">No approved profile revision yet.</p>}</CardContent></Card>
+        <Card className="border-amber-200"><CardHeader><CardTitle>Pending review</CardTitle><CardDescription>Saving replaces this draft; it never changes the approved profile directly.</CardDescription></CardHeader><CardContent>{profile?.pending ? <><Badge className="border-amber-200 bg-amber-50 text-amber-800">{profile.pending.status}</Badge><p className="mt-3 text-sm text-muted-foreground">Submitted {formatTimestampDate(profile.pending.created_at) || 'for review'}.</p></> : <p className="text-sm text-muted-foreground">No revision is waiting for review.</p>}</CardContent></Card>
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle>Edit program profile</CardTitle><CardDescription>Public content is moderated before publication.</CardDescription></CardHeader>
+        <CardContent><form className="space-y-5" onSubmit={save}>
+          {profileField('summary', 'Summary', <Textarea id="summary" value={form.summary} onChange={(event) => edit('summary', event.target.value)} maxLength={profile?.limits?.summary_max || 2000} rows={5} />)}
+          <div className="grid gap-4 sm:grid-cols-2">{profileField('age_groups', 'Age groups (comma separated)', <Input id="age_groups" value={form.age_groups} onChange={(event) => edit('age_groups', event.target.value)} placeholder="U12, U14, U16" />)}{profileField('activities', 'Activities (comma separated)', <Input id="activities" value={form.activities} onChange={(event) => edit('activities', event.target.value)} placeholder="Training, league matches" />)}</div>
+          {profileField('funding_purpose', 'Funding purpose', <Textarea id="funding_purpose" value={form.funding_purpose} onChange={(event) => edit('funding_purpose', event.target.value)} maxLength={profile?.limits?.funding_purpose_max || 1000} rows={3} />)}
+          <div className="grid gap-4 sm:grid-cols-2">{profileField('official_url', 'Official URL', <Input id="official_url" type="url" value={form.official_url} onChange={(event) => edit('official_url', event.target.value)} placeholder="https://…" />)}{profileField('safeguarding_url', 'Safeguarding URL', <Input id="safeguarding_url" type="url" value={form.safeguarding_url} onChange={(event) => edit('safeguarding_url', event.target.value)} placeholder="https://…" />)}</div>
+          {profileField('media_urls', 'Media URLs (one per line)', <Textarea id="media_urls" value={form.media_urls} onChange={(event) => edit('media_urls', event.target.value)} rows={3} placeholder="https://…" />)}
+          <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="external_support_provider">External support provider</Label><Select value={form.external_support_provider} onValueChange={selectSupportProvider}><SelectTrigger id="external_support_provider"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem><SelectItem value="patreon">Patreon</SelectItem><SelectItem value="buy_me_a_coffee">Buy Me a Coffee</SelectItem></SelectContent></Select>{fieldErrors.external_support ? <p className="text-xs text-destructive">{fieldErrors.external_support}</p> : null}</div>{profileField('external_support_url', 'External support URL', <Input id="external_support_url" type="url" value={form.external_support_url} onChange={(event) => edit('external_support_url', event.target.value)} placeholder="https://patreon.com/your-program" />)}</div>
+          <Button type="submit" disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}Save for review</Button>
+        </form></CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Updates</CardTitle><CardDescription>Share program news after admin review. Up to {profile?.limits?.updates_pending_max || 5} may be pending.</CardDescription></CardHeader>
+        <CardContent className="space-y-6">
+          <form onSubmit={postUpdate} className="space-y-3 rounded-xl border bg-secondary/20 p-4"><div className="space-y-1.5"><Label htmlFor="update-title">Title</Label><Input id="update-title" value={updateForm.title} onChange={(event) => setUpdateForm((current) => ({ ...current, title: event.target.value }))} minLength={3} maxLength={140} required />{updateErrors.title ? <p className="text-xs text-destructive">{updateErrors.title}</p> : null}</div><div className="space-y-1.5"><Label htmlFor="update-body">Body</Label><Textarea id="update-body" value={updateForm.body} onChange={(event) => setUpdateForm((current) => ({ ...current, body: event.target.value }))} minLength={20} maxLength={4000} rows={4} required />{updateErrors.body ? <p className="text-xs text-destructive">{updateErrors.body}</p> : null}</div><div className="space-y-1.5"><Label htmlFor="update-impact">Impact (optional)</Label><Textarea id="update-impact" value={updateForm.impact} onChange={(event) => setUpdateForm((current) => ({ ...current, impact: event.target.value }))} maxLength={500} rows={2} />{updateErrors.impact ? <p className="text-xs text-destructive">{updateErrors.impact}</p> : null}</div><Button type="submit" disabled={posting}>{posting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}Submit update</Button></form>
+          <div className="space-y-3">{updates.length ? updates.map((update) => <article key={update.id} className="rounded-xl border p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{update.title}</h3><Badge variant="outline" className="capitalize">{update.status}</Badge></div><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{update.body}</p>{update.impact ? <p className="mt-2 text-sm"><strong>Impact:</strong> {update.impact}</p> : null}{update.review_reason ? <p className="mt-2 text-xs text-muted-foreground">Review note: {update.review_reason}</p> : null}{update.status !== 'withdrawn' ? <Button variant="ghost" size="sm" className="mt-3 text-destructive" onClick={() => removeUpdate(update)}><Trash2 className="mr-1.5 h-4 w-4" />{update.status === 'approved' ? 'Withdraw' : 'Delete'}</Button> : null}</article>) : <p className="text-sm text-muted-foreground">No updates submitted yet.</p>}</div>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 
@@ -1934,7 +2113,7 @@ export function MyClubConsole({
           <TabsContent value="matches">
             <MatchesPanel programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
           </TabsContent>
-          <TabsContent value="profile"><ClubProfile program={program} claim={programClaim} /></TabsContent>
+          <TabsContent value="profile"><ClubProfile program={program} claim={programClaim} onAccessDenied={onAccessDenied} /></TabsContent>
           {contactRail === true ? <TabsContent value="introductions"><ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /></TabsContent> : null}
           {moderationContent ? <TabsContent value="affiliations">{moderationContent}</TabsContent> : null}
         </Tabs>

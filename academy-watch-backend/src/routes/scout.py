@@ -62,6 +62,8 @@ from src.services.player_suppression import (
     neutral_player_not_found,
     without_active_suppression,
 )
+from src.services.scout_entitlements import decoded_bearer_role, scout_entitlements
+from src.services.stripe_billing import require_billing_rail
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.player_names import clean_name
 from src.utils.sanitize import sanitize_plain_text
@@ -2198,6 +2200,14 @@ def _clean_list_name(raw):
     if len(name) > MAX_LIST_NAME_LENGTH:
         return None, f"name must be at most {MAX_LIST_NAME_LENGTH} characters"
     return name, None
+
+
+@scout_bp.route("/scout/entitlements", methods=["GET"])
+@require_billing_rail
+@require_user_auth
+def scout_entitlements_get():
+    """Return the authenticated user's derived Scout Pro entitlements."""
+    return jsonify({"entitlements": scout_entitlements(g.user, role=decoded_bearer_role())})
 
 
 @scout_bp.route("/scout/lists", methods=["GET"])

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { APIService } from '@/lib/api'
 import { MessageCircle } from 'lucide-react'
 
-export function GolSuggestions({ onSelect }) {
+export function GolSuggestions({ onSelect, disabled = false }) {
   const [suggestions, setSuggestions] = useState([])
 
   useEffect(() => {
@@ -29,6 +29,7 @@ export function GolSuggestions({ onSelect }) {
             key={i}
             type="button"
             onClick={() => onSelect(s)}
+            disabled={disabled}
             className="w-full rounded-lg border bg-card text-card-foreground shadow-sm cursor-pointer hover:bg-muted/50 transition-colors p-3 text-sm text-left"
           >
             {s}

@@ -426,6 +426,74 @@ function DemandTab({ demand, loading }) {
     )
 }
 
+function ContentReviewQueues() {
+    const [profiles, setProfiles] = useState([])
+    const [updates, setUpdates] = useState([])
+    const [reasons, setReasons] = useState({})
+    const [busy, setBusy] = useState(null)
+    const [error, setError] = useState(null)
+
+    useEffect(() => {
+        let cancelled = false
+        Promise.all([
+            APIService.adminListProfileRevisions(),
+            APIService.adminListProgramUpdates(),
+        ]).then(([profileData, updateData]) => {
+            if (cancelled) return
+            setProfiles(profileData?.revisions || [])
+            setUpdates(updateData?.updates || [])
+        }).catch((err) => { if (!cancelled) setError(err.message || 'Content review queues could not be loaded.') })
+        return () => { cancelled = true }
+    }, [])
+
+    const review = async (kind, item, decision) => {
+        const key = `${kind}-${item.id}`
+        const reason = reasons[key]?.trim()
+        if (!reason) return
+        setBusy(key)
+        setError(null)
+        try {
+            if (kind === 'profile') {
+                await APIService.adminReviewProfileRevision(item.program.id, item.id, { decision, reason })
+                setProfiles((current) => current.filter((row) => row.id !== item.id))
+            } else {
+                await APIService.adminReviewProgramUpdate(item.program.id, item.id, { decision, reason })
+                setUpdates((current) => current.filter((row) => row.id !== item.id))
+            }
+        } catch (err) {
+            setError(err.body?.error || err.message || 'Review could not be saved.')
+        } finally {
+            setBusy(null)
+        }
+    }
+
+    const queue = (kind, titleText, items) => (
+        <Card>
+            <CardHeader><CardTitle className="font-serif text-2xl">{titleText}</CardTitle><CardDescription>{items.length} pending</CardDescription></CardHeader>
+            <CardContent className="space-y-4">
+                {items.length ? items.map((item) => {
+                    const key = `${kind}-${item.id}`
+                    return (
+                        <article key={item.id} className="space-y-3 rounded-xl border p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{item.program?.name || `Program #${item.program?.id}`}</h3><StatusBadge value={item.status} /></div>
+                            {kind === 'profile' ? (
+                                <div className="space-y-2 text-sm text-foreground/80"><p className="whitespace-pre-wrap">{item.summary || 'No summary supplied.'}</p>{item.funding_purpose ? <p><strong>Purpose:</strong> {item.funding_purpose}</p> : null}{item.age_groups?.length ? <p><strong>Age groups:</strong> {item.age_groups.join(', ')}</p> : null}{item.activities?.length ? <p><strong>Activities:</strong> {item.activities.join(', ')}</p> : null}{item.official_url ? <p><strong>Official URL:</strong> {item.official_url}</p> : null}{item.safeguarding_url ? <p><strong>Safeguarding URL:</strong> {item.safeguarding_url}</p> : null}{item.media_urls?.length ? <p><strong>Media URLs:</strong> {item.media_urls.join(', ')}</p> : null}{item.external_support ? <p><strong>Support:</strong> {item.external_support.provider} · {item.external_support.url}</p> : null}</div>
+                            ) : (
+                                <div className="space-y-2 text-sm text-foreground/80"><h4 className="font-semibold text-foreground">{item.title}</h4><p className="whitespace-pre-wrap">{item.body}</p>{item.impact ? <p><strong>Impact:</strong> {item.impact}</p> : null}</div>
+                            )}
+                            <Label htmlFor={`${key}-reason`}>Review reason</Label>
+                            <Textarea id={`${key}-reason`} value={reasons[key] || ''} onChange={(event) => setReasons((current) => ({ ...current, [key]: event.target.value }))} placeholder="Required audit reason…" maxLength={2000} />
+                            <div className="flex gap-2"><Button size="sm" disabled={busy === key || !reasons[key]?.trim()} onClick={() => review(kind, item, 'approve')} className="bg-emerald-700 hover:bg-emerald-800"><Check className="mr-1 h-4 w-4" />Approve</Button><Button size="sm" variant="outline" disabled={busy === key || !reasons[key]?.trim()} onClick={() => review(kind, item, 'reject')} className="border-rose-300 text-rose-700"><X className="mr-1 h-4 w-4" />Reject</Button></div>
+                        </article>
+                    )
+                }) : <p className="text-sm text-muted-foreground">Nothing is waiting for review.</p>}
+            </CardContent>
+        </Card>
+    )
+
+    return <section className="space-y-4" aria-labelledby="content-review-heading"><div><h2 id="content-review-heading" className="font-serif text-3xl font-semibold">Program content review</h2><p className="text-sm text-muted-foreground">Approve only content supplied by the verified program manager.</p></div>{error ? <Alert className="border-rose-300 bg-rose-50"><AlertTriangle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert> : null}<div className="grid gap-5 xl:grid-cols-2">{queue('profile', 'Profile revisions', profiles)}{queue('update', 'Program updates', updates)}</div></section>
+}
+
 export function AdminFunding() {
     const [searchParams, setSearchParams] = useSearchParams()
     const requestedTab = searchParams.get('tab')
@@ -544,6 +612,8 @@ export function AdminFunding() {
                 <TabsContent value="claims" className="mt-5"><ClaimsTab claims={claims} loading={loading} status={claimStatus} setStatus={setClaimStatus} onReview={(claim, action) => { setReview({ claim, action }); setReviewReason('') }} onSyncConnect={syncConnect} /></TabsContent>
                 <TabsContent value="demand" className="mt-5"><DemandTab demand={demand} loading={loading} /></TabsContent>
             </Tabs>
+
+            <ContentReviewQueues />
 
             {dialogOpen ? <LeagueDialog open onOpenChange={setDialogOpen} league={editingLeague} onSaved={saved} /> : null}
             <Dialog open={Boolean(review)} onOpenChange={(open) => { if (!open) setReview(null) }}>

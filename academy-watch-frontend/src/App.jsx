@@ -97,6 +97,7 @@ import { LocalPlayerPage } from '@/pages/LocalPlayerPage'
 import { LocalPlayerCreate } from '@/pages/LocalPlayerCreate'
 import { PlayerOnboarding } from '@/pages/PlayerOnboarding'
 import { PricingPage } from '@/pages/PricingPage'
+import { AccountBillingPage } from '@/pages/AccountBillingPage'
 import { CohortDetail } from '@/pages/CohortDetail'
 import { CohortAnalytics } from '@/pages/CohortAnalytics'
 import { GolPanel } from '@/components/gol/GolPanel'
@@ -589,6 +590,7 @@ function Navigation() {
       items.push({ path: '/scout/lists', label: 'Lists', icon: ListChecks })
       if (contactRail === true) items.push({ path: '/introductions', label: 'Introductions', icon: Send })
       items.push({ path: '/settings', label: 'Settings', icon: UserCog })
+      items.push({ path: '/account/billing', label: 'Billing', icon: CreditCard })
     }
     if (adminUnlocked) {
       items.push({ path: '/admin', label: 'Admin', icon: Settings })
@@ -4146,6 +4148,7 @@ function AppRoutes() {
       <Route path="/introductions" element={<IntroductionsPage />} />
       <Route path="/my-club" element={<MyClub />} />
       <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/account/billing" element={<AccountBillingPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/community-rules" element={<CommunityRulesPage />} />

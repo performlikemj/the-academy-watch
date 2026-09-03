@@ -9,6 +9,7 @@ export function buildAuthSnapshot(detail = {}) {
   const hasCuratorKey = detail.hasCuratorKey !== undefined ? detail.hasCuratorKey : !!APIService.curatorKey
   const displayName = detail.displayName !== undefined ? detail.displayName : APIService.displayName
   const displayNameConfirmed = detail.displayNameConfirmed !== undefined ? detail.displayNameConfirmed : APIService.displayNameConfirmed()
+  const scoutPro = detail.scoutPro !== undefined ? detail.scoutPro : APIService.scoutPro
   return {
     token,
     isAdmin,
@@ -20,5 +21,6 @@ export function buildAuthSnapshot(detail = {}) {
     displayNameConfirmed,
     role: detail.role || (isAdmin ? 'admin' : (isJournalist ? 'journalist' : (isCurator ? 'curator' : 'user'))),
     expiresIn: detail.expiresIn || null,
+    scoutPro,
   }
 }

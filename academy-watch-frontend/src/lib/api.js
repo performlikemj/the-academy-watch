@@ -24,7 +24,9 @@ export class APIService {
     static curatorKey = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_curator_key')) || null
     static displayName = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_display_name')) || null
     static displayNameConfirmedFlag = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_display_name_confirmed') === 'true') || false
+    static scoutPro = null
     static authEventName = 'loan_auth_changed'
+    static golAccessEventName = 'gol_access_denied'
 
     static _emitAuthChanged(extra = {}) {
         if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return
@@ -37,6 +39,7 @@ export class APIService {
             hasCuratorKey: !!this.curatorKey,
             displayName: this.displayName,
             displayNameConfirmed: this.displayNameConfirmed(),
+            scoutPro: this.scoutPro,
             ...extra,
         }
         try {
@@ -44,6 +47,22 @@ export class APIService {
         } catch (err) {
             console.warn('Failed to dispatch auth event', err)
         }
+    }
+
+    static async _emitGolAccessDenied(response, requestToken) {
+        let state = null
+        if (response.status === 401) {
+            state = 'signed_out'
+        } else if (response.status === 403) {
+            try {
+                const body = await response.clone().json()
+                if (body?.error === 'scout_pro_required' && body?.feature === 'gol_chat') state = 'locked'
+            } catch (_) { /* non-JSON response is not a recognized access denial */ }
+        }
+        if (!state || typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return
+        window.dispatchEvent(new CustomEvent(this.golAccessEventName, {
+            detail: { state, token: requestToken },
+        }))
     }
 
     static displayNameConfirmed() {
@@ -101,6 +120,7 @@ export class APIService {
             console.warn('Failed to persist user token', err)
         }
         if (!token) {
+            this.scoutPro = null
             this.setDisplayName(null)
             this.setIsAdmin(false)
             this.setIsJournalist(false)
@@ -236,6 +256,8 @@ export class APIService {
         if (typeof res?.is_curator !== 'undefined') {
             this.setIsCurator(res.is_curator)
         }
+        this.scoutPro = res?.scout_pro || null
+        this._emitAuthChanged({ scoutPro: this.scoutPro })
         return res
     }
 
@@ -304,6 +326,7 @@ export class APIService {
             }
             const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers })
 
+            if (extra?.nullOn404 && response.status === 404) return null
 
             if (!response.ok) {
                 const contentType = response.headers.get('content-type') || ''
@@ -582,13 +605,21 @@ export class APIService {
         if (token) headers['Authorization'] = `Bearer ${token}`
         const response = await fetch(`${API_BASE_URL}/scout/export.csv?${query}`, { headers })
         if (!response.ok) {
+            const contentType = response.headers.get('content-type') || ''
+            let parsed = null
             let message = `HTTP ${response.status}`
             try {
-                const body = await response.text()
-                if (body) message = body
+                if (contentType.includes('application/json')) {
+                    parsed = await response.json()
+                    message = parsed?.error || JSON.stringify(parsed)
+                } else {
+                    const body = await response.text()
+                    if (body) message = body
+                }
             } catch { /* ignore */ }
             const err = new Error(message)
             err.status = response.status
+            err.body = parsed || message
             throw err
         }
         const blob = await response.blob()
@@ -1374,6 +1405,34 @@ export class APIService {
         return this.request(`/club/${encodeURIComponent(programId)}/roster`)
     }
 
+    static async getClubProfile(programId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/profile`, {}, { nullOn404: true })
+    }
+
+    static async putClubProfile(programId, payload) {
+        return this.request(`/club/${encodeURIComponent(programId)}/profile`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async listClubUpdates(programId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/updates`, {}, { nullOn404: true })
+    }
+
+    static async createClubUpdate(programId, payload) {
+        return this.request(`/club/${encodeURIComponent(programId)}/updates`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async deleteClubUpdate(programId, updateId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/updates/${encodeURIComponent(updateId)}`, {
+            method: 'DELETE',
+        })
+    }
+
     static async addRosterMember(programId, payload) {
         return this.request(`/club/${encodeURIComponent(programId)}/roster`, {
             method: 'POST',
@@ -1933,6 +1992,57 @@ export class APIService {
 
     static async adminFundingDemand() {
         return this.request('/admin/funding/demand', {}, { admin: true })
+    }
+
+    static async getBillingConfig() {
+        return this.request('/billing/config', {}, { nullOn404: true })
+    }
+
+    static async getBillingMe() {
+        return this.request('/billing/me', {}, { nullOn404: true })
+    }
+
+    static async getAdminBillingSummary() {
+        return this.request('/admin/billing/summary', {}, { admin: true, nullOn404: true })
+    }
+
+    static async getScoutEntitlements() {
+        return this.request('/scout/entitlements', {}, { nullOn404: true })
+    }
+
+    static async createBillingCheckout(payload) {
+        return this.request('/billing/checkout', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        })
+    }
+
+    static async createBillingPortal() {
+        return this.request('/billing/portal', { method: 'POST' })
+    }
+
+    static async adminListProfileRevisions(status = 'pending') {
+        const query = new URLSearchParams({ status }).toString()
+        return this.request(`/admin/funding/profile-revisions?${query}`, {}, { admin: true })
+    }
+
+    static async adminReviewProfileRevision(programId, revisionId, payload) {
+        return this.request(`/admin/funding/programs/${encodeURIComponent(programId)}/profile-revisions/${encodeURIComponent(revisionId)}/review`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }, { admin: true })
+    }
+
+    static async adminListProgramUpdates(status = 'pending') {
+        const query = new URLSearchParams({ status }).toString()
+        return this.request(`/admin/funding/program-updates?${query}`, {}, { admin: true })
+    }
+
+    static async adminReviewProgramUpdate(programId, updateId, payload) {
+        return this.request(`/admin/funding/programs/${encodeURIComponent(programId)}/updates/${encodeURIComponent(updateId)}/review`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }, { admin: true })
     }
 
     // Writer Portal API methods
@@ -2996,35 +3106,45 @@ export class APIService {
     }
 
     static async streamChat(message, history, sessionId, signal) {
+        const requestToken = this.userToken
         const headers = { 'Content-Type': 'application/json' }
-        if (this.userToken) headers['Authorization'] = `Bearer ${this.userToken}`
-        return fetch(`${API_BASE_URL}/gol/chat`, {
+        if (requestToken) headers['Authorization'] = `Bearer ${requestToken}`
+        const response = await fetch(`${API_BASE_URL}/gol/chat`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ message, history, session_id: sessionId }),
             signal,
         })
+        if (!response.ok) await this._emitGolAccessDenied(response, requestToken)
+        return response
     }
 
     static async golExportPdf(messages) {
         if (!Array.isArray(messages) || messages.length === 0) {
             throw new Error('Nothing to export — start a chat first')
         }
+        const requestToken = this.userToken
         const headers = { 'Content-Type': 'application/json', 'Accept': 'application/pdf' }
-        if (this.userToken) headers['Authorization'] = `Bearer ${this.userToken}`
+        if (requestToken) headers['Authorization'] = `Bearer ${requestToken}`
         const res = await fetch(`${API_BASE_URL}/gol/export-pdf`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ messages }),
         })
         if (!res.ok) {
+            await this._emitGolAccessDenied(res, requestToken)
             let message = `HTTP ${res.status}`
+            let parsed = null
             try {
                 const body = await res.text()
-                if (body) message = body
+                if (body) {
+                    try { parsed = JSON.parse(body) } catch (_) { /* keep plain text */ }
+                    message = parsed?.error || body
+                }
             } catch (_) { /* ignore */ }
             const err = new Error(message)
             err.status = res.status
+            err.body = parsed
             throw err
         }
         const blob = await res.blob()
