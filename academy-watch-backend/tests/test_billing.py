@@ -24,6 +24,7 @@ WEBHOOK_SECRET = "billing_webhook_test_placeholder"
 def billing_app(monkeypatch):
     from src.routes.account import account_bp
     from src.routes.billing import _price_cache, billing_bp
+    from src.routes.scout import scout_bp
 
     for name in (
         "BILLING_ENABLED",
@@ -49,6 +50,7 @@ def billing_app(monkeypatch):
     )
     db.init_app(app)
     limiter.init_app(app)
+    app.register_blueprint(scout_bp, url_prefix="/api")
     app.register_blueprint(billing_bp, url_prefix="/api")
     app.register_blueprint(account_bp, url_prefix="/api")
 
