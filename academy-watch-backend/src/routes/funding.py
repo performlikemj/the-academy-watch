@@ -7,7 +7,7 @@ import re
 from datetime import UTC, datetime, timedelta
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
 from src.extensions import limiter
@@ -148,6 +148,25 @@ def _review_values():
     decision = _enum(payload.get("decision"), "decision", {"approve", "reject"})
     reason = _clean(payload.get("reason"), "reason", max_len=2000)
     return decision, reason
+
+
+def _review_lock_statements(model, *, program_id, target_id):
+    return (
+        select(ClubProgram).where(ClubProgram.id == program_id).with_for_update(),
+        select(model).where(model.id == target_id, model.program_id == program_id).with_for_update(),
+    )
+
+
+def _locked_review_target(model, *, program_id, target_id, session=None):
+    session = db.session if session is None else session
+    program_statement, target_statement = _review_lock_statements(
+        model,
+        program_id=program_id,
+        target_id=target_id,
+    )
+    if session.execute(program_statement).scalar_one_or_none() is None:
+        return None
+    return session.execute(target_statement).scalar_one_or_none()
 
 
 def _parse_age_bands(value):
@@ -1113,8 +1132,10 @@ def admin_profile_revisions():
 )
 @require_api_key
 def review_profile_revision(program_id: int, revision_id: int):
-    revision = (
-        ClubProgramProfileRevision.query.filter_by(id=revision_id, program_id=program_id).with_for_update().first()
+    revision = _locked_review_target(
+        ClubProgramProfileRevision,
+        program_id=program_id,
+        target_id=revision_id,
     )
     if revision is None:
         return jsonify({"error": "revision not found"}), 404
@@ -1175,7 +1196,11 @@ def admin_program_updates():
 )
 @require_api_key
 def review_program_update(program_id: int, update_id: int):
-    update = ClubProgramUpdate.query.filter_by(id=update_id, program_id=program_id).with_for_update().first()
+    update = _locked_review_target(
+        ClubProgramUpdate,
+        program_id=program_id,
+        target_id=update_id,
+    )
     if update is None:
         return jsonify({"error": "update not found"}), 404
     if update.status != "pending":

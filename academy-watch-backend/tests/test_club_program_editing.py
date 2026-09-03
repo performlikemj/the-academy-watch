@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from flask import Flask
+from sqlalchemy.dialects import postgresql
 from src.auth import issue_user_token
 from src.extensions import limiter
 from src.models.funding import (
@@ -17,7 +18,7 @@ from src.models.funding import (
 )
 from src.models.league import UserAccount, db
 from src.routes.club import club_bp
-from src.routes.funding import funding_bp
+from src.routes.funding import _locked_review_target, funding_bp
 
 ADMIN_KEY = "club-editing-admin-key"
 ADMIN_EMAIL = "club-editing-admin@example.com"
@@ -170,6 +171,46 @@ def _seed_programs():
     program.approved_profile_revision_id = approved_revision.id
     db.session.commit()
     return program, other_program, manager, approved_revision
+
+
+@pytest.mark.parametrize(
+    ("model", "target_table"),
+    [
+        (ClubProgramProfileRevision, "club_program_profile_revisions"),
+        (ClubProgramUpdate, "club_program_updates"),
+    ],
+)
+def test_admin_review_lock_helper_locks_program_before_target(model, target_table):
+    program_marker = object()
+    target_marker = object()
+
+    class Result:
+        def __init__(self, value):
+            self.value = value
+
+        def scalar_one_or_none(self):
+            return self.value
+
+    class SpySession:
+        def __init__(self):
+            self.statements = []
+
+        def execute(self, statement):
+            self.statements.append(statement)
+            return Result(program_marker if len(self.statements) == 1 else target_marker)
+
+    session = SpySession()
+    result = _locked_review_target(model, program_id=7, target_id=11, session=session)
+    compiled = [
+        str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+        for statement in session.statements
+    ]
+
+    assert result is target_marker
+    assert len(compiled) == 2
+    assert "FROM club_programs" in compiled[0]
+    assert f"FROM {target_table}" in compiled[1]
+    assert all(statement.endswith("FOR UPDATE") for statement in compiled)
 
 
 @pytest.mark.parametrize("email", [OUTSIDER_EMAIL, PENDING_EMAIL])
