@@ -66,6 +66,45 @@ test('pricing stays in beta mode while billing is dark', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Subscribe', exact: true })).toHaveCount(0)
 })
 
+test('pricing shows a retryable outage state for a non-dark config failure', async ({ page }) => {
+  let recovered = false
+  await installApi(page, async ({ route, url }) => {
+    if (url.pathname === '/api/billing/config') {
+      await route.fulfill(recovered
+        ? { json: BILLING_CONFIG }
+        : { status: 500, json: { error: 'temporary_failure' } })
+      return true
+    }
+    return false
+  })
+  await page.goto('/pricing')
+  await expect(page.getByRole('heading', { name: 'Pricing is temporarily unavailable' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await expect(page.getByText('Free during beta', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Subscribe', exact: true })).toHaveCount(0)
+  recovered = true
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByText('$9.00', { exact: true })).toBeVisible()
+})
+
+test('legal paid-feature copy stays off without the build-time flag', async ({ page }) => {
+  let billingConfigGets = 0
+  await installApi(page, async ({ route, url }) => {
+    if (url.pathname === '/api/billing/config') {
+      billingConfigGets += 1
+      await route.fulfill({ json: BILLING_CONFIG })
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/terms')
+  await expect(page.getByRole('heading', { name: /Paid subscriptions/ })).toHaveCount(0)
+  await page.goto('/privacy')
+  await expect(page.getByText(/When you buy an optional paid feature/)).toHaveCount(0)
+  expect(billingConfigGets).toBe(0)
+})
+
 test('lit pricing posts only product, price, and reusable client key before checkout navigation', async ({ page }) => {
   const checkoutBodies = []
   await installApi(page, async ({ route, request, url }) => {
@@ -269,7 +308,7 @@ test('club console saves the moderated profile payload and submits an update', a
   await expect.poll(() => updatePosts).toEqual([{ title: 'New Thursday session', body: 'We are opening a new weekly training session for local players.', impact: 'Twenty more training places.' }])
 })
 
-test('club profile falls back to the former read-only record when editing routes are unavailable', async ({ page }) => {
+test('club profile falls back to the former read-only record when either editing route is unavailable', async ({ page }) => {
   const program = { id: 7, slug: 'northbank', name: 'Northbank Juniors', city: 'Leeds', platform_status: 'approved', country: 'England', league: { name: 'Northern Youth League', age_bands: ['U12', 'U14'], data_tier: 'self_reported' }, provenance: { label: 'Self-reported' } }
   await installApi(page, async ({ route, url }) => {
     if (url.pathname === '/api/me/club-claims') return route.fulfill({ json: { claims: [] } }).then(() => true)
@@ -277,7 +316,7 @@ test('club profile falls back to the former read-only record when editing routes
     if (url.pathname === '/api/funding/claims/me') return route.fulfill({ json: { claims: [{ id: 12, status: 'approved', program }] } }).then(() => true)
     if (url.pathname === '/api/club/7/roster') return route.fulfill({ json: { members: [], system_brief: { body: null, updated_at: null, hash: null } } }).then(() => true)
     if (url.pathname === '/api/club/7/matches') return route.fulfill({ json: { matches: [] } }).then(() => true)
-    if (url.pathname === '/api/club/7/profile') return route.fulfill({ status: 404, body: 'Not Found' }).then(() => true)
+    if (url.pathname === '/api/club/7/profile') return route.fulfill({ json: { program: { id: 7, slug: 'northbank', name: 'Northbank Juniors' }, approved: null, pending: null, limits: { summary_max: 2000, funding_purpose_max: 1000, list_items_max: 12, list_item_max: 40, media_urls_max: 6, updates_pending_max: 5 } } }).then(() => true)
     if (url.pathname === '/api/club/7/updates') return route.fulfill({ status: 404, body: 'Not Found' }).then(() => true)
     return false
   }, { signedIn: true })

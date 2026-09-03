@@ -75,6 +75,8 @@ export function PricingPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [config, setConfig] = useState(undefined)
+  const [configFailed, setConfigFailed] = useState(false)
+  const [configAttempt, setConfigAttempt] = useState(0)
   const [priceCode, setPriceCode] = useState('monthly')
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState(null)
@@ -84,9 +86,15 @@ export function PricingPage() {
     let cancelled = false
     APIService.getBillingConfig()
       .then((data) => { if (!cancelled) setConfig(data) })
-      .catch(() => { if (!cancelled) setConfig(null) })
+      .catch(() => { if (!cancelled) setConfigFailed(true) })
     return () => { cancelled = true }
-  }, [])
+  }, [configAttempt])
+
+  const retryConfig = () => {
+    setConfig(undefined)
+    setConfigFailed(false)
+    setConfigAttempt((attempt) => attempt + 1)
+  }
 
   const scoutProduct = useMemo(() => config?.enabled
     ? config.products?.find((product) => product.code === 'scout_pro')
@@ -194,8 +202,22 @@ export function PricingPage() {
           </p>
         </header>
 
-        {/* Tier cards */}
-        <div className="relative">
+        {configFailed ? (
+          <Card className="mx-auto max-w-xl border-border/80">
+            <CardContent className="p-8 text-center">
+              <h2 className="text-xl font-bold text-foreground">Pricing is temporarily unavailable</h2>
+              <p className="mt-2 text-sm text-muted-foreground">We couldn&apos;t load the current plans. Please try again.</p>
+              <Button className="mt-5" variant="outline" onClick={retryConfig}>Retry</Button>
+            </CardContent>
+          </Card>
+        ) : config === undefined ? (
+          <Card className="mx-auto max-w-xl border-border/80">
+            <CardContent className="p-8 text-center text-sm text-muted-foreground">Loading pricing…</CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Tier cards */}
+            <div className="relative">
           {/* Soft radial glow behind the elevated middle card */}
           <div
             aria-hidden="true"
@@ -266,30 +288,32 @@ export function PricingPage() {
               )
             })}
           </div>
-        </div>
+            </div>
 
-        {/* FAQ strip */}
-        <section aria-label="Questions" className="mx-auto mt-16 max-w-4xl border-t border-border/60 pt-10">
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">{billingLive ? 'Can I cancel any time?' : 'Why is Pro free right now?'}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {billingLive
-                  ? 'Yes. Manage or cancel your subscription from Billing in your account; access continues through the paid period.'
-                  : <>We&apos;re in beta and building Scout Pro with the people who use it. Everything in the Pro tier is free while we refine it — when pricing launches, beta users will hear about it first, with plenty of notice.</>}
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">What is Film Room?</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                Film Room turns your own match footage into physical reports using
-                computer vision — minutes visible, distances, speed bands, sprints and
-                heatmaps for every player on your team. It&apos;s in active development
-                and will be priced per processed match, so you only pay for what you use.
-              </p>
-            </div>
-          </div>
-        </section>
+            {/* FAQ strip */}
+            <section aria-label="Questions" className="mx-auto mt-16 max-w-4xl border-t border-border/60 pt-10">
+              <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">{billingLive ? 'Can I cancel any time?' : 'Why is Pro free right now?'}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    {billingLive
+                      ? 'Yes. Manage or cancel your subscription from Billing in your account; access continues through the paid period.'
+                      : <>We&apos;re in beta and building Scout Pro with the people who use it. Everything in the Pro tier is free while we refine it — when pricing launches, beta users will hear about it first, with plenty of notice.</>}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">What is Film Room?</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    Film Room turns your own match footage into physical reports using
+                    computer vision — minutes visible, distances, speed bands, sprints and
+                    heatmaps for every player on your team. It&apos;s in active development
+                    and will be priced per processed match, so you only pay for what you use.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
       </div>
     </div>
   )

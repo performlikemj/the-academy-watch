@@ -1832,14 +1832,18 @@ function ClubProfile({ program, claim, onAccessDenied }) {
     setLoadState('loading')
     setMessage(null)
     try {
-      const [profileData, updateData] = await Promise.all([
+      const [profileResult, updateResult] = await Promise.allSettled([
         APIService.getClubProfile(program.id),
         APIService.listClubUpdates(program.id),
       ])
+      const profileData = profileResult.status === 'fulfilled' ? profileResult.value : undefined
+      const updateData = updateResult.status === 'fulfilled' ? updateResult.value : undefined
       if (profileData === null || updateData === null) {
         setLoadState('unavailable')
         return
       }
+      if (profileResult.status === 'rejected') throw profileResult.reason
+      if (updateResult.status === 'rejected') throw updateResult.reason
       setProfile(profileData)
       setUpdates(updateData?.updates || [])
       setForm(profileForm(profileData?.pending || profileData?.approved))
