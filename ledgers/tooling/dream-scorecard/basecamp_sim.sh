@@ -223,6 +223,7 @@ unset DATABASE_URL_VALUE
 
 (cd $WT/academy-watch-backend && $MAIN/.loan/bin/flask --app src.main db upgrade > /tmp/sim-migrate.log 2>&1 && echo "db upgraded: $($MAIN/.loan/bin/flask --app src.main db heads 2>/dev/null | tail -1)") || { if grep -q "Can.t locate revision" /tmp/sim-migrate.log; then echo "db AHEAD of branch (extra columns are additive) — continuing"; else echo "MIGRATION FAILED"; tail -5 /tmp/sim-migrate.log; exit 6; fi; }
 cd $WT && ./scripts/setup_frontend.sh > /tmp/sim-setup.log 2>&1 || { echo "setup_frontend FAILED"; tail -20 /tmp/sim-setup.log; exit 5; }
+export SIM_ALLOW_DB_NAME="$SIMDB"
 SIM_GRADE=0 SIM_PYTHON=$MAIN/.loan/bin/python node sim/run.mjs > /tmp/sim-run.log 2>&1 || echo "sim exit code $?"
 LATEST=$(ls -td sim/report/*/ | head -1)
 python3 - "$LATEST/report.json" <<'PY'

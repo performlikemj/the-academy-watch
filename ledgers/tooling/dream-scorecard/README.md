@@ -6,7 +6,7 @@ Every script starts with `S=<scratchpad dir>`; set `S` to your own session scrat
 - `build_report.py` — `scorecard.json` + hand-written narrative (blockers, stages S0–S6 with target scores) → ledger markdown + `projection.json` (computed, never typed).
 - `build_html.py` — renders the artifact page `dream-scorecard.html` (republish to the SAME artifact URL, see DIRECTIVE_dream-s2-handoff.md).
 - `render_md.py` — mechanical tables only.
-- `basecamp_sim.sh <origin-ref>` — runs the web sim (SIM_GRADE=0, no ollama) on basecamp in `~/Projects/loanarmy-sim` against a throwaway `sim_<ts>` copy of `soccer_newsletter`; migrations run only on the copy, which is dropped on exit, and never upgrade the shared DB. Prints `SIM RESULT n/m ok`.
+- `basecamp_sim.sh <origin-ref>` — runs the web sim (SIM_GRADE=0, no ollama) on basecamp in `~/Projects/loanarmy-sim` against a throwaway `sim_<ts>` copy of `soccer_newsletter`; migrations run only on the copy, which is dropped on exit, and never upgrade the shared DB; the script automatically sets `SIM_ALLOW_DB_NAME` so the synthetic fixture seeder accepts the copy. Prints `SIM RESULT n/m ok`.
 
 > **HAZARD:** Older copies of `basecamp_sim.sh` may upgrade the shared `soccer_newsletter` DB; do not run them.
 
