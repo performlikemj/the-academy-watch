@@ -36,10 +36,13 @@ export function GolPanel() {
   const chat = useGolChat(identityKey)
 
   useEffect(() => {
-    const handleAccessDenied = (event) => setResponseGate({
-      ...event.detail,
-      scoutPro: APIService.scoutPro,
-    })
+    const handleAccessDenied = (event) => {
+      if (event.detail?.token !== APIService.userToken) return
+      setResponseGate({
+        ...event.detail,
+        scoutPro: APIService.scoutPro,
+      })
+    }
     window.addEventListener(APIService.golAccessEventName, handleAccessDenied)
     return () => window.removeEventListener(APIService.golAccessEventName, handleAccessDenied)
   }, [])

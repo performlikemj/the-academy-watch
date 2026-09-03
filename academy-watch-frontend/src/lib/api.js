@@ -49,7 +49,7 @@ export class APIService {
         }
     }
 
-    static async _emitGolAccessDenied(response) {
+    static async _emitGolAccessDenied(response, requestToken) {
         let state = null
         if (response.status === 401) {
             state = 'signed_out'
@@ -61,7 +61,7 @@ export class APIService {
         }
         if (!state || typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return
         window.dispatchEvent(new CustomEvent(this.golAccessEventName, {
-            detail: { state, token: this.userToken },
+            detail: { state, token: requestToken },
         }))
     }
 
@@ -3106,15 +3106,16 @@ export class APIService {
     }
 
     static async streamChat(message, history, sessionId, signal) {
+        const requestToken = this.userToken
         const headers = { 'Content-Type': 'application/json' }
-        if (this.userToken) headers['Authorization'] = `Bearer ${this.userToken}`
+        if (requestToken) headers['Authorization'] = `Bearer ${requestToken}`
         const response = await fetch(`${API_BASE_URL}/gol/chat`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ message, history, session_id: sessionId }),
             signal,
         })
-        if (!response.ok) await this._emitGolAccessDenied(response)
+        if (!response.ok) await this._emitGolAccessDenied(response, requestToken)
         return response
     }
 
@@ -3122,15 +3123,16 @@ export class APIService {
         if (!Array.isArray(messages) || messages.length === 0) {
             throw new Error('Nothing to export — start a chat first')
         }
+        const requestToken = this.userToken
         const headers = { 'Content-Type': 'application/json', 'Accept': 'application/pdf' }
-        if (this.userToken) headers['Authorization'] = `Bearer ${this.userToken}`
+        if (requestToken) headers['Authorization'] = `Bearer ${requestToken}`
         const res = await fetch(`${API_BASE_URL}/gol/export-pdf`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ messages }),
         })
         if (!res.ok) {
-            await this._emitGolAccessDenied(res)
+            await this._emitGolAccessDenied(res, requestToken)
             let message = `HTTP ${res.status}`
             let parsed = null
             try {
