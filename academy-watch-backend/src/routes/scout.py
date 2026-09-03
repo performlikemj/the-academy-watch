@@ -62,6 +62,8 @@ from src.services.player_suppression import (
     neutral_player_not_found,
     without_active_suppression,
 )
+from src.services.scout_entitlements import list_limit_for, require_scout_entitlement, scout_entitlements
+from src.services.stripe_billing import require_billing_rail
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.player_names import clean_name
 from src.utils.sanitize import sanitize_plain_text
@@ -1857,6 +1859,7 @@ def scout_watchlist_settings():
 
 @scout_bp.route("/scout/export.csv", methods=["GET"])
 @require_user_auth
+@require_scout_entitlement("csv_export")
 @limiter.limit("10/minute", key_func=_user_rate_limit_key)
 def scout_export_csv():
     """CSV export of scout rows.
@@ -2200,6 +2203,14 @@ def _clean_list_name(raw):
     return name, None
 
 
+@scout_bp.route("/scout/entitlements", methods=["GET"])
+@require_billing_rail
+@require_user_auth
+def scout_entitlements_get():
+    """Return the authenticated user's derived Scout Pro entitlements."""
+    return jsonify({"entitlements": scout_entitlements(g.user)})
+
+
 @scout_bp.route("/scout/lists", methods=["GET"])
 @require_user_auth
 @limiter.limit("60/minute", key_func=_user_rate_limit_key)
@@ -2261,7 +2272,20 @@ def scout_lists_create():
         name, error = _clean_list_name(payload.get("name", ""))
         if error:
             return jsonify({"error": error}), 400
-        if FollowList.query.filter_by(user_account_id=user.id).count() >= MAX_FOLLOW_LISTS:
+        list_count = FollowList.query.filter_by(user_account_id=user.id).count()
+        list_limit = list_limit_for(user)
+        if list_count >= list_limit and list_limit < MAX_FOLLOW_LISTS:
+            return (
+                jsonify(
+                    {
+                        "error": "scout_pro_required",
+                        "feature": "custom_lists",
+                        "upgrade_path": "/pricing",
+                    }
+                ),
+                403,
+            )
+        if list_count >= MAX_FOLLOW_LISTS:
             return jsonify({"error": f"list limit reached ({MAX_FOLLOW_LISTS})"}), 409
         if FollowList.query.filter_by(user_account_id=user.id, name=name).first():
             return jsonify({"error": "a list with that name already exists"}), 409

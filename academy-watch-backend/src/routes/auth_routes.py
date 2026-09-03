@@ -44,6 +44,7 @@ from src.models.tracked_player import TrackedPlayer
 from src.models.trust import ScoutVerification
 from src.services.account_roles import derive_account_role
 from src.services.email_service import email_service
+from src.services.scout_entitlements import scout_entitlements
 from src.services.trust import is_verified_scout
 
 logger = logging.getLogger(__name__)
@@ -421,6 +422,7 @@ def auth_me():
                 pass
         email = getattr(g, "user_email", None)
         user = UserAccount.query.filter_by(email=email).first() if email else None
+        entitlements = scout_entitlements(user)
         return jsonify(
             {
                 "email": email,
@@ -432,6 +434,12 @@ def auth_me():
                 "is_journalist": bool(user.is_journalist) if user else False,
                 "is_curator": bool(user.is_curator) if user else False,
                 "is_verified_scout": is_verified_scout(user),
+                "scout_tier": entitlements["tier"],
+                "scout_pro": {
+                    "enabled": entitlements["billing_enabled"],
+                    "tier": entitlements["tier"],
+                    "features": entitlements["features"],
+                },
             }
         )
     except Exception as e:
