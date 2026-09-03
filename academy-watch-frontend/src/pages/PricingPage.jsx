@@ -203,14 +203,13 @@ export function PricingPage() {
         </header>
 
         {configFailed ? (
-          <Card className="mx-auto max-w-xl border-border/80">
-            <CardContent className="p-8 text-center">
-              <h2 className="text-xl font-bold text-foreground">Pricing is temporarily unavailable</h2>
-              <p className="mt-2 text-sm text-muted-foreground">We couldn&apos;t load the current plans. Please try again.</p>
-              <Button className="mt-5" variant="outline" onClick={retryConfig}>Retry</Button>
-            </CardContent>
-          </Card>
-        ) : config === undefined ? (
+          <div role="status" className="mx-auto mb-8 flex max-w-4xl items-center justify-between gap-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <p><span className="font-semibold">Live pricing couldn&apos;t be loaded.</span> Showing our beta plans for now.</p>
+            <Button size="sm" variant="outline" onClick={retryConfig}>Retry</Button>
+          </div>
+        ) : null}
+
+        {config === undefined && !configFailed ? (
           <Card className="mx-auto max-w-xl border-border/80">
             <CardContent className="p-8 text-center text-sm text-muted-foreground">Loading pricing…</CardContent>
           </Card>
