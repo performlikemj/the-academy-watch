@@ -498,6 +498,7 @@ export function ListsPage() {
   const [newName, setNewName] = useState('')
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState(null)
+  const [upgradePrompt, setUpgradePrompt] = useState(null)
 
   const [addOpen, setAddOpen] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -581,6 +582,7 @@ export function ListsPage() {
     if (!name) return
     setCreateSaving(true)
     setCreateError(null)
+    setUpgradePrompt(null)
     try {
       const res = await APIService.createFollowList(name)
       const created = res?.list
@@ -592,7 +594,11 @@ export function ListsPage() {
       setNewName('')
       setCreating(false)
     } catch (err) {
-      setCreateError(err.body?.error || err.message || 'Failed to create list')
+      if (err?.status === 403 && err?.body?.error === 'scout_pro_required' && err.body.feature && err.body.upgrade_path) {
+        setUpgradePrompt(err.body)
+      } else {
+        setCreateError(err.body?.error || err.message || 'Failed to create list')
+      }
     } finally {
       setCreateSaving(false)
     }
@@ -681,6 +687,11 @@ export function ListsPage() {
   }, [selectedListId, reloadPreview])
 
   const followCount = (list) => (list.follows ? list.follows.length : (list.follow_count ?? 0))
+  const customListLimit = Number(auth.scoutPro?.features?.custom_lists_max)
+  const customListsNeedPro = auth.scoutPro?.enabled === true && (
+    auth.scoutPro?.features?.custom_lists === false
+    || (Number.isFinite(customListLimit) && lists.length >= customListLimit)
+  )
 
   // Signed out
   if (!auth?.token) {
@@ -712,7 +723,7 @@ export function ListsPage() {
           <div>
             <p className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
               <ListChecks className="h-3.5 w-3.5" />
-              Scout Pro — free during beta
+              {auth.scoutPro?.enabled === true ? 'Scout Pro workspace' : 'Scout Pro — free during beta'}
             </p>
             <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Your Lists</h1>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
@@ -737,6 +748,7 @@ export function ListsPage() {
         </header>
 
         {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
+        {upgradePrompt ? <p className="mb-4 text-sm text-amber-800">Scout Pro unlocks {upgradePrompt.feature.replaceAll('_', ' ')}. <Link to={upgradePrompt.upgrade_path} className="font-semibold underline">View Scout Pro</Link></p> : null}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Left: list cards */}
@@ -747,6 +759,7 @@ export function ListsPage() {
                 <Button variant="outline" size="sm" onClick={() => { setCreating(true); setCreateError(null) }}>
                   <Plus className="mr-1.5 h-4 w-4" />
                   New list
+                  {customListsNeedPro ? <Badge className="ml-1 px-1.5 py-0 text-[10px]">Pro</Badge> : null}
                 </Button>
               )}
             </div>
@@ -850,6 +863,7 @@ export function ListsPage() {
                   <Button size="sm" onClick={() => { setCreating(true); setCreateError(null) }}>
                     <Plus className="mr-1.5 h-4 w-4" />
                     New list
+                    {customListsNeedPro ? <Badge className="ml-1 px-1.5 py-0 text-[10px]">Pro</Badge> : null}
                   </Button>
                 </CardContent>
               </Card>

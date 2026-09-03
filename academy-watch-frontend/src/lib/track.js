@@ -21,7 +21,7 @@ const FLUSH_INTERVAL = 5000 // ms — periodic flush timer
 // from both the pageview `path` and the `referrer` before an event is queued.
 const SENSITIVE_PARAMS = [
     'token', 'code', 'key', 'secret', 'auth', 'access_token',
-    'refresh_token', 'jwt', 'password', 'pwd', 'session',
+    'refresh_token', 'jwt', 'password', 'pwd', 'session', 'session_id',
 ]
 
 let queue = []

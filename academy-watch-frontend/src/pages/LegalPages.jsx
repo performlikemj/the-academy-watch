@@ -1,9 +1,24 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { LegalPageLayout } from '@/components/layouts/LegalPageLayout'
+import { APIService } from '@/lib/api'
 
 const EFFECTIVE_DATE = '2026-08-09'
 
+function useBillingEnabled() {
+  const [enabled, setEnabled] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    APIService.getBillingConfig()
+      .then((config) => { if (!cancelled) setEnabled(config?.enabled === true) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  return enabled
+}
+
 export function TermsPage() {
+  const billingEnabled = useBillingEnabled()
   return (
     <LegalPageLayout title="Terms of Service" effectiveDate={EFFECTIVE_DATE}>
       <p>
@@ -66,6 +81,13 @@ export function TermsPage() {
         </p>
       </section>
 
+      {billingEnabled ? (
+        <section>
+          <h2>Paid subscriptions</h2>
+          <p>Paid subscriptions renew automatically each period. You can cancel at any time through the billing portal; cancellation takes effect at the end of the paid period. Prices are shown before purchase. Stripe processes payments, and we never store card numbers. We do not refund partial periods except where required by law.</p>
+        </section>
+      ) : null}
+
       <section>
         <h2>9. Disclaimers and liability</h2>
         <p>
@@ -98,6 +120,7 @@ export function TermsPage() {
 }
 
 export function PrivacyPage() {
+  const billingEnabled = useBillingEnabled()
   return (
     <LegalPageLayout title="Privacy Policy" effectiveDate={EFFECTIVE_DATE}>
       <p>
@@ -129,10 +152,11 @@ export function PrivacyPage() {
           <li><strong>Supabase</strong> (database hosting, USA)</li>
           <li><strong>Microsoft Azure</strong> (application hosting, USA)</li>
           <li><strong>Mailgun</strong> (email delivery)</li>
-          <li><strong>Stripe</strong> (payments — contributing writers only)</li>
+          {billingEnabled ? <li><strong>Stripe</strong> (optional paid features)</li> : null}
           <li><strong>API-Football</strong> (sports data source — receives no personal account data)</li>
           <li><strong>OpenAI / OpenRouter / Groq</strong> (newsletter text generation — receives sports data, not your account data)</li>
         </ul>
+        {billingEnabled ? <p>When you buy an optional paid feature, Stripe processes the payment and receives your payment details; we store only your Stripe customer id and subscription status.</p> : null}
       </section>
 
       <section>

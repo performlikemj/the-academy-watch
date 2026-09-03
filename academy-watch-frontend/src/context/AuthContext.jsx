@@ -12,6 +12,7 @@ export const AuthContext = createContext({
     displayNameConfirmed: false,
     role: 'user',
     expiresIn: null,
+    scoutPro: null,
 })
 
 export const AuthUIContext = createContext({

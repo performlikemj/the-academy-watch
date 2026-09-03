@@ -39,7 +39,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: [
+  webServer: process.env.E2E_BASE_URL ? undefined : [
     {
       command: 'pnpm dev -- --host 127.0.0.1 --port 5173',
       url: baseURL,
