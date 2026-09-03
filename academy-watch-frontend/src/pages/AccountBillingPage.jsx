@@ -24,7 +24,8 @@ export function AccountBillingPage() {
   const { openLoginModal } = useAuthUI()
   const openedLogin = useRef(false)
   const trackedSuccess = useRef(false)
-  const [state, setState] = useState({ loading: true, config: null, billing: null, entitlements: null, unavailable: false, error: null })
+  const [state, setState] = useState({ loading: true, config: null, billing: null, entitlements: null, unavailable: false, failed: false })
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [portalBusy, setPortalBusy] = useState(false)
   const [portalError, setPortalError] = useState(null)
   const [checkoutSuccess, setCheckoutSuccess] = useState(() => new URLSearchParams(window.location.search).get('checkout') === 'success')
@@ -38,7 +39,7 @@ export function AccountBillingPage() {
   useEffect(() => {
     if (!auth?.token) return undefined
     let cancelled = false
-    setState((current) => ({ ...current, loading: true, error: null }))
+    setState({ loading: true, config: null, billing: null, entitlements: null, unavailable: false, failed: false })
     Promise.all([
       APIService.getBillingConfig(),
       APIService.getBillingMe(),
@@ -52,13 +53,13 @@ export function AccountBillingPage() {
         billing,
         entitlements: entitlementResponse?.entitlements || null,
         unavailable,
-        error: null,
+        failed: false,
       })
-    }).catch((error) => {
-      if (!cancelled) setState((current) => ({ ...current, loading: false, error: error?.message || 'Billing details could not be loaded.' }))
+    }).catch(() => {
+      if (!cancelled) setState({ loading: false, config: null, billing: null, entitlements: null, unavailable: false, failed: true })
     })
     return () => { cancelled = true }
-  }, [auth?.token])
+  }, [auth?.token, loadAttempt])
 
   useEffect(() => {
     if (!auth?.token || trackedSuccess.current) return
@@ -100,6 +101,10 @@ export function AccountBillingPage() {
     return <div className="mx-auto max-w-2xl px-4 py-16"><Card><CardContent className="py-12 text-center"><CreditCard className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="mt-4 text-2xl font-bold">Billing isn&apos;t available yet.</h1><p className="mt-2 text-sm text-muted-foreground">Scout tools continue to work as usual.</p></CardContent></Card></div>
   }
 
+  if (state.failed) {
+    return <div className="mx-auto max-w-2xl px-4 py-16"><Card><CardContent className="py-12 text-center"><CreditCard className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="mt-4 text-2xl font-bold">We couldn&apos;t load your billing details.</h1><p className="mt-2 text-sm text-muted-foreground">Try again.</p><Button className="mt-5" onClick={() => setLoadAttempt((current) => current + 1)}>Retry</Button></CardContent></Card></div>
+  }
+
   const entitlements = state.entitlements
   const features = entitlements?.features || {}
 
@@ -108,8 +113,6 @@ export function AccountBillingPage() {
       <main className="mx-auto max-w-4xl space-y-6 px-4 py-10 sm:px-6">
         <header><p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Account</p><h1 className="mt-2 text-3xl font-bold tracking-tight">Billing</h1><p className="mt-2 text-muted-foreground">Your Scout Pro access and Stripe subscription details.</p></header>
         {checkoutSuccess ? <div role="status" className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950"><CheckCircle2 className="h-5 w-5" />Checkout complete. Your access will update as Stripe confirms the subscription.</div> : null}
-        {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
-
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" />Scout access</CardTitle><CardDescription>Entitlements are confirmed by the server.</CardDescription></CardHeader>
           <CardContent className="space-y-3"><div className="flex flex-wrap items-center gap-2"><Badge>{entitlements?.tier === 'pro' ? 'Scout Pro' : 'Free'}</Badge><span className="text-sm text-muted-foreground">Source: {String(entitlements?.source || 'none').replace('_', ' ')}</span></div><p className="text-sm">{features.csv_export ? 'CSV export unlocked' : 'CSV export requires Scout Pro'} · {features.custom_lists_max ?? 3} custom lists</p>{entitlements?.grandfathered_until ? <p className="text-xs text-muted-foreground">Grandfathered until {date(entitlements.grandfathered_until)}</p> : null}</CardContent>

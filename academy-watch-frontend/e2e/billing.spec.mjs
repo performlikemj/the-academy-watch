@@ -139,6 +139,56 @@ test('account billing records one sanitized completion and opens the billing por
   expect(portalPosts).toBe(1)
 })
 
+test('account billing failure hides partial subscription and entitlement data', async ({ page }) => {
+  await installApi(page, async ({ route, url }) => {
+    if (url.pathname === '/api/billing/config') return route.fulfill({ json: BILLING_CONFIG }).then(() => true)
+    if (url.pathname === '/api/billing/me') return route.fulfill({ status: 500, json: { error: 'temporary_failure' } }).then(() => true)
+    if (url.pathname === '/api/scout/entitlements') {
+      await route.fulfill({ json: { entitlements: { billing_enabled: true, tier: 'pro', source: 'subscription', subscription_status: 'active', current_period_end: '2026-10-03T00:00:00', cancel_at_period_end: false, grandfathered_until: null, features: { csv_export: true, custom_lists_max: 25 } } } })
+      return true
+    }
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/account/billing')
+  await expect(page.getByRole('heading', { name: "We couldn't load your billing details." })).toBeVisible()
+  await expect(page.getByText('Try again.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+  await expect(page.getByText('Free', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('No paid subscriptions yet.', { exact: true })).toHaveCount(0)
+})
+
+test('admin revenue renders mixed-currency MRR without invalid placeholders', async ({ page }) => {
+  await installApi(page, async ({ route, url }) => {
+    if (url.pathname === '/api/auth/me') return route.fulfill({ json: { ...ACCOUNT, role: 'admin', account_role: 'admin' } }).then(() => true)
+    if (url.pathname === '/api/admin/auth-check') return route.fulfill({ json: { ok: true } }).then(() => true)
+    if (url.pathname === '/api/admin/dashboard-stats') return route.fulfill({ json: { players: { total: 3, academy: 1, on_loan: 1, first_team: 1, released: 0 }, teams: { tracked: 2 }, newsletters: { total: 4, published: 3, drafts: 1 } } }).then(() => true)
+    if (url.pathname === '/api/admin/billing/summary') return route.fulfill({ json: { active_subscriptions: 3, by_product: { scout_pro: 3 }, mrr_cents: null, currency: null, mrr_by_currency: { usd: 1700, gbp: 800 }, past_due: 0, canceled_last_30d: 0, webhook_events_last_24h: 4, webhook_failed_last_24h: 0, checkout_sessions_open: 0 } }).then(() => true)
+    if (url.pathname === '/api/admin/jobs/active') return route.fulfill({ json: { jobs: [] } }).then(() => true)
+    if (url.pathname === '/api/admin/ops/overview') return route.fulfill({ json: { tracked: { active: 3, placeholder_names: 0, owning_club_active: 0 }, jobs: { active: 0 } } }).then(() => true)
+    if (url.pathname === '/api/admin/analytics/summary') return route.fulfill({ json: { totals: {}, daily: [], distinct_sessions: 0 } }).then(() => true)
+    if (url.pathname === '/api/admin/community-takes/stats') return route.fulfill({ json: { takes: { pending: 0 }, submissions: { pending: 0 } } }).then(() => true)
+    if (url.pathname === '/api/admin/manual-players') return route.fulfill({ json: [] }).then(() => true)
+    if (url.pathname === '/api/admin/flags/stats') return route.fulfill({ json: { by_status: { pending: 0 } } }).then(() => true)
+    if (url.pathname === '/api/admin/tracking-requests') return route.fulfill({ json: [] }).then(() => true)
+    if (url.pathname === '/api/admin/player-links/pending') return route.fulfill({ json: [] }).then(() => true)
+    if (url.pathname === '/api/admin/scout-verifications') return route.fulfill({ json: { total: 0, items: [] } }).then(() => true)
+    if (url.pathname === '/api/admin/reports') return route.fulfill({ json: { total: 0, items: [] } }).then(() => true)
+    return false
+  }, { signedIn: true })
+  await page.addInitScript(() => {
+    localStorage.setItem('academy_watch_is_admin', 'true')
+    localStorage.setItem('academy_watch_admin_key', 'admin-test-placeholder')
+  })
+
+  await page.goto('/admin/dashboard')
+  const revenue = page.getByTestId('revenue-summary')
+  await expect(revenue).toContainText('USD · $17.00')
+  await expect(revenue).toContainText('GBP · £8.00')
+  await expect(revenue).not.toContainText('NaN')
+  await expect(revenue).not.toContainText('null')
+})
+
 test('program page renders an external Patreon link and approved updates', async ({ page }) => {
   await installApi(page, async ({ route, url }) => {
     if (url.pathname === '/api/programs/northbank') {
@@ -171,7 +221,7 @@ test('club console saves the moderated profile payload and submits an update', a
     if (url.pathname === '/api/club/7/matches') return route.fulfill({ json: { matches: [] } }).then(() => true)
     if (url.pathname === '/api/club/7/profile' && request.method() === 'GET') {
       profileGets += 1
-      await route.fulfill({ json: { program: { id: 7, slug: 'northbank', name: 'Northbank Juniors' }, approved: null, pending: null, limits: { summary_max: 2000, funding_purpose_max: 1000, list_items_max: 12, list_item_max: 40, media_urls_max: 6, updates_pending_max: 5 } } })
+      await route.fulfill({ json: { program: { id: 7, slug: 'northbank', name: 'Northbank Juniors' }, approved: { id: 20, status: 'approved', summary: 'Existing approved profile.', age_groups: ['U12'], activities: ['Training'], funding_purpose: 'Pitch hire.', official_url: 'https://northbank.example.org', safeguarding_url: 'https://northbank.example.org/safeguarding', media_urls: ['https://northbank.example.org/team.jpg'], external_support: { provider: 'patreon', url: 'https://patreon.com/northbankjuniors' }, review_reason: 'Verified.', reviewed_at: '2026-09-02T00:00:00', created_at: '2026-09-01T00:00:00' }, pending: null, limits: { summary_max: 2000, funding_purpose_max: 1000, list_items_max: 12, list_item_max: 40, media_urls_max: 6, updates_pending_max: 5 } } })
       return true
     }
     if (url.pathname === '/api/club/7/profile' && request.method() === 'PUT') {
@@ -192,6 +242,7 @@ test('club console saves the moderated profile payload and submits an update', a
   await page.getByRole('tab', { name: 'Club profile' }).click()
   const summary = page.getByLabel('Summary')
   await expect.poll(() => profileGets).toBe(1)
+  await expect(page.getByLabel('External support URL')).toHaveValue('https://patreon.com/northbankjuniors')
   await summary.fill('Unsaved manager draft')
   await page.evaluate(() => globalThis.dispatchEvent(new Event('storage')))
   await page.waitForTimeout(200)
@@ -205,17 +256,37 @@ test('club console saves the moderated profile payload and submits an update', a
   await page.getByLabel('Safeguarding URL').fill('https://northbank.example.org/safeguarding')
   await page.getByLabel('Media URLs (one per line)').fill('https://northbank.example.org/team.jpg')
   await page.getByLabel('External support provider').click()
-  await page.getByRole('option', { name: 'Patreon' }).click()
-  await page.getByLabel('External support URL').fill('https://patreon.com/northbankjuniors')
+  await page.getByRole('option', { name: 'None' }).click()
+  await expect(page.getByLabel('External support URL')).toHaveValue('')
   await page.getByRole('button', { name: 'Save for review' }).click()
   await expect.poll(() => profilePuts.length).toBe(1)
-  expect(profilePuts[0]).toEqual({ summary: 'A volunteer-led academy serving north Leeds.', age_groups: ['U12', 'U14'], activities: ['Training', 'League matches'], funding_purpose: 'Cover pitch hire and equipment.', official_url: 'https://northbank.example.org', safeguarding_url: 'https://northbank.example.org/safeguarding', media_urls: ['https://northbank.example.org/team.jpg'], external_support: { provider: 'patreon', url: 'https://patreon.com/northbankjuniors' } })
+  expect(profilePuts[0]).toEqual({ summary: 'A volunteer-led academy serving north Leeds.', age_groups: ['U12', 'U14'], activities: ['Training', 'League matches'], funding_purpose: 'Cover pitch hire and equipment.', official_url: 'https://northbank.example.org', safeguarding_url: 'https://northbank.example.org/safeguarding', media_urls: ['https://northbank.example.org/team.jpg'], external_support: null })
 
   await page.getByLabel('Title').fill('New Thursday session')
   await page.getByLabel('Body').fill('We are opening a new weekly training session for local players.')
   await page.getByLabel('Impact (optional)').fill('Twenty more training places.')
   await page.getByRole('button', { name: 'Submit update' }).click()
   await expect.poll(() => updatePosts).toEqual([{ title: 'New Thursday session', body: 'We are opening a new weekly training session for local players.', impact: 'Twenty more training places.' }])
+})
+
+test('club profile falls back to the former read-only record when editing routes are unavailable', async ({ page }) => {
+  const program = { id: 7, slug: 'northbank', name: 'Northbank Juniors', city: 'Leeds', platform_status: 'approved', country: 'England', league: { name: 'Northern Youth League', age_bands: ['U12', 'U14'], data_tier: 'self_reported' }, provenance: { label: 'Self-reported' } }
+  await installApi(page, async ({ route, url }) => {
+    if (url.pathname === '/api/me/club-claims') return route.fulfill({ json: { claims: [] } }).then(() => true)
+    if (url.pathname === '/api/me/club') return route.fulfill({ json: { clubs: [] } }).then(() => true)
+    if (url.pathname === '/api/funding/claims/me') return route.fulfill({ json: { claims: [{ id: 12, status: 'approved', program }] } }).then(() => true)
+    if (url.pathname === '/api/club/7/roster') return route.fulfill({ json: { members: [], system_brief: { body: null, updated_at: null, hash: null } } }).then(() => true)
+    if (url.pathname === '/api/club/7/matches') return route.fulfill({ json: { matches: [] } }).then(() => true)
+    if (url.pathname === '/api/club/7/profile') return route.fulfill({ status: 404, body: 'Not Found' }).then(() => true)
+    if (url.pathname === '/api/club/7/updates') return route.fulfill({ status: 404, body: 'Not Found' }).then(() => true)
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/my-club')
+  await page.getByRole('tab', { name: 'Club profile' }).click()
+  await expect(page.getByText('Read-only verified program record', { exact: true })).toBeVisible()
+  await expect(page.getByText('Northern Youth League', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save for review' })).toHaveCount(0)
 })
 
 test('CSV entitlement rejection surfaces an inline Scout Pro upgrade prompt', async ({ page }) => {

@@ -1782,10 +1782,40 @@ function splitValues(value, separator) {
   return String(value || '').split(separator).map((item) => item.trim()).filter(Boolean)
 }
 
-function ClubProfile({ program, onAccessDenied }) {
+function ReadOnlyClubProfile({ program, claim }) {
+  const location = [program.city, program.region, program.country].filter(Boolean).join(', ')
+  return (
+    <Card className="overflow-hidden border-border/80">
+      <CardHeader className="border-b border-border/60 bg-card">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          {program.crest_url ? <img src={program.crest_url} alt="" className="h-16 w-16 rounded-xl border border-border bg-white object-contain p-2" /> : <span className="inline-flex h-16 w-16 items-center justify-center rounded-xl bg-primary/10 text-primary"><ShieldCheck className="h-7 w-7" /></span>}
+          <div><CardTitle className="text-2xl">{program.name || 'Verified club program'}</CardTitle><CardDescription className="mt-1">Read-only verified program record</CardDescription></div>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-3">
+        {[
+          ['Program ID', program.id],
+          ['Program status', program.platform_status],
+          ['Manager claim', claim?.status],
+          ['Location', location],
+          ['League', program.league?.name],
+          ['Age groups', Array.isArray(program.league?.age_bands) ? program.league.age_bands.join(', ') : null],
+          ['Data tier', program.league?.data_tier],
+          ['Provenance', program.provenance?.label],
+          ['Verified', formatTimestampDate(program.verified_at)],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-border bg-secondary/25 p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</p><p className="mt-1.5 font-semibold capitalize text-foreground">{value || '—'}</p></div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ClubProfile({ program, claim, onAccessDenied }) {
   const deniedRef = useRef(onAccessDenied)
   const [profile, setProfile] = useState(null)
   const [updates, setUpdates] = useState([])
+  const [featureUnavailable, setFeatureUnavailable] = useState(false)
   const [form, setForm] = useState(EMPTY_PROFILE_FORM)
   const [updateForm, setUpdateForm] = useState({ title: '', body: '', impact: '' })
   const [loading, setLoading] = useState(true)
@@ -1807,6 +1837,11 @@ function ClubProfile({ program, onAccessDenied }) {
         APIService.getClubProfile(program.id),
         APIService.listClubUpdates(program.id),
       ])
+      if (profileData === null || updateData === null) {
+        setFeatureUnavailable(true)
+        return
+      }
+      setFeatureUnavailable(false)
       setProfile(profileData)
       setUpdates(updateData?.updates || [])
       setForm(profileForm(profileData?.pending || profileData?.approved))
@@ -1828,9 +1863,9 @@ function ClubProfile({ program, onAccessDenied }) {
     setSaving(true)
     setFieldErrors({})
     setMessage(null)
-    const externalSupport = form.external_support_provider !== 'none' || form.external_support_url.trim()
-      ? { provider: form.external_support_provider === 'none' ? '' : form.external_support_provider, url: form.external_support_url.trim() }
-      : null
+    const externalSupport = form.external_support_provider === 'none'
+      ? null
+      : { provider: form.external_support_provider, url: form.external_support_url.trim() }
     const payload = {
       summary: form.summary,
       age_groups: splitValues(form.age_groups, ','),
@@ -1888,8 +1923,14 @@ function ClubProfile({ program, onAccessDenied }) {
   }
 
   if (loading) return <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading club profile…</CardContent></Card>
+  if (featureUnavailable) return <ReadOnlyClubProfile program={program} claim={claim} />
 
   const edit = (field, value) => setForm((current) => ({ ...current, [field]: value }))
+  const selectSupportProvider = (value) => setForm((current) => ({
+    ...current,
+    external_support_provider: value,
+    external_support_url: value === 'none' ? '' : current.external_support_url,
+  }))
   const profileField = (id, label, control) => <div className="space-y-1.5"><Label htmlFor={id}>{label}</Label>{control}{fieldErrors[id] ? <p className="text-xs text-destructive">{fieldErrors[id]}</p> : null}</div>
 
   return (
@@ -1908,7 +1949,7 @@ function ClubProfile({ program, onAccessDenied }) {
           {profileField('funding_purpose', 'Funding purpose', <Textarea id="funding_purpose" value={form.funding_purpose} onChange={(event) => edit('funding_purpose', event.target.value)} maxLength={profile?.limits?.funding_purpose_max || 1000} rows={3} />)}
           <div className="grid gap-4 sm:grid-cols-2">{profileField('official_url', 'Official URL', <Input id="official_url" type="url" value={form.official_url} onChange={(event) => edit('official_url', event.target.value)} placeholder="https://…" />)}{profileField('safeguarding_url', 'Safeguarding URL', <Input id="safeguarding_url" type="url" value={form.safeguarding_url} onChange={(event) => edit('safeguarding_url', event.target.value)} placeholder="https://…" />)}</div>
           {profileField('media_urls', 'Media URLs (one per line)', <Textarea id="media_urls" value={form.media_urls} onChange={(event) => edit('media_urls', event.target.value)} rows={3} placeholder="https://…" />)}
-          <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="external_support_provider">External support provider</Label><Select value={form.external_support_provider} onValueChange={(value) => edit('external_support_provider', value)}><SelectTrigger id="external_support_provider"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem><SelectItem value="patreon">Patreon</SelectItem><SelectItem value="buy_me_a_coffee">Buy Me a Coffee</SelectItem></SelectContent></Select>{fieldErrors.external_support ? <p className="text-xs text-destructive">{fieldErrors.external_support}</p> : null}</div>{profileField('external_support_url', 'External support URL', <Input id="external_support_url" type="url" value={form.external_support_url} onChange={(event) => edit('external_support_url', event.target.value)} placeholder="https://patreon.com/your-program" />)}</div>
+          <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="external_support_provider">External support provider</Label><Select value={form.external_support_provider} onValueChange={selectSupportProvider}><SelectTrigger id="external_support_provider"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem><SelectItem value="patreon">Patreon</SelectItem><SelectItem value="buy_me_a_coffee">Buy Me a Coffee</SelectItem></SelectContent></Select>{fieldErrors.external_support ? <p className="text-xs text-destructive">{fieldErrors.external_support}</p> : null}</div>{profileField('external_support_url', 'External support URL', <Input id="external_support_url" type="url" value={form.external_support_url} onChange={(event) => edit('external_support_url', event.target.value)} placeholder="https://patreon.com/your-program" />)}</div>
           <Button type="submit" disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}Save for review</Button>
         </form></CardContent>
       </Card>
@@ -2070,7 +2111,7 @@ export function MyClubConsole({
           <TabsContent value="matches">
             <MatchesPanel programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
           </TabsContent>
-          <TabsContent value="profile"><ClubProfile program={program} onAccessDenied={onAccessDenied} /></TabsContent>
+          <TabsContent value="profile"><ClubProfile program={program} claim={programClaim} onAccessDenied={onAccessDenied} /></TabsContent>
           {contactRail === true ? <TabsContent value="introductions"><ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /></TabsContent> : null}
           {moderationContent ? <TabsContent value="affiliations">{moderationContent}</TabsContent> : null}
         </Tabs>

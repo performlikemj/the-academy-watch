@@ -1389,7 +1389,7 @@ export class APIService {
     }
 
     static async getClubProfile(programId) {
-        return this.request(`/club/${encodeURIComponent(programId)}/profile`)
+        return this.request(`/club/${encodeURIComponent(programId)}/profile`, {}, { nullOn404: true })
     }
 
     static async putClubProfile(programId, payload) {
@@ -1400,7 +1400,7 @@ export class APIService {
     }
 
     static async listClubUpdates(programId) {
-        return this.request(`/club/${encodeURIComponent(programId)}/updates`)
+        return this.request(`/club/${encodeURIComponent(programId)}/updates`, {}, { nullOn404: true })
     }
 
     static async createClubUpdate(programId, payload) {
