@@ -16,6 +16,7 @@ import re
 import unicodedata
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from html import unescape
 from urllib.parse import urlsplit
 
 from flask import Blueprint, g, jsonify, request
@@ -120,7 +121,7 @@ def _field_text(value, field: str, limit: int, *, required: bool = False) -> str
         return None
     if not isinstance(value, str):
         raise ValueError(f"{field} must be a string")
-    cleaned = sanitize_plain_text(value).strip()
+    cleaned = unescape(sanitize_plain_text(value)).strip()
     if required and not cleaned:
         raise ValueError(f"{field} is required")
     if len(cleaned) > limit:
@@ -786,9 +787,10 @@ def delete_club_program_update(program_id: int, update_id: int):
     update = ClubProgramUpdate.query.filter_by(id=update_id, program_id=program_id).with_for_update().first()
     if update is None:
         return jsonify({"error": "update not found"}), 404
-    if update.status == "approved":
-        update.status = "withdrawn"
-        db.session.commit()
+    if update.status in {"approved", "withdrawn"}:
+        if update.status == "approved":
+            update.status = "withdrawn"
+            db.session.commit()
         return jsonify({"deleted": False, "status": "withdrawn"})
     db.session.delete(update)
     db.session.commit()

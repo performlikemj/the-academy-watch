@@ -316,6 +316,43 @@ def test_profile_urls_with_query_strings_round_trip_byte_identically(client):
     assert pending["media_urls"] == [media_url]
 
 
+def test_profile_and_update_prose_round_trip_as_plain_text(client):
+    program, _, manager, _ = _seed_programs()
+    prose = "Boys & girls <3"
+    profile = client.put(
+        f"/api/club/{program.id}/profile",
+        json=_profile_payload(summary=prose, funding_purpose=prose),
+        headers=_headers(manager.email),
+    )
+    assert profile.status_code == 200, profile.get_json()
+    stored_profile = db.session.get(ClubProgramProfileRevision, profile.get_json()["pending"]["id"])
+    assert stored_profile.created_at.tzinfo is None
+    fetched = client.get(f"/api/club/{program.id}/profile", headers=_headers(manager.email))
+    assert fetched.get_json()["pending"]["summary"] == prose
+    assert fetched.get_json()["pending"]["funding_purpose"] == prose
+
+    title = "Boys & girls update"
+    body = "Boys & girls train together every week."
+    update = client.post(
+        f"/api/club/{program.id}/updates",
+        json={"title": title, "body": body, "impact": prose},
+        headers=_headers(manager.email),
+    )
+    assert update.status_code == 201, update.get_json()
+    update_id = update.get_json()["update"]["id"]
+    assert db.session.get(ClubProgramUpdate, update_id).created_at.tzinfo is None
+    approved = client.post(
+        f"/api/admin/funding/programs/{program.id}/updates/{update_id}/review",
+        json={"decision": "approve", "reason": "Plain-text round-trip fixture."},
+        headers=_admin_headers(),
+    )
+    assert approved.status_code == 200, approved.get_json()
+    public_update = client.get(f"/api/programs/{program.slug}").get_json()["program"]["updates"][0]
+    assert public_update["title"] == title
+    assert public_update["body"] == body
+    assert public_update["impact"] == prose
+
+
 @pytest.mark.parametrize(
     ("override", "field"),
     [
@@ -362,7 +399,9 @@ def test_profile_admin_approval_and_rejection_are_audited_and_public(client):
     )
     assert reviewed.status_code == 200, reviewed.get_json()
     assert reviewed.get_json()["revision"]["status"] == "approved"
-    assert db.session.get(ClubProgramProfileRevision, created["id"]).reviewed_by == ADMIN_EMAIL
+    approved_revision = db.session.get(ClubProgramProfileRevision, created["id"])
+    assert approved_revision.reviewed_by == ADMIN_EMAIL
+    assert approved_revision.reviewed_at.tzinfo is None
     public = client.get(f"/api/programs/{program.slug}").get_json()["program"]
     assert public["program_provided"]["summary"] == "A newly approved public summary."
     assert public["external_support"] == {
@@ -392,7 +431,9 @@ def test_profile_admin_approval_and_rejection_are_audited_and_public(client):
     )
     assert rejection.status_code == 200
     assert rejection.get_json()["revision"]["status"] == "rejected"
-    assert db.session.get(ClubProgramProfileRevision, rejected["id"]).reviewed_by == ADMIN_EMAIL
+    rejected_revision = db.session.get(ClubProgramProfileRevision, rejected["id"])
+    assert rejected_revision.reviewed_by == ADMIN_EMAIL
+    assert rejected_revision.reviewed_at.tzinfo is None
     assert (
         FundingAdminEvent.query.filter_by(
             action="profile_revision_rejected",
@@ -449,7 +490,10 @@ def test_program_updates_moderate_publish_withdraw_and_enforce_pending_limit(cli
     )
     assert approved.status_code == 200, approved.get_json()
     assert approved.get_json()["update"]["published_at"] is not None
-    assert db.session.get(ClubProgramUpdate, update_ids[0]).reviewed_by == ADMIN_EMAIL
+    approved_update = db.session.get(ClubProgramUpdate, update_ids[0])
+    assert approved_update.reviewed_by == ADMIN_EMAIL
+    assert approved_update.reviewed_at.tzinfo is None
+    assert approved_update.published_at.tzinfo is None
     public_updates = client.get(f"/api/programs/{program.slug}").get_json()["program"]["updates"]
     assert [item["id"] for item in public_updates] == [update_ids[0]]
     assert set(public_updates[0]) == {"id", "title", "body", "impact", "published_at"}
@@ -468,7 +512,9 @@ def test_program_updates_moderate_publish_withdraw_and_enforce_pending_limit(cli
         headers=_admin_headers(),
     )
     assert rejected.status_code == 200, rejected.get_json()
-    assert db.session.get(ClubProgramUpdate, update_ids[1]).reviewed_by == ADMIN_EMAIL
+    rejected_update = db.session.get(ClubProgramUpdate, update_ids[1])
+    assert rejected_update.reviewed_by == ADMIN_EMAIL
+    assert rejected_update.reviewed_at.tzinfo is None
 
     withdrawn = client.delete(
         f"/api/club/{program.id}/updates/{update_ids[0]}",
@@ -477,6 +523,13 @@ def test_program_updates_moderate_publish_withdraw_and_enforce_pending_limit(cli
     assert withdrawn.status_code == 200
     assert withdrawn.get_json() == {"deleted": False, "status": "withdrawn"}
     assert client.get(f"/api/programs/{program.slug}").get_json()["program"]["updates"] == []
+    withdrawn_again = client.delete(
+        f"/api/club/{program.id}/updates/{update_ids[0]}",
+        headers=_headers(manager.email),
+    )
+    assert withdrawn_again.status_code == 200
+    assert withdrawn_again.get_json() == {"deleted": False, "status": "withdrawn"}
+    assert db.session.get(ClubProgramUpdate, update_ids[0]).status == "withdrawn"
 
     rejected_delete = client.delete(
         f"/api/club/{program.id}/updates/{update_ids[1]}",
