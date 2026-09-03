@@ -147,6 +147,31 @@ final class PlayerDetailViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.loadingSections.isEmpty)
     }
 
+    @MainActor
+    func testMatchAddIncludesNewHistoricalSeasonAndSelectsIt() async throws {
+        let client = try SeasonDirectoryPlayerDetailClient(
+            captured: capturedClient(),
+            directory: SeasonDirectory(
+                currentSeason: 2025,
+                bounds: SeasonBounds(min: 2007, max: 2026),
+                seasons: [
+                    Season(season: 2026, label: "2026/27", hasRollup: false, isCurrent: false),
+                    Season(season: 2025, label: "2025/26", hasRollup: true, isCurrent: true),
+                    Season(season: 2024, label: "2024/25", hasRollup: true, isCurrent: false)
+                ]
+            )
+        )
+        let viewModel = PlayerDetailViewModel(playerID: 403_064, apiClient: client)
+        await viewModel.loadIfNeeded()
+
+        await viewModel.refreshAfterMatchAdd(matchResponse(season: 1999))
+
+        XCTAssertEqual(viewModel.seasons.map(\.season), [2026, 2025, 2024, 1999])
+        XCTAssertEqual(viewModel.seasons.last?.label, "1999/00")
+        XCTAssertEqual(viewModel.seasons.last?.hasRollup, true)
+        XCTAssertEqual(viewModel.selectedSeason, 1999)
+    }
+
     private func capturedClient(
         availability: PlayerAvailability? = nil
     ) throws -> StubPlayerDetailClient {
@@ -183,6 +208,31 @@ final class PlayerDetailViewModelTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(type, from: data)
+    }
+
+    private func matchResponse(season: Int) -> PlayerMatchMutationResponse {
+        PlayerMatchMutationResponse(match: PlayerMatchEntry(
+            id: 812,
+            playerApiId: 403_064,
+            season: season,
+            matchDate: "2000-04-08",
+            competition: nil,
+            opponent: "Community FC",
+            homeAway: "home",
+            resultFor: nil,
+            resultAgainst: nil,
+            minutes: 90,
+            goals: 0,
+            assists: 0,
+            yellows: 0,
+            reds: 0,
+            saves: nil,
+            goalsConceded: nil,
+            note: nil,
+            source: "self",
+            status: "self_reported",
+            editable: true
+        ))
     }
 }
 
@@ -238,6 +288,35 @@ private struct StubPlayerDetailClient: PlayerDetailAPIClientProtocol {
     private func throwIfNeeded(_ section: PlayerDetailSection) throws {
         guard failedSection == section else { return }
         throw StubPlayerDetailError(section: section)
+    }
+}
+
+private struct SeasonDirectoryPlayerDetailClient:
+    PlayerDetailAPIClientProtocol,
+    SeasonDirectoryAPIClientProtocol
+{
+    let captured: StubPlayerDetailClient
+    let directory: SeasonDirectory
+
+    func fetchSeasons() async throws -> SeasonDirectory { directory }
+    func fetchPlayerProfile(playerID: Int) async throws -> PlayerProfile {
+        try await captured.fetchPlayerProfile(playerID: playerID)
+    }
+
+    func fetchPlayerSeasonStats(playerID: Int) async throws -> PlayerSeasonStats {
+        try await captured.fetchPlayerSeasonStats(playerID: playerID)
+    }
+
+    func fetchPlayerRecentFixtures(playerID: Int) async throws -> [PlayerRecentFixture] {
+        try await captured.fetchPlayerRecentFixtures(playerID: playerID)
+    }
+
+    func fetchPlayerJourney(playerID: Int) async throws -> PlayerJourneyResponse {
+        try await captured.fetchPlayerJourney(playerID: playerID)
+    }
+
+    func fetchPlayerAvailability(playerID: Int) async throws -> PlayerAvailability {
+        try await captured.fetchPlayerAvailability(playerID: playerID)
     }
 }
 

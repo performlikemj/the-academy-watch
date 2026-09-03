@@ -98,6 +98,15 @@ final class PlayerDetailViewModel: ObservableObject {
     /// authoritative totals are re-fetched for the season the game landed in.
     func refreshAfterMatchAdd(_ response: PlayerMatchMutationResponse) async {
         let season = response.match.season
+        if !seasons.contains(where: { $0.season == season }) {
+            seasons.append(Season(
+                season: season,
+                label: SeasonLabelFormatter.label(for: season),
+                hasRollup: true,
+                isCurrent: false
+            ))
+            seasons.sort { $0.season > $1.season }
+        }
         if selectedSeason != season {
             selectedSeason = season
         }

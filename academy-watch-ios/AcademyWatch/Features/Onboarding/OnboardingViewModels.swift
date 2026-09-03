@@ -25,7 +25,13 @@ final class LocalPlayerFormViewModel: ObservableObject {
     @Published var country = ""
     @Published var city = ""
     @Published var birthYear = ""
-    @Published var birthDate: Date?
+    @Published var birthDate: Date? {
+        didSet {
+            if birthDate != nil {
+                fieldErrors.removeValue(forKey: .birthYear)
+            }
+        }
+    }
     @Published private(set) var fieldErrors: [LocalPlayerFormField: String] = [:]
     @Published private(set) var requestError: String?
     @Published private(set) var isSubmitting = false
@@ -71,14 +77,16 @@ final class LocalPlayerFormViewModel: ObservableObject {
             }
         }
 
-        let yearText = trimmed(birthYear)
-        if !yearText.isEmpty {
-            if yearText.allSatisfy(\.isNumber), let year = Int(yearText) {
-                if !Self.localPlayerBirthYearRange.contains(year) {
-                    errors[.birthYear] = "Birth year must be between 1950 and 2020."
+        if birthDate == nil {
+            let yearText = trimmed(birthYear)
+            if !yearText.isEmpty {
+                if yearText.allSatisfy(\.isNumber), let year = Int(yearText) {
+                    if !Self.localPlayerBirthYearRange.contains(year) {
+                        errors[.birthYear] = "Birth year must be between 1950 and 2020."
+                    }
+                } else {
+                    errors[.birthYear] = "Enter a whole year, for example 2008."
                 }
-            } else {
-                errors[.birthYear] = "Enter a whole year, for example 2008."
             }
         }
         fieldErrors = errors

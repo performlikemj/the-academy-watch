@@ -133,6 +133,50 @@ final class OnboardingBirthDateTests: XCTestCase {
         XCTAssertNil(viewModel.error(for: .birthDate))
     }
 
+    @MainActor
+    func testValidBirthDateIgnoresInvalidYearAndClearsStaleYearError() async {
+        let client = BirthDateSubmissionSpy()
+        let viewModel = LocalPlayerFormViewModel(
+            context: .claimant,
+            apiClient: client,
+            calendar: fixedGregorianUTC()
+        )
+        viewModel.displayName = "Maya Okafor"
+        viewModel.birthYear = "2021"
+
+        XCTAssertFalse(viewModel.validate())
+        XCTAssertNotNil(viewModel.error(for: .birthYear))
+
+        guard let date = fixedGregorianUTC().date(from: DateComponents(year: 2008, month: 5, day: 4)) else {
+            return XCTFail("missing fixture date")
+        }
+        viewModel.birthDate = date
+
+        XCTAssertNil(viewModel.error(for: .birthYear))
+        XCTAssertTrue(viewModel.validate())
+        await viewModel.submit()
+        let submissionCount = await client.submissionCount()
+        XCTAssertEqual(submissionCount, 1)
+        XCTAssertNil(viewModel.submission.birthYear)
+    }
+
+    @MainActor
+    func testInvalidBirthYearStillFailsWithoutExactDate() {
+        let viewModel = LocalPlayerFormViewModel(
+            context: .claimant,
+            apiClient: BirthDateStubClient(),
+            calendar: fixedGregorianUTC()
+        )
+        viewModel.displayName = "Maya Okafor"
+        viewModel.birthYear = "2021"
+
+        XCTAssertFalse(viewModel.validate())
+        XCTAssertEqual(
+            viewModel.error(for: .birthYear),
+            "Birth year must be between 1950 and 2020."
+        )
+    }
+
     // MARK: - 400 surfacing
 
     @MainActor
@@ -248,6 +292,39 @@ private final class BirthDateURLProtocol: URLProtocol, @unchecked Sendable {
 
 private struct BirthDateStubClient: OnboardingAPIClientProtocol {
     func createLocalPlayer(_ submission: LocalPlayerSubmission) async throws -> LocalPlayerCreateResponse {
+        throw URLError(.unsupportedURL)
+    }
+
+    func fetchLocalPlayer(id _: Int) async throws -> LocalPlayerResponse { throw URLError(.unsupportedURL) }
+    func searchWorldwidePlayers(query _: String) async throws -> WorldwidePlayerSearchResponse {
+        WorldwidePlayerSearchResponse(players: [])
+    }
+
+    func addWorldwidePlayerFollow(listID _: Int, player _: WorldwidePlayer) async throws -> FollowResponse {
+        throw URLError(.unsupportedURL)
+    }
+
+    func searchClubs(query _: String) async throws -> ClubSearchResponse {
+        ClubSearchResponse(apiTeams: [], localClubs: [])
+    }
+
+    func fetchMyClubClaims() async throws -> ClubClaimsResponse { ClubClaimsResponse(claims: []) }
+    func submitClubClaim(_ submission: ClubClaimSubmission) async throws -> ClubClaimResponse {
+        throw URLError(.unsupportedURL)
+    }
+
+    func verifyClubClaim(id _: Int, proofURL _: String) async throws -> ClubClaimResponse {
+        throw URLError(.unsupportedURL)
+    }
+}
+
+private actor BirthDateSubmissionSpy: OnboardingAPIClientProtocol {
+    private var submissions: [LocalPlayerSubmission] = []
+
+    func submissionCount() -> Int { submissions.count }
+
+    func createLocalPlayer(_ submission: LocalPlayerSubmission) async throws -> LocalPlayerCreateResponse {
+        submissions.append(submission)
         throw URLError(.unsupportedURL)
     }
 
