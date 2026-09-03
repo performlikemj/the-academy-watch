@@ -10,7 +10,7 @@ import logging
 from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
 from src.auth import require_api_key, require_user_auth
 from src.extensions import limiter
-from src.services.scout_entitlements import require_scout_entitlement
+from src.services.scout_entitlements import decoded_bearer_role, require_scout_entitlement
 
 gol_bp = Blueprint("gol", __name__)
 logger = logging.getLogger(__name__)
@@ -39,17 +39,7 @@ def gol_chat():
     session_id = data.get("session_id", "")
 
     # Detect admin callers to route them to the admin model
-    model_override = None
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        try:
-            from src.auth import _user_serializer
-
-            token_data = _user_serializer().loads(auth_header.split(" ", 1)[1], max_age=60 * 60 * 24 * 30)
-            if (token_data or {}).get("role") == "admin":
-                model_override = _ADMIN_GOL_MODEL
-        except Exception:
-            pass  # Non-admin or invalid token — use default model
+    model_override = _ADMIN_GOL_MODEL if decoded_bearer_role() == "admin" else None
 
     try:
         from src.services.gol_service import GolService

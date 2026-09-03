@@ -30,12 +30,29 @@ def _environment_datetime(name: str) -> datetime | None:
         return None
 
 
-def scout_entitlements(user, *, now=None) -> dict:
+def decoded_bearer_role() -> str:
+    """Return the signed role from the current request's Bearer token."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return "user"
+    try:
+        from src.auth import USER_TOKEN_TTL_SECONDS, _user_serializer
+
+        token_data = _user_serializer().loads(auth_header.split(" ", 1)[1], max_age=USER_TOKEN_TTL_SECONDS)
+        if not isinstance(token_data, dict):
+            return "user"
+        role = token_data.get("role")
+    except Exception:
+        return "user"
+    return role if isinstance(role, str) and role else "user"
+
+
+def scout_entitlements(user, *, now=None, role="user") -> dict:
     """Return the user's effective tier and feature access."""
     enabled = billing_enabled()
     if not enabled:
         tier = user.scout_tier or "free"
-        return {
+        entitlements = {
             "billing_enabled": False,
             "tier": tier,
             "source": "billing_disabled",
@@ -45,13 +62,11 @@ def scout_entitlements(user, *, now=None) -> dict:
             "grandfathered_until": None,
             "features": {"gol_chat": True},
         }
-
-    subscription = active_subscription("user", user.id, "scout_pro")
-    if subscription is not None:
+    elif (subscription := active_subscription("user", user.id, "scout_pro")) is not None:
         period_end = (
             _naive_utc(subscription.current_period_end).isoformat() if subscription.current_period_end else None
         )
-        return {
+        entitlements = {
             "billing_enabled": True,
             "tier": "pro",
             "source": "subscription",
@@ -61,40 +76,32 @@ def scout_entitlements(user, *, now=None) -> dict:
             "grandfathered_until": None,
             "features": {"gol_chat": True},
         }
-
-    launched_at = _environment_datetime("SCOUT_PRO_LAUNCHED_AT")
-    grandfather_until = _environment_datetime("SCOUT_PRO_GRANDFATHER_UNTIL")
-    current_time = _naive_utc(now or datetime.now(UTC))
-    created_at = _naive_utc(user.created_at) if user.created_at is not None else None
-    grandfathered = (
-        launched_at is not None
-        and grandfather_until is not None
-        and created_at is not None
-        and created_at < launched_at
-        and current_time < grandfather_until
-    )
-    if grandfathered:
-        return {
+    else:
+        launched_at = _environment_datetime("SCOUT_PRO_LAUNCHED_AT")
+        grandfather_until = _environment_datetime("SCOUT_PRO_GRANDFATHER_UNTIL")
+        current_time = _naive_utc(now or datetime.now(UTC))
+        created_at = _naive_utc(user.created_at) if user.created_at is not None else None
+        grandfathered = (
+            launched_at is not None
+            and grandfather_until is not None
+            and created_at is not None
+            and created_at < launched_at
+            and current_time < grandfather_until
+        )
+        entitlements = {
             "billing_enabled": True,
-            "tier": "pro",
-            "source": "grandfather",
+            "tier": "pro" if grandfathered else "free",
+            "source": "grandfather" if grandfathered else "none",
             "subscription_status": None,
             "current_period_end": None,
             "cancel_at_period_end": False,
-            "grandfathered_until": grandfather_until.isoformat(),
-            "features": {"gol_chat": True},
+            "grandfathered_until": grandfather_until.isoformat() if grandfathered else None,
+            "features": {"gol_chat": grandfathered},
         }
 
-    return {
-        "billing_enabled": True,
-        "tier": "free",
-        "source": "none",
-        "subscription_status": None,
-        "current_period_end": None,
-        "cancel_at_period_end": False,
-        "grandfathered_until": None,
-        "features": {"gol_chat": False},
-    }
+    if role == "admin":
+        entitlements["features"]["gol_chat"] = True
+    return entitlements
 
 
 def is_pro(user) -> bool:
@@ -107,18 +114,11 @@ def require_scout_entitlement(feature: str):
     def decorator(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
-            auth_header = request.headers.get("Authorization", "")
-            if auth_header.startswith("Bearer "):
-                try:
-                    from src.auth import _user_serializer
+            role = decoded_bearer_role()
+            if role == "admin":
+                return view(*args, **kwargs)
 
-                    token_data = _user_serializer().loads(auth_header.split(" ", 1)[1], max_age=60 * 60 * 24 * 30)
-                    if (token_data or {}).get("role") == "admin":
-                        return view(*args, **kwargs)
-                except Exception:
-                    pass
-
-            entitlements = scout_entitlements(g.user)
+            entitlements = scout_entitlements(g.user, role=role)
             if not entitlements["features"].get(feature, False):
                 return (
                     jsonify(
@@ -138,6 +138,7 @@ def require_scout_entitlement(feature: str):
 
 
 __all__ = [
+    "decoded_bearer_role",
     "is_pro",
     "require_scout_entitlement",
     "scout_entitlements",

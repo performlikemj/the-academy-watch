@@ -67,8 +67,8 @@ def _add_user(*, email="scout@example.com", created_at=None, scout_tier="free"):
     return user
 
 
-def _headers(user):
-    token = issue_user_token(user.email)["token"]
+def _headers(user, *, role="user"):
+    token = issue_user_token(user.email, role=role)["token"]
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -275,6 +275,24 @@ def test_auth_me_includes_lit_subscription_fields(app, client, monkeypatch):
         "tier": "pro",
         "features": {"gol_chat": True},
     }
+
+
+def test_admin_entitlement_payloads_enable_gol_when_billing_is_lit(app, client, monkeypatch):
+    _enable_billing(monkeypatch)
+    user = _add_user(email="admin@example.com", scout_tier="free")
+    headers = _headers(user, role="admin")
+
+    auth_me = client.get("/api/auth/me", headers=headers)
+    entitlements = client.get("/api/scout/entitlements", headers=headers)
+
+    assert auth_me.status_code == 200
+    assert auth_me.get_json()["scout_pro"] == {
+        "enabled": True,
+        "tier": "free",
+        "features": {"gol_chat": True},
+    }
+    assert entitlements.status_code == 200
+    assert entitlements.get_json()["entitlements"]["features"] == {"gol_chat": True}
 
 
 def test_entitlements_route_is_neutral_404_while_dark_even_anonymously(client):

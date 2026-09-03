@@ -136,8 +136,11 @@ def test_anonymous_compute_routes_require_login(client, monkeypatch, path, paylo
 
     response = client.post(path, json=payload)
 
-    assert response.status_code == 401
-    assert response.get_json() == {"error": "missing auth token"}
+    try:
+        assert response.status_code == 401
+        assert response.get_json() == {"error": "missing auth token"}
+    finally:
+        response.close()
 
 
 @pytest.mark.parametrize(("path", "payload"), GOL_POSTS)
@@ -146,7 +149,10 @@ def test_signed_in_user_passes_when_billing_is_off(app, client, path, payload):
 
     response = client.post(path, json=payload, headers=_headers(user))
 
-    _assert_passed_gate(response, path)
+    try:
+        _assert_passed_gate(response, path)
+    finally:
+        response.close()
 
 
 @pytest.mark.parametrize(("path", "payload"), GOL_POSTS)
@@ -156,8 +162,11 @@ def test_free_user_is_blocked_when_billing_is_on(app, client, monkeypatch, path,
 
     response = client.post(path, json=payload, headers=_headers(user))
 
-    assert response.status_code == 403
-    assert response.get_json() == GOL_REQUIRED
+    try:
+        assert response.status_code == 403
+        assert response.get_json() == GOL_REQUIRED
+    finally:
+        response.close()
 
 
 @pytest.mark.parametrize(("path", "payload"), GOL_POSTS)
@@ -174,7 +183,10 @@ def test_entitled_user_passes_when_billing_is_on(app, client, monkeypatch, path,
 
     response = client.post(path, json=payload, headers=_headers(user))
 
-    _assert_passed_gate(response, path)
+    try:
+        _assert_passed_gate(response, path)
+    finally:
+        response.close()
 
 
 @pytest.mark.parametrize(("path", "payload"), GOL_POSTS)
@@ -184,7 +196,10 @@ def test_admin_without_subscription_passes_when_billing_is_on(app, client, monke
 
     response = client.post(path, json=payload, headers=_headers(user, role="admin"))
 
-    _assert_passed_gate(response, path)
+    try:
+        _assert_passed_gate(response, path)
+    finally:
+        response.close()
 
 
 def test_suggestions_remain_anonymous_and_free(client, monkeypatch):

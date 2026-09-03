@@ -62,7 +62,7 @@ from src.services.player_suppression import (
     neutral_player_not_found,
     without_active_suppression,
 )
-from src.services.scout_entitlements import scout_entitlements
+from src.services.scout_entitlements import decoded_bearer_role, scout_entitlements
 from src.services.stripe_billing import require_billing_rail
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.player_names import clean_name
@@ -2207,7 +2207,7 @@ def _clean_list_name(raw):
 @require_user_auth
 def scout_entitlements_get():
     """Return the authenticated user's derived Scout Pro entitlements."""
-    return jsonify({"entitlements": scout_entitlements(g.user)})
+    return jsonify({"entitlements": scout_entitlements(g.user, role=decoded_bearer_role())})
 
 
 @scout_bp.route("/scout/lists", methods=["GET"])
