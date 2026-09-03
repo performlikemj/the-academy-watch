@@ -17,6 +17,7 @@ enum FullCircleFixtureDestination: String, Sendable {
     case watchlistNullStats = "watchlistnullstats"
     case exportData = "exportdata"
     case takedown
+    case fanRow = "fanrow"
 
     static func fromLaunchArguments(_ arguments: [String]) -> FullCircleFixtureDestination? {
         #if DEBUG

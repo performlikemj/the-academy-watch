@@ -8,6 +8,7 @@ enum OnboardingFixtureDestination: String {
     case clubClaim = "club-claim"
     case approvedClubClaim = "approved-club-claim"
     case worldwideConfirmation = "worldwide-confirmation"
+    case addGameSheet = "add-game-sheet"
 
     static func fromLaunchArguments(_ arguments: [String]) -> Self? {
         guard let index = arguments.firstIndex(of: "-onboardingFixture"),
@@ -67,6 +68,14 @@ struct OnboardingEvidenceRoot: View {
                             shadowCreated: true
                         )
                     )
+                )
+            case .addGameSheet:
+                AddGameSheet(
+                    playerID: -481,
+                    playerName: "Maya Okafor",
+                    isGoalkeeper: false,
+                    apiClient: APIClient(),
+                    onSaved: { _ in }
                 )
             }
         }

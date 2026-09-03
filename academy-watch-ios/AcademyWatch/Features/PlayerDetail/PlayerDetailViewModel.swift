@@ -46,7 +46,8 @@ final class PlayerDetailViewModel: ObservableObject {
             || fixtureDestination == .attestationWarning
             || fixtureDestination == .watchingYou
             || fixtureDestination == .claimGate
-            || fixtureDestination == .takedown {
+            || fixtureDestination == .takedown
+            || fixtureDestination == .fanRow {
             profile = .fullCircleFixture
             hasAttemptedLoad = true
         }
@@ -89,6 +90,35 @@ final class PlayerDetailViewModel: ObservableObject {
         guard selectedSeason != season else { return }
         selectedSeason = season
         await beginLoad(replacingExisting: true)
+    }
+
+    /// Refresh the season-facing sections after a self-reported game is saved.
+    /// The mutation response's `season_stats` is a rollup refresh summary today
+    /// (mirroring the web, which falls back to a fresh season-stats read), so
+    /// authoritative totals are re-fetched for the season the game landed in.
+    func refreshAfterMatchAdd(_ response: PlayerMatchMutationResponse) async {
+        let season = response.match.season
+        if !seasons.contains(where: { $0.season == season }) {
+            seasons.append(Season(
+                season: season,
+                label: SeasonLabelFormatter.label(for: season),
+                hasRollup: true,
+                isCurrent: false
+            ))
+            seasons.sort { $0.season > $1.season }
+        }
+        if selectedSeason != season {
+            selectedSeason = season
+        }
+        let client = apiClient
+        let playerID = playerID
+        async let statsResult = try? client.fetchPlayerSeasonStats(playerID: playerID, season: season)
+        async let fixtureResult = try? client.fetchPlayerRecentFixtures(playerID: playerID, season: season)
+        let stats = await statsResult
+        let fixtures = await fixtureResult
+        guard !Task.isCancelled else { return }
+        if let stats { seasonStats = stats }
+        if let fixtures { recentFixtures = fixtures }
     }
 
     func errorMessage(for section: PlayerDetailSection) -> String? {

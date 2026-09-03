@@ -117,7 +117,7 @@ final class PlayerClaimViewModel: ObservableObject {
                 isLoading = false
                 return
             }
-            claim = response.claims.first { $0.playerApiId == playerID }
+            claim = response.claims.first { Self.matchesSignedPlayerID($0, playerID: playerID) }
             hasLoaded = true
             isLoading = false
 
@@ -251,6 +251,16 @@ final class PlayerClaimViewModel: ObservableObject {
             }
         }
         return error.localizedDescription
+    }
+
+    /// Claims resolve by signed player id. Platform subjects carry positive
+    /// ids and match on `player_api_id`; local players are addressed by the
+    /// negative signed id `-local_player_id`, so their claims match on
+    /// `local_player_id` (their `player_api_id` is null).
+    nonisolated static func matchesSignedPlayerID(_ claim: PlayerProfileClaim, playerID: Int) -> Bool {
+        if claim.playerApiId == playerID { return true }
+        guard playerID < 0, playerID != .min else { return false }
+        return claim.localPlayerId == -playerID
     }
 
     private func loadOwnerProfile(revision requestRevision: Int) async {

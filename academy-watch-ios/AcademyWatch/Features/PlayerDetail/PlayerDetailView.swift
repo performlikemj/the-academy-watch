@@ -6,15 +6,18 @@ struct PlayerDetailView: View {
     @StateObject private var showcaseViewModel: ShowcaseViewModel
     @StateObject private var claimViewModel: PlayerClaimViewModel
     @StateObject private var interestSignalsViewModel: PlayerInterestSignalsViewModel
+    @StateObject private var fanViewModel: PlayerFanViewModel
     @ObservedObject private var contactAvailability: ContactFeatureAvailability
     @EnvironmentObject private var authManager: AuthManager
     @State private var isTakedownRequestPresented = false
+    @State private var isAddGamePresented = false
     @State private var reportSubject: ContentReportSubject?
     private let onSignInRequested: () -> Void
     private let onVerificationRequested: () -> Void
     private let contactAPIClient: any ContactAPIClientProtocol
     private let reportAPIClient: any ContentReportAPIClientProtocol
     private let takedownAPIClient: any PlayerTakedownAPIClientProtocol
+    private let matchAPIClient: any PlayerMatchAPIClientProtocol
 
     init(
         playerID: Int,
@@ -44,12 +47,16 @@ struct PlayerDetailView: View {
                 availability: contactAvailability
             )
         )
+        _fanViewModel = StateObject(
+            wrappedValue: PlayerFanViewModel(playerID: playerID, apiClient: apiClient)
+        )
         _contactAvailability = ObservedObject(wrappedValue: contactAvailability)
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
         contactAPIClient = apiClient
         reportAPIClient = apiClient
         takedownAPIClient = apiClient
+        matchAPIClient = apiClient
     }
 
     init(
@@ -60,6 +67,8 @@ struct PlayerDetailView: View {
         reportAPIClient: any ContentReportAPIClientProtocol = APIClient(),
         takedownAPIClient: any PlayerTakedownAPIClientProtocol = APIClient(),
         interestSignalsAPIClient: any InterestSignalsAPIClientProtocol = APIClient(),
+        fanAPIClient: any PlayerFanAPIClientProtocol = APIClient(),
+        matchAPIClient: any PlayerMatchAPIClientProtocol = APIClient(),
         contactAvailability: ContactFeatureAvailability? = nil,
         onSignInRequested: @escaping () -> Void = {},
         onVerificationRequested: @escaping () -> Void = {}
@@ -85,12 +94,16 @@ struct PlayerDetailView: View {
                 availability: resolvedContactAvailability
             )
         )
+        _fanViewModel = StateObject(
+            wrappedValue: PlayerFanViewModel(playerID: viewModel.playerID, apiClient: fanAPIClient)
+        )
         _contactAvailability = ObservedObject(wrappedValue: resolvedContactAvailability)
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
         self.contactAPIClient = contactAPIClient
         self.reportAPIClient = reportAPIClient
         self.takedownAPIClient = takedownAPIClient
+        self.matchAPIClient = matchAPIClient
     }
 
     var body: some View {
@@ -159,6 +172,16 @@ struct PlayerDetailView: View {
         .sheet(item: $reportSubject) { subject in
             ContentReportSheet(subject: subject, apiClient: reportAPIClient)
         }
+        .sheet(isPresented: $isAddGamePresented) {
+            AddGameSheet(
+                playerID: viewModel.playerID,
+                playerName: viewModel.profile?.name ?? "this player",
+                isGoalkeeper: viewModel.profile?.isGoalkeeper ?? false,
+                apiClient: matchAPIClient
+            ) { response in
+                Task { await viewModel.refreshAfterMatchAdd(response) }
+            }
+        }
         .task {
             async let detailLoad: Void = viewModel.loadIfNeeded()
             async let showcaseLoad: Void = showcaseViewModel.loadIfNeeded()
@@ -167,6 +190,11 @@ struct PlayerDetailView: View {
         .task(id: authManager.isAuthenticated) {
             guard !prioritizesIntroductionFixture else { return }
             await claimViewModel.load(isAuthenticated: authManager.isAuthenticated)
+        }
+        .task(id: authManager.isAuthenticated) {
+            // The count endpoint is anonymous-OK; auth only changes the
+            // caller's own `following` flag, so re-resolve on auth changes.
+            await fanViewModel.refresh()
         }
         .task {
             #if DEBUG
@@ -187,6 +215,11 @@ struct PlayerDetailView: View {
                         profile: profile,
                         birthDate: viewModel.journey?.birthDate
                     )
+                    PlayerFanSectionView(
+                        viewModel: fanViewModel,
+                        isAuthenticated: authManager.isAuthenticated,
+                        onSignInRequested: onSignInRequested
+                    )
                     if prioritizesIntroductionFixture {
                         introductionSection(profile: profile)
                     }
@@ -206,6 +239,17 @@ struct PlayerDetailView: View {
                         allowsWatchlist: !profile.isShadow,
                         onSignInRequested: onSignInRequested
                     )
+                    if canManageGames {
+                        Button {
+                            isAddGamePresented = true
+                        } label: {
+                            Label("Add a game", systemImage: "figure.soccer")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(AcademyColors.claret)
+                        .accessibilityIdentifier("add-game-open")
+                    }
                     ShowcaseSectionView(viewModel: showcaseViewModel)
                     if !prioritizesIntroductionFixture {
                         introductionSection(profile: profile)
@@ -240,6 +284,17 @@ struct PlayerDetailView: View {
     private var ownsCurrentPlayerProfile: Bool {
         claimViewModel.claim?.status == .approved
             && claimViewModel.claim?.relationshipType == "player"
+    }
+
+    /// The matches write route allows only approved claimants (player,
+    /// guardian, or agent). Local players carry negative signed ids; positive
+    /// ids are platform subjects whose games are club-managed, so the sheet is
+    /// reachable for owned local players only.
+    private var canManageGames: Bool {
+        guard viewModel.playerID < 0, let claim = claimViewModel.claim, claim.status == .approved else {
+            return false
+        }
+        return ["player", "guardian", "agent"].contains(claim.relationshipType)
     }
 
     private var prioritizesIntroductionFixture: Bool {

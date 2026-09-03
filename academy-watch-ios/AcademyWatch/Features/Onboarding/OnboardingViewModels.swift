@@ -8,6 +8,7 @@ enum LocalPlayerFormContext: Equatable, Sendable {
 
 enum LocalPlayerFormField: Hashable, Sendable {
     case displayName
+    case birthDate
     case birthYear
     case position
     case clubName
@@ -24,22 +25,35 @@ final class LocalPlayerFormViewModel: ObservableObject {
     @Published var country = ""
     @Published var city = ""
     @Published var birthYear = ""
+    @Published var birthDate: Date? {
+        didSet {
+            if birthDate != nil {
+                fieldErrors.removeValue(forKey: .birthYear)
+            }
+        }
+    }
     @Published private(set) var fieldErrors: [LocalPlayerFormField: String] = [:]
     @Published private(set) var requestError: String?
     @Published private(set) var isSubmitting = false
     @Published private(set) var created: LocalPlayerCreateResponse?
 
+    /// Backend bounds for both `birth_date` and `birth_year` (showcase.py).
+    static let localPlayerBirthYearRange = 1950 ... 2020
+
     let context: LocalPlayerFormContext
     private let apiClient: any OnboardingAPIClientProtocol
+    private let calendar: Calendar
 
     init(
         context: LocalPlayerFormContext,
         apiClient: any OnboardingAPIClientProtocol = APIClient(),
-        fixtureCreated: LocalPlayerCreateResponse? = nil
+        fixtureCreated: LocalPlayerCreateResponse? = nil,
+        calendar: Calendar = .current
     ) {
         self.context = context
         self.apiClient = apiClient
         created = fixtureCreated
+        self.calendar = calendar
     }
 
     @discardableResult
@@ -56,14 +70,23 @@ final class LocalPlayerFormViewModel: ObservableObject {
         validateMaximum(country, maximum: 100, field: .country, errors: &errors)
         validateMaximum(city, maximum: 120, field: .city, errors: &errors)
 
-        let yearText = trimmed(birthYear)
-        if !yearText.isEmpty {
-            if yearText.allSatisfy(\.isNumber), let year = Int(yearText) {
-                if !(1950 ... 2020).contains(year) {
-                    errors[.birthYear] = "Birth year must be between 1950 and 2020."
+        if let birthDate {
+            let year = calendar.component(.year, from: birthDate)
+            if !Self.localPlayerBirthYearRange.contains(year) {
+                errors[.birthDate] = "Birth date must fall between 1950 and 2020."
+            }
+        }
+
+        if birthDate == nil {
+            let yearText = trimmed(birthYear)
+            if !yearText.isEmpty {
+                if yearText.allSatisfy(\.isNumber), let year = Int(yearText) {
+                    if !Self.localPlayerBirthYearRange.contains(year) {
+                        errors[.birthYear] = "Birth year must be between 1950 and 2020."
+                    }
+                } else {
+                    errors[.birthYear] = "Enter a whole year, for example 2008."
                 }
-            } else {
-                errors[.birthYear] = "Enter a whole year, for example 2008."
             }
         }
         fieldErrors = errors
@@ -91,7 +114,22 @@ final class LocalPlayerFormViewModel: ObservableObject {
             clubName: optional(clubName),
             country: optional(country),
             city: optional(city),
-            birthYear: Int(trimmed(birthYear))
+            birthYear: birthDate == nil ? Int(trimmed(birthYear)) : nil,
+            birthDate: birthDate.map { Self.birthDateString(from: $0, calendar: calendar) }
+        )
+    }
+
+    /// The exact `YYYY-MM-DD` form the backend parser accepts (`_parse_local_
+    /// player_birth_date` re-parses the string, so the calendar-day the user
+    /// picked must survive: components are read in the user's calendar, never
+    /// shifted through a UTC formatter).
+    nonisolated static func birthDateString(from date: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04ld-%02ld-%02ld",
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
         )
     }
 

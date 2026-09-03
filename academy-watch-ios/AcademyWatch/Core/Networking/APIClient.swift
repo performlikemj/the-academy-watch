@@ -131,6 +131,19 @@ protocol FollowListsAPIClientProtocol: Sendable {
     func resolveFollowList(listID: Int, limit: Int, offset: Int) async throws -> ResolvedFollowListResponse
 }
 
+protocol PlayerFanAPIClientProtocol: Sendable {
+    func fetchFollowerCount(playerID: Int) async throws -> PlayerFollowerCountResponse
+    func followPlayer(playerID: Int) async throws -> PlayerFollowResponse
+    func unfollowPlayer(playerID: Int) async throws -> PlayerUnfollowResponse
+}
+
+protocol PlayerMatchAPIClientProtocol: Sendable {
+    func createPlayerMatch(
+        playerID: Int,
+        submission: PlayerMatchSubmission
+    ) async throws -> PlayerMatchMutationResponse
+}
+
 protocol OnboardingAPIClientProtocol: Sendable {
     func createLocalPlayer(_ submission: LocalPlayerSubmission) async throws -> LocalPlayerCreateResponse
     func fetchLocalPlayer(id: Int) async throws -> LocalPlayerResponse
@@ -165,6 +178,8 @@ struct APIClient: ScoutAPIClientProtocol,
     ContentReportAPIClientProtocol,
     WatchlistAPIClientProtocol,
     FollowListsAPIClientProtocol,
+    PlayerFanAPIClientProtocol,
+    PlayerMatchAPIClientProtocol,
     OnboardingAPIClientProtocol,
     CompareAPIClientProtocol,
     Sendable
@@ -662,6 +677,39 @@ struct APIClient: ScoutAPIClientProtocol,
         )
     }
 
+    func fetchFollowerCount(playerID: Int) async throws -> PlayerFollowerCountResponse {
+        try await get(
+            path: "players/\(playerID)/followers/count",
+            queryItems: []
+        )
+    }
+
+    func followPlayer(playerID: Int) async throws -> PlayerFollowResponse {
+        // The 201-created and 200-idempotent bodies share one shape; the
+        // status code itself is not needed by callers.
+        try await send(path: "players/\(playerID)/follow", method: "POST", body: EmptyRequest())
+    }
+
+    func unfollowPlayer(playerID: Int) async throws -> PlayerUnfollowResponse {
+        try await perform(
+            path: "players/\(playerID)/follow",
+            method: "DELETE",
+            queryItems: [],
+            body: nil
+        )
+    }
+
+    func createPlayerMatch(
+        playerID: Int,
+        submission: PlayerMatchSubmission
+    ) async throws -> PlayerMatchMutationResponse {
+        try await send(
+            path: "players/\(playerID)/matches",
+            method: "POST",
+            body: submission
+        )
+    }
+
     func createLocalPlayer(_ submission: LocalPlayerSubmission) async throws -> LocalPlayerCreateResponse {
         try await send(path: "local-players", method: "POST", body: submission)
     }
@@ -982,6 +1030,9 @@ private struct PlayerTakedownRequestBody: Encodable {
 }
 
 private struct EmptyResponse: Decodable {}
+
+/// Body for endpoints that take no payload but are sent through `send`.
+private struct EmptyRequest: Encodable {}
 
 private struct WatchlistPlayerRequest: Encodable {
     let playerApiId: Int
