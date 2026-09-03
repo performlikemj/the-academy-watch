@@ -289,6 +289,71 @@ test('club profile falls back to the former read-only record when editing routes
   await expect(page.getByRole('button', { name: 'Save for review' })).toHaveCount(0)
 })
 
+test('club profile blocks mutations after a failed load and retries both requests', async ({ page }) => {
+  let profileGets = 0
+  let updateGets = 0
+  const program = { id: 7, slug: 'northbank', name: 'Northbank Juniors', city: 'Leeds', platform_status: 'approved', country: 'England', league: { name: 'Northern Youth League', age_bands: ['U12', 'U14'], data_tier: 'self_reported' }, provenance: { label: 'Self-reported' } }
+  await installApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/me/club-claims') return route.fulfill({ json: { claims: [] } }).then(() => true)
+    if (url.pathname === '/api/me/club') return route.fulfill({ json: { clubs: [] } }).then(() => true)
+    if (url.pathname === '/api/funding/claims/me') return route.fulfill({ json: { claims: [{ id: 12, status: 'approved', program }] } }).then(() => true)
+    if (url.pathname === '/api/club/7/roster') return route.fulfill({ json: { members: [], system_brief: { body: null, updated_at: null, hash: null } } }).then(() => true)
+    if (url.pathname === '/api/club/7/matches') return route.fulfill({ json: { matches: [] } }).then(() => true)
+    if (url.pathname === '/api/club/7/profile' && request.method() === 'GET') {
+      profileGets += 1
+      if (profileGets === 1) return route.fulfill({ status: 500, json: { error: 'temporary_failure' } }).then(() => true)
+      await route.fulfill({ json: { program: { id: 7, slug: 'northbank', name: 'Northbank Juniors' }, approved: null, pending: null, limits: { summary_max: 2000, funding_purpose_max: 1000, list_items_max: 12, list_item_max: 40, media_urls_max: 6, updates_pending_max: 5 } } })
+      return true
+    }
+    if (url.pathname === '/api/club/7/updates' && request.method() === 'GET') {
+      updateGets += 1
+      await route.fulfill({ json: { updates: [] } })
+      return true
+    }
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/my-club')
+  await page.getByRole('tab', { name: 'Club profile' }).click()
+  await expect(page.getByText("Club profile couldn't be loaded.", { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save for review' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByRole('button', { name: 'Save for review' })).toBeVisible()
+  expect(profileGets).toBe(2)
+  expect(updateGets).toBe(2)
+})
+
+test('custom-list Pro badge excludes the default watchlist from its limit', async ({ page }) => {
+  let customLists = 2
+  await installApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/scout/lists' && request.method() === 'GET') {
+      const lists = [
+        { id: 1, name: 'Watchlist', is_default: true, is_active: true, follows: [], follow_count: 0 },
+        ...Array.from({ length: customLists }, (_, index) => ({ id: index + 2, name: `Custom ${index + 1}`, is_default: false, is_active: true, follows: [], follow_count: 0 })),
+      ]
+      await route.fulfill({ json: { lists } })
+      return true
+    }
+    if (/^\/api\/scout\/lists\/\d+\/resolve$/.test(url.pathname)) {
+      await route.fulfill({ json: { players: [], total: 0, offset: 0 } })
+      return true
+    }
+    if (url.pathname === '/api/teams') return route.fulfill({ json: [] }).then(() => true)
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/scout/lists')
+  await expect(page.getByText('Custom 2', { exact: true })).toBeVisible()
+  let newList = page.getByRole('button', { name: /New list/ }).first()
+  await expect(newList.getByText('Pro', { exact: true })).toHaveCount(0)
+
+  customLists = 3
+  await page.reload()
+  await expect(page.getByText('Custom 3', { exact: true })).toBeVisible()
+  newList = page.getByRole('button', { name: /New list/ }).first()
+  await expect(newList.getByText('Pro', { exact: true })).toBeVisible()
+})
+
 test('CSV entitlement rejection surfaces an inline Scout Pro upgrade prompt', async ({ page }) => {
   await installApi(page, async ({ route, request, url }) => {
     if (url.pathname === '/api/scout/watchlist' && request.method() === 'GET') {

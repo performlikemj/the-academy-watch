@@ -1815,10 +1815,9 @@ function ClubProfile({ program, claim, onAccessDenied }) {
   const deniedRef = useRef(onAccessDenied)
   const [profile, setProfile] = useState(null)
   const [updates, setUpdates] = useState([])
-  const [featureUnavailable, setFeatureUnavailable] = useState(false)
+  const [loadState, setLoadState] = useState('loading')
   const [form, setForm] = useState(EMPTY_PROFILE_FORM)
   const [updateForm, setUpdateForm] = useState({ title: '', body: '', impact: '' })
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [posting, setPosting] = useState(false)
   const [fieldErrors, setFieldErrors] = useState({})
@@ -1830,7 +1829,7 @@ function ClubProfile({ program, claim, onAccessDenied }) {
   }, [onAccessDenied])
 
   const load = useCallback(async () => {
-    setLoading(true)
+    setLoadState('loading')
     setMessage(null)
     try {
       const [profileData, updateData] = await Promise.all([
@@ -1838,18 +1837,16 @@ function ClubProfile({ program, claim, onAccessDenied }) {
         APIService.listClubUpdates(program.id),
       ])
       if (profileData === null || updateData === null) {
-        setFeatureUnavailable(true)
+        setLoadState('unavailable')
         return
       }
-      setFeatureUnavailable(false)
       setProfile(profileData)
       setUpdates(updateData?.updates || [])
       setForm(profileForm(profileData?.pending || profileData?.approved))
+      setLoadState('ready')
     } catch (error) {
+      setLoadState('failed')
       if (error?.status === 403) deniedRef.current()
-      else setMessage({ type: 'error', text: errorText(error, 'Club profile could not be loaded.') })
-    } finally {
-      setLoading(false)
     }
   }, [program.id])
 
@@ -1922,8 +1919,9 @@ function ClubProfile({ program, claim, onAccessDenied }) {
     }
   }
 
-  if (loading) return <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading club profile…</CardContent></Card>
-  if (featureUnavailable) return <ReadOnlyClubProfile program={program} claim={claim} />
+  if (loadState === 'loading') return <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading club profile…</CardContent></Card>
+  if (loadState === 'unavailable') return <ReadOnlyClubProfile program={program} claim={claim} />
+  if (loadState === 'failed') return <Card><CardHeader><CardTitle>Club profile couldn&apos;t be loaded.</CardTitle><CardDescription>Your existing profile and updates have not been changed.</CardDescription></CardHeader><CardContent><Button variant="outline" onClick={load}>Retry</Button></CardContent></Card>
 
   const edit = (field, value) => setForm((current) => ({ ...current, [field]: value }))
   const selectSupportProvider = (value) => setForm((current) => ({

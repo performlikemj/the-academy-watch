@@ -688,10 +688,11 @@ export function ListsPage() {
 
   const followCount = (list) => (list.follows ? list.follows.length : (list.follow_count ?? 0))
   const customListLimit = Number(auth.scoutPro?.features?.custom_lists_max)
+  const customListCount = lists.filter((list) => !list.is_default).length
   const customListsNeedPro = auth.scoutPro?.enabled === true
     && auth.scoutPro?.tier !== 'pro'
     && Number.isFinite(customListLimit)
-    && lists.length >= customListLimit
+    && customListCount >= customListLimit
 
   // Signed out
   if (!auth?.token) {
