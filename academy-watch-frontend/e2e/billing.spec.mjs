@@ -413,6 +413,31 @@ test('GOL composer is usable with an explicit true entitlement', async ({ page }
   expect(chatBodies[0].message).toBe('Which academy has the strongest pathway?')
 })
 
+test('GOL clears an expired current session before reopening sign-in', async ({ page }) => {
+  await installApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: ['Compare two academy pathways'] } }).then(() => true)
+    if (url.pathname === '/api/gol/chat' && request.method() === 'POST') {
+      expect(request.headers().authorization).toBe('Bearer mock-user-token')
+      await route.fulfill({ status: 401, json: { error: 'token_expired' } })
+      return true
+    }
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/terms')
+  await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+  await page.getByPlaceholder('Ask about any player or team…').fill('Which pathway is strongest?')
+  await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+
+  await expect(page.getByText('Sign in to ask GOL', { exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('academy_watch_user_token'))).toBeNull()
+  await expect(page.getByText('Which pathway is strongest?', { exact: true })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Sign in to The Academy Watch' })).toBeVisible()
+  await expect(page.getByLabel('Email')).toBeVisible()
+})
+
 test('GOL clears the prior identity transcript across sign-out and a different sign-in', async ({ page }) => {
   const accountB = {
     ...ACCOUNT,

@@ -29,7 +29,7 @@ export function GolPanel() {
   const [expanded, setExpanded] = useState(getInitialExpanded)
   const [responseGate, setResponseGate] = useState(null)
   const auth = useAuth()
-  const { openLoginModal } = useAuthUI()
+  const { logout, openLoginModal } = useAuthUI()
   const identityKey = auth.token
     ? `${auth.userId ?? auth.user_id ?? ''}:${auth.email?.trim().toLowerCase() ?? ''}:${auth.token}`
     : null
@@ -42,10 +42,11 @@ export function GolPanel() {
         ...event.detail,
         scoutPro: APIService.scoutPro,
       })
+      if (event.detail?.state === 'signed_out') logout()
     }
     window.addEventListener(APIService.golAccessEventName, handleAccessDenied)
     return () => window.removeEventListener(APIService.golAccessEventName, handleAccessDenied)
-  }, [])
+  }, [logout])
 
   const toggleExpanded = useCallback(() => {
     setExpanded(prev => {
