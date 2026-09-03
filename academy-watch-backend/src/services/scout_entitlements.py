@@ -6,12 +6,9 @@ import os
 from datetime import UTC, datetime
 from functools import wraps
 
-from flask import g, jsonify
+from flask import g, jsonify, request
 from src.config.stripe_config import billing_enabled
-from src.models.follow import FollowList
 from src.services.stripe_billing import active_subscription
-
-FREE_LIST_LIMIT = 3
 
 
 def _naive_utc(value: datetime) -> datetime:
@@ -34,10 +31,7 @@ def _environment_datetime(name: str) -> datetime | None:
 
 
 def scout_entitlements(user, *, now=None) -> dict:
-    """Return the user's effective tier and feature limits."""
-    import src.routes.scout as scout_module
-
-    max_follow_lists = scout_module.MAX_FOLLOW_LISTS
+    """Return the user's effective tier and feature access."""
     enabled = billing_enabled()
     if not enabled:
         tier = user.scout_tier or "free"
@@ -49,7 +43,7 @@ def scout_entitlements(user, *, now=None) -> dict:
             "current_period_end": None,
             "cancel_at_period_end": False,
             "grandfathered_until": None,
-            "features": {"csv_export": True, "custom_lists_max": max_follow_lists},
+            "features": {"gol_chat": True},
         }
 
     subscription = active_subscription("user", user.id, "scout_pro")
@@ -65,7 +59,7 @@ def scout_entitlements(user, *, now=None) -> dict:
             "current_period_end": period_end,
             "cancel_at_period_end": bool(subscription.cancel_at_period_end),
             "grandfathered_until": None,
-            "features": {"csv_export": True, "custom_lists_max": max_follow_lists},
+            "features": {"gol_chat": True},
         }
 
     launched_at = _environment_datetime("SCOUT_PRO_LAUNCHED_AT")
@@ -88,7 +82,7 @@ def scout_entitlements(user, *, now=None) -> dict:
             "current_period_end": None,
             "cancel_at_period_end": False,
             "grandfathered_until": grandfather_until.isoformat(),
-            "features": {"csv_export": True, "custom_lists_max": max_follow_lists},
+            "features": {"gol_chat": True},
         }
 
     return {
@@ -99,30 +93,12 @@ def scout_entitlements(user, *, now=None) -> dict:
         "current_period_end": None,
         "cancel_at_period_end": False,
         "grandfathered_until": None,
-        "features": {"csv_export": False, "custom_lists_max": FREE_LIST_LIMIT},
+        "features": {"gol_chat": False},
     }
 
 
 def is_pro(user) -> bool:
     return scout_entitlements(user)["tier"] == "pro"
-
-
-def list_limit_for(user) -> int:
-    return scout_entitlements(user)["features"]["custom_lists_max"]
-
-
-def list_is_within_entitlement(user, follow_list) -> bool:
-    """Whether mutations inside this list are included in the user's tier."""
-    entitlements = scout_entitlements(user)
-    if not entitlements["billing_enabled"] or entitlements["tier"] == "pro" or follow_list.is_default:
-        return True
-
-    rank = FollowList.query.filter(
-        FollowList.user_account_id == user.id,
-        FollowList.is_default.is_(False),
-        FollowList.id < follow_list.id,
-    ).count()
-    return rank < entitlements["features"]["custom_lists_max"]
 
 
 def require_scout_entitlement(feature: str):
@@ -131,6 +107,17 @@ def require_scout_entitlement(feature: str):
     def decorator(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                try:
+                    from src.auth import _user_serializer
+
+                    token_data = _user_serializer().loads(auth_header.split(" ", 1)[1], max_age=60 * 60 * 24 * 30)
+                    if (token_data or {}).get("role") == "admin":
+                        return view(*args, **kwargs)
+                except Exception:
+                    pass
+
             entitlements = scout_entitlements(g.user)
             if not entitlements["features"].get(feature, False):
                 return (
@@ -151,10 +138,7 @@ def require_scout_entitlement(feature: str):
 
 
 __all__ = [
-    "FREE_LIST_LIMIT",
     "is_pro",
-    "list_is_within_entitlement",
-    "list_limit_for",
     "require_scout_entitlement",
     "scout_entitlements",
 ]
