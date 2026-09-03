@@ -19,8 +19,11 @@ from src.models.funding import (
     ClubProgramClaim,
     ClubProgramManager,
     ClubProgramProfileRevision,
+    ClubProgramUpdate,
     FundingAdminEvent,
     FundingLeague,
+    revision_dict,
+    update_dict,
 )
 from src.models.league import League, TeamProfile, UserAccount, db
 from src.services.club_console_bridge import (
@@ -46,6 +49,10 @@ DATA_TIERS = {"api_football", "film_room", "self_reported"}
 REGISTRY_STATUSES = {"proposed", "approved", "rejected"}
 ADMISSION_STATES = {"open", "waitlisted", "closed"}
 CLAIM_STATUSES = {"pending", "approved", "rejected", "revoked"}
+REVISION_STATUSES = {"pending", "approved", "rejected", "withdrawn"}
+UPDATE_STATUSES = {"pending", "approved", "rejected", "withdrawn"}
+PUBLIC_UPDATES_MAX = 10
+SUPPORT_LABELS = {"patreon": "Patreon", "buy_me_a_coffee": "Buy Me a Coffee"}
 ORGANIZATION_FORMS = {"nonprofit", "company", "association", "school", "municipal", "other_organization"}
 AUTHORIZATION_METHODS = {"official_domain_email", "signed_officer_authorization"}
 MAX_PAGE = 200
@@ -1018,6 +1025,130 @@ def revoke_program_claim(claim_id):
         return jsonify(_safe_error_payload(exc, "Failed to revoke claim")), 500
 
 
+def _revision_queue_payload(revision: ClubProgramProfileRevision) -> dict:
+    payload = revision_dict(revision)
+    payload["submitted_by_user_id"] = revision.submitted_by_user_id
+    payload["program"] = {"id": revision.program.id, "slug": revision.program.slug, "name": revision.program.name}
+    return payload
+
+
+def _update_queue_payload(update: ClubProgramUpdate) -> dict:
+    payload = update_dict(update)
+    payload["program"] = {
+        "id": update.program.id,
+        "slug": update.program.slug,
+        "name": update.program.name,
+    }
+    return payload
+
+
+@funding_bp.route("/admin/funding/profile-revisions", methods=["GET"])
+@require_api_key
+def admin_profile_revisions():
+    status = (request.args.get("status") or "pending").strip().lower()
+    query = ClubProgramProfileRevision.query
+    if status != "all":
+        if status not in REVISION_STATUSES:
+            return jsonify({"error": f"status must be one of {sorted(REVISION_STATUSES)} or all"}), 400
+        query = query.filter(ClubProgramProfileRevision.status == status)
+    rows = query.order_by(ClubProgramProfileRevision.created_at.desc(), ClubProgramProfileRevision.id.desc())
+    rows = rows.limit(MAX_PAGE).all()
+    return jsonify({"revisions": [_revision_queue_payload(row) for row in rows]})
+
+
+@funding_bp.route(
+    "/admin/funding/programs/<int:program_id>/profile-revisions/<int:revision_id>/review", methods=["POST"]
+)
+@require_api_key
+def review_profile_revision(program_id: int, revision_id: int):
+    try:
+        revision = db.session.get(ClubProgramProfileRevision, revision_id)
+        if revision is None or revision.program_id != program_id:
+            return jsonify({"error": "revision not found"}), 404
+        payload = request.get_json(silent=True) or {}
+        decision = str(payload.get("decision") or "").strip().lower()
+        if decision not in {"approve", "reject"}:
+            raise ValueError("decision must be approve or reject")
+        reason = _clean(payload.get("reason"), "reason", max_len=2000)
+        if revision.status != "pending":
+            return jsonify({"error": "revision not pending"}), 409
+        revision.status = "approved" if decision == "approve" else "rejected"
+        revision.reviewed_by = getattr(g, "user_email", None)
+        revision.review_reason = reason
+        revision.reviewed_at = datetime.now(UTC)
+        if decision == "approve":
+            # The approved revision changes only through this admin route.
+            program = db.session.get(ClubProgram, program_id)
+            program.approved_profile_revision_id = revision.id
+        _audit(
+            "profile_revision_approved" if decision == "approve" else "profile_revision_rejected",
+            "club_program_profile_revision",
+            revision.id,
+            reason,
+            {"program_id": program_id},
+        )
+        db.session.commit()
+        return jsonify({"revision": revision_dict(revision)})
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("Failed to review club program profile revision")
+        return jsonify(_safe_error_payload(exc, "Failed to review profile revision")), 500
+
+
+@funding_bp.route("/admin/funding/program-updates", methods=["GET"])
+@require_api_key
+def admin_program_updates():
+    status = (request.args.get("status") or "pending").strip().lower()
+    query = ClubProgramUpdate.query
+    if status != "all":
+        if status not in UPDATE_STATUSES:
+            return jsonify({"error": f"status must be one of {sorted(UPDATE_STATUSES)} or all"}), 400
+        query = query.filter(ClubProgramUpdate.status == status)
+    rows = query.order_by(ClubProgramUpdate.created_at.desc(), ClubProgramUpdate.id.desc()).limit(MAX_PAGE).all()
+    return jsonify({"updates": [_update_queue_payload(row) for row in rows]})
+
+
+@funding_bp.route("/admin/funding/programs/<int:program_id>/updates/<int:update_id>/review", methods=["POST"])
+@require_api_key
+def review_program_update(program_id: int, update_id: int):
+    try:
+        update = db.session.get(ClubProgramUpdate, update_id)
+        if update is None or update.program_id != program_id:
+            return jsonify({"error": "update not found"}), 404
+        payload = request.get_json(silent=True) or {}
+        decision = str(payload.get("decision") or "").strip().lower()
+        if decision not in {"approve", "reject"}:
+            raise ValueError("decision must be approve or reject")
+        reason = _clean(payload.get("reason"), "reason", max_len=2000)
+        if update.status != "pending":
+            return jsonify({"error": "update not pending"}), 409
+        update.status = "approved" if decision == "approve" else "rejected"
+        update.reviewed_by = getattr(g, "user_email", None)
+        update.review_reason = reason
+        update.reviewed_at = datetime.now(UTC)
+        if decision == "approve":
+            update.published_at = datetime.now(UTC)
+        _audit(
+            "program_update_approved" if decision == "approve" else "program_update_rejected",
+            "club_program_update",
+            update.id,
+            reason,
+            {"program_id": program_id},
+        )
+        db.session.commit()
+        return jsonify({"update": update_dict(update)})
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("Failed to review club program update")
+        return jsonify(_safe_error_payload(exc, "Failed to review program update")), 500
+
+
 @funding_bp.route("/admin/funding/programs/<int:program_id>/connect/sync", methods=["POST"])
 @require_api_key
 def sync_program_connect_account(program_id):
@@ -1076,6 +1207,17 @@ def _approved_revision(program):
     )
 
 
+def _public_external_support(revision):
+    """Publish the approved revision's moderated link-out with its display label."""
+    if revision is None:
+        return None
+    provider = revision.external_support_provider
+    url = revision.external_support_url
+    if not provider or not url or provider not in SUPPORT_LABELS:
+        return None
+    return {"provider": provider, "label": SUPPORT_LABELS[provider], "url": url}
+
+
 def _public_program_by_slug(slug):
     """Return only programs admitted through an approved public league."""
     return (
@@ -1111,6 +1253,25 @@ def public_program(slug):
         if revision
         else None
     )
+    # Moderated link-out only: the external support link comes from the approved
+    # revision and no money moves through the platform.
+    payload["external_support"] = _public_external_support(revision)
+    updates = (
+        ClubProgramUpdate.query.filter_by(program_id=program.id, status="approved")
+        .order_by(ClubProgramUpdate.published_at.desc(), ClubProgramUpdate.id.desc())
+        .limit(PUBLIC_UPDATES_MAX)
+        .all()
+    )
+    payload["updates"] = [
+        {
+            "id": update.id,
+            "title": update.title,
+            "body": update.body,
+            "impact": update.impact,
+            "published_at": update.published_at.isoformat() if update.published_at else None,
+        }
+        for update in updates
+    ]
     payload["roster_links"] = (
         {
             "team_page": f"/teams/{program.team_profile.slug}" if program.team_profile.slug else None,

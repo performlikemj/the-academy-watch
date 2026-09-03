@@ -16,12 +16,21 @@ import re
 import unicodedata
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from urllib.parse import urlparse
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
 from src.auth import mint_media_token
-from src.models.funding import ClubProgram, ClubRosterMember
+from src.extensions import limiter
+from src.models.funding import (
+    ClubProgram,
+    ClubProgramProfileRevision,
+    ClubProgramUpdate,
+    ClubRosterMember,
+    revision_dict,
+    update_dict,
+)
 from src.models.league import Team, db
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonTotal
@@ -36,7 +45,7 @@ from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.utils.academy_window import current_stats_season
-from src.utils.sanitize import sanitize_plain_text
+from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 club_bp = Blueprint("club", __name__)
 logger = logging.getLogger(__name__)
@@ -60,6 +69,24 @@ TEXT_LIMITS = {
     "competition": 200,
     "our_kit_color": 50,
     "opponent_kit_color": 50,
+}
+PROFILE_LIMITS = {
+    "summary_max": 2000,
+    "funding_purpose_max": 1000,
+    "list_items_max": 12,
+    "list_item_max": 40,
+    "media_urls_max": 6,
+    "updates_pending_max": 5,
+}
+UPDATE_TITLE_MIN = 3
+UPDATE_TITLE_MAX = 140
+UPDATE_BODY_MIN = 20
+UPDATE_BODY_MAX = 4000
+UPDATE_IMPACT_MAX = 500
+SUPPORT_URL_MAX = 200
+SUPPORT_PROVIDERS = {
+    "patreon": {"patreon.com", "www.patreon.com"},
+    "buy_me_a_coffee": {"buymeacoffee.com", "www.buymeacoffee.com"},
 }
 
 
@@ -1210,3 +1237,309 @@ def get_club_match_report(program_id: int, match_id: int):
         visible.append(row)
     visible.sort(key=lambda row: -(row["minutes_visible"] or 0))
     return jsonify({"match": match.to_dict(), "reports": visible})
+
+
+# --- S3-P2a: manager-editable program profile and moderated updates -------------
+# No money moves through the platform: the only externally directed field is the
+# moderated external_support link-out, allowlisted to patreon.com and
+# buymeacoffee.com hosts, and it reaches the public page only through an
+# admin-approved profile revision.
+
+
+def _user_rate_limit_key():
+    return getattr(g, "user_email", None) or request.remote_addr or "anon"
+
+
+def _validation_failed(errors: dict):
+    return jsonify({"error": "validation_failed", "fields": errors}), 400
+
+
+def _optional_text(value, field: str, limit: int, errors: dict) -> str | None:
+    """Trimmed, tag-stripped optional text with a length cap."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        errors[field] = f"{field} must be a string or null"
+        return None
+    cleaned = sanitize_plain_text(value).strip()
+    if len(cleaned) > limit:
+        errors[field] = f"{field} must be at most {limit} characters"
+        return None
+    return cleaned or None
+
+
+def _short_string_list(value, field: str, errors: dict) -> list:
+    """Deduped list of short trimmed strings (age_groups / activities)."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        errors[field] = f"{field} must be a list of strings"
+        return []
+    if len(value) > PROFILE_LIMITS["list_items_max"]:
+        errors.setdefault(field, f"{field} must contain at most {PROFILE_LIMITS['list_items_max']} items")
+    item_max = PROFILE_LIMITS["list_item_max"]
+    out = []
+    for item in value:
+        if not isinstance(item, str):
+            errors.setdefault(field, f"each {field} item must be a string")
+            continue
+        cleaned = sanitize_plain_text(item).strip()
+        if not cleaned:
+            errors.setdefault(field, f"each {field} item must be a non-empty string")
+        elif len(cleaned) > item_max:
+            errors.setdefault(field, f"each {field} item must be at most {item_max} characters")
+        elif cleaned not in out:
+            out.append(cleaned)
+    return out
+
+
+def _https_field(value, field: str, errors: dict, *, limit: int = 500) -> str | None:
+    """Optional https-only URL with a length cap."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        errors[field] = f"{field} must be a string or null"
+        return None
+    cleaned = sanitize_plain_text(value).strip()
+    if len(cleaned) > limit:
+        errors[field] = f"{field} must be at most {limit} characters"
+        return None
+    if not is_safe_https_url(cleaned):
+        errors[field] = f"{field} must be an absolute https URL"
+        return None
+    return cleaned
+
+
+def _media_urls(value, field: str, errors: dict) -> list:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        errors[field] = f"{field} must be a list of strings"
+        return []
+    if len(value) > PROFILE_LIMITS["media_urls_max"]:
+        errors.setdefault(field, f"{field} must contain at most {PROFILE_LIMITS['media_urls_max']} items")
+    out = []
+    for item in value:
+        if not isinstance(item, str):
+            errors.setdefault(field, f"each {field} item must be a string")
+            continue
+        cleaned = sanitize_plain_text(item).strip()
+        if len(cleaned) > 500:
+            errors.setdefault(field, "each media_urls item must be at most 500 characters")
+        elif not is_safe_https_url(cleaned):
+            errors.setdefault(field, "each media_urls item must be an absolute https URL")
+        else:
+            out.append(cleaned)
+    return out
+
+
+def _external_support(value, errors: dict) -> tuple[str | None, str | None]:
+    """Validate and normalise the moderated external support link-out.
+
+    Rejects non-https schemes, credentials, ports, queries, fragments, any
+    host outside the provider's exact allowlist (subdomains other than www,
+    look-alike hosts), and empty paths. The stored URL is normalised with a
+    lower-case host and no trailing slash.
+    """
+    if value is None:
+        return None, None
+    if not isinstance(value, dict):
+        errors["external_support"] = "external_support must be an object with provider and url, or null"
+        return None, None
+    provider = value.get("provider")
+    url = value.get("url")
+    if not isinstance(provider, str) or not isinstance(url, str) or not provider.strip() or not url.strip():
+        errors["external_support"] = "external_support requires both provider and url"
+        return None, None
+    provider_cleaned = provider.strip().lower()
+    if provider_cleaned not in SUPPORT_PROVIDERS:
+        errors["external_support"] = "external_support provider must be patreon or buy_me_a_coffee"
+        return None, None
+    raw_url = sanitize_plain_text(url).strip()
+    if len(raw_url) > SUPPORT_URL_MAX:
+        errors["external_support"] = f"external_support url must be at most {SUPPORT_URL_MAX} characters"
+        return None, None
+    try:
+        parsed = urlparse(raw_url)
+        port = parsed.port  # raises ValueError for an invalid port literal
+    except ValueError:
+        errors["external_support"] = "external_support url must be a valid https URL"
+        return None, None
+    host = parsed.hostname or ""
+    if parsed.scheme != "https" or not host:
+        errors["external_support"] = "external_support url must be an absolute https URL"
+        return None, None
+    if parsed.username or parsed.password:
+        errors["external_support"] = "external_support url must not contain credentials"
+        return None, None
+    if port is not None:
+        errors["external_support"] = "external_support url must not include a port"
+        return None, None
+    if parsed.query or parsed.fragment:
+        errors["external_support"] = "external_support url must not include a query or fragment"
+        return None, None
+    if host not in SUPPORT_PROVIDERS[provider_cleaned]:
+        errors["external_support"] = "external_support url host is not allowed for this provider"
+        return None, None
+    path = parsed.path.rstrip("/")
+    if not path:
+        errors["external_support"] = "external_support url must include a path"
+        return None, None
+    return provider_cleaned, f"https://{host}{path}"
+
+
+def _profile_values(data: dict, errors: dict) -> dict:
+    provider, url = _external_support(data.get("external_support"), errors)
+    return {
+        "summary": _optional_text(data.get("summary"), "summary", PROFILE_LIMITS["summary_max"], errors),
+        "funding_purpose": _optional_text(
+            data.get("funding_purpose"), "funding_purpose", PROFILE_LIMITS["funding_purpose_max"], errors
+        ),
+        "age_groups": _short_string_list(data.get("age_groups"), "age_groups", errors),
+        "activities": _short_string_list(data.get("activities"), "activities", errors),
+        "official_url": _https_field(data.get("official_url"), "official_url", errors),
+        "safeguarding_url": _https_field(data.get("safeguarding_url"), "safeguarding_url", errors),
+        "media_urls": _media_urls(data.get("media_urls"), "media_urls", errors),
+        "external_support_provider": provider,
+        "external_support_url": url,
+    }
+
+
+def _pending_profile_revision(program_id: int) -> ClubProgramProfileRevision | None:
+    return (
+        ClubProgramProfileRevision.query.filter_by(program_id=program_id, status="pending")
+        .order_by(ClubProgramProfileRevision.id.desc())
+        .first()
+    )
+
+
+def _update_title(value, errors: dict) -> str | None:
+    if value is None:
+        errors["title"] = "title is required"
+        return None
+    if not isinstance(value, str):
+        errors["title"] = "title must be a string"
+        return None
+    cleaned = sanitize_plain_text(value).strip()
+    if not UPDATE_TITLE_MIN <= len(cleaned) <= UPDATE_TITLE_MAX:
+        errors["title"] = f"title must be between {UPDATE_TITLE_MIN} and {UPDATE_TITLE_MAX} characters"
+        return None
+    return cleaned
+
+
+def _update_body(value, errors: dict) -> str | None:
+    if value is None:
+        errors["body"] = "body is required"
+        return None
+    if not isinstance(value, str):
+        errors["body"] = "body must be a string"
+        return None
+    cleaned = sanitize_plain_text(value).strip()
+    if not UPDATE_BODY_MIN <= len(cleaned) <= UPDATE_BODY_MAX:
+        errors["body"] = f"body must be between {UPDATE_BODY_MIN} and {UPDATE_BODY_MAX} characters"
+        return None
+    return cleaned
+
+
+@club_bp.route("/club/<int:program_id>/profile", methods=["GET"])
+@require_club_manager()
+def get_club_profile(program_id: int):
+    program = db.session.get(ClubProgram, program_id)
+    if program is None:
+        return jsonify({"error": "Club manager access denied"}), 403
+    # Share the exact approved-revision resolution with the public program page.
+    from src.routes.funding import _approved_revision
+
+    return jsonify(
+        {
+            "program": {"id": program.id, "slug": program.slug, "name": program.name},
+            "approved": revision_dict(_approved_revision(program)),
+            "pending": revision_dict(_pending_profile_revision(program_id)),
+            "limits": dict(PROFILE_LIMITS),
+        }
+    )
+
+
+@club_bp.route("/club/<int:program_id>/profile", methods=["PUT"])
+@require_club_manager()
+@limiter.limit("20 per hour", key_func=_user_rate_limit_key)
+def put_club_profile(program_id: int):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return _validation_failed({"body": "request body must be a JSON object"})
+    errors: dict = {}
+    values = _profile_values(data, errors)
+    if errors:
+        return _validation_failed(errors)
+    pending = _pending_profile_revision(program_id)
+    if pending is None:
+        pending = ClubProgramProfileRevision(
+            program_id=program_id,
+            submitted_by_user_id=g.user_id,
+            status="pending",
+            **values,
+        )
+        db.session.add(pending)
+    else:
+        # One pending revision per program: a resubmission replaces it in place.
+        for field, value in values.items():
+            setattr(pending, field, value)
+        pending.submitted_by_user_id = g.user_id
+    db.session.commit()
+    return jsonify({"pending": revision_dict(pending)})
+
+
+@club_bp.route("/club/<int:program_id>/updates", methods=["GET"])
+@require_club_manager()
+def list_club_updates(program_id: int):
+    rows = (
+        ClubProgramUpdate.query.filter_by(program_id=program_id)
+        .order_by(ClubProgramUpdate.created_at.desc(), ClubProgramUpdate.id.desc())
+        .all()
+    )
+    return jsonify({"updates": [update_dict(row) for row in rows]})
+
+
+@club_bp.route("/club/<int:program_id>/updates", methods=["POST"])
+@require_club_manager()
+@limiter.limit("10 per hour", key_func=_user_rate_limit_key)
+def create_club_update(program_id: int):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return _validation_failed({"body": "request body must be a JSON object"})
+    errors: dict = {}
+    title = _update_title(data.get("title"), errors)
+    body = _update_body(data.get("body"), errors)
+    impact = _optional_text(data.get("impact"), "impact", UPDATE_IMPACT_MAX, errors)
+    if errors:
+        return _validation_failed(errors)
+    pending_count = ClubProgramUpdate.query.filter_by(program_id=program_id, status="pending").count()
+    if pending_count >= PROFILE_LIMITS["updates_pending_max"]:
+        return jsonify({"error": "pending_limit_reached"}), 409
+    update = ClubProgramUpdate(
+        program_id=program_id,
+        author_user_id=g.user_id,
+        title=title,
+        body=body,
+        impact=impact,
+        status="pending",
+    )
+    db.session.add(update)
+    db.session.commit()
+    return jsonify({"update": update_dict(update)}), 201
+
+
+@club_bp.route("/club/<int:program_id>/updates/<int:update_id>", methods=["DELETE"])
+@require_club_manager()
+def delete_club_update(program_id: int, update_id: int):
+    update = ClubProgramUpdate.query.filter_by(id=update_id, program_id=program_id).first()
+    if update is None:
+        return jsonify({"error": "update not found"}), 404
+    if update.status == "approved":
+        # An approved update leaves the public page but keeps its audit trail.
+        update.status = "withdrawn"
+        db.session.commit()
+        return jsonify({"deleted": False, "status": "withdrawn"})
+    db.session.delete(update)
+    db.session.commit()
+    return jsonify({"deleted": True, "status": None})
