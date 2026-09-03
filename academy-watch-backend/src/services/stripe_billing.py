@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import hashlib
 import logging
 import os
@@ -266,6 +267,11 @@ def create_checkout(user, *, product_code, price_code, client_key, scope_id=None
         "app": "academy_watch",
     }
     base_url = (os.getenv("PUBLIC_BASE_URL") or "https://theacademywatch.com").strip().rstrip("/")
+    idempotency_key = _checkout_key(product["scope_type"], resolved_scope_id, product_code, user.id, client_key)
+    if row.stripe_session_id:
+        attempt_at = row.expires_at or row.created_at
+        if attempt_at is not None:
+            idempotency_key = f"{idempotency_key}:{calendar.timegm(attempt_at.utctimetuple())}"
     configure_stripe()
     session = stripe.checkout.Session.create(
         mode="subscription",
@@ -277,7 +283,7 @@ def create_checkout(user, *, product_code, price_code, client_key, scope_id=None
         allow_promotion_codes=True,
         metadata=metadata,
         subscription_data={"metadata": metadata},
-        idempotency_key=_checkout_key(product["scope_type"], resolved_scope_id, product_code, user.id, client_key),
+        idempotency_key=idempotency_key,
     )
     row.stripe_session_id = _get(session, "id")
     row.checkout_url = _get(session, "url")
@@ -373,6 +379,23 @@ def upsert_subscription(sub, *, event_created: int | None) -> BillingSubscriptio
 
     if scope_type == "user":
         db.session.execute(select(UserAccount.id).where(UserAccount.id == scope_id).with_for_update())
+        row = (
+            db.session.execute(
+                select(BillingSubscription)
+                .where(BillingSubscription.stripe_subscription_id == subscription_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            .scalars()
+            .one_or_none()
+        )
+        if (
+            row is not None
+            and event_created is not None
+            and row.last_event_created is not None
+            and event_created < row.last_event_created
+        ):
+            return row
 
     previous_status = row.status if row is not None else None
     if row is None:
@@ -407,7 +430,7 @@ def upsert_subscription(sub, *, event_created: int | None) -> BillingSubscriptio
     if not was_active and is_active:
         _write_transition_event("billing_subscription_activated", row)
         _queue_email("subscription_activated", row)
-    elif was_active and not is_active:
+    elif was_active and not is_active and active_subscription(row.scope_type, row.scope_id, row.product_code) is None:
         _write_transition_event("billing_subscription_ended", row)
         _queue_email("subscription_ended", row)
     return row
@@ -584,10 +607,23 @@ def _send_email_intent(intent: dict) -> None:
 
 
 def _record_failed_event(event_id: str, event_type: str, payload_hash: str, error: Exception) -> None:
-    row = StripeWebhookEvent.query.filter_by(event_id=event_id).first()
+    row = (
+        db.session.execute(
+            select(StripeWebhookEvent)
+            .where(StripeWebhookEvent.event_id == event_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        .scalars()
+        .one_or_none()
+    )
     if row is None:
         row = StripeWebhookEvent(event_id=event_id, received_at=utcnow())
         db.session.add(row)
+    elif row.status in {"processed", "ignored"}:
+        logger.info("Stripe webhook event %s was already %s; preserving terminal status", event_id, row.status)
+        db.session.commit()
+        return
     row.event_type = event_type
     row.payload_hash = payload_hash
     row.status = "failed"
@@ -753,7 +789,7 @@ def cancel_subscriptions_for_account_deletion(user) -> int:
     canceled_subscription_ids = set()
     try:
         for row in rows:
-            stripe.Subscription.cancel(row.stripe_subscription_id)
+            _cancel_duplicate_subscription(row.stripe_subscription_id)
             canceled_subscription_ids.add(row.stripe_subscription_id)
         for checkout in payable_checkout_rows:
             try:
