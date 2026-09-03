@@ -1,69 +1,104 @@
-"""Stripe configuration and initialization"""
+"""Stripe configuration resolved from the environment at call time."""
+
+from __future__ import annotations
 
 import os
 
-import dotenv
 import stripe
 
-dotenv.load_dotenv(dotenv.find_dotenv())
+PRODUCT_CATALOG = {
+    "scout_pro": {
+        "scope_type": "user",
+        "name": "Scout Pro",
+        "prices": {
+            "monthly": "STRIPE_PRICE_SCOUT_PRO_MONTHLY",
+            "yearly": "STRIPE_PRICE_SCOUT_PRO_YEARLY",
+        },
+    },
+    "club_bundle": {
+        "scope_type": "club_program",
+        "name": "Club bundle",
+        "prices": {
+            "monthly": "STRIPE_PRICE_CLUB_BUNDLE_MONTHLY",
+            "yearly": "STRIPE_PRICE_CLUB_BUNDLE_YEARLY",
+        },
+    },
+}
 
-# Load Stripe API keys from environment
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
-STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
-# Platform fee percentage (10% for The Academy Watch maintenance and operational costs)
-PLATFORM_FEE_PERCENT = int(os.getenv("STRIPE_PLATFORM_FEE_PERCENT", "10"))
+def _platform_fee_percent() -> int:
+    try:
+        return int(os.getenv("STRIPE_PLATFORM_FEE_PERCENT", "10"))
+    except (TypeError, ValueError):
+        return 10
 
-# Initialize Stripe
-if STRIPE_SECRET_KEY:
-    stripe.api_key = STRIPE_SECRET_KEY
-else:
-    print("WARNING: STRIPE_SECRET_KEY not set in environment variables")
+
+def billing_enabled() -> bool:
+    return os.getenv("BILLING_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def offered_products() -> dict[str, dict]:
+    products = {}
+    for code, product in PRODUCT_CATALOG.items():
+        prices = {
+            price_code: price_id
+            for price_code, env_name in product["prices"].items()
+            if (price_id := (os.getenv(env_name) or "").strip())
+        }
+        if prices:
+            products[code] = {
+                "scope_type": product["scope_type"],
+                "name": product["name"],
+                "prices": prices,
+            }
+    return products
+
+
+def resolve_price(product_code: str, price_code: str) -> str | None:
+    product = offered_products().get(product_code)
+    return product["prices"].get(price_code) if product else None
+
+
+def product_for_price_id(stripe_price_id: str) -> tuple[str, str] | None:
+    for product_code, product in offered_products().items():
+        for price_code, price_id in product["prices"].items():
+            if price_id == stripe_price_id:
+                return product_code, price_code
+    return None
+
+
+def configure_stripe() -> None:
+    stripe.api_key = (os.getenv("STRIPE_SECRET_KEY") or "").strip() or None
 
 
 def get_stripe_keys() -> dict:
-    """Get Stripe API keys"""
+    """Return legacy configuration fields without caching credentials."""
     return {
-        "secret_key": STRIPE_SECRET_KEY,
-        "publishable_key": STRIPE_PUBLISHABLE_KEY,
-        "webhook_secret": STRIPE_WEBHOOK_SECRET,
-        "platform_fee_percent": PLATFORM_FEE_PERCENT,
+        "secret_key": os.getenv("STRIPE_SECRET_KEY"),
+        "publishable_key": os.getenv("STRIPE_PUBLISHABLE_KEY"),
+        "webhook_secret": os.getenv("STRIPE_WEBHOOK_SECRET"),
+        "platform_fee_percent": _platform_fee_percent(),
     }
 
 
 def calculate_platform_fee(amount_cents: int) -> int:
-    """Calculate platform fee based on subscription amount
-
-    Args:
-        amount_cents: Subscription amount in cents
-
-    Returns:
-        Platform fee in cents (10% of amount)
-    """
-    return int(amount_cents * PLATFORM_FEE_PERCENT / 100)
+    return int(amount_cents * _platform_fee_percent() / 100)
 
 
 def validate_stripe_config() -> tuple[bool, str | None]:
-    """Validate that Stripe is properly configured
-
-    Returns:
-        Tuple of (is_valid, error_message)
-    """
-    if not STRIPE_SECRET_KEY:
+    keys = get_stripe_keys()
+    if not keys["secret_key"]:
         return False, "STRIPE_SECRET_KEY not configured"
-
-    if not STRIPE_PUBLISHABLE_KEY:
+    if not keys["publishable_key"]:
         return False, "STRIPE_PUBLISHABLE_KEY not configured"
-
-    if not STRIPE_WEBHOOK_SECRET:
+    if not keys["webhook_secret"]:
         return False, "STRIPE_WEBHOOK_SECRET not configured (required for webhook verification)"
 
-    # Test API key validity
+    configure_stripe()
     try:
         stripe.Account.retrieve()
         return True, None
     except stripe.error.AuthenticationError:
         return False, "Invalid Stripe API key"
-    except Exception as e:
-        return False, f"Error validating Stripe configuration: {str(e)}"
+    except Exception as exc:
+        return False, f"Error validating Stripe configuration: {exc}"

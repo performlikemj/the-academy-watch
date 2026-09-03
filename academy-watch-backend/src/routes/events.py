@@ -25,6 +25,8 @@ ALLOWED_EVENTS = frozenset(
     {
         "pageview",
         "claim_submitted",
+        "checkout_completed",
+        "checkout_started",
         "follow_added",
         "shadow_minted",
         "search_performed",
