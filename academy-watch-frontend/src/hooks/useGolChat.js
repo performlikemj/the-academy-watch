@@ -46,6 +46,19 @@ export function useGolChat() {
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Unknown error')
+        let isAccessDenied = response.status === 401
+        if (response.status === 403) {
+          try {
+            const body = JSON.parse(errorText)
+            isAccessDenied = body?.error === 'scout_pro_required'
+          } catch {
+            // Non-JSON 403 responses are ordinary chat errors.
+          }
+        }
+        if (isAccessDenied) {
+          setMessages(prev => prev.filter(message => message.id !== userMsg.id && message.id !== assistantMsg.id))
+          return
+        }
         throw new Error(`Chat request failed (${response.status}): ${errorText}`)
       }
 

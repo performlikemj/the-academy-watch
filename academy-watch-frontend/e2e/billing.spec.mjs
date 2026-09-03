@@ -166,6 +166,7 @@ test('account billing records one sanitized completion and opens the billing por
   const privateSession = 'checkout-session-private-value'
   await page.goto(`/account/billing?checkout=success&session_id=${privateSession}`)
   await expect(page.getByText(/Checkout complete/)).toBeVisible()
+  await expect(page.getByText('GOL chatbot unlocked', { exact: true })).toBeVisible()
   await expect(page).toHaveURL('/account/billing')
   expect(await page.evaluate(() => sessionStorage.getItem('academyWatch.checkout.scout_pro.monthly'))).toBeNull()
   expect(await page.evaluate(() => sessionStorage.getItem('unrelated-session-key'))).toBe('keep')
@@ -413,7 +414,14 @@ test('GOL composer is usable with an explicit true entitlement', async ({ page }
 })
 
 test('GOL switches to the locked state after a mid-session Scout Pro rejection', async ({ page }) => {
+  let releaseEntitlement
+  const entitlementReady = new Promise((resolve) => { releaseEntitlement = resolve })
   await installApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/auth/me') {
+      await entitlementReady
+      await route.fulfill({ json: ACCOUNT })
+      return true
+    }
     if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: ['Compare two academy pathways'] } }).then(() => true)
     if (url.pathname === '/api/gol/chat' && request.method() === 'POST') {
       await route.fulfill({ status: 403, json: { error: 'scout_pro_required', feature: 'gol_chat', upgrade_path: '/pricing' } })
@@ -430,4 +438,8 @@ test('GOL switches to the locked state after a mid-session Scout Pro rejection',
   await expect(page.getByRole('link', { name: 'View Scout Pro' })).toHaveAttribute('href', '/pricing')
   await expect(page.getByPlaceholder('Ask about any player or team…')).toBeDisabled()
   await expect(page.getByText('scout_pro_required', { exact: true })).toHaveCount(0)
+  await expect(page.getByText(/something went wrong/i)).toHaveCount(0)
+
+  releaseEntitlement()
+  await expect(page.getByPlaceholder('Ask about any player or team…')).toBeEnabled()
 })

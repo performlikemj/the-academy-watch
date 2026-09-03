@@ -33,7 +33,10 @@ export function GolPanel() {
   const chat = useGolChat()
 
   useEffect(() => {
-    const handleAccessDenied = (event) => setResponseGate(event.detail)
+    const handleAccessDenied = (event) => setResponseGate({
+      ...event.detail,
+      scoutPro: APIService.scoutPro,
+    })
     window.addEventListener(APIService.golAccessEventName, handleAccessDenied)
     return () => window.removeEventListener(APIService.golAccessEventName, handleAccessDenied)
   }, [])
@@ -52,7 +55,9 @@ export function GolPanel() {
     openLoginModal()
   }, [openLoginModal])
 
-  const currentResponseGate = responseGate?.token === auth.token ? responseGate.state : null
+  const currentResponseGate = responseGate?.token === auth.token && responseGate.scoutPro === auth.scoutPro
+    ? responseGate.state
+    : null
   const accessState = !auth.token || currentResponseGate === 'signed_out'
     ? 'signed_out'
     : currentResponseGate === 'locked' || auth.scoutPro?.features?.gol_chat === false
