@@ -97,7 +97,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
-- **2026-09-03 HANDOFF → `ledgers/DIRECTIVE_dream-s3-handoff.md`** (read first). S0–S2 shipped and live (**61.0%**); pretty share links live via MJ's Cloudflare Worker (#987/#988). Next stage S3 "money rails" — MJ hands the directive to a new session; `loanarmy-d9` stays open for questions.
+- **2026-09-04 S3 "money rails" SHIPPED DARK** — billing remains default-off in prod; re-score **61.0% → 65.6%**. Close-out and debts: `ledgers/CONTINUITY_dream-s3.md`.
+- **Next:** owner completes the S3 go-live checklist; proceed with S4 Film Room self-serve + club tools and S6 ten real participants per the roadmap.
 - **2026-09-03 Coach's brief C3/P1 PR #989 open; review fix round 2 complete:** the seeder refuses persisted real system/coach briefs before mutation, seed refusal is reported as a club-console journey error, and a failed sim-program switch blanks the page before capture. The accepted worker delegation to `coach_brief.brief_payload` remains. Focused backend 82, sim pure 20, Ruff/syntax checks, and live ungraded sim 11/11 pass. See `ledgers/CONTINUITY_coach-brief-c3.md`.
 - **2026-09-03 Coach's brief C2 PR #985 review round 3 complete (open, unmerged):** no-kit roster briefs surface as structured honest limits without scheduling checks; overlength text uses payload `max_lines`; brief normalization is single-source.
   Spike 176; requested backend 85; backend Ruff (460 files) and bare spike Ruff (2 files) clean. See `ledgers/CONTINUITY_coach-brief-c2.md`.
