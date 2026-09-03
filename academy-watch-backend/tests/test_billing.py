@@ -358,6 +358,44 @@ def test_failed_webhook_is_persisted_then_retried(client, monkeypatch):
     assert BillingSubscription.query.one().status == "active"
 
 
+def test_failed_webhook_retry_rechecks_status_after_row_lock(client, monkeypatch):
+    _enable(monkeypatch)
+    event_id = "evt_failed_claim"
+    db.session.add(
+        StripeWebhookEvent(
+            event_id=event_id,
+            event_type="customer.subscription.updated",
+            payload_hash="0" * 64,
+            status="failed",
+            received_at=datetime.now(UTC).replace(tzinfo=None),
+        )
+    )
+    db.session.commit()
+    import src.services.stripe_billing as billing_service
+
+    apply_event = Mock(side_effect=AssertionError("duplicate retry must not apply"))
+    monkeypatch.setattr(billing_service, "_apply_event", apply_event)
+    real_execute = db.session.execute
+
+    def process_after_claim(statement, *args, **kwargs):
+        result = real_execute(statement, *args, **kwargs)
+        if getattr(statement, "_for_update_arg", None) is not None and "stripe_webhook_events" in str(statement):
+            locked = result.scalars().one_or_none()
+            locked.status = "processed"
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(one_or_none=lambda: locked))
+        return result
+
+    monkeypatch.setattr(db.session, "execute", process_after_claim)
+    response = _post_event(
+        client,
+        _event(event_id, "customer.subscription.updated", {"id": "sub_claim"}),
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {"received": True, "duplicate": True}
+    apply_event.assert_not_called()
+
+
 def test_checkout_idempotency_validation_and_active_conflict(client, monkeypatch):
     _enable(monkeypatch)
     monkeypatch.setenv("STRIPE_PRICE_SCOUT_PRO_MONTHLY", "price_monthly")
@@ -424,6 +462,40 @@ def test_checkout_idempotency_validation_and_active_conflict(client, monkeypatch
     response = client.post("/api/billing/checkout", json=payload, headers=headers)
     assert response.status_code == 409
     assert response.get_json() == {"error": "already_subscribed"}
+
+
+def test_checkout_price_change_expires_open_session_and_creates_replacement(client, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("STRIPE_PRICE_SCOUT_PRO_MONTHLY", "price_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_SCOUT_PRO_YEARLY", "price_yearly")
+    user = _add_user()
+    headers = _headers(user)
+    _, session_create = _mock_checkout(monkeypatch)
+    monthly = client.post(
+        "/api/billing/checkout",
+        json={"product_code": "scout_pro", "price_code": "monthly", "client_key": "monthly_key"},
+        headers=headers,
+    )
+    assert monthly.status_code == 200
+    expire = Mock(side_effect=stripe.InvalidRequestError("Checkout Session is not open", param=None))
+    retrieve = Mock(return_value={"id": "cs_test_1", "status": "expired"})
+    monkeypatch.setattr(stripe.checkout.Session, "expire", expire)
+    monkeypatch.setattr(stripe.checkout.Session, "retrieve", retrieve)
+
+    yearly = client.post(
+        "/api/billing/checkout",
+        json={"product_code": "scout_pro", "price_code": "yearly", "client_key": "yearly_key"},
+        headers=headers,
+    )
+
+    assert yearly.status_code == 200
+    assert yearly.get_json()["session_id"] == "cs_test_2"
+    expire.assert_called_once_with("cs_test_1")
+    retrieve.assert_called_once_with("cs_test_1")
+    assert session_create.call_count == 2
+    assert session_create.call_args.kwargs["line_items"] == [{"price": "price_yearly", "quantity": 1}]
+    assert BillingCheckoutSession.query.filter_by(price_code="monthly", status="expired").count() == 1
+    assert BillingCheckoutSession.query.filter_by(price_code="yearly", status="open").count() == 1
 
 
 def test_customer_unique_race_recovers_and_checkout_commits(client, monkeypatch):
@@ -764,10 +836,11 @@ def test_retrieved_subscription_uses_existing_event_watermark(client, monkeypatc
         {"id": "cs_watermark", "subscription": "sub_watermark"},
         created=100,
     )
+    retrieved_after = int(time.time())
     assert _post_event(client, completed).status_code == 200
     row = BillingSubscription.query.one()
     assert row.status == "active"
-    assert row.last_event_created == 150
+    assert row.last_event_created >= retrieved_after
 
     stale = _subscription(user, subscription_id="sub_watermark", status="canceled")
     updated = _event("evt_stale_after_checkout", "customer.subscription.updated", stale, created=90)
@@ -793,6 +866,7 @@ def test_equal_subscription_watermark_uses_authoritative_snapshot(client, monkey
     retrieve = Mock(return_value=authoritative)
     monkeypatch.setattr(stripe.Subscription, "retrieve", retrieve)
     stale = _subscription(user, subscription_id="sub_equal_watermark", status="canceled")
+    retrieved_after = int(time.time())
     response = _post_event(
         client,
         _event("evt_equal_stale", "customer.subscription.updated", stale, created=event_created),
@@ -801,8 +875,62 @@ def test_equal_subscription_watermark_uses_authoritative_snapshot(client, monkey
     assert response.status_code == 200
     row = BillingSubscription.query.one()
     assert row.status == "active"
-    assert row.last_event_created == event_created
+    assert row.last_event_created >= retrieved_after
     retrieve.assert_called_once_with("sub_equal_watermark", expand=["items.data.price"])
+
+
+def test_retrieved_invoice_snapshot_blocks_intermediate_stale_subscription_event(client, monkeypatch):
+    _enable(monkeypatch)
+    user = _add_user()
+    subscription_id = "sub_invoice_watermark"
+    invoice_created = int(time.time()) - 100
+    active = _subscription(user, subscription_id=subscription_id, status="active")
+    assert (
+        _post_event(
+            client,
+            _event(
+                "evt_before_invoice",
+                "customer.subscription.updated",
+                active,
+                created=invoice_created - 10,
+            ),
+        ).status_code
+        == 200
+    )
+    sent = []
+    from src.services.email_service import email_service
+
+    monkeypatch.setattr(
+        email_service,
+        "send_email",
+        lambda **kwargs: sent.append(kwargs) or SimpleNamespace(success=True),
+    )
+    canceled = _subscription(user, subscription_id=subscription_id, status="canceled")
+    retrieve = Mock(return_value=canceled)
+    monkeypatch.setattr(stripe.Subscription, "retrieve", retrieve)
+    retrieved_after = int(time.time())
+    invoice = _event(
+        "evt_old_invoice",
+        "invoice.paid",
+        {"subscription": subscription_id},
+        created=invoice_created,
+    )
+    assert _post_event(client, invoice).status_code == 200
+    assert BillingSubscription.query.one().status == "canceled"
+    assert BillingSubscription.query.one().last_event_created >= retrieved_after
+    retrieve.assert_called_once_with(subscription_id, expand=["items.data.price"])
+
+    sent.clear()
+    stale = _subscription(user, subscription_id=subscription_id, status="active")
+    stale_event = _event(
+        "evt_between_invoice_and_retrieval",
+        "customer.subscription.updated",
+        stale,
+        created=invoice_created + 50,
+    )
+    assert _post_event(client, stale_event).status_code == 200
+    assert BillingSubscription.query.one().status == "canceled"
+    assert not any(message["subject"] == "Your Scout Pro subscription is active" for message in sent)
 
 
 def test_billing_me_and_portal(client, monkeypatch):
@@ -973,6 +1101,38 @@ def test_account_delete_cancels_active_subscription_and_exports_billing(client, 
     assert db.session.get(UserAccount, user.id) is None
 
 
+@pytest.mark.parametrize(("status", "should_cancel"), [("incomplete", True), ("canceled", False)])
+def test_account_delete_cancels_every_non_terminal_subscription(client, monkeypatch, status, should_cancel):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "billing_secret_test_placeholder")
+    user = _add_user()
+    subscription_id = f"sub_delete_{status}"
+    db.session.add(
+        BillingSubscription(
+            scope_type="user",
+            scope_id=user.id,
+            product_code="scout_pro",
+            price_code="monthly",
+            purchaser_user_id=user.id,
+            stripe_customer_id=f"cus_delete_{status}",
+            stripe_subscription_id=subscription_id,
+            stripe_price_id=f"price_delete_{status}",
+            status=status,
+        )
+    )
+    db.session.commit()
+    cancel = Mock(return_value={"id": subscription_id, "status": "canceled"})
+    monkeypatch.setattr(stripe.Subscription, "cancel", cancel)
+
+    response = client.post("/api/account/delete", json={"confirm": "DELETE"}, headers=_headers(user))
+
+    assert response.status_code == 200
+    if should_cancel:
+        cancel.assert_called_once_with(subscription_id)
+    else:
+        cancel.assert_not_called()
+    assert db.session.get(UserAccount, user.id) is None
+
+
 def test_account_delete_aborts_when_stripe_cancel_fails(client, monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "billing_secret_test_placeholder")
     user = _add_user()
@@ -1134,10 +1294,10 @@ def test_account_delete_skips_time_expired_checkout_without_key(client, monkeypa
     assert db.session.get(UserAccount, user.id) is None
 
 
-@pytest.mark.parametrize("billing_row", ["subscription", "checkout"])
+@pytest.mark.parametrize("billing_row", ["active_subscription", "incomplete_subscription", "checkout"])
 def test_account_delete_requires_secret_for_payable_billing_rows(client, monkeypatch, billing_row):
     user = _add_user()
-    if billing_row == "subscription":
+    if billing_row.endswith("_subscription"):
         db.session.add(
             BillingSubscription(
                 scope_type="user",
@@ -1146,9 +1306,9 @@ def test_account_delete_requires_secret_for_payable_billing_rows(client, monkeyp
                 price_code="monthly",
                 purchaser_user_id=user.id,
                 stripe_customer_id="cus_missing_key",
-                stripe_subscription_id="sub_missing_key",
+                stripe_subscription_id=f"sub_missing_key_{billing_row}",
                 stripe_price_id="price_missing_key",
-                status="active",
+                status=billing_row.removesuffix("_subscription"),
             )
         )
     else:

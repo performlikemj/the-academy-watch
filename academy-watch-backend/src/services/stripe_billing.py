@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import re
+import time
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from functools import wraps
@@ -29,6 +30,7 @@ from src.models.product_event import ProductEvent
 logger = logging.getLogger(__name__)
 
 ACTIVE_STATUSES = frozenset({"active", "trialing", "past_due"})
+TERMINAL_STATUSES = frozenset({"canceled", "incomplete_expired"})
 _CLIENT_KEY_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _email_intents: ContextVar[list[dict] | None] = ContextVar("billing_email_intents", default=None)
 
@@ -151,6 +153,17 @@ def _checkout_key(scope_type: str, scope_id: int, product_code: str, user_id: in
     return f"checkout:{scope_type}:{scope_id}:{product_code}:{user_id}:{client_key}"
 
 
+def _expire_or_retrieve_checkout(row: BillingCheckoutSession):
+    if not row.stripe_session_id:
+        raise BillingError("checkout_expiry_failed", 500)
+    configure_stripe()
+    try:
+        stripe.checkout.Session.expire(row.stripe_session_id)
+    except stripe.InvalidRequestError:
+        return stripe.checkout.Session.retrieve(row.stripe_session_id)
+    return {"status": "expired"}
+
+
 def create_checkout(user, *, product_code, price_code, client_key, scope_id=None) -> dict:
     if not isinstance(client_key, str) or not _CLIENT_KEY_RE.fullmatch(client_key):
         raise BillingError("invalid_client_key", 400)
@@ -182,7 +195,21 @@ def create_checkout(user, *, product_code, price_code, client_key, scope_id=None
         .first()
     )
     if open_row is not None:
-        return {"checkout_url": open_row.checkout_url, "session_id": open_row.stripe_session_id}
+        if open_row.price_code == price_code:
+            return {"checkout_url": open_row.checkout_url, "session_id": open_row.stripe_session_id}
+        try:
+            snapshot = _expire_or_retrieve_checkout(open_row)
+        except stripe.InvalidRequestError:
+            snapshot = {"status": "expired"}
+        status = _get(snapshot, "status")
+        if status == "expired":
+            open_row.status = "expired"
+        elif status == "complete":
+            open_row.status = "complete"
+            open_row.completed_at = open_row.completed_at or utcnow()
+            raise BillingError("already_subscribed", 409)
+        else:
+            raise BillingError("checkout_expiry_failed", 503)
 
     row = BillingCheckoutSession.query.filter_by(
         scope_type=product["scope_type"],
@@ -418,14 +445,10 @@ def _retrieve_subscription(subscription_id: str):
     return stripe.Subscription.retrieve(subscription_id, expand=["items.data.price"])
 
 
-def _retrieve_event_watermark(subscription_id: str, event_created: int | None) -> int | None:
+def _retrieve_event_watermark(subscription_id: str, event_created: int | None) -> int:
     row = BillingSubscription.query.filter_by(stripe_subscription_id=subscription_id).first()
     existing = row.last_event_created if row is not None else None
-    if event_created is None:
-        return existing
-    if existing is None:
-        return event_created
-    return max(event_created, existing)
+    return max(value for value in (existing, event_created, int(time.time())) if value is not None)
 
 
 def _expire_other_open_checkouts(completed: BillingCheckoutSession) -> None:
@@ -437,27 +460,20 @@ def _expire_other_open_checkouts(completed: BillingCheckoutSession) -> None:
         BillingCheckoutSession.id != completed.id,
     ).all()
     for sibling in siblings:
-        if not sibling.stripe_session_id:
-            raise BillingError("checkout_expiry_failed", 500)
-        try:
-            configure_stripe()
-            stripe.checkout.Session.expire(sibling.stripe_session_id)
-        except stripe.InvalidRequestError:
-            snapshot = stripe.checkout.Session.retrieve(sibling.stripe_session_id)
-            status = _get(snapshot, "status")
-            if status == "expired":
-                sibling.status = "expired"
-                continue
-            if status == "complete":
-                subscription_id = _stripe_id(_get(snapshot, "subscription"))
-                if not subscription_id:
-                    raise BillingError("checkout_expiry_failed", 500)
-                stripe.Subscription.cancel(subscription_id)
-                sibling.status = "complete"
-                sibling.completed_at = sibling.completed_at or utcnow()
-                continue
-            raise BillingError("checkout_expiry_failed", 500)
-        sibling.status = "expired"
+        snapshot = _expire_or_retrieve_checkout(sibling)
+        status = _get(snapshot, "status")
+        if status == "expired":
+            sibling.status = "expired"
+            continue
+        if status == "complete":
+            subscription_id = _stripe_id(_get(snapshot, "subscription"))
+            if not subscription_id:
+                raise BillingError("checkout_expiry_failed", 500)
+            stripe.Subscription.cancel(subscription_id)
+            sibling.status = "complete"
+            sibling.completed_at = sibling.completed_at or utcnow()
+            continue
+        raise BillingError("checkout_expiry_failed", 500)
 
 
 def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
@@ -581,6 +597,7 @@ def handle_webhook(raw_body: bytes, signature_header: str | None) -> tuple[dict,
     if existing is not None and existing.status in {"processed", "ignored"}:
         return {"received": True, "duplicate": True}, 200
 
+    claim_existing = existing is not None
     if existing is None:
         try:
             with db.session.begin_nested():
@@ -594,9 +611,23 @@ def handle_webhook(raw_body: bytes, signature_header: str | None) -> tuple[dict,
                 db.session.add(existing)
                 db.session.flush()
         except IntegrityError:
-            existing = StripeWebhookEvent.query.filter_by(event_id=event_id).first()
-            if existing is not None and existing.status in {"processed", "ignored"}:
-                return {"received": True, "duplicate": True}, 200
+            claim_existing = True
+
+    if claim_existing:
+        existing = (
+            db.session.execute(
+                select(StripeWebhookEvent)
+                .where(StripeWebhookEvent.event_id == event_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            .scalars()
+            .one_or_none()
+        )
+        if existing is None:
+            raise RuntimeError("Stripe webhook event disappeared while claiming retry")
+        if existing.status != "failed":
+            return {"received": True, "duplicate": True}, 200
 
     intents: list[dict] = []
     token = _email_intents.set(intents)
@@ -682,7 +713,7 @@ def cancel_subscriptions_for_account_deletion(user) -> int:
     rows = BillingSubscription.query.filter(
         BillingSubscription.scope_type == "user",
         BillingSubscription.scope_id == user.id,
-        BillingSubscription.status.in_(ACTIVE_STATUSES),
+        BillingSubscription.status.notin_(TERMINAL_STATUSES),
     ).all()
     checkout_rows = BillingCheckoutSession.query.filter(
         BillingCheckoutSession.status == "open",
@@ -710,15 +741,10 @@ def cancel_subscriptions_for_account_deletion(user) -> int:
             canceled_subscription_ids.add(row.stripe_subscription_id)
         for checkout in payable_checkout_rows:
             try:
-                stripe.checkout.Session.expire(checkout.stripe_session_id)
+                snapshot = _expire_or_retrieve_checkout(checkout)
+            except stripe.InvalidRequestError:
                 checkout.status = "expired"
                 continue
-            except stripe.InvalidRequestError:
-                try:
-                    snapshot = stripe.checkout.Session.retrieve(checkout.stripe_session_id)
-                except stripe.InvalidRequestError:
-                    checkout.status = "expired"
-                    continue
             status = _get(snapshot, "status")
             if status == "expired":
                 checkout.status = "expired"
