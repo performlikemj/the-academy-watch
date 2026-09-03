@@ -81,13 +81,6 @@ export function TermsPage() {
         </p>
       </section>
 
-      {billingEnabled ? (
-        <section>
-          <h2>Paid subscriptions</h2>
-          <p>Paid subscriptions renew automatically each period. You can cancel at any time through the billing portal; cancellation takes effect at the end of the paid period. Prices are shown before purchase. Stripe processes payments, and we never store card numbers. We do not refund partial periods except where required by law.</p>
-        </section>
-      ) : null}
-
       <section>
         <h2>9. Disclaimers and liability</h2>
         <p>
@@ -115,6 +108,13 @@ export function TermsPage() {
           By Way of MJ LLC · 418 Broadway, Ste R, Albany, NY 12207, USA · <a href="mailto:mj@bywayofmj.com">mj@bywayofmj.com</a>
         </p>
       </section>
+
+      {billingEnabled ? (
+        <section>
+          <h2>13. Paid subscriptions</h2>
+          <p>Paid subscriptions renew automatically each period. You can cancel at any time through the billing portal; cancellation takes effect at the end of the paid period. Prices are shown before purchase. Stripe processes payments, and we never store card numbers. We do not refund partial periods except where required by law.</p>
+        </section>
+      ) : null}
     </LegalPageLayout>
   )
 }

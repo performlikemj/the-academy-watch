@@ -67,6 +67,10 @@ export function AccountBillingPage() {
     trackedSuccess.current = true
     track('checkout_completed')
     setCheckoutSuccess(true)
+    for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.sessionStorage.key(index)
+      if (key?.startsWith('academyWatch.checkout.')) window.sessionStorage.removeItem(key)
+    }
     window.history.replaceState({}, '', window.location.pathname)
   }, [auth?.token])
 

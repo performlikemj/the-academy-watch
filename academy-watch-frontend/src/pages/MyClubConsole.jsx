@@ -1783,6 +1783,7 @@ function splitValues(value, separator) {
 }
 
 function ClubProfile({ program, onAccessDenied }) {
+  const deniedRef = useRef(onAccessDenied)
   const [profile, setProfile] = useState(null)
   const [updates, setUpdates] = useState([])
   const [form, setForm] = useState(EMPTY_PROFILE_FORM)
@@ -1793,6 +1794,10 @@ function ClubProfile({ program, onAccessDenied }) {
   const [fieldErrors, setFieldErrors] = useState({})
   const [updateErrors, setUpdateErrors] = useState({})
   const [message, setMessage] = useState(null)
+
+  useEffect(() => {
+    deniedRef.current = onAccessDenied
+  }, [onAccessDenied])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1806,12 +1811,12 @@ function ClubProfile({ program, onAccessDenied }) {
       setUpdates(updateData?.updates || [])
       setForm(profileForm(profileData?.pending || profileData?.approved))
     } catch (error) {
-      if (error?.status === 403) onAccessDenied()
+      if (error?.status === 403) deniedRef.current()
       else setMessage({ type: 'error', text: errorText(error, 'Club profile could not be loaded.') })
     } finally {
       setLoading(false)
     }
-  }, [onAccessDenied, program.id])
+  }, [program.id])
 
   useEffect(() => {
     const timer = setTimeout(load, 0)
@@ -1842,7 +1847,7 @@ function ClubProfile({ program, onAccessDenied }) {
       setForm(profileForm(result.pending))
       setMessage({ type: 'success', text: 'Profile submitted for review.' })
     } catch (error) {
-      if (error?.status === 403) onAccessDenied()
+      if (error?.status === 403) deniedRef.current()
       else if (error?.status === 400 && error?.body?.error === 'validation_failed') setFieldErrors(error.body.fields || {})
       else setMessage({ type: 'error', text: errorText(error, 'Profile could not be saved.') })
     } finally {
@@ -1861,7 +1866,7 @@ function ClubProfile({ program, onAccessDenied }) {
       setUpdateForm({ title: '', body: '', impact: '' })
       setMessage({ type: 'success', text: 'Update submitted for review.' })
     } catch (error) {
-      if (error?.status === 403) onAccessDenied()
+      if (error?.status === 403) deniedRef.current()
       else if (error?.status === 409 && error?.body?.error === 'pending_limit_reached') setMessage({ type: 'error', text: 'You already have 5 updates pending review.' })
       else if (error?.status === 400 && error?.body?.error === 'validation_failed') setUpdateErrors(error.body.fields || {})
       else setMessage({ type: 'error', text: errorText(error, 'Update could not be submitted.') })
@@ -1877,7 +1882,7 @@ function ClubProfile({ program, onAccessDenied }) {
         ? current.filter((item) => item.id !== update.id)
         : current.map((item) => item.id === update.id ? { ...item, status: result.status } : item))
     } catch (error) {
-      if (error?.status === 403) onAccessDenied()
+      if (error?.status === 403) deniedRef.current()
       else setMessage({ type: 'error', text: errorText(error, 'Update could not be removed.') })
     }
   }

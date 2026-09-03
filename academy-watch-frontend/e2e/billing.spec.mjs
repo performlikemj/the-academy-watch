@@ -13,7 +13,7 @@ const ACCOUNT = {
   is_curator: false,
   is_verified_scout: true,
   scout_tier: 'free',
-  scout_pro: { enabled: true, tier: 'free', features: { csv_export: false, custom_lists: false, custom_lists_max: 3 } },
+  scout_pro: { enabled: true, tier: 'free', features: { csv_export: false, custom_lists_max: 3 } },
 }
 
 const BILLING_CONFIG = {
@@ -117,12 +117,18 @@ test('account billing records one sanitized completion and opens the billing por
     }
     return false
   }, { signedIn: true })
+  await page.addInitScript(() => {
+    sessionStorage.setItem('academyWatch.checkout.scout_pro.monthly', 'completed-client-key')
+    sessionStorage.setItem('unrelated-session-key', 'keep')
+  })
   await page.route('**/portal-stub', (route) => route.fulfill({ contentType: 'text/html', body: '<h1>Billing portal stub</h1>' }))
 
   const privateSession = 'checkout-session-private-value'
   await page.goto(`/account/billing?checkout=success&session_id=${privateSession}`)
   await expect(page.getByText(/Checkout complete/)).toBeVisible()
   await expect(page).toHaveURL('/account/billing')
+  expect(await page.evaluate(() => sessionStorage.getItem('academyWatch.checkout.scout_pro.monthly'))).toBeNull()
+  expect(await page.evaluate(() => sessionStorage.getItem('unrelated-session-key'))).toBe('keep')
   await page.waitForTimeout(5500)
   const events = eventBatches.flatMap((batch) => batch.events || [])
   expect(events.filter((event) => event.name === 'checkout_completed')).toHaveLength(1)
@@ -155,6 +161,7 @@ test('program page renders an external Patreon link and approved updates', async
 test('club console saves the moderated profile payload and submits an update', async ({ page }) => {
   const profilePuts = []
   const updatePosts = []
+  let profileGets = 0
   const program = { id: 7, slug: 'northbank', name: 'Northbank Juniors', platform_status: 'approved', country: 'England', league: { name: 'Northern Youth League', age_bands: ['U12', 'U14'], data_tier: 'self_reported' }, provenance: { label: 'Self-reported' } }
   await installApi(page, async ({ route, request, url }) => {
     if (url.pathname === '/api/me/club-claims') return route.fulfill({ json: { claims: [] } }).then(() => true)
@@ -162,7 +169,11 @@ test('club console saves the moderated profile payload and submits an update', a
     if (url.pathname === '/api/funding/claims/me') return route.fulfill({ json: { claims: [{ id: 12, status: 'approved', program }] } }).then(() => true)
     if (url.pathname === '/api/club/7/roster') return route.fulfill({ json: { members: [], system_brief: { body: null, updated_at: null, hash: null } } }).then(() => true)
     if (url.pathname === '/api/club/7/matches') return route.fulfill({ json: { matches: [] } }).then(() => true)
-    if (url.pathname === '/api/club/7/profile' && request.method() === 'GET') return route.fulfill({ json: { program: { id: 7, slug: 'northbank', name: 'Northbank Juniors' }, approved: null, pending: null, limits: { summary_max: 2000, funding_purpose_max: 1000, list_items_max: 12, list_item_max: 40, media_urls_max: 6, updates_pending_max: 5 } } }).then(() => true)
+    if (url.pathname === '/api/club/7/profile' && request.method() === 'GET') {
+      profileGets += 1
+      await route.fulfill({ json: { program: { id: 7, slug: 'northbank', name: 'Northbank Juniors' }, approved: null, pending: null, limits: { summary_max: 2000, funding_purpose_max: 1000, list_items_max: 12, list_item_max: 40, media_urls_max: 6, updates_pending_max: 5 } } })
+      return true
+    }
     if (url.pathname === '/api/club/7/profile' && request.method() === 'PUT') {
       profilePuts.push(request.postDataJSON())
       await route.fulfill({ json: { pending: { id: 21, status: 'pending', ...request.postDataJSON(), review_reason: null, reviewed_at: null, created_at: '2026-09-03T00:00:00' } } })
@@ -179,7 +190,14 @@ test('club console saves the moderated profile payload and submits an update', a
 
   await page.goto('/my-club')
   await page.getByRole('tab', { name: 'Club profile' }).click()
-  await page.getByLabel('Summary').fill('A volunteer-led academy serving north Leeds.')
+  const summary = page.getByLabel('Summary')
+  await expect.poll(() => profileGets).toBe(1)
+  await summary.fill('Unsaved manager draft')
+  await page.evaluate(() => globalThis.dispatchEvent(new Event('storage')))
+  await page.waitForTimeout(200)
+  await expect(summary).toHaveValue('Unsaved manager draft')
+  expect(profileGets).toBe(1)
+  await summary.fill('A volunteer-led academy serving north Leeds.')
   await page.getByLabel('Age groups (comma separated)').fill('U12, U14')
   await page.getByLabel('Activities (comma separated)').fill('Training, League matches')
   await page.getByLabel('Funding purpose').fill('Cover pitch hire and equipment.')
