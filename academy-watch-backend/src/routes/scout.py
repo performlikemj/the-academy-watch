@@ -62,6 +62,8 @@ from src.services.player_suppression import (
     neutral_player_not_found,
     without_active_suppression,
 )
+from src.services.scout_entitlements import list_limit_for, require_scout_entitlement, scout_entitlements
+from src.services.stripe_billing import require_billing_rail
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.player_names import clean_name
 from src.utils.sanitize import sanitize_plain_text
@@ -1627,6 +1629,25 @@ def _entry_payload(entry, player=None, *, unavailable=False):
     return payload
 
 
+@scout_bp.route("/scout/entitlements", methods=["GET"])
+@require_billing_rail
+@require_user_auth
+def scout_entitlements_route():
+    """Scout Pro entitlements for the authenticated user.
+
+    Dark-shipped with the billing rail: while BILLING_ENABLED is off the route
+    answers a neutral 404 (even to anonymous probes) instead of appearing.
+    """
+    try:
+        user = _current_user_account()
+        if user is None:
+            return jsonify({"error": "auth context missing email"}), 401
+        return jsonify({"entitlements": scout_entitlements(user)})
+    except Exception as e:
+        logger.error(f"Error in scout_entitlements_route: {e}")
+        return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
+
+
 @scout_bp.route("/scout/watchlist", methods=["GET"])
 @require_user_auth
 @limiter.limit("60/minute", key_func=_user_rate_limit_key)
@@ -1857,9 +1878,10 @@ def scout_watchlist_settings():
 
 @scout_bp.route("/scout/export.csv", methods=["GET"])
 @require_user_auth
+@require_scout_entitlement("csv_export")
 @limiter.limit("10/minute", key_func=_user_rate_limit_key)
 def scout_export_csv():
-    """CSV export of scout rows.
+    """CSV export of scout rows (Scout Pro once the billing rail is live).
 
     Accepts the same query params as /scout/players, plus ids=comma-separated
     player_api_ids (max 200) which exports exactly those players and ignores
@@ -2252,7 +2274,12 @@ def scout_lists():
 @require_user_auth
 @limiter.limit("30/minute", key_func=_user_rate_limit_key)
 def scout_lists_create():
-    """Create a follow list (capped at MAX_FOLLOW_LISTS; unique name per user)."""
+    """Create a follow list (capped at MAX_FOLLOW_LISTS; unique name per user).
+
+    While the billing rail is live, free accounts cap at `list_limit_for` (below
+    MAX_FOLLOW_LISTS) and get the Scout Pro 403; the hard MAX_FOLLOW_LISTS 409
+    still applies to everyone. With the rail dark nothing changes.
+    """
     try:
         user = _current_user_account()
         if user is None:
@@ -2261,7 +2288,11 @@ def scout_lists_create():
         name, error = _clean_list_name(payload.get("name", ""))
         if error:
             return jsonify({"error": error}), 400
-        if FollowList.query.filter_by(user_account_id=user.id).count() >= MAX_FOLLOW_LISTS:
+        list_count = FollowList.query.filter_by(user_account_id=user.id).count()
+        list_limit = list_limit_for(user)
+        if list_count >= list_limit and list_limit < MAX_FOLLOW_LISTS:
+            return jsonify({"error": "scout_pro_required", "feature": "custom_lists", "upgrade_path": "/pricing"}), 403
+        if list_count >= MAX_FOLLOW_LISTS:
             return jsonify({"error": f"list limit reached ({MAX_FOLLOW_LISTS})"}), 409
         if FollowList.query.filter_by(user_account_id=user.id, name=name).first():
             return jsonify({"error": "a list with that name already exists"}), 409
