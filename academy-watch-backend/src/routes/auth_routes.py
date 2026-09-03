@@ -422,7 +422,7 @@ def auth_me():
                 pass
         email = getattr(g, "user_email", None)
         user = UserAccount.query.filter_by(email=email).first() if email else None
-        entitlements = scout_entitlements(user)
+        entitlements = scout_entitlements(user, role=role)
         return jsonify(
             {
                 "email": email,
