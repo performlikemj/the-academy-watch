@@ -407,6 +407,49 @@ def test_checkout_idempotency_validation_and_active_conflict(client, monkeypatch
     assert response.get_json() == {"error": "already_subscribed"}
 
 
+def test_customer_unique_race_recovers_and_checkout_commits(client, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("STRIPE_PRICE_SCOUT_PRO_MONTHLY", "price_monthly")
+    user = _add_user()
+    headers = _headers(user)
+
+    def create_competing_customer(**_kwargs):
+        db.session.add(BillingCustomer(user_account_id=user.id, stripe_customer_id="cus_race_winner"))
+        db.session.commit()
+        return {"id": "cus_race_winner"}
+
+    customer_create = Mock(side_effect=create_competing_customer)
+    checkout_create = Mock(
+        return_value={
+            "id": "cs_customer_race",
+            "url": "https://checkout.example/customer-race",
+            "expires_at": int(time.time()) + 3600,
+        }
+    )
+    monkeypatch.setattr(stripe.Customer, "create", customer_create)
+    monkeypatch.setattr(stripe.checkout.Session, "create", checkout_create)
+
+    response = client.post(
+        "/api/billing/checkout",
+        json={"product_code": "scout_pro", "price_code": "monthly", "client_key": "customer_race"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "checkout_url": "https://checkout.example/customer-race",
+        "session_id": "cs_customer_race",
+    }
+    customer_create.assert_called_once()
+    checkout_create.assert_called_once()
+
+    db.session.remove()
+    assert BillingCustomer.query.count() == 1
+    assert BillingCustomer.query.one().stripe_customer_id == "cus_race_winner"
+    assert BillingCheckoutSession.query.count() == 1
+    assert BillingCheckoutSession.query.one().stripe_session_id == "cs_customer_race"
+
+
 def test_checkout_unique_race_returns_winner_without_second_stripe_call(client, monkeypatch):
     _enable(monkeypatch)
     monkeypatch.setenv("STRIPE_PRICE_SCOUT_PRO_MONTHLY", "price_monthly")

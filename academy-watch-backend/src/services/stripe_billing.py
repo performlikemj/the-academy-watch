@@ -109,9 +109,16 @@ def ensure_customer(user) -> BillingCustomer:
         idempotency_key=f"customer:{user.id}",
     )
     row = BillingCustomer(user_account_id=user.id, stripe_customer_id=_get(customer, "id"))
-    db.session.add(row)
-    db.session.flush()
-    return row
+    try:
+        with db.session.begin_nested():
+            db.session.add(row)
+            db.session.flush()
+        return row
+    except IntegrityError:
+        existing = BillingCustomer.query.filter_by(user_account_id=user.id).first()
+        if existing is None:
+            raise
+        return existing
 
 
 def active_subscription(scope_type, scope_id, product_code) -> BillingSubscription | None:
