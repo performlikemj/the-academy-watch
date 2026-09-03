@@ -631,8 +631,6 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     commit, so the tombstone, anonymization, owned-row deletion, original-user
     deletion, and append-only event either all persist or all roll back.
     """
-    cancel_subscriptions_for_account_deletion(user)
-
     locked_user = (
         db.session.execute(
             sa.select(UserAccount)
@@ -645,6 +643,7 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     )
     if locked_user is None or locked_user.is_tombstone:
         raise AccountDeletionUnavailable("account is already deleted")
+    cancel_subscriptions_for_account_deletion(locked_user)
 
     requested_at = datetime.now(UTC)
     user_id = locked_user.id

@@ -437,20 +437,34 @@ def _expire_other_open_checkouts(completed: BillingCheckoutSession) -> None:
         BillingCheckoutSession.id != completed.id,
     ).all()
     for sibling in siblings:
-        sibling.status = "expired"
         if not sibling.stripe_session_id:
-            continue
+            raise BillingError("checkout_expiry_failed", 500)
         try:
             configure_stripe()
             stripe.checkout.Session.expire(sibling.stripe_session_id)
-        except Exception:
-            logger.exception("Failed to expire superseded Stripe Checkout Session")
+        except stripe.InvalidRequestError:
+            snapshot = stripe.checkout.Session.retrieve(sibling.stripe_session_id)
+            status = _get(snapshot, "status")
+            if status == "expired":
+                sibling.status = "expired"
+                continue
+            if status == "complete":
+                subscription_id = _stripe_id(_get(snapshot, "subscription"))
+                if not subscription_id:
+                    raise BillingError("checkout_expiry_failed", 500)
+                stripe.Subscription.cancel(subscription_id)
+                sibling.status = "complete"
+                sibling.completed_at = sibling.completed_at or utcnow()
+                continue
+            raise BillingError("checkout_expiry_failed", 500)
+        sibling.status = "expired"
 
 
 def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
     if event_type == "checkout.session.completed":
         row = _checkout_row(obj)
         if row is not None:
+            db.session.execute(select(UserAccount.id).where(UserAccount.id == row.purchaser_user_id).with_for_update())
             row.status = "complete"
             row.completed_at = utcnow()
             _expire_other_open_checkouts(row)
@@ -631,11 +645,15 @@ def admin_summary() -> dict:
             mrr_by_currency[currency] += row.unit_amount
         elif row.unit_amount is not None and row.interval == "year":
             mrr_by_currency[currency] += round(row.unit_amount / 12)
-    single_currency = next(iter(active_currencies)) if len(active_currencies) == 1 else None
-    if single_currency is None:
+    known_currencies = {currency for currency in active_currencies if currency}
+    if not known_currencies:
+        mrr_cents = 0
+        currency = "usd"
+    elif len(known_currencies) > 1:
         mrr_cents = None
         currency = None
     else:
+        single_currency = next(iter(known_currencies))
         mrr_cents = mrr_by_currency[single_currency]
         currency = single_currency
     return {
@@ -673,31 +691,51 @@ def cancel_subscriptions_for_account_deletion(user) -> int:
             (BillingCheckoutSession.scope_type == "user") & (BillingCheckoutSession.scope_id == user.id),
         ),
     ).all()
-    if not rows and not checkout_rows:
+    now = utcnow()
+    payable_checkout_rows = []
+    for checkout in checkout_rows:
+        if (checkout.expires_at is not None and checkout.expires_at <= now) or not checkout.stripe_session_id:
+            checkout.status = "expired"
+        else:
+            payable_checkout_rows.append(checkout)
+    if not rows and not payable_checkout_rows:
         return 0
     if not (os.getenv("STRIPE_SECRET_KEY") or "").strip():
         raise BillingError("billing_cancel_failed", 503)
     configure_stripe()
+    canceled_subscription_ids = set()
     try:
         for row in rows:
             stripe.Subscription.cancel(row.stripe_subscription_id)
+            canceled_subscription_ids.add(row.stripe_subscription_id)
+        for checkout in payable_checkout_rows:
+            try:
+                stripe.checkout.Session.expire(checkout.stripe_session_id)
+                checkout.status = "expired"
+                continue
+            except stripe.InvalidRequestError:
+                try:
+                    snapshot = stripe.checkout.Session.retrieve(checkout.stripe_session_id)
+                except stripe.InvalidRequestError:
+                    checkout.status = "expired"
+                    continue
+            status = _get(snapshot, "status")
+            if status == "expired":
+                checkout.status = "expired"
+                continue
+            if status == "complete":
+                subscription_id = _stripe_id(_get(snapshot, "subscription"))
+                if subscription_id and subscription_id not in canceled_subscription_ids:
+                    stripe.Subscription.cancel(subscription_id)
+                    canceled_subscription_ids.add(subscription_id)
+                checkout.status = "complete"
+                checkout.completed_at = checkout.completed_at or utcnow()
+                continue
+            raise BillingError("billing_cancel_failed", 503)
+    except BillingError:
+        raise
     except Exception as exc:
         raise BillingError("billing_cancel_failed", 503) from exc
-    for checkout in checkout_rows:
-        try:
-            if checkout.stripe_session_id:
-                stripe.checkout.Session.expire(checkout.stripe_session_id)
-            checkout.status = "expired"
-        except Exception as exc:
-            code = _get(exc, "code") or _get(_get(exc, "error"), "code")
-            message = str(exc).lower()
-            already_closed = isinstance(exc, stripe.StripeError) and (
-                code == "checkout_session_not_open"
-                or any(phrase in message for phrase in ("already expired", "already complete", "already completed"))
-            )
-            if not already_closed:
-                raise BillingError("billing_cancel_failed", 503) from exc
-            checkout.status = "expired"
     return len(rows)
 
 

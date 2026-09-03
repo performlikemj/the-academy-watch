@@ -177,6 +177,23 @@ def _mock_checkout(monkeypatch):
     return customer_create, session_create
 
 
+def _add_checkout(user, session_id, client_key, *, expires_at=None):
+    row = BillingCheckoutSession(
+        scope_type="user",
+        scope_id=user.id,
+        product_code="scout_pro",
+        price_code="monthly",
+        purchaser_user_id=user.id,
+        client_key=client_key,
+        stripe_session_id=session_id,
+        checkout_url=f"https://checkout.example/{client_key}",
+        status="open",
+        expires_at=expires_at or datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1),
+    )
+    db.session.add(row)
+    return row
+
+
 def test_stripe_configuration_is_resolved_at_call_time(monkeypatch):
     from src.config.stripe_config import (
         billing_enabled,
@@ -528,7 +545,20 @@ def test_checkout_completion_expires_open_sibling(client, monkeypatch):
     )
     db.session.add_all([completed, sibling])
     db.session.commit()
-    expire = Mock(return_value={"id": "cs_sibling", "status": "expired"})
+    call_order = []
+    real_execute = db.session.execute
+
+    def tracked_execute(statement, *args, **kwargs):
+        if getattr(statement, "_for_update_arg", None) is not None:
+            call_order.append("user_lock")
+        return real_execute(statement, *args, **kwargs)
+
+    def expire_sibling(_session_id):
+        call_order.append("expire")
+        return {"id": "cs_sibling", "status": "expired"}
+
+    expire = Mock(side_effect=expire_sibling)
+    monkeypatch.setattr(db.session, "execute", tracked_execute)
     monkeypatch.setattr(stripe.checkout.Session, "expire", expire)
 
     response = _post_event(
@@ -544,6 +574,114 @@ def test_checkout_completion_expires_open_sibling(client, monkeypatch):
     assert db.session.get(BillingCheckoutSession, completed.id).status == "complete"
     assert db.session.get(BillingCheckoutSession, sibling.id).status == "expired"
     expire.assert_called_once_with("cs_sibling")
+    assert call_order == ["user_lock", "expire"]
+
+
+@pytest.mark.parametrize(
+    ("remote_status", "expected_status", "subscription_id"),
+    [("expired", "expired", None), ("complete", "complete", "sub_duplicate")],
+)
+def test_checkout_completion_reconciles_closed_sibling(
+    client,
+    monkeypatch,
+    remote_status,
+    expected_status,
+    subscription_id,
+):
+    _enable(monkeypatch)
+    user = _add_user()
+    completed = _add_checkout(user, "cs_completed_reconcile", "completed_reconcile")
+    sibling = _add_checkout(user, "cs_sibling_reconcile", "sibling_reconcile")
+    db.session.commit()
+    not_open = stripe.InvalidRequestError("Checkout Session is not open", param=None)
+    expire = Mock(side_effect=not_open)
+    retrieve = Mock(
+        return_value={
+            "id": "cs_sibling_reconcile",
+            "status": remote_status,
+            "subscription": subscription_id,
+        }
+    )
+    cancel = Mock(return_value={"id": subscription_id, "status": "canceled"})
+    monkeypatch.setattr(stripe.checkout.Session, "expire", expire)
+    monkeypatch.setattr(stripe.checkout.Session, "retrieve", retrieve)
+    monkeypatch.setattr(stripe.Subscription, "cancel", cancel)
+
+    response = _post_event(
+        client,
+        _event(
+            f"evt_sibling_{remote_status}",
+            "checkout.session.completed",
+            {"id": "cs_completed_reconcile"},
+        ),
+    )
+
+    assert response.status_code == 200
+    assert db.session.get(BillingCheckoutSession, completed.id).status == "complete"
+    assert db.session.get(BillingCheckoutSession, sibling.id).status == expected_status
+    expire.assert_called_once_with("cs_sibling_reconcile")
+    retrieve.assert_called_once_with("cs_sibling_reconcile")
+    if subscription_id:
+        cancel.assert_called_once_with(subscription_id)
+    else:
+        cancel.assert_not_called()
+
+
+def test_checkout_completion_transient_sibling_expiry_failure_retries(client, monkeypatch):
+    _enable(monkeypatch)
+    user = _add_user()
+    completed = _add_checkout(user, "cs_completed_retry", "completed_retry")
+    sibling = _add_checkout(user, "cs_sibling_retry", "sibling_retry")
+    db.session.commit()
+    monkeypatch.setattr(stripe.checkout.Session, "expire", Mock(side_effect=RuntimeError("Stripe unavailable")))
+
+    response = _post_event(
+        client,
+        _event(
+            "evt_sibling_retry",
+            "checkout.session.completed",
+            {"id": "cs_completed_retry"},
+        ),
+    )
+
+    assert response.status_code == 500
+    db.session.expire_all()
+    assert db.session.get(BillingCheckoutSession, completed.id).status == "open"
+    assert db.session.get(BillingCheckoutSession, sibling.id).status == "open"
+    assert StripeWebhookEvent.query.filter_by(event_id="evt_sibling_retry", status="failed").count() == 1
+
+
+def test_checkout_completion_duplicate_subscription_cancel_failure_retries(client, monkeypatch):
+    _enable(monkeypatch)
+    user = _add_user()
+    completed = _add_checkout(user, "cs_completed_cancel_retry", "completed_cancel_retry")
+    sibling = _add_checkout(user, "cs_sibling_cancel_retry", "sibling_cancel_retry")
+    db.session.commit()
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "expire",
+        Mock(side_effect=stripe.InvalidRequestError("Checkout Session is not open", param=None)),
+    )
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "retrieve",
+        Mock(return_value={"status": "complete", "subscription": "sub_duplicate_fail"}),
+    )
+    monkeypatch.setattr(stripe.Subscription, "cancel", Mock(side_effect=RuntimeError("Stripe unavailable")))
+
+    response = _post_event(
+        client,
+        _event(
+            "evt_sibling_cancel_retry",
+            "checkout.session.completed",
+            {"id": "cs_completed_cancel_retry"},
+        ),
+    )
+
+    assert response.status_code == 500
+    db.session.expire_all()
+    assert db.session.get(BillingCheckoutSession, completed.id).status == "open"
+    assert db.session.get(BillingCheckoutSession, sibling.id).status == "open"
 
 
 def test_expired_checkout_can_be_recreated_with_same_client_key(client, monkeypatch):
@@ -710,6 +848,12 @@ def test_billing_me_and_portal(client, monkeypatch):
 
 def test_admin_summary_mrr_and_auth(client, monkeypatch):
     _enable(monkeypatch)
+    assert client.get("/api/admin/billing/summary").status_code == 401
+    empty = client.get("/api/admin/billing/summary", headers=_admin_headers()).get_json()
+    assert empty["mrr_by_currency"] == {}
+    assert empty["mrr_cents"] == 0
+    assert empty["currency"] == "usd"
+
     one = _add_user("one@example.com", 101)
     two = _add_user("two@example.com", 102)
     now = datetime.now(UTC).replace(tzinfo=None)
@@ -744,7 +888,6 @@ def test_admin_summary_mrr_and_auth(client, monkeypatch):
         )
     )
     db.session.commit()
-    assert client.get("/api/admin/billing/summary").status_code == 401
     response = client.get("/api/admin/billing/summary", headers=_admin_headers())
     assert response.status_code == 200
     payload = response.get_json()
@@ -881,33 +1024,113 @@ def test_account_delete_aborts_when_checkout_expiry_fails(client, monkeypatch):
     assert BillingCheckoutSession.query.filter_by(stripe_session_id="cs_delete_fail", status="open").count() == 1
 
 
-def test_account_delete_ignores_already_closed_checkout(client, monkeypatch):
+def test_account_delete_retrieves_already_expired_checkout(client, monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "billing_secret_test_placeholder")
     user = _add_user()
-    db.session.add(
-        BillingCheckoutSession(
-            scope_type="user",
-            scope_id=user.id,
-            product_code="scout_pro",
-            price_code="monthly",
-            purchaser_user_id=user.id,
-            client_key="delete_closed_checkout",
-            stripe_session_id="cs_already_closed",
-            status="open",
-            expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1),
-        )
-    )
+    _add_checkout(user, "cs_already_expired", "delete_expired_checkout")
     db.session.commit()
-    already_closed = stripe.InvalidRequestError(
-        "Checkout Session is already complete",
-        param=None,
-        code="checkout_session_not_open",
-    )
-    monkeypatch.setattr(stripe.checkout.Session, "expire", Mock(side_effect=already_closed))
+    expire = Mock(side_effect=stripe.InvalidRequestError("Checkout Session is not open", param=None))
+    retrieve = Mock(return_value={"id": "cs_already_expired", "status": "expired"})
+    monkeypatch.setattr(stripe.checkout.Session, "expire", expire)
+    monkeypatch.setattr(stripe.checkout.Session, "retrieve", retrieve)
 
     response = client.post("/api/account/delete", json={"confirm": "DELETE"}, headers=_headers(user))
 
     assert response.status_code == 200
+    assert db.session.get(UserAccount, user.id) is None
+    expire.assert_called_once_with("cs_already_expired")
+    retrieve.assert_called_once_with("cs_already_expired")
+
+
+def test_account_delete_cancels_subscription_from_completed_checkout(client, monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "billing_secret_test_placeholder")
+    user = _add_user()
+    _add_checkout(user, "cs_completed_before_webhook", "delete_completed_checkout")
+    db.session.commit()
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "expire",
+        Mock(side_effect=stripe.InvalidRequestError("Checkout Session is not open", param=None)),
+    )
+    retrieve = Mock(
+        return_value={
+            "id": "cs_completed_before_webhook",
+            "status": "complete",
+            "subscription": "sub_completed_before_webhook",
+        }
+    )
+    cancel = Mock(return_value={"id": "sub_completed_before_webhook", "status": "canceled"})
+    monkeypatch.setattr(stripe.checkout.Session, "retrieve", retrieve)
+    monkeypatch.setattr(stripe.Subscription, "cancel", cancel)
+
+    response = client.post("/api/account/delete", json={"confirm": "DELETE"}, headers=_headers(user))
+
+    assert response.status_code == 200
+    retrieve.assert_called_once_with("cs_completed_before_webhook")
+    cancel.assert_called_once_with("sub_completed_before_webhook")
+    assert db.session.get(UserAccount, user.id) is None
+
+
+def test_account_delete_aborts_when_completed_checkout_subscription_cancel_fails(client, monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "billing_secret_test_placeholder")
+    user = _add_user()
+    _add_checkout(user, "cs_completed_cancel_fail", "delete_completed_cancel_fail")
+    db.session.commit()
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "expire",
+        Mock(side_effect=stripe.InvalidRequestError("Checkout Session is not open", param=None)),
+    )
+    monkeypatch.setattr(
+        stripe.checkout.Session,
+        "retrieve",
+        Mock(return_value={"status": "complete", "subscription": "sub_completed_cancel_fail"}),
+    )
+    monkeypatch.setattr(stripe.Subscription, "cancel", Mock(side_effect=RuntimeError("Stripe unavailable")))
+
+    response = client.post("/api/account/delete", json={"confirm": "DELETE"}, headers=_headers(user))
+
+    assert response.status_code == 503
+    assert response.get_json() == {"error": "billing_cancel_failed"}
+    assert db.session.get(UserAccount, user.id) is not None
+
+
+def test_account_delete_allows_checkout_missing_under_configured_key(client, monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "billing_secret_test_placeholder")
+    user = _add_user()
+    _add_checkout(user, "cs_resource_missing", "delete_resource_missing")
+    db.session.commit()
+    invalid_request = stripe.InvalidRequestError("No such Checkout Session", param="id")
+    monkeypatch.setattr(stripe.checkout.Session, "expire", Mock(side_effect=invalid_request))
+    retrieve = Mock(side_effect=stripe.InvalidRequestError("No such Checkout Session", param="id"))
+    monkeypatch.setattr(stripe.checkout.Session, "retrieve", retrieve)
+
+    response = client.post("/api/account/delete", json={"confirm": "DELETE"}, headers=_headers(user))
+
+    assert response.status_code == 200
+    retrieve.assert_called_once_with("cs_resource_missing")
+    assert db.session.get(UserAccount, user.id) is None
+
+
+def test_account_delete_skips_time_expired_checkout_without_key(client, monkeypatch):
+    user = _add_user()
+    _add_checkout(
+        user,
+        "cs_time_expired",
+        "delete_time_expired",
+        expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1),
+    )
+    db.session.commit()
+    expire = Mock()
+    retrieve = Mock()
+    monkeypatch.setattr(stripe.checkout.Session, "expire", expire)
+    monkeypatch.setattr(stripe.checkout.Session, "retrieve", retrieve)
+
+    response = client.post("/api/account/delete", json={"confirm": "DELETE"}, headers=_headers(user))
+
+    assert response.status_code == 200
+    expire.assert_not_called()
+    retrieve.assert_not_called()
     assert db.session.get(UserAccount, user.id) is None
 
 
@@ -955,6 +1178,44 @@ def test_account_delete_requires_secret_for_payable_billing_rows(client, monkeyp
     assert db.session.get(UserAccount, user.id) is not None
     cancel.assert_not_called()
     expire.assert_not_called()
+
+
+def test_account_delete_locks_user_before_scanning_billing_rows(client, monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "billing_secret_test_placeholder")
+    user = _add_user()
+    headers = _headers(user)
+    checkout = BillingCheckoutSession(
+        scope_type="user",
+        scope_id=user.id,
+        product_code="scout_pro",
+        price_code="monthly",
+        purchaser_user_id=user.id,
+        client_key="checkout_during_lock",
+        stripe_session_id="cs_checkout_during_lock",
+        status="open",
+        expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1),
+    )
+    real_execute = db.session.execute
+    inserted = False
+
+    def insert_checkout_before_lock(statement, *args, **kwargs):
+        nonlocal inserted
+        if not inserted and getattr(statement, "_for_update_arg", None) is not None:
+            inserted = True
+            db.session.add(checkout)
+            db.session.flush()
+        return real_execute(statement, *args, **kwargs)
+
+    expire = Mock(return_value={"id": "cs_checkout_during_lock", "status": "expired"})
+    monkeypatch.setattr(db.session, "execute", insert_checkout_before_lock)
+    monkeypatch.setattr(stripe.checkout.Session, "expire", expire)
+
+    response = client.post("/api/account/delete", json={"confirm": "DELETE"}, headers=headers)
+
+    assert response.status_code == 200
+    assert inserted is True
+    expire.assert_called_once_with("cs_checkout_during_lock")
+    assert db.session.get(UserAccount, user.id) is None
 
 
 def test_account_delete_without_billing_rows_needs_no_stripe_key(client):
