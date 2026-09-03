@@ -13,7 +13,7 @@ from html import escape
 
 import stripe
 from flask import abort
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from src.config.stripe_config import (
     billing_enabled,
@@ -165,10 +165,25 @@ def create_checkout(user, *, product_code, price_code, client_key, scope_id=None
         raise BillingError("product_not_available", 403)
 
     resolved_scope_id = user.id if product["scope_type"] == "user" else scope_id
+    db.session.execute(select(UserAccount.id).where(UserAccount.id == user.id).with_for_update())
     if active_subscription(product["scope_type"], resolved_scope_id, product_code) is not None:
         raise BillingError("already_subscribed", 409)
 
     now = utcnow()
+    open_row = (
+        BillingCheckoutSession.query.filter(
+            BillingCheckoutSession.scope_type == product["scope_type"],
+            BillingCheckoutSession.scope_id == resolved_scope_id,
+            BillingCheckoutSession.product_code == product_code,
+            BillingCheckoutSession.status == "open",
+            BillingCheckoutSession.expires_at > now,
+        )
+        .order_by(BillingCheckoutSession.expires_at.desc(), BillingCheckoutSession.id.desc())
+        .first()
+    )
+    if open_row is not None:
+        return {"checkout_url": open_row.checkout_url, "session_id": open_row.stripe_session_id}
+
     row = BillingCheckoutSession.query.filter_by(
         scope_type=product["scope_type"],
         scope_id=resolved_scope_id,
@@ -413,12 +428,32 @@ def _retrieve_event_watermark(subscription_id: str, event_created: int | None) -
     return max(event_created, existing)
 
 
+def _expire_other_open_checkouts(completed: BillingCheckoutSession) -> None:
+    siblings = BillingCheckoutSession.query.filter(
+        BillingCheckoutSession.scope_type == completed.scope_type,
+        BillingCheckoutSession.scope_id == completed.scope_id,
+        BillingCheckoutSession.product_code == completed.product_code,
+        BillingCheckoutSession.status == "open",
+        BillingCheckoutSession.id != completed.id,
+    ).all()
+    for sibling in siblings:
+        sibling.status = "expired"
+        if not sibling.stripe_session_id:
+            continue
+        try:
+            configure_stripe()
+            stripe.checkout.Session.expire(sibling.stripe_session_id)
+        except Exception:
+            logger.exception("Failed to expire superseded Stripe Checkout Session")
+
+
 def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
     if event_type == "checkout.session.completed":
         row = _checkout_row(obj)
         if row is not None:
             row.status = "complete"
             row.completed_at = utcnow()
+            _expire_other_open_checkouts(row)
         subscription_id = _stripe_id(_get(obj, "subscription"))
         if subscription_id:
             snapshot = _retrieve_subscription(subscription_id)
@@ -440,9 +475,19 @@ def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
         subscription_id = _get(obj, "id")
         previous = BillingSubscription.query.filter_by(stripe_subscription_id=subscription_id).first()
         was_active = previous is not None and previous.status in ACTIVE_STATUSES
-        row = upsert_subscription(obj, event_created=event_created)
+        snapshot = obj
+        watermark = event_created
+        if previous is not None and event_created is not None and previous.last_event_created == event_created:
+            snapshot = _retrieve_subscription(subscription_id)
+            watermark = _retrieve_event_watermark(subscription_id, event_created)
+        row = upsert_subscription(snapshot, event_created=watermark)
         applied = row is not None and (event_created is None or row.last_event_created == event_created)
-        if event_type == "customer.subscription.deleted" and applied and not was_active:
+        if (
+            event_type == "customer.subscription.deleted"
+            and applied
+            and not was_active
+            and row.status not in ACTIVE_STATUSES
+        ):
             _write_transition_event("billing_subscription_ended", row)
             _queue_email("subscription_ended", row)
         return True
@@ -573,18 +618,32 @@ def admin_summary() -> dict:
     cutoff_24h = now - timedelta(hours=24)
     active_rows = BillingSubscription.query.filter(BillingSubscription.status.in_(ACTIVE_STATUSES)).all()
     by_product: dict[str, int] = {}
-    mrr_cents = 0
+    mrr_by_currency: dict[str, int] = {}
+    active_currencies: set[str | None] = set()
     for row in active_rows:
         by_product[row.product_code] = by_product.get(row.product_code, 0) + 1
+        currency = row.currency.lower() if row.currency else None
+        active_currencies.add(currency)
+        if currency is None:
+            continue
+        mrr_by_currency.setdefault(currency, 0)
         if row.unit_amount is not None and row.interval == "month":
-            mrr_cents += row.unit_amount
+            mrr_by_currency[currency] += row.unit_amount
         elif row.unit_amount is not None and row.interval == "year":
-            mrr_cents += round(row.unit_amount / 12)
+            mrr_by_currency[currency] += round(row.unit_amount / 12)
+    single_currency = next(iter(active_currencies)) if len(active_currencies) == 1 else None
+    if single_currency is None:
+        mrr_cents = None
+        currency = None
+    else:
+        mrr_cents = mrr_by_currency[single_currency]
+        currency = single_currency
     return {
         "active_subscriptions": len(active_rows),
         "by_product": by_product,
+        "mrr_by_currency": mrr_by_currency,
         "mrr_cents": mrr_cents,
-        "currency": "usd",
+        "currency": currency,
         "past_due": BillingSubscription.query.filter_by(status="past_due").count(),
         "canceled_last_30d": BillingSubscription.query.filter(BillingSubscription.canceled_at >= cutoff_30d).count(),
         "webhook_events_last_24h": StripeWebhookEvent.query.filter(
@@ -607,14 +666,38 @@ def cancel_subscriptions_for_account_deletion(user) -> int:
         BillingSubscription.scope_id == user.id,
         BillingSubscription.status.in_(ACTIVE_STATUSES),
     ).all()
-    if not rows or not (os.getenv("STRIPE_SECRET_KEY") or "").strip():
+    checkout_rows = BillingCheckoutSession.query.filter(
+        BillingCheckoutSession.status == "open",
+        or_(
+            BillingCheckoutSession.purchaser_user_id == user.id,
+            (BillingCheckoutSession.scope_type == "user") & (BillingCheckoutSession.scope_id == user.id),
+        ),
+    ).all()
+    if not rows and not checkout_rows:
         return 0
+    if not (os.getenv("STRIPE_SECRET_KEY") or "").strip():
+        raise BillingError("billing_cancel_failed", 503)
     configure_stripe()
     try:
         for row in rows:
             stripe.Subscription.cancel(row.stripe_subscription_id)
     except Exception as exc:
         raise BillingError("billing_cancel_failed", 503) from exc
+    for checkout in checkout_rows:
+        try:
+            if checkout.stripe_session_id:
+                stripe.checkout.Session.expire(checkout.stripe_session_id)
+            checkout.status = "expired"
+        except Exception as exc:
+            code = _get(exc, "code") or _get(_get(exc, "error"), "code")
+            message = str(exc).lower()
+            already_closed = isinstance(exc, stripe.StripeError) and (
+                code == "checkout_session_not_open"
+                or any(phrase in message for phrase in ("already expired", "already complete", "already completed"))
+            )
+            if not already_closed:
+                raise BillingError("billing_cancel_failed", 503) from exc
+            checkout.status = "expired"
     return len(rows)
 
 
