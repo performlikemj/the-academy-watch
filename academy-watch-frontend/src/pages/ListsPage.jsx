@@ -53,6 +53,13 @@ const titleCase = (s) => (s || '')
   .map((w) => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : ''))
   .join(' ')
 
+const isScoutProRequired = (err) => (
+  err?.status === 403
+  && err?.body?.error === 'scout_pro_required'
+  && err.body.feature
+  && err.body.upgrade_path
+)
+
 // Human label for a follow — prefer the server-derived label, fall back to selector.
 function followLabel(follow) {
   if (follow.label) return follow.label
@@ -500,6 +507,11 @@ export function ListsPage() {
   const [createError, setCreateError] = useState(null)
   const [upgradePrompt, setUpgradePrompt] = useState(null)
 
+  const [renamingListId, setRenamingListId] = useState(null)
+  const [renameName, setRenameName] = useState('')
+  const [renameSaving, setRenameSaving] = useState(false)
+  const [renameError, setRenameError] = useState(null)
+
   const [addOpen, setAddOpen] = useState(false)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState(null)
@@ -594,7 +606,7 @@ export function ListsPage() {
       setNewName('')
       setCreating(false)
     } catch (err) {
-      if (err?.status === 403 && err?.body?.error === 'scout_pro_required' && err.body.feature && err.body.upgrade_path) {
+      if (isScoutProRequired(err)) {
         setUpgradePrompt(err.body)
       } else {
         setCreateError(err.body?.error || err.message || 'Failed to create list')
@@ -605,12 +617,38 @@ export function ListsPage() {
   }, [newName])
 
   const handleToggleActive = useCallback((list, checked) => {
+    setUpgradePrompt(null)
     setLists((prev) => prev.map((l) => (l.id === list.id ? { ...l, is_active: checked } : l)))
     APIService.updateFollowList(list.id, { is_active: checked }).catch((err) => {
       console.error('Failed to toggle list', err)
+      if (isScoutProRequired(err)) setUpgradePrompt(err.body)
       setLists((prev) => prev.map((l) => (l.id === list.id ? { ...l, is_active: !checked } : l)))
     })
   }, [])
+
+  const handleRename = useCallback(async () => {
+    const name = renameName.trim()
+    if (!renamingListId || !name) return
+    setRenameSaving(true)
+    setRenameError(null)
+    setUpgradePrompt(null)
+    try {
+      const res = await APIService.updateFollowList(renamingListId, { name })
+      if (res?.list) {
+        setLists((prev) => prev.map((list) => (list.id === renamingListId ? res.list : list)))
+      }
+      setRenamingListId(null)
+      setRenameName('')
+    } catch (err) {
+      if (isScoutProRequired(err)) {
+        setUpgradePrompt(err.body)
+      } else {
+        setRenameError(err.body?.error || err.message || 'Failed to rename list')
+      }
+    } finally {
+      setRenameSaving(false)
+    }
+  }, [renameName, renamingListId])
 
   const handleDelete = useCallback((list) => {
     let removedIndex = -1
@@ -639,6 +677,7 @@ export function ListsPage() {
     if (!selectedListId) return false
     setAdding(true)
     setAddError(null)
+    setUpgradePrompt(null)
     try {
       const res = await APIService.addFollow(selectedListId, payload)
       const follow = res?.follow
@@ -656,7 +695,12 @@ export function ListsPage() {
       reloadPreview()
       return true
     } catch (err) {
-      setAddError(err.body?.error || err.message || 'Failed to add follow')
+      if (isScoutProRequired(err)) {
+        setUpgradePrompt(err.body)
+        setAddOpen(false)
+      } else {
+        setAddError(err.body?.error || err.message || 'Failed to add follow')
+      }
       return false
     } finally {
       setAdding(false)
@@ -665,6 +709,7 @@ export function ListsPage() {
 
   const handleRemoveFollow = useCallback((follow) => {
     if (!selectedListId) return
+    setUpgradePrompt(null)
     setLists((prev) => prev.map((l) => (
       l.id === selectedListId
         ? {
@@ -678,6 +723,7 @@ export function ListsPage() {
       .then(() => reloadPreview())
       .catch((err) => {
         console.error('Failed to remove follow', err)
+        if (isScoutProRequired(err)) setUpgradePrompt(err.body)
         setLists((prev) => prev.map((l) => (
           l.id === selectedListId && !(l.follows || []).some((f) => f.id === follow.id)
             ? { ...l, follows: [...(l.follows || []), follow], follow_count: (l.follow_count ?? (l.follows || []).length) + 1 }
@@ -883,13 +929,45 @@ export function ListsPage() {
               <div className="space-y-6">
                 {/* Detail header */}
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-xl font-bold tracking-tight text-foreground">{selectedList.name}</h2>
-                    <p className="text-xs text-muted-foreground">
-                      {followCount(selectedList)} {followCount(selectedList) === 1 ? 'follow' : 'follows'}
-                      {selectedList.is_default ? ' · default list' : ''}
-                    </p>
-                  </div>
+                  {renamingListId === selectedList.id ? (
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex max-w-lg gap-2">
+                        <Input
+                          value={renameName}
+                          onChange={(event) => setRenameName(event.target.value)}
+                          onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleRename() } }}
+                          aria-label="List name"
+                          maxLength={120}
+                          autoFocus
+                        />
+                        <Button size="sm" onClick={handleRename} disabled={renameSaving || !renameName.trim()}>
+                          {renameSaving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                          Save
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => { setRenamingListId(null); setRenameName(''); setRenameError(null) }}>
+                          Cancel
+                        </Button>
+                      </div>
+                      {renameError && <p className="text-xs text-destructive">{renameError}</p>}
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-bold tracking-tight text-foreground">{selectedList.name}</h2>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => { setRenamingListId(selectedList.id); setRenameName(selectedList.name); setRenameError(null) }}
+                        >
+                          Rename
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {followCount(selectedList)} {followCount(selectedList) === 1 ? 'follow' : 'follows'}
+                        {selectedList.is_default ? ' · default list' : ''}
+                      </p>
+                    </div>
+                  )}
                   <Button size="sm" onClick={() => { setAddError(null); setAddOpen(true) }}>
                     <Plus className="mr-1.5 h-4 w-4" />
                     Add follow

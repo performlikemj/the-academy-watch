@@ -53,6 +53,12 @@ async function installApi(page, handler, { signedIn = false } = {}) {
   })
 }
 
+async function expectScoutProCustomListsPrompt(page) {
+  await expect(page.getByText('Scout Pro unlocks custom lists.')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'View Scout Pro' })).toHaveAttribute('href', '/pricing')
+  await expect(page.getByText('scout_pro_required', { exact: true })).toHaveCount(0)
+}
+
 test('pricing stays in beta mode while billing is dark', async ({ page }) => {
   await installApi(page, async ({ route, url }) => {
     if (url.pathname === '/api/billing/config') {
@@ -391,6 +397,83 @@ test('custom-list Pro badge excludes the default watchlist from its limit', asyn
   await expect(page.getByText('Custom 3', { exact: true })).toBeVisible()
   newList = page.getByRole('button', { name: /New list/ }).first()
   await expect(newList.getByText('Pro', { exact: true })).toBeVisible()
+})
+
+test('adding a follow surfaces the inline Scout Pro upgrade prompt', async ({ page }) => {
+  await installApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/scout/lists' && request.method() === 'GET') {
+      await route.fulfill({ json: { lists: [{ id: 4, name: 'Prospects', is_default: false, is_active: true, follows: [], follow_count: 0 }] } })
+      return true
+    }
+    if (url.pathname === '/api/scout/lists/4/resolve') {
+      await route.fulfill({ json: { players: [], total: 0, offset: 0 } })
+      return true
+    }
+    if (url.pathname === '/api/scout/player-search') {
+      await route.fulfill({ json: { players: [{ player_api_id: 101, name: 'Jamie Prospect', nationality: 'England', tracked: true }] } })
+      return true
+    }
+    if (url.pathname === '/api/scout/lists/4/follows' && request.method() === 'POST') {
+      await route.fulfill({ status: 403, json: { error: 'scout_pro_required', feature: 'custom_lists', upgrade_path: '/pricing' } })
+      return true
+    }
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/scout/lists')
+  await page.getByRole('button', { name: 'Add follow' }).click()
+  await page.getByLabel('Search players').fill('Jamie')
+  await page.getByRole('button', { name: /Jamie Prospect/ }).click()
+  await expectScoutProCustomListsPrompt(page)
+})
+
+test('renaming a list surfaces the inline Scout Pro upgrade prompt', async ({ page }) => {
+  await installApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/scout/lists' && request.method() === 'GET') {
+      await route.fulfill({ json: { lists: [{ id: 4, name: 'Prospects', is_default: false, is_active: true, follows: [], follow_count: 0 }] } })
+      return true
+    }
+    if (url.pathname === '/api/scout/lists/4/resolve') {
+      await route.fulfill({ json: { players: [], total: 0, offset: 0 } })
+      return true
+    }
+    if (url.pathname === '/api/scout/lists/4' && request.method() === 'PATCH') {
+      expect(request.postDataJSON()).toEqual({ name: 'Summer shortlist' })
+      await route.fulfill({ status: 403, json: { error: 'scout_pro_required', feature: 'custom_lists', upgrade_path: '/pricing' } })
+      return true
+    }
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/scout/lists')
+  await page.getByRole('button', { name: 'Rename', exact: true }).click()
+  await page.getByLabel('List name').fill('Summer shortlist')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expectScoutProCustomListsPrompt(page)
+})
+
+test('removing a follow surfaces the inline Scout Pro upgrade prompt', async ({ page }) => {
+  const follow = { id: 22, kind: 'player', selector: { player_api_id: 101 }, label: 'Jamie Prospect' }
+  await installApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/scout/lists' && request.method() === 'GET') {
+      await route.fulfill({ json: { lists: [{ id: 4, name: 'Prospects', is_default: false, is_active: true, follows: [follow], follow_count: 1 }] } })
+      return true
+    }
+    if (url.pathname === '/api/scout/lists/4/resolve') {
+      await route.fulfill({ json: { players: [], total: 0, offset: 0 } })
+      return true
+    }
+    if (url.pathname === '/api/scout/lists/4/follows/22' && request.method() === 'DELETE') {
+      await route.fulfill({ status: 403, json: { error: 'scout_pro_required', feature: 'custom_lists', upgrade_path: '/pricing' } })
+      return true
+    }
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/scout/lists')
+  await page.getByRole('button', { name: 'Remove Jamie Prospect' }).click()
+  await expect(page.getByText('Jamie Prospect', { exact: true })).toBeVisible()
+  await expectScoutProCustomListsPrompt(page)
 })
 
 test('CSV entitlement rejection surfaces an inline Scout Pro upgrade prompt', async ({ page }) => {
