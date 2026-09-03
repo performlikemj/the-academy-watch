@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import {
   Dialog,
@@ -8,10 +8,11 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { MessageCircle, LogIn, Maximize2, Minimize2 } from 'lucide-react'
+import { LogIn, MessageCircle, Maximize2, Minimize2 } from 'lucide-react'
 import { GolChatWindow } from './GolChatWindow'
 import { useGolChat } from '@/hooks/useGolChat'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
+import { APIService } from '@/lib/api'
 
 const STORAGE_KEY = 'gol-chat-expanded'
 
@@ -26,9 +27,26 @@ function getInitialExpanded() {
 export function GolPanel() {
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(getInitialExpanded)
-  const { token } = useAuth()
-  const { openLoginModal } = useAuthUI()
-  const chat = useGolChat()
+  const [responseGate, setResponseGate] = useState(null)
+  const auth = useAuth()
+  const { logout, openLoginModal } = useAuthUI()
+  const identityKey = auth.token
+    ? `${auth.userId ?? auth.user_id ?? ''}:${auth.email?.trim().toLowerCase() ?? ''}:${auth.token}`
+    : null
+  const chat = useGolChat(identityKey)
+
+  useEffect(() => {
+    const handleAccessDenied = (event) => {
+      if (event.detail?.token !== APIService.userToken) return
+      setResponseGate({
+        ...event.detail,
+        scoutPro: APIService.scoutPro,
+      })
+      if (event.detail?.state === 'signed_out') logout()
+    }
+    window.addEventListener(APIService.golAccessEventName, handleAccessDenied)
+    return () => window.removeEventListener(APIService.golAccessEventName, handleAccessDenied)
+  }, [logout])
 
   const toggleExpanded = useCallback(() => {
     setExpanded(prev => {
@@ -39,6 +57,19 @@ export function GolPanel() {
   }, [])
 
   const handleOpen = useCallback(() => setOpen(true), [])
+  const handleSignIn = useCallback(() => {
+    setOpen(false)
+    openLoginModal()
+  }, [openLoginModal])
+
+  const currentResponseGate = responseGate?.token === auth.token && responseGate.scoutPro === auth.scoutPro
+    ? responseGate.state
+    : null
+  const accessState = !auth.token || currentResponseGate === 'signed_out'
+    ? 'signed_out'
+    : currentResponseGate === 'locked' || auth.scoutPro?.features?.gol_chat === false
+      ? 'locked'
+      : 'available'
 
   const headerContent = (
     <div className="flex items-center justify-between w-full pr-8">
@@ -55,23 +86,27 @@ export function GolPanel() {
     </div>
   )
 
-  const loginPrompt = (
+  const chatContent = accessState === 'signed_out' ? (
     <div className="flex flex-col items-center justify-center flex-1 px-6 py-12 text-center">
       <MessageCircle className="h-12 w-12 text-muted-foreground mb-4" />
-      <h3 className="text-lg font-semibold mb-2">Sign in to chat</h3>
+      <h3 className="text-lg font-semibold mb-2">Sign in to ask GOL</h3>
       <p className="text-sm text-muted-foreground mb-6">
-        Log in to chat with the GOL Assistant and search for data about academy players, loan spells, and career journeys.
+        Sign in to start a private GOL conversation about academy players, loan spells, and career journeys.
       </p>
-      <Button onClick={() => { setOpen(false); openLoginModal() }}>
+      <Button onClick={handleSignIn}>
         <LogIn className="h-4 w-4 mr-2" />
         Sign in
       </Button>
     </div>
+  ) : (
+    <GolChatWindow
+      key={identityKey}
+      {...chat}
+      expanded={expanded}
+      accessState={accessState}
+      onSignIn={handleSignIn}
+    />
   )
-
-  const chatContent = token
-    ? <GolChatWindow {...chat} expanded={expanded} />
-    : loginPrompt
 
   return (
     <>

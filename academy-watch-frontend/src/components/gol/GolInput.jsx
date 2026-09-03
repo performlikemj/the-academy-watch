@@ -2,13 +2,13 @@ import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Send, Square } from 'lucide-react'
 
-export function GolInput({ onSend, isStreaming, onStop }) {
+export function GolInput({ onSend, isStreaming, onStop, disabled = false }) {
   const [text, setText] = useState('')
   const inputRef = useRef(null)
 
   const handleSend = () => {
     const trimmed = text.trim()
-    if (!trimmed || isStreaming) return
+    if (!trimmed || isStreaming || disabled) return
     onSend(trimmed)
     setText('')
   }
@@ -30,7 +30,7 @@ export function GolInput({ onSend, isStreaming, onStop }) {
         onChange={e => setText(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Ask about any player or team…"
-        disabled={isStreaming}
+        disabled={isStreaming || disabled}
         className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
       {isStreaming ? (
@@ -38,7 +38,7 @@ export function GolInput({ onSend, isStreaming, onStop }) {
           <Square className="h-4 w-4" />
         </Button>
       ) : (
-        <Button size="icon" onClick={handleSend} disabled={!text.trim()} aria-label="Send message">
+        <Button size="icon" onClick={handleSend} disabled={disabled || !text.trim()} aria-label="Send message">
           <Send className="h-4 w-4" />
         </Button>
       )}
