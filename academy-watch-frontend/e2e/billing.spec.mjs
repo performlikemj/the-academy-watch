@@ -413,6 +413,67 @@ test('GOL composer is usable with an explicit true entitlement', async ({ page }
   expect(chatBodies[0].message).toBe('Which academy has the strongest pathway?')
 })
 
+test('GOL clears the prior identity transcript across sign-out and a different sign-in', async ({ page }) => {
+  const accountB = {
+    ...ACCOUNT,
+    email: 'blair.scout@example.com',
+    user_id: 84,
+    display_name: 'Blair Scout',
+  }
+  let activeAccount = ACCOUNT
+
+  await installApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/auth/me') return route.fulfill({ json: activeAccount }).then(() => true)
+    if (url.pathname === '/api/auth/request-code' && request.method() === 'POST') {
+      await route.fulfill({ json: { ok: true } })
+      return true
+    }
+    if (url.pathname === '/api/auth/verify-code' && request.method() === 'POST') {
+      activeAccount = accountB
+      await route.fulfill({ json: {
+        ...accountB,
+        token: 'mock-user-b-token',
+        expires_in: 3600,
+        display_name_confirmed: true,
+      } })
+      return true
+    }
+    if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: ['Compare two academy pathways'] } }).then(() => true)
+    if (url.pathname === '/api/gol/chat' && request.method() === 'POST') {
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'event: token\ndata: {"content":"Private answer for user A"}\n\nevent: done\ndata: {}\n\n' })
+      return true
+    }
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/terms')
+  await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+  await page.getByPlaceholder('Ask about any player or team…').fill('Private question from user A')
+  await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+  await expect(page.getByText('Private answer for user A', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Log Out', exact: true }).click()
+  await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+  await expect(page.getByText('Sign in to ask GOL', { exact: true })).toBeVisible()
+  await expect(page.getByText('Private answer for user A', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'PDF', exact: true })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByLabel('Email').fill(accountB.email)
+  await page.getByRole('button', { name: 'Send login code' }).click()
+  await page.getByLabel('Verification code').fill('test-code-1')
+  await page.getByRole('button', { name: 'Verify & sign in' }).click()
+  await expect(page.getByRole('heading', { name: 'Sign in to The Academy Watch' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+  await expect(page.getByPlaceholder('Ask about any player or team…')).toBeEnabled()
+  await expect(page.getByText('Private answer for user A', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
+})
+
 test('GOL switches to the locked state after a mid-session Scout Pro rejection', async ({ page }) => {
   let releaseEntitlement
   const entitlementReady = new Promise((resolve) => { releaseEntitlement = resolve })

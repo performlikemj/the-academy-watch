@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { APIService } from '@/lib/api'
 
 /**
@@ -21,16 +21,43 @@ function buildHistory(messages) {
   return history.slice(-20)
 }
 
-export function useGolChat() {
+export function useGolChat(identityKey) {
   const [messages, setMessages] = useState([])
   // Each message: {id, role, content, dataCards, toolCall, hiddenHistory}
   const [isStreaming, setIsStreaming] = useState(false)
-  const [sessionId] = useState(() => crypto.randomUUID())
+  const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
   const abortRef = useRef(null)
+  const requestEpochRef = useRef(0)
+  const previousIdentityRef = useRef(identityKey)
+
+  const resetChat = useCallback(() => {
+    requestEpochRef.current += 1
+    abortRef.current?.abort()
+    abortRef.current = null
+    setMessages([])
+    setIsStreaming(false)
+    setSessionId(crypto.randomUUID())
+  }, [])
+
+  useEffect(() => {
+    if (Object.is(previousIdentityRef.current, identityKey)) return
+    previousIdentityRef.current = identityKey
+    resetChat()
+  }, [identityKey, resetChat])
+
+  useEffect(() => () => {
+    requestEpochRef.current += 1
+    abortRef.current?.abort()
+  }, [])
 
   const sendMessage = useCallback(async (content) => {
+    const requestEpoch = requestEpochRef.current
     const userMsg = { id: Date.now(), role: 'user', content, dataCards: [], hiddenHistory: [] }
     const assistantMsg = { id: Date.now() + 1, role: 'assistant', content: '', dataCards: [], toolCall: null, hiddenHistory: [] }
+
+    const updateMessages = (updater) => {
+      setMessages(prev => requestEpoch === requestEpochRef.current ? updater(prev) : prev)
+    }
 
     setMessages(prev => [...prev, userMsg, assistantMsg])
     setIsStreaming(true)
@@ -56,7 +83,7 @@ export function useGolChat() {
           }
         }
         if (isAccessDenied) {
-          setMessages(prev => prev.filter(message => message.id !== userMsg.id && message.id !== assistantMsg.id))
+          updateMessages(prev => prev.filter(message => message.id !== userMsg.id && message.id !== assistantMsg.id))
           return
         }
         throw new Error(`Chat request failed (${response.status}): ${errorText}`)
@@ -85,7 +112,7 @@ export function useGolChat() {
               const data = JSON.parse(line.slice(6))
 
               if (eventType === 'token') {
-                setMessages(prev => {
+                updateMessages(prev => {
                   const updated = [...prev]
                   const last = { ...updated[updated.length - 1] }
                   last.content += data.content || ''
@@ -94,7 +121,7 @@ export function useGolChat() {
                 })
               } else if (eventType === 'replace') {
                 // Output guard corrected the response — swap content
-                setMessages(prev => {
+                updateMessages(prev => {
                   const updated = [...prev]
                   const last = { ...updated[updated.length - 1] }
                   last.content = data.content || ''
@@ -102,7 +129,7 @@ export function useGolChat() {
                   return updated
                 })
               } else if (eventType === 'data_card') {
-                setMessages(prev => {
+                updateMessages(prev => {
                   const updated = [...prev]
                   const last = { ...updated[updated.length - 1] }
                   last.dataCards = [...last.dataCards, data]
@@ -110,7 +137,7 @@ export function useGolChat() {
                   return updated
                 })
               } else if (eventType === 'tool_call') {
-                setMessages(prev => {
+                updateMessages(prev => {
                   const updated = [...prev]
                   const last = { ...updated[updated.length - 1] }
                   last.toolCall = data.name
@@ -119,7 +146,7 @@ export function useGolChat() {
                 })
               } else if (eventType === 'history_entries') {
                 // Store tool-call context for replay in future turns
-                setMessages(prev => {
+                updateMessages(prev => {
                   const updated = [...prev]
                   const last = { ...updated[updated.length - 1] }
                   last.hiddenHistory = [...last.hiddenHistory, ...(data.entries || [])]
@@ -127,7 +154,7 @@ export function useGolChat() {
                   return updated
                 })
               } else if (eventType === 'done') {
-                setMessages(prev => {
+                updateMessages(prev => {
                   const updated = [...prev]
                   const last = { ...updated[updated.length - 1] }
                   last.toolCall = null
@@ -144,7 +171,7 @@ export function useGolChat() {
       }
     } catch (e) {
       if (e.name !== 'AbortError') {
-        setMessages(prev => {
+        updateMessages(prev => {
           const updated = [...prev]
           const last = { ...updated[updated.length - 1] }
           last.content = 'Sorry, something went wrong. Please try again.'
@@ -153,11 +180,14 @@ export function useGolChat() {
         })
       }
     } finally {
-      setIsStreaming(false)
+      if (requestEpoch === requestEpochRef.current) {
+        abortRef.current = null
+        setIsStreaming(false)
+      }
     }
   }, [messages, sessionId])
 
-  const clearChat = useCallback(() => setMessages([]), [])
+  const clearChat = resetChat
   const stopStreaming = useCallback(() => { abortRef.current?.abort() }, [])
 
   return { messages, isStreaming, sendMessage, clearChat, stopStreaming }

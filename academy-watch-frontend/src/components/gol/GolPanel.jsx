@@ -8,7 +8,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { MessageCircle, Maximize2, Minimize2 } from 'lucide-react'
+import { LogIn, MessageCircle, Maximize2, Minimize2 } from 'lucide-react'
 import { GolChatWindow } from './GolChatWindow'
 import { useGolChat } from '@/hooks/useGolChat'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
@@ -30,7 +30,10 @@ export function GolPanel() {
   const [responseGate, setResponseGate] = useState(null)
   const auth = useAuth()
   const { openLoginModal } = useAuthUI()
-  const chat = useGolChat()
+  const identityKey = auth.token
+    ? `${auth.userId ?? auth.user_id ?? ''}:${auth.email?.trim().toLowerCase() ?? ''}:${auth.token}`
+    : null
+  const chat = useGolChat(identityKey)
 
   useEffect(() => {
     const handleAccessDenied = (event) => setResponseGate({
@@ -79,8 +82,21 @@ export function GolPanel() {
     </div>
   )
 
-  const chatContent = (
+  const chatContent = accessState === 'signed_out' ? (
+    <div className="flex flex-col items-center justify-center flex-1 px-6 py-12 text-center">
+      <MessageCircle className="h-12 w-12 text-muted-foreground mb-4" />
+      <h3 className="text-lg font-semibold mb-2">Sign in to ask GOL</h3>
+      <p className="text-sm text-muted-foreground mb-6">
+        Sign in to start a private GOL conversation about academy players, loan spells, and career journeys.
+      </p>
+      <Button onClick={handleSignIn}>
+        <LogIn className="h-4 w-4 mr-2" />
+        Sign in
+      </Button>
+    </div>
+  ) : (
     <GolChatWindow
+      key={identityKey}
       {...chat}
       expanded={expanded}
       accessState={accessState}
