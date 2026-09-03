@@ -339,7 +339,12 @@ def _write_transition_event(name: str, row: BillingSubscription) -> None:
     )
 
 
-def upsert_subscription(sub, *, event_created: int | None) -> BillingSubscription | None:
+def upsert_subscription(
+    sub,
+    *,
+    event_created: int | None,
+    retrieve_on_stale: bool = False,
+) -> BillingSubscription | None:
     subscription_id = _get(sub, "id")
     row = BillingSubscription.query.filter_by(stripe_subscription_id=subscription_id).first()
     if (
@@ -348,6 +353,12 @@ def upsert_subscription(sub, *, event_created: int | None) -> BillingSubscriptio
         and row.last_event_created is not None
         and event_created < row.last_event_created
     ):
+        if retrieve_on_stale:
+            snapshot = _retrieve_subscription(subscription_id)
+            return upsert_subscription(
+                snapshot,
+                event_created=_retrieve_event_watermark(subscription_id, event_created),
+            )
         return row
 
     item = _first_item(sub)
@@ -377,8 +388,11 @@ def upsert_subscription(sub, *, event_created: int | None) -> BillingSubscriptio
         scope_id = customer.user_account_id
         purchaser_user_id = customer.user_account_id
 
+    scope_user_id = None
     if scope_type == "user":
-        db.session.execute(select(UserAccount.id).where(UserAccount.id == scope_id).with_for_update())
+        scope_user_id = db.session.execute(
+            select(UserAccount.id).where(UserAccount.id == scope_id).with_for_update()
+        ).scalar_one_or_none()
         row = (
             db.session.execute(
                 select(BillingSubscription)
@@ -395,7 +409,20 @@ def upsert_subscription(sub, *, event_created: int | None) -> BillingSubscriptio
             and row.last_event_created is not None
             and event_created < row.last_event_created
         ):
+            if retrieve_on_stale:
+                snapshot = _retrieve_subscription(subscription_id)
+                return upsert_subscription(
+                    snapshot,
+                    event_created=_retrieve_event_watermark(subscription_id, event_created),
+                )
             return row
+
+    if row is None and scope_type == "user" and scope_user_id is None:
+        logger.info("Ignoring Stripe subscription %s for deleted user scope %s", subscription_id, scope_id)
+        return None
+
+    if row is not None and purchaser_user_id is not None and db.session.get(UserAccount, purchaser_user_id) is None:
+        purchaser_user_id = None
 
     previous_status = row.status if row is not None else None
     if row is None:
@@ -486,7 +513,10 @@ def _cancel_duplicate_subscription(subscription_id: str) -> None:
             raise
 
 
-def _expire_other_open_checkouts(completed: BillingCheckoutSession) -> None:
+def _expire_other_open_checkouts(
+    completed: BillingCheckoutSession,
+    kept_subscription_id: str | None,
+) -> None:
     siblings = BillingCheckoutSession.query.filter(
         BillingCheckoutSession.scope_type == completed.scope_type,
         BillingCheckoutSession.scope_id == completed.scope_id,
@@ -508,6 +538,24 @@ def _expire_other_open_checkouts(completed: BillingCheckoutSession) -> None:
             if not subscription_id:
                 raise BillingError("checkout_expiry_failed", 500)
             _cancel_duplicate_subscription(subscription_id)
+            logger.warning(
+                "Canceled duplicate Stripe subscription %s; keeping subscription %s",
+                subscription_id,
+                kept_subscription_id,
+            )
+            purchaser = db.session.get(UserAccount, completed.purchaser_user_id)
+            db.session.add(
+                ProductEvent(
+                    event_name="billing_duplicate_canceled",
+                    user_email=purchaser.email if purchaser else None,
+                    props={
+                        "kept_subscription_id": kept_subscription_id,
+                        "canceled_subscription_id": subscription_id,
+                        "product_code": completed.product_code,
+                        "scope_type": completed.scope_type,
+                    },
+                )
+            )
             sibling.status = "complete"
             sibling.completed_at = sibling.completed_at or utcnow()
             continue
@@ -517,12 +565,12 @@ def _expire_other_open_checkouts(completed: BillingCheckoutSession) -> None:
 def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
     if event_type == "checkout.session.completed":
         row = _checkout_row(obj)
+        subscription_id = _stripe_id(_get(obj, "subscription"))
         if row is not None:
             db.session.execute(select(UserAccount.id).where(UserAccount.id == row.purchaser_user_id).with_for_update())
             row.status = "complete"
             row.completed_at = utcnow()
-            _expire_other_open_checkouts(row)
-        subscription_id = _stripe_id(_get(obj, "subscription"))
+            _expire_other_open_checkouts(row, subscription_id)
         if subscription_id:
             snapshot = _retrieve_subscription(subscription_id)
             upsert_subscription(
@@ -542,23 +590,12 @@ def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
     }:
         subscription_id = _get(obj, "id")
         previous = BillingSubscription.query.filter_by(stripe_subscription_id=subscription_id).first()
-        was_active = previous is not None and previous.status in ACTIVE_STATUSES
         snapshot = obj
         watermark = event_created
         if previous is not None and event_created is not None and previous.last_event_created == event_created:
             snapshot = _retrieve_subscription(subscription_id)
             watermark = _retrieve_event_watermark(subscription_id, event_created)
-        row = upsert_subscription(snapshot, event_created=watermark)
-        applied = row is not None and (event_created is None or row.last_event_created == event_created)
-        if (
-            event_type == "customer.subscription.deleted"
-            and applied
-            and not was_active
-            and row.status not in ACTIVE_STATUSES
-            and active_subscription(row.scope_type, row.scope_id, row.product_code) is None
-        ):
-            _write_transition_event("billing_subscription_ended", row)
-            _queue_email("subscription_ended", row)
+        upsert_subscription(snapshot, event_created=watermark, retrieve_on_stale=True)
         return True
     if event_type in {"invoice.paid", "invoice.payment_failed"}:
         subscription_id = _invoice_subscription_id(obj)

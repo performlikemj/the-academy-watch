@@ -37,7 +37,8 @@ def _hide_billing_rail_paths_when_disabled():
     path = request.path.rstrip("/")
     is_billing_path = path == "/api/billing" or path.startswith("/api/billing/")
     is_admin_billing_path = path == "/api/admin/billing" or path.startswith("/api/admin/billing/")
-    if (is_billing_path or is_admin_billing_path) and not billing_enabled():
+    is_scout_entitlements_path = path == "/api/scout/entitlements"
+    if (is_billing_path or is_admin_billing_path or is_scout_entitlements_path) and not billing_enabled():
         abort(404)
 
 

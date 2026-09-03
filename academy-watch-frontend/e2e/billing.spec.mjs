@@ -67,7 +67,7 @@ test('pricing stays in beta mode while billing is dark', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Subscribe', exact: true })).toHaveCount(0)
 })
 
-test('pricing shows a retryable outage state for a non-dark config failure', async ({ page }) => {
+test('pricing keeps beta tiers visible with a retry notice after a config failure', async ({ page }) => {
   let recovered = false
   await installApi(page, async ({ route, url }) => {
     if (url.pathname === '/api/billing/config') {
@@ -79,9 +79,12 @@ test('pricing shows a retryable outage state for a non-dark config failure', asy
     return false
   })
   await page.goto('/pricing')
-  await expect(page.getByRole('heading', { name: 'Pricing is temporarily unavailable' })).toBeVisible()
+  await expect(page.getByText("Live pricing couldn't be loaded.", { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
-  await expect(page.getByText('Free during beta', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Free during beta', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'The Stand' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Film Room', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Why is Pro free right now?' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Subscribe', exact: true })).toHaveCount(0)
   recovered = true
   await page.getByRole('button', { name: 'Retry' }).click()
