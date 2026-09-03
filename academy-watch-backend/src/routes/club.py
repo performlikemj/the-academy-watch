@@ -28,6 +28,7 @@ from src.models.funding import (
     ClubProgramProfileRevision,
     ClubProgramUpdate,
     ClubRosterMember,
+    approved_revision_for,
     revision_dict,
     update_dict,
 )
@@ -142,11 +143,43 @@ def _field_list(value, field: str, *, max_items: int, item_limit: int) -> list[s
     return cleaned_items
 
 
-def _field_https(value, field: str) -> str | None:
-    cleaned = _field_text(value, field, 500)
+def _field_url_text(value, field: str, limit: int, *, required: bool = False) -> str | None:
+    if value is None:
+        if required:
+            raise ValueError(f"{field} is required")
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    cleaned = value.strip()
+    if required and not cleaned:
+        raise ValueError(f"{field} is required")
+    if len(cleaned) > limit:
+        raise ValueError(f"{field} must be at most {limit} characters")
+    if cleaned and ("<" in cleaned or ">" in cleaned or any(character.isspace() for character in cleaned)):
+        raise ValueError(f"{field} must not contain angle brackets or whitespace")
+    return cleaned or None
+
+
+def _field_https(value, field: str, *, required: bool = False) -> str | None:
+    cleaned = _field_url_text(value, field, 500, required=required)
     if cleaned and not is_safe_https_url(cleaned):
         raise ValueError(f"{field} must be an absolute https URL")
     return cleaned
+
+
+def _field_https_list(value, field: str, *, max_items: int) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a list")
+    if len(value) > max_items:
+        raise ValueError(f"{field} must contain at most {max_items} items")
+    cleaned_items = []
+    for item in value:
+        cleaned = _field_https(item, field, required=True)
+        if cleaned not in cleaned_items:
+            cleaned_items.append(cleaned)
+    return cleaned_items
 
 
 def _external_support(value) -> tuple[str | None, str | None]:
@@ -157,7 +190,7 @@ def _external_support(value) -> tuple[str | None, str | None]:
     provider = _field_text(value.get("provider"), "external_support.provider", 30, required=True)
     if provider not in EXTERNAL_SUPPORT_HOSTS:
         raise ValueError("external_support.provider must be patreon or buy_me_a_coffee")
-    url = _field_text(value.get("url"), "external_support.url", 200, required=True)
+    url = _field_url_text(value.get("url"), "external_support.url", 200, required=True)
     try:
         parsed = urlsplit(url)
         port = parsed.port
@@ -212,15 +245,11 @@ def _profile_values(data) -> tuple[dict, dict[str, str]]:
         ),
         (
             "media_urls",
-            lambda value: [
-                _field_https(item, "media_urls")
-                for item in _field_list(
-                    value,
-                    "media_urls",
-                    max_items=PROGRAM_PROFILE_LIMITS["media_urls_max"],
-                    item_limit=500,
-                )
-            ],
+            lambda value: _field_https_list(
+                value,
+                "media_urls",
+                max_items=PROGRAM_PROFILE_LIMITS["media_urls_max"],
+            ),
         ),
     )
     for field, parser in specs:
@@ -259,18 +288,6 @@ def _update_values(data) -> tuple[dict, dict[str, str]]:
 
 def _validation_failed(fields):
     return jsonify({"error": "validation_failed", "fields": fields}), 400
-
-
-def _program_approved_revision(program):
-    if program.approved_profile_revision_id:
-        revision = db.session.get(ClubProgramProfileRevision, program.approved_profile_revision_id)
-        if revision and revision.program_id == program.id and revision.status == "approved":
-            return revision
-    return (
-        ClubProgramProfileRevision.query.filter_by(program_id=program.id, status="approved")
-        .order_by(ClubProgramProfileRevision.created_at.desc(), ClubProgramProfileRevision.id.desc())
-        .first()
-    )
 
 
 def _positive_int(value, field: str) -> int:
@@ -686,7 +703,7 @@ def get_club_program_profile(program_id: int):
         .order_by(ClubProgramProfileRevision.created_at.desc(), ClubProgramProfileRevision.id.desc())
         .first()
     )
-    approved = _program_approved_revision(program)
+    approved = approved_revision_for(program)
     return jsonify(
         {
             "program": {"id": program.id, "slug": program.slug, "name": program.name},

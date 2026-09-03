@@ -1,6 +1,6 @@
 """S3-P2a club profile editing and moderated program-update coverage."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from flask import Flask
@@ -20,6 +20,7 @@ from src.routes.club import club_bp
 from src.routes.funding import funding_bp
 
 ADMIN_KEY = "club-editing-admin-key"
+ADMIN_EMAIL = "club-editing-admin@example.com"
 MANAGER_EMAIL = "manager@club-editing.example"
 PENDING_EMAIL = "pending@club-editing.example"
 OUTSIDER_EMAIL = "outsider@club-editing.example"
@@ -59,7 +60,7 @@ def _headers(email):
 
 def _admin_headers():
     return {
-        "Authorization": f"Bearer {issue_user_token('club-editing-admin@example.com', role='admin')['token']}",
+        "Authorization": f"Bearer {issue_user_token(ADMIN_EMAIL, role='admin')['token']}",
         "X-API-Key": ADMIN_KEY,
     }
 
@@ -294,6 +295,27 @@ def test_external_support_accepts_and_normalizes_allowlisted_profiles(client, ex
     assert response.get_json()["pending"]["external_support"] == expected
 
 
+def test_profile_urls_with_query_strings_round_trip_byte_identically(client):
+    program, _, manager, _ = _seed_programs()
+    official_url = "https://club-editing.example/watch?v=x&t=10s"
+    safeguarding_url = "https://club-editing.example/policy?lang=en&version=2"
+    media_url = "https://club-editing.example/photo?id=7&size=large"
+    response = client.put(
+        f"/api/club/{program.id}/profile",
+        json=_profile_payload(
+            official_url=official_url,
+            safeguarding_url=safeguarding_url,
+            media_urls=[media_url],
+        ),
+        headers=_headers(manager.email),
+    )
+    assert response.status_code == 200, response.get_json()
+    pending = response.get_json()["pending"]
+    assert pending["official_url"] == official_url
+    assert pending["safeguarding_url"] == safeguarding_url
+    assert pending["media_urls"] == [media_url]
+
+
 @pytest.mark.parametrize(
     ("override", "field"),
     [
@@ -340,6 +362,7 @@ def test_profile_admin_approval_and_rejection_are_audited_and_public(client):
     )
     assert reviewed.status_code == 200, reviewed.get_json()
     assert reviewed.get_json()["revision"]["status"] == "approved"
+    assert db.session.get(ClubProgramProfileRevision, created["id"]).reviewed_by == ADMIN_EMAIL
     public = client.get(f"/api/programs/{program.slug}").get_json()["program"]
     assert public["program_provided"]["summary"] == "A newly approved public summary."
     assert public["external_support"] == {
@@ -369,6 +392,7 @@ def test_profile_admin_approval_and_rejection_are_audited_and_public(client):
     )
     assert rejection.status_code == 200
     assert rejection.get_json()["revision"]["status"] == "rejected"
+    assert db.session.get(ClubProgramProfileRevision, rejected["id"]).reviewed_by == ADMIN_EMAIL
     assert (
         FundingAdminEvent.query.filter_by(
             action="profile_revision_rejected",
@@ -425,6 +449,7 @@ def test_program_updates_moderate_publish_withdraw_and_enforce_pending_limit(cli
     )
     assert approved.status_code == 200, approved.get_json()
     assert approved.get_json()["update"]["published_at"] is not None
+    assert db.session.get(ClubProgramUpdate, update_ids[0]).reviewed_by == ADMIN_EMAIL
     public_updates = client.get(f"/api/programs/{program.slug}").get_json()["program"]["updates"]
     assert [item["id"] for item in public_updates] == [update_ids[0]]
     assert set(public_updates[0]) == {"id", "title", "body", "impact", "published_at"}
@@ -437,6 +462,14 @@ def test_program_updates_moderate_publish_withdraw_and_enforce_pending_limit(cli
         == 1
     )
 
+    rejected = client.post(
+        f"/api/admin/funding/programs/{program.id}/updates/{update_ids[1]}/review",
+        json={"decision": "reject", "reason": "This update needs more evidence."},
+        headers=_admin_headers(),
+    )
+    assert rejected.status_code == 200, rejected.get_json()
+    assert db.session.get(ClubProgramUpdate, update_ids[1]).reviewed_by == ADMIN_EMAIL
+
     withdrawn = client.delete(
         f"/api/club/{program.id}/updates/{update_ids[0]}",
         headers=_headers(manager.email),
@@ -445,11 +478,11 @@ def test_program_updates_moderate_publish_withdraw_and_enforce_pending_limit(cli
     assert withdrawn.get_json() == {"deleted": False, "status": "withdrawn"}
     assert client.get(f"/api/programs/{program.slug}").get_json()["program"]["updates"] == []
 
-    pending_delete = client.delete(
+    rejected_delete = client.delete(
         f"/api/club/{program.id}/updates/{update_ids[1]}",
         headers=_headers(manager.email),
     )
-    assert pending_delete.get_json() == {"deleted": True, "status": None}
+    assert rejected_delete.get_json() == {"deleted": True, "status": None}
     assert db.session.get(ClubProgramUpdate, update_ids[1]) is None
 
     foreign_update = ClubProgramUpdate(
@@ -466,6 +499,32 @@ def test_program_updates_moderate_publish_withdraw_and_enforce_pending_limit(cli
     )
     assert foreign_delete.status_code == 404
     assert foreign_delete.get_json() == {"error": "update not found"}
+
+
+def test_public_updates_are_capped_at_ten_and_ordered_by_newest_publication(client):
+    program, _, manager, _ = _seed_programs()
+    first_published_at = datetime(2026, 1, 1, 12, 0)
+    updates = []
+    for index in range(11):
+        update = ClubProgramUpdate(
+            program_id=program.id,
+            author_user_id=manager.id,
+            title=f"Approved update {index}",
+            body=f"This is approved public update body number {index}.",
+            status="approved",
+            published_at=first_published_at + timedelta(hours=index),
+        )
+        db.session.add(update)
+        updates.append(update)
+    db.session.commit()
+
+    response = client.get(f"/api/programs/{program.slug}")
+    assert response.status_code == 200
+    public_updates = response.get_json()["program"]["updates"]
+    expected = list(reversed(updates[1:]))
+    assert len(public_updates) == 10
+    assert [item["id"] for item in public_updates] == [update.id for update in expected]
+    assert [item["published_at"] for item in public_updates] == [update.published_at.isoformat() for update in expected]
 
 
 @pytest.mark.parametrize(

@@ -46,6 +46,19 @@ def revision_dict(revision):
     }
 
 
+def approved_revision_for(program):
+    """Resolve the currently approved profile revision for any route audience."""
+    if program.approved_profile_revision_id:
+        revision = db.session.get(ClubProgramProfileRevision, program.approved_profile_revision_id)
+        if revision and revision.program_id == program.id and revision.status == "approved":
+            return revision
+    return (
+        ClubProgramProfileRevision.query.filter_by(program_id=program.id, status="approved")
+        .order_by(ClubProgramProfileRevision.created_at.desc(), ClubProgramProfileRevision.id.desc())
+        .first()
+    )
+
+
 def update_dict(update):
     """Serialize the one program-update contract shared by every audience."""
     return {

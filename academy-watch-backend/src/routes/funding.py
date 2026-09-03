@@ -22,6 +22,7 @@ from src.models.funding import (
     ClubProgramUpdate,
     FundingAdminEvent,
     FundingLeague,
+    approved_revision_for,
     revision_dict,
     update_dict,
 )
@@ -1202,15 +1203,7 @@ def review_program_update(program_id: int, update_id: int):
 
 
 def _approved_revision(program):
-    if program.approved_profile_revision_id:
-        revision = db.session.get(ClubProgramProfileRevision, program.approved_profile_revision_id)
-        if revision and revision.program_id == program.id and revision.status == "approved":
-            return revision
-    return (
-        ClubProgramProfileRevision.query.filter_by(program_id=program.id, status="approved")
-        .order_by(ClubProgramProfileRevision.created_at.desc(), ClubProgramProfileRevision.id.desc())
-        .first()
-    )
+    return approved_revision_for(program)
 
 
 def _public_program_by_slug(slug):
