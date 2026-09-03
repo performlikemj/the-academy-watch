@@ -336,7 +336,6 @@ struct LocalPlayerPendingDetailView: View {
                     pendingRow("Position", response.player.position)
                     pendingRow("Current club", response.player.clubName)
                     pendingRow("Location", [response.player.city, response.player.country].compactMap { $0 }.joined(separator: ", "))
-                    pendingRow("Birth date", response.player.birthDate)
                     pendingRow("Birth year", response.player.birthYear.map(String.init))
                     Divider()
                     Text("No stats are shown for local profiles unless verified evidence is added later.")
@@ -485,7 +484,7 @@ struct OnboardingBirthDateField: View {
                 .accessibilityIdentifier(identifier)
             }
 
-            Text("The exact date takes precedence over the year and is required to prove age 18+ on self-managed profiles.")
+            Text("The exact date takes precedence over the year. Self-managed profiles need a date showing 18+, or a birth year at least 19 years back.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

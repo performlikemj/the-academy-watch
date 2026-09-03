@@ -3,7 +3,7 @@ import XCTest
 @testable import AcademyWatch
 
 /// Covers POST `/players/<signed id>/matches` for the add-a-game sheet: request
-/// encoding, 201-created vs 200-updated handling, lenient season_stats decode,
+/// encoding, 201-created vs 200-updated handling, ignored rollup summaries,
 /// and 400 message surfacing.
 final class PlayerMatchAPIClientTests: XCTestCase {
     override func setUp() {
@@ -66,7 +66,6 @@ final class PlayerMatchAPIClientTests: XCTestCase {
         XCTAssertEqual(response.match.id, 812)
         XCTAssertEqual(response.match.season, 2025)
         XCTAssertEqual(response.match.editable, true)
-        XCTAssertNil(response.seasonStats, "the rollup summary shape does not decode as season stats")
     }
 
     func testCreatedAndUpdatedBodiesBothDecode() async throws {
@@ -86,19 +85,6 @@ final class PlayerMatchAPIClientTests: XCTestCase {
 
         XCTAssertEqual(created.match.opponent, "Coventry U18")
         XCTAssertEqual(updated.match.opponent, "Coventry U18")
-    }
-
-    func testSeasonStatsDecodeWhenPayloadCarriesFullTotals() throws {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let payload = """
-        {"match":{"id":813,"player_api_id":-41,"season":2025,"match_date":"2026-08-30","competition":null,"opponent":"Reading U18","home_away":"away","result_for":null,"result_against":null,"minutes":90,"goals":0,"assists":2,"yellows":0,"reds":0,"saves":null,"goals_conceded":null,"note":null,"source":"self","status":"self_reported","editable":true},"season_stats":{"player_id":-41,"season":"2025/26","appearances":4,"minutes":310,"goals":2,"assists":3,"saves":0,"goals_conceded":0,"clean_sheets":1,"source":"local-db","stats_coverage":null,"local_appearances":4,"clubs":[],"provenance":null}}
-        """
-        let response = try decoder.decode(PlayerMatchMutationResponse.self, from: Data(payload.utf8))
-
-        XCTAssertEqual(response.match.assists, 2)
-        XCTAssertEqual(response.seasonStats?.appearances, 4)
-        XCTAssertEqual(response.seasonStats?.season, "2025/26")
     }
 
     func testBackend400MessageSurfaces() async {
@@ -166,6 +152,7 @@ final class AddGameViewModelTests: XCTestCase {
         viewModel.resultAgainst = 1
         viewModel.minutes = 74
         viewModel.goals = 1
+        viewModel.useGoalkeeperEvents = true
         viewModel.saves = 5
         viewModel.note = "  "
 
@@ -178,8 +165,29 @@ final class AddGameViewModelTests: XCTestCase {
         XCTAssertEqual(submission.resultFor, 2)
         XCTAssertEqual(submission.resultAgainst, 1)
         XCTAssertEqual(submission.saves, 5)
-        XCTAssertNil(submission.goalsConceded, "goalkeeper counters stay off for outfield players")
+        XCTAssertEqual(submission.goalsConceded, 0)
         XCTAssertNil(submission.note, "blank notes are omitted like the web payload")
+    }
+
+    func testMatchDateDefaultsToTodayAndCannotSelectTomorrow() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 9, day: 4, hour: 15))
+        )
+
+        let viewModel = AddGameViewModel(
+            playerID: -41,
+            apiClient: MatchStubClient(),
+            calendar: calendar,
+            now: now
+        )
+        let today = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 9, day: 4))
+        )
+
+        XCTAssertEqual(viewModel.matchDate, today)
+        XCTAssertEqual(viewModel.selectableDateRange.upperBound, today)
     }
 
     func testSuccessfulSubmitReturnsResponseAndRequest400SurfacesInline() async {
@@ -196,10 +204,7 @@ final class AddGameViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.didSave)
 
         let successClient = MatchStubClient(result: .success(
-            PlayerMatchMutationResponse(
-                match: Self.stubEntry(),
-                seasonStats: nil
-            )
+            PlayerMatchMutationResponse(match: Self.stubEntry())
         ))
         let successViewModel = AddGameViewModel(playerID: -41, apiClient: successClient)
         successViewModel.opponent = "Coventry U18"

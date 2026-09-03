@@ -193,6 +193,40 @@ final class PlayerFanAPIClientTests: XCTestCase {
     }
 
     @MainActor
+    func testUnfollowWithoutDeletedRowRestoresServerCount() async {
+        let client = FanStubClient(
+            countResult: .success(
+                PlayerFollowerCountResponse(playerApiId: 403_064, fans: 12, following: true, shareUrl: nil)
+            ),
+            unfollowResult: .success(
+                PlayerUnfollowResponse(playerApiId: 403_064, following: false, deleted: false)
+            )
+        )
+        let viewModel = PlayerFanViewModel(playerID: 403_064, apiClient: client)
+        await viewModel.loadIfNeeded()
+
+        await viewModel.toggleFollow(isAuthenticated: true, onSignInRequested: {})
+
+        XCTAssertEqual(viewModel.summary, PlayerFanSummary(fans: 12, following: false))
+        XCTAssertNil(viewModel.actionErrorMessage)
+    }
+
+    @MainActor
+    func testRefreshStartedBeforeFollowCannotOverwriteMutationResult() async {
+        let client = FanRefreshRaceClient()
+        let viewModel = PlayerFanViewModel(playerID: 403_064, apiClient: client)
+        await viewModel.loadIfNeeded()
+
+        let refreshTask = Task { await viewModel.refresh() }
+        await client.waitForSecondFetchToStart()
+        await viewModel.toggleFollow(isAuthenticated: true, onSignInRequested: {})
+        await client.finishSecondFetch()
+        await refreshTask.value
+
+        XCTAssertEqual(viewModel.summary, PlayerFanSummary(fans: 13, following: true))
+    }
+
+    @MainActor
     func testSignedOutToggleRoutesToSignInWithoutTouchingState() async {
         let client = FanStubClient(countResult: .success(
             PlayerFollowerCountResponse(playerApiId: 403_064, fans: 12, following: nil, shareUrl: nil)
@@ -325,5 +359,61 @@ private final class FanStubClient: PlayerFanAPIClientProtocol, @unchecked Sendab
 
     func unfollowPlayer(playerID _: Int) async throws -> PlayerUnfollowResponse {
         try unfollowResult.get()
+    }
+}
+
+private actor FanRefreshRaceClient: PlayerFanAPIClientProtocol {
+    private var fetchCount = 0
+    private var didStartSecondFetch = false
+    private var secondFetchContinuation: CheckedContinuation<PlayerFollowerCountResponse, Never>?
+    private var secondFetchStartedContinuation: CheckedContinuation<Void, Never>?
+
+    func fetchFollowerCount(playerID: Int) async throws -> PlayerFollowerCountResponse {
+        fetchCount += 1
+        if fetchCount == 1 {
+            return PlayerFollowerCountResponse(
+                playerApiId: playerID,
+                fans: 12,
+                following: false,
+                shareUrl: nil
+            )
+        }
+
+        didStartSecondFetch = true
+        secondFetchStartedContinuation?.resume()
+        secondFetchStartedContinuation = nil
+        return await withCheckedContinuation { continuation in
+            secondFetchContinuation = continuation
+        }
+    }
+
+    func waitForSecondFetchToStart() async {
+        guard !didStartSecondFetch else { return }
+        await withCheckedContinuation { continuation in
+            secondFetchStartedContinuation = continuation
+        }
+    }
+
+    func finishSecondFetch() {
+        secondFetchContinuation?.resume(returning: PlayerFollowerCountResponse(
+            playerApiId: 403_064,
+            fans: 12,
+            following: false,
+            shareUrl: nil
+        ))
+        secondFetchContinuation = nil
+    }
+
+    func followPlayer(playerID: Int) async throws -> PlayerFollowResponse {
+        PlayerFollowResponse(
+            playerApiId: playerID,
+            following: true,
+            fans: 13,
+            created: true
+        )
+    }
+
+    func unfollowPlayer(playerID _: Int) async throws -> PlayerUnfollowResponse {
+        throw URLError(.unsupportedURL)
     }
 }

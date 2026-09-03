@@ -58,6 +58,12 @@ struct PlayerUnfollowResponse: Decodable, Equatable, Sendable {
         following = try container.decode(Bool.self, forKey: .following)
         deleted = try container.decodeIfPresent(Bool.self, forKey: .deleted)
     }
+
+    init(playerApiId: Int, following: Bool, deleted: Bool?) {
+        self.playerApiId = playerApiId
+        self.following = following
+        self.deleted = deleted
+    }
 }
 
 /// What the PlayerDetail fan row needs after auth resolution. `nil` means the

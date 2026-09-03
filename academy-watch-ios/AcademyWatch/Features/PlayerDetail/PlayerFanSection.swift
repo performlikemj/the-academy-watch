@@ -43,12 +43,12 @@ final class PlayerFanViewModel: ObservableObject {
         #endif
         do {
             let response = try await apiClient.fetchFollowerCount(playerID: playerID)
-            guard revision == loadRevision, !Task.isCancelled else { return }
+            guard revision == loadRevision, !isPending, !Task.isCancelled else { return }
             summary = PlayerFanSummary(response: response)
         } catch {
             // Count reads are decorative: any failure (including the neutral
             // 404 for non-public subjects) keeps the row hidden, never an error.
-            guard revision == loadRevision, !Task.isCancelled else { return }
+            guard revision == loadRevision, !isPending, !Task.isCancelled else { return }
             summary = nil
         }
         hasLoaded = true
@@ -64,6 +64,9 @@ final class PlayerFanViewModel: ObservableObject {
         }
         guard !isPending else { return }
 
+        // Invalidate any count read that began before this mutation so it
+        // cannot overwrite the optimistic state when it finishes later.
+        loadRevision += 1
         isPending = true
         actionErrorMessage = nil
         defer { isPending = false }
@@ -72,13 +75,15 @@ final class PlayerFanViewModel: ObservableObject {
             let rollback = summary
             self.summary = PlayerFanSummary(fans: max(0, summary.fans - 1), following: false)
             do {
-                // The unfollow body carries no fan count; keep the optimistic
-                // count (it only decremented) and trust the response's flag.
                 let response = try await apiClient.unfollowPlayer(playerID: playerID)
-                self.summary = PlayerFanSummary(
-                    fans: max(0, rollback.fans - 1),
-                    following: response.following
-                )
+                if response.deleted == false {
+                    self.summary = PlayerFanSummary(fans: rollback.fans, following: false)
+                } else {
+                    self.summary = PlayerFanSummary(
+                        fans: max(0, rollback.fans - 1),
+                        following: response.following
+                    )
+                }
             } catch {
                 self.summary = rollback
                 actionErrorMessage = Self.actionMessage(for: error, fallback: "Could not unfollow. Try again.")

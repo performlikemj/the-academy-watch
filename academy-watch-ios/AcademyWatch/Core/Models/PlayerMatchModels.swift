@@ -61,28 +61,9 @@ struct PlayerMatchEntry: Decodable, Equatable, Identifiable, Sendable {
     let editable: Bool?
 }
 
-/// 201 (created) / 200 (updated) body for the matches mutation. `season_stats`
-/// is the rollup service's refresh payload; it is a compact `{cells, totals}`
-/// summary today, but was a fuller stats object in earlier releases, so it is
-/// decoded leniently and the detail screen re-fetches authoritative totals
-/// unless the payload decodes as real season stats.
+/// 201 (created) / 200 (updated) body for the matches mutation. The backend's
+/// `season_stats` value is a compact rollup summary, so the detail screen
+/// re-fetches authoritative season stats instead of decoding that field here.
 struct PlayerMatchMutationResponse: Decodable, Equatable, Sendable {
     let match: PlayerMatchEntry
-    let seasonStats: PlayerSeasonStats?
-
-    private enum CodingKeys: String, CodingKey {
-        case match
-        case seasonStats
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        match = try container.decode(PlayerMatchEntry.self, forKey: .match)
-        seasonStats = try? container.decodeIfPresent(PlayerSeasonStats.self, forKey: .seasonStats)
-    }
-
-    init(match: PlayerMatchEntry, seasonStats: PlayerSeasonStats?) {
-        self.match = match
-        self.seasonStats = seasonStats
-    }
 }

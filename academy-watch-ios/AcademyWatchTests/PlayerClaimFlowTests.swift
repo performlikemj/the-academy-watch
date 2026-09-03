@@ -77,6 +77,19 @@ final class PlayerClaimFlowTests: XCTestCase {
         XCTAssertNil(submitted.claim.playerName)
     }
 
+    func testClaimsMatchOnlyTheirSignedPlayerIdentity() {
+        let localClaim = claim(playerApiId: nil, localPlayerId: 41)
+        XCTAssertTrue(PlayerClaimViewModel.matchesSignedPlayerID(localClaim, playerID: -41))
+        XCTAssertFalse(PlayerClaimViewModel.matchesSignedPlayerID(localClaim, playerID: 41))
+
+        let platformClaim = claim(playerApiId: 41, localPlayerId: nil)
+        XCTAssertTrue(PlayerClaimViewModel.matchesSignedPlayerID(platformClaim, playerID: 41))
+        XCTAssertFalse(PlayerClaimViewModel.matchesSignedPlayerID(platformClaim, playerID: -41))
+
+        XCTAssertFalse(PlayerClaimViewModel.matchesSignedPlayerID(localClaim, playerID: .min))
+        XCTAssertFalse(PlayerClaimViewModel.matchesSignedPlayerID(platformClaim, playerID: .min))
+    }
+
     func testClaimAttestationEncodesEveryBackendStatusAndOptionalClubFields() throws {
         XCTAssertEqual(
             PlayerContractStatus.allCases.map(\.rawValue),
@@ -215,6 +228,22 @@ final class PlayerClaimFlowTests: XCTestCase {
         encoder.keyEncodingStrategy = .convertToSnakeCase
         let data = try encoder.encode(body)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func claim(playerApiId: Int?, localPlayerId: Int?) -> PlayerProfileClaim {
+        PlayerProfileClaim(
+            id: 1,
+            playerApiId: playerApiId,
+            localPlayerId: localPlayerId,
+            userAccountId: 44,
+            relationshipType: "player",
+            status: .approved,
+            message: nil,
+            reviewedBy: nil,
+            reviewedAt: nil,
+            createdAt: nil,
+            playerName: nil
+        )
     }
 }
 

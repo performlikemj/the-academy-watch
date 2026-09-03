@@ -34,24 +34,24 @@ final class AddGameViewModel: ObservableObject {
     let playerID: Int
     private let apiClient: any PlayerMatchAPIClientProtocol
     private let calendar: Calendar
+    private let today: Date
 
     init(
         playerID: Int,
         apiClient: any PlayerMatchAPIClientProtocol = APIClient(),
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        now: Date = Date()
     ) {
         self.playerID = playerID
         self.apiClient = apiClient
         self.calendar = calendar
-        // Yesterday: the backend rejects dates more than one day in the future.
-        matchDate = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: Date()))
-            ?? calendar.startOfDay(for: Date())
+        today = calendar.startOfDay(for: now)
+        matchDate = today
     }
 
     var selectableDateRange: ClosedRange<Date> {
         let lower = calendar.date(from: DateComponents(year: 1970, month: 1, day: 1)) ?? .distantPast
-        let upper = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date())) ?? Date()
-        return lower ... upper
+        return lower ... today
     }
 
     @discardableResult
