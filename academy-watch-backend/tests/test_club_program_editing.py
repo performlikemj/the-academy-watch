@@ -305,7 +305,7 @@ def test_profile_urls_with_query_strings_round_trip_byte_identically(client):
         json=_profile_payload(
             official_url=official_url,
             safeguarding_url=safeguarding_url,
-            media_urls=[media_url],
+            media_urls=[media_url, media_url],
         ),
         headers=_headers(manager.email),
     )
@@ -352,6 +352,57 @@ def test_profile_and_update_prose_round_trip_as_plain_text(client):
     assert public_update["body"] == body
     assert public_update["impact"] == prose
 
+    encoded_script = "&lt;script&gt;alert(1)&lt;/script&gt;"
+    encoded_img = "&lt;img src=x onerror=alert(1)&gt;"
+    hostile_profile = client.put(
+        f"/api/club/{program.id}/profile",
+        json=_profile_payload(summary=encoded_script, funding_purpose=encoded_img),
+        headers=_headers(manager.email),
+    )
+    assert hostile_profile.status_code == 200, hostile_profile.get_json()
+    hostile_profile_id = hostile_profile.get_json()["pending"]["id"]
+    stored_hostile_profile = db.session.get(ClubProgramProfileRevision, hostile_profile_id)
+    assert "<script" not in str(stored_hostile_profile.summary).lower()
+    assert "<img" not in str(stored_hostile_profile.funding_purpose).lower()
+    hostile_pending = client.get(
+        f"/api/club/{program.id}/profile",
+        headers=_headers(manager.email),
+    ).get_json()["pending"]
+    assert hostile_pending["summary"] == "alert(1)"
+    assert hostile_pending["funding_purpose"] is None
+    assert "<script" not in str(hostile_pending).lower()
+    assert "<img" not in str(hostile_pending).lower()
+
+    hostile_update = client.post(
+        f"/api/club/{program.id}/updates",
+        json={
+            "title": "Encoded markup update",
+            "body": "Details &amp;lt;script&amp;gt;alert(2)&amp;lt;/script&amp;gt; remain plain text.",
+            "impact": encoded_img,
+        },
+        headers=_headers(manager.email),
+    )
+    assert hostile_update.status_code == 201, hostile_update.get_json()
+    hostile_update_id = hostile_update.get_json()["update"]["id"]
+    stored_hostile_update = db.session.get(ClubProgramUpdate, hostile_update_id)
+    assert "<script" not in str(stored_hostile_update.body).lower()
+    assert "<img" not in str(stored_hostile_update.impact).lower()
+    reviewed = client.post(
+        f"/api/admin/funding/programs/{program.id}/updates/{hostile_update_id}/review",
+        json={"decision": "approve", "reason": "Encoded-markup stripping fixture."},
+        headers=_admin_headers(),
+    )
+    assert reviewed.status_code == 200, reviewed.get_json()
+    hostile_public = next(
+        update
+        for update in client.get(f"/api/programs/{program.slug}").get_json()["program"]["updates"]
+        if update["id"] == hostile_update_id
+    )
+    assert hostile_public["body"] == "Details alert(2) remain plain text."
+    assert hostile_public["impact"] is None
+    assert "<script" not in str(hostile_public).lower()
+    assert "<img" not in str(hostile_public).lower()
+
 
 @pytest.mark.parametrize(
     ("override", "field"),
@@ -361,9 +412,12 @@ def test_profile_and_update_prose_round_trip_as_plain_text(client):
         ({"age_groups": [f"U{index}" for index in range(13)]}, "age_groups"),
         ({"activities": ["x" * 41]}, "activities"),
         ({"official_url": "http://club-editing.example"}, "official_url"),
+        ({"official_url": "https://x.example/<script>"}, "official_url"),
+        ({"official_url": "https://x.example/a b"}, "official_url"),
         ({"safeguarding_url": "javascript:alert(1)"}, "safeguarding_url"),
         ({"media_urls": [f"https://club-editing.example/{index}" for index in range(7)]}, "media_urls"),
         ({"media_urls": ["http://club-editing.example/photo.jpg"]}, "media_urls"),
+        ({"media_urls": ["https://x.example/<img>"]}, "media_urls"),
     ],
 )
 def test_profile_field_limits_and_https_urls_are_validated(client, override, field):
@@ -453,6 +507,32 @@ def test_profile_admin_approval_and_rejection_are_audited_and_public(client):
     )
     assert rereview.status_code == 409
     assert rereview.get_json() == {"error": "revision not pending"}
+
+
+def test_approved_revision_pointer_wins_over_newer_approved_revision(client):
+    program, _, manager, older = _seed_programs()
+    older.created_at = datetime(2026, 1, 1, 12, 0)
+    newer = ClubProgramProfileRevision(
+        program_id=program.id,
+        submitted_by_user_id=manager.id,
+        status="approved",
+        summary="Newer approved revision not selected by the pointer.",
+        age_groups=[],
+        activities=[],
+        media_urls=[],
+        created_at=datetime(2026, 2, 1, 12, 0),
+    )
+    db.session.add(newer)
+    db.session.flush()
+    program.approved_profile_revision_id = older.id
+    db.session.commit()
+
+    profile = client.get(f"/api/club/{program.id}/profile", headers=_headers(manager.email))
+    assert profile.status_code == 200
+    assert profile.get_json()["approved"]["id"] == older.id
+    public = client.get(f"/api/programs/{program.slug}")
+    assert public.status_code == 200
+    assert public.get_json()["program"]["program_provided"]["summary"] == older.summary
 
 
 def test_program_updates_moderate_publish_withdraw_and_enforce_pending_limit(client):

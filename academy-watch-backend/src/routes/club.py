@@ -121,7 +121,10 @@ def _field_text(value, field: str, limit: int, *, required: bool = False) -> str
         return None
     if not isinstance(value, str):
         raise ValueError(f"{field} must be a string")
-    cleaned = unescape(sanitize_plain_text(value)).strip()
+    decoded = value
+    while (next_decoded := unescape(decoded)) != decoded:
+        decoded = next_decoded
+    cleaned = unescape(sanitize_plain_text(decoded)).strip()
     if required and not cleaned:
         raise ValueError(f"{field} is required")
     if len(cleaned) > limit:
