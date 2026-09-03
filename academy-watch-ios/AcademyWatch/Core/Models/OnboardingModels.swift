@@ -18,6 +18,8 @@ enum LocalPlayerRelationship: String, Codable, CaseIterable, Identifiable, Senda
 
 /// Exact POST `/local-players` body. Nil optionals are omitted so the scout
 /// path can deliberately rely on the server's documented relationship default.
+/// `birthDate` is the optional ISO `YYYY-MM-DD` accepted by the same route; the
+/// backend derives `birth_year` from it and applies the adult/minor rule.
 struct LocalPlayerSubmission: Encodable, Equatable, Sendable {
     let displayName: String
     let relationshipType: LocalPlayerRelationship?
@@ -26,6 +28,27 @@ struct LocalPlayerSubmission: Encodable, Equatable, Sendable {
     let country: String?
     let city: String?
     let birthYear: Int?
+    let birthDate: String?
+
+    init(
+        displayName: String,
+        relationshipType: LocalPlayerRelationship?,
+        position: String?,
+        clubName: String?,
+        country: String?,
+        city: String?,
+        birthYear: Int?,
+        birthDate: String? = nil
+    ) {
+        self.displayName = displayName
+        self.relationshipType = relationshipType
+        self.position = position
+        self.clubName = clubName
+        self.country = country
+        self.city = city
+        self.birthYear = birthYear
+        self.birthDate = birthDate
+    }
 }
 
 struct LocalPlayer: Codable, Equatable, Identifiable, Sendable {
@@ -39,6 +62,35 @@ struct LocalPlayer: Codable, Equatable, Identifiable, Sendable {
     let status: String
     let provenance: String?
     let createdAt: String?
+    // Owner-visible reviews do not currently emit `birth_date`; decode it only
+    // when a response carries it so both shapes stay decodable.
+    let birthDate: String?
+
+    init(
+        id: Int,
+        displayName: String,
+        birthYear: Int?,
+        position: String?,
+        country: String?,
+        city: String?,
+        clubName: String?,
+        status: String,
+        provenance: String?,
+        createdAt: String?,
+        birthDate: String? = nil
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.birthYear = birthYear
+        self.position = position
+        self.country = country
+        self.city = city
+        self.clubName = clubName
+        self.status = status
+        self.provenance = provenance
+        self.createdAt = createdAt
+        self.birthDate = birthDate
+    }
 }
 
 struct LocalPlayerCreateResponse: Decodable, Equatable, Sendable {

@@ -245,8 +245,13 @@ struct LocalPlayerCreateView: View {
                         error: viewModel.error(for: .city),
                         identifier: "local-player-city"
                     )
+                    OnboardingBirthDateField(
+                        birthDate: $viewModel.birthDate,
+                        error: viewModel.error(for: .birthDate),
+                        identifier: "local-player-birth-date"
+                    )
                     OnboardingTextField(
-                        title: "Birth year (optional)",
+                        title: "Birth year (optional, used when no date is set)",
                         placeholder: "e.g. 2008",
                         text: $viewModel.birthYear,
                         error: viewModel.error(for: .birthYear),
@@ -331,6 +336,7 @@ struct LocalPlayerPendingDetailView: View {
                     pendingRow("Position", response.player.position)
                     pendingRow("Current club", response.player.clubName)
                     pendingRow("Location", [response.player.city, response.player.country].compactMap { $0 }.joined(separator: ", "))
+                    pendingRow("Birth date", response.player.birthDate)
                     pendingRow("Birth year", response.player.birthYear.map(String.init))
                     Divider()
                     Text("No stats are shown for local profiles unless verified evidence is added later.")
@@ -418,6 +424,72 @@ struct OnboardingTextField: View {
                 .padding(12)
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 11))
                 .accessibilityIdentifier(identifier)
+            if let error {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(Color(uiColor: .systemRed))
+            }
+        }
+    }
+}
+
+/// Optional `birth_date` capture for the local-player form. Stays nil unless
+/// the user opts in, so the year-only path keeps working exactly as before.
+struct OnboardingBirthDateField: View {
+    @Binding var birthDate: Date?
+    let error: String?
+    let identifier: String
+
+    private var selectableRange: ClosedRange<Date> {
+        let calendar = Calendar.current
+        let lower = calendar.date(from: DateComponents(year: 1950, month: 1, day: 1)) ?? .distantPast
+        return lower ... Date()
+    }
+
+    private static var defaultCandidate: Date {
+        Calendar.current.date(from: DateComponents(year: 2008, month: 1, day: 1)) ?? Date()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Birth date (optional)").font(.subheadline.weight(.semibold))
+                Spacer()
+                if birthDate != nil {
+                    Button("Clear") { birthDate = nil }
+                        .font(.footnote.weight(.semibold))
+                        .accessibilityIdentifier("\(identifier)-clear")
+                }
+            }
+
+            if birthDate != nil {
+                DatePicker(
+                    "Birth date",
+                    selection: Binding(
+                        get: { birthDate ?? Self.defaultCandidate },
+                        set: { birthDate = $0 }
+                    ),
+                    in: selectableRange,
+                    displayedComponents: .date
+                )
+                .datePickerStyle(.compact)
+                .accessibilityIdentifier(identifier)
+            } else {
+                Button {
+                    birthDate = Self.defaultCandidate
+                } label: {
+                    Label("Add a birth date", systemImage: "calendar.badge.plus")
+                }
+                .buttonStyle(.bordered)
+                .tint(AcademyColors.claret)
+                .accessibilityIdentifier(identifier)
+            }
+
+            Text("The exact date takes precedence over the year and is required to prove age 18+ on self-managed profiles.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             if let error {
                 Text(error)
                     .font(.caption)

@@ -103,7 +103,7 @@ struct AccountView: View {
         case .blockedUsers:
             BlockedUsersView(apiClient: apiClient)
         case .deleteAccount, .introduction, .attestationWarning, .watchingYou, .claimGate,
-             .watchlistNullStats, .exportData, .takedown, nil:
+             .watchlistNullStats, .exportData, .takedown, .fanRow, nil:
             accountHome
         }
         #else

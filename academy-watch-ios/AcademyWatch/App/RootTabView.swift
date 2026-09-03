@@ -53,6 +53,8 @@ struct RootTabView: View {
         #if DEBUG
         if fixtureDestination != nil {
             switch fixtureDestination {
+            case .fanRow:
+                fixtureState = nil
             case .playerInbox, .declineConfirmation, .watchingYou, .messageReport, .claimGate, .takedown:
                 fixtureState = .signedIn(
                     email: "habeeb.player@fixture.example",
@@ -116,7 +118,7 @@ struct RootTabView: View {
                 return .account
             case .watchlistNullStats:
                 return .watchlist
-            case .introduction, .attestationWarning, .watchingYou, .claimGate, .takedown, nil:
+            case .introduction, .attestationWarning, .watchingYou, .claimGate, .takedown, .fanRow, nil:
                 return initialTab
             }
         }()
@@ -130,6 +132,7 @@ struct RootTabView: View {
             || fixtureDestination == .watchingYou
             || fixtureDestination == .claimGate
             || fixtureDestination == .takedown
+            || fixtureDestination == .fanRow
             ? 403_064
             : initialPlayerID
         self.initialComparePlayerIDs = initialComparePlayerIDs
