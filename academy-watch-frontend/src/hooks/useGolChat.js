@@ -25,7 +25,7 @@ function finiteBalance(value) {
   return Number.isFinite(value) ? value : null
 }
 
-export function useGolChat(identityKey, initialUsage = {}) {
+export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) {
   const initialFreeQuestions = finiteBalance(initialUsage.freeQuestionsRemaining)
   const initialCreditBalance = finiteBalance(initialUsage.creditBalance)
   const [messages, setMessages] = useState([])
@@ -62,7 +62,9 @@ export function useGolChat(identityKey, initialUsage = {}) {
     if ((usage?.free_questions_remaining || 0) > 0 || (usage?.credit_balance || 0) > 0) {
       setCreditsExhausted(false)
     }
-    if (typeof usage?.top_up_path === 'string' && usage.top_up_path.startsWith('/')) {
+    if (typeof usage?.top_up_path === 'string'
+      && usage.top_up_path.startsWith('/')
+      && !usage.top_up_path.startsWith('//')) {
       setTopUpPath(usage.top_up_path)
     }
   }, [initialCreditBalance, initialFreeQuestions])
@@ -139,6 +141,19 @@ export function useGolChat(identityKey, initialUsage = {}) {
         const isExhausted = response.status === 402
           && body?.error === 'credits_exhausted'
           && body?.feature === 'gol_chat'
+        const isClientMessageReused = response.status === 409
+          && body?.error === 'client_msg_id_reused'
+
+        if (isClientMessageReused) {
+          updateMessages((previous) => {
+            const updated = [...previous]
+            const last = { ...updated[updated.length - 1] }
+            last.content = 'Please ask that as a new question.'
+            updated[updated.length - 1] = last
+            return updated
+          })
+          return
+        }
 
         if (isSignedOut || isLegacyLock || isExhausted) {
           updateMessages((previous) => previous.filter(
@@ -218,20 +233,22 @@ export function useGolChat(identityKey, initialUsage = {}) {
                 updateUsage(data)
               } else if (eventType === 'error') {
                 terminalError = true
-                updateMessages((previous) => {
-                  const updated = [...previous]
-                  const last = { ...updated[updated.length - 1] }
-                  last.content = 'Sorry, something went wrong. Please try again.'
-                  last.toolCall = null
-                  updated[updated.length - 1] = last
-                  return updated
-                })
-                setFailedAttempt({
-                  content,
-                  history,
-                  clientMsgId,
-                  messageIds: [userMsg.id, assistantMsg.id],
-                })
+                if (creditUiLit) {
+                  updateMessages((previous) => {
+                    const updated = [...previous]
+                    const last = { ...updated[updated.length - 1] }
+                    last.content = 'Sorry, something went wrong. Please try again.'
+                    last.toolCall = null
+                    updated[updated.length - 1] = last
+                    return updated
+                  })
+                  setFailedAttempt({
+                    content,
+                    history,
+                    clientMsgId,
+                    messageIds: [userMsg.id, assistantMsg.id],
+                  })
+                }
               } else if (eventType === 'done') {
                 updateMessages((previous) => {
                   const updated = [...previous]
@@ -258,12 +275,14 @@ export function useGolChat(identityKey, initialUsage = {}) {
           updated[updated.length - 1] = last
           return updated
         })
-        setFailedAttempt({
-          content,
-          history,
-          clientMsgId,
-          messageIds: [userMsg.id, assistantMsg.id],
-        })
+        if (creditUiLit) {
+          setFailedAttempt({
+            content,
+            history,
+            clientMsgId,
+            messageIds: [userMsg.id, assistantMsg.id],
+          })
+        }
       }
     } finally {
       if (requestEpoch === requestEpochRef.current) {
@@ -271,7 +290,7 @@ export function useGolChat(identityKey, initialUsage = {}) {
         setIsStreaming(false)
       }
     }
-  }, [sessionId, updateUsage])
+  }, [creditUiLit, sessionId, updateUsage])
 
   const sendMessage = useCallback((content) => runAttempt({
     content,

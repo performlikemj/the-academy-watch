@@ -54,11 +54,12 @@ export class APIService {
         let body = null
         if (response.status === 401) {
             state = 'signed_out'
-        } else if (response.status === 402 || response.status === 403) {
+        } else if (response.status === 402 || response.status === 403 || response.status === 409) {
             try {
                 body = await response.clone().json()
                 if (body?.error === 'scout_pro_required' && body?.feature === 'gol_chat') state = 'locked'
                 if (body?.error === 'credits_exhausted' && body?.feature === 'gol_chat') state = 'credits_exhausted'
+                if (body?.error === 'client_msg_id_reused') state = 'client_msg_id_reused'
             } catch (_) { /* non-JSON response is not a recognized access denial */ }
         }
         if (!state || typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return

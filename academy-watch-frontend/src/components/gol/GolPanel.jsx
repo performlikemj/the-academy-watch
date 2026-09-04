@@ -39,7 +39,7 @@ export function GolPanel() {
   const chat = useGolChat(identityKey, {
     freeQuestionsRemaining: auth.scoutPro?.features?.free_questions_remaining,
     creditBalance: auth.scoutPro?.features?.credit_balance,
-  })
+  }, creditUiLit)
 
   useEffect(() => {
     if (!creditUiLit || requestedBillingConfig.current) return undefined

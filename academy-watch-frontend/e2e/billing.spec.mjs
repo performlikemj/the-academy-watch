@@ -225,20 +225,22 @@ test('account billing records one sanitized completion and opens the billing por
 test('account billing shows GOL balances and confirms a returned credit purchase', async ({ page }) => {
   const targetSession = 'gol-session-returned'
   let billingGets = 0
-  let profileGets = 0
+  let matchedBillingPoll = false
+  let profileRefetchedAfterMatch = false
   const checkoutBodies = []
   const previousPurchase = { stripe_session_id: 'gol-session-old', pack_id: 'gol_starter', credits: 100, amount_paid_cents: 2000, currency: 'usd', refunded_credits: 4, created_at: '2026-08-20T12:00:00' }
   const returnedPurchase = { stripe_session_id: targetSession, pack_id: 'gol_topup', credits: 100, amount_paid_cents: 1800, currency: 'usd', refunded_credits: 0, created_at: '2026-09-04T12:00:00' }
 
   await installApi(page, async ({ route, url }) => {
     if (url.pathname === '/api/auth/me') {
-      profileGets += 1
+      if (matchedBillingPoll) profileRefetchedAfterMatch = true
       await route.fulfill({ json: { ...ACCOUNT, scout_pro: { enabled: true, tier: 'free', features: { gol_chat: true, free_questions_remaining: 0, credit_balance: billingGets > 2 ? 196 : 96 } } } })
       return true
     }
     if (url.pathname === '/api/billing/config') return route.fulfill({ json: GOL_CONFIG }).then(() => true)
     if (url.pathname === '/api/billing/me') {
       billingGets += 1
+      const includesReturnedPurchase = billingGets > 2
       await route.fulfill({ json: {
         enabled: true,
         has_billing_account: true,
@@ -246,10 +248,11 @@ test('account billing shows GOL balances and confirms a returned credit purchase
         gol: {
           free_allowance: 3,
           free_questions_remaining: 0,
-          credit_balance: billingGets > 2 ? 196 : 96,
-          purchases: billingGets > 2 ? [returnedPurchase, previousPurchase] : [previousPurchase],
+          credit_balance: includesReturnedPurchase ? 196 : 96,
+          purchases: includesReturnedPurchase ? [returnedPurchase, previousPurchase] : [previousPurchase],
         },
       } })
+      if (includesReturnedPurchase) matchedBillingPoll = true
       return true
     }
     if (url.pathname === '/api/billing/checkout') {
@@ -274,13 +277,36 @@ test('account billing shows GOL balances and confirms a returned credit purchase
   await expect(page.getByText('Added 100 credits', { exact: true })).toBeVisible({ timeout: 6000 })
   await expect(page).toHaveURL('/account/billing')
   expect(billingGets).toBeGreaterThanOrEqual(3)
-  expect(profileGets).toBeGreaterThanOrEqual(2)
+  await expect.poll(() => profileRefetchedAfterMatch).toBe(true)
 
   await page.route('**/account-gol-checkout', (route) => route.fulfill({ contentType: 'text/html', body: '<h1>Account GOL checkout</h1>' }))
   await page.getByRole('button', { name: 'Top up GOL credits' }).click()
   await expect(page.getByRole('heading', { name: 'Account GOL checkout' })).toBeVisible()
   expect(checkoutBodies[0]).toMatchObject({ pack_id: 'gol_topup' })
   expect(Object.keys(checkoutBodies[0]).sort()).toEqual(['client_key', 'pack_id'])
+})
+
+test('credit-only billing explains that admin accounts are exempt', async ({ page }) => {
+  const adminAccount = { ...ACCOUNT, role: 'admin', account_role: 'admin' }
+  await installApi(page, async ({ route, url }) => {
+    if (url.pathname === '/api/auth/me') return route.fulfill({ json: adminAccount }).then(() => true)
+    if (url.pathname === '/api/billing/config') return route.fulfill({ json: GOL_CONFIG }).then(() => true)
+    if (url.pathname === '/api/billing/me') {
+      await route.fulfill({ json: { enabled: true, has_billing_account: false, subscriptions: [], gol: { free_allowance: 3, free_questions_remaining: 3, credit_balance: 0, purchases: [] } } })
+      return true
+    }
+    if (url.pathname === '/api/scout/entitlements') {
+      await route.fulfill({ json: { entitlements: { billing_enabled: true, tier: 'free', source: 'none', subscription_status: null, current_period_end: null, cancel_at_period_end: false, grandfathered_until: null, features: { gol_chat: true, free_questions_remaining: 3, credit_balance: 0 } } } })
+      return true
+    }
+    return false
+  }, { signedIn: true, account: adminAccount })
+  await page.addInitScript(() => localStorage.setItem('academy_watch_is_admin', 'true'))
+
+  await page.goto('/account/billing')
+  await expect(page.getByText('Admin accounts are exempt from GOL credits.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'GOL credits' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Subscriptions' })).toHaveCount(0)
 })
 
 test('account billing failure hides partial subscription and entitlement data', async ({ page }) => {
@@ -480,10 +506,14 @@ test('GOL asks signed-out visitors to sign in without showing a composer', async
   await expect(page.getByPlaceholder('Ask about any player or team…')).toHaveCount(0)
 })
 
-test('GOL keeps credit UI hidden while billing is dark', async ({ page }) => {
+test('GOL keeps credit and retry UI hidden while billing is dark', async ({ page }) => {
   const account = { ...ACCOUNT, scout_tier: 'free', scout_pro: { enabled: false, tier: 'free', features: { gol_chat: true, free_questions_remaining: 3, credit_balance: 0 } } }
-  await installApi(page, async ({ route, url }) => {
+  await installApi(page, async ({ route, request, url }) => {
     if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: ['Compare two academy pathways'] } }).then(() => true)
+    if (url.pathname === '/api/gol/chat' && request.method() === 'POST') {
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'event: error\ndata: {"error":"generation_failed"}\n\n' })
+      return true
+    }
     return false
   }, { signedIn: true, account })
 
@@ -492,6 +522,11 @@ test('GOL keeps credit UI hidden while billing is dark', async ({ page }) => {
   await expect(page.getByPlaceholder('Ask about any player or team…')).toBeEnabled()
   await expect(page.getByText('3 free questions left', { exact: true })).toHaveCount(0)
   await expect(page.getByText(/GOL questions/)).toHaveCount(0)
+  await page.getByPlaceholder('Ask about any player or team…').fill('Keep the dark failure path unchanged')
+  await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+  await expect(page.getByText('Keep the dark failure path unchanged', { exact: true })).toBeVisible()
+  await expect(page.getByText('Sorry, something went wrong. Please try again.', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
 })
 
 test('GOL composer is usable with an explicit true entitlement', async ({ page }) => {
@@ -515,6 +550,49 @@ test('GOL composer is usable with an explicit true entitlement', async ({ page }
   await expect.poll(() => chatBodies.length).toBe(1)
   expect(chatBodies[0].message).toBe('Which academy has the strongest pathway?')
   expect(chatBodies[0].client_msg_id).toMatch(/^[A-Za-z0-9_-]{8,64}$/)
+})
+
+test('GOL handles a reused client message id without exposing the error code', async ({ page }) => {
+  const chatBodies = []
+  await installApi(page, async ({ route, request, url }) => {
+    if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: ['Compare two academy pathways'] } }).then(() => true)
+    if (url.pathname === '/api/gol/chat' && request.method() === 'POST') {
+      chatBodies.push(request.postDataJSON())
+      if (chatBodies.length === 1) {
+        await route.fulfill({ status: 409, json: { error: 'client_msg_id_reused' } })
+      } else {
+        await route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'event: token\ndata: {"content":"Fresh question answered"}\n\nevent: done\ndata: {}\n\n' })
+      }
+      return true
+    }
+    return false
+  }, { signedIn: true })
+
+  await page.goto('/terms')
+  await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+  await page.evaluate(() => {
+    globalThis.__golReuseDetail = null
+    globalThis.addEventListener('gol_access_denied', (event) => {
+      globalThis.__golReuseDetail = event.detail
+    }, { once: true })
+  })
+  const composer = page.getByPlaceholder('Ask about any player or team…')
+  await composer.fill('Question with a reused id')
+  await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+  await expect(page.getByText('Please ask that as a new question.', { exact: true })).toBeVisible()
+  await expect(page.getByText('client_msg_id_reused', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => globalThis.__golReuseDetail)).toEqual({
+    state: 'client_msg_id_reused',
+    token: 'mock-user-token',
+    body: { error: 'client_msg_id_reused' },
+  })
+
+  await composer.fill('A genuinely new question')
+  await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+  await expect(page.getByText('Fresh question answered', { exact: true })).toBeVisible()
+  expect(chatBodies).toHaveLength(2)
+  expect(chatBodies[1].client_msg_id).not.toBe(chatBodies[0].client_msg_id)
 })
 
 test('GOL clears an expired current session before reopening sign-in', async ({ page }) => {
@@ -735,7 +813,7 @@ test('GOL usage reaches a 402 exhausted state without locking PDF export', async
       chatBodies.push(request.postDataJSON())
       const attempt = chatBodies.length
       if (attempt === 4) {
-        await route.fulfill({ status: 402, json: { error: 'credits_exhausted', feature: 'gol_chat', free_questions_remaining: 0, credit_balance: 0, top_up_path: '/account/billing?from=gol' } })
+        await route.fulfill({ status: 402, json: { error: 'credits_exhausted', feature: 'gol_chat', free_questions_remaining: 0, credit_balance: 0, top_up_path: '//outside.example' } })
       } else {
         await route.fulfill({
           status: 200,
@@ -766,7 +844,7 @@ test('GOL usage reaches a 402 exhausted state without locking PDF export', async
   await expect(page.getByText("You're out of GOL questions", { exact: true })).toBeVisible()
   await expect(page.getByText('Question four should not become a bubble', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Buy the Starter — 100 questions for $20', { exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Get more questions' })).toHaveAttribute('href', '/account/billing?from=gol')
+  await expect(page.getByRole('link', { name: 'Get more questions' })).toHaveAttribute('href', '/account/billing')
   await expect(composer).toBeDisabled()
   await expect(page.getByRole('button', { name: 'PDF', exact: true })).toBeEnabled()
   await expect(page.getByText('credits_exhausted', { exact: true })).toHaveCount(0)

@@ -182,7 +182,7 @@ export function GolChatWindow({
                   </Button>
                 ) : null}
               </div>
-            ) : canRetry ? (
+            ) : creditUiLit && canRetry ? (
               <div className="flex justify-end">
                 <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={retryFailedMessage} disabled={isStreaming}>
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Retry

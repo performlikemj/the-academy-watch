@@ -18,7 +18,11 @@ function money(amount, currency) {
 
 function date(value) {
   if (!value) return null
-  const parsed = new Date(value)
+  const trimmed = typeof value === 'string' ? value.trim() : value
+  const normalized = typeof trimmed === 'string' && !/(?:z|[+-]\d{2}:?\d{2})$/i.test(trimmed)
+    ? `${trimmed}Z`
+    : trimmed
+  const parsed = new Date(normalized)
   return Number.isNaN(parsed.getTime()) ? null : parsed.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
@@ -234,6 +238,7 @@ export function AccountBillingPage() {
         {visibleCheckoutNotice?.type === 'added' ? <div role="status" className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950"><CheckCircle2 className="h-5 w-5" />Added {visibleCheckoutNotice.credits} credits</div> : null}
         {visibleCheckoutNotice?.type === 'pending' ? <div role="status" className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950"><Loader2 className="h-5 w-5" />Payment received. Credits are still being confirmed.</div> : null}
         {visibleCheckoutNotice?.type === 'subscription' ? <div role="status" className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950"><CheckCircle2 className="h-5 w-5" />Checkout complete. Your access will update as Stripe confirms the subscription.</div> : null}
+        {creditOnly && auth.isAdmin && !showLegacyBilling ? <p className="text-sm text-muted-foreground">Admin accounts are exempt from GOL credits.</p> : null}
 
         {showGol ? (
           <section className="space-y-3" aria-labelledby="gol-credits-heading">
