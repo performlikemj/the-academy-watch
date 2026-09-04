@@ -34,6 +34,11 @@ def billing_app(monkeypatch):
         "STRIPE_PRICE_SCOUT_PRO_YEARLY",
         "STRIPE_PRICE_CLUB_BUNDLE_MONTHLY",
         "STRIPE_PRICE_CLUB_BUNDLE_YEARLY",
+        "STRIPE_PRICE_GOL_STARTER",
+        "STRIPE_PRICE_GOL_TOPUP",
+        "GOL_STARTER_CREDITS",
+        "GOL_TOPUP_CREDITS",
+        "GOL_FREE_ALLOWANCE",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ADMIN_API_KEY", "billing-admin-key")
@@ -1399,7 +1404,17 @@ def test_billing_me_and_portal(client, monkeypatch):
     user = _add_user()
     headers = _headers(user)
     response = client.get("/api/billing/me", headers=headers)
-    assert response.get_json() == {"enabled": True, "has_billing_account": False, "subscriptions": []}
+    assert response.get_json() == {
+        "enabled": True,
+        "has_billing_account": False,
+        "subscriptions": [],
+        "gol": {
+            "free_allowance": 3,
+            "free_questions_remaining": 3,
+            "credit_balance": 0,
+            "purchases": [],
+        },
+    }
     response = client.post("/api/billing/portal", headers=headers)
     assert response.status_code == 409
     assert response.get_json() == {"error": "no_billing_account"}

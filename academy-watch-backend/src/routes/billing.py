@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import logging
-import time
 
-import stripe
 from flask import Blueprint, abort, g, jsonify, request
 from src.auth import require_api_key, require_user_auth
-from src.config.stripe_config import billing_enabled, configure_stripe, offered_products
+from src.config import stripe_config
+from src.config.stripe_config import (
+    billing_enabled,
+    offered_packs,
+    offered_products,
+)
 from src.extensions import limiter
 from src.models.billing import BillingCustomer
 from src.models.league import db
+from src.services.gol_credits import balances, free_allowance, purchases_for_user
 from src.services.stripe_billing import (
     BillingError,
     admin_summary,
@@ -26,9 +30,9 @@ from src.services.stripe_billing import (
 logger = logging.getLogger(__name__)
 billing_bp = Blueprint("billing", __name__)
 
-_PRICE_CACHE_SECONDS = 600
-_PRICE_FAILURE_CACHE_SECONDS = 60
-_price_cache: dict[str, tuple[float, dict]] = {}
+_price_cache = stripe_config._price_cache
+_price_details = stripe_config.price_details
+_non_usd_pack_warnings: set[str] = set()
 
 
 @billing_bp.before_app_request
@@ -44,37 +48,6 @@ def _hide_billing_rail_paths_when_disabled():
 
 def _user_rate_limit_key() -> str:
     return str(getattr(g, "user_id", None) or getattr(g, "user_email", None) or request.remote_addr or "anon")
-
-
-def _stripe_value(value, key, default=None):
-    if isinstance(value, dict):
-        return value.get(key, default)
-    return getattr(value, key, default)
-
-
-def _price_details(price_id: str) -> dict:
-    cached = _price_cache.get(price_id)
-    now = time.monotonic()
-    if cached is not None:
-        ttl = _PRICE_CACHE_SECONDS if cached[1] else _PRICE_FAILURE_CACHE_SECONDS
-        if now - cached[0] < ttl:
-            return cached[1]
-    try:
-        configure_stripe()
-        price = stripe.Price.retrieve(price_id)
-        details = {
-            "unit_amount": _stripe_value(price, "unit_amount"),
-            "currency": str(_stripe_value(price, "currency")).lower(),
-        }
-        if details["unit_amount"] is None or not _stripe_value(price, "currency"):
-            _price_cache[price_id] = (now, {})
-            return {}
-        _price_cache[price_id] = (now, details)
-        return details
-    except Exception:
-        logger.warning("Stripe price lookup failed for configured price %s", price_id, exc_info=True)
-        _price_cache[price_id] = (now, {})
-        return {}
 
 
 @billing_bp.route("/billing/stripe/webhook", methods=["POST"])
@@ -104,7 +77,23 @@ def billing_config():
                 "prices": prices,
             }
         )
-    response = jsonify({"enabled": True, "products": products})
+    packs = []
+    for pack_id, pack in offered_packs().items():
+        details = _price_details(pack["price_id"])
+        currency = details.get("currency")
+        if currency is not None and currency != "usd":
+            if pack_id not in _non_usd_pack_warnings:
+                logger.warning("Ignoring non-USD GOL credit pack %s", pack_id)
+                _non_usd_pack_warnings.add(pack_id)
+            continue
+        payload = {
+            "pack_id": pack_id,
+            "label": pack["label"],
+            "credits": pack["credits"],
+        }
+        payload.update(details)
+        packs.append(payload)
+    response = jsonify({"enabled": True, "products": products, "packs": packs})
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -114,11 +103,17 @@ def billing_config():
 @require_user_auth
 def billing_me():
     rows = subscriptions_for_user(g.user)
+    gol_balances = balances(g.user)
     return jsonify(
         {
             "enabled": True,
             "has_billing_account": BillingCustomer.query.filter_by(user_account_id=g.user.id).first() is not None,
             "subscriptions": [subscription_payload(row) for row in rows],
+            "gol": {
+                "free_allowance": free_allowance(),
+                **gol_balances,
+                "purchases": purchases_for_user(g.user),
+            },
         }
     )
 
@@ -131,12 +126,17 @@ def billing_checkout():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": "invalid_json"}), 400
+    pack_request = "pack_id" in payload
+    subscription_request = "product_code" in payload or "price_code" in payload
+    if pack_request == subscription_request:
+        return jsonify({"error": "invalid_checkout_request"}), 400
     try:
         result = create_checkout(
             g.user,
-            product_code=payload.get("product_code"),
-            price_code=payload.get("price_code"),
             client_key=payload.get("client_key"),
+            pack_id=payload.get("pack_id") if pack_request else None,
+            product_code=payload.get("product_code") if subscription_request else None,
+            price_code=payload.get("price_code") if subscription_request else None,
         )
         db.session.commit()
         return jsonify(result)

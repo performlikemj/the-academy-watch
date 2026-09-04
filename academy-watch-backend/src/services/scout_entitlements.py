@@ -8,6 +8,7 @@ from functools import wraps
 
 from flask import g, jsonify, request
 from src.config.stripe_config import billing_enabled
+from src.services.gol_credits import balances, free_allowance
 from src.services.stripe_billing import active_subscription
 
 
@@ -60,7 +61,11 @@ def scout_entitlements(user, *, now=None, role="user") -> dict:
             "current_period_end": None,
             "cancel_at_period_end": False,
             "grandfathered_until": None,
-            "features": {"gol_chat": True},
+            "features": {
+                "gol_chat": True,
+                "free_questions_remaining": free_allowance(),
+                "credit_balance": 0,
+            },
         }
     elif (subscription := active_subscription("user", user.id, "scout_pro")) is not None:
         period_end = (
@@ -74,7 +79,7 @@ def scout_entitlements(user, *, now=None, role="user") -> dict:
             "current_period_end": period_end,
             "cancel_at_period_end": bool(subscription.cancel_at_period_end),
             "grandfathered_until": None,
-            "features": {"gol_chat": True},
+            "features": {},
         }
     else:
         launched_at = _environment_datetime("SCOUT_PRO_LAUNCHED_AT")
@@ -96,11 +101,15 @@ def scout_entitlements(user, *, now=None, role="user") -> dict:
             "current_period_end": None,
             "cancel_at_period_end": False,
             "grandfathered_until": grandfather_until.isoformat() if grandfathered else None,
-            "features": {"gol_chat": grandfathered},
+            "features": {},
         }
 
-    if role == "admin":
-        entitlements["features"]["gol_chat"] = True
+    if enabled:
+        values = balances(user)
+        entitlements["features"] = {
+            "gol_chat": role == "admin" or values["free_questions_remaining"] > 0 or values["credit_balance"] > 0,
+            **values,
+        }
     return entitlements
 
 

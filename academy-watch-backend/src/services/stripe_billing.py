@@ -15,18 +15,22 @@ from html import escape
 
 import stripe
 from flask import abort
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from src.config.stripe_config import (
     billing_enabled,
     configure_stripe,
+    offered_packs,
     offered_products,
+    price_details,
     product_for_price_id,
     resolve_price,
 )
 from src.models.billing import BillingCheckoutSession, BillingCustomer, BillingSubscription, StripeWebhookEvent
+from src.models.gol_credits import GolCreditLedger
 from src.models.league import UserAccount, db
 from src.models.product_event import ProductEvent
+from src.services.gol_credits import apply_refund, grant_purchase
 
 logger = logging.getLogger(__name__)
 
@@ -165,9 +169,129 @@ def _expire_or_retrieve_checkout(row: BillingCheckoutSession):
     return {"status": "expired"}
 
 
-def create_checkout(user, *, product_code, price_code, client_key, scope_id=None) -> dict:
+def _create_payment_checkout(user, *, pack_id: str, client_key: str) -> dict:
+    pack = offered_packs().get(pack_id)
+    if pack is None:
+        raise BillingError("unknown_pack", 400)
+    details = price_details(pack["price_id"])
+    if not details:
+        raise BillingError("checkout_unavailable", 503)
+    if details.get("currency") != "usd":
+        raise BillingError("unknown_pack", 400)
+
+    db.session.execute(select(UserAccount.id).where(UserAccount.id == user.id).with_for_update())
+    now = utcnow()
+    row = BillingCheckoutSession.query.filter_by(
+        scope_type="user",
+        scope_id=user.id,
+        product_code="gol",
+        purchaser_user_id=user.id,
+        client_key=client_key,
+    ).first()
+    if row is not None and row.status == "open":
+        if row.price_code != pack_id:
+            raise BillingError("client_key_conflict", 409)
+        if row.expires_at is not None and row.expires_at > now:
+            return {"checkout_url": row.checkout_url, "session_id": row.stripe_session_id}
+    if row is not None and row.status == "complete":
+        raise BillingError("client_key_conflict", 409)
+
+    customer = ensure_customer(user)
+    if row is None:
+        contender = BillingCheckoutSession(
+            scope_type="user",
+            scope_id=user.id,
+            product_code="gol",
+            price_code=pack_id,
+            purchaser_user_id=user.id,
+            client_key=client_key,
+        )
+        try:
+            with db.session.begin_nested():
+                db.session.add(contender)
+                db.session.flush()
+            row = contender
+        except IntegrityError:
+            row = BillingCheckoutSession.query.filter_by(
+                scope_type="user",
+                scope_id=user.id,
+                product_code="gol",
+                purchaser_user_id=user.id,
+                client_key=client_key,
+            ).first()
+            if row is None:
+                raise
+            if row.status == "open":
+                if row.price_code != pack_id:
+                    raise BillingError("client_key_conflict", 409)
+                if row.expires_at is not None and row.expires_at > now:
+                    return {"checkout_url": row.checkout_url, "session_id": row.stripe_session_id}
+            if row.status == "complete":
+                raise BillingError("client_key_conflict", 409)
+
+    row.price_code = pack_id
+    row.status = "open"
+    row.completed_at = None
+    db.session.flush()
+
+    metadata = {
+        "kind": "credit_topup",
+        "product_code": "gol",
+        "pack_id": pack_id,
+        "user_id": str(user.id),
+        "app": "academy_watch",
+    }
+    base_url = (os.getenv("PUBLIC_BASE_URL") or "https://theacademywatch.com").strip().rstrip("/")
+    idempotency_key = f"checkout:gol:{pack_id}:{user.id}:{client_key}"
+    if row.stripe_session_id:
+        attempt_at = row.expires_at or row.created_at
+        if attempt_at is not None:
+            idempotency_key = f"{idempotency_key}:{calendar.timegm(attempt_at.utctimetuple())}"
+    configure_stripe()
+    session = stripe.checkout.Session.create(
+        mode="payment",
+        customer=customer.stripe_customer_id,
+        line_items=[{"price": pack["price_id"], "quantity": 1}],
+        success_url=f"{base_url}/account/billing?checkout=success&session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{base_url}/pricing?checkout=canceled",
+        client_reference_id=str(row.id),
+        metadata=metadata,
+        payment_intent_data={"metadata": metadata},
+        idempotency_key=idempotency_key,
+    )
+    row.stripe_session_id = _get(session, "id")
+    row.checkout_url = _get(session, "url")
+    row.expires_at = _epoch_datetime(_get(session, "expires_at"))
+    db.session.add(
+        ProductEvent(
+            event_name="billing_checkout_started",
+            user_email=user.email,
+            props={"product_code": "gol", "price_code": pack_id, "scope_type": "user"},
+        )
+    )
+    db.session.flush()
+    return {"checkout_url": row.checkout_url, "session_id": row.stripe_session_id}
+
+
+def create_checkout(
+    user,
+    *,
+    client_key,
+    pack_id=None,
+    product_code=None,
+    price_code=None,
+    scope_id=None,
+) -> dict:
     if not isinstance(client_key, str) or not _CLIENT_KEY_RE.fullmatch(client_key):
         raise BillingError("invalid_client_key", 400)
+    payment_request = pack_id is not None
+    subscription_request = product_code is not None or price_code is not None
+    if payment_request == subscription_request:
+        raise BillingError("invalid_checkout_request", 400)
+    if payment_request:
+        if not isinstance(pack_id, str):
+            raise BillingError("unknown_pack", 400)
+        return _create_payment_checkout(user, pack_id=pack_id, client_key=client_key)
     if not isinstance(product_code, str) or not isinstance(price_code, str):
         raise BillingError("unknown_product", 400)
 
@@ -562,9 +686,60 @@ def _expire_other_open_checkouts(
         raise BillingError("checkout_expiry_failed", 500)
 
 
-def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
+def _apply_gol_checkout(obj, event_id: str, *, require_paid: bool) -> bool:
+    row = _checkout_row(obj)
+    if row is None or row.product_code != "gol" or row.purchaser_user_id is None:
+        raise BillingError("unresolvable_credit_purchase", 500)
+    db.session.execute(select(UserAccount.id).where(UserAccount.id == row.purchaser_user_id).with_for_update())
+    user = db.session.get(UserAccount, row.purchaser_user_id)
+    if user is None:
+        raise BillingError("unresolvable_credit_purchase", 500)
+    row.status = "complete"
+    row.completed_at = row.completed_at or utcnow()
+    if require_paid and _get(obj, "payment_status") not in {"paid", "no_payment_required"}:
+        return True
+
+    pack = offered_packs().get(row.price_code)
+    if pack is None:
+        raise BillingError("unresolvable_credit_purchase", 500)
+    raw_currency = _get(obj, "currency")
+    if not raw_currency:
+        raise BillingError("unresolvable_credit_purchase", 500)
+    currency = str(raw_currency).lower()
+    if currency != "usd":
+        logger.warning("Granting GOL credits for completed non-USD Checkout Session %s", _get(obj, "id"))
+    session_id = _get(obj, "id")
+    payment_intent_id = _stripe_id(_get(obj, "payment_intent"))
+    amount_total = _get(obj, "amount_total")
+    if not session_id or amount_total is None:
+        raise BillingError("unresolvable_credit_purchase", 500)
+    existing = GolCreditLedger.query.filter_by(stripe_session_id=session_id).first()
+    grant = grant_purchase(
+        user,
+        pack_id=row.price_code,
+        credits=pack["credits"],
+        stripe_session_id=session_id,
+        stripe_payment_intent_id=payment_intent_id,
+        stripe_event_id=event_id,
+        amount_paid_cents=amount_total,
+        currency=currency,
+    )
+    if existing is None:
+        db.session.add(
+            ProductEvent(
+                event_name="gol_credits_purchased",
+                user_email=user.email,
+                props={"pack_id": row.price_code, "credits": grant.delta},
+            )
+        )
+    return True
+
+
+def _apply_event(event_type: str, obj, event_created: int | None, event_id: str) -> bool:
     if event_type == "checkout.session.completed":
         row = _checkout_row(obj)
+        if _get(obj, "mode") == "payment" or (row is not None and row.product_code == "gol"):
+            return _apply_gol_checkout(obj, event_id, require_paid=True)
         subscription_id = _stripe_id(_get(obj, "subscription"))
         if row is not None:
             db.session.execute(select(UserAccount.id).where(UserAccount.id == row.purchaser_user_id).with_for_update())
@@ -578,6 +753,8 @@ def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
                 event_created=_retrieve_event_watermark(subscription_id, event_created),
             )
         return True
+    if event_type == "checkout.session.async_payment_succeeded":
+        return _apply_gol_checkout(obj, event_id, require_paid=False)
     if event_type == "checkout.session.expired":
         row = _checkout_row(obj)
         if row is not None:
@@ -608,6 +785,31 @@ def _apply_event(event_type: str, obj, event_created: int | None) -> bool:
             )
         if event_type == "invoice.payment_failed" and row is not None:
             _queue_email("payment_failed", row)
+        return True
+    if event_type == "charge.refunded":
+        payment_intent_id = _stripe_id(_get(obj, "payment_intent"))
+        if not payment_intent_id:
+            return False
+        grant = GolCreditLedger.query.filter_by(
+            stripe_payment_intent_id=payment_intent_id,
+            kind="grant",
+        ).first()
+        if grant is None:
+            return False
+        reversed_credits = apply_refund(
+            payment_intent_id=payment_intent_id,
+            cumulative_refunded_cents=_get(obj, "amount_refunded"),
+            stripe_event_id=event_id,
+        )
+        if reversed_credits > 0:
+            user = db.session.get(UserAccount, grant.user_account_id)
+            db.session.add(
+                ProductEvent(
+                    event_name="gol_credits_refunded",
+                    user_email=user.email if user else None,
+                    props={"credits": reversed_credits, "pack_id": grant.pack_id},
+                )
+            )
         return True
     return False
 
@@ -722,7 +924,12 @@ def handle_webhook(raw_body: bytes, signature_header: str | None) -> tuple[dict,
     token = _email_intents.set(intents)
     try:
         obj = _get(_get(event, "data", {}), "object", {})
-        applied = _apply_event(event_type, obj, int(event_created) if event_created is not None else None)
+        applied = _apply_event(
+            event_type,
+            obj,
+            int(event_created) if event_created is not None else None,
+            event_id,
+        )
         existing.event_type = event_type
         existing.payload_hash = payload_hash
         existing.status = "processed" if applied else "ignored"
@@ -776,6 +983,63 @@ def admin_summary() -> dict:
         single_currency = next(iter(known_currencies))
         mrr_cents = mrr_by_currency[single_currency]
         currency = single_currency
+    gross_cents, refunded_cents = (
+        db.session.query(
+            func.coalesce(func.sum(GolCreditLedger.amount_paid_cents), 0),
+            func.coalesce(func.sum(GolCreditLedger.refunded_cents), 0),
+        )
+        .filter(
+            GolCreditLedger.kind == "grant",
+            GolCreditLedger.bucket == "prepaid",
+            GolCreditLedger.currency == "usd",
+        )
+        .one()
+    )
+    grant_rows = GolCreditLedger.query.filter_by(kind="grant", bucket="prepaid")
+    credits_granted = (
+        db.session.query(func.coalesce(func.sum(GolCreditLedger.delta), 0))
+        .filter(
+            GolCreditLedger.kind == "grant",
+            GolCreditLedger.bucket == "prepaid",
+        )
+        .scalar()
+    )
+    other_currency_grants = grant_rows.filter(GolCreditLedger.currency != "usd").count()
+    credits_reversed = -int(
+        db.session.query(func.coalesce(func.sum(GolCreditLedger.delta), 0))
+        .filter(
+            GolCreditLedger.kind == "reversal",
+            GolCreditLedger.bucket == "prepaid",
+            GolCreditLedger.debit_id.is_(None),
+        )
+        .scalar()
+    )
+    prepaid_debits = int(
+        db.session.query(func.coalesce(func.sum(GolCreditLedger.delta), 0))
+        .filter(GolCreditLedger.kind == "debit", GolCreditLedger.bucket == "prepaid")
+        .scalar()
+    )
+    question_reversals = int(
+        db.session.query(func.coalesce(func.sum(GolCreditLedger.delta), 0))
+        .filter(
+            GolCreditLedger.kind == "reversal",
+            GolCreditLedger.bucket == "prepaid",
+            GolCreditLedger.debit_id.is_not(None),
+        )
+        .scalar()
+    )
+    credits_outstanding = int(
+        db.session.query(func.coalesce(func.sum(GolCreditLedger.delta), 0))
+        .filter(GolCreditLedger.bucket == "prepaid")
+        .scalar()
+    )
+    negative_balances = (
+        db.session.query(GolCreditLedger.user_account_id)
+        .filter(GolCreditLedger.bucket == "prepaid")
+        .group_by(GolCreditLedger.user_account_id)
+        .having(func.sum(GolCreditLedger.delta) < 0)
+        .count()
+    )
     return {
         "active_subscriptions": len(active_rows),
         "by_product": by_product,
@@ -795,6 +1059,17 @@ def admin_summary() -> dict:
             BillingCheckoutSession.status == "open",
             BillingCheckoutSession.expires_at > now,
         ).count(),
+        "gol": {
+            "gross_cents": int(gross_cents),
+            "refunded_cents": int(refunded_cents),
+            "currency": "usd",
+            "other_currency_grants": other_currency_grants,
+            "credits_granted": int(credits_granted),
+            "credits_reversed": credits_reversed,
+            "credits_spent": -prepaid_debits + question_reversals,
+            "credits_outstanding": credits_outstanding,
+            "negative_balances": negative_balances,
+        },
     }
 
 
@@ -814,7 +1089,13 @@ def cancel_subscriptions_for_account_deletion(user) -> int:
     now = utcnow()
     payable_checkout_rows = []
     for checkout in checkout_rows:
-        if (checkout.expires_at is not None and checkout.expires_at <= now) or not checkout.stripe_session_id:
+        if not checkout.stripe_session_id:
+            checkout.status = "expired"
+        elif checkout.product_code == "gol":
+            # Payment-mode Sessions need a remote preflight even after their
+            # local expiry: a completed payment may still be awaiting webhook delivery.
+            payable_checkout_rows.append(checkout)
+        elif checkout.expires_at is not None and checkout.expires_at <= now:
             checkout.status = "expired"
         else:
             payable_checkout_rows.append(checkout)
@@ -839,6 +1120,15 @@ def cancel_subscriptions_for_account_deletion(user) -> int:
                 checkout.status = "expired"
                 continue
             if status == "complete":
+                if checkout.product_code == "gol":
+                    checkout.status = "complete"
+                    checkout.completed_at = checkout.completed_at or utcnow()
+                    if _get(snapshot, "payment_status") == "paid":
+                        logger.info(
+                            "Forfeiting completed GOL Checkout Session %s during account deletion before webhook grant",
+                            checkout.stripe_session_id,
+                        )
+                    continue
                 subscription_id = _stripe_id(_get(snapshot, "subscription"))
                 if subscription_id and subscription_id not in canceled_subscription_ids:
                     stripe.Subscription.cancel(subscription_id)
