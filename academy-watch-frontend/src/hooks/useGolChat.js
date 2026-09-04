@@ -8,27 +8,64 @@ import { APIService } from '@/lib/api'
  */
 function buildHistory(messages) {
   const history = []
-  for (const m of messages) {
-    // Insert tool-call context entries first (assistant w/ tool_calls + tool results)
-    if (m.hiddenHistory?.length) {
-      for (const entry of m.hiddenHistory) {
-        history.push(entry)
-      }
+  for (const message of messages) {
+    if (message.hiddenHistory?.length) {
+      for (const entry of message.hiddenHistory) history.push(entry)
     }
-    // Then the visible message itself
-    history.push({ role: m.role, content: m.content })
+    history.push({ role: message.role, content: message.content })
   }
   return history.slice(-20)
 }
 
-export function useGolChat(identityKey) {
+function questionId() {
+  return crypto.randomUUID().replace(/-/g, '')
+}
+
+function finiteBalance(value) {
+  return Number.isFinite(value) ? value : null
+}
+
+export function useGolChat(identityKey, initialUsage = {}) {
+  const initialFreeQuestions = finiteBalance(initialUsage.freeQuestionsRemaining)
+  const initialCreditBalance = finiteBalance(initialUsage.creditBalance)
   const [messages, setMessages] = useState([])
   // Each message: {id, role, content, dataCards, toolCall, hiddenHistory}
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
+  const [usage, setUsage] = useState(() => ({
+    authFree: initialFreeQuestions,
+    authCredit: initialCreditBalance,
+    free: initialFreeQuestions,
+    credit: initialCreditBalance,
+  }))
+  const [topUpPath, setTopUpPath] = useState('/account/billing')
+  const [failedAttempt, setFailedAttempt] = useState(null)
+  const [creditsExhausted, setCreditsExhausted] = useState(false)
   const abortRef = useRef(null)
   const requestEpochRef = useRef(0)
   const previousIdentityRef = useRef(identityKey)
+  const authUsageChanged = usage.authFree !== initialFreeQuestions || usage.authCredit !== initialCreditBalance
+  const freeQuestionsRemaining = authUsageChanged ? initialFreeQuestions : usage.free
+  const creditBalance = authUsageChanged ? initialCreditBalance : usage.credit
+
+  const updateUsage = useCallback((usage) => {
+    setUsage((current) => ({
+      authFree: initialFreeQuestions,
+      authCredit: initialCreditBalance,
+      free: Number.isFinite(usage?.free_questions_remaining)
+        ? usage.free_questions_remaining
+        : current.free,
+      credit: Number.isFinite(usage?.credit_balance)
+        ? usage.credit_balance
+        : current.credit,
+    }))
+    if ((usage?.free_questions_remaining || 0) > 0 || (usage?.credit_balance || 0) > 0) {
+      setCreditsExhausted(false)
+    }
+    if (typeof usage?.top_up_path === 'string' && usage.top_up_path.startsWith('/')) {
+      setTopUpPath(usage.top_up_path)
+    }
+  }, [initialCreditBalance, initialFreeQuestions])
 
   const resetChat = useCallback(() => {
     requestEpochRef.current += 1
@@ -37,7 +74,16 @@ export function useGolChat(identityKey) {
     setMessages([])
     setIsStreaming(false)
     setSessionId(crypto.randomUUID())
-  }, [])
+    setFailedAttempt(null)
+    setCreditsExhausted(false)
+    setTopUpPath('/account/billing')
+    setUsage({
+      authFree: initialFreeQuestions,
+      authCredit: initialCreditBalance,
+      free: initialFreeQuestions,
+      credit: initialCreditBalance,
+    })
+  }, [initialCreditBalance, initialFreeQuestions])
 
   useEffect(() => {
     if (Object.is(previousIdentityRef.current, identityKey)) return
@@ -50,43 +96,62 @@ export function useGolChat(identityKey) {
     abortRef.current?.abort()
   }, [])
 
-  const sendMessage = useCallback(async (content) => {
+  const runAttempt = useCallback(async ({ content, history, clientMsgId, replaceMessageIds = [] }) => {
     const requestEpoch = requestEpochRef.current
-    const userMsg = { id: Date.now(), role: 'user', content, dataCards: [], hiddenHistory: [] }
-    const assistantMsg = { id: Date.now() + 1, role: 'assistant', content: '', dataCards: [], toolCall: null, hiddenHistory: [] }
+    const userMsg = { id: crypto.randomUUID(), role: 'user', content, dataCards: [], hiddenHistory: [] }
+    const assistantMsg = { id: crypto.randomUUID(), role: 'assistant', content: '', dataCards: [], toolCall: null, hiddenHistory: [] }
+    const replaceIds = new Set(replaceMessageIds)
 
     const updateMessages = (updater) => {
-      setMessages(prev => requestEpoch === requestEpochRef.current ? updater(prev) : prev)
+      setMessages((previous) => requestEpoch === requestEpochRef.current ? updater(previous) : previous)
     }
 
-    setMessages(prev => [...prev, userMsg, assistantMsg])
+    setMessages((previous) => [
+      ...previous.filter((message) => !replaceIds.has(message.id)),
+      userMsg,
+      assistantMsg,
+    ])
+    setFailedAttempt(null)
     setIsStreaming(true)
 
     const controller = new AbortController()
     abortRef.current = controller
+    let terminalError = false
 
     try {
-      // Build history with tool-call context from previous turns
-      const history = buildHistory(messages)
-
-      const response = await APIService.streamChat(content, history, sessionId, controller.signal)
+      const response = await APIService.streamChat(
+        content,
+        history,
+        sessionId,
+        clientMsgId,
+        controller.signal,
+      )
 
       if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Unknown error')
-        let isAccessDenied = response.status === 401
-        if (response.status === 403) {
-          try {
-            const body = JSON.parse(errorText)
-            isAccessDenied = body?.error === 'scout_pro_required'
-          } catch {
-            // Non-JSON 403 responses are ordinary chat errors.
+        const errorText = await response.text().catch(() => '')
+        let body = null
+        try { body = errorText ? JSON.parse(errorText) : null } catch { /* non-JSON response */ }
+
+        const isSignedOut = response.status === 401
+        const isLegacyLock = response.status === 403
+          && body?.error === 'scout_pro_required'
+          && body?.feature === 'gol_chat'
+        const isExhausted = response.status === 402
+          && body?.error === 'credits_exhausted'
+          && body?.feature === 'gol_chat'
+
+        if (isSignedOut || isLegacyLock || isExhausted) {
+          updateMessages((previous) => previous.filter(
+            (message) => message.id !== userMsg.id && message.id !== assistantMsg.id,
+          ))
+          if (isExhausted) {
+            updateUsage(body)
+            setCreditsExhausted(true)
+            setFailedAttempt({ content, history, clientMsgId, messageIds: [] })
           }
-        }
-        if (isAccessDenied) {
-          updateMessages(prev => prev.filter(message => message.id !== userMsg.id && message.id !== assistantMsg.id))
           return
         }
-        throw new Error(`Chat request failed (${response.status}): ${errorText}`)
+        throw new Error(`Chat request failed (${response.status})`)
       }
 
       const reader = response.body.getReader()
@@ -98,10 +163,8 @@ export function useGolChat(identityKey) {
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
-
-        // Parse SSE events from buffer
         const lines = buffer.split('\n')
-        buffer = lines.pop() || '' // Keep incomplete line in buffer
+        buffer = lines.pop() || ''
 
         let eventType = 'token'
         for (const line of lines) {
@@ -112,71 +175,94 @@ export function useGolChat(identityKey) {
               const data = JSON.parse(line.slice(6))
 
               if (eventType === 'token') {
-                updateMessages(prev => {
-                  const updated = [...prev]
+                updateMessages((previous) => {
+                  const updated = [...previous]
                   const last = { ...updated[updated.length - 1] }
                   last.content += data.content || ''
                   updated[updated.length - 1] = last
                   return updated
                 })
               } else if (eventType === 'replace') {
-                // Output guard corrected the response — swap content
-                updateMessages(prev => {
-                  const updated = [...prev]
+                updateMessages((previous) => {
+                  const updated = [...previous]
                   const last = { ...updated[updated.length - 1] }
                   last.content = data.content || ''
                   updated[updated.length - 1] = last
                   return updated
                 })
               } else if (eventType === 'data_card') {
-                updateMessages(prev => {
-                  const updated = [...prev]
+                updateMessages((previous) => {
+                  const updated = [...previous]
                   const last = { ...updated[updated.length - 1] }
                   last.dataCards = [...last.dataCards, data]
                   updated[updated.length - 1] = last
                   return updated
                 })
               } else if (eventType === 'tool_call') {
-                updateMessages(prev => {
-                  const updated = [...prev]
+                updateMessages((previous) => {
+                  const updated = [...previous]
                   const last = { ...updated[updated.length - 1] }
                   last.toolCall = data.name
                   updated[updated.length - 1] = last
                   return updated
                 })
               } else if (eventType === 'history_entries') {
-                // Store tool-call context for replay in future turns
-                updateMessages(prev => {
-                  const updated = [...prev]
+                updateMessages((previous) => {
+                  const updated = [...previous]
                   const last = { ...updated[updated.length - 1] }
                   last.hiddenHistory = [...last.hiddenHistory, ...(data.entries || [])]
                   updated[updated.length - 1] = last
                   return updated
                 })
+              } else if (eventType === 'usage') {
+                updateUsage(data)
+              } else if (eventType === 'error') {
+                terminalError = true
+                updateMessages((previous) => {
+                  const updated = [...previous]
+                  const last = { ...updated[updated.length - 1] }
+                  last.content = 'Sorry, something went wrong. Please try again.'
+                  last.toolCall = null
+                  updated[updated.length - 1] = last
+                  return updated
+                })
+                setFailedAttempt({
+                  content,
+                  history,
+                  clientMsgId,
+                  messageIds: [userMsg.id, assistantMsg.id],
+                })
               } else if (eventType === 'done') {
-                updateMessages(prev => {
-                  const updated = [...prev]
+                updateMessages((previous) => {
+                  const updated = [...previous]
                   const last = { ...updated[updated.length - 1] }
                   last.toolCall = null
                   updated[updated.length - 1] = last
                   return updated
                 })
+                if (!terminalError) setFailedAttempt(null)
               }
             } catch {
-              // Skip malformed data
+              // Skip malformed event data without breaking the stream.
             }
-            eventType = 'token' // Reset for next event
+            eventType = 'token'
           }
         }
       }
-    } catch (e) {
-      if (e.name !== 'AbortError') {
-        updateMessages(prev => {
-          const updated = [...prev]
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        updateMessages((previous) => {
+          const updated = [...previous]
           const last = { ...updated[updated.length - 1] }
           last.content = 'Sorry, something went wrong. Please try again.'
           updated[updated.length - 1] = last
           return updated
+        })
+        setFailedAttempt({
+          content,
+          history,
+          clientMsgId,
+          messageIds: [userMsg.id, assistantMsg.id],
         })
       }
     } finally {
@@ -185,10 +271,38 @@ export function useGolChat(identityKey) {
         setIsStreaming(false)
       }
     }
-  }, [messages, sessionId])
+  }, [sessionId, updateUsage])
+
+  const sendMessage = useCallback((content) => runAttempt({
+    content,
+    history: buildHistory(messages),
+    clientMsgId: questionId(),
+  }), [messages, runAttempt])
+
+  const retryFailedMessage = useCallback(() => {
+    if (!failedAttempt || isStreaming) return
+    return runAttempt({
+      content: failedAttempt.content,
+      history: failedAttempt.history,
+      clientMsgId: failedAttempt.clientMsgId,
+      replaceMessageIds: failedAttempt.messageIds,
+    })
+  }, [failedAttempt, isStreaming, runAttempt])
 
   const clearChat = resetChat
   const stopStreaming = useCallback(() => { abortRef.current?.abort() }, [])
 
-  return { messages, isStreaming, sendMessage, clearChat, stopStreaming }
+  return {
+    messages,
+    isStreaming,
+    sendMessage,
+    retryFailedMessage,
+    canRetry: Boolean(failedAttempt),
+    freeQuestionsRemaining,
+    creditBalance,
+    topUpPath,
+    creditsExhausted: authUsageChanged ? false : creditsExhausted,
+    clearChat,
+    stopStreaming,
+  }
 }
