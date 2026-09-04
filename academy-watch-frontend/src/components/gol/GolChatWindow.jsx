@@ -6,10 +6,41 @@ import { PlayerPreviewDrawer } from './PlayerPreviewDrawer'
 import { exportChatAsMarkdown } from './exportChat'
 import { APIService } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Download, FileDown, Loader2, LockKeyhole, LogIn, Trash2 } from 'lucide-react'
+import { CircleDollarSign, Download, FileDown, Loader2, LogIn, RotateCcw, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, stopStreaming, expanded, accessState, onSignIn }) {
+function packOffer(config) {
+  const packs = config?.packs || []
+  const pack = packs.find((entry) => entry.pack_id === 'gol_starter') || packs[0]
+  if (!pack || !Number.isFinite(pack.unit_amount) || !pack.currency || !Number.isFinite(pack.credits)) {
+    return 'Buy a credit pack to keep asking GOL.'
+  }
+  const amount = new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: pack.currency,
+    maximumFractionDigits: pack.unit_amount % 100 === 0 ? 0 : 2,
+  }).format(pack.unit_amount / 100)
+  return `Buy the ${pack.label} — ${pack.credits} questions for ${amount}`
+}
+
+export function GolChatWindow({
+  messages,
+  isStreaming,
+  sendMessage,
+  retryFailedMessage,
+  canRetry,
+  freeQuestionsRemaining,
+  creditBalance,
+  topUpPath,
+  clearChat,
+  stopStreaming,
+  expanded,
+  accessState,
+  creditUiLit,
+  creditsExhausted,
+  billingConfig,
+  onSignIn,
+}) {
   const [previewPlayerId, setPreviewPlayerId] = useState(null)
   const [pdfExporting, setPdfExporting] = useState(false)
   const [pdfError, setPdfError] = useState(null)
@@ -31,10 +62,7 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
     } catch (err) {
       console.error('GOL PDF export failed', err)
       const isSignInRequired = err?.status === 401
-      const isScoutProRequired = err?.status === 403
-        && err?.body?.error === 'scout_pro_required'
-        && err?.body?.feature === 'gol_chat'
-      if (!isSignInRequired && !isScoutProRequired) setPdfError('PDF export failed. Please try again.')
+      if (!isSignInRequired) setPdfError('PDF export failed. Please try again.')
     } finally {
       setPdfExporting(false)
     }
@@ -47,7 +75,7 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3"
       >
         {messages.length === 0 ? (
-          <GolSuggestions onSelect={sendMessage} disabled={accessState !== 'available'} />
+          <GolSuggestions onSelect={sendMessage} disabled={accessState !== 'available' || creditsExhausted} />
         ) : (
           <div className="space-y-4 min-w-0">
             {messages.map(msg => (
@@ -84,7 +112,7 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
                 size="sm"
                 className="text-xs text-muted-foreground"
                 onClick={handleExportPdf}
-                disabled={pdfExporting || isStreaming || accessState !== 'available'}
+                disabled={pdfExporting || isStreaming || accessState === 'signed_out'}
                 title="Download as PDF"
               >
                 {pdfExporting ? (
@@ -116,24 +144,53 @@ export function GolChatWindow({ messages, isStreaming, sendMessage, clearChat, s
               Sign in
             </Button>
           </div>
-        ) : accessState === 'locked' ? (
+        ) : creditsExhausted ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-amber-950">
               <div className="flex min-w-0 items-start gap-2.5">
-                <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <CircleDollarSign className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                 <div>
-                  <p className="text-sm font-semibold">Scout Pro unlocks GOL</p>
-                  <p className="mt-0.5 text-xs text-amber-900/80">Upgrade to keep chatting and export GOL conversations as PDF.</p>
+                  <p className="text-sm font-semibold">You&apos;re out of GOL questions</p>
+                  <p className="mt-0.5 text-xs text-amber-900/80">{packOffer(billingConfig)}</p>
                 </div>
               </div>
-              <Button size="sm" variant="outline" asChild>
-                <Link to="/pricing">View Scout Pro</Link>
-              </Button>
+              <div className="flex items-center gap-2">
+                {canRetry ? (
+                  <Button size="sm" variant="ghost" onClick={retryFailedMessage} disabled={isStreaming}>
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Retry
+                  </Button>
+                ) : null}
+                <Button size="sm" variant="outline" asChild>
+                  <Link to={topUpPath || '/account/billing'}>Get more questions</Link>
+                </Button>
+              </div>
             </div>
             <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} disabled />
           </div>
         ) : (
-          <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
+          <div className="space-y-2">
+            {creditUiLit && freeQuestionsRemaining !== null && creditBalance !== null ? (
+              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground" aria-live="polite">
+                <span className="font-medium tabular-nums text-foreground/75">
+                  {freeQuestionsRemaining > 0
+                    ? `${freeQuestionsRemaining} free question${freeQuestionsRemaining === 1 ? '' : 's'} left`
+                    : `Credits: ${creditBalance}`}
+                </span>
+                {canRetry ? (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={retryFailedMessage} disabled={isStreaming}>
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Retry
+                  </Button>
+                ) : null}
+              </div>
+            ) : creditUiLit && canRetry ? (
+              <div className="flex justify-end">
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={retryFailedMessage} disabled={isStreaming}>
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Retry
+                </Button>
+              </div>
+            ) : null}
+            <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
+          </div>
         )}
       </div>
 

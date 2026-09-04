@@ -51,17 +51,20 @@ export class APIService {
 
     static async _emitGolAccessDenied(response, requestToken) {
         let state = null
+        let body = null
         if (response.status === 401) {
             state = 'signed_out'
-        } else if (response.status === 403) {
+        } else if (response.status === 402 || response.status === 403 || response.status === 409) {
             try {
-                const body = await response.clone().json()
+                body = await response.clone().json()
                 if (body?.error === 'scout_pro_required' && body?.feature === 'gol_chat') state = 'locked'
+                if (body?.error === 'credits_exhausted' && body?.feature === 'gol_chat') state = 'credits_exhausted'
+                if (body?.error === 'client_msg_id_reused') state = 'client_msg_id_reused'
             } catch (_) { /* non-JSON response is not a recognized access denial */ }
         }
         if (!state || typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return
         window.dispatchEvent(new CustomEvent(this.golAccessEventName, {
-            detail: { state, token: requestToken },
+            detail: { state, token: requestToken, ...(body ? { body } : {}) },
         }))
     }
 
@@ -1995,6 +1998,7 @@ export class APIService {
     }
 
     static async getBillingConfig() {
+        // Billing responses are contract-shaped by the server; keep pack/product fields untouched.
         return this.request('/billing/config', {}, { nullOn404: true })
     }
 
@@ -3105,14 +3109,14 @@ export class APIService {
         return this.request('/gol/suggestions')
     }
 
-    static async streamChat(message, history, sessionId, signal) {
+    static async streamChat(message, history, sessionId, clientMsgId, signal) {
         const requestToken = this.userToken
         const headers = { 'Content-Type': 'application/json' }
         if (requestToken) headers['Authorization'] = `Bearer ${requestToken}`
         const response = await fetch(`${API_BASE_URL}/gol/chat`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ message, history, session_id: sessionId }),
+            body: JSON.stringify({ message, history, session_id: sessionId, client_msg_id: clientMsgId }),
             signal,
         })
         if (!response.ok) await this._emitGolAccessDenied(response, requestToken)

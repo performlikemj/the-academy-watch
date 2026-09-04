@@ -5,7 +5,7 @@ import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Check, Star, Clapperboard, Telescope } from 'lucide-react'
+import { Check, Coins, Star, Clapperboard, Telescope } from 'lucide-react'
 
 const TIERS = [
   {
@@ -76,6 +76,7 @@ export function PricingPage() {
   const [config, setConfig] = useState(undefined)
   const [configFailed, setConfigFailed] = useState(false)
   const [configAttempt, setConfigAttempt] = useState(0)
+  const [billingMeResult, setBillingMeResult] = useState({ token: null, data: undefined })
   const [priceCode, setPriceCode] = useState('monthly')
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState(null)
@@ -89,6 +90,18 @@ export function PricingPage() {
     return () => { cancelled = true }
   }, [configAttempt])
 
+  const packs = useMemo(() => config?.packs || [], [config])
+  const creditOnly = Boolean(config?.enabled && packs.length > 0 && (config.products || []).length === 0)
+
+  useEffect(() => {
+    if (!auth?.token || !creditOnly) return undefined
+    let cancelled = false
+    APIService.getBillingMe()
+      .then((data) => { if (!cancelled) setBillingMeResult({ token: auth.token, data }) })
+      .catch(() => { if (!cancelled) setBillingMeResult({ token: auth.token, data: null }) })
+    return () => { cancelled = true }
+  }, [auth?.token, creditOnly])
+
   const retryConfig = () => {
     setConfig(undefined)
     setConfigFailed(false)
@@ -101,9 +114,17 @@ export function PricingPage() {
   const prices = useMemo(() => scoutProduct?.prices || [], [scoutProduct])
   const selectedPrice = prices.find((price) => price.price_code === priceCode) || prices[0]
   const billingLive = Boolean(config?.enabled && scoutProduct && selectedPrice)
+  const billingMe = billingMeResult.token === auth?.token ? billingMeResult.data : undefined
+  const hasGolPurchases = (billingMe?.gol?.purchases || []).length > 0
+  const selectedPack = (hasGolPurchases
+    ? packs.find((pack) => pack.pack_id === 'gol_topup')
+    : packs.find((pack) => pack.pack_id === 'gol_starter')) || packs[0]
 
   const priceText = selectedPrice && Number.isFinite(selectedPrice.unit_amount) && selectedPrice.currency
     ? new Intl.NumberFormat(undefined, { style: 'currency', currency: selectedPrice.currency }).format(selectedPrice.unit_amount / 100)
+    : 'See price at checkout'
+  const packPriceText = selectedPack && Number.isFinite(selectedPack.unit_amount) && selectedPack.currency
+    ? new Intl.NumberFormat(undefined, { style: 'currency', currency: selectedPack.currency }).format(selectedPack.unit_amount / 100)
     : 'See price at checkout'
 
   const subscribe = async () => {
@@ -132,8 +153,36 @@ export function PricingPage() {
       if (error?.status === 409 && error?.body?.error === 'already_subscribed') {
         setCheckoutError({ alreadySubscribed: true, message: 'You already have Scout Pro.' })
       } else {
-        setCheckoutError({ message: error?.body?.error || error?.message || 'Checkout could not be started. Try again.' })
+        setCheckoutError({ message: 'Checkout could not be started. Try again.' })
       }
+    } finally {
+      setCheckoutBusy(false)
+    }
+  }
+
+  const buyCredits = async () => {
+    if (!auth?.token) {
+      openLoginModal()
+      return
+    }
+    if (!selectedPack) return
+    setCheckoutBusy(true)
+    setCheckoutError(null)
+    try {
+      const storageKey = `academyWatch.checkout.gol.${selectedPack.pack_id}`
+      let clientKey = sessionStorage.getItem(storageKey)
+      if (!clientKey) {
+        clientKey = crypto.randomUUID()
+        sessionStorage.setItem(storageKey, clientKey)
+      }
+      const result = await APIService.createBillingCheckout({
+        pack_id: selectedPack.pack_id,
+        client_key: clientKey,
+      })
+      track('checkout_started', { product_code: 'gol', price_code: selectedPack.pack_id })
+      window.location.assign(result.checkout_url)
+    } catch {
+      setCheckoutError({ message: 'Checkout could not be started. Try again.' })
     } finally {
       setCheckoutBusy(false)
     }
@@ -148,6 +197,16 @@ export function PricingPage() {
       )
     }
     if (tierKey === 'pro') {
+      if (creditOnly) {
+        return (
+          <div className="space-y-2">
+            <Button className="w-full shadow-sm" onClick={buyCredits} disabled={checkoutBusy || !selectedPack || (auth?.token && billingMe === undefined)}>
+              {checkoutBusy ? 'Starting checkout…' : auth?.token ? (hasGolPurchases ? 'Buy more' : 'Buy') : 'Sign in to buy'}
+            </Button>
+            {checkoutError ? <p className="text-center text-xs text-destructive">{checkoutError.message}</p> : null}
+          </div>
+        )
+      }
       if (billingLive) {
         return (
           <div className="space-y-2">
@@ -224,7 +283,19 @@ export function PricingPage() {
           <div className="relative grid grid-cols-1 gap-6 md:grid-cols-3 md:items-stretch">
             {TIERS.map((tier) => {
               const elevated = tier.key === 'pro'
-              const Icon = tier.icon
+              const isGolCard = tier.key === 'pro' && creditOnly
+              const Icon = isGolCard ? Coins : tier.icon
+              const cardName = isGolCard ? 'GOL Credits' : tier.name
+              const cardDescription = isGolCard
+                ? 'Pay once for more questions from our academy research assistant. No subscription.'
+                : tier.description
+              const cardFeatures = isGolCard
+                ? [
+                    `${selectedPack?.credits || 'More'} GOL questions per pack`,
+                    'Charged only when GOL accepts a question',
+                    'PDF conversation exports stay included',
+                  ]
+                : tier.features
               return (
                 <Card
                   key={tier.key}
@@ -240,7 +311,7 @@ export function PricingPage() {
                         <span className={`inline-flex h-10 w-10 items-center justify-center rounded-full ${elevated ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary'}`}>
                           <Icon className="h-5 w-5" aria-hidden="true" />
                         </span>
-                        {tier.chip && (
+                        {(tier.chip || isGolCard) && (
                           <span
                             className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${
                               elevated
@@ -248,17 +319,21 @@ export function PricingPage() {
                                 : 'border border-border bg-secondary text-muted-foreground'
                             }`}
                           >
-                            {tier.key === 'pro' && billingLive ? 'SCOUT PRO' : tier.chip}
+                            {isGolCard ? 'GOL CREDITS' : tier.key === 'pro' && billingLive ? 'SCOUT PRO' : tier.chip}
                           </span>
                         )}
                       </div>
-                      <h2 className="text-xl font-bold tracking-tight text-foreground">{tier.name}</h2>
-                      <p className="mt-1.5 text-sm text-muted-foreground">{tier.description}</p>
+                      <h2 className="text-xl font-bold tracking-tight text-foreground">{cardName}</h2>
+                      <p className="mt-1.5 text-sm text-muted-foreground">{cardDescription}</p>
                     </div>
 
                     <div className="mb-6 border-y border-border/60 py-4">
-                      <p className="text-2xl font-bold tracking-tight text-foreground tabular-nums">{tier.key === 'pro' && billingLive ? priceText : tier.priceLine}</p>
-                      {tier.key === 'pro' && billingLive ? (
+                      <p className="text-2xl font-bold tracking-tight text-foreground tabular-nums">{isGolCard ? packPriceText : tier.key === 'pro' && billingLive ? priceText : tier.priceLine}</p>
+                      {isGolCard ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {selectedPack ? `${selectedPack.label} · ${selectedPack.credits} questions` : 'Credit pack'}
+                        </p>
+                      ) : tier.key === 'pro' && billingLive ? (
                         <>
                           <p className="mt-0.5 text-xs text-muted-foreground">per {selectedPrice.interval}</p>
                           {prices.length > 1 ? (
@@ -275,7 +350,7 @@ export function PricingPage() {
                     </div>
 
                     <div className="flex-1">
-                      <FeatureList features={tier.features} />
+                      <FeatureList features={cardFeatures} />
                     </div>
 
                     <div className="mt-8">
@@ -292,9 +367,11 @@ export function PricingPage() {
             <section aria-label="Questions" className="mx-auto mt-16 max-w-4xl border-t border-border/60 pt-10">
               <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground">{billingLive ? 'Can I cancel any time?' : 'Why is Pro free right now?'}</h3>
+                  <h3 className="text-sm font-semibold text-foreground">{creditOnly ? 'How do GOL credits work?' : billingLive ? 'Can I cancel any time?' : 'Why is Pro free right now?'}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {billingLive
+                    {creditOnly
+                      ? 'Start with free questions, then buy a pack whenever you need more. There is no recurring charge.'
+                      : billingLive
                       ? 'Yes. Manage or cancel your subscription from Billing in your account; access continues through the paid period.'
                       : <>We&apos;re in beta and building Scout Pro with the people who use it. Everything in the Pro tier is free while we refine it — when pricing launches, beta users will hear about it first, with plenty of notice.</>}
                   </p>

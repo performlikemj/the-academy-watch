@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import {
   Dialog,
@@ -28,12 +28,28 @@ export function GolPanel() {
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(getInitialExpanded)
   const [responseGate, setResponseGate] = useState(null)
+  const [billingConfig, setBillingConfig] = useState(null)
+  const requestedBillingConfig = useRef(false)
   const auth = useAuth()
   const { logout, openLoginModal } = useAuthUI()
   const identityKey = auth.token
     ? `${auth.userId ?? auth.user_id ?? ''}:${auth.email?.trim().toLowerCase() ?? ''}:${auth.token}`
     : null
-  const chat = useGolChat(identityKey)
+  const creditUiLit = auth.scoutPro?.enabled === true && !auth.isAdmin
+  const chat = useGolChat(identityKey, {
+    freeQuestionsRemaining: auth.scoutPro?.features?.free_questions_remaining,
+    creditBalance: auth.scoutPro?.features?.credit_balance,
+  }, creditUiLit)
+
+  useEffect(() => {
+    if (!creditUiLit || requestedBillingConfig.current) return undefined
+    requestedBillingConfig.current = true
+    let cancelled = false
+    APIService.getBillingConfig()
+      .then((config) => { if (!cancelled) setBillingConfig(config) })
+      .catch(() => { if (!cancelled) setBillingConfig(null) })
+    return () => { cancelled = true }
+  }, [creditUiLit])
 
   useEffect(() => {
     const handleAccessDenied = (event) => {
@@ -67,9 +83,9 @@ export function GolPanel() {
     : null
   const accessState = !auth.token || currentResponseGate === 'signed_out'
     ? 'signed_out'
-    : currentResponseGate === 'locked' || auth.scoutPro?.features?.gol_chat === false
-      ? 'locked'
-      : 'available'
+    : 'available'
+  const creditsExhausted = creditUiLit
+    && (chat.creditsExhausted || auth.scoutPro?.features?.gol_chat === false)
 
   const headerContent = (
     <div className="flex items-center justify-between w-full pr-8">
@@ -104,6 +120,9 @@ export function GolPanel() {
       {...chat}
       expanded={expanded}
       accessState={accessState}
+      creditUiLit={creditUiLit}
+      creditsExhausted={creditsExhausted}
+      billingConfig={billingConfig}
       onSignIn={handleSignIn}
     />
   )
