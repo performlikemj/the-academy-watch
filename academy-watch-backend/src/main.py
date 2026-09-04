@@ -19,6 +19,7 @@ from werkzeug.exceptions import HTTPException
 import src.models.account  # noqa: E402, F401
 import src.models.billing  # noqa: E402, F401
 import src.models.contact  # noqa: E402, F401
+import src.models.gol_credits  # noqa: E402, F401
 import src.models.player_fan  # noqa: E402, F401
 import src.models.player_match_entry  # noqa: E402, F401
 import src.models.player_suppression  # noqa: E402, F401
