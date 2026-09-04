@@ -404,6 +404,46 @@ def test_season_stats_rollup_uses_total_whole_and_cells_breakdown(client, monkey
     assert data["source_breakdown"]["journey"][0]["stats"]["minutes"] == 600
 
 
+def test_season_stats_rollup_resolves_id_only_club_from_team_table(client, monkeypatch):
+    _seed_live_player()
+    total = _seed_rollup()
+    total.clubs[0].pop("name")
+    db.session.commit()
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats")
+
+    response = client.get(f"/api/players/{PLAYER}/season-stats?season=2025")
+
+    assert response.status_code == 200
+    assert response.get_json()["clubs"][0] == {
+        "team_api_id": LOAN,
+        "team_name": "Loan FC",
+        "team_logo": "loan.png",
+        "window_type": None,
+        "is_current": None,
+        "appearances": 8,
+        "minutes": 600,
+        "goals": 2,
+        "assists": 3,
+        "competition_tiers": ["league", "domestic_cup"],
+    }
+
+
+def test_season_stats_rollup_keeps_unknown_club_metadata_null(client, monkeypatch):
+    _seed_live_player()
+    total = _seed_rollup()
+    total.clubs = [{**total.clubs[0], "id": 987654, "name": "  "}]
+    db.session.commit()
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats")
+
+    response = client.get(f"/api/players/{PLAYER}/season-stats?season=2025")
+
+    assert response.status_code == 200
+    club = response.get_json()["clubs"][0]
+    assert club["team_api_id"] == 987654
+    assert club["team_name"] is None
+    assert club["team_logo"] is None
+
+
 def test_season_stats_fixtures_primary_serves_total_headline_verbatim(client, monkeypatch):
     _seed_live_player(minutes=2941, appearances=39, goals=12, assists=7)
     total = _seed_rollup(

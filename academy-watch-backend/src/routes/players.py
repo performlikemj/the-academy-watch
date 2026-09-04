@@ -15,6 +15,7 @@ from src.extensions import limiter
 from src.models.league import (
     NewsletterCommentary,
     Player,
+    Team,
     db,
 )
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
@@ -317,11 +318,31 @@ def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict
 
 def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
     """Adapt the compact totals-row club array to the existing endpoint keys."""
-    return [
-        {
-            "team_api_id": club.get("id"),
-            "team_name": club.get("name"),
-            "team_logo": None,
+    clubs = total.clubs or []
+    team_api_ids = {club.get("id") for club in clubs if club.get("id") is not None}
+    team_metadata = {}
+    if team_api_ids:
+        candidates = (
+            Team.query.with_entities(Team.team_id, Team.name, Team.logo, Team.season)
+            .filter(Team.team_id.in_(team_api_ids))
+            .all()
+        )
+        metadata_rank = {}
+        for team_api_id, name, logo, season in candidates:
+            rank = (season == total.season, season)
+            if rank > metadata_rank.get(team_api_id, (False, -1)):
+                team_metadata[team_api_id] = (name, logo)
+                metadata_rank[team_api_id] = rank
+
+    def adapt(club):
+        team_api_id = club.get("id")
+        stored_name = club.get("name")
+        stored_name = stored_name.strip() if isinstance(stored_name, str) else None
+        resolved_name, resolved_logo = team_metadata.get(team_api_id, (None, None))
+        return {
+            "team_api_id": team_api_id,
+            "team_name": stored_name or resolved_name,
+            "team_logo": resolved_logo,
             "window_type": None,
             "is_current": None,
             "appearances": club.get("appearances"),
@@ -330,8 +351,8 @@ def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
             "assists": club.get("assists"),
             "competition_tiers": club.get("competition_tiers") or [],
         }
-        for club in (total.clubs or [])
-    ]
+
+    return [adapt(club) for club in clubs]
 
 
 # ---------------------------------------------------------------------------
