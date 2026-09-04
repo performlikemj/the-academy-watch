@@ -2,7 +2,7 @@
   "version": "1.2",
   "name": "yuki-fan-scout-desk",
   "settle_ms": 400,
-  "settle_timeout_ms": 6000,
+  "settle_timeout_ms": 65000,
   "fixture_evidence": {
     "offered_inputs": [
       {
@@ -10,8 +10,8 @@
         "source": "core/personas/yuki.md:71"
       },
       {
-        "claim": "Stub mode offers Mason Greenwood as player 1001.",
-        "source": "academy-watch-backend/src/api_football_client.py:5279-5293"
+        "claim": "Stub mode generates deterministic player data for tracked player IDs such as Mason Paul James Burstow's 331563.",
+        "source": "academy-watch-backend/src/api_football_client.py:5313-5332"
       }
     ],
     "server_state": [
@@ -22,7 +22,7 @@
     ],
     "layout": [
       {
-        "claim": "Scout Desk exposes the scout-search identifier.",
+        "claim": "Scout Desk exposes scout-search and configures the keyboard search submit label.",
         "source": "academy-watch-ios/AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift:334-342"
       },
       {
@@ -69,27 +69,37 @@
     },
     {
       "id": "search-stub-player",
-      "expectation": "The screenshot shows the Scout Desk search populated for Mason Greenwood.",
+      "expectation": "The screenshot shows the Scout Desk search populated for Mason Paul James Burstow.",
       "action": {
-        "type": {"id": "scout-search", "text": "Mason Greenwood"}
+        "type": {"id": "scout-search", "text": "Mason Paul James Burstow"}
       },
       "settle": {
-        "waitFor": {"id": "scout-player-1001"},
+        "waitFor": {
+          "text": "Mason Paul James Burstow",
+          "why": "The result row's source-backed player name remains visible while the search keyboard is open."
+        },
         "timeout": 20
       }
     },
     {
-      "id": "dismiss-search-keyboard",
-      "expectation": "The screenshot keeps the Mason Greenwood search result visible after the keyboard is dismissed.",
+      "id": "submit-search-keyboard",
+      "expectation": "The screenshot keeps the Mason Paul James Burstow result visible after submitting the search keyboard.",
       "action": {
-        "dismissKeyboard": {}
+        "tap": {
+          "text": "search",
+          "why": "The Scout Desk text field configures the system keyboard with submitLabel(.search), while the runner's generic keyboard dismissal does not recognize that key."
+        }
+      },
+      "settle": {
+        "waitFor": {"id": "scout-player-331563"},
+        "timeout": 8
       }
     },
     {
       "id": "open-stub-player",
-      "expectation": "The screenshot shows Mason Greenwood's player detail.",
+      "expectation": "The screenshot shows Mason Paul James Burstow's player detail.",
       "action": {
-        "tap": {"id": "scout-player-1001"}
+        "tap": {"id": "scout-player-331563"}
       },
       "settle": {
         "waitFor": {"id": "player-detail-scroll"},

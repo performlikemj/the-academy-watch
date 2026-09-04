@@ -9,7 +9,15 @@ BACKEND_DIR="$REPO_DIR/academy-watch-backend"
 RUN_DIR="$SIM_DIR/.run"
 PID_FILE="$RUN_DIR/backend.pid"
 LOG_FILE="$RUN_DIR/backend.log"
-ENV_FILE="$BACKEND_DIR/.env"
+DEFAULT_ENV_FILE="$BACKEND_DIR/.env"
+PRIMARY_ENV_FILE="$HOME/Projects/loanarmy/academy-watch-backend/.env"
+if [ -n "${SIM_BACKEND_ENV_FILE-}" ]; then
+  ENV_FILE=$SIM_BACKEND_ENV_FILE
+elif [ -f "$DEFAULT_ENV_FILE" ]; then
+  ENV_FILE=$DEFAULT_ENV_FILE
+else
+  ENV_FILE=$PRIMARY_ENV_FILE
+fi
 PYTHON=${SIM_PYTHON:-/Users/michaeljones/Projects/loanarmy/.loan/bin/python}
 PORT=${SIM_BACKEND_PORT:-5001}
 
@@ -47,8 +55,9 @@ start_backend() {
     echo "backend.sh: Python is unavailable at the configured SIM_PYTHON path" >&2
     exit 1
   fi
+  echo "backend env: $ENV_FILE"
   if [ ! -f "$ENV_FILE" ]; then
-    echo "backend.sh: required academy-watch-backend/.env is missing" >&2
+    echo "backend.sh: configured backend .env is missing: $ENV_FILE" >&2
     exit 1
   fi
 

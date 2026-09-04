@@ -22,6 +22,7 @@ academy-watch-ios/sim/backend.sh stop
 `SIM_APP_ROOT=.` lets the nested iOS pack consume the repository-root `harness.yaml`. `SIM_BACKEND_PORT` defaults to `5001`; `run.sh` substitutes it into the journey's `${SIM_BACKEND_PORT}` launch argument, then curls `/api/health`, the Scout Desk query, and the selected player's profile before Xcode starts. It prints counts only. The launch base includes `/api` because that is the Flask blueprint root.
 
 Use `backend.sh status` to print `running` or `stopped`. Backend logs and PID state stay under ignored `sim/.run/`; reports and caches are also ignored.
+The script uses the worktree backend `.env`, falls back to `$HOME/Projects/loanarmy/academy-watch-backend/.env`, or accepts an explicit `SIM_BACKEND_ENV_FILE`; it prints only the selected path.
 
 ## Boundary
 
