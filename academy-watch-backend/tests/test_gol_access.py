@@ -9,14 +9,8 @@ from src.extensions import limiter
 from src.models.billing import BillingSubscription
 from src.models.league import UserAccount, db
 
-GOL_REQUIRED = {
-    "error": "scout_pro_required",
-    "feature": "gol_chat",
-    "upgrade_path": "/pricing",
-}
-
 GOL_POSTS = (
-    ("/api/gol/chat", {"message": "Who is in form?"}),
+    ("/api/gol/chat", {"message": "Who is in form?", "client_msg_id": "gol-access-1"}),
     ("/api/gol/export-pdf", {"messages": [{"role": "user", "content": "Who is in form?"}]}),
 )
 
@@ -46,6 +40,11 @@ def app(monkeypatch):
         "STRIPE_WEBHOOK_SECRET",
         "STRIPE_PRICE_SCOUT_PRO_MONTHLY",
         "STRIPE_PRICE_SCOUT_PRO_YEARLY",
+        "STRIPE_PRICE_GOL_STARTER",
+        "STRIPE_PRICE_GOL_TOPUP",
+        "GOL_STARTER_CREDITS",
+        "GOL_TOPUP_CREDITS",
+        "GOL_FREE_ALLOWANCE",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -156,15 +155,14 @@ def test_signed_in_user_passes_when_billing_is_off(app, client, path, payload):
 
 
 @pytest.mark.parametrize(("path", "payload"), GOL_POSTS)
-def test_free_user_is_blocked_when_billing_is_on(app, client, monkeypatch, path, payload):
+def test_free_user_uses_allowance_when_billing_is_on(app, client, monkeypatch, path, payload):
     monkeypatch.setenv("BILLING_ENABLED", "true")
     user = _add_user()
 
     response = client.post(path, json=payload, headers=_headers(user))
 
     try:
-        assert response.status_code == 403
-        assert response.get_json() == GOL_REQUIRED
+        _assert_passed_gate(response, path)
     finally:
         response.close()
 

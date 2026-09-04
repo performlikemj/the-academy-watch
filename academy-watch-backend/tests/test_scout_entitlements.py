@@ -25,6 +25,11 @@ def app(monkeypatch):
         "STRIPE_WEBHOOK_SECRET",
         "STRIPE_PRICE_SCOUT_PRO_MONTHLY",
         "STRIPE_PRICE_SCOUT_PRO_YEARLY",
+        "STRIPE_PRICE_GOL_STARTER",
+        "STRIPE_PRICE_GOL_TOPUP",
+        "GOL_STARTER_CREDITS",
+        "GOL_TOPUP_CREDITS",
+        "GOL_FREE_ALLOWANCE",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -116,7 +121,7 @@ def test_billing_disabled_preserves_projection_and_ungates_gol(app):
         "current_period_end": None,
         "cancel_at_period_end": False,
         "grandfathered_until": None,
-        "features": {"gol_chat": True},
+        "features": {"gol_chat": True, "free_questions_remaining": 3, "credit_balance": 0},
     }
     assert is_pro(user) is True
 
@@ -137,7 +142,7 @@ def test_active_subscription_is_entitlement_truth(app, monkeypatch):
         "current_period_end": "2026-10-02T03:04:05",
         "cancel_at_period_end": True,
         "grandfathered_until": None,
-        "features": {"gol_chat": True},
+        "features": {"gol_chat": True, "free_questions_remaining": 3, "credit_balance": 0},
     }
 
 
@@ -156,7 +161,7 @@ def test_prelaunch_account_is_grandfathered_before_window_end(app, monkeypatch):
         "current_period_end": None,
         "cancel_at_period_end": False,
         "grandfathered_until": "2026-10-01T00:00:00",
-        "features": {"gol_chat": True},
+        "features": {"gol_chat": True, "free_questions_remaining": 3, "credit_balance": 0},
     }
 
 
@@ -182,7 +187,7 @@ def test_grandfather_boundaries_are_exclusive(app, monkeypatch, created_at, now)
         "current_period_end": None,
         "cancel_at_period_end": False,
         "grandfathered_until": None,
-        "features": {"gol_chat": False},
+        "features": {"gol_chat": True, "free_questions_remaining": 3, "credit_balance": 0},
     }
 
 
@@ -204,7 +209,7 @@ def test_invalid_or_timezone_less_grandfather_envs_are_ignored(app, monkeypatch,
 
     assert result["tier"] == "free"
     assert result["source"] == "none"
-    assert result["features"] == {"gol_chat": False}
+    assert result["features"] == {"gol_chat": True, "free_questions_remaining": 3, "credit_balance": 0}
 
 
 def test_csv_export_allows_free_user_when_billing_enabled(app, client, monkeypatch):
@@ -256,7 +261,7 @@ def test_auth_me_includes_dark_scout_fields(app, client):
     assert payload["scout_pro"] == {
         "enabled": False,
         "tier": "pro",
-        "features": {"gol_chat": True},
+        "features": {"gol_chat": True, "free_questions_remaining": 3, "credit_balance": 0},
     }
 
 
@@ -273,7 +278,7 @@ def test_auth_me_includes_lit_subscription_fields(app, client, monkeypatch):
     assert payload["scout_pro"] == {
         "enabled": True,
         "tier": "pro",
-        "features": {"gol_chat": True},
+        "features": {"gol_chat": True, "free_questions_remaining": 3, "credit_balance": 0},
     }
 
 
@@ -289,10 +294,14 @@ def test_admin_entitlement_payloads_enable_gol_when_billing_is_lit(app, client, 
     assert auth_me.get_json()["scout_pro"] == {
         "enabled": True,
         "tier": "free",
-        "features": {"gol_chat": True},
+        "features": {"gol_chat": True, "free_questions_remaining": 3, "credit_balance": 0},
     }
     assert entitlements.status_code == 200
-    assert entitlements.get_json()["entitlements"]["features"] == {"gol_chat": True}
+    assert entitlements.get_json()["entitlements"]["features"] == {
+        "gol_chat": True,
+        "free_questions_remaining": 3,
+        "credit_balance": 0,
+    }
 
 
 def test_entitlements_route_is_neutral_404_while_dark_even_anonymously(client):
@@ -309,4 +318,8 @@ def test_entitlements_route_returns_derived_payload_when_lit(app, client, monkey
     response = client.get("/api/scout/entitlements", headers=_headers(user))
 
     assert response.status_code == 200
-    assert response.get_json()["entitlements"]["features"] == {"gol_chat": False}
+    assert response.get_json()["entitlements"]["features"] == {
+        "gol_chat": True,
+        "free_questions_remaining": 3,
+        "credit_balance": 0,
+    }

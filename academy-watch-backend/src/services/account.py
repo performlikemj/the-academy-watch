@@ -11,6 +11,7 @@ from src.models.account import AccountDeletionEvent
 from src.models.billing import BillingCheckoutSession, BillingCustomer, BillingSubscription
 from src.models.contact import ContactAuditEvent, ContactMessage, ContactOutcome, ContactRequest
 from src.models.follow import Follow, FollowList, FollowPlayerSnapshot
+from src.models.gol_credits import GolCreditLedger
 from src.models.league import (
     CommentaryApplause,
     CommunityTake,
@@ -43,6 +44,7 @@ from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
 from src.models.trust import ContentReport, ScoutVerification
 from src.services import season_rollup_service
 from src.services.club_registry import active_manager_program_ids, program_is_operational
+from src.services.gol_credits import forfeit_for_deletion
 from src.services.player_suppression import active_suppressed_player_ids
 from src.services.stripe_billing import (
     cancel_subscriptions_for_account_deletion,
@@ -318,6 +320,12 @@ def build_account_export(user: UserAccount) -> dict:
             "has_billing_account": BillingCustomer.query.filter_by(user_account_id=user.id).first() is not None,
             "subscriptions": [subscription_payload(row) for row in subscriptions_for_user(user)],
         },
+        "gol_credit_ledger": [
+            row.to_dict()
+            for row in GolCreditLedger.query.filter_by(user_account_id=user.id)
+            .order_by(GolCreditLedger.created_at.asc(), GolCreditLedger.id.asc())
+            .all()
+        ],
         "scout_verifications": [
             row.to_dict()
             for row in ScoutVerification.query.filter_by(user_account_id=user.id)
@@ -707,6 +715,7 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             "billing_customers": 0,
             "billing_subscriptions": 0,
             "billing_checkout_sessions": 0,
+            "gol_credit_ledger": 0,
             "stripe_connected_accounts": 0,
             "stripe_subscription_plans": 0,
             "stripe_subscriptions": 0,
@@ -726,6 +735,7 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             "user_fk_references": {},
         },
         "reset": {"showcase_pending_claims": 0, "reel_items": 0},
+        "forfeited_credits": 0,
     }
 
     # Break the sole indirect FK that cannot point at a UserAccount tombstone.
@@ -835,6 +845,17 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         email_rows, product_events = _redact_email_keyed_rows(email)
         counts["anonymized"]["email_keyed_rows"] = email_rows
         counts["deleted"]["product_events"] = product_events
+
+    forfeiture = forfeit_for_deletion(locked_user)
+    counts["deleted"]["gol_credit_ledger"] = forfeiture["ledger_rows"]
+    counts["forfeited_credits"] = forfeiture["forfeited_credits"]
+    db.session.add(
+        ProductEvent(
+            event_name="gol_credits_forfeited",
+            user_email=None,
+            props={"credits": forfeiture["forfeited_credits"]},
+        )
+    )
 
     counts["deleted"]["journalist_subscriptions"] = JournalistSubscription.query.filter(
         or_(

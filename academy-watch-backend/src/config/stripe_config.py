@@ -23,6 +23,23 @@ PRODUCT_CATALOG = {
             "yearly": "STRIPE_PRICE_CLUB_BUNDLE_YEARLY",
         },
     },
+    "gol": {
+        "scope_type": "user",
+        "name": "GOL chatbot",
+        "purchase_mode": "payment",
+        "packs": {
+            "gol_starter": {
+                "price_env": "STRIPE_PRICE_GOL_STARTER",
+                "credits_env": "GOL_STARTER_CREDITS",
+                "label": "Starter",
+            },
+            "gol_topup": {
+                "price_env": "STRIPE_PRICE_GOL_TOPUP",
+                "credits_env": "GOL_TOPUP_CREDITS",
+                "label": "Top up",
+            },
+        },
+    },
 }
 
 
@@ -40,9 +57,11 @@ def billing_enabled() -> bool:
 def offered_products() -> dict[str, dict]:
     products = {}
     for code, product in PRODUCT_CATALOG.items():
+        if "prices" not in product:
+            continue
         prices = {
             price_code: price_id
-            for price_code, env_name in product["prices"].items()
+            for price_code, env_name in product.get("prices", {}).items()
             if (price_id := (os.getenv(env_name) or "").strip())
         }
         if prices:
@@ -65,6 +84,29 @@ def product_for_price_id(stripe_price_id: str) -> tuple[str, str] | None:
             if price_id == stripe_price_id:
                 return product_code, price_code
     return None
+
+
+def _positive_int_env(name: str) -> int | None:
+    try:
+        value = int((os.getenv(name) or "").strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def offered_packs() -> dict[str, dict]:
+    """Resolve configured GOL credit packs without calling Stripe."""
+    packs = {}
+    for pack_id, pack in PRODUCT_CATALOG["gol"]["packs"].items():
+        price_id = (os.getenv(pack["price_env"]) or "").strip()
+        credits = _positive_int_env(pack["credits_env"])
+        if price_id and credits is not None:
+            packs[pack_id] = {
+                "price_id": price_id,
+                "credits": credits,
+                "label": pack["label"],
+            }
+    return packs
 
 
 def configure_stripe() -> None:

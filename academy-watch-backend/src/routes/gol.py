@@ -6,40 +6,54 @@ Provides SSE streaming chat endpoint and conversation suggestions.
 import io
 import json
 import logging
+import re
 
-from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
+from flask import Blueprint, Response, g, jsonify, request, send_file, stream_with_context
 from src.auth import require_api_key, require_user_auth
+from src.config.stripe_config import billing_enabled
 from src.extensions import limiter
-from src.services.scout_entitlements import decoded_bearer_role, require_scout_entitlement
+from src.services.gol_credits import CreditsExhausted, balances, refund_question, reserve_question
+from src.services.scout_entitlements import decoded_bearer_role
 
 gol_bp = Blueprint("gol", __name__)
 logger = logging.getLogger(__name__)
 
 # Admin users get a different model for the GOL assistant
 _ADMIN_GOL_MODEL = "deepseek/deepseek-v4-flash-0731"
+_CLIENT_MSG_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+def _sse(event_type: str, data: dict) -> str:
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 
 @gol_bp.route("/gol/chat", methods=["POST"])
 @require_user_auth
-@require_scout_entitlement("gol_chat")
 @limiter.limit("20/minute")
 def gol_chat():
     """SSE streaming chat endpoint.
 
-    Body: {message: str, history: [{role, content}], session_id: str}
-    Returns: text/event-stream with events: token, data_card, tool_call, done, error
+    Body: {message: str, client_msg_id: str, history: [{role, content}], session_id: str}
+    Returns: text/event-stream with events: usage, token, data_card, tool_call, done, error
     """
-    data = request.get_json() or {}
-    message = (data.get("message") or "").strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "invalid_json"}), 400
+    raw_message = data.get("message")
+    message = raw_message.strip() if isinstance(raw_message, str) else ""
 
     if not message:
         return jsonify({"error": "message is required"}), 400
 
     history = data.get("history", [])
     session_id = data.get("session_id", "")
+    client_msg_id = data.get("client_msg_id")
+    if billing_enabled() and (not isinstance(client_msg_id, str) or not _CLIENT_MSG_ID_RE.fullmatch(client_msg_id)):
+        return jsonify({"error": "invalid_client_msg_id"}), 400
 
     # Detect admin callers to route them to the admin model
-    model_override = _ADMIN_GOL_MODEL if decoded_bearer_role() == "admin" else None
+    role = decoded_bearer_role()
+    model_override = _ADMIN_GOL_MODEL if role == "admin" else None
 
     try:
         from src.services.gol_service import GolService
@@ -49,15 +63,67 @@ def gol_chat():
         logger.error(f"Failed to initialize GolService: {e}")
         return jsonify({"error": "Chat service unavailable"}), 503
 
+    try:
+        reservation = reserve_question(g.user, client_msg_id, role=role)
+    except CreditsExhausted as exc:
+        return (
+            jsonify(
+                {
+                    "error": "credits_exhausted",
+                    "feature": "gol_chat",
+                    "free_questions_remaining": exc.free_questions_remaining,
+                    "credit_balance": exc.credit_balance,
+                    "top_up_path": "/account/billing",
+                }
+            ),
+            402,
+        )
+
     def generate():
+        usage = {
+            "bucket": reservation["bucket"],
+            "free_questions_remaining": reservation["free_questions_remaining"],
+            "credit_balance": reservation["credit_balance"],
+            "debited": reservation["debited"],
+        }
+        yield _sse("usage", usage)
+        compensation_attempted = False
+
+        def compensate():
+            nonlocal compensation_attempted
+            if compensation_attempted or not reservation["debited"]:
+                return None
+            compensation_attempted = True
+            try:
+                refunded = refund_question(g.user, client_msg_id)
+            except Exception:
+                logger.exception("Failed to compensate GOL question debit")
+                return None
+            if not refunded:
+                return None
+            return {
+                "bucket": reservation["bucket"],
+                **balances(g.user),
+                "debited": reservation["debited"],
+                "refunded": True,
+            }
+
         try:
             for event in service.chat(message, history, session_id):
                 evt_type = event.get("event", "token")
                 evt_data = event.get("data", {})
-                yield f"event: {evt_type}\ndata: {json.dumps(evt_data)}\n\n"
+                refunded_usage = compensate() if evt_type == "error" else None
+                yield _sse(evt_type, evt_data)
+                if refunded_usage is not None:
+                    yield _sse("usage", refunded_usage)
+        except GeneratorExit:
+            raise
         except Exception as e:
             logger.error(f"SSE stream error: {e}", exc_info=True)
-            yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
+            refunded_usage = compensate()
+            yield _sse("error", {"message": str(e)})
+            if refunded_usage is not None:
+                yield _sse("usage", refunded_usage)
 
     return Response(
         stream_with_context(generate()),
@@ -94,7 +160,6 @@ def gol_suggestions():
 
 @gol_bp.route("/gol/export-pdf", methods=["POST"])
 @require_user_auth
-@require_scout_entitlement("gol_chat")
 @limiter.limit("10/minute")
 def gol_export_pdf():
     """Render a GOL chat transcript to a downloadable PDF.
