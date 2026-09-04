@@ -185,7 +185,7 @@ struct APIClient: ScoutAPIClientProtocol,
     Sendable
 {
     static let productionBaseURL = URL(
-        string: "https://ca-loan-army-backend.lemonmoss-23c9ec03.westus2.azurecontainerapps.io/api"
+        string: "https://api.theacademywatch.com/api"
     )!
 
     private let baseURL: URL
