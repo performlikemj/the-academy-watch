@@ -12,7 +12,7 @@ Coffee link-out (no money moves through us), and the pages for both. Prod facts:
 (`sk_live…`) — you will NEVER see or use them; local acceptance uses a TEST key set (`sk_test…`, `whsec…` from
 `stripe listen`) that the orchestrator may put in the worktree `.env`, or, more often, no key at all: your tests
 MUST pass with NO Stripe environment (mock every `stripe.*` network call with monkeypatch). `PUBLIC_BASE_URL=https://theacademywatch.com`
-(website origin), `PUBLIC_API_BASE_URL=https://api.theacademywatch.com` (API origin). Alembic head is `cb01`.
+(website origin), `PUBLIC_API_BASE_URL=https://api.theacademywatch.com` (API origin). Alembic head is `s3c1` (chain … pm01 → s2f1 → cb01 → s3b1 → s3c1); always re-verify with `flask db heads`.
 Backend tests run on SQLite in-memory (JSONB→JSON; no `ON CONFLICT`, no `@>`) — write dialect-neutral code.
 Timestamp columns are timezone-NAIVE UTC; normalise any aware `now` to naive UTC before comparing or storing.
 Stripe SDK: prod builds `stripe==15.6.0` from requirements.txt; the shared test venv `.loan` has 14.0.1 and SQLAlchemy 2.0.41
