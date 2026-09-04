@@ -58,6 +58,8 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: AcademyWatchUITests
+        excludes:
+          - README.md
     dependencies:
       - target: AcademyWatch
     settings:
@@ -86,5 +88,6 @@ schemes:
         AcademyWatch: all
         AcademyWatchUITests: [test]
     test:
+      captureScreenshotsAutomatically: false
       targets:
         - AcademyWatchUITests

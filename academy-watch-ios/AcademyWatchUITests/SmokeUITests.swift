@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import UniformTypeIdentifiers
 import XCTest
 
 final class SmokeUITests: XCTestCase {
@@ -16,6 +17,8 @@ final class SmokeUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        UIPasteboard.general.items = []
+        continueAfterFailure = true
         if watchlistPlayerIDToRemove != nil || listNameToDelete != nil || shouldSignOut {
             app.terminate()
             app.launch()
@@ -129,23 +132,29 @@ final class SmokeUITests: XCTestCase {
         sendCode.tap()
 
         let codeField = require(app.textFields["signin-code"], "Sign-in code field should appear")
-        pasteSensitiveValue(code, into: codeField)
         let verify = require(app.buttons["signin-verify"], "Verify button should appear")
+        pasteSensitiveValue(code, into: codeField)
+        guard verify.isHittable else {
+            clearSensitiveCodeField(codeField)
+            XCTFail("Verify button should be enabled after entering the reviewer code")
+            return
+        }
         verify.tap()
 
         let signedInAccount = element(identifier: "account-signed-in")
-        if !signedInAccount.waitForExistence(timeout: 12) {
+        guard signedInAccount.waitForExistence(timeout: 12) else {
             let signInError = app.staticTexts["signin-error"]
-            if signInError.waitForExistence(timeout: 3) {
-                clearSensitiveCodeField(codeField)
-                saveScreenshot("21-reviewer-sign-in-failed.png")
-                XCTFail("Reviewer scout sign-in failed: \(signInError.label)")
-                return
-            }
+            let errorMessage = signInError.waitForExistence(timeout: 3)
+                ? signInError.label
+                : "signed-in account state did not appear"
+            clearSensitiveCodeField(codeField)
+            saveScreenshot("21-reviewer-sign-in-failed.png")
+            XCTFail("Reviewer scout sign-in failed: \(errorMessage)")
+            return
         }
+        shouldSignOut = true
         dismissPlayerPromptIfNeeded(timeout: 8)
         require(signedInAccount, "Reviewer scout should be signed in")
-        shouldSignOut = true
         require(app.staticTexts["Verified scout"], "Reviewer account should be scout-verified")
         saveScreenshot("21-reviewer-account-signed-in.png")
 
@@ -420,11 +429,19 @@ final class SmokeUITests: XCTestCase {
     }
 
     private func pasteSensitiveValue(_ value: String, into field: XCUIElement) {
-        UIPasteboard.general.string = value
-        defer { UIPasteboard.general.string = "" }
+        let pasteboard = UIPasteboard.general
+        pasteboard.setItems(
+            [[UTType.utf8PlainText.identifier: value]],
+            options: [
+                .localOnly: true,
+                .expirationDate: Date().addingTimeInterval(30),
+            ]
+        )
+        defer { pasteboard.items = [] }
         field.press(forDuration: 1.2)
         let paste = require(app.menuItems["Paste"], "Sensitive field should offer the Paste action")
         paste.tap()
+        pasteboard.items = []
     }
 
     private func dismissPlayerPromptIfNeeded(timeout: TimeInterval) {
@@ -444,8 +461,16 @@ final class SmokeUITests: XCTestCase {
     }
 
     private func clearSensitiveCodeField(_ codeField: XCUIElement) {
-        codeField.tap()
-        codeField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 32))
+        UIPasteboard.general.items = []
+        guard codeField.exists else { return }
+        codeField.press(forDuration: 1.2)
+        let selectAll = app.menuItems["Select All"]
+        if selectAll.waitForExistence(timeout: 2) {
+            selectAll.tap()
+        } else {
+            codeField.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        }
+        codeField.typeText(XCUIKeyboardKey.delete.rawValue)
         let keyboard = app.keyboards.firstMatch
         guard keyboard.waitForExistence(timeout: 1) else { return }
         app.scrollViews.firstMatch.swipeUp()
