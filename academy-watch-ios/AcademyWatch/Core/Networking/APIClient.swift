@@ -188,12 +188,32 @@ struct APIClient: ScoutAPIClientProtocol,
         string: "https://api.theacademywatch.com/api"
     )!
 
+    static let defaultBaseURL = resolveDefaultBaseURL(
+        arguments: ProcessInfo.processInfo.arguments
+    )
+
+    static func resolveDefaultBaseURL(arguments: [String]) -> URL {
+        #if DEBUG
+        guard let flagIndex = arguments.firstIndex(of: "-apiBaseURL"),
+              arguments.indices.contains(flagIndex + 1),
+              let candidate = URL(string: arguments[flagIndex + 1]),
+              candidate.scheme?.lowercased() == "http",
+              let host = candidate.host?.lowercased(),
+              host == "127.0.0.1" || host == "localhost"
+        else { return productionBaseURL }
+
+        return candidate
+        #else
+        return productionBaseURL
+        #endif
+    }
+
     private let baseURL: URL
     private let session: URLSession
     private let authSession: (any AuthSessionProtocol)?
 
     init(
-        baseURL: URL = APIClient.productionBaseURL,
+        baseURL: URL = APIClient.defaultBaseURL,
         session: URLSession = .shared,
         authSession: (any AuthSessionProtocol)? = nil
     ) {

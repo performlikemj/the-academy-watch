@@ -1,0 +1,137 @@
+{
+  "persona": "yuki",
+  "persona_version": "3",
+  "persona_digest": "811c280b12d42f349632942a6ad72487e585b41121276e3c4aed2b41c5d18fe6",
+  "facts": [
+    {
+      "id": "Y-001",
+      "citation": "DemoSpaceContent.swift:3-7",
+      "text": "Yuki is a fictional resident whose complete showroom is rebuilt unchanged on every Explore-mode launch and is not used for authenticated users."
+    },
+    {
+      "id": "Y-002",
+      "citation": "DemoSpaceContent.swift:222",
+      "text": "Her stated setting is Japan; nbhd does not name her city or prefecture."
+    },
+    {
+      "id": "Y-003",
+      "citation": "DemoSpaceContent.swift:159-177,192-195,214-218",
+      "text": "English fixture copy uses Japanese place, food, and literature cues including Osaka, Yoshimoto's *Kitchen*, ryokan, Arashiyama, tempura, miso, and shiso."
+    },
+    {
+      "id": "Y-004",
+      "citation": "DemoSpaceContent.swift:1-319",
+      "text": "nbhd does not state which languages she speaks or her fluency."
+    },
+    {
+      "id": "Y-005",
+      "citation": "DemoSpaceContent.swift:267-272",
+      "text": "Yuki logs an easy 6 km run, an 8/10 mood, and short sleep; the assistant connects these to Osaka training and winding down."
+    },
+    {
+      "id": "Y-006",
+      "citation": "DemoSpaceContent.swift:274-294",
+      "text": "Saved chat prompts revisit yesterday's journal, plan an evening, track sleep, and ask what the app remembers."
+    },
+    {
+      "id": "Y-007",
+      "citation": "DemoSpaceContent.swift:90-122",
+      "text": "Her notes track runs, work focus, mood, sleep, dinners, reading, and plans over several days."
+    },
+    {
+      "id": "Y-008",
+      "citation": "DemoSpaceContent.swift:157-177",
+      "text": "She is preparing for an Osaka 10K with three runs a week, aims to read twelve books in a year, and plans her parents' September visit."
+    },
+    {
+      "id": "Y-009",
+      "citation": "DemoSpaceContent.swift:181-190",
+      "text": "Active tasks include a gym renewal, race photos for Mika, and a dentist booking; completed tasks include a client deck and landlord call."
+    },
+    {
+      "id": "Y-010",
+      "citation": "DemoSpaceContent.swift:206-212",
+      "text": "Fuel shows an interval run, an easy 6 km, and a planned long 10 km in the current week."
+    },
+    {
+      "id": "Y-011",
+      "citation": "DemoSpaceContent.swift:214-218",
+      "text": "Today's meal fixture is miso-glazed salmon with rice and spinach, described as light before the next interval session."
+    },
+    {
+      "id": "Y-012",
+      "citation": "DemoSpaceContent.swift:220-222",
+      "text": "Her stated purpose joins calm, strength, shipping work, physical capability, and showing up for people in Japan."
+    },
+    {
+      "id": "Y-013",
+      "citation": "DemoSpaceContent.swift:224-230",
+      "text": "Named values favor consistency over intensity and saying kind things aloud; session titles emphasize gentle restarting and room for what matters."
+    },
+    {
+      "id": "Y-014",
+      "citation": "DemoSpaceContent.swift:232-237",
+      "text": "Two posts from Mika show an 8 km achievement credited to Yuki's pacing advice and a Sunday market moment."
+    },
+    {
+      "id": "Y-015",
+      "citation": "DemoSpaceContent.swift:267-271",
+      "text": "Her chat voice is compact, lower-case, conversational, and candid about exercise, mood, and sleep."
+    },
+    {
+      "id": "Y-016",
+      "citation": "DemoSpaceContent.swift:92-113",
+      "text": "Her journal voice is brisk and specific: distances, ratings, sleep duration, work boundaries, food, and reading progress sit together without ceremony."
+    },
+    {
+      "id": "Y-017",
+      "citation": "DemoSpaceContent.swift:170-177,181-195",
+      "text": "Her plans mix practical follow-through with warmth toward friends and family."
+    },
+    {
+      "id": "Y-018",
+      "citation": "DemoSpaceContent.swift:1-319",
+      "text": "nbhd never defines household size, dietary identity, allergies, cooking frequency, or budget currency."
+    },
+    {
+      "id": "Y-019",
+      "citation": "DemoSpaceContent.swift:1-319",
+      "text": "nbhd never says she follows a football club or acts as a fan, parent, player, or scout."
+    },
+    {
+      "id": "Y-020",
+      "citation": "DemoSpaceContent.swift:1-319",
+      "text": "nbhd never establishes age, occupation title, income, hometown, relationship status, or whether Mika or her parents share her home."
+    },
+    {
+      "id": "Y-021",
+      "citation": "DemoSpaceContent.swift:90-122,1-319",
+      "text": "Household size: 1. A single-person seed makes quantities deterministic while the fixtures leave co-residence unstated."
+    },
+    {
+      "id": "Y-022",
+      "citation": "DemoSpaceContent.swift:214-218,1-319",
+      "text": "Diet: pescatarian; allergies: none recorded. This seeds the shown salmon meal without claiming medical or broader food preferences."
+    },
+    {
+      "id": "Y-023",
+      "citation": "DemoSpaceContent.swift:103,214-218",
+      "text": "Cooking habit: simple weeknight dinners, three times weekly. This creates planning repetition without claiming she cooked the fixture meal."
+    },
+    {
+      "id": "Y-024",
+      "citation": "DemoSpaceContent.swift:222",
+      "text": "Budget currency: JPY. This matches the stated Japanese setting while leaving amount and limits undecided."
+    },
+    {
+      "id": "Y-025",
+      "citation": "DemoSpaceContent.swift:159-166,1-319",
+      "text": "Followed club: Cerezo Osaka. This supplies a concrete Japanese club and loosely echoes the documented Osaka goal without claiming allegiance."
+    },
+    {
+      "id": "Y-026",
+      "citation": "DemoSpaceContent.swift:1-319",
+      "text": "Role: fan, rather than parent, player, or scout. This adds the least professional or family biography while enabling follow and watch journeys."
+    }
+  ]
+}

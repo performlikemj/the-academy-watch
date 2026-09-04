@@ -60,3 +60,6 @@ PLAN.md
 PROGRESS.md
 .ruff_cache/
 sim/report/
+academy-watch-ios/sim/report/
+academy-watch-ios/sim/.cache/
+academy-watch-ios/sim/.run/

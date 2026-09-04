@@ -1,0 +1,17 @@
+gate: cd academy-watch-ios && xcodegen generate && xcodebuild test -project AcademyWatch.xcodeproj -scheme AcademyWatch -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2' CODE_SIGNING_ALLOWED=NO
+verification:
+  can:
+    - signed-out Yuki journeys against the local stub backend through the DEBUG-only -apiBaseURL loopback seam
+    - unsigned iOS simulator builds and unit tests
+    - per-step screenshots and strict local sim reports
+  cannot:
+    - signed-in journeys because reviewer credentials email a real mailbox
+    - App Store, TestFlight, device-signing, or production behavior
+forbidden:
+  - cmd: run Yuki journeys against the live API
+    why: live API walks belong only to the sibling SmokeUITests surface and are never run by this lane
+sim:
+  destination: "platform=iOS Simulator,name=iPhone 17,OS=26.2"
+  journeys_dir: academy-watch-ios/sim/journeys
+  report_dir: academy-watch-ios/sim/report
+  grade: false
