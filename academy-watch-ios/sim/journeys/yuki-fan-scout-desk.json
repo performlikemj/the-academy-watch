@@ -1,0 +1,169 @@
+{
+  "version": "1.2",
+  "name": "yuki-fan-scout-desk",
+  "settle_ms": 400,
+  "settle_timeout_ms": 6000,
+  "fixture_evidence": {
+    "offered_inputs": [
+      {
+        "claim": "Yuki's confirmed Academy Watch role is fan.",
+        "source": "core/personas/yuki.md:71"
+      },
+      {
+        "claim": "Stub mode offers Mason Greenwood as player 1001.",
+        "source": "academy-watch-backend/src/api_football_client.py:5279-5293"
+      }
+    ],
+    "server_state": [
+      {
+        "claim": "The Scout Desk endpoint filters tracked players by a player-name search and returns a players array.",
+        "source": "academy-watch-backend/src/routes/scout.py:938-997"
+      }
+    ],
+    "layout": [
+      {
+        "claim": "Scout Desk exposes the scout-search identifier.",
+        "source": "academy-watch-ios/AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift:334-342"
+      },
+      {
+        "claim": "Scout Desk exposes scout-player-<id> on each player row.",
+        "source": "academy-watch-ios/AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift:507-515"
+      },
+      {
+        "claim": "Player detail exposes player-detail-scroll.",
+        "source": "academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift:257-276"
+      },
+      {
+        "claim": "Player detail renders the SEASON STATS heading.",
+        "source": "academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift:330-337"
+      },
+      {
+        "claim": "The Watchlist tab has visible label Watchlist but no explicit accessibility identifier.",
+        "source": "academy-watch-ios/AcademyWatch/App/RootTabView.swift:158-166"
+      },
+      {
+        "claim": "Signed-out Watchlist shows Sign in to build your watchlist.",
+        "source": "academy-watch-ios/AcademyWatch/Features/Watchlist/WatchlistView.swift:74-97"
+      }
+    ],
+    "preflight": {
+      "kind": "api",
+      "note": "GET /api/health then the player endpoint the app calls"
+    }
+  },
+  "steps": [
+    {
+      "id": "launch-scout-desk",
+      "expectation": "The screenshot shows the signed-out Scout Desk loaded from the local stub backend.",
+      "checkpoint": true,
+      "action": {
+        "launch": {
+          "args": ["-apiBaseURL", "http://127.0.0.1:${SIM_BACKEND_PORT}/api", "-initialTab", "scoutdesk"],
+          "env": {}
+        }
+      },
+      "settle": {
+        "waitFor": {"id": "scout-search"},
+        "timeout": 60
+      }
+    },
+    {
+      "id": "search-stub-player",
+      "expectation": "The screenshot shows the Scout Desk search populated for Mason Greenwood.",
+      "action": {
+        "type": {"id": "scout-search", "text": "Mason Greenwood"}
+      },
+      "settle": {
+        "waitFor": {"id": "scout-player-1001"},
+        "timeout": 20
+      }
+    },
+    {
+      "id": "dismiss-search-keyboard",
+      "expectation": "The screenshot keeps the Mason Greenwood search result visible after the keyboard is dismissed.",
+      "action": {
+        "dismissKeyboard": {}
+      }
+    },
+    {
+      "id": "open-stub-player",
+      "expectation": "The screenshot shows Mason Greenwood's player detail.",
+      "action": {
+        "tap": {"id": "scout-player-1001"}
+      },
+      "settle": {
+        "waitFor": {"id": "player-detail-scroll"},
+        "timeout": 20
+      }
+    },
+    {
+      "id": "confirm-player-detail",
+      "expectation": "The screenshot shows the player-detail scroll surface.",
+      "action": {
+        "assertVisible": {"id": "player-detail-scroll"}
+      }
+    },
+    {
+      "id": "scroll-to-season-stats",
+      "expectation": "The screenshot advances through the player detail toward season statistics.",
+      "action": {
+        "swipe": {"dir": "up", "id": "player-detail-scroll"}
+      }
+    },
+    {
+      "id": "scroll-season-stats-into-view",
+      "expectation": "The screenshot brings the lower player-detail sections into view.",
+      "action": {
+        "swipe": {"dir": "up", "id": "player-detail-scroll"}
+      }
+    },
+    {
+      "id": "confirm-season-stats",
+      "expectation": "The screenshot shows the SEASON STATS section for the stub player.",
+      "action": {
+        "assertVisible": {
+          "text": "SEASON STATS",
+          "why": "The season section heading is source-defined user-facing text without an accessibility identifier."
+        }
+      }
+    },
+    {
+      "id": "return-to-scout-desk",
+      "expectation": "The screenshot shows Scout Desk after returning from player detail.",
+      "action": {
+        "tap": {
+          "text": "Scout Desk",
+          "why": "SwiftUI supplies the navigation back button from the source-defined Scout Desk title without an explicit identifier."
+        }
+      },
+      "settle": {
+        "waitFor": {"id": "scout-search"},
+        "timeout": 8
+      }
+    },
+    {
+      "id": "open-watchlist",
+      "expectation": "The screenshot shows Yuki's signed-out Watchlist boundary.",
+      "action": {
+        "tap": {
+          "text": "Watchlist",
+          "why": "The SwiftUI tab item has a visible Watchlist label but no explicit accessibility identifier."
+        }
+      },
+      "settle": {
+        "waitFor": {"text": "Sign in to build your watchlist"},
+        "timeout": 8
+      }
+    },
+    {
+      "id": "confirm-signed-out-boundary",
+      "expectation": "The screenshot shows Sign in to build your watchlist, ending the fan's signed-out journey.",
+      "action": {
+        "assertVisible": {
+          "text": "Sign in to build your watchlist",
+          "why": "This exact source-defined prompt is the journey's signed-out CANNOT boundary."
+        }
+      }
+    }
+  ]
+}
