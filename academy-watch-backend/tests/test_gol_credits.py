@@ -484,6 +484,25 @@ def test_non_usd_pack_is_rejected_at_checkout_but_completed_charge_is_granted(ap
     assert grant.currency == "eur"
 
 
+def test_pack_price_lookup_failure_makes_checkout_temporarily_unavailable(app, client, monkeypatch):
+    _enable(monkeypatch)
+    _packs(monkeypatch)
+    user = _user()
+    monkeypatch.setattr(stripe.Price, "retrieve", Mock(side_effect=RuntimeError("price lookup failed")))
+    session_create = Mock()
+    monkeypatch.setattr(stripe.checkout.Session, "create", session_create)
+
+    response = client.post(
+        "/api/billing/checkout",
+        json={"pack_id": "gol_starter", "client_key": "lookup_failure"},
+        headers=_headers(user),
+    )
+
+    assert response.status_code == 503
+    assert response.get_json() == {"error": "checkout_unavailable"}
+    session_create.assert_not_called()
+
+
 def test_paid_unpaid_async_and_missing_local_checkout_webhooks(app, client, monkeypatch):
     _enable(monkeypatch)
     _packs(monkeypatch)
@@ -660,6 +679,7 @@ def test_charge_refund_webhook_updates_grant_and_unknown_payment_is_ignored(app,
 def test_billing_me_auth_me_and_negative_admin_summary_agree(app, client, monkeypatch):
     _enable(monkeypatch)
     user = _user()
+    eur_user = _user("gol-eur@example.com")
     db.session.add_all(
         [
             GolCreditLedger(
@@ -674,6 +694,19 @@ def test_billing_me_auth_me_and_negative_admin_summary_agree(app, client, monkey
                 amount_paid_cents=2000,
                 currency="usd",
                 refunded_cents=1000,
+            ),
+            GolCreditLedger(
+                user_account_id=eur_user.id,
+                bucket="prepaid",
+                kind="grant",
+                delta=5,
+                idempotency_key="grant:summary-eur",
+                stripe_session_id="cs_summary_eur",
+                stripe_payment_intent_id="pi_summary_eur",
+                pack_id="gol_starter",
+                amount_paid_cents=1800,
+                currency="eur",
+                refunded_cents=600,
             ),
             GolCreditLedger(
                 user_account_id=user.id,
@@ -695,10 +728,11 @@ def test_billing_me_auth_me_and_negative_admin_summary_agree(app, client, monkey
         "gross_cents": 2000,
         "refunded_cents": 1000,
         "currency": "usd",
-        "credits_granted": 2,
+        "other_currency_grants": 1,
+        "credits_granted": 7,
         "credits_reversed": 0,
         "credits_spent": 0,
-        "credits_outstanding": -1,
+        "credits_outstanding": 4,
         "negative_balances": 1,
     }
 

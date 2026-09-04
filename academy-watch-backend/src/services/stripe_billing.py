@@ -171,7 +171,12 @@ def _expire_or_retrieve_checkout(row: BillingCheckoutSession):
 
 def _create_payment_checkout(user, *, pack_id: str, client_key: str) -> dict:
     pack = offered_packs().get(pack_id)
-    if pack is None or price_details(pack["price_id"]).get("currency") != "usd":
+    if pack is None:
+        raise BillingError("unknown_pack", 400)
+    details = price_details(pack["price_id"])
+    if not details:
+        raise BillingError("checkout_unavailable", 503)
+    if details.get("currency") != "usd":
         raise BillingError("unknown_pack", 400)
 
     db.session.execute(select(UserAccount.id).where(UserAccount.id == user.id).with_for_update())
@@ -978,15 +983,28 @@ def admin_summary() -> dict:
         single_currency = next(iter(known_currencies))
         mrr_cents = mrr_by_currency[single_currency]
         currency = single_currency
-    gross_cents, refunded_cents, credits_granted = (
+    gross_cents, refunded_cents = (
         db.session.query(
             func.coalesce(func.sum(GolCreditLedger.amount_paid_cents), 0),
             func.coalesce(func.sum(GolCreditLedger.refunded_cents), 0),
-            func.coalesce(func.sum(GolCreditLedger.delta), 0),
         )
-        .filter(GolCreditLedger.kind == "grant", GolCreditLedger.bucket == "prepaid")
+        .filter(
+            GolCreditLedger.kind == "grant",
+            GolCreditLedger.bucket == "prepaid",
+            GolCreditLedger.currency == "usd",
+        )
         .one()
     )
+    grant_rows = GolCreditLedger.query.filter_by(kind="grant", bucket="prepaid")
+    credits_granted = (
+        db.session.query(func.coalesce(func.sum(GolCreditLedger.delta), 0))
+        .filter(
+            GolCreditLedger.kind == "grant",
+            GolCreditLedger.bucket == "prepaid",
+        )
+        .scalar()
+    )
+    other_currency_grants = grant_rows.filter(GolCreditLedger.currency != "usd").count()
     credits_reversed = -int(
         db.session.query(func.coalesce(func.sum(GolCreditLedger.delta), 0))
         .filter(
@@ -1045,6 +1063,7 @@ def admin_summary() -> dict:
             "gross_cents": int(gross_cents),
             "refunded_cents": int(refunded_cents),
             "currency": "usd",
+            "other_currency_grants": other_currency_grants,
             "credits_granted": int(credits_granted),
             "credits_reversed": credits_reversed,
             "credits_spent": -prepaid_debits + question_reversals,
