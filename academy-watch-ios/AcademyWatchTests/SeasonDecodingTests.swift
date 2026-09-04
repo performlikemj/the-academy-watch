@@ -58,6 +58,19 @@ final class SeasonDecodingTests: XCTestCase {
         XCTAssertEqual(stats.clubs.count, 1)
         XCTAssertEqual(stats.clubs.first?.teamName, "Club 70")
         XCTAssertFalse(stats.clubs[0].matchesCurrentClub(named: "Middlesbrough"))
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let negativeClub = try decoder.decode(
+            PlayerSeasonClub.self,
+            from: Data(#"{"team_api_id":-91,"team_name":null}"#.utf8)
+        )
+        let missingIdClub = try decoder.decode(
+            PlayerSeasonClub.self,
+            from: Data(#"{"team_name":null}"#.utf8)
+        )
+        XCTAssertEqual(negativeClub.teamName, "Club")
+        XCTAssertEqual(missingIdClub.teamName, "Club")
     }
 
     func testDecodesLiveLankshearPlayerDetailEndpoints() throws {

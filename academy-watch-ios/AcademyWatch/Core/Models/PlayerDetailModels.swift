@@ -217,7 +217,11 @@ struct PlayerSeasonClub: Decodable, Equatable, Sendable {
     let goalsConceded: Int?
 
     var teamName: String {
-        decodedTeamName ?? teamApiId.map { "Club \($0)" } ?? "Club"
+        if let decodedTeamName {
+            return decodedTeamName
+        }
+        guard let teamApiId, teamApiId > 0 else { return "Club" }
+        return "Club \(teamApiId)"
     }
 
     var logoURL: URL? {

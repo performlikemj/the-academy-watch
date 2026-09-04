@@ -428,10 +428,45 @@ def test_season_stats_rollup_resolves_id_only_club_from_team_table(client, monke
     }
 
 
-def test_season_stats_rollup_keeps_unknown_club_metadata_null(client, monkeypatch):
+def test_season_stats_rollup_resolves_negative_id_from_club_program(client, monkeypatch):
     _seed_live_player()
+    funding_league = FundingLeague(
+        name="Rollup Program League",
+        country="England",
+        region="North East",
+        level="youth_regional",
+        age_bands=["U19"],
+        gender_program="both",
+        season_calendar="aug_may",
+        data_tier="self_reported",
+        registry_status="approved",
+        admission_state="open",
+    )
+    db.session.add(funding_league)
+    db.session.flush()
+    program = ClubProgram(
+        funding_league_id=funding_league.id,
+        name="Community Academy",
+        legal_name="Community Academy Association",
+        slug="rollup-community-academy",
+        country="England",
+        region="North East",
+        platform_status="approved",
+    )
+    db.session.add(program)
+    db.session.flush()
+    db.session.add(
+        Team(
+            team_id=-program.id,
+            name="Wrong API Team",
+            country="England",
+            season=2025,
+            logo="wrong-team.png",
+            is_active=True,
+        )
+    )
     total = _seed_rollup()
-    total.clubs = [{**total.clubs[0], "id": 987654, "name": "  "}]
+    total.clubs = [{**total.clubs[0], "id": -program.id, "name": None}]
     db.session.commit()
     monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats")
 
@@ -439,9 +474,25 @@ def test_season_stats_rollup_keeps_unknown_club_metadata_null(client, monkeypatc
 
     assert response.status_code == 200
     club = response.get_json()["clubs"][0]
-    assert club["team_api_id"] == 987654
-    assert club["team_name"] is None
+    assert club["team_api_id"] == -program.id
+    assert club["team_name"] == "Community Academy"
     assert club["team_logo"] is None
+
+
+def test_season_stats_rollup_keeps_unknown_club_metadata_null(client, monkeypatch):
+    _seed_live_player()
+    total = _seed_rollup()
+    total.clubs = [{**total.clubs[0], "id": team_api_id, "name": "  "} for team_api_id in (987654, -987654, 0)]
+    db.session.commit()
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats")
+
+    response = client.get(f"/api/players/{PLAYER}/season-stats?season=2025")
+
+    assert response.status_code == 200
+    clubs = response.get_json()["clubs"]
+    assert [club["team_api_id"] for club in clubs] == [987654, -987654, 0]
+    assert all(club["team_name"] is None for club in clubs)
+    assert all(club["team_logo"] is None for club in clubs)
 
 
 def test_season_stats_fixtures_primary_serves_total_headline_verbatim(client, monkeypatch):

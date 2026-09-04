@@ -265,6 +265,19 @@ def _live_match_summary(matches: list[dict], season: int) -> dict:
     }
 
 
+def _local_program_names(club_api_ids) -> dict[int, str]:
+    """Resolve the negative club-id namespace with one ClubProgram query."""
+    local_program_ids = {-club_api_id for club_api_id in club_api_ids if club_api_id < 0}
+    if local_program_ids:
+        from src.models.funding import ClubProgram
+
+        return {
+            program.id: program.name
+            for program in ClubProgram.query.filter(ClubProgram.id.in_(local_program_ids)).all()
+        }
+    return {}
+
+
 def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict]]:
     """Fine-grained cells grouped by source without cross-source arithmetic."""
     cells = (
@@ -277,15 +290,7 @@ def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict
         )
         .all()
     )
-    local_program_ids = {-cell.club_api_id for cell in cells if cell.club_api_id < 0}
-    local_program_names = {}
-    if local_program_ids:
-        from src.models.funding import ClubProgram
-
-        local_program_names = {
-            program.id: program.name
-            for program in ClubProgram.query.filter(ClubProgram.id.in_(local_program_ids)).all()
-        }
+    local_program_names = _local_program_names(cell.club_api_id for cell in cells)
 
     breakdown: dict[str, list[dict]] = {}
     for cell in cells:
@@ -319,7 +324,9 @@ def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict
 def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
     """Adapt the compact totals-row club array to the existing endpoint keys."""
     clubs = total.clubs or []
-    team_api_ids = {club.get("id") for club in clubs if club.get("id") is not None}
+    club_api_ids = {club.get("id") for club in clubs if isinstance(club.get("id"), int)}
+    team_api_ids = {club_api_id for club_api_id in club_api_ids if club_api_id > 0}
+    local_program_names = _local_program_names(club_api_ids)
     team_metadata = {}
     if team_api_ids:
         candidates = (
@@ -339,10 +346,16 @@ def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
         stored_name = club.get("name")
         stored_name = stored_name.strip() if isinstance(stored_name, str) else None
         resolved_name, resolved_logo = team_metadata.get(team_api_id, (None, None))
+        if isinstance(team_api_id, int) and team_api_id < 0:
+            team_name = local_program_names.get(-team_api_id)
+        elif isinstance(team_api_id, int) and team_api_id > 0:
+            team_name = stored_name or resolved_name
+        else:
+            team_name = None
         return {
             "team_api_id": team_api_id,
-            "team_name": stored_name or resolved_name,
-            "team_logo": resolved_logo,
+            "team_name": team_name,
+            "team_logo": resolved_logo if isinstance(team_api_id, int) and team_api_id > 0 else None,
             "window_type": None,
             "is_current": None,
             "appearances": club.get("appearances"),
