@@ -97,6 +97,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - Targeted tests passed (`test_youth_competition_resolver.py`)
 
 ### Now
+- **2026-09-04 iOS app was silently offline — fixed (#1010):** `APIClient.productionBaseURL` still pointed at the retired Container Apps host (HTTP 000 since the RG move); now `https://api.theacademywatch.com/api` (same default as the web bundle). Signed Release build installed on MJ's iPhone via `devicectl` (install UUID A4B88CE6…, launch blocked by lock). TestFlight has 0 groups/0 testers — direct install remains the phone path; Xcode Cloud workflow "Default" (manual on `main`) is available if TestFlight is wanted.
 - **2026-09-04 S3 "money rails" SHIPPED DARK** — billing remains default-off in prod; re-score **61.0% → 65.6%**. Close-out and debts: `ledgers/CONTINUITY_dream-s3.md`.
 - GOL credits shipped dark (#1005–#1007); go-live checklist updated.
 - **Next:** owner completes the S3 go-live checklist; proceed with S4 Film Room self-serve + club tools and S6 ten real participants per the roadmap.
