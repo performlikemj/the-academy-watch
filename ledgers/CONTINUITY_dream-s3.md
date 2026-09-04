@@ -41,8 +41,8 @@ Computed result: **61.0% → 65.6% (+4.6 points)**. Pillars: P1 75.0%, P2 63.9%,
 - The GitHub Codex bot and the package checkers were both used on each PR; shifted-line repeats were triaged against the fixed code.
 
 ## Production state (verified 2026-09-04)
-- Alembic head: `s3c1`; chain tail `… → s2f1 → cb01 → s3b1 → s3c1`.
-- Four billing tables plus `club_program_updates` exist, have RLS enabled, and contain 0 rows.
+- Alembic head: `s3d1`; chain tail `… → s2f1 → cb01 → s3b1 → s3c1 → s3d1`.
+- Five billing tables plus `club_program_updates` exist, have RLS enabled, and contain 0 rows.
 - `BILLING_ENABLED` is unset. Every billing and entitlement route returns neutral 404, including `OPTIONS`.
 - Anonymous GOL chat returns 401; suggestions remain public at 200.
 
@@ -73,10 +73,47 @@ Computed result: **61.0% → 65.6% (+4.6 points)**. Pillars: P1 75.0%, P2 63.9%,
 ## GO-LIVE checklist (owner)
 1. Create the Stripe webhook endpoint for `/api/billing/stripe/webhook`.
 2. Rotate `STRIPE_WEBHOOK_SECRET` using the established rotate-keys pattern.
-3. Set `STRIPE_PRICE_SCOUT_PRO_MONTHLY` and `STRIPE_PRICE_SCOUT_PRO_YEARLY`.
-4. Approve the Terms copy, then set repository variable `VITE_BILLING_TERMS=1`.
-5. Set `BILLING_ENABLED=1` only after steps 1–4 are complete.
-6. Buy Scout Pro once with a real card, verify the entitlement, then refund the purchase.
+3. Create the one-time starter price and set `STRIPE_PRICE_GOL_STARTER` plus `GOL_STARTER_CREDITS` (default 100 pending owner confirmation).
+4. Set `STRIPE_PRICE_GOL_TOPUP` plus `GOL_TOPUP_CREDITS` for pay-as-you-go top-ups.
+5. Leave `STRIPE_PRICE_SCOUT_PRO_MONTHLY` and `STRIPE_PRICE_SCOUT_PRO_YEARLY` unset; no subscription price env should be configured.
+6. Approve the Terms copy, then set repository variable `VITE_BILLING_TERMS=1`.
+7. Set `BILLING_ENABLED=1` only after steps 1–6 are complete.
+8. Buy the GOL starter pack once with a real card, verify the credit grant, then refund the purchase and verify the reversal.
+
+## GOL credits (2026-09-04)
+
+### Decisions
+- Three free GOL questions per signed-in user, lifetime; each later question consumes one prepaid credit. Admins remain exempt.
+- The first purchase is a $20 starter pack, followed by pay-as-you-go top-ups; there is no GOL subscription.
+- The user-scoped, append-only ledger mirrors nbhd's grant/debit/reversal/adjustment model where it fits.
+- Credits per $20 pack remain env-configured through `GOL_STARTER_CREDITS` / `GOL_TOPUP_CREDITS`; the default is 100 pending owner confirmation.
+
+### What shipped
+- #1006 GOL credits backend (squash `61853b7`): migration `s3d1` from `s3c1`; user-scoped `gol_credit_ledger`; payment-mode Checkout; 402 before SSE; usage SSE frames; question-bound `client_msg_id`; cumulative refund math.
+- #1007 GOL credits web (`84e259f`): allowance/balance UI, 402 exhausted state, retry-safe question IDs, and starter/top-up purchase surfaces.
+- #1005 Film Room credit race fix (`f6b882c`): lock the team row first; refund only when a prior debit exists.
+
+### How it shipped
+- Codex brief critique produced 33 fixes before the builds.
+- Codex built the packages; Fable checkers ran P0 FIX-FIRST → two fix rounds → CLEAN and P1 CLEAN → one fix round → CLEAN.
+- The GitHub bot was silent. Merge proceeded on checker, CI, and simulation evidence; each simulation was 11/11.
+
+### Production state
+- Deployed dark with `BILLING_ENABLED` unset; billing routes return 404 and anonymous chat returns 401.
+- `s3d1` was pre-applied, then stamped. `gol_credit_ledger` has RLS enabled and 0 rows.
+- No live credit purchase has run. Credits per pack remain at the env default of 100 pending owner confirmation.
+
+### Gotchas
+- A reviewer found that reusing one `client_msg_id` with different question text could bypass the paywall. The fix binds the ID to the normalized question hash and rejects different-text reuse.
+- Promotion codes are disabled for fixed-price credit packs.
+- Packs are USD-only: non-USD prices are not offered and are rejected at checkout; webhook records preserve the currency Stripe reports.
+- SQLite cannot prove the `SELECT FOR UPDATE` row lock; the PostgreSQL concurrency probe did.
+
+### Debts / follow-ups
+- Decide whether the free allowance should gain a per-day option; the shipped policy is lifetime.
+- Revisit remaining nbhd alignment follow-ups as the credit rail matures.
+- iOS has no credits UI.
+- The 402 exhausted-state experience is web-only.
 
 ## Log
 - 2026-09-03/04 — S3 packages merged and deployed behind the default-off billing gate; migrations pre-applied/stamped through `s3c1`.
