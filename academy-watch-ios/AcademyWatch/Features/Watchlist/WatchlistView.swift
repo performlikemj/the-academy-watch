@@ -141,6 +141,7 @@ struct WatchlistView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("watchlist-player-\(entry.playerApiId)")
                     } else {
                         WatchlistUnavailablePlayerCard(entry: entry)
                     }
@@ -158,6 +159,7 @@ struct WatchlistView: View {
                     } label: {
                         Label("Remove", systemImage: "trash")
                     }
+                    .accessibilityIdentifier("watchlist-swipe-remove-\(entry.playerApiId)")
                     .disabled(viewModel.pendingPlayerIDs.contains(entry.playerApiId))
                 }
             }

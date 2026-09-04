@@ -82,6 +82,7 @@ struct ScoutDeskView: View {
                 .refreshable {
                     await viewModel.reload()
                 }
+                .accessibilityIdentifier("scout-desk-scroll")
                 .allowsHitTesting(!isShowingInitialLoadingCard)
                 .accessibilityHidden(isShowingInitialLoadingCard)
 
@@ -293,7 +294,7 @@ struct ScoutDeskView: View {
                 Text(
                     viewModel.isLoadingInitial && viewModel.players.isEmpty
                         ? "Loading…"
-                        : "\(viewModel.totalPlayers.formatted()) players"
+                        : "\(viewModel.totalPlayers.formatted()) \(viewModel.totalPlayers == 1 ? "player" : "players")"
                 )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -338,6 +339,7 @@ struct ScoutDeskView: View {
                     .autocorrectionDisabled()
                     .submitLabel(.search)
                     .accessibilityLabel("Search players")
+                    .accessibilityIdentifier("scout-search")
                 if !viewModel.searchText.isEmpty {
                     Button {
                         viewModel.setSearchText("")
@@ -509,6 +511,7 @@ struct ScoutDeskView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("Opens player detail")
+                    .accessibilityIdentifier("scout-player-\(player.playerId)")
 
                     VStack(spacing: 4) {
                         WatchlistStarButton(

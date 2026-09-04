@@ -315,6 +315,7 @@ private struct PlayerFirstSignInPrompt: View {
                 .frame(maxWidth: .infinity)
             Button("Not now", action: onDismiss)
                 .font(.subheadline.weight(.semibold))
+                .accessibilityIdentifier("first-sign-in-player-prompt-dismiss")
         }
         .padding(24)
         .accessibilityIdentifier("first-sign-in-player-prompt")

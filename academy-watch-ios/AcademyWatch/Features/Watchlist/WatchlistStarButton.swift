@@ -50,6 +50,7 @@ struct WatchlistStarButton: View {
         .accessibilityLabel(
             isWatched ? "Remove \(playerName) from watchlist" : "Add \(playerName) to watchlist"
         )
+        .accessibilityIdentifier(isWatched ? "watchlist-remove-\(playerID)" : "watchlist-add-\(playerID)")
     }
 
     private func toggleWatchlist() {

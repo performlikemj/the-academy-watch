@@ -52,12 +52,42 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TARGETED_DEVICE_FAMILY: "1"
 
+  AcademyWatchUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: AcademyWatchUITests
+        excludes:
+          - README.md
+    dependencies:
+      - target: AcademyWatch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.theacademywatch.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        TEST_TARGET_NAME: AcademyWatch
+
 schemes:
   AcademyWatch:
     build:
       targets:
         AcademyWatch: all
         AcademyWatchTests: [test]
+        AcademyWatchUITests: [test]
     test:
       targets:
         - AcademyWatchTests
+        - name: AcademyWatchUITests
+          skipped: true
+
+  AcademyWatchUISmoke:
+    build:
+      targets:
+        AcademyWatch: all
+        AcademyWatchUITests: [test]
+    test:
+      captureScreenshotsAutomatically: false
+      targets:
+        - AcademyWatchUITests

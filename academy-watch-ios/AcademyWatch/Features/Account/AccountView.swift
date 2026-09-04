@@ -240,6 +240,7 @@ struct AccountView: View {
             RoundedRectangle(cornerRadius: 21)
                 .stroke(AcademyColors.claret.opacity(0.14), lineWidth: 0.75)
         }
+        .accessibilityIdentifier("account-signed-in")
     }
 
     private var identityName: String {
