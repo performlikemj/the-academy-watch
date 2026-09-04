@@ -204,7 +204,8 @@ struct PlayerSeasonStats: Decodable, Equatable, Sendable {
 }
 
 struct PlayerSeasonClub: Decodable, Equatable, Sendable {
-    let teamName: String
+    let teamApiId: Int?
+    private let decodedTeamName: String?
     let teamLogo: String?
     let windowType: String?
     let isCurrent: Bool?
@@ -215,13 +216,52 @@ struct PlayerSeasonClub: Decodable, Equatable, Sendable {
     let saves: Int?
     let goalsConceded: Int?
 
+    var teamName: String {
+        if let decodedTeamName {
+            return decodedTeamName
+        }
+        guard let teamApiId, teamApiId > 0 else { return "Club" }
+        return "Club \(teamApiId)"
+    }
+
     var logoURL: URL? {
         teamLogo.flatMap(URL.init(string:))
     }
 
     func matchesCurrentClub(named currentClubName: String?) -> Bool {
-        guard let currentClubName else { return false }
-        return teamName.caseInsensitiveCompare(currentClubName) == .orderedSame
+        guard let decodedTeamName, let currentClubName else { return false }
+        return decodedTeamName.caseInsensitiveCompare(currentClubName) == .orderedSame
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case teamApiId
+        case teamName
+        case teamLogo
+        case windowType
+        case isCurrent
+        case appearances
+        case minutes
+        case goals
+        case assists
+        case saves
+        case goalsConceded
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        teamApiId = try container.decodeIfPresent(Int.self, forKey: .teamApiId)
+        let rawTeamName = try container.decodeIfPresent(String.self, forKey: .teamName)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        decodedTeamName = rawTeamName?.isEmpty == false ? rawTeamName : nil
+        teamLogo = try container.decodeIfPresent(String.self, forKey: .teamLogo)
+        windowType = try container.decodeIfPresent(String.self, forKey: .windowType)
+        isCurrent = try container.decodeIfPresent(Bool.self, forKey: .isCurrent)
+        appearances = try container.decodeIfPresent(Int.self, forKey: .appearances)
+        minutes = try container.decodeIfPresent(Int.self, forKey: .minutes)
+        goals = try container.decodeIfPresent(Int.self, forKey: .goals)
+        assists = try container.decodeIfPresent(Int.self, forKey: .assists)
+        saves = try container.decodeIfPresent(Int.self, forKey: .saves)
+        goalsConceded = try container.decodeIfPresent(Int.self, forKey: .goalsConceded)
     }
 }
 

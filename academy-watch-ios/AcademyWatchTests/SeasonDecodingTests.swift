@@ -48,6 +48,43 @@ final class SeasonDecodingTests: XCTestCase {
         XCTAssertTrue(fixtures.matches.isEmpty)
     }
 
+    func testDecodesLiveLankshearSeasonRollupWithNullClubName() throws {
+        let stats: PlayerSeasonStats = try decodeFixture(
+            named: "player_season_stats_lankshear_live"
+        )
+
+        XCTAssertEqual(stats.playerId, 393_195)
+        XCTAssertEqual(stats.source, "season-rollup")
+        XCTAssertEqual(stats.clubs.count, 1)
+        XCTAssertEqual(stats.clubs.first?.teamName, "Club 70")
+        XCTAssertFalse(stats.clubs[0].matchesCurrentClub(named: "Middlesbrough"))
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let negativeClub = try decoder.decode(
+            PlayerSeasonClub.self,
+            from: Data(#"{"team_api_id":-91,"team_name":null}"#.utf8)
+        )
+        let missingIdClub = try decoder.decode(
+            PlayerSeasonClub.self,
+            from: Data(#"{"team_name":null}"#.utf8)
+        )
+        XCTAssertEqual(negativeClub.teamName, "Club")
+        XCTAssertEqual(missingIdClub.teamName, "Club")
+    }
+
+    func testDecodesLiveLankshearPlayerDetailEndpoints() throws {
+        let profile: PlayerProfile = try decodeFixture(named: "player_profile_lankshear_live")
+        let recentFixtures: PlayerRecentFixturesResponse = try decodeFixture(
+            named: "player_recent_fixtures_lankshear_live"
+        )
+
+        XCTAssertEqual(profile.playerId, 393_195)
+        XCTAssertEqual(profile.currentClubName, "Middlesbrough")
+        XCTAssertEqual(recentFixtures.matches.count, 6)
+        XCTAssertEqual(recentFixtures.matches.first?.playerApiId, 393_195)
+    }
+
     private func decodeFixture<Response: Decodable>(named name: String) throws -> Response {
         let fixtureURL = try XCTUnwrap(
             Bundle(for: Self.self).url(forResource: name, withExtension: "json")
