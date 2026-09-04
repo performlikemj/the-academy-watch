@@ -8,10 +8,9 @@ from unittest.mock import Mock
 import pytest
 import stripe
 from flask import Flask
-from sqlalchemy.exc import IntegrityError
 from src.auth import issue_user_token
 from src.extensions import limiter
-from src.models.billing import BillingCheckoutSession, StripeWebhookEvent
+from src.models.billing import BillingCheckoutSession, BillingSubscription, StripeWebhookEvent
 from src.models.gol_credits import GolCreditLedger
 from src.models.league import UserAccount, db
 from src.models.product_event import ProductEvent
@@ -119,6 +118,7 @@ def _packs(monkeypatch):
     monkeypatch.setenv("GOL_STARTER_CREDITS", "7")
     monkeypatch.setenv("STRIPE_PRICE_GOL_TOPUP", "price_gol_topup")
     monkeypatch.setenv("GOL_TOPUP_CREDITS", "4")
+    monkeypatch.setattr(stripe.Price, "retrieve", lambda price_id: {"unit_amount": 2000, "currency": "usd"})
 
 
 def _event(event_id, event_type, obj):
@@ -275,6 +275,55 @@ def test_same_message_is_one_debit_and_error_refund_allows_attempt_two(app, clie
     assert attempts == [1, 2]
 
 
+def test_exhausted_user_cannot_reuse_client_id_for_a_different_question(app, client, monkeypatch):
+    _enable(monkeypatch)
+    user = _user()
+    headers = _headers(user)
+    first_id = "bound_msg_id"
+    for number in range(3):
+        response = client.post(
+            "/api/gol/chat",
+            json={
+                "message": "Original question" if number == 0 else f"Question {number}",
+                "client_msg_id": first_id if number == 0 else f"bound_msg_{number}",
+            },
+            headers=headers,
+        )
+        assert response.status_code == 200
+        response.get_data()
+    exhausted = client.post(
+        "/api/gol/chat",
+        json={"message": "No balance", "client_msg_id": "bound_msg_3"},
+        headers=headers,
+    )
+    assert exhausted.status_code == 402
+    ledger_count = GolCreditLedger.query.count()
+
+    reused = client.post(
+        "/api/gol/chat",
+        json={"message": "A brand new question", "client_msg_id": first_id},
+        headers=headers,
+    )
+    assert reused.status_code == 409
+    assert reused.mimetype == "application/json"
+    assert reused.get_json() == {"error": "client_msg_id_reused"}
+    assert GolCreditLedger.query.count() == ledger_count
+
+    retry = client.post(
+        "/api/gol/chat",
+        json={"message": "  ORIGINAL   Question ", "client_msg_id": first_id},
+        headers=headers,
+    )
+    retry_body = retry.get_data(as_text=True)
+    assert retry.status_code == 200
+    assert '"debited": false' in retry_body
+    debit = GolCreditLedger.query.filter_by(client_msg_id=first_id, kind="debit").one()
+    from src.services.gol_credits import refund_question
+
+    assert refund_question(user, first_id) is True
+    assert GolCreditLedger.query.filter_by(idempotency_key=f"refund:{debit.id}").count() == 1
+
+
 def test_stream_exception_refunds_but_client_disconnect_does_not(app, client, monkeypatch):
     _enable(monkeypatch)
     user = _user()
@@ -327,6 +376,20 @@ def test_payment_checkout_metadata_and_client_key_conflict(app, client, monkeypa
     _enable(monkeypatch)
     _packs(monkeypatch)
     user = _user()
+    db.session.add(
+        BillingSubscription(
+            scope_type="user",
+            scope_id=user.id,
+            product_code="scout_pro",
+            price_code="monthly",
+            purchaser_user_id=user.id,
+            stripe_customer_id="cus_existing_pro",
+            stripe_subscription_id="sub_existing_pro",
+            stripe_price_id="price_existing_pro",
+            status="active",
+        )
+    )
+    db.session.commit()
     customer = Mock(return_value={"id": "cus_gol"})
     session = Mock(
         return_value={
@@ -355,6 +418,7 @@ def test_payment_checkout_metadata_and_client_key_conflict(app, client, monkeypa
     assert kwargs["metadata"] == expected_metadata
     assert kwargs["payment_intent_data"] == {"metadata": expected_metadata}
     assert "subscription_data" not in kwargs
+    assert "allow_promotion_codes" not in kwargs
     assert kwargs["idempotency_key"] == f"checkout:gol:gol_starter:{user.id}:checkout_key"
 
     conflict = client.post(
@@ -393,6 +457,31 @@ def test_config_omits_non_usd_pack_and_checkout_xor_is_enforced(app, client, mon
     )
     assert both.status_code == 400
     assert both.get_json() == {"error": "invalid_checkout_request"}
+
+
+def test_non_usd_pack_is_rejected_at_checkout_but_completed_charge_is_granted(app, client, monkeypatch):
+    _enable(monkeypatch)
+    _packs(monkeypatch)
+    user = _user()
+    monkeypatch.setattr(stripe.Price, "retrieve", lambda price_id: {"unit_amount": 1800, "currency": "eur"})
+    session_create = Mock()
+    monkeypatch.setattr(stripe.checkout.Session, "create", session_create)
+    rejected = client.post(
+        "/api/billing/checkout",
+        json={"pack_id": "gol_starter", "client_key": "non_usd_key"},
+        headers=_headers(user),
+    )
+    assert rejected.status_code == 400
+    assert rejected.get_json() == {"error": "unknown_pack"}
+    session_create.assert_not_called()
+
+    _checkout(user, "cs_non_usd")
+    completed = _completed("cs_non_usd")
+    completed["currency"] = "eur"
+    fulfilled = _post_event(client, _event("evt_non_usd", "checkout.session.completed", completed))
+    assert fulfilled.status_code == 200
+    grant = GolCreditLedger.query.filter_by(stripe_session_id="cs_non_usd").one()
+    assert grant.currency == "eur"
 
 
 def test_paid_unpaid_async_and_missing_local_checkout_webhooks(app, client, monkeypatch):
@@ -435,6 +524,57 @@ def test_paid_unpaid_async_and_missing_local_checkout_webhooks(app, client, monk
     )
     assert missing.status_code == 500
     assert StripeWebhookEvent.query.filter_by(event_id="evt_missing", status="failed").count() == 1
+
+
+@pytest.mark.parametrize("payment_status", ("paid", "no_payment_required"))
+def test_zero_amount_completed_checkout_grants_without_payment_intent(app, client, monkeypatch, payment_status):
+    _enable(monkeypatch)
+    _packs(monkeypatch)
+    user = _user()
+    session_id = f"cs_zero_{payment_status}"
+    _checkout(user, session_id)
+    completed = _completed(session_id, payment_intent=None, amount=0)
+    completed["payment_status"] = payment_status
+    response = _post_event(client, _event(f"evt_zero_{payment_status}", "checkout.session.completed", completed))
+    assert response.status_code == 200
+    grant = GolCreditLedger.query.filter_by(stripe_session_id=session_id).one()
+    assert grant.stripe_payment_intent_id is None
+    assert grant.amount_paid_cents == 0
+    assert (
+        apply_refund(
+            payment_intent_id=None,
+            cumulative_refunded_cents=0,
+            stripe_event_id="evt_zero_refund",
+        )
+        == 0
+    )
+
+
+def test_expired_payment_checkout_uses_a_new_stripe_idempotency_key(app, client, monkeypatch):
+    _enable(monkeypatch)
+    _packs(monkeypatch)
+    user = _user()
+    monkeypatch.setattr(stripe.Customer, "create", Mock(return_value={"id": "cus_retry"}))
+    session_create = Mock(
+        side_effect=[
+            {"id": "cs_retry_one", "url": "https://checkout.example/one", "expires_at": int(time.time()) + 3600},
+            {"id": "cs_retry_two", "url": "https://checkout.example/two", "expires_at": int(time.time()) + 7200},
+        ]
+    )
+    monkeypatch.setattr(stripe.checkout.Session, "create", session_create)
+    payload = {"pack_id": "gol_starter", "client_key": "retry_checkout"}
+    first = client.post("/api/billing/checkout", json=payload, headers=_headers(user))
+    assert first.status_code == 200
+    first_key = session_create.call_args.kwargs["idempotency_key"]
+    row = BillingCheckoutSession.query.filter_by(stripe_session_id="cs_retry_one").one()
+    row.expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
+    db.session.commit()
+
+    second = client.post("/api/billing/checkout", json=payload, headers=_headers(user))
+    assert second.status_code == 200
+    second_key = session_create.call_args.kwargs["idempotency_key"]
+    assert first_key != second_key
+    assert second_key.startswith(f"checkout:gol:gol_starter:{user.id}:retry_checkout:")
 
 
 def test_refund_target_math_reverses_three_then_four_and_tracks_cumulative(app, monkeypatch):
@@ -619,29 +759,31 @@ def test_integrity_error_loser_path_returns_winning_debit(app, monkeypatch):
     """SQLite cannot exercise row locking; simulate the savepoint loser after a concurrent winner."""
     _enable(monkeypatch)
     user = _user()
-    winner = GolCreditLedger(
-        user_account_id=user.id,
-        bucket="free_allowance",
-        kind="debit",
-        delta=-1,
-        idempotency_key=f"q:{user.id}:race_msg:1",
-        client_msg_id="race_msg",
-        attempt=1,
-    )
-    db.session.add(winner)
-    db.session.commit()
-    from src.services import gol_credits
+    question_hash = "a" * 64
+    real_begin_nested = db.session.begin_nested
+    inserted = False
 
-    monkeypatch.setattr(gol_credits, "_latest_debit", Mock(side_effect=[None, winner]))
-    real_flush = db.session.flush
+    def race_begin_nested(*args, **kwargs):
+        nonlocal inserted
+        if not inserted:
+            inserted = True
+            db.session.execute(
+                GolCreditLedger.__table__.insert().values(
+                    user_account_id=user.id,
+                    bucket="free_allowance",
+                    kind="debit",
+                    delta=-1,
+                    idempotency_key=f"q:{user.id}:race_msg:1",
+                    client_msg_id="race_msg",
+                    attempt=1,
+                    note=question_hash,
+                )
+            )
+        return real_begin_nested(*args, **kwargs)
 
-    def race_flush(*args, **kwargs):
-        if any(isinstance(row, GolCreditLedger) and row.attempt == 2 for row in db.session.new):
-            raise IntegrityError("simulated duplicate", {}, RuntimeError("winner committed"))
-        return real_flush(*args, **kwargs)
-
-    monkeypatch.setattr(db.session, "flush", race_flush)
-    result = reserve_question(user, "race_msg")
+    monkeypatch.setattr(db.session, "begin_nested", race_begin_nested)
+    result = reserve_question(user, "race_msg", question_hash=question_hash)
     assert result["debited"] is False
     assert result["attempt"] == 1
+    assert inserted is True
     assert GolCreditLedger.query.filter_by(kind="debit").count() == 1

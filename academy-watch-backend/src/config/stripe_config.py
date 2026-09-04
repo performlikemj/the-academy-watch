@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 
 import stripe
+
+logger = logging.getLogger(__name__)
+
+_PRICE_CACHE_SECONDS = 600
+_PRICE_FAILURE_CACHE_SECONDS = 60
+_price_cache: dict[str, tuple[float, dict]] = {}
 
 PRODUCT_CATALOG = {
     "scout_pro": {
@@ -107,6 +115,38 @@ def offered_packs() -> dict[str, dict]:
                 "label": pack["label"],
             }
     return packs
+
+
+def _stripe_value(value, key, default=None):
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def price_details(price_id: str) -> dict:
+    """Return cached Stripe price amount/currency details."""
+    cached = _price_cache.get(price_id)
+    now = time.monotonic()
+    if cached is not None:
+        ttl = _PRICE_CACHE_SECONDS if cached[1] else _PRICE_FAILURE_CACHE_SECONDS
+        if now - cached[0] < ttl:
+            return cached[1]
+    try:
+        configure_stripe()
+        price = stripe.Price.retrieve(price_id)
+        details = {
+            "unit_amount": _stripe_value(price, "unit_amount"),
+            "currency": str(_stripe_value(price, "currency")).lower(),
+        }
+        if details["unit_amount"] is None or not _stripe_value(price, "currency"):
+            _price_cache[price_id] = (now, {})
+            return {}
+        _price_cache[price_id] = (now, details)
+        return details
+    except Exception:
+        logger.warning("Stripe price lookup failed for configured price %s", price_id, exc_info=True)
+        _price_cache[price_id] = (now, {})
+        return {}
 
 
 def configure_stripe() -> None:

@@ -3,6 +3,7 @@
 Provides SSE streaming chat endpoint and conversation suggestions.
 """
 
+import hashlib
 import io
 import json
 import logging
@@ -12,7 +13,13 @@ from flask import Blueprint, Response, g, jsonify, request, send_file, stream_wi
 from src.auth import require_api_key, require_user_auth
 from src.config.stripe_config import billing_enabled
 from src.extensions import limiter
-from src.services.gol_credits import CreditsExhausted, balances, refund_question, reserve_question
+from src.services.gol_credits import (
+    ClientMsgIdReused,
+    CreditsExhausted,
+    balances,
+    refund_question,
+    reserve_question,
+)
 from src.services.scout_entitlements import decoded_bearer_role
 
 gol_bp = Blueprint("gol", __name__)
@@ -64,7 +71,11 @@ def gol_chat():
         return jsonify({"error": "Chat service unavailable"}), 503
 
     try:
-        reservation = reserve_question(g.user, client_msg_id, role=role)
+        normalized_question = " ".join(message.split()).casefold()
+        question_hash = hashlib.sha256(normalized_question.encode()).hexdigest()
+        reservation = reserve_question(g.user, client_msg_id, question_hash=question_hash, role=role)
+    except ClientMsgIdReused:
+        return jsonify({"error": "client_msg_id_reused"}), 409
     except CreditsExhausted as exc:
         return (
             jsonify(

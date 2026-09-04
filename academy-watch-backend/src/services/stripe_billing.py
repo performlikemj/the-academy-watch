@@ -22,6 +22,7 @@ from src.config.stripe_config import (
     configure_stripe,
     offered_packs,
     offered_products,
+    price_details,
     product_for_price_id,
     resolve_price,
 )
@@ -170,7 +171,7 @@ def _expire_or_retrieve_checkout(row: BillingCheckoutSession):
 
 def _create_payment_checkout(user, *, pack_id: str, client_key: str) -> dict:
     pack = offered_packs().get(pack_id)
-    if pack is None:
+    if pack is None or price_details(pack["price_id"]).get("currency") != "usd":
         raise BillingError("unknown_pack", 400)
 
     db.session.execute(select(UserAccount.id).where(UserAccount.id == user.id).with_for_update())
@@ -237,6 +238,10 @@ def _create_payment_checkout(user, *, pack_id: str, client_key: str) -> dict:
     }
     base_url = (os.getenv("PUBLIC_BASE_URL") or "https://theacademywatch.com").strip().rstrip("/")
     idempotency_key = f"checkout:gol:{pack_id}:{user.id}:{client_key}"
+    if row.stripe_session_id:
+        attempt_at = row.expires_at or row.created_at
+        if attempt_at is not None:
+            idempotency_key = f"{idempotency_key}:{calendar.timegm(attempt_at.utctimetuple())}"
     configure_stripe()
     session = stripe.checkout.Session.create(
         mode="payment",
@@ -245,7 +250,6 @@ def _create_payment_checkout(user, *, pack_id: str, client_key: str) -> dict:
         success_url=f"{base_url}/account/billing?checkout=success&session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{base_url}/pricing?checkout=canceled",
         client_reference_id=str(row.id),
-        allow_promotion_codes=True,
         metadata=metadata,
         payment_intent_data={"metadata": metadata},
         idempotency_key=idempotency_key,
@@ -687,19 +691,22 @@ def _apply_gol_checkout(obj, event_id: str, *, require_paid: bool) -> bool:
         raise BillingError("unresolvable_credit_purchase", 500)
     row.status = "complete"
     row.completed_at = row.completed_at or utcnow()
-    if require_paid and _get(obj, "payment_status") != "paid":
+    if require_paid and _get(obj, "payment_status") not in {"paid", "no_payment_required"}:
         return True
 
     pack = offered_packs().get(row.price_code)
     if pack is None:
         raise BillingError("unresolvable_credit_purchase", 500)
-    currency = str(_get(obj, "currency") or "").lower()
-    if currency != "usd":
+    raw_currency = _get(obj, "currency")
+    if not raw_currency:
         raise BillingError("unresolvable_credit_purchase", 500)
+    currency = str(raw_currency).lower()
+    if currency != "usd":
+        logger.warning("Granting GOL credits for completed non-USD Checkout Session %s", _get(obj, "id"))
     session_id = _get(obj, "id")
     payment_intent_id = _stripe_id(_get(obj, "payment_intent"))
     amount_total = _get(obj, "amount_total")
-    if not session_id or not payment_intent_id or amount_total is None:
+    if not session_id or amount_total is None:
         raise BillingError("unresolvable_credit_purchase", 500)
     existing = GolCreditLedger.query.filter_by(stripe_session_id=session_id).first()
     grant = grant_purchase(

@@ -19,6 +19,10 @@ class CreditsExhausted(Exception):
         self.credit_balance = credit_balance
 
 
+class ClientMsgIdReused(Exception):
+    """A client message id was presented for a different normalized question."""
+
+
 def free_allowance() -> int:
     try:
         return max(0, int((os.getenv("GOL_FREE_ALLOWANCE") or "3").strip()))
@@ -76,7 +80,7 @@ def _reservation_payload(bucket: str, values: dict, *, debited: bool, attempt: i
     }
 
 
-def reserve_question(user, client_msg_id, *, role="user") -> dict:
+def reserve_question(user, client_msg_id, *, question_hash, role="user") -> dict:
     """Reserve one question credit and commit before streaming begins."""
     if not billing_enabled():
         return _reservation_payload(
@@ -93,10 +97,14 @@ def reserve_question(user, client_msg_id, *, role="user") -> dict:
     try:
         _lock_user(user.id)
         latest = _latest_debit(user.id, client_msg_id)
-        if latest is not None and not _has_reversal(latest.id):
-            values = _balance_values(user.id)
-            db.session.commit()
-            return _reservation_payload(latest.bucket, values, debited=False, attempt=latest.attempt)
+        if latest is not None:
+            if latest.note != question_hash:
+                db.session.rollback()
+                raise ClientMsgIdReused
+            if not _has_reversal(latest.id):
+                values = _balance_values(user.id)
+                db.session.commit()
+                return _reservation_payload(latest.bucket, values, debited=False, attempt=latest.attempt)
 
         prior_attempt = (
             db.session.query(func.max(GolCreditLedger.attempt))
@@ -122,6 +130,7 @@ def reserve_question(user, client_msg_id, *, role="user") -> dict:
             idempotency_key=f"q:{user.id}:{client_msg_id}:{attempt}",
             client_msg_id=client_msg_id,
             attempt=attempt,
+            note=question_hash,
         )
         try:
             with db.session.begin_nested():
@@ -131,6 +140,9 @@ def reserve_question(user, client_msg_id, *, role="user") -> dict:
             winner = _latest_debit(user.id, client_msg_id)
             if winner is None or _has_reversal(winner.id):
                 raise
+            if winner.note != question_hash:
+                db.session.rollback()
+                raise ClientMsgIdReused
             values = _balance_values(user.id)
             db.session.commit()
             return _reservation_payload(winner.bucket, values, debited=False, attempt=winner.attempt)
@@ -224,6 +236,8 @@ def grant_purchase(
 
 
 def apply_refund(*, payment_intent_id, cumulative_refunded_cents, stripe_event_id) -> int:
+    if not payment_intent_id:
+        return 0
     candidate = (
         GolCreditLedger.query.filter_by(
             stripe_payment_intent_id=payment_intent_id,
@@ -233,6 +247,8 @@ def apply_refund(*, payment_intent_id, cumulative_refunded_cents, stripe_event_i
         .first()
     )
     if candidate is None:
+        return 0
+    if not candidate.amount_paid_cents or candidate.amount_paid_cents <= 0:
         return 0
 
     _lock_user(candidate.user_account_id)
@@ -250,8 +266,6 @@ def apply_refund(*, payment_intent_id, cumulative_refunded_cents, stripe_event_i
         .one()
     )
     cumulative = max(0, int(cumulative_refunded_cents or 0))
-    if not grant.amount_paid_cents or grant.amount_paid_cents <= 0:
-        raise RuntimeError("GOL grant has no positive purchase amount")
     target = min(grant.delta, grant.delta * cumulative // grant.amount_paid_cents)
     already_reversed = -int(
         db.session.query(func.coalesce(func.sum(GolCreditLedger.delta), 0))
@@ -324,6 +338,7 @@ def forfeit_for_deletion(user) -> dict:
 
 
 __all__ = [
+    "ClientMsgIdReused",
     "CreditsExhausted",
     "apply_refund",
     "balances",
