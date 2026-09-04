@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 from functools import wraps
 
 from flask import Blueprint, Response, g, jsonify, redirect, request, send_file
+from sqlalchemy import select
 from src.auth import media_token_claims, media_token_remaining_seconds, mint_media_token, verify_media_token
 from src.models.funding import ClubRosterMember
 from src.models.league import Team, db
@@ -306,10 +307,16 @@ def upsert_roster(match_id: int):
 @require_api_key
 def process_match(match_id: int):
     """Debit one credit and queue the GPU job. 402 when the team has no credits."""
-    # Hold the row: the retention sweeper re-checks under this same lock before deleting footage.
-    match = db.session.get(VideoMatch, match_id, with_for_update=True)
+    match = db.session.get(VideoMatch, match_id)
     if match is None:
         return jsonify({"error": "match not found"}), 404
+
+    if match.team_id is not None and match.club_program_id is None:
+        # Credit lock order is Team first, then VideoMatch: every debit for a team must serialize before its balance read.
+        # SQLite ignores FOR UPDATE, so tests assert this ordering/idempotency; Postgres provides the actual exclusion.
+        db.session.execute(select(Team.id).where(Team.id == match.team_id).with_for_update()).scalar_one_or_none()
+    # Hold the match row too: the retention sweeper re-checks under this same lock before deleting footage.
+    db.session.refresh(match, with_for_update=True)
     if match.status not in ("uploaded", "preflight"):
         return _bad_request(f"cannot process in status '{match.status}' (upload first)")
     if match.kickoff_s is None:
@@ -757,6 +764,7 @@ def refund_match(match_id: int):
     match = _get_match_or_404(match_id)
     if match is None:
         return jsonify({"error": "match not found"}), 404
+    db.session.refresh(match, with_for_update=True)
     already = (
         db.session.query(VideoCreditLedger)
         .filter(
@@ -766,7 +774,19 @@ def refund_match(match_id: int):
         .first()
     )
     if already:
-        return _bad_request("match already refunded")
+        return jsonify({"error": "match already refunded"}), 409
+    debit = (
+        db.session.query(VideoCreditLedger)
+        .filter(
+            VideoCreditLedger.video_match_id == match.id,
+            VideoCreditLedger.team_id == match.team_id,
+            VideoCreditLedger.reason == "debit",
+            VideoCreditLedger.delta == -1,
+        )
+        .first()
+    )
+    if debit is None:
+        return jsonify({"error": "no debit to refund"}), 409
     db.session.add(
         VideoCreditLedger(
             team_id=match.team_id,
