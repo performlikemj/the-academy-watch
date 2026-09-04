@@ -95,6 +95,7 @@
 		A47D37E8EE1A935567B1383B /* AuthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BAD8F477373C476AB80BA86 /* AuthModels.swift */; };
 		A5801D0AF57463384D33FA24 /* player_season_stats_rollup.json in Resources */ = {isa = PBXBuildFile; fileRef = 4F20233C0A4AB73C729F4E04 /* player_season_stats_rollup.json */; };
 		A6D53809D9B2ED2A6335433E /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C5013EC2FD8C09F9F9BE620B /* PrivacyInfo.xcprivacy */; };
+		A90821E4AD5BF88716B4E14B /* SmokeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FE3F9E41F5C7FD3D21F767D /* SmokeUITests.swift */; };
 		A9B41C42C7BD39DBAF3417F1 /* FollowListsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92931EAF645427FD6F20EDB9 /* FollowListsViewModel.swift */; };
 		AD94E0B5B810F9B11E7CBCE3 /* OnboardingViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11EB506FDCE09344B455AD78 /* OnboardingViewModelTests.swift */; };
 		AF3FCF13848ABFAD5D7B2279 /* ShowcaseDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7D1F5BFB5DCCA417B8D0494 /* ShowcaseDecodingTests.swift */; };
@@ -157,6 +158,13 @@
 			remoteGlobalIDString = CF2937F36F66A8C0FE77250E;
 			remoteInfo = AcademyWatch;
 		};
+		808895C5584874EC2B466A71 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5793EE604247EB3BE4AE9F47 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CF2937F36F66A8C0FE77250E;
+			remoteInfo = AcademyWatch;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -166,6 +174,7 @@
 		0D21A5F79870BD11C71BE6E2 /* scout_players.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = scout_players.json; sourceTree = "<group>"; };
 		0E4BBA02F6853C08CA03AA84 /* CompareModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareModelsTests.swift; sourceTree = "<group>"; };
 		0F30E63C1FB8E4DF3E604DDA /* AcademyDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcademyDesignSystem.swift; sourceTree = "<group>"; };
+		0FE3F9E41F5C7FD3D21F767D /* SmokeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeUITests.swift; sourceTree = "<group>"; };
 		106F02E06486103330CAEC86 /* watchlist_response.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = watchlist_response.json; sourceTree = "<group>"; };
 		118C0C2317BE1ED294C9012F /* WorldwidePlayerSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorldwidePlayerSearchView.swift; sourceTree = "<group>"; };
 		11EB506FDCE09344B455AD78 /* OnboardingViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViewModelTests.swift; sourceTree = "<group>"; };
@@ -274,6 +283,7 @@
 		CEC529052850EE3418389E67 /* player_season_stats_outfielder.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = player_season_stats_outfielder.json; sourceTree = "<group>"; };
 		CF21E32DA1709CBAE3CBA4A4 /* BlockedUsersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockedUsersView.swift; sourceTree = "<group>"; };
 		D1DFDEA53487C361F6B587C9 /* ListsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListsView.swift; sourceTree = "<group>"; };
+		D21D9EAA8625FE6F10F33F64 /* AcademyWatchUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AcademyWatchUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D238FE601D7F2BD24352AFD2 /* IntroductionRequestViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntroductionRequestViewModelTests.swift; sourceTree = "<group>"; };
 		D3175B53313275B2B691D54D /* PlayerDetailAPIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerDetailAPIClientTests.swift; sourceTree = "<group>"; };
 		D577C551FEA61D030F25D814 /* PlayerMatchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerMatchModels.swift; sourceTree = "<group>"; };
@@ -370,6 +380,14 @@
 			path = Contact;
 			sourceTree = "<group>";
 		};
+		54954EBF90DF4D2D1FBAD3BA /* AcademyWatchUITests */ = {
+			isa = PBXGroup;
+			children = (
+				0FE3F9E41F5C7FD3D21F767D /* SmokeUITests.swift */,
+			);
+			path = AcademyWatchUITests;
+			sourceTree = "<group>";
+		};
 		61F57A3AC703B3FA357E8AF5 /* Fixtures */ = {
 			isa = PBXGroup;
 			children = (
@@ -425,6 +443,7 @@
 			children = (
 				FABDE93B9A3928584764A924 /* AcademyWatch */,
 				D38BDDF89C0D906C03A9DD4E /* AcademyWatchTests */,
+				54954EBF90DF4D2D1FBAD3BA /* AcademyWatchUITests */,
 				78BFC60E61FA9D69A00C6615 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -434,6 +453,7 @@
 			children = (
 				F94D859C0A64F06778515442 /* AcademyWatch.app */,
 				D63068665043BEEB2414079D /* AcademyWatchTests.xctest */,
+				D21D9EAA8625FE6F10F33F64 /* AcademyWatchUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -677,6 +697,24 @@
 			productReference = D63068665043BEEB2414079D /* AcademyWatchTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		2BF913805A5A17908892F84D /* AcademyWatchUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DFF69F854E2A2C530AABE63C /* Build configuration list for PBXNativeTarget "AcademyWatchUITests" */;
+			buildPhases = (
+				672FEFEDD4F6FDA16E0C61D6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A7B1EE9CDCE2AB9DB57BA449 /* PBXTargetDependency */,
+			);
+			name = AcademyWatchUITests;
+			packageProductDependencies = (
+			);
+			productName = AcademyWatchUITests;
+			productReference = D21D9EAA8625FE6F10F33F64 /* AcademyWatchUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		CF2937F36F66A8C0FE77250E /* AcademyWatch */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 805BF1157DAE6FACB559774A /* Build configuration list for PBXNativeTarget "AcademyWatch" */;
@@ -704,6 +742,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					2BF913805A5A17908892F84D = {
+						TestTargetID = CF2937F36F66A8C0FE77250E;
+					};
 					CF2937F36F66A8C0FE77250E = {
 						DevelopmentTeam = 263YH9X3BU;
 						ProvisioningStyle = Automatic;
@@ -726,6 +767,7 @@
 			targets = (
 				CF2937F36F66A8C0FE77250E /* AcademyWatch */,
 				255845D799AE3D84EA91AB47 /* AcademyWatchTests */,
+				2BF913805A5A17908892F84D /* AcademyWatchUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -902,9 +944,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		672FEFEDD4F6FDA16E0C61D6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A90821E4AD5BF88716B4E14B /* SmokeUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A7B1EE9CDCE2AB9DB57BA449 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CF2937F36F66A8C0FE77250E /* AcademyWatch */;
+			targetProxy = 808895C5584874EC2B466A71 /* PBXContainerItemProxy */;
+		};
 		FFC9263F69494DB626972507 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = CF2937F36F66A8C0FE77250E /* AcademyWatch */;
@@ -930,6 +985,24 @@
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AcademyWatch.app/AcademyWatch";
 			};
 			name = Debug;
+		};
+		1DF97D532EFC9B2DEE78BF5E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.theacademywatch.app.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = AcademyWatch;
+			};
+			name = Release;
 		};
 		3AB6931138B9C7616EC25516 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -1114,6 +1187,24 @@
 			};
 			name = Debug;
 		};
+		F3D50747DF267BB2B50B53CE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.theacademywatch.app.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = AcademyWatch;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1140,6 +1231,15 @@
 			buildConfigurations = (
 				463349E0883C946BABBB8E53 /* Debug */,
 				3AB6931138B9C7616EC25516 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DFF69F854E2A2C530AABE63C /* Build configuration list for PBXNativeTarget "AcademyWatchUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F3D50747DF267BB2B50B53CE /* Debug */,
+				1DF97D532EFC9B2DEE78BF5E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

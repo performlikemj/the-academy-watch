@@ -338,6 +338,7 @@ struct ScoutDeskView: View {
                     .autocorrectionDisabled()
                     .submitLabel(.search)
                     .accessibilityLabel("Search players")
+                    .accessibilityIdentifier("scout-search")
                 if !viewModel.searchText.isEmpty {
                     Button {
                         viewModel.setSearchText("")
@@ -509,6 +510,7 @@ struct ScoutDeskView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("Opens player detail")
+                    .accessibilityIdentifier("scout-player-\(player.playerId)")
 
                     VStack(spacing: 4) {
                         WatchlistStarButton(

@@ -697,6 +697,7 @@ private struct SeasonOverviewCard: View {
             }
         }
         .detailCardStyle()
+        .accessibilityIdentifier("season-overview-row")
     }
 }
 
@@ -786,6 +787,7 @@ private struct SeasonClubCard: View {
             }
         }
         .detailCardStyle()
+        .accessibilityIdentifier("season-club-row")
     }
 
     private var clubLogo: some View {

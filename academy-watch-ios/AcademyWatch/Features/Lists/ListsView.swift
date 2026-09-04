@@ -62,6 +62,7 @@ struct ListsView: View {
                             Image(systemName: "plus")
                         }
                         .accessibilityLabel("Create list")
+                        .accessibilityIdentifier("lists-create")
 
                         Button {
                             isWorldwideSearchPresented = true
@@ -85,12 +86,14 @@ struct ListsView: View {
             }
             .alert("New List", isPresented: $isCreatingList) {
                 TextField("List name", text: $newListName)
+                    .accessibilityIdentifier("lists-name")
                 Button("Cancel", role: .cancel) {}
                 Button("Create") {
                     let name = newListName
                     Task { await viewModel.createList(name: name) }
                 }
                 .disabled(newListName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("lists-create-submit")
             } message: {
                 Text("Give this group a clear scouting name.")
             }
@@ -156,6 +159,7 @@ struct ListsView: View {
                 newListName = ""
                 isCreatingList = true
             }
+            .accessibilityIdentifier("lists-create")
             .buttonStyle(.borderedProminent)
             .tint(AcademyColors.claretFill)
 
@@ -196,6 +200,7 @@ struct ListsView: View {
                 NavigationLink(value: ListsRoute.list(list.id)) {
                     FollowListRow(list: list)
                 }
+                .accessibilityIdentifier("list-\(list.id)")
                 .listRowBackground(AcademyColors.surface)
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     if !list.isDefault {
@@ -204,6 +209,7 @@ struct ListsView: View {
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
+                        .accessibilityIdentifier("list-delete-\(list.id)")
                         .disabled(viewModel.pendingListIDs.contains(list.id))
                     }
                 }
