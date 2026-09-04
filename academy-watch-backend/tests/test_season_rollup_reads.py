@@ -466,17 +466,22 @@ def test_season_stats_rollup_resolves_negative_id_from_club_program(client, monk
         )
     )
     total = _seed_rollup()
-    total.clubs = [{**total.clubs[0], "id": -program.id, "name": None}]
+    total.clubs = [
+        {**total.clubs[0], "id": -program.id, "name": "Stale Program Name"},
+        {**total.clubs[0], "id": -987654, "name": "Stored Community Name"},
+    ]
     db.session.commit()
     monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats")
 
     response = client.get(f"/api/players/{PLAYER}/season-stats?season=2025")
 
     assert response.status_code == 200
-    club = response.get_json()["clubs"][0]
-    assert club["team_api_id"] == -program.id
-    assert club["team_name"] == "Community Academy"
-    assert club["team_logo"] is None
+    clubs = response.get_json()["clubs"]
+    assert [(club["team_api_id"], club["team_name"]) for club in clubs] == [
+        (-program.id, "Community Academy"),
+        (-987654, "Stored Community Name"),
+    ]
+    assert all(club["team_logo"] is None for club in clubs)
 
 
 def test_season_stats_rollup_keeps_unknown_club_metadata_null(client, monkeypatch):

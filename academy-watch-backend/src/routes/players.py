@@ -344,10 +344,10 @@ def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
     def adapt(club):
         team_api_id = club.get("id")
         stored_name = club.get("name")
-        stored_name = stored_name.strip() if isinstance(stored_name, str) else None
+        stored_name = (stored_name.strip() or None) if isinstance(stored_name, str) else None
         resolved_name, resolved_logo = team_metadata.get(team_api_id, (None, None))
         if isinstance(team_api_id, int) and team_api_id < 0:
-            team_name = local_program_names.get(-team_api_id)
+            team_name = local_program_names.get(-team_api_id, stored_name)
         elif isinstance(team_api_id, int) and team_api_id > 0:
             team_name = stored_name or resolved_name
         else:
