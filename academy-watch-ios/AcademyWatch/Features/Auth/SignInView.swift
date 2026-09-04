@@ -1,5 +1,20 @@
 import SwiftUI
 
+enum SignInCodeInput {
+    static let maximumLength = 64
+
+    static func acceptedValue(_ value: String) -> String {
+        String(value.prefix(maximumLength))
+    }
+
+    static func submissionValue(_ value: String) -> String? {
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return value
+    }
+}
+
 @MainActor
 struct SignInView: View {
     @ObservedObject private var authManager: AuthManager
@@ -139,12 +154,12 @@ struct SignInView: View {
                     .font(.caption.weight(.bold))
                     .tracking(1)
                     .foregroundStyle(AcademyColors.claret)
-                Text("Enter the 11-character code sent to \(normalizedEmail). It expires in five minutes.")
+                Text("Enter the code we emailed to \(normalizedEmail). It expires in five minutes.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
-            TextField("11-character code", text: $code)
+            TextField("Sign-in code", text: $code)
                 .textContentType(.oneTimeCode)
                 .keyboardType(.asciiCapable)
                 .textInputAutocapitalization(.never)
@@ -154,13 +169,9 @@ struct SignInView: View {
                 .submitLabel(.go)
                 .onSubmit { verifyCode() }
                 .onChange(of: code) { _, newValue in
-                    let filtered = newValue.unicodeScalars
-                        .filter { (33 ... 126).contains(Int($0.value)) }
-                        .prefix(11)
-                        .map { String($0) }
-                        .joined()
-                    if code != filtered {
-                        code = filtered
+                    let acceptedValue = SignInCodeInput.acceptedValue(newValue)
+                    if code != acceptedValue {
+                        code = acceptedValue
                     }
                 }
                 .accessibilityIdentifier("signin-code")
@@ -171,7 +182,7 @@ struct SignInView: View {
             primaryButton(title: "Verify & sign in", identifier: "signin-verify") {
                 verifyCode()
             }
-            .disabled(isLoading || code.count != 11)
+            .disabled(isLoading || SignInCodeInput.submissionValue(code) == nil)
 
             HStack {
                 Button("Back") {
@@ -243,7 +254,7 @@ struct SignInView: View {
     }
 
     private func verifyCode() {
-        guard !isLoading, code.count == 11 else { return }
+        guard !isLoading, let submittedCode = SignInCodeInput.submissionValue(code) else { return }
         clearMessages()
         isLoading = true
         authenticationGeneration &+= 1
@@ -251,7 +262,7 @@ struct SignInView: View {
         authenticationTask = Task { @MainActor in
             defer { finishAuthenticationAttempt(generation: attemptGeneration) }
             do {
-                _ = try await authManager.verifyCode(email: normalizedEmail, code: code)
+                _ = try await authManager.verifyCode(email: normalizedEmail, code: submittedCode)
                 guard isCurrentAuthenticationAttempt(attemptGeneration) else { return }
                 dismiss()
             } catch is CancellationError {

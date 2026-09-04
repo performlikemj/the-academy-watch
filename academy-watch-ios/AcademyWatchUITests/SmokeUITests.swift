@@ -114,12 +114,12 @@ final class SmokeUITests: XCTestCase {
         let verify = require(app.buttons["signin-verify"], "Verify button should appear")
         verify.tap()
 
-        let signedInAccount = app.otherElements["account-signed-in"]
+        let signedInAccount = element(identifier: "account-signed-in")
         if !signedInAccount.waitForExistence(timeout: 12) {
             let signInError = app.staticTexts["signin-error"]
             if signInError.waitForExistence(timeout: 3) {
                 clearSensitiveCodeField(codeField)
-                saveScreenshot("20-reviewer-sign-in-failed.png")
+                saveScreenshot("21-reviewer-sign-in-failed.png")
                 XCTFail("Reviewer scout sign-in failed: \(signInError.label)")
                 return
             }
@@ -128,7 +128,7 @@ final class SmokeUITests: XCTestCase {
         require(signedInAccount, "Reviewer scout should be signed in")
         require(app.staticTexts["Verified scout"], "Reviewer account should be scout-verified")
         shouldSignOut = true
-        saveScreenshot("20-reviewer-account-signed-in.png")
+        saveScreenshot("21-reviewer-account-signed-in.png")
 
         selectTab("Scout Desk")
         let search = require(app.textFields["scout-search"], "Scout Desk search field should be available")
@@ -138,7 +138,7 @@ final class SmokeUITests: XCTestCase {
         require(result, "Search should return W. Lankshear")
         result.tap()
         require(app.navigationBars["W. Lankshear"], "W. Lankshear player detail should open")
-        saveScreenshot("21-reviewer-player.png")
+        saveScreenshot("22-reviewer-player.png")
 
         let addButton = firstElement(withIdentifierPrefix: "watchlist-add-", type: .button)
         require(addButton, "Player should not already be in the review account watchlist")
@@ -156,7 +156,7 @@ final class SmokeUITests: XCTestCase {
             app.buttons["watchlist-player-\(playerID)"],
             "Watchlist should show the newly added player"
         )
-        saveScreenshot("22-watchlist-added.png")
+        saveScreenshot("23-watchlist-added.png")
         watchlistRow.tap()
 
         let removeButton = require(
@@ -179,21 +179,25 @@ final class SmokeUITests: XCTestCase {
             app.buttons["watchlist-player-\(playerID)"].waitForExistence(timeout: 3),
             "Removed player should no longer appear in Watchlist"
         )
-        saveScreenshot("23-watchlist-removed.png")
+        saveScreenshot("24-watchlist-removed.png")
 
         selectTab("Lists")
         let createList = require(app.buttons["lists-create"].firstMatch, "Lists should offer list creation")
         createList.tap()
-        let listNameField = require(app.textFields["lists-name"], "New-list name field should appear")
+        let newListAlert = require(app.alerts["New List"], "New-list alert should appear")
+        let listNameField = require(newListAlert.textFields.firstMatch, "New-list name field should appear")
         let listName = "UI smoke \(Int(Date().timeIntervalSince1970))"
         listNameField.tap()
         listNameField.typeText(listName)
-        let createSubmit = require(app.buttons["lists-create-submit"], "New-list alert should offer Create")
+        let createSubmit = require(
+            newListAlert.buttons["lists-create-submit"].firstMatch,
+            "New-list alert should offer Create"
+        )
         createSubmit.tap()
         listNameToDelete = listName
 
         let createdListText = require(app.staticTexts[listName], "Created smoke list should appear")
-        saveScreenshot("24-list-created.png")
+        saveScreenshot("25-list-created.png")
         let createdListRow = app.buttons.containing(.staticText, identifier: listName).firstMatch
         require(createdListRow, "Created list should expose a row action")
         createdListRow.swipeLeft()
@@ -206,11 +210,18 @@ final class SmokeUITests: XCTestCase {
             "Deleted smoke list should no longer appear"
         )
         listNameToDelete = nil
-        saveScreenshot("25-list-deleted.png")
+        saveScreenshot("26-list-deleted.png")
 
         selectTab("Account")
-        require(app.otherElements["account-signed-in"], "Signed-in Account should remain available")
-        saveScreenshot("26-reviewer-account.png")
+        require(element(identifier: "account-signed-in"), "Signed-in Account should remain available")
+        saveScreenshot("27-reviewer-account.png")
+
+        let signOut = app.buttons["Sign Out"].firstMatch
+        scrollUntilHittable(signOut, message: "Signed-in Account should offer sign out")
+        signOut.tap()
+        require(app.buttons["account-sign-in"], "Account should return to signed-out state")
+        shouldSignOut = false
+        saveScreenshot("30-signed-out-again.png")
     }
 
     @discardableResult
@@ -239,13 +250,16 @@ final class SmokeUITests: XCTestCase {
     private func ensureSignedOut() {
         let accountTab = require(app.tabBars.buttons["Account"], "Account tab should be available")
         accountTab.tap()
-        require(app.navigationBars["Account"], "Account screen should open")
+        dismissPlayerPromptIfNeeded(timeout: 5)
+        accountTab.tap()
 
         if app.buttons["account-sign-in"].waitForExistence(timeout: 2) {
             return
         }
 
-        let signOut = require(app.buttons["Sign Out"].firstMatch, "Existing session should be possible to sign out")
+        require(element(identifier: "account-signed-in"), "Account should show a signed-in or signed-out state")
+        let signOut = app.buttons["Sign Out"].firstMatch
+        scrollUntilHittable(signOut, message: "Existing session should be possible to sign out")
         signOut.tap()
         require(app.buttons["account-sign-in"], "Account should return to signed-out state")
     }
@@ -254,6 +268,17 @@ final class SmokeUITests: XCTestCase {
         let scrollView = require(app.scrollViews.firstMatch, "Player detail should contain a scroll view")
         for _ in 0 ..< 14 {
             if element.waitForExistence(timeout: 1) {
+                return
+            }
+            scrollView.swipeUp()
+        }
+        XCTFail(message)
+    }
+
+    private func scrollUntilHittable(_ element: XCUIElement, message: String) {
+        let scrollView = require(app.scrollViews.firstMatch, "Screen should contain a scroll view")
+        for _ in 0 ..< 14 {
+            if element.waitForExistence(timeout: 1), element.isHittable {
                 return
             }
             scrollView.swipeUp()
@@ -310,13 +335,10 @@ final class SmokeUITests: XCTestCase {
     }
 
     private func dismissPlayerPromptIfNeeded(timeout: TimeInterval) {
-        let prompt = app.otherElements["first-sign-in-player-prompt"]
-        guard prompt.waitForExistence(timeout: timeout) else { return }
-        let dismiss = app.buttons["first-sign-in-player-prompt-dismiss"]
-        if dismiss.waitForExistence(timeout: 2) {
-            dismiss.tap()
-            _ = prompt.waitForNonExistence(timeout: 5)
-        }
+        let dismiss = app.buttons["Not now"]
+        guard dismiss.waitForExistence(timeout: timeout) else { return }
+        dismiss.tap()
+        _ = dismiss.waitForNonExistence(timeout: 5)
     }
 
     private func dismissKeyboardIfNeeded() {
@@ -372,7 +394,7 @@ final class SmokeUITests: XCTestCase {
     private func signOutIfNeeded() {
         guard shouldSignOut, tapTabIfPresent("Account") else { return }
         let signOut = app.buttons["Sign Out"].firstMatch
-        guard signOut.waitForExistence(timeout: 5) else { return }
+        scrollUntilHittable(signOut, message: "Reviewer session should be possible to sign out")
         signOut.tap()
         _ = app.buttons["account-sign-in"].waitForExistence(timeout: 8)
         shouldSignOut = false
