@@ -11,4 +11,21 @@ final class SignInCodeInputTests: XCTestCase {
         XCTAssertEqual(acceptedCode, code)
         XCTAssertEqual(submittedCode, code)
     }
+
+    func testSixtyFiveCharacterCodeIsCappedAtSixtyFour() {
+        let code = String(repeating: "x", count: 65)
+
+        XCTAssertEqual(SignInCodeInput.acceptedValue(code), String(repeating: "x", count: 64))
+    }
+
+    func testWhitespaceOnlyCodeHasNoSubmissionValue() {
+        XCTAssertNil(SignInCodeInput.submissionValue(" \t\n\r "))
+    }
+
+    func testSixtyFourCharacterCodeIsUnchanged() {
+        let code = String(repeating: "x", count: 64)
+
+        XCTAssertEqual(SignInCodeInput.acceptedValue(code), code)
+        XCTAssertEqual(SignInCodeInput.submissionValue(code), code)
+    }
 }

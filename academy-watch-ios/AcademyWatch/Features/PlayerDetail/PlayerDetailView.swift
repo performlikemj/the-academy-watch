@@ -273,6 +273,7 @@ struct PlayerDetailView: View {
                     await interestSignalsViewModel.refresh()
                 }
             }
+            .accessibilityIdentifier("player-detail-scroll")
             .task {
                 guard prioritizesInterestSignalsFixture else { return }
                 try? await Task.sleep(for: .milliseconds(300))

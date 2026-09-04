@@ -82,6 +82,7 @@ struct ScoutDeskView: View {
                 .refreshable {
                     await viewModel.reload()
                 }
+                .accessibilityIdentifier("scout-desk-scroll")
                 .allowsHitTesting(!isShowingInitialLoadingCard)
                 .accessibilityHidden(isShowingInitialLoadingCard)
 
@@ -293,7 +294,7 @@ struct ScoutDeskView: View {
                 Text(
                     viewModel.isLoadingInitial && viewModel.players.isEmpty
                         ? "Loading…"
-                        : "\(viewModel.totalPlayers.formatted()) players"
+                        : "\(viewModel.totalPlayers.formatted()) \(viewModel.totalPlayers == 1 ? "player" : "players")"
                 )
                     .font(.caption)
                     .foregroundStyle(.secondary)

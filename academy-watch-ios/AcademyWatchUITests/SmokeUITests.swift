@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import XCTest
 
 final class SmokeUITests: XCTestCase {
@@ -38,9 +39,12 @@ final class SmokeUITests: XCTestCase {
         let search = require(app.textFields["scout-search"], "Scout Desk search field should be available")
         search.tap()
         search.typeText("Lankshear")
+        dismissKeyboardIfNeeded()
 
-        let result = app.buttons.containing(.staticText, identifier: "W. Lankshear").firstMatch
+        let scoutDeskScroll = require(app.scrollViews["scout-desk-scroll"], "Scout Desk results should be scrollable")
+        let result = scoutDeskScroll.buttons["scout-player-393195"]
         require(result, "Search should return W. Lankshear")
+        scrollUntilOnScreen(result, in: scoutDeskScroll, message: "W. Lankshear result should be visible")
         saveScreenshot("02-lankshear-search.png")
         result.tap()
 
@@ -48,9 +52,26 @@ final class SmokeUITests: XCTestCase {
         saveScreenshot("03-lankshear-detail.png")
 
         let seasonSection = app.staticTexts["SEASON STATS"]
-        scrollUntilVisible(seasonSection, message: "Player detail should reach SEASON STATS")
-        let seasonData = firstExistingElement(identifiers: ["season-club-row", "season-overview-row"])
-        require(seasonData, "SEASON STATS should show a club row or stat overview")
+        require(seasonSection, "Player detail should contain SEASON STATS")
+        let seasonClubRow = require(element(identifier: "season-club-row"), "SEASON STATS should show a club row")
+        let playerDetailScroll = require(
+            app.scrollViews["player-detail-scroll"],
+            "Player detail should contain a scroll view"
+        )
+        scrollUntilOnScreen(
+            seasonClubRow,
+            in: playerDetailScroll,
+            message: "SEASON STATS club row should be visible"
+        )
+        if !isOnScreen(seasonSection) {
+            drag(in: playerDetailScroll, fromFraction: 0.42, toFraction: 0.50)
+        }
+        XCTAssertTrue(isOnScreen(seasonSection), "SEASON STATS heading should be visible in the screenshot")
+        XCTAssertTrue(
+            seasonClubRow.label.localizedCaseInsensitiveContains("Middlesbrough"),
+            "W. Lankshear SEASON STATS club row should identify Middlesbrough"
+        )
+        XCTAssertTrue(isOnScreen(seasonClubRow), "Middlesbrough club row should be visible in the screenshot")
         XCTAssertFalse(
             app.staticTexts["The service response format was not recognized."].exists,
             "SEASON STATS must decode the live response"
@@ -103,14 +124,12 @@ final class SmokeUITests: XCTestCase {
         signIn.tap()
 
         let emailField = require(app.textFields["signin-email"], "Sign-in email field should appear")
-        emailField.tap()
-        emailField.typeText(email)
+        pasteSensitiveValue(email, into: emailField)
         let sendCode = require(app.buttons["signin-send-code"], "Send-code button should appear")
         sendCode.tap()
 
         let codeField = require(app.textFields["signin-code"], "Sign-in code field should appear")
-        codeField.tap()
-        codeField.typeText(code)
+        pasteSensitiveValue(code, into: codeField)
         let verify = require(app.buttons["signin-verify"], "Verify button should appear")
         verify.tap()
 
@@ -126,16 +145,19 @@ final class SmokeUITests: XCTestCase {
         }
         dismissPlayerPromptIfNeeded(timeout: 8)
         require(signedInAccount, "Reviewer scout should be signed in")
-        require(app.staticTexts["Verified scout"], "Reviewer account should be scout-verified")
         shouldSignOut = true
+        require(app.staticTexts["Verified scout"], "Reviewer account should be scout-verified")
         saveScreenshot("21-reviewer-account-signed-in.png")
 
         selectTab("Scout Desk")
         let search = require(app.textFields["scout-search"], "Scout Desk search field should be available")
         search.tap()
         search.typeText("Lankshear")
-        let result = app.buttons.containing(.staticText, identifier: "W. Lankshear").firstMatch
+        dismissKeyboardIfNeeded()
+        let scoutDeskScroll = require(app.scrollViews["scout-desk-scroll"], "Scout Desk results should be scrollable")
+        let result = scoutDeskScroll.buttons["scout-player-393195"]
         require(result, "Search should return W. Lankshear")
+        scrollUntilOnScreen(result, in: scoutDeskScroll, message: "W. Lankshear result should be visible")
         result.tap()
         require(app.navigationBars["W. Lankshear"], "W. Lankshear player detail should open")
         saveScreenshot("22-reviewer-player.png")
@@ -217,7 +239,7 @@ final class SmokeUITests: XCTestCase {
         saveScreenshot("27-reviewer-account.png")
 
         let signOut = app.buttons["Sign Out"].firstMatch
-        scrollUntilHittable(signOut, message: "Signed-in Account should offer sign out")
+        guard scrollUntilHittable(signOut, message: "Signed-in Account should offer sign out") else { return }
         signOut.tap()
         require(app.buttons["account-sign-in"], "Account should return to signed-out state")
         shouldSignOut = false
@@ -259,44 +281,107 @@ final class SmokeUITests: XCTestCase {
 
         require(element(identifier: "account-signed-in"), "Account should show a signed-in or signed-out state")
         let signOut = app.buttons["Sign Out"].firstMatch
-        scrollUntilHittable(signOut, message: "Existing session should be possible to sign out")
+        guard scrollUntilHittable(signOut, message: "Existing session should be possible to sign out") else { return }
         signOut.tap()
         require(app.buttons["account-sign-in"], "Account should return to signed-out state")
     }
 
-    private func scrollUntilVisible(_ element: XCUIElement, message: String) {
-        let scrollView = require(app.scrollViews.firstMatch, "Player detail should contain a scroll view")
+    private func scrollUntilOnScreen(
+        _ element: XCUIElement,
+        in scrollView: XCUIElement,
+        message: String
+    ) {
         for _ in 0 ..< 14 {
-            if element.waitForExistence(timeout: 1) {
+            if element.waitForExistence(timeout: 1), isOnScreen(element) {
                 return
             }
-            scrollView.swipeUp()
+            dragUp(in: scrollView)
         }
         XCTFail(message)
     }
 
-    private func scrollUntilHittable(_ element: XCUIElement, message: String) {
+    private func dragUp(in scrollView: XCUIElement) {
+        drag(in: scrollView, fromFraction: 0.62, toFraction: 0.42)
+    }
+
+    private func drag(
+        in scrollView: XCUIElement,
+        fromFraction: CGFloat,
+        toFraction: CGFloat
+    ) {
+        let frame = scrollView.frame
+        let windowFrame = app.windows.firstMatch.frame
+        let dragFrame = frame.intersection(windowFrame)
+        guard !dragFrame.isEmpty, !dragFrame.isNull, !dragFrame.isInfinite else {
+            if fromFraction < toFraction {
+                scrollView.swipeDown()
+            } else {
+                scrollView.swipeUp()
+            }
+            return
+        }
+
+        let start = app.coordinate(
+            withNormalizedOffset: CGVector(
+                dx: dragFrame.midX / windowFrame.width,
+                dy: (dragFrame.minY + dragFrame.height * fromFraction) / windowFrame.height
+            )
+        )
+        let finish = app.coordinate(
+            withNormalizedOffset: CGVector(
+                dx: dragFrame.midX / windowFrame.width,
+                dy: (dragFrame.minY + dragFrame.height * toFraction) / windowFrame.height
+            )
+        )
+        start.press(
+            forDuration: 0.05,
+            thenDragTo: finish,
+            withVelocity: .slow,
+            thenHoldForDuration: 0
+        )
+    }
+
+    private func isOnScreen(_ element: XCUIElement) -> Bool {
+        guard element.exists else { return false }
+        let frame = element.frame
+        guard !frame.isEmpty, !frame.isNull, !frame.isInfinite else { return false }
+
+        let windowFrame = app.windows.firstMatch.frame
+        var visibleMaxY = windowFrame.maxY
+        let tabBar = app.tabBars.firstMatch
+        if tabBar.exists {
+            visibleMaxY = min(visibleMaxY, tabBar.frame.minY)
+        }
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.exists {
+            visibleMaxY = min(visibleMaxY, keyboard.frame.minY)
+        }
+        let navigationBar = app.navigationBars.firstMatch
+        let visibleMinY = navigationBar.exists ? max(windowFrame.minY, navigationBar.frame.maxY) : windowFrame.minY
+        guard visibleMaxY > visibleMinY else { return false }
+
+        let visibleFrame = CGRect(
+            x: windowFrame.minX,
+            y: visibleMinY,
+            width: windowFrame.width,
+            height: visibleMaxY - visibleMinY
+        )
+        let intersection = visibleFrame.intersection(frame)
+        let requiredVisibleHeight = min(frame.height, 44)
+        return intersection.width > 0 && intersection.height >= requiredVisibleHeight
+    }
+
+    @discardableResult
+    private func scrollUntilHittable(_ element: XCUIElement, message: String) -> Bool {
         let scrollView = require(app.scrollViews.firstMatch, "Screen should contain a scroll view")
         for _ in 0 ..< 14 {
             if element.waitForExistence(timeout: 1), element.isHittable {
-                return
+                return true
             }
             scrollView.swipeUp()
         }
         XCTFail(message)
-    }
-
-    private func firstExistingElement(identifiers: [String]) -> XCUIElement {
-        for _ in 0 ..< 8 {
-            for identifier in identifiers {
-                let candidate = element(identifier: identifier)
-                if candidate.waitForExistence(timeout: 1) {
-                    return candidate
-                }
-            }
-            app.scrollViews.firstMatch.swipeUp()
-        }
-        return element(identifier: identifiers[0])
+        return false
     }
 
     private func element(identifier: String) -> XCUIElement {
@@ -334,6 +419,14 @@ final class SmokeUITests: XCTestCase {
         }
     }
 
+    private func pasteSensitiveValue(_ value: String, into field: XCUIElement) {
+        UIPasteboard.general.string = value
+        defer { UIPasteboard.general.string = "" }
+        field.press(forDuration: 1.2)
+        let paste = require(app.menuItems["Paste"], "Sensitive field should offer the Paste action")
+        paste.tap()
+    }
+
     private func dismissPlayerPromptIfNeeded(timeout: TimeInterval) {
         let dismiss = app.buttons["Not now"]
         guard dismiss.waitForExistence(timeout: timeout) else { return }
@@ -361,42 +454,73 @@ final class SmokeUITests: XCTestCase {
 
     private func deleteSmokeListIfNeeded() {
         guard let listName = listNameToDelete else { return }
-        guard tapTabIfPresent("Lists") else { return }
+        guard tapTabIfPresent("Lists") else {
+            recordCleanupFailure("list named \(listName): Lists tab was unavailable")
+            return
+        }
         let row = app.buttons.containing(.staticText, identifier: listName).firstMatch
         guard row.waitForExistence(timeout: 8) else {
-            listNameToDelete = nil
+            recordCleanupFailure("list named \(listName): row was not found")
             return
         }
         row.swipeLeft()
         let delete = firstElement(withIdentifierPrefix: "list-delete-", type: .button)
-        guard delete.waitForExistence(timeout: 3) else { return }
+        guard delete.waitForExistence(timeout: 3) else {
+            recordCleanupFailure("list named \(listName): delete action was not found")
+            return
+        }
         delete.tap()
-        _ = row.waitForNonExistence(timeout: 8)
+        guard row.waitForNonExistence(timeout: 8) else {
+            recordCleanupFailure("list named \(listName): row remained after delete")
+            return
+        }
         listNameToDelete = nil
     }
 
     private func removeSmokeWatchlistEntryIfNeeded() {
         guard let playerID = watchlistPlayerIDToRemove else { return }
-        guard tapTabIfPresent("Watchlist") else { return }
+        guard tapTabIfPresent("Watchlist") else {
+            recordCleanupFailure("watchlist player id \(playerID): Watchlist tab was unavailable")
+            return
+        }
         let row = app.buttons["watchlist-player-\(playerID)"]
         guard row.waitForExistence(timeout: 8) else {
-            watchlistPlayerIDToRemove = nil
+            recordCleanupFailure("watchlist player id \(playerID): row was not found")
             return
         }
         row.tap()
         let remove = app.buttons["watchlist-remove-\(playerID)"]
-        guard remove.waitForExistence(timeout: 8) else { return }
+        guard remove.waitForExistence(timeout: 8) else {
+            recordCleanupFailure("watchlist player id \(playerID): remove action was not found")
+            return
+        }
         remove.tap()
-        _ = app.buttons["watchlist-add-\(playerID)"].waitForExistence(timeout: 8)
+        guard app.buttons["watchlist-add-\(playerID)"].waitForExistence(timeout: 8) else {
+            recordCleanupFailure("watchlist player id \(playerID): removal did not finish")
+            return
+        }
         watchlistPlayerIDToRemove = nil
     }
 
+    private func recordCleanupFailure(_ detail: String) {
+        XCTFail("LIVE ACCOUNT CLEANUP REQUIRED — \(detail)")
+    }
+
     private func signOutIfNeeded() {
-        guard shouldSignOut, tapTabIfPresent("Account") else { return }
+        guard shouldSignOut else { return }
+        guard tapTabIfPresent("Account") else {
+            recordCleanupFailure("reviewer session: Account tab was unavailable for sign-out")
+            return
+        }
         let signOut = app.buttons["Sign Out"].firstMatch
-        scrollUntilHittable(signOut, message: "Reviewer session should be possible to sign out")
+        guard scrollUntilHittable(signOut, message: "LIVE ACCOUNT CLEANUP REQUIRED — reviewer session could not reach Sign Out") else {
+            return
+        }
         signOut.tap()
-        _ = app.buttons["account-sign-in"].waitForExistence(timeout: 8)
+        guard app.buttons["account-sign-in"].waitForExistence(timeout: 8) else {
+            recordCleanupFailure("reviewer session: signed-out state did not appear")
+            return
+        }
         shouldSignOut = false
     }
 

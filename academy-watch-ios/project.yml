@@ -77,4 +77,14 @@ schemes:
     test:
       targets:
         - AcademyWatchTests
+        - name: AcademyWatchUITests
+          skipped: true
+
+  AcademyWatchUISmoke:
+    build:
+      targets:
+        AcademyWatch: all
+        AcademyWatchUITests: [test]
+    test:
+      targets:
         - AcademyWatchUITests

@@ -4,14 +4,15 @@ enum SignInCodeInput {
     static let maximumLength = 64
 
     static func acceptedValue(_ value: String) -> String {
-        String(value.prefix(maximumLength))
+        String(value.filter { !$0.isWhitespace }.prefix(maximumLength))
     }
 
     static func submissionValue(_ value: String) -> String? {
-        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let acceptedValue = acceptedValue(value)
+        guard !acceptedValue.isEmpty else {
             return nil
         }
-        return value
+        return acceptedValue
     }
 }
 
