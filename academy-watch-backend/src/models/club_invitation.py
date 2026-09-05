@@ -331,9 +331,10 @@ def resolve_invitation(session, invitation, actor_id, action, *, manager=False):
         raise InvitationError("invitation_not_found", 404)
     if action == "revoke" and invitation.status == "revoked":
         return invitation
-    if not claim_matches(
-        session, claim, invitation.player_api_id, invitation.recipient_user_id
-    ) or not resolve_public_adult_subject(invitation.player_api_id):
+    # Withdrawal removes access even if age or publication eligibility has changed.
+    if not claim_matches(session, claim, invitation.player_api_id, invitation.recipient_user_id) or (
+        action != "revoke" and not resolve_public_adult_subject(invitation.player_api_id)
+    ):
         raise InvitationError("invitation_unavailable")
     now = utcnow()
     if invitation.status == "pending" and now >= invitation.expires_at:

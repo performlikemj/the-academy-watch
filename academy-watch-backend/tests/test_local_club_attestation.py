@@ -70,6 +70,43 @@ def test_stage_reject_approve_owner_and_admin_payloads(client, pilot):
     assert owner.headers["Cache-Control"] == "private, no-store"
 
 
+def test_program_rename_between_stage_and_approve(client, pilot):
+    from src.models.funding import ClubProgram
+
+    accept_local(client, pilot)
+    assert stage(client, pilot).json["profile"]["current_club_name"] == "Club A"
+    db.session.get(ClubProgram, pilot["program"]).name = "Renamed Club A"
+    db.session.commit()
+    response = review(client, pilot)
+    assert response.status_code == 200, response.json
+    assert response.json["profile"]["current_club_name"] == "Renamed Club A"
+    assert pilot["local_claim"].current_club_name == "Renamed Club A"
+    assert routing_mode_for_claim(pilot["local_claim"]) == "club_included"
+    assert PlayerShowcaseProfile.query.one().pending_contract_status is None
+
+
+@pytest.mark.parametrize("enabled", ["false", "true"])
+@pytest.mark.parametrize("full_form", [False, True])
+def test_local_free_agent_profile_save_preserves_claim_axis(client, pilot, monkeypatch, enabled, full_form):
+    accept_local(client, pilot)
+    assert stage(client, pilot).status_code == 200
+    assert review(client, pilot).status_code == 200
+    before = pilot["local_claim"].to_dict()
+    monkeypatch.setenv("PILOT_CLUB_RELATIONSHIPS_ENABLED", enabled)
+    payload = {"contract_status": "free_agent"}
+    if full_form:
+        payload.update(contract_until=None, availability="open_to_moves", bio="Updated biography")
+    response = client.put(
+        f"/api/local-players/{pilot['local'].id}/showcase/profile", json=payload, headers=_headers("scout")
+    )
+    assert response.status_code == 200, response.json
+    profile = PlayerShowcaseProfile.query.one()
+    assert profile.contract_status == "free_agent"
+    assert profile.pending_contract_status is None and profile.pending_contract_claim_id is None
+    assert response.json["profile"]["contract_attestation_review_status"] == "approved"
+    assert pilot["local_claim"].to_dict() == before
+
+
 @pytest.mark.parametrize(
     "status,expected", [("contracted", "club_included"), ("unknown", "club_included"), ("free_agent", "direct")]
 )
@@ -176,6 +213,24 @@ def test_revocation_closes_only_exact_threads_and_rolls_back_on_failure(client, 
     assert routing_mode_for_claim(pilot["local_claim"]) == "club_notified"
 
 
+def test_provider_withdrawal_closes_threads_without_changing_attested_routing(client, pilot, club_app):
+    row_id = invitation(client, pilot)
+    assert decide(client, row_id).status_code == 200
+    claim = pilot["claim"]
+    claim.contract_status = "contracted"
+    claim.club_program_id = pilot["program"]
+    claim.current_club_name = "Club A"
+    db.session.commit()
+    before = claim.to_dict()
+    rows = contacts(pilot, club_app)
+    assert decide(client, row_id, "revoke").status_code == 200
+    assert claim.to_dict() == before
+    assert routing_mode_for_claim(claim, platform_belief="unknown") == "club_included"
+    assert rows[2].status == rows[2].club_consent_status == "declined"
+    assert rows[2].responded_at is not None and not messaging_is_open(rows[2])
+    assert all(row.status == "accepted" for row in rows[:2])
+
+
 @pytest.mark.parametrize(
     "player_consent,club_consent,expected",
     [
@@ -234,8 +289,23 @@ def test_revocation_removes_finalized_report_reel_and_roster(client, pilot, club
     assert decide(client, row_id, "revoke").status_code == 200
     assert client.get(path + "/report", headers=_headers("a")).json["reports"] == []
     assert client.get(path + "/reel", headers=_headers("a")).json["players"] == []
+    assert client.get(path, headers=_headers("a")).json["roster"] == []
     assert client.get(f"/api/club/{pilot['program']}/roster", headers=_headers("a")).json["members"] == []
     assert entry.club_roster_member_id is None and PlayerMatchEntry.query.count() == 1
+
+
+def test_match_roster_omits_legacy_orphans_without_deleting_history(client, pilot):
+    from src.models.video import VideoMatch, VideoRosterEntry
+
+    match = VideoMatch(club_program_id=pilot["program"], status="finalized")
+    db.session.add(match)
+    db.session.flush()
+    entry = VideoRosterEntry(video_match_id=match.id, jersey_number=8, player_name="Legacy orphan")
+    db.session.add(entry)
+    db.session.commit()
+    response = client.get(f"/api/club/{pilot['program']}/matches/{match.id}", headers=_headers("a"))
+    assert response.status_code == 200 and response.json["roster"] == []
+    assert db.session.get(VideoRosterEntry, entry.id) is not None
 
 
 @pytest.mark.parametrize(

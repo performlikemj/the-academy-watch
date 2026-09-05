@@ -2684,9 +2684,7 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
             )
         )
         local_contract_update = subject.is_local and (
-            attestation_detail_requested
-            or contract_status in {"contracted", "unknown"}
-            or (contract_status == "free_agent" and not profile_contract_context)
+            attestation_detail_requested or contract_status in {"contracted", "unknown"}
         )
         if local_contract_update:
             if not relationships_enabled():
@@ -5163,20 +5161,21 @@ def _admin_review_subject_profile(subject: ShowcaseSubject):
                     return jsonify({"error": "not_found"}), 404
                 if contract_claim is None or contract_claim.user_account_id != profile.updated_by_user_id:
                     raise InvitationError("club_relationship_required")
-                local_attestation(
+                attestation = local_attestation(
                     db.session,
                     contract_claim,
                     -subject.local_player_id,
                     {
                         "contract_status": profile.pending_contract_status,
                         "club_program_id": profile.pending_club_program_id,
-                        "current_club_name": profile.pending_current_club_name,
                     },
                 )
                 db.session.refresh(profile, with_for_update=True)
                 # Revocation locks the claim first, so the staged selection is stable here.
                 if profile.pending_contract_status is None:
                     raise InvitationError("club_relationship_required")
+                # Names are derived from the locked program, which may have been renamed since staging.
+                profile.pending_current_club_name = attestation["current_club_name"]
             elif (
                 contract_claim is None
                 or contract_claim.player_api_id != subject.player_api_id
@@ -5413,7 +5412,7 @@ def _require_pinned_invitation(view):
             or not claim_matches(
                 db.session, db.session.get(PlayerProfileClaim, invitation.claim_id), invitation.player_api_id, g.user_id
             )
-            or not resolve_public_adult_subject(invitation.player_api_id)
+            or (kwargs.get("action") != "revoke" and not resolve_public_adult_subject(invitation.player_api_id))
         ):
             return jsonify({"error": "invitation_not_found"}), 404
         g.club_invitation = invitation

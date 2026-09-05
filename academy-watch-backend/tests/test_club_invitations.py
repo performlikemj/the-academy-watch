@@ -151,6 +151,55 @@ def test_inviter_revoked_then_second_manager_after_acceptance(client, pilot, clu
     assert ClubRosterMember.query.count() == 0
 
 
+@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("state", ["minor", "unknown-age", "suppressed"])
+@pytest.mark.parametrize("actor", ["manager", "claimant", "roster-delete"])
+def test_withdrawal_cleans_up_after_subject_becomes_unavailable(client, pilot, local, state, actor):
+    from src.models.player_suppression import PlayerSuppression
+
+    signed_id = -pilot["local"].id if local else 7001
+    row_id = invitation(client, pilot, signed_id)
+    assert decide(client, row_id).status_code == 200
+    member_id = ClubRosterMember.query.one().id
+    player = pilot["local"] if local else TrackedPlayer.query.filter_by(player_api_id=7001).one()
+    if state == "suppressed":
+        db.session.add(
+            PlayerSuppression(
+                **({"local_player_id": player.id} if local else {"player_api_id": signed_id}),
+                status="active",
+                reason_code="player_request",
+                requester_role="player",
+                requester_contact="synthetic@example.com",
+                request_statement="Synthetic suppression",
+            )
+        )
+    elif state == "unknown-age":
+        player.birth_date = None
+        if local:
+            player.birth_year = None
+    else:
+        player.birth_date = date(2015, 1, 1) if local else "2015-01-01"
+    db.session.commit()
+    roster = client.get(f"/api/club/{pilot['program']}/roster", headers=_headers("a"))
+    assert roster.json["members"][0]["available"] is False
+    assert decide(client, row_id, "accept").status_code == 404
+    assert decide(client, row_id, "decline").status_code == 404
+    assert decide(client, row_id, "revoke", key="b").status_code == 404
+    if actor == "manager":
+        response = client.post(
+            f"/api/club/{pilot['program']}/invitations/{row_id}/revoke", json={}, headers=_headers("a")
+        )
+    elif actor == "claimant":
+        response = decide(client, row_id, "revoke")
+    else:
+        response = client.delete(f"/api/club/{pilot['program']}/roster/{member_id}", headers=_headers("a"))
+    assert response.status_code == 200, response.json
+    assert db.session.get(ClubInvitation, row_id).status == "revoked"
+    assert ClubRosterMember.query.count() == 0
+    assert decide(client, row_id, "revoke").status_code == 200
+    assert create(client, pilot, signed_id).status_code == 404
+
+
 @pytest.mark.parametrize(
     "state",
     [
