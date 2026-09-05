@@ -41,7 +41,7 @@ from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services import season_rollup_service, video_retention, video_storage
 from src.services.capture_meta import merge_preflight
-from src.services.club_player_authority import club_has_authority_over_player
+from src.services.club_player_authority import club_authorized_player_ids, club_has_authority_over_player
 from src.services.club_registry import require_club_manager
 from src.services.coach_brief import MAX_BRIEF_CHARS, MAX_BRIEF_LINE_CHARS, MAX_BRIEF_LINES, brief_payload
 from src.services.player_identity import retained_shadow_identity_exists
@@ -501,16 +501,20 @@ def _member_subject(member: ClubRosterMember) -> tuple[dict | None, object | Non
     )
 
 
-def _member_dict(member: ClubRosterMember) -> dict:
+def _member_dict(member: ClubRosterMember, *, authorized_player_ids: set[int] | None = None) -> dict:
     subject, player = _member_subject(member)
     public_stats_allowed = False
     if subject is not None and not subject["is_minor"]:
         if member.player_api_id is not None:
-            public_stats_allowed = club_has_authority_over_player(
-                db.session.get(ClubProgram, member.program_id),
-                member.player_api_id,
-                season=current_stats_season(),
-                session=db.session,
+            public_stats_allowed = (
+                member.player_api_id in authorized_player_ids
+                if authorized_player_ids is not None
+                else club_has_authority_over_player(
+                    db.session.get(ClubProgram, member.program_id),
+                    member.player_api_id,
+                    season=current_stats_season(),
+                    session=db.session,
+                )
             )
         else:
             public_stats_allowed = player.status == "approved" and player.api_player_id == -player.id
@@ -822,9 +826,12 @@ def list_club_roster(program_id: int):
         .order_by(ClubRosterMember.created_at.asc(), ClubRosterMember.id.asc())
         .all()
     )
+    authorized_player_ids = club_authorized_player_ids(
+        program, {row.player_api_id for row in rows}, season=current_stats_season(), session=db.session
+    )
     return jsonify(
         {
-            "members": [_member_dict(row) for row in rows],
+            "members": [_member_dict(row, authorized_player_ids=authorized_player_ids) for row in rows],
             "count": len(rows),
             "system_brief": _brief_dict(program.system_brief_body, program.system_brief_updated_at),
         }
@@ -1051,14 +1058,18 @@ def record_club_result(program_id: int):
             player_api_id: row for player_api_id, row in fixture_by_player.items() if player_api_id in seen_player_ids
         }
 
-        # Header corrections also modify fixture players omitted from the lineup.
-        # Validate the complete write set before changing any entry or rollup.
-        unauthorized_player_ids = sorted(
-            player_api_id
-            for player_api_id in seen_player_ids | set(fixture_by_player)
-            if player_api_id > 0
-            and not club_has_authority_over_player(program, player_api_id, season=season, session=db.session)
+        # This program's confirmed fixture rows retain their entry-time authority
+        # after transfers, including omitted players touched by header corrections.
+        established_player_ids = {row.player_api_id for row in fixture_rows if row.status == "club_confirmed"}
+        players_requiring_authority = {
+            player_id
+            for player_id in (seen_player_ids | set(fixture_by_player)) - established_player_ids
+            if player_id > 0
+        }
+        authorized_player_ids = club_authorized_player_ids(
+            program, players_requiring_authority, season=season, session=db.session
         )
+        unauthorized_player_ids = sorted(players_requiring_authority - authorized_player_ids)
         if unauthorized_player_ids:
             db.session.rollback()
             return jsonify({"error": "player_not_affiliated", "player_api_ids": unauthorized_player_ids}), 422
