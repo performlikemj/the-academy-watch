@@ -1,7 +1,8 @@
 """P1 checker: real route, persisted sources, narrow serialization, no writes."""
 
 import copy
-from datetime import date, datetime, timedelta
+import os
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from flask import Flask
@@ -21,16 +22,61 @@ START = datetime(2026, 9, 5)
 URL = "/api/admin/pilot-cohort/report"
 
 
+def postgres_report_tables():
+    """Real P1 tables and FK dependencies, without unrelated PG15-only DDL."""
+    from src.models.contact import ContactOutcome, ContactRequest
+    from src.models.follow import PlayerShadow
+    from src.models.player_suppression import PlayerSuppression
+
+    tables = {
+        model.__table__
+        for model in (
+            FundingLeague,
+            ClubProgram,
+            ClubProgramClaim,
+            ClubProgramManager,
+            UserAccount,
+            LocalPlayer,
+            PlayerProfileClaim,
+            ScoutVerification,
+            PlayerMatchEntry,
+            ScoutWatchlistEntry,
+            PlayerFan,
+            ProductEvent,
+            ContactOutcome,
+            ContactRequest,
+            PlayerShadow,
+            PlayerSuppression,
+        )
+    }
+    pending = list(tables)
+    while pending:
+        for foreign_key in pending.pop().foreign_keys:
+            dependency = foreign_key.column.table
+            if dependency not in tables:
+                tables.add(dependency)
+                pending.append(dependency)
+    return sorted(tables, key=lambda table: table.name)
+
+
 @pytest.fixture
-def app(monkeypatch):
+def app(monkeypatch, request):
     monkeypatch.setenv("PLAYER_SUPPRESSION_ENCRYPTION_KEY", "cGlsb3QtcDEtdGVzdC1rZXktMzItYnl0ZXMtMTIzNDU=")
     monkeypatch.setenv("ADMIN_API_KEY", "pilot-test-key")
     monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
+    monkeypatch.delenv("ADMIN_EMAILS", raising=False)
+    monkeypatch.delenv("REVIEW_LOGIN_ACCOUNTS", raising=False)
+    monkeypatch.delenv("REVIEW_LOGIN_EMAIL", raising=False)
+    monkeypatch.delenv("REVIEW_LOGIN_CODE", raising=False)
+    uri = postgres_url() if getattr(request, "param", None) == "postgresql" else "sqlite:///:memory:"
     app = Flask(__name__)
     app.config.update(
         TESTING=True,
         SECRET_KEY="pilot-secret",
-        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_DATABASE_URI=uri,
+        SQLALCHEMY_ENGINE_OPTIONS={"connect_args": {"options": "-c timezone=UTC"}}
+        if uri.startswith("postgresql")
+        else {},
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         RATELIMIT_ENABLED=True,
         RATELIMIT_STORAGE_URI="memory://",
@@ -41,7 +87,8 @@ def app(monkeypatch):
     app.register_blueprint(events_bp, url_prefix="/api")
     with app.app_context():
         limiter.reset()
-        db.create_all()
+        tables = postgres_report_tables() if db.engine.dialect.name == "postgresql" else None
+        db.metadata.create_all(db.engine, tables=tables)
         db.session.add(
             FundingLeague(
                 id=1,
@@ -126,7 +173,7 @@ def app(monkeypatch):
         db.session.commit()
         yield app
         db.session.remove()
-        db.drop_all()
+        db.metadata.drop_all(db.engine, tables=tables)
         limiter.reset()
 
 
@@ -175,7 +222,7 @@ def action(day=0, *, actor=1, subject=-42, program=7, source="club"):
         match_date=START.date() + timedelta(days=day),
         opponent=f"PRIVATE_OPPONENT_{day}",
         home_away="home",
-        created_at=START + timedelta(days=day),
+        created_at=START.replace(tzinfo=UTC) + timedelta(days=day),
         note="PRIVATE_NOTE",
     )
     db.session.add(row)
@@ -231,6 +278,52 @@ def test_registration_and_anonymous_views_do_not_qualify(client, register):
     db.session.add(ProductEvent(event_name="profile_view", props={"player_api_id": -42}, created_at=START))
     db.session.commit()
     assert report(client, register)["summary"]["qualifying_people"] == 0
+
+
+@pytest.mark.parametrize("configuration", ["admin", "review_player", "review_scout", "review_legacy"])
+def test_configured_admin_and_review_accounts_are_automatically_excluded(client, register, monkeypatch, configuration):
+    import json
+
+    observe(register, action())
+    assert report(client, register)["summary"]["qualifying_people"] == 1
+    # An additional account in the same reconciled row excludes the whole person.
+    register["participants"][0]["user_account_ids"].append(6)
+    if configuration == "admin":
+        monkeypatch.setenv("ADMIN_EMAILS", "another@example.test, PRIVATE6@EXAMPLE.TEST ")
+    elif configuration == "review_legacy":
+        monkeypatch.setenv("REVIEW_LOGIN_EMAIL", " PRIVATE6@EXAMPLE.TEST ")
+        monkeypatch.setenv("REVIEW_LOGIN_CODE", "PRIVATE_REVIEW_CODE")
+    else:
+        monkeypatch.setenv(
+            "REVIEW_LOGIN_ACCOUNTS",
+            json.dumps(
+                {configuration.removeprefix("review_"): {"email": "PRIVATE6@EXAMPLE.TEST", "code": "PRIVATE_CODE"}}
+            ),
+        )
+    result = report(client, register)
+    assert result["summary"]["qualifying_people"] == 0
+    assert "excluded" in result["participants"][0]["missing"]
+    assert "PRIVATE" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("kind", ["staff_review", "cross_person_outcome"])
+def test_unused_observation_kinds_are_explicitly_rejected(client, register, kind):
+    observe(register, action(), kind=kind)
+    assert report(client, register, 400) == {"error": "unsupported_kind"}
+
+
+@pytest.mark.parametrize("when", ["2026-10-05T00:00:00Z", "2026-11-01T12:00:00Z", "2026-09-04T12:00:00Z"])
+def test_continuation_outside_window_preserves_register_and_action_counts(client, register, when):
+    observe(register, action())
+    before = report(client, register)
+    register["continuation"] = {"decision": "agreed", "occurred_at": when, "evidence_ref": "review-01"}
+    after = report(client, register)
+    assert after["register_sha256"] == before["register_sha256"]
+    assert after["summary"] == before["summary"]
+    assert after["participants"] == before["participants"]
+    assert after["continuation"] == {"decision": "agreed", "occurred_at": when, "evidence_basis": "operator"}
+    register["observations"][0]["occurred_at"] = when
+    assert report(client, register, 400) == {"error": "invalid_observation"}
 
 
 def test_operator_observation_cannot_invent_database_action(client, register):
@@ -555,6 +648,59 @@ def test_contact_outcomes_require_distinct_registered_counterpart(client, regist
     result = report(client, register)
     assert len(result["cross_person_outcomes"]) == 1
     assert result["cross_person_outcomes"][0]["stage"] == "trial_scheduled"
+    # Earlier and later stage rows must not inflate this single contact.
+    db.session.add_all(
+        [
+            ContactOutcome(
+                contact_request_id=contact.id,
+                reported_by_user_id=3,
+                stage=stage,
+                notes="PRIVATE_OUTCOME",
+                occurred_at=START + timedelta(days=day),
+            )
+            for stage, day in [("signed", 2), ("contacted", 1), ("trial_scheduled", 30)]
+        ]
+    )
+    db.session.commit()
+    result = report(client, register)
+    assert len(result["cross_person_outcomes"]) == 1
+    assert result["cross_person_outcomes"][0]["stage"] == "signed"
+    assert result["cross_person_outcomes"][0]["contact_request_id"] == contact.id
+    assert report(client, register)["cross_person_outcomes"] == result["cross_person_outcomes"]
+    register["participants"][2]["user_account_ids"].append(6)
+    db.session.add(
+        ScoutVerification(
+            user_account_id=6,
+            full_name="PRIVATE_SCOUT",
+            organization="PRIVATE_ORG",
+            role_title="Scout",
+            statement="PRIVATE_STATEMENT",
+            status="approved",
+            reviewed_at=START - timedelta(days=1),
+        )
+    )
+    second_contact = ContactRequest(
+        id="f339c308-9522-4c1f-ab1c-bcd21373bde1",
+        scout_user_id=6,
+        player_api_id=-42,
+        claim_id=1,
+        message="PRIVATE_MESSAGE",
+        status="accepted",
+        created_at=START,
+        expires_at=START + timedelta(days=10),
+    )
+    db.session.add(second_contact)
+    db.session.flush()
+    db.session.add(
+        ContactOutcome(
+            contact_request_id=second_contact.id, reported_by_user_id=6, stage="contacted", occurred_at=START
+        )
+    )
+    db.session.commit()
+    assert {row["contact_request_id"] for row in report(client, register)["cross_person_outcomes"]} == {
+        contact.id,
+        second_contact.id,
+    }
     register["participants"][2]["excluded"] = True
     assert report(client, register)["cross_person_outcomes"] == []
     register["participants"][2]["excluded"] = False
@@ -578,19 +724,80 @@ def test_transaction_conflict_rolls_back_and_is_private(client, register, monkey
     assert ProductEvent.query.count() == 0
 
 
-def test_postgresql_reflection_and_read_only_snapshot():
-    """Online PG adapter check; no SQLite/offline-DDL substitution."""
-    import os
-    from uuid import uuid4
-
+def postgres_url():
     import sqlalchemy as sa
-    from src.services.pilot_cohort import reflected_tables
 
     uri = os.getenv("PILOT_TEST_POSTGRES_URL")
     if not uri:
         pytest.skip("Set PILOT_TEST_POSTGRES_URL to a disposable local pilot_p1_test database")
     target = sa.engine.make_url(uri)
     assert target.host == "127.0.0.1" and target.database == "pilot_p1_test"
+    return uri
+
+
+@pytest.mark.parametrize("app", ["postgresql"], indirect=True)
+@pytest.mark.parametrize("preceding_query", [False, True])
+def test_postgresql_http_report_starts_fresh_read_only_snapshot(app, client, register, monkeypatch, preceding_query):
+    """Exercise real dual auth, route transaction setup, ORM and reflected gaps."""
+    import sqlalchemy as sa
+    from src.services import pilot_cohort
+
+    observe(register, action(), when=START)
+    auth = headers()  # Token issuance itself queries UserAccount in this session.
+    assert db.session().in_transaction()
+    db.session.rollback()
+    hook_calls, snapshot_modes = [], []
+
+    @app.before_request
+    def prior_request_work():
+        if preceding_query:
+            assert db.session.get(UserAccount, 1) is not None
+            assert db.session().in_transaction()
+            # Reporting must neither flush nor persist unrelated pending state.
+            db.session.add(ProductEvent(event_name="PRIVATE_PENDING"))
+            hook_calls.append(True)
+
+    original = pilot_cohort.build_report
+
+    def checked_build(data):
+        snapshot_modes.append(
+            (
+                db.session.execute(sa.text("SHOW transaction_isolation")).scalar_one(),
+                db.session.execute(sa.text("SHOW transaction_read_only")).scalar_one(),
+            )
+        )
+        return original(data)
+
+    monkeypatch.setattr(pilot_cohort, "build_report", checked_build)
+    results = []
+    for _ in range(2):
+        response = client.post(URL, json=register, headers=auth)
+        assert response.status_code == 200, response.get_json()
+        assert response.headers["Cache-Control"] == "private, no-store"
+        result = response.get_json()
+        assert result["summary"]["qualifying_people"] == 1
+        assert result["capabilities"] == {"relationships": False, "feedback": False, "stable_results": False}
+        assert "accepted_relationship" in result["participants"][1]["missing"]
+        assert "relationships_not_installed" in result["warnings"]
+        assert "PRIVATE" not in response.get_data(as_text=True)
+        result.pop("generated_at")
+        results.append(result)
+        assert ProductEvent.query.count() == 0
+        assert PlayerMatchEntry.query.count() == 1
+        db.session.rollback()
+    assert results[0] == results[1]
+    assert hook_calls == ([True, True] if preceding_query else [])
+    assert snapshot_modes == [("repeatable read", "on")] * 2
+
+
+def test_postgresql_reflection_and_read_only_snapshot():
+    """Online PG adapter check; no SQLite/offline-DDL substitution."""
+    from uuid import uuid4
+
+    import sqlalchemy as sa
+    from src.services.pilot_cohort import reflected_tables
+
+    uri = postgres_url()
     pg_app = Flask("pilot_pg")
     pg_app.config.update(SQLALCHEMY_DATABASE_URI=uri, SQLALCHEMY_TRACK_MODIFICATIONS=False)
     db.init_app(pg_app)
@@ -967,6 +1174,15 @@ def test_feedback_pinned_identity_and_closed_access_never_qualify(client, regist
     observe_ref(register, row, when=START)
     result = report(client, register)
     assert result["summary"]["qualifying_people"] == 0
+    assert result["cross_person_outcomes"] == []
+
+
+def test_unregistered_admin_feedback_author_cannot_qualify_player(client, register, future_schema, monkeypatch):
+    seed_feedback(future_schema, author_user_id=6)
+    assert report(client, register)["summary"]["by_role"]["player"] == 1
+    monkeypatch.setenv("ADMIN_EMAILS", "PRIVATE6@EXAMPLE.TEST")
+    result = report(client, register)
+    assert result["summary"]["by_role"]["player"] == 0
     assert result["cross_person_outcomes"] == []
 
 

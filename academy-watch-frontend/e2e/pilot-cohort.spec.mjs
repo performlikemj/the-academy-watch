@@ -95,6 +95,7 @@ for (const width of [1280, 390]) {
       await expect(page.getByText(title, { exact: true })).toBeVisible()
     }
     await expect(page.getByText(/Named return use cannot be reconstructed/)).toBeVisible()
+    await expect(page.getByText(/The decision may occur after the observation window without changing the register hash/)).toBeVisible()
     await expect(page.getByText('This report contains account references. Store it privately.')).toBeVisible()
     expect(await downloaded(page, 'Download report')).toEqual(REPORT)
     expect(state.submissions).toEqual([REGISTER])

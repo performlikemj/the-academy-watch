@@ -130,7 +130,7 @@ export default function AdminPilotCohort() {
                         {report.cross_person_outcomes.length ? <ul className="space-y-2 text-sm">
                             {report.cross_person_outcomes.map((item, i) => <li key={i} className="break-words">{label(item.stage || item.kind)} · {item.record_type} #{item.record_id} · {item.occurred_at}</li>)}
                         </ul> : null}
-                        <p className="text-sm">Continuation: Observed outside the app. This is an operator declaration, not payment verification.</p>
+                        <p className="text-sm">Continuation: Observed outside the app. This is an operator declaration, not payment verification. The decision may occur after the observation window without changing the register hash.</p>
                     </div>
                 ) : null}
                 <div className="space-y-2 border-t pt-4 text-sm text-muted-foreground">

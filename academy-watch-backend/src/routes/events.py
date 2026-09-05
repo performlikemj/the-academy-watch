@@ -225,6 +225,10 @@ def pilot_cohort_report():
             raise CohortError() from None
         with db.session.no_autoflush:
             if db.session.get_bind().dialect.name == "postgresql":
+                # Auth/request hooks may already have queried this session. End
+                # that transaction without flushing: SET must be the first
+                # statement of the report's fresh, read-only snapshot.
+                db.session.rollback()
                 db.session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
             report = build_report(data)
         db.session.rollback()

@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import sqlalchemy as sa
-from src.auth import _review_account_is_configured
+from src.auth import _admin_email_list, _review_account_is_configured
 from src.models.contact import ContactOutcome, ContactRequest
 from src.models.funding import ClubProgram, ClubProgramManager
 from src.models.league import UserAccount, db
@@ -26,7 +26,8 @@ from src.services.public_player_subject import resolve_public_adult_subject, use
 
 MAX_BYTES = 256 * 1024
 ROLES = ("staff", "player", "scout", "supporter")
-KINDS = {"self_operated_action", "scout_discovery", "supporter_update_view", "cross_person_outcome", "staff_review"}
+KINDS = {"self_operated_action", "scout_discovery", "supporter_update_view"}
+UNSUPPORTED_KINDS = {"cross_person_outcome", "staff_review"}
 RECORDS = {
     "player_match_entry": PlayerMatchEntry,
     "scout_watchlist_entry": ScoutWatchlistEntry,
@@ -170,6 +171,8 @@ def validate(data):
         fields(o, "id person_key kind occurred_at record_type record_id evidence_ref", "invalid_observation")
         for k in ("id", "person_key", "evidence_ref", "record_id"):
             identifier(o[k], "invalid_observation")
+        if isinstance(o["kind"], str) and o["kind"] in UNSUPPORTED_KINDS:
+            raise CohortError("unsupported_kind")
         if (
             o["id"] in seen
             or o["person_key"] not in keys
@@ -199,8 +202,9 @@ def validate(data):
             raise CohortError()
     else:
         identifier(continuation["evidence_ref"])
-        if not start <= timestamp(continuation["occurred_at"], "invalid_window") < end:
-            raise CohortError("invalid_window")
+        # Continuation is a separate operator decision, often made after the
+        # observation window closes. Its timestamp does not alter the register.
+        timestamp(continuation["occurred_at"], "invalid_window")
     register = {k: v for k, v in data.items() if k not in ("observations", "continuation")}
     digest = hashlib.sha256(
         json.dumps(register, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
@@ -244,9 +248,16 @@ def build_report(data):
     if set(users) != all_ids or any(resolve_player_subject(s) is None for s in subject_ids):
         raise CohortError("cohort_reference_invalid", 422)
     public_subjects = {s for s in subject_ids if resolve_public_adult_subject(s) is not None}
-    excluded = set(data["excluded_user_account_ids"]) | {
-        u.id for u in users.values() if u.is_tombstone or _review_account_is_configured(u.email)
-    }
+    admin_emails = {email.strip().lower() for email in _admin_email_list()}
+
+    def excluded_account(user):
+        return (
+            user.is_tombstone
+            or (user.email or "").strip().lower() in admin_emails
+            or _review_account_is_configured(user.email)
+        )
+
+    excluded = set(data["excluded_user_account_ids"]) | {u.id for u in users.values() if excluded_account(u)}
     excluded.update(
         a
         for p in data["participants"]
@@ -426,9 +437,7 @@ def build_report(data):
             if accepted_at is None or accepted_at > utc(row["published_at"]):
                 continue
             author = db.session.get(UserAccount, row["author_user_id"]) if row["author_user_id"] is not None else None
-            if row["author_user_id"] in excluded or (
-                author and (author.is_tombstone or _review_account_is_configured(author.email))
-            ):
+            if row["author_user_id"] in excluded or (author and excluded_account(author)):
                 continue
             feedback.append(row)
 
@@ -626,6 +635,7 @@ def build_report(data):
                     "person_keys": sorted([active_accounts[author], active_accounts[recipient]]),
                 }
             )
+    contact_outcomes = {}
     for outcome, contact, claim in (
         db.session.query(ContactOutcome, ContactRequest, PlayerProfileClaim)
         .join(ContactRequest, ContactRequest.id == ContactOutcome.contact_request_id)
@@ -635,6 +645,7 @@ def build_report(data):
             ContactOutcome.occurred_at < end,
             ContactRequest.player_api_id.in_(public_subjects),
         )
+        .order_by(ContactOutcome.occurred_at, ContactOutcome.id)
         .all()
     ):
         a, b = contact.scout_user_id, claim.user_account_id
@@ -663,15 +674,16 @@ def build_report(data):
             contact.routing_mode == "club_included" and contact.club_consent_status != "granted"
         ):
             continue
-        outcomes.append(
-            {
-                **evidence("cross_person_outcome", "contact_outcome", outcome.id, outcome.occurred_at),
-                "stage": outcome.stage,
-                "contact_request_id": contact.id,
-                "player_api_id": contact.player_api_id,
-                "person_keys": sorted([active_accounts[a], active_accounts[b]]),
-            }
-        )
+        # One outcome per genuine contact, represented by its latest qualifying
+        # in-window stage. The ID breaks timestamp ties deterministically.
+        contact_outcomes[contact.id] = {
+            **evidence("cross_person_outcome", "contact_outcome", outcome.id, outcome.occurred_at),
+            "stage": outcome.stage,
+            "contact_request_id": contact.id,
+            "player_api_id": contact.player_api_id,
+            "person_keys": sorted([active_accounts[a], active_accounts[b]]),
+        }
+    outcomes.extend(contact_outcomes.values())
     by_role = {role: sum(p["qualified"] for p in outputs if p["primary_role"] == role) for role in ROLES}
     repeat_staff = sum(bool(p["repeat_dates"]) for p in outputs if p["primary_role"] == "staff")
     repeat_players = sum(bool(p["repeat_dates"]) for p in outputs if p["primary_role"] == "player")
