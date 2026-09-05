@@ -41,6 +41,7 @@ from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services import season_rollup_service, video_retention, video_storage
 from src.services.capture_meta import merge_preflight
+from src.services.club_player_authority import club_has_authority_over_player
 from src.services.club_registry import require_club_manager
 from src.services.coach_brief import MAX_BRIEF_CHARS, MAX_BRIEF_LINE_CHARS, MAX_BRIEF_LINES, brief_payload
 from src.services.player_identity import retained_shadow_identity_exists
@@ -501,7 +502,18 @@ def _member_subject(member: ClubRosterMember) -> tuple[dict | None, object | Non
 
 
 def _member_dict(member: ClubRosterMember) -> dict:
-    subject, _ = _member_subject(member)
+    subject, player = _member_subject(member)
+    public_stats_allowed = False
+    if subject is not None and not subject["is_minor"]:
+        if member.player_api_id is not None:
+            public_stats_allowed = club_has_authority_over_player(
+                db.session.get(ClubProgram, member.program_id),
+                member.player_api_id,
+                season=current_stats_season(),
+                session=db.session,
+            )
+        else:
+            public_stats_allowed = player.status == "approved" and player.api_player_id == -player.id
     out = {
         "id": member.id,
         "program_id": member.program_id,
@@ -510,6 +522,7 @@ def _member_dict(member: ClubRosterMember) -> dict:
         "brief": _brief_dict(member.coach_brief_body, member.brief_updated_at),
         "created_at": member.created_at.isoformat() if member.created_at else None,
         "available": subject is not None,
+        "public_stats_allowed": public_stats_allowed,
     }
     if subject is not None:
         out.update(subject)
@@ -1037,6 +1050,18 @@ def record_club_result(program_id: int):
         existing = {
             player_api_id: row for player_api_id, row in fixture_by_player.items() if player_api_id in seen_player_ids
         }
+
+        # Header corrections also modify fixture players omitted from the lineup.
+        # Validate the complete write set before changing any entry or rollup.
+        unauthorized_player_ids = sorted(
+            player_api_id
+            for player_api_id in seen_player_ids | set(fixture_by_player)
+            if player_api_id > 0
+            and not club_has_authority_over_player(program, player_api_id, season=season, session=db.session)
+        )
+        if unauthorized_player_ids:
+            db.session.rollback()
+            return jsonify({"error": "player_not_affiliated", "player_api_ids": unauthorized_player_ids}), 422
 
         for entry in fixture_rows:
             for field, value in header.items():
