@@ -134,7 +134,7 @@ test('legal prepaid copy is visible in the billing-enabled build', async ({ page
   await expect(page.getByText('Prepaid credit terms effective 2026-09-15', { exact: true })).toBeVisible()
   await expect(page.getByText(/Paid subscriptions|renew automatically/)).toHaveCount(0)
   await expect(page.getByText(/they do not renew and you will not be charged again/)).toBeVisible()
-  await expect(page.getByText(/the connection drops before the answer finishes — the credit is returned automatically/)).toBeVisible()
+  await expect(page.getByText('If an error on our side stops an answer, or your connection drops before the answer has begun, the credit is returned automatically. Once an answer has begun, the credit is used even if you stop or disconnect.', { exact: false })).toBeVisible()
   await expect(page.getByText(/Unused packs can be refunded within 14 days/)).toBeVisible()
   await page.goto(`${litUrl}/privacy`)
   await expect(page.getByText(/We keep the question fingerprint, the answer and your credit ledger/)).toBeVisible()
@@ -990,5 +990,46 @@ for (const partial of ['', 'Keep this partial answer']) {
       expect(bodies[1].client_msg_id).toBe(bodies[0].client_msg_id)
       expect(bodies[1].history).toEqual(bodies[0].history)
     }
+  })
+}
+
+for (const error of ['in_flight', 'recovery_exhausted']) {
+  test(`GOL handles ${error} with the correct notice and question ID`, async ({ page }) => {
+    const bodies = []
+    await installApi(page, async ({ route, request, url }) => {
+      if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: [] } }).then(() => true)
+      if (url.pathname === '/api/gol/chat' && request.method() === 'POST') {
+        bodies.push(request.postDataJSON())
+        await route.fulfill(bodies.length === 1
+          ? { status: 409, json: { error } }
+          : { status: 200, contentType: 'text/event-stream', body: 'event: token\ndata: {"content":"Completed question"}\n\nevent: done\ndata: {}\n\n' })
+        return true
+      }
+      return false
+    }, { signedIn: true })
+    await page.goto('/terms')
+    await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+    const composer = page.getByPlaceholder('Ask about any player or team…')
+    await composer.fill('Original question')
+    await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+    await expect(page.getByText('Original question', { exact: true })).toBeVisible()
+    await expect(page.getByText(error, { exact: true })).toHaveCount(0)
+    await expect(page.getByText(/The answer was interrupted|Sorry, something went wrong/)).toHaveCount(0)
+    if (error === 'in_flight') {
+      await expect(page.getByText('Still working on your previous question — give it a moment and try again.', { exact: true })).toBeVisible()
+      await page.getByRole('button', { name: 'Retry', exact: true }).click()
+      await expect(page.getByText('Completed question', { exact: true })).toBeVisible()
+      expect(bodies[1]).toEqual(bodies[0])
+      await expect(page.getByText('Original question', { exact: true })).toHaveCount(1)
+    } else {
+      await expect(page.getByText('That question could not be completed; your credit was returned.', { exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+      await composer.fill('New question')
+      await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+      await expect(page.getByText('Completed question', { exact: true })).toBeVisible()
+      expect(bodies[1].client_msg_id).not.toBe(bodies[0].client_msg_id)
+      expect(bodies[1].message).toBe('New question')
+    }
+    expect(bodies).toHaveLength(2)
   })
 }

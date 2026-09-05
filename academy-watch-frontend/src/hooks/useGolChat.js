@@ -181,6 +181,21 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
           && body?.feature === 'gol_chat'
         const isClientMessageReused = response.status === 409
           && body?.error === 'client_msg_id_reused'
+        const isInFlight = response.status === 409 && body?.error === 'in_flight'
+        const isRecoveryExhausted = response.status === 409 && body?.error === 'recovery_exhausted'
+
+        if (isInFlight || isRecoveryExhausted) {
+          updateAssistant((message) => ({
+            ...message,
+            content: isInFlight
+              ? 'Still working on your previous question — give it a moment and try again.'
+              : 'That question could not be completed; your credit was returned.',
+          }))
+          setFailedAttempt(isInFlight ? {
+            content, history, clientMsgId, messageIds: [userMsg.id, assistantMsg.id],
+          } : null)
+          return
+        }
 
         if (isClientMessageReused) {
           updateMessages((previous) => {

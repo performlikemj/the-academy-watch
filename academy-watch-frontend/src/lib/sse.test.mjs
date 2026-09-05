@@ -344,3 +344,97 @@ test('user stop before response headers marks an empty message stopped and permi
   await chat().retryFailedMessage()
   assert.equal(calls[1][3], calls[0][3])
 })
+
+for (const lit of [false, true]) {
+  test(`in_flight retains the question and retries the same ID/history/session until completed (credit UI ${lit})`, async () => {
+    const calls = []
+    const chat = mountChat(async (...args) => {
+      calls.push(args)
+      return calls.length <= 2
+        ? new Response(JSON.stringify({ error: 'in_flight' }), { status: 409 })
+        : streamResponse(frame('token', { content: 'Completed answer' }) + frame('done', {}))
+    }, { lit })
+    await chat().sendMessage('Pending question')
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const state = chat()
+      assert.equal(state.messages.length, 2)
+      assert.equal(state.messages[0].content, 'Pending question')
+      assert.equal(state.messages[1].content, 'Still working on your previous question — give it a moment and try again.')
+      assert.equal(Boolean(state.messages[1].incomplete), false)
+      assert.equal(state.isStreaming, false)
+      assert.equal(state.canRetry, true)
+      await state.retryFailedMessage()
+    }
+    assert.equal(calls.length, 3)
+    for (const call of calls) assert.deepEqual(call.slice(0, 4), calls[0].slice(0, 4))
+    assert.equal(chat().messages.length, 2)
+    assert.equal(chat().messages[1].content, 'Completed answer')
+    assert.equal(chat().canRetry, false)
+  })
+
+  test(`recovery_exhausted keeps its notice, disables retry and assigns a new ID to a new question (credit UI ${lit})`, async () => {
+    const calls = []
+    const chat = mountChat(async (...args) => {
+      calls.push(args)
+      return calls.length === 1
+        ? new Response(JSON.stringify({ error: 'recovery_exhausted' }), { status: 409 })
+        : streamResponse(frame('token', { content: 'New answer' }) + frame('done', {}))
+    }, { lit })
+    await chat().sendMessage('Exhausted question')
+    const state = chat()
+    assert.equal(state.messages.length, 2)
+    assert.equal(state.messages[0].content, 'Exhausted question')
+    assert.equal(state.messages[1].content, 'That question could not be completed; your credit was returned.')
+    assert.equal(state.isStreaming, false)
+    assert.equal(state.canRetry, false)
+    await state.retryFailedMessage()
+    assert.equal(calls.length, 1)
+    await chat().sendMessage('A new question')
+    assert.equal(calls.length, 2)
+    assert.notEqual(calls[1][3], calls[0][3])
+    assert.equal(calls[1][0], 'A new question')
+    assert.equal(chat().messages[3].content, 'New answer')
+  })
+}
+
+test('recovery_exhausted clears the retry created by an earlier in_flight response', async () => {
+  const calls = []
+  const chat = mountChat(async (...args) => {
+    calls.push(args)
+    return new Response(JSON.stringify({ error: calls.length === 1 ? 'in_flight' : 'recovery_exhausted' }), { status: 409 })
+  })
+  await chat().sendMessage('Pending question')
+  assert.equal(chat().canRetry, true)
+  await chat().retryFailedMessage()
+  assert.equal(calls[1][3], calls[0][3])
+  assert.equal(chat().messages.length, 2)
+  assert.equal(chat().messages[1].content, 'That question could not be completed; your credit was returned.')
+  assert.equal(chat().canRetry, false)
+  await chat().retryFailedMessage()
+  assert.equal(calls.length, 2)
+})
+
+for (const error of ['in_flight', 'recovery_exhausted']) {
+  test(`a delayed ${error} response cannot change retry state after a chat reset`, async () => {
+    const pending = deferred()
+    const started = deferred()
+    const calls = []
+    const chat = mountChat(async (...args) => {
+      calls.push(args)
+      if (calls.length === 1) return { ok: false, status: 409, text() { started.resolve(); return pending.promise } }
+      return new Response(JSON.stringify({ error: 'in_flight' }), { status: 409 })
+    })
+    const oldAttempt = chat().sendMessage('Old question')
+    await started.promise
+    chat().clearChat()
+    await chat().sendMessage('Current question')
+    const before = chat()
+    pending.resolve(JSON.stringify({ error }))
+    await oldAttempt
+    assert.deepEqual(chat().messages, before.messages)
+    assert.equal(chat().canRetry, true)
+    await chat().retryFailedMessage()
+    assert.equal(calls[2][0], 'Current question')
+    assert.equal(calls[2][3], calls[1][3])
+  })
+}
