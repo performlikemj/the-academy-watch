@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -174,9 +174,9 @@ def _subscription_dict(subscription: UserSubscription) -> dict:
     }
 
 
-def _match_entry_dict(entry: PlayerMatchEntry) -> dict:
+def _match_entry_dict(entry: PlayerMatchEntry, schema=None) -> dict:
     """Serialize every current persisted field, explicitly and portably."""
-    return {
+    payload = {
         "id": entry.id,
         "player_api_id": entry.player_api_id,
         "season": entry.season,
@@ -202,9 +202,204 @@ def _match_entry_dict(entry: PlayerMatchEntry) -> dict:
         "updated_at": _iso(entry.updated_at),
     }
 
+    if schema and schema.has_columns("player_match_entries", "club_result_id"):
+        payload["club_result_id"] = db.session.execute(
+            sa.text("SELECT club_result_id FROM player_match_entries WHERE id = :id"), {"id": entry.id}
+        ).scalar()
+    return payload
+
+
+def _pilot_export(user, schema):
+    from src.models.club_invitation import ClubInvitation, strict_manager
+    from src.models.player_feedback import PlayerFeedback, feedback_dict, player_can_read
+
+    result = {"club_invitations": [], "player_feedback": {"received": [], "authored": []}, "club_results": []}
+    if schema.has_columns("club_invitations", "recipient_user_id", "created_by_user_id"):
+        for row in (
+            ClubInvitation.query.filter(
+                or_(ClubInvitation.recipient_user_id == user.id, ClubInvitation.created_by_user_id == user.id)
+            )
+            .order_by(ClubInvitation.created_at, ClubInvitation.id)
+            .all()
+        ):
+            result["club_invitations"].append(
+                {
+                    "id": row.id,
+                    "program_id": row.program_id,
+                    "player_api_id": row.player_api_id,
+                    "status": row.status,
+                    "created_at": _iso(row.created_at) + "Z",
+                    "expires_at": _iso(row.expires_at) + "Z",
+                    "responded_at": _iso(row.responded_at) + "Z" if row.responded_at else None,
+                    "role": "recipient" if row.recipient_user_id == user.id else "creator",
+                }
+            )
+    if schema.has_table("player_feedback"):
+        for row in (
+            PlayerFeedback.query.filter(
+                or_(PlayerFeedback.recipient_user_id == user.id, PlayerFeedback.author_user_id == user.id)
+            )
+            .order_by(PlayerFeedback.published_at, PlayerFeedback.id)
+            .all()
+        ):
+            if player_can_read(db.session, row, user.id):
+                result["player_feedback"]["received"].append(feedback_dict(db.session, row))
+            if row.author_user_id == user.id:
+                # Historical authorship cannot disclose another person's data.
+                payload = {"id": row.id, "revision": row.revision, "published_at": _iso(row.published_at) + "Z"}
+                if (
+                    strict_manager(db.session, row.program_id, user.id)
+                    and not row.withdrawn_at
+                    and not row.audit_expires_at
+                ):
+                    from src.models.player_feedback import relationship_matches
+
+                    if relationship_matches(db.session, row):
+                        payload = feedback_dict(db.session, row, manager=True)
+                result["player_feedback"]["authored"].append(payload)
+    # P4 may arrive before its ORM is loaded, or may not exist at all.
+    actor_columns = [c for c in ("created_by_user_id", "updated_by_user_id") if schema.has_columns("club_results", c)]
+    if actor_columns:
+        header_names = (
+            "id",
+            "program_id",
+            "client_request_id",
+            "create_request_hash",
+            "version",
+            "match_date",
+            "season",
+            "opponent",
+            "opponent_key",
+            "competition",
+            "home_away",
+            "result_for",
+            "result_against",
+            "video_match_id",
+            "created_by_user_id",
+            "updated_by_user_id",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        )
+        headers = [c for c in header_names if c in schema.columns("club_results")]
+        if headers:
+            table = sa.Table("club_results", sa.MetaData(), autoload_with=schema.bind)
+            query = sa.select(*(table.c[c] for c in headers)).where(
+                sa.or_(*(table.c[c] == user.id for c in actor_columns))
+            )
+            result["club_results"] = [
+                {
+                    k: (v.isoformat() + ("Z" if isinstance(v, datetime) else "") if isinstance(v, date) else v)
+                    for k, v in row.items()
+                }
+                for row in db.session.execute(query).mappings()
+            ]
+    return result
+
+
+def _erase_pilot_rows(schema, user_id, claim_ids, tombstone_id):
+    from src.models.club_invitation import ClubInvitation, strict_manager
+    from src.models.funding import ClubProgramClaim, ClubProgramManager, ClubRosterMember
+    from src.models.player_feedback import PlayerFeedback, locked_invitation, observe_closure
+    from src.models.video import VideoRosterEntry
+
+    counts = {}
+    if schema.has_table("club_invitations"):
+        owned_sources = sa.select(ClubProgramClaim.id).where(ClubProgramClaim.user_account_id == user_id)
+        predicate = or_(
+            ClubInvitation.recipient_user_id == user_id,
+            ClubInvitation.created_by_user_id == user_id,
+            ClubInvitation.source_manager_claim_id.in_(owned_sources),
+        )
+        if claim_ids:
+            predicate = or_(predicate, ClubInvitation.claim_id.in_(claim_ids))
+        invitations = (
+            ClubInvitation.query.filter(predicate)
+            .order_by(ClubInvitation.program_id, ClubInvitation.claim_id, ClubInvitation.id)
+            .all()
+        )
+        for invitation in invitations:
+            invitation = locked_invitation(db.session, invitation, user_id)
+            if invitation is None:
+                continue
+            recipient_deleted = invitation.recipient_user_id == user_id or invitation.claim_id in claim_ids
+            delete_invitation = recipient_deleted or invitation.status == "pending"
+            if recipient_deleted and schema.has_table("player_feedback"):
+                counts["received_feedback"] = counts.get("received_feedback", 0) + PlayerFeedback.query.filter_by(
+                    invitation_id=invitation.id
+                ).delete(synchronize_session=False)
+            other_manager = any(
+                strict_manager(db.session, invitation.program_id, grant.user_account_id)
+                for grant in ClubProgramManager.query.filter(
+                    ClubProgramManager.program_id == invitation.program_id,
+                    ClubProgramManager.user_account_id != user_id,
+                    ClubProgramManager.status == "active",
+                ).all()
+            )
+            if delete_invitation or not other_manager:
+                members = ClubRosterMember.query.filter_by(accepted_invitation_id=invitation.id).all()
+                for member in members:
+                    VideoRosterEntry.query.filter_by(club_roster_member_id=member.id).update(
+                        {VideoRosterEntry.club_roster_member_id: None}, synchronize_session=False
+                    )
+                    db.session.delete(member)
+                db.session.flush()
+            if delete_invitation:
+                db.session.delete(invitation)
+            else:
+                invitation.created_by_user_id = None
+                invitation.source_manager_claim_id = None
+                if not other_manager:
+                    invitation.status = "revoked"
+                    from src.models.club_invitation import utcnow
+
+                    invitation.revoked_at = invitation.revoked_at or utcnow()
+                    if schema.has_table("player_feedback"):
+                        for feedback in PlayerFeedback.query.filter_by(invitation_id=invitation.id).all():
+                            observe_closure(db.session, feedback)
+        db.session.flush()
+    # Exact, local policies; the exhaustive global FK allowlist stays closed.
+    for table, actor in (
+        ("player_feedback", "author_user_id"),
+        ("club_roster_members", "brief_updated_by_user_id"),
+        ("club_programs", "system_brief_updated_by_user_id"),
+        ("video_matches", "processing_requested_by_user_id"),
+        ("local_players", "created_by_user_id"),
+        ("club_results", "created_by_user_id"),
+        ("club_results", "updated_by_user_id"),
+    ):
+        if not schema.has_columns(table, actor):
+            continue
+        assignments = f"{schema.quote(actor)} = NULL"
+        if table == "club_roster_members":
+            assignments += ", coach_brief_body = NULL, brief_updated_at = NULL"
+        if table == "club_programs":
+            assignments += ", system_brief_body = NULL, system_brief_updated_at = NULL"
+        counts[f"{table}.{actor}"] = _update_where(
+            schema, table, assignments, f"{schema.quote(actor)} = :user_id", {"user_id": user_id}
+        )
+    if schema.has_columns("club_roster_members", "added_by_user_id"):
+        counts["roster_actors"] = _update_where(
+            schema,
+            "club_roster_members",
+            "added_by_user_id = :tombstone_id, note = NULL",
+            "added_by_user_id = :user_id",
+            {"user_id": user_id, "tombstone_id": tombstone_id},
+        )
+    return counts
+
 
 def build_account_export(user: UserAccount) -> dict:
     """Build the authenticated caller's narrow, portable JSON document."""
+    from flask import after_this_request, has_request_context
+
+    if has_request_context():
+
+        @after_this_request
+        def private_export(response):
+            response.headers["Cache-Control"] = "private, no-store"
+            return response
+
     claims = (
         PlayerProfileClaim.query.filter_by(user_account_id=user.id)
         .order_by(PlayerProfileClaim.created_at.asc(), PlayerProfileClaim.id.asc())
@@ -276,6 +471,8 @@ def build_account_export(user: UserAccount) -> dict:
     account["scout_digest_opt_in"] = bool(user.scout_digest_opt_in)
     account["profile_activity_email_opt_in"] = bool(user.profile_activity_email_opt_in)
 
+    schema = _SchemaView()
+    pilot_export = _pilot_export(user, schema)
     normalized_email = (user.email or "").strip().lower()
     subscriptions = []
     if normalized_email:
@@ -314,6 +511,7 @@ def build_account_export(user: UserAccount) -> dict:
         watchlist_payloads.append(payload)
 
     return {
+        **pilot_export,
         "exported_at": datetime.now(UTC).isoformat(),
         "account": account,
         "billing": {
@@ -345,7 +543,7 @@ def build_account_export(user: UserAccount) -> dict:
         ],
         "follow_lists": [_follow_list_dict(row, suppressed_player_ids) for row in follow_lists],
         "match_entries": [
-            _match_entry_dict(row)
+            _match_entry_dict(row, schema)
             for row in PlayerMatchEntry.query.filter_by(reported_by_user_id=user.id)
             .order_by(PlayerMatchEntry.created_at.asc(), PlayerMatchEntry.id.asc())
             .all()
@@ -769,6 +967,8 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         "reset": {"showcase_pending_claims": 0, "reel_items": 0},
         "forfeited_credits": 0,
     }
+
+    counts["pilot"] = _erase_pilot_rows(_SchemaView(), user_id, claim_ids, tombstone.id)
 
     # Break the sole indirect FK that cannot point at a UserAccount tombstone.
     if claim_ids:

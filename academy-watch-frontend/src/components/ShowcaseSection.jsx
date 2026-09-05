@@ -1,3 +1,4 @@
+import PlayerFeedbackInbox from '@/components/showcase/PlayerFeedbackInbox'
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
@@ -2340,6 +2341,8 @@ export function ShowcaseSection({
           </div>
         )}
       </CardContent>
+
+      {isOwner && myClaim?.relationship_type === 'player' && token && <PlayerFeedbackInbox signedId={matchPlayerApiId} token={token} />}
 
       {/* Claim dialog */}
       {isOwner && myClaim?.relationship_type === 'player' && token && <ClaimantClubRelationships

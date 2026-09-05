@@ -1275,6 +1275,20 @@ def test_delete_explicitly_removes_only_the_callers_fan_rows(client):
 
 def test_delete_erases_owned_data_and_tombstones_shared_integrity(client):
     seeded = _seed_full_account_graph()
+    # P2's public-adult resolver requires an actual retained sports identity.
+    from src.models.tracked_player import TrackedPlayer
+
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=SUBJECT_PLAYER_ID,
+            player_name="Synthetic retained player",
+            team_id=Team.query.first().id,
+            birth_date="2000-01-01",
+            status="academy",
+            is_active=True,
+        )
+    )
+    db.session.commit()
     headers = _headers(seeded["subject_email"])
 
     response = client.post(
@@ -1456,3 +1470,183 @@ def test_live_app_registers_account_routes_and_boilerplate_user_rail_is_gone():
     assert 'app.register_blueprint(account_bp, url_prefix="/api")' in main_source
     assert not (backend_root / "src" / "routes" / "user.py").exists()
     assert not (backend_root / "src" / "models" / "user.py").exists()
+
+
+@pytest.fixture
+def pilot_account_graph(monkeypatch):
+    """Real P2 local claimant and club manager, with SQLite foreign keys on."""
+    from src.routes.feedback import feedback_bp
+    from test_club_console import club_app
+    from test_club_invitations import pilot
+    from test_player_feedback import create, decide, invitation
+
+    fixture = club_app.__wrapped__(monkeypatch)
+    app = next(fixture)
+    app.register_blueprint(feedback_bp, url_prefix="/api")
+    graph = pilot.__wrapped__(app, monkeypatch)
+    db.session.execute(sa.text("PRAGMA foreign_keys=ON"))
+    assert db.session.execute(sa.text("PRAGMA foreign_keys")).scalar() == 1
+    http = app.test_client()
+    invite_id = invitation(http, graph, -graph["local"].id)
+    assert decide(http, invite_id).status_code == 200
+    response = create(http, graph, invite_id)
+    assert response.status_code == 201, response.json
+    try:
+        yield app, graph, http, invite_id, response.json["feedback"]
+    finally:
+        db.session.rollback()
+        if sa.inspect(db.session.connection()).has_table("club_results"):
+            db.session.execute(sa.text("DROP TABLE club_results"))
+            db.session.commit()
+        try:
+            next(fixture)
+        except StopIteration:
+            pass
+
+
+@pytest.mark.parametrize("optional_p4", [False, True])
+def test_pilot_local_creator_export_and_erasure_optional_p4(pilot_account_graph, optional_p4):
+    from src.models.club_invitation import ClubInvitation
+    from src.models.funding import ClubRosterMember
+    from src.models.player_feedback import PlayerFeedback
+    from src.services.account import build_account_export, delete_account
+
+    app, graph, http, invite_id, feedback = pilot_account_graph
+    user = db.session.get(UserAccount, graph["user"])
+    if optional_p4:
+        db.session.execute(
+            sa.text(
+                "CREATE TABLE club_results (id VARCHAR(36) PRIMARY KEY, program_id INTEGER, opponent VARCHAR(120), created_by_user_id INTEGER REFERENCES user_accounts(id), updated_by_user_id INTEGER REFERENCES user_accounts(id), private_extra TEXT)"
+            )
+        )
+        db.session.execute(
+            sa.text(
+                "INSERT INTO club_results VALUES ('result-1', :program, 'Synthetic opponent', :user, :user, 'PRIVATE_EXTRA_SENTINEL')"
+            ),
+            {"program": graph["program"], "user": user.id},
+        )
+        db.session.execute(sa.text("ALTER TABLE player_match_entries ADD COLUMN club_result_id VARCHAR(36)"))
+        entry = PlayerMatchEntry(
+            player_api_id=-graph["local"].id,
+            season=2026,
+            reported_by_user_id=user.id,
+            source="club",
+            status="club_confirmed",
+            club_program_id=graph["program"],
+            match_date=date(2026, 9, 5),
+            opponent="Synthetic opponent",
+            home_away="home",
+            result_for=1,
+            result_against=0,
+        )
+        db.session.add(entry)
+        db.session.flush()
+        db.session.execute(
+            sa.text("UPDATE player_match_entries SET club_result_id = 'result-1' WHERE id = :id"), {"id": entry.id}
+        )
+        db.session.commit()
+    exported = build_account_export(user)
+    assert exported["club_invitations"][0]["id"] == invite_id
+    assert exported["player_feedback"]["received"][0]["id"] == feedback["id"]
+    if optional_p4:
+        assert exported["match_entries"][0]["club_result_id"] == "result-1"
+        assert exported["club_results"] == [
+            {
+                "id": "result-1",
+                "program_id": graph["program"],
+                "opponent": "Synthetic opponent",
+                "created_by_user_id": user.id,
+                "updated_by_user_id": user.id,
+            }
+        ]
+        assert "PRIVATE_EXTRA_SENTINEL" not in json.dumps(exported)
+    else:
+        assert exported["club_results"] == []
+    user_id, local_id = user.id, graph["local"].id
+    delete_account(user)
+    db.session.commit()
+    db.session.expire_all()
+    assert db.session.get(UserAccount, user_id) is None
+    assert graph["local"].id == local_id and graph["local"].created_by_user_id is None
+    assert PlayerFeedback.query.count() == ClubInvitation.query.count() == ClubRosterMember.query.count() == 0
+    if optional_p4:
+        assert db.session.execute(sa.text("SELECT created_by_user_id, updated_by_user_id FROM club_results")).one() == (
+            None,
+            None,
+        )
+
+
+@pytest.mark.parametrize("other_manager", [False, True])
+def test_pilot_manager_erasure_pending_and_accepted_relationships(pilot_account_graph, other_manager):
+    from src.models.club_invitation import ClubInvitation, effective_relationship
+    from src.models.funding import ClubProgram, ClubRosterMember
+    from src.models.player_feedback import PlayerFeedback
+    from src.models.video import VideoMatch
+    from src.services.account import delete_account
+    from test_club_console import _grant_program_manager
+    from test_club_invitations import invitation
+
+    app, graph, http, invite_id, feedback = pilot_account_graph
+    author_id = app.c2["users"]["a"]
+    if other_manager:
+        _grant_program_manager(graph["program"], app.c2["users"]["b"])
+    pending_id = invitation(http, graph)
+    member = ClubRosterMember.query.one()
+    member.added_by_user_id = author_id
+    member.note = "PRIVATE_NOTE_SENTINEL"
+    member.coach_brief_body = "PRIVATE_BRIEF_SENTINEL"
+    member.brief_updated_by_user_id = author_id
+    program = db.session.get(ClubProgram, graph["program"])
+    program.system_brief_body = "PRIVATE_SYSTEM_SENTINEL"
+    program.system_brief_updated_by_user_id = author_id
+    match = VideoMatch(club_program_id=graph["program"], processing_requested_by_user_id=author_id)
+    db.session.add(match)
+    db.session.commit()
+    delete_account(db.session.get(UserAccount, author_id))
+    db.session.commit()
+    db.session.expire_all()
+    assert db.session.get(ClubInvitation, pending_id) is None
+    accepted = db.session.get(ClubInvitation, invite_id)
+    assert accepted.created_by_user_id is None and accepted.source_manager_claim_id is None
+    assert effective_relationship(db.session, accepted) is other_manager
+    assert program.system_brief_body is None and program.system_brief_updated_by_user_id is None
+    assert match.processing_requested_by_user_id is None
+    assert db.session.get(PlayerFeedback, feedback["id"]).author_user_id is None
+    if other_manager:
+        assert member.note is None and member.coach_brief_body is None
+        assert db.session.get(UserAccount, member.added_by_user_id).is_tombstone
+    else:
+        assert ClubRosterMember.query.count() == 0
+        assert db.session.get(PlayerFeedback, feedback["id"]).audit_expires_at is not None
+
+
+def test_pilot_optional_p4_failure_rolls_back(pilot_account_graph, monkeypatch):
+    from src.models.club_invitation import ClubInvitation
+    from src.models.funding import ClubRosterMember
+    from src.models.player_feedback import PlayerFeedback
+    from src.services import account
+
+    app, graph, http, invite_id, feedback = pilot_account_graph
+    user_id = graph["user"]
+    db.session.execute(
+        sa.text(
+            "CREATE TABLE club_results (id INTEGER PRIMARY KEY, created_by_user_id INTEGER REFERENCES user_accounts(id), updated_by_user_id INTEGER REFERENCES user_accounts(id))"
+        )
+    )
+    db.session.execute(sa.text("INSERT INTO club_results VALUES (1, :user, :user)"), {"user": user_id})
+    db.session.commit()
+
+    def fail(*args):
+        raise RuntimeError("pilot transaction failure")
+
+    monkeypatch.setattr(account, "_repoint_anonymized_user_foreign_keys", fail)
+    with pytest.raises(RuntimeError, match="pilot transaction failure"):
+        account.delete_account(db.session.get(UserAccount, user_id))
+    db.session.rollback()
+    assert db.session.execute(sa.text("SELECT created_by_user_id, updated_by_user_id FROM club_results")).one() == (
+        user_id,
+        user_id,
+    )
+    assert ClubInvitation.query.count() == ClubRosterMember.query.count() == PlayerFeedback.query.count() == 1
+    assert graph["local"].created_by_user_id == user_id
+    assert UserAccount.query.filter_by(is_tombstone=True).count() == 0
