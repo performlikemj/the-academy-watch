@@ -26,7 +26,7 @@ Code-level notes for `academy-watch-backend/`. Architecture and the data model a
 - **Nothing applies Alembic migrations automatically in prod.** Pre-apply the guarded DDL via the
   pooler, then stamp `alembic_version` (see `ledgers/CONTINUITY_dream-s0.md`, 2026-09-02 lp01 entry).
 - Generate migrations (`flask db migrate -m "..."`), review the autogen, then `flask db upgrade`.
-  The current head-chain tail is `… → s2f1 → cb01 → s3b1 → s3c1 → s3d1 → s3e1 → s4a1`; check `alembic heads`
+  The current head-chain tail is `… → s2f1 → cb01 → s3b1 → s3c1 → s3d1 → s3e1 → s4a1 → s4b1`; check `alembic heads`
   before adding one so you branch from the real tip.
 - Maintenance SQL (non-schema, e.g. the api_cache pg_cron purge) lives in
   `migrations/maintenance/`, not the version chain.
