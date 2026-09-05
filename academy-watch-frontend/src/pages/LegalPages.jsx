@@ -101,6 +101,7 @@ export function TermsPage() {
         <section>
           <h2>13. Prepaid chat credits</h2>
           <p>Prepaid credit terms effective {BILLING_TERMS_EFFECTIVE_DATE}</p>
+          {/* requires MS-M1 (#1030) before VITE_BILLING_TERMS=1 */}
           <p>Some features — currently the Academy Watch chat assistant — use prepaid credits. New accounts receive a small free allowance. Credit packs are one-time purchases processed by Stripe; they do not renew and you will not be charged again unless you buy another pack. One credit is used per question. If the assistant fails to complete an answer — an error, or the connection drops before the answer finishes — the credit is returned automatically. Credits have no cash value and cannot be transferred. Unused packs can be refunded within 14 days of purchase by emailing <a href="mailto:mj@bywayofmj.com">mj@bywayofmj.com</a>; refunded credits are removed from your balance. Deleting your account forfeits any remaining credits. Pack prices are shown before you buy; later price changes do not affect credits you already hold.</p>
         </section>
       ) : null}
@@ -120,7 +121,8 @@ export function PrivacyPage() {
         <ul>
           <li><strong>Account data</strong>: your email address and an account identifier, created when you sign in.</li>
           <li><strong>Content you submit</strong>: profile claims, messages, introduction requests, reports, watchlists and lists, verification applications, newsletter subscriptions.</li>
-          <li><strong>Chat assistant usage</strong>: when you ask the assistant a question, the question and the conversation context are sent to our model provider (OpenAI, OpenRouter or Groq) to generate the answer.{BILLING_TERMS_ENABLED ? ' We keep the question fingerprint, the answer and your credit ledger (purchases, uses, refunds) with your account.' : null}</li>
+          {/* requires MS-M1 (#1030) before VITE_BILLING_TERMS=1 */}
+          <li><strong>Chat assistant usage</strong>: when you ask the assistant a question, the question and the conversation context are sent to our model provider (OpenAI or OpenRouter) to generate the answer.{BILLING_TERMS_ENABLED ? ' We keep the question fingerprint, the answer and your credit ledger (purchases, uses, refunds) with your account.' : null}</li>
           <li><strong>Technical logs</strong>: standard server logs (IP address, timestamps, request data) kept for security and debugging.</li>
         </ul>
         <p>

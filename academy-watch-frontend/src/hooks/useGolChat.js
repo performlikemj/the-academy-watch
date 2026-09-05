@@ -122,6 +122,7 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
     abortRef.current = controller
     let terminalError = false
     let receivedDone = false
+    let receivedAnswer = false
     const updateAssistant = (updater) => updateMessages((previous) => previous.map(
       (message) => message.id === assistantMsg.id ? updater(message) : message,
     ))
@@ -141,6 +142,14 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
         setFailedAttempt({ content, history, clientMsgId, messageIds: [userMsg.id, assistantMsg.id] })
       }
     }
+    const markStopped = () => {
+      if (!isCurrent()) return
+      updateAssistant((message) => ({ ...message, stopped: true, error: false, incomplete: false, toolCall: null }))
+      // Usage/tool metadata is not an answer. Retry only before any text or card arrived.
+      setFailedAttempt(receivedAnswer ? null : {
+        content, history, clientMsgId, messageIds: [userMsg.id, assistantMsg.id],
+      })
+    }
 
     try {
       const response = await APIService.streamChat(
@@ -155,9 +164,11 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
         await response.body?.cancel()
         return
       }
+      controller.signal.throwIfAborted()
       if (!response.ok) {
         const errorText = await response.text().catch(() => '')
         if (!isCurrent()) return
+        controller.signal.throwIfAborted()
         let body = null
         try { body = errorText ? JSON.parse(errorText) : null } catch { /* non-JSON response */ }
 
@@ -215,10 +226,13 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
           if (!terminalError) setFailedAttempt(null)
         } else if (!terminalError) {
           if (type === 'token' || type === 'message') {
+            if (data.content) receivedAnswer = true
             updateAssistant((message) => ({ ...message, content: message.content + (data.content || '') }))
           } else if (type === 'replace') {
+            if (data.content) receivedAnswer = true
             updateAssistant((message) => ({ ...message, content: data.content || '' }))
           } else if (type === 'data_card') {
+            receivedAnswer = true
             updateAssistant((message) => ({ ...message, dataCards: [...message.dataCards, data] }))
           } else if (type === 'tool_call') {
             updateAssistant((message) => ({ ...message, toolCall: data.name }))
@@ -234,6 +248,7 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
             await reader.cancel()
             return
           }
+          controller.signal.throwIfAborted()
           if (done) {
             parser.push(decoder.decode())
             parser.flush()
@@ -245,9 +260,11 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
         reader.releaseLock()
       }
       if (!receivedDone && !terminalError) failAttempt(true)
-    } catch {
-      // Includes a dropped connection or an explicit stop before completion.
-      if (!receivedDone && !terminalError) failAttempt(true)
+    } catch (error) {
+      if (!receivedDone && !terminalError) {
+        if (error.name === 'AbortError' && controller.signal.aborted) markStopped()
+        else failAttempt(true)
+      }
     } finally {
       if (requestEpoch === requestEpochRef.current) {
         abortRef.current = null

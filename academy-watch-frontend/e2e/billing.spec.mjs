@@ -121,6 +121,7 @@ test('legal paid-feature copy stays off without the build-time flag', async ({ p
   await expect(page.getByText(/your credit ledger and purchase records are deleted/)).toHaveCount(0)
   await expect(page.getByText(/when you ask the assistant a question, the question and the conversation context/)).toBeVisible()
   await expect(page.getByText(/newsletter generation sends sports data only/)).toBeVisible()
+  await expect(page.getByText(/our model provider \(OpenAI or OpenRouter\)/)).toBeVisible()
   expect(billingConfigGets).toBe(0)
 })
 
@@ -138,6 +139,7 @@ test('legal prepaid copy is visible in the billing-enabled build', async ({ page
   await page.goto(`${litUrl}/privacy`)
   await expect(page.getByText(/We keep the question fingerprint, the answer and your credit ledger/)).toBeVisible()
   await expect(page.getByText(/newsletter generation sends sports data only/)).toBeVisible()
+  await expect(page.getByText(/our model provider \(OpenAI or OpenRouter\)/)).toBeVisible()
   await expect(page.getByText(/Stripe customer id, purchase identifiers, amounts and refunds, but no card details/)).toBeVisible()
   await expect(page.getByText(/your credit ledger and purchase records are deleted from our systems; Stripe retains its own payment records/)).toBeVisible()
   await expect(page.getByText(/subscription status|seven years/)).toHaveCount(0)
@@ -939,3 +941,54 @@ test('GOL mounted hook handles byte-split frames and retries an incomplete answe
   expect(bodies[2].client_msg_id).toBe(bodies[1].client_msg_id)
   expect(bodies[1].client_msg_id).not.toBe(bodies[0].client_msg_id)
 })
+
+for (const partial of ['', 'Keep this partial answer']) {
+  test(`GOL Stop preserves ${partial ? 'partial text without retry' : 'an empty answer with retry'}`, async ({ page }) => {
+    await installApi(page, async ({ route, url }) => {
+      if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: [] } }).then(() => true)
+      return false
+    }, { signedIn: true })
+    await page.addInitScript((partial) => {
+      const realFetch = globalThis.fetch.bind(globalThis)
+      globalThis.__stopBodies = []
+      globalThis.fetch = async (input, options) => {
+        if (!String(input).endsWith('/gol/chat')) return realFetch(input, options)
+        globalThis.__stopBodies.push(JSON.parse(options.body))
+        const retry = globalThis.__stopBodies.length > 1
+        return new Response(new ReadableStream({
+          start(controller) {
+            options.signal.addEventListener('abort', () => controller.error(options.signal.reason), { once: true })
+            if (partial || retry) controller.enqueue(new TextEncoder().encode(
+              `event: token\ndata: ${JSON.stringify({ content: retry ? 'Retried answer' : partial })}\n\n`,
+            ))
+            if (retry) {
+              controller.enqueue(new TextEncoder().encode('event: done\ndata: {}\n\n'))
+              controller.close()
+            }
+          },
+        }), { headers: { 'Content-Type': 'text/event-stream' } })
+      }
+    }, partial)
+    await page.goto('/terms')
+    await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+    const composer = page.getByPlaceholder('Ask about any player or team…')
+    await composer.fill('Question to stop')
+    await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+    await expect.poll(() => page.evaluate(() => globalThis.__stopBodies.length)).toBe(1)
+    if (partial) await expect(page.getByText(partial, { exact: true })).toBeVisible()
+    // The dev annotation toolbar overlaps this corner; use keyboard activation.
+    await page.getByRole('button', { name: 'Stop generating', exact: true }).press('Enter')
+    await expect(composer).toBeEnabled()
+    await expect(page.getByText(/The answer was interrupted|Sorry, something went wrong/)).toHaveCount(0)
+    if (partial) {
+      await expect(page.getByText(partial, { exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+    } else {
+      await page.getByRole('button', { name: 'Retry', exact: true }).click()
+      await expect(page.getByText('Retried answer', { exact: true })).toBeVisible()
+      const bodies = await page.evaluate(() => globalThis.__stopBodies)
+      expect(bodies[1].client_msg_id).toBe(bodies[0].client_msg_id)
+      expect(bodies[1].history).toEqual(bodies[0].history)
+    }
+  })
+}

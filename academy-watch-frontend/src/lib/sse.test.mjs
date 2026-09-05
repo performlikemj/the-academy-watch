@@ -268,3 +268,79 @@ for (const lateResult of ['402-body', 'fetch', 'stream', 'rejection']) {
     assert.notEqual(calls[2][3], calls[0][3])
   })
 }
+
+for (const received of ['nothing', 'metadata', 'text', 'card']) {
+  for (const ending of ['stop', 'network-cut', 'network-abort']) {
+    test(`${ending} after ${received}: only user stop preserves the partial answer without an error`, async () => {
+      const started = deferred()
+      const calls = []
+      let stream
+      const partial = received === 'text' ? 'Partial Académie answer' : ''
+      const cards = received === 'card' ? [{ type: 'fixture', payload: { result: 'Partial card' } }] : []
+      const chat = mountChat(async (...args) => {
+        calls.push(args)
+        if (calls.length > 1) return streamResponse(frame('token', { content: 'Retried answer' }) + frame('done', {}))
+        const signal = args[4]
+        return new Response(new ReadableStream({
+          start(controller) {
+            stream = controller
+            signal.addEventListener('abort', () => controller.error(signal.reason), { once: true })
+            if (received === 'metadata') controller.enqueue(new TextEncoder().encode(
+              frame('usage', { free_questions_remaining: 2 }) + frame('tool_call', { name: 'lookup' }),
+            ))
+            if (partial) controller.enqueue(new TextEncoder().encode(frame('token', { content: partial })))
+            if (cards.length) controller.enqueue(new TextEncoder().encode(frame('data_card', cards[0])))
+            started.resolve()
+          },
+        }))
+      })
+      const attempt = chat().sendMessage('Stop or disconnect?')
+      await started.promise
+      await new Promise((resolve) => setImmediate(resolve))
+      assert.equal(chat().messages[1].content, partial)
+      assert.deepEqual(chat().messages[1].dataCards, cards)
+      if (ending === 'stop') chat().stopStreaming()
+      else stream.error(ending === 'network-abort'
+        ? new DOMException('Network aborted without a user stop', 'AbortError')
+        : new TypeError('Network connection dropped'))
+      await attempt
+      const state = chat()
+      const assistant = state.messages[1]
+      const stopped = ending === 'stop'
+      const retryAllowed = !stopped || (!partial && !cards.length)
+      assert.equal(state.isStreaming, false)
+      assert.equal(Boolean(assistant.stopped), stopped)
+      assert.equal(assistant.error, !stopped)
+      assert.equal(assistant.incomplete, !stopped)
+      assert.equal(assistant.toolCall, null)
+      assert.equal(assistant.content, stopped ? partial : 'The answer was interrupted before it finished. Please try again.')
+      assert.deepEqual(assistant.dataCards, cards)
+      assert.equal(state.canRetry, retryAllowed)
+      await state.retryFailedMessage()
+      assert.equal(calls.length, retryAllowed ? 2 : 1)
+      if (retryAllowed) {
+        assert.equal(calls[1][3], calls[0][3])
+        assert.deepEqual(calls[1][1], calls[0][1])
+        assert.equal(chat().messages[1].content, 'Retried answer')
+      }
+    })
+  }
+}
+
+test('user stop before response headers marks an empty message stopped and permits same-id retry', async () => {
+  const calls = []
+  const chat = mountChat(async (...args) => {
+    calls.push(args)
+    if (calls.length > 1) return streamResponse(frame('token', { content: 'Retried answer' }) + frame('done', {}))
+    return new Promise((_, reject) => args[4].addEventListener('abort', () => reject(args[4].reason), { once: true }))
+  })
+  const attempt = chat().sendMessage('Stop before headers')
+  chat().stopStreaming()
+  await attempt
+  assert.equal(chat().messages[1].stopped, true)
+  assert.equal(chat().messages[1].error, false)
+  assert.equal(chat().messages[1].content, '')
+  assert.equal(chat().canRetry, true)
+  await chat().retryFailedMessage()
+  assert.equal(calls[1][3], calls[0][3])
+})
