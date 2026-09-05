@@ -291,6 +291,133 @@ function AffiliationStatusBadge({ status }) {
   return <Badge variant="secondary">Self-reported</Badge>
 }
 
+export function ClaimantClubRelationships({ signedId, token, local, profile, onChanged = () => {} }) {
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [disabled, setDisabled] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [contract, setContract] = useState('unknown')
+  const [program, setProgram] = useState('')
+  const [pending, setPending] = useState(false)
+  const [nextBefore, setNextBefore] = useState(null)
+  const [linkedId] = useState(() => window.location.hash.startsWith('#club-invitation=') ? window.location.hash.slice(17) : null)
+  const alive = useRef(false)
+  const scope = `${signedId}:${token}`
+  const activeScope = useRef(scope)
+  useEffect(() => { activeScope.current = scope }, [scope])
+  const endpoint = `/me/club-invitations?player_api_id=${encodeURIComponent(signedId)}`
+
+  useEffect(() => {
+    alive.current = true
+    let cancelled = false
+    if (window.location.hash.startsWith('#club-invitation=')) window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    setLoading(true); setRows([]); setError(null); setDisabled(false)
+    APIService.request(endpoint).then((data) => {
+      if (!cancelled) { setRows(data.invitations || []); setNextBefore(data.next_before) }
+    }).catch((err) => {
+      if (!cancelled) {
+        if (err.status === 404 && !linkedId) setDisabled(true)
+        else setError('Club invitations are unavailable for this account.')
+      }
+    }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true; alive.current = false }
+  }, [endpoint, token, linkedId])
+
+  useEffect(() => {
+    setContract(['contracted', 'unknown', 'free_agent'].includes(profile?.contract_status) ? profile.contract_status : 'unknown')
+    setProgram(profile?.club_program_id ? String(profile.club_program_id) : '')
+    setPending(profile?.contract_attestation_review_status === 'pending')
+  }, [profile?.contract_status, profile?.club_program_id, profile?.contract_attestation_review_status])
+
+  async function decide(row, action) {
+    if (busy) return
+    const capturedScope = scope
+    const current = () => alive.current && activeScope.current === capturedScope
+    const event = { accept: 'invite_accepted', decline: 'invite_declined', revoke: 'relationship_revoked' }[action]
+    setBusy(true); setError(null); setNotice('')
+    try {
+      const data = await APIService.request(`/me/club-invitations/${row.id}/${action}`, { method: 'POST', body: '{}' })
+      if (!current()) return
+      setRows((old) => old.map((item) => item.id === row.id ? data.invitation : item))
+      if (action === 'revoke') { setProgram(''); setPending(false) }
+      setNotice({ accept: 'Club relationship accepted.', decline: 'Invitation declined.', revoke: 'You have left this club relationship.' }[action])
+      track('pilot_ui', { package: 'P2', action: event, outcome: 'success' })
+      onChanged()
+    } catch (err) {
+      if (!current()) return
+      setError({
+        invitation_already_resolved: 'This invitation has already been answered. Reload invitations for the current status.',
+        invitation_expired: 'This invitation has expired.',
+        retry_conflict: 'Another update occurred. Please retry.',
+      }[err.body?.error] || 'This invitation is unavailable for this account.')
+      if (err.body?.error === 'invitation_expired') setRows((old) => old.map((item) => item.id === row.id ? { ...item, status: 'expired' } : item))
+      track('pilot_ui', { package: 'P2', action: event, outcome: 'error' })
+    } finally { if (current()) setBusy(false) }
+  }
+
+  async function submitAttestation(event) {
+    event.preventDefault()
+    if (busy) return
+    const capturedScope = scope
+    const current = () => alive.current && activeScope.current === capturedScope
+    setBusy(true); setError(null)
+    try {
+      const data = await APIService.request(`/local-players/${Math.abs(Number(signedId))}/showcase/profile`, {
+        method: 'PUT', body: JSON.stringify({ contract_status: contract, club_program_id: contract === 'free_agent' || !program ? null : Number(program) }),
+      })
+      if (!current()) return
+      setPending(data.profile?.contract_attestation_review_status === 'pending')
+      setNotice('Contact routing updates after approval.')
+      track('pilot_ui', { package: 'P2', action: 'attestation_submitted', outcome: 'success' })
+      onChanged()
+    } catch (err) {
+      if (!current()) return
+      setError(err.body?.error === 'club_relationship_required' ? 'An active accepted club relationship is required. Reload invitations.' : 'Could not submit contract status for review.')
+      track('pilot_ui', { package: 'P2', action: 'attestation_submitted', outcome: 'error' })
+    } finally { if (current()) setBusy(false) }
+  }
+
+  async function reload(more = false) {
+    const capturedScope = scope
+    setBusy(true); setError(null)
+    try {
+      const data = await APIService.request(endpoint + (more ? `&before=${encodeURIComponent(nextBefore)}` : ''))
+      if (alive.current && activeScope.current === capturedScope) { setRows((old) => more ? [...old, ...data.invitations] : data.invitations); setNextBefore(data.next_before) }
+    } catch { if (alive.current && activeScope.current === capturedScope) setError('Could not load invitations.') }
+    finally { if (alive.current && activeScope.current === capturedScope) setBusy(false) }
+  }
+
+  if (disabled) return null
+  const accepted = rows.filter((row) => row.status === 'accepted')
+  return <section aria-label="Club invitations" className="space-y-4 rounded-lg border border-border bg-card p-4 sm:p-6">
+    <div className="space-y-2"><h3 className="font-semibold">Club invitations</h3><p className="text-sm text-muted-foreground">Accepting adds you to this club’s private roster. Contract status and introductions require separate choices.</p></div>
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {notice && <p role="status" className="text-sm">{notice}</p>}
+    {loading ? <p role="status">Loading invitations…</p> : <>
+      {rows.length === 0 && <p className="text-sm text-muted-foreground">{linkedId ? 'This invitation is unavailable for this account.' : 'No club invitations yet.'}</p>}
+      <ul className="divide-y">{rows.map((row) => {
+        const expired = row.status === 'expired' || (row.status === 'pending' && Date.now() >= Date.parse(row.expires_at))
+        return <li key={row.id} className="space-y-3 py-3">
+          <div><p className="font-medium">{row.program_name}</p><p className="text-sm text-muted-foreground">{expired ? 'Expired' : { pending: 'Awaiting your response', accepted: 'Accepted', declined: 'Declined', revoked: 'Revoked' }[row.status]}</p></div>
+          {row.status === 'pending' && !expired && <div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={() => decide(row, 'accept')}>Accept club relationship</Button><Button variant="outline" disabled={busy} onClick={() => decide(row, 'decline')}>Decline</Button></div>}
+          {row.status === 'accepted' && <Button variant="outline" disabled={busy} onClick={() => decide(row, 'revoke')}>Leave club relationship</Button>}
+        </li>
+      })}</ul>
+      <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => reload()}>Reload invitations</Button>{nextBefore && <Button size="sm" variant="outline" disabled={busy} onClick={() => reload(true)}>More invitations</Button>}</div>
+      {local && <form onSubmit={submitAttestation} className="space-y-3 border-t pt-4">
+        <p className="font-medium">Contract and contact routing</p>
+        <label className="block space-y-1 text-sm"><span>Contract status for contact routing</span><select className="block min-h-10 w-full rounded-md border bg-background px-3" value={contract} disabled={busy} onChange={(event) => setContract(event.target.value)}><option value="unknown">Unknown</option><option value="contracted">Contracted</option><option value="free_agent">Free agent</option></select></label>
+        {contract !== 'free_agent' && <label className="block space-y-1 text-sm"><span>Accepted club</span><select className="block min-h-10 w-full rounded-md border bg-background px-3" value={program} disabled={busy} onChange={(event) => setProgram(event.target.value)}><option value="">No club selected</option>{accepted.map((row) => <option key={row.id} value={row.program_id}>{row.program_name}</option>)}</select></label>}
+        {pending && <p className="text-sm font-medium">Pending review</p>}
+        <p className="text-sm text-muted-foreground">Contact routing updates after approval.</p>
+        <Button type="submit" disabled={busy || (contract === 'contracted' && !program)}>Submit contract status for review</Button>
+      </form>}
+    </>}
+  </section>
+}
+
 export function ShowcaseSection({
   playerApiId,
   canonicalPlayerApiId,
@@ -944,7 +1071,9 @@ export function ShowcaseSection({
       positions: profile?.positions || '',
       preferred_foot: profile?.preferred_foot || '',
       height_cm: profile?.height_cm != null ? String(profile.height_cm) : '',
-      contract_status: profile?.contract_status || '',
+      contract_status: local && profile?.contract_attestation_review_status
+        ? profile?.profile_contract_status || ''
+        : profile?.contract_status || '',
       contract_until: toDateInputValue(profile?.contract_until),
       availability: profile?.availability || '',
       nationality_secondary: profile?.nationality_secondary || '',
@@ -2213,6 +2342,15 @@ export function ShowcaseSection({
       </CardContent>
 
       {/* Claim dialog */}
+      {isOwner && myClaim?.relationship_type === 'player' && token && <ClaimantClubRelationships
+        key={`${matchPlayerApiId}:${token}`}
+        signedId={matchPlayerApiId}
+        token={token}
+        local={Number(matchPlayerApiId) < 0}
+        profile={profile}
+        onChanged={refresh}
+      />}
+
       <Dialog open={!local && claimOpen} onOpenChange={setClaimOpen}>
         <DialogContent>
           <DialogHeader>

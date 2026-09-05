@@ -473,6 +473,10 @@ class ClubRosterMember(db.Model):
     player_api_id = db.Column(db.Integer)
     local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"))
     added_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=False)
+    accepted_invitation_id = db.Column(
+        db.String(36), db.ForeignKey("club_invitations.id", ondelete="SET NULL"), index=True
+    )
+    requires_player_acceptance = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     role = db.Column(db.String(80))
     note = db.Column(db.String(500))
     coach_brief_body = db.Column(db.Text)

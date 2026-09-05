@@ -24,11 +24,12 @@ import re
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from functools import wraps
 from urllib.parse import parse_qs, unquote, urlparse
 
 from flask import Blueprint, abort, g, jsonify, request, send_file
 from sqlalchemy import case, func, literal, or_, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from src.auth import (
     _ensure_user_account,
     _safe_error_payload,
@@ -37,6 +38,15 @@ from src.auth import (
     require_user_auth,
 )
 from src.extensions import limiter
+from src.models.club_invitation import (
+    ClubInvitation,
+    InvitationError,
+    claim_matches,
+    local_attestation,
+    relationships_enabled,
+    resolve_invitation,
+    subject_claim,
+)
 from src.models.contact import ContactRequest
 from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerShadow, PlayerShadowStats
 from src.models.funding import ClubRosterMember
@@ -652,9 +662,15 @@ def _contract_attestation_matches_claim(attestation: dict, claim: PlayerProfileC
 
 
 def _claim_contract_payload(claim: PlayerProfileClaim, profile: PlayerShowcaseProfile | None = None) -> dict:
+    profile_fields = (
+        {"profile_contract_status": profile.contract_status}
+        if profile is not None and profile.local_player_id is not None
+        else {}
+    )
     pending = profile.pending_contract_dict() if profile is not None else None
     if pending and pending["claim_id"] == claim.id:
         return {
+            **profile_fields,
             "contract_status": pending["contract_status"],
             "current_club_name": pending["current_club_name"],
             "club_program_id": pending["club_program_id"],
@@ -662,6 +678,7 @@ def _claim_contract_payload(claim: PlayerProfileClaim, profile: PlayerShowcasePr
             "contract_attestation_review_status": "pending",
         }
     return {
+        **profile_fields,
         "contract_status": claim.contract_status,
         "current_club_name": claim.current_club_name,
         "club_program_id": claim.club_program_id,
@@ -1649,11 +1666,7 @@ def _subject_showcase_payload(subject: ShowcaseSubject, *, auth_context=None) ->
     authenticated = auth_context is not None
     auth_user = auth_context["user"] if auth_context else None
     is_owner = bool(auth_user and _has_approved_subject_claim(subject, auth_user.id))
-    owner_player_claim = (
-        _approved_player_claim(subject.player_api_id, auth_user.id)
-        if auth_user is not None and not subject.is_local
-        else None
-    )
+    owner_player_claim = _subject_player_claim(subject, auth_user.id) if auth_user is not None else None
     profile_row = PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, subject)).first()
     if profile_row and profile_row.status == "approved":
         profile = profile_row.public_dict(include_agent_contact=authenticated)
@@ -2644,14 +2657,18 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
 
         payload, payload_error = _json_object_or_400()
         if payload_error:
-            return payload_error
+            return (jsonify({"error": "invalid_request"}), 400) if subject.is_local else payload_error
 
         raw_contract_status = payload.get("contract_status")
         if raw_contract_status is not None and not isinstance(raw_contract_status, str):
+            if subject.is_local:
+                raise InvitationError("invalid_request", 400)
             return jsonify({"error": "contract_status must be a string or null"}), 400
         contract_status = raw_contract_status.strip().lower() or None if isinstance(raw_contract_status, str) else None
         valid_contract_statuses = PROFILE_CONTRACT_STATUSES | CLAIM_CONTRACT_STATUSES
         if contract_status and contract_status not in valid_contract_statuses:
+            if subject.is_local:
+                raise InvitationError("invalid_request", 400)
             return jsonify({"error": f"contract_status must be one of {sorted(valid_contract_statuses)}"}), 400
 
         attestation_detail_requested = any(key in payload for key in ("current_club_name", "club_program_id"))
@@ -2666,14 +2683,18 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
                 "languages",
             )
         )
-        if subject.is_local and (
+        local_contract_update = subject.is_local and (
             attestation_detail_requested
-            or (contract_status is not None and contract_status not in PROFILE_CONTRACT_STATUSES)
-        ):
-            return jsonify({"error": "contract attestation fields are only supported for API players"}), 400
-
-        contract_update_requested = not subject.is_local and (
-            attestation_detail_requested or contract_status in CLAIM_CONTRACT_STATUSES
+            or contract_status in {"contracted", "unknown"}
+            or (contract_status == "free_agent" and not profile_contract_context)
+        )
+        if local_contract_update:
+            if not relationships_enabled():
+                return jsonify({"error": "not_found"}), 404
+            if set(payload) - {"contract_status", "club_program_id", "current_club_name"}:
+                raise InvitationError("invalid_request", 400)
+        contract_update_requested = local_contract_update or (
+            not subject.is_local and (attestation_detail_requested or contract_status in CLAIM_CONTRACT_STATUSES)
         )
         if "contract_status" not in payload:
             profile_contract_update_requested = not contract_update_requested
@@ -2687,13 +2708,13 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
         contract_claim = None
         contract_attestation = None
         if contract_update_requested:
-            contract_claim = _approved_player_claim(subject.player_api_id, user.id)
+            contract_claim = _subject_player_claim(subject, user.id)
             if contract_claim is None:
                 return jsonify({"error": "Only an approved player claimant can update contract status"}), 403
-            contract_attestation = _parse_contract_attestation(
-                payload,
-                subject.player_api_id,
-                existing_claim=contract_claim,
+            contract_attestation = (
+                local_attestation(db.session, contract_claim, -subject.local_player_id, payload)
+                if subject.is_local
+                else _parse_contract_attestation(payload, subject.player_api_id, existing_claim=contract_claim)
             )
         bio = _clean_optional_text(payload.get("bio"), MAX_BIO_LENGTH)
         positions = _clean_optional_text(payload.get("positions"), MAX_POSITIONS_LENGTH)
@@ -2767,6 +2788,13 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
                 profile.pending_current_club_name = None
                 profile.pending_club_program_id = None
                 profile.pending_status_contradiction = False
+        if local_contract_update:
+            bio, positions = profile.bio, profile.positions
+            preferred_foot, height_cm = profile.preferred_foot, profile.height_cm
+            contract_until, availability = profile.contract_until, profile.availability
+            agent_name, agent_contact_email = profile.agent_name, profile.agent_contact_email
+            nationality_secondary, languages = profile.nationality_secondary, profile.languages
+            profile_contract_update_requested = False
         profile.bio = bio
         profile.positions = positions
         profile.preferred_foot = preferred_foot
@@ -2811,15 +2839,18 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
             )
         db.session.commit()
         response_profile = profile.owner_dict()
-        owner_claim = (
-            contract_claim or _approved_player_claim(subject.player_api_id, user.id) if not subject.is_local else None
-        )
+        owner_claim = contract_claim or _subject_player_claim(subject, user.id)
         if owner_claim is not None:
             response_profile.update(_claim_contract_payload(owner_claim, profile))
         return jsonify({"profile": response_profile})
+    except InvitationError as e:
+        db.session.rollback()
+        return jsonify({"error": e.code}), e.status
     except ValueError as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 400
+    except SQLAlchemyError as e:
+        return _invitation_database_error(e)
     except Exception as e:
         db.session.rollback()
         logger.error("Error in upsert_showcase_profile: %s", e)
@@ -5076,15 +5107,20 @@ def admin_list_profiles():
                 payload["player_name"] = local_player.display_name if local_player else None
             else:
                 payload["player_name"] = _resolve_player_name(profile.player_api_id)
-                contract_claim = (
-                    db.session.get(PlayerProfileClaim, profile.pending_contract_claim_id)
-                    if profile.pending_contract_claim_id is not None
-                    else None
+            contract_claim = (
+                db.session.get(PlayerProfileClaim, profile.pending_contract_claim_id)
+                if profile.pending_contract_claim_id is not None
+                else None
+            )
+            if contract_claim is None and profile.updated_by_user_id is not None:
+                contract_claim = _subject_player_claim(
+                    _local_subject(profile.local_player_id)
+                    if profile.local_player_id
+                    else _api_subject(profile.player_api_id),
+                    profile.updated_by_user_id,
                 )
-                if contract_claim is None and profile.updated_by_user_id is not None:
-                    contract_claim = _approved_player_claim(profile.player_api_id, profile.updated_by_user_id)
-                if contract_claim is not None:
-                    payload.update(_claim_contract_payload(contract_claim, profile))
+            if contract_claim is not None:
+                payload.update(_claim_contract_payload(contract_claim, profile))
             out.append(payload)
         return jsonify({"profiles": out})
     except Exception as e:
@@ -5111,14 +5147,37 @@ def _admin_review_subject_profile(subject: ShowcaseSubject):
         profile = PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, subject)).first()
         if profile is None:
             return jsonify({"error": "profile not found"}), 404
+        if subject.is_local and profile.pending_contract_status is not None:
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or set(body) != {"action"} or body["action"] not in ("approve", "reject"):
+                raise InvitationError("invalid_request", 400)
         payload = request.get_json(silent=True) or {}
         action = (payload.get("action") or "").strip().lower()
         if action not in ("approve", "reject"):
             return jsonify({"error": "action must be approve or reject"}), 400
         contract_claim = None
-        if action == "approve" and not subject.is_local and profile.pending_contract_status is not None:
+        if action == "approve" and profile.pending_contract_status is not None:
             contract_claim = db.session.get(PlayerProfileClaim, profile.pending_contract_claim_id)
-            if (
+            if subject.is_local:
+                if not relationships_enabled():
+                    return jsonify({"error": "not_found"}), 404
+                if contract_claim is None or contract_claim.user_account_id != profile.updated_by_user_id:
+                    raise InvitationError("club_relationship_required")
+                local_attestation(
+                    db.session,
+                    contract_claim,
+                    -subject.local_player_id,
+                    {
+                        "contract_status": profile.pending_contract_status,
+                        "club_program_id": profile.pending_club_program_id,
+                        "current_club_name": profile.pending_current_club_name,
+                    },
+                )
+                db.session.refresh(profile, with_for_update=True)
+                # Revocation locks the claim first, so the staged selection is stable here.
+                if profile.pending_contract_status is None:
+                    raise InvitationError("club_relationship_required")
+            elif (
                 contract_claim is None
                 or contract_claim.player_api_id != subject.player_api_id
                 or contract_claim.relationship_type != "player"
@@ -5128,9 +5187,13 @@ def _admin_review_subject_profile(subject: ShowcaseSubject):
             contract_claim.contract_status = profile.pending_contract_status
             contract_claim.current_club_name = profile.pending_current_club_name
             contract_claim.club_program_id = profile.pending_club_program_id
-            contract_claim.status_contradiction = has_status_contradiction(
-                subject.player_api_id,
-                profile.pending_contract_status,
+            contract_claim.status_contradiction = (
+                False
+                if subject.is_local
+                else has_status_contradiction(
+                    subject.player_api_id,
+                    profile.pending_contract_status,
+                )
             )
             profile.pending_contract_claim_id = None
             profile.pending_contract_status = None
@@ -5151,11 +5214,16 @@ def _admin_review_subject_profile(subject: ShowcaseSubject):
             )
         db.session.commit()
         response_profile = profile.owner_dict()
-        if contract_claim is None and not subject.is_local and profile.updated_by_user_id is not None:
-            contract_claim = _approved_player_claim(subject.player_api_id, profile.updated_by_user_id)
+        if contract_claim is None and profile.updated_by_user_id is not None:
+            contract_claim = _subject_player_claim(subject, profile.updated_by_user_id)
         if contract_claim is not None:
             response_profile.update(_claim_contract_payload(contract_claim, profile))
         return jsonify({"profile": response_profile})
+    except InvitationError as e:
+        db.session.rollback()
+        return jsonify({"error": e.code}), e.status
+    except SQLAlchemyError as e:
+        return _invitation_database_error(e)
     except Exception as e:
         db.session.rollback()
         logger.error("Error in admin_review_profile: %s", e)
@@ -5306,3 +5374,78 @@ def admin_player_search():
     except Exception as e:
         logger.error("Error in admin_player_search: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to search players")), 500
+
+
+# HTTP adapters live in blueprints; the relationship module owns transaction policy.
+from src.routes.club import (
+    _invitation_database_error,
+    _invitation_limit_key,
+    _invitation_list_response,
+    _invitation_operation,
+    _invitation_rate_rejected,
+    _require_relationships,
+)
+
+
+def _subject_player_claim(subject, user_id):
+    return subject_claim(db.session, -subject.local_player_id if subject.is_local else subject.player_api_id, user_id)
+
+
+@showcase_bp.after_request
+def _private_relationship_response(response):
+    if "/club-invitations" in request.path or (
+        request.headers.get("Authorization") and ("/showcase" in request.path or "/local-profiles" in request.path)
+    ):
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+def _require_pinned_invitation(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        from src.services.public_player_subject import resolve_public_adult_subject
+
+        invitation = ClubInvitation.query.filter_by(
+            id=str(kwargs["invitation_id"]), recipient_user_id=g.user_id
+        ).first()
+        if (
+            invitation is None
+            or not claim_matches(
+                db.session, db.session.get(PlayerProfileClaim, invitation.claim_id), invitation.player_api_id, g.user_id
+            )
+            or not resolve_public_adult_subject(invitation.player_api_id)
+        ):
+            return jsonify({"error": "invitation_not_found"}), 404
+        g.club_invitation = invitation
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+@showcase_bp.route("/me/club-invitations", methods=["GET"])
+@require_user_auth
+@_require_relationships
+@limiter.limit("60 per minute", key_func=_invitation_limit_key, on_breach=_invitation_rate_rejected)
+def my_club_invitations():
+    # Recipient scoping happens before cursor resolution and pagination.
+    return _invitation_list_response(recipient_id=g.user_id)
+
+
+@showcase_bp.route("/me/club-invitations/<uuid:invitation_id>/accept", methods=["POST"], defaults={"action": "accept"})
+@showcase_bp.route(
+    "/me/club-invitations/<uuid:invitation_id>/decline", methods=["POST"], defaults={"action": "decline"}
+)
+@showcase_bp.route("/me/club-invitations/<uuid:invitation_id>/revoke", methods=["POST"], defaults={"action": "revoke"})
+@require_user_auth
+@_require_pinned_invitation
+@_require_relationships
+@limiter.shared_limit(
+    "20 per hour",
+    key_func=_invitation_limit_key,
+    on_breach=_invitation_rate_rejected,
+    scope="club-invitation-decisions",
+)
+def decide_club_invitation(invitation_id, action):
+    if request.get_json(silent=True) != {}:
+        return jsonify({"error": "invalid_request"}), 400
+    return _invitation_operation(lambda: (resolve_invitation(db.session, g.club_invitation, g.user_id, action), 200))

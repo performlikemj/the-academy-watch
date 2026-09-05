@@ -11,6 +11,7 @@ from html import escape
 
 from flask import abort, current_app
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from sqlalchemy.orm import object_session
 from src.models.contact import ContactAuditEvent, ContactRequest
 from src.models.league import db
 from src.services.club_registry import (
@@ -140,6 +141,8 @@ def platform_contract_belief(player_api_id: int) -> tuple[str, str | None]:
     from club names; it only projects that existing vocabulary onto the
     contract axis.
     """
+    if player_api_id is None or player_api_id <= 0:
+        return "unknown", None
     pathway_status = player_facing_status(player_api_id)
 
     normalized = (pathway_status or "").strip().lower()
@@ -172,6 +175,28 @@ def effective_contract_status(contract_status: str | None) -> str:
 
 def routing_mode_for_claim(claim, *, platform_belief: str | None = None) -> str:
     player_api_id = getattr(claim, "player_api_id", None)
+    if getattr(claim, "local_player_id", None) is not None:
+        from src.models.club_invitation import accepted_relationship, claim_matches
+        from src.models.showcase import LocalPlayer
+        from src.services.public_player_subject import resolve_public_adult_subject
+
+        session = object_session(claim) or db.session
+        local = session.get(LocalPlayer, claim.local_player_id)
+        signed_id = local.api_player_id if local else None
+        if (
+            not signed_id
+            or signed_id >= 0
+            or not resolve_public_adult_subject(signed_id)
+            or not claim_matches(session, claim, signed_id)
+        ):
+            return ROUTING_CLUB_NOTIFIED
+        if claim.contract_status == "free_agent":
+            return ROUTING_DIRECT
+        return (
+            ROUTING_CLUB_INCLUDED
+            if accepted_relationship(session, claim, claim.club_program_id)
+            else ROUTING_CLUB_NOTIFIED
+        )
     if platform_belief is None:
         platform_belief, _ = platform_contract_belief(player_api_id)
     claim_status = getattr(claim, "contract_status", None)
@@ -186,6 +211,10 @@ def routing_mode_for_claim(claim, *, platform_belief: str | None = None) -> str:
 
 
 def messaging_is_open(contact_request: ContactRequest) -> bool:
+    session = object_session(contact_request)
+    if session is not None:
+        # Same row lock as relationship withdrawal; callers retain commit ownership.
+        session.refresh(contact_request, with_for_update=True)
     if contact_request.status != "accepted":
         return False
     return contact_request.routing_mode != ROUTING_CLUB_INCLUDED or contact_request.club_consent_status == "granted"
