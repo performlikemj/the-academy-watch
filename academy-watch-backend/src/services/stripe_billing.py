@@ -12,6 +12,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from functools import wraps
 from html import escape
+from uuid import uuid4
 
 import stripe
 from flask import abort
@@ -26,8 +27,14 @@ from src.config.stripe_config import (
     product_for_price_id,
     resolve_price,
 )
-from src.models.billing import BillingCheckoutSession, BillingCustomer, BillingSubscription, StripeWebhookEvent
-from src.models.gol_credits import GolCreditLedger
+from src.models.billing import (
+    BillingCheckoutSession,
+    BillingCustomer,
+    BillingSubscription,
+    GolCheckoutTerms,
+    StripeWebhookEvent,
+)
+from src.models.gol_credits import GolCreditLedger, GolPaymentSettlement
 from src.models.league import UserAccount, db
 from src.models.product_event import ProductEvent
 from src.services.gol_credits import apply_refund, grant_purchase
@@ -234,43 +241,70 @@ def _create_payment_checkout(user, *, pack_id: str, client_key: str) -> dict:
     row.completed_at = None
     db.session.flush()
 
+    # A pending purchase survives a crash after remote creation. Reuse its key and
+    # immutable parameters, including when another request is still calling Stripe.
+    terms = GolCheckoutTerms.query.filter_by(checkout_row_id=row.id, stripe_session_id=None).first()
+    if terms is None:
+        terms = GolCheckoutTerms(
+            purchase_key=str(uuid4()),
+            checkout_row_id=row.id,
+            price_code=pack_id,
+            credits=pack["credits"],
+            unit_amount_cents=details["unit_amount"],
+            currency=details["currency"],
+            stripe_price_id=pack["price_id"],
+        )
+        db.session.add(terms)
+    db.session.flush()
+    terms_id, user_id, row_id = terms.id, user.id, row.id
+    purchase_key, price_id, terms_pack = terms.purchase_key, terms.stripe_price_id, terms.price_code
+    customer_id = customer.stripe_customer_id
+    db.session.commit()  # Durable BEFORE Session.create, even if attachment never runs.
+
     metadata = {
         "kind": "credit_topup",
         "product_code": "gol",
-        "pack_id": pack_id,
-        "user_id": str(user.id),
+        "pack_id": terms_pack,
+        "user_id": str(user_id),
         "app": "academy_watch",
+        "purchase_key": purchase_key,
     }
     base_url = (os.getenv("PUBLIC_BASE_URL") or "https://theacademywatch.com").strip().rstrip("/")
-    idempotency_key = f"checkout:gol:{pack_id}:{user.id}:{client_key}"
-    if row.stripe_session_id:
-        attempt_at = row.expires_at or row.created_at
-        if attempt_at is not None:
-            idempotency_key = f"{idempotency_key}:{calendar.timegm(attempt_at.utctimetuple())}"
     configure_stripe()
     session = stripe.checkout.Session.create(
         mode="payment",
-        customer=customer.stripe_customer_id,
-        line_items=[{"price": pack["price_id"], "quantity": 1}],
+        customer=customer_id,
+        line_items=[{"price": price_id, "quantity": 1}],
         success_url=f"{base_url}/account/billing?checkout=success&session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{base_url}/pricing?checkout=canceled",
-        client_reference_id=str(row.id),
+        client_reference_id=purchase_key,
         metadata=metadata,
         payment_intent_data={"metadata": metadata},
-        idempotency_key=idempotency_key,
+        idempotency_key=f"checkout:gol:{terms_pack}:{user_id}:{client_key}:{purchase_key}",
     )
-    row.stripe_session_id = _get(session, "id")
-    row.checkout_url = _get(session, "url")
-    row.expires_at = _epoch_datetime(_get(session, "expires_at"))
-    db.session.add(
-        ProductEvent(
-            event_name="billing_checkout_started",
-            user_email=user.email,
-            props={"product_code": "gol", "price_code": pack_id, "scope_type": "user"},
+    db.session.execute(select(UserAccount.id).where(UserAccount.id == user_id).with_for_update())
+    terms = db.session.execute(
+        select(GolCheckoutTerms)
+        .where(GolCheckoutTerms.id == terms_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
+    _attach_terms(terms, _get(session, "id"))
+    row = db.session.get(BillingCheckoutSession, row_id, populate_existing=True)
+    latest_terms = GolCheckoutTerms.query.filter_by(checkout_row_id=row_id).order_by(GolCheckoutTerms.id.desc()).first()
+    if row is not None and latest_terms is not None and latest_terms.id == terms_id:
+        row.stripe_session_id = _get(session, "id")
+        row.checkout_url = _get(session, "url")
+        row.expires_at = _epoch_datetime(_get(session, "expires_at"))
+        db.session.add(
+            ProductEvent(
+                event_name="billing_checkout_started",
+                user_email=user.email,
+                props={"product_code": "gol", "price_code": terms_pack, "scope_type": "user"},
+            )
         )
-    )
     db.session.flush()
-    return {"checkout_url": row.checkout_url, "session_id": row.stripe_session_id}
+    return {"checkout_url": _get(session, "url"), "session_id": _get(session, "id")}
 
 
 def create_checkout(
@@ -686,52 +720,177 @@ def _expire_other_open_checkouts(
         raise BillingError("checkout_expiry_failed", 500)
 
 
-def _apply_gol_checkout(obj, event_id: str, *, require_paid: bool) -> bool:
-    row = _checkout_row(obj)
-    if row is None or row.product_code != "gol" or row.purchaser_user_id is None:
-        raise BillingError("unresolvable_credit_purchase", 500)
-    db.session.execute(select(UserAccount.id).where(UserAccount.id == row.purchaser_user_id).with_for_update())
-    user = db.session.get(UserAccount, row.purchaser_user_id)
-    if user is None:
-        raise BillingError("unresolvable_credit_purchase", 500)
-    row.status = "complete"
-    row.completed_at = row.completed_at or utcnow()
-    if require_paid and _get(obj, "payment_status") not in {"paid", "no_payment_required"}:
-        return True
+def _lock_gol_settlement(payment_intent_id):
+    """All settlement decisions take this lock BEFORE the user/purchase lock."""
+    if not payment_intent_id:
+        return None
+    if GolPaymentSettlement.query.filter_by(stripe_payment_intent_id=payment_intent_id).first() is None:
+        try:
+            with db.session.begin_nested():
+                db.session.add(GolPaymentSettlement(stripe_payment_intent_id=payment_intent_id))
+                db.session.flush()
+        except IntegrityError:
+            pass
+    return db.session.execute(
+        select(GolPaymentSettlement)
+        .where(GolPaymentSettlement.stripe_payment_intent_id == payment_intent_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
 
-    pack = offered_packs().get(row.price_code)
-    if pack is None:
-        raise BillingError("unresolvable_credit_purchase", 500)
-    raw_currency = _get(obj, "currency")
-    if not raw_currency:
-        raise BillingError("unresolvable_credit_purchase", 500)
-    currency = str(raw_currency).lower()
-    if currency != "usd":
-        logger.warning("Granting GOL credits for completed non-USD Checkout Session %s", _get(obj, "id"))
+
+def _settle_gol_refund(settlement, grant):
+    settlement.grant_ledger_id = grant.id
+    if settlement.refund_target_cents <= settlement.refund_applied_cents:
+        return
+    reversed_credits = apply_refund(
+        payment_intent_id=settlement.stripe_payment_intent_id,
+        cumulative_refunded_cents=settlement.refund_target_cents,
+        stripe_event_id=settlement.last_refund_event_id,
+    )
+    settlement.refund_applied_cents = settlement.refund_target_cents
+    if reversed_credits > 0:
+        user = db.session.get(UserAccount, grant.user_account_id)
+        db.session.add(
+            ProductEvent(
+                event_name="gol_credits_refunded",
+                user_email=user.email if user else None,
+                props={"credits": reversed_credits, "pack_id": grant.pack_id},
+            )
+        )
+
+
+def _attach_terms(terms, session_id):
+    if terms.stripe_session_id not in (None, session_id):
+        raise BillingError("purchase_session_conflict", 500)
+    terms.stripe_session_id = session_id
+    terms.attached_at = terms.attached_at or utcnow()
+
+
+def _purchase_event_exists(name, purchase_key):
+    # JSONB lookup is confined to the rare orphan path, not normal fulfilment;
+    # keep the existing event indexes rather than indexing every purchase key.
+    return (
+        ProductEvent.query.filter(
+            ProductEvent.event_name == name,
+            ProductEvent.props["purchase_key"].as_string() == purchase_key,
+        ).first()
+        is not None
+    )
+
+
+def _apply_gol_checkout(obj, event_id: str, *, require_paid: bool) -> bool:
     session_id = _get(obj, "id")
+    if not session_id:
+        return False
+    payment_status = _get(obj, "payment_status")
+    if require_paid and payment_status not in {"paid", "no_payment_required"}:
+        # Unpaid completions cannot prove a charge, so they exit silently here
+        # and never reach the orphan/manual-refund classification below.
+        return False
+    terms = GolCheckoutTerms.query.filter_by(stripe_session_id=session_id).first()
+    if terms is None:
+        purchase_key = _get(_get(obj, "metadata", {}), "purchase_key")
+        terms = GolCheckoutTerms.query.filter_by(purchase_key=purchase_key).first() if purchase_key else None
+    # Legacy lookup must be by exact session, never a reused client_reference_id.
+    row = db.session.get(BillingCheckoutSession, terms.checkout_row_id) if terms and terms.checkout_row_id else None
+    if terms is None:
+        row = BillingCheckoutSession.query.filter_by(stripe_session_id=session_id, product_code="gol").first()
     payment_intent_id = _stripe_id(_get(obj, "payment_intent"))
-    amount_total = _get(obj, "amount_total")
-    if not session_id or amount_total is None:
+    settlement = _lock_gol_settlement(payment_intent_id)
+    user = None
+    if row is not None and row.product_code == "gol":
+        user = db.session.execute(
+            select(UserAccount)
+            .where(UserAccount.id == row.purchaser_user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+    if terms is not None:
+        terms = db.session.execute(
+            select(GolCheckoutTerms)
+            .where(GolCheckoutTerms.id == terms.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one()
+        _attach_terms(terms, session_id)
+    if user is None or user.is_tombstone:
+        if terms is not None and (not require_paid or payment_status == "paid"):
+            if not (
+                _purchase_event_exists("gol_orphaned_purchase", terms.purchase_key)
+                or _purchase_event_exists("gol_credits_purchased", terms.purchase_key)
+            ):
+                db.session.add(
+                    ProductEvent(
+                        event_name="gol_orphaned_purchase",
+                        props={
+                            "purchase_key": terms.purchase_key,
+                            "session_id": session_id,
+                            "payment_intent": payment_intent_id,
+                            "amount_total": _get(obj, "amount_total"),
+                            "currency": _get(obj, "currency"),
+                        },
+                    )
+                )
+                logger.warning("Orphaned paid GOL purchase %s requires manual refund", session_id)
+        else:
+            logger.warning("Ignoring payment session without an owned GOL purchase: %s", session_id)
+        return False
+    if terms is not None:
+        credits, pack_id = terms.credits, terms.price_code
+        if _get(obj, "amount_total") != terms.unit_amount_cents:
+            logger.warning("GOL checkout amount differs from purchase terms for session %s", session_id)
+    else:
+        logger.warning("Legacy GOL session %s has no purchase terms; using current pack", session_id)
+        pack_id = row.price_code
+        pack = offered_packs().get(pack_id)
+        if pack is None:
+            logger.warning("Unfulfillable legacy GOL purchase %s: pack no longer offered", session_id)
+            # The user lock serializes the session-id dedupe for legacy purchases.
+            existing_incident = ProductEvent.query.filter(
+                ProductEvent.event_name == "gol_unfulfillable_legacy_purchase",
+                ProductEvent.props["session_id"].as_string() == session_id,
+            ).first()
+            if existing_incident is None:
+                db.session.add(
+                    ProductEvent(
+                        event_name="gol_unfulfillable_legacy_purchase",
+                        props={
+                            "session_id": session_id,
+                            "payment_intent": payment_intent_id,
+                            "amount_total": _get(obj, "amount_total"),
+                            "currency": _get(obj, "currency"),
+                            "pack_id": pack_id,
+                        },
+                    )
+                )
+            return False
+        credits = pack["credits"]
+    currency, amount_total = _get(obj, "currency"), _get(obj, "amount_total")
+    if not currency or amount_total is None:
         raise BillingError("unresolvable_credit_purchase", 500)
+    # The user lock serializes legacy grants; new purchases also hold their terms lock.
     existing = GolCreditLedger.query.filter_by(stripe_session_id=session_id).first()
     grant = grant_purchase(
         user,
-        pack_id=row.price_code,
-        credits=pack["credits"],
+        pack_id=pack_id,
+        credits=credits,
         stripe_session_id=session_id,
         stripe_payment_intent_id=payment_intent_id,
         stripe_event_id=event_id,
         amount_paid_cents=amount_total,
         currency=currency,
     )
+    if settlement is not None:
+        _settle_gol_refund(settlement, grant)
+    if row.stripe_session_id in (None, session_id):
+        row.status = "complete"
+        row.completed_at = row.completed_at or utcnow()
     if existing is None:
-        db.session.add(
-            ProductEvent(
-                event_name="gol_credits_purchased",
-                user_email=user.email,
-                props={"pack_id": row.price_code, "credits": grant.delta},
-            )
-        )
+        props = {"pack_id": pack_id, "credits": grant.delta}
+        if terms:
+            props["purchase_key"] = terms.purchase_key
+        db.session.add(ProductEvent(event_name="gol_credits_purchased", user_email=user.email, props=props))
     return True
 
 
@@ -790,26 +949,18 @@ def _apply_event(event_type: str, obj, event_created: int | None, event_id: str)
         payment_intent_id = _stripe_id(_get(obj, "payment_intent"))
         if not payment_intent_id:
             return False
-        grant = GolCreditLedger.query.filter_by(
-            stripe_payment_intent_id=payment_intent_id,
-            kind="grant",
-        ).first()
-        if grant is None:
-            return False
-        reversed_credits = apply_refund(
-            payment_intent_id=payment_intent_id,
-            cumulative_refunded_cents=_get(obj, "amount_refunded"),
-            stripe_event_id=event_id,
-        )
-        if reversed_credits > 0:
-            user = db.session.get(UserAccount, grant.user_account_id)
-            db.session.add(
-                ProductEvent(
-                    event_name="gol_credits_refunded",
-                    user_email=user.email if user else None,
-                    props={"credits": reversed_credits, "pack_id": grant.pack_id},
-                )
+        settlement = _lock_gol_settlement(payment_intent_id)
+        settlement.refund_target_cents = max(settlement.refund_target_cents, int(_get(obj, "amount_refunded") or 0))
+        settlement.last_refund_event_id = event_id
+        candidate = GolCreditLedger.query.filter_by(stripe_payment_intent_id=payment_intent_id, kind="grant").first()
+        if candidate is not None:
+            db.session.execute(
+                select(UserAccount.id).where(UserAccount.id == candidate.user_account_id).with_for_update()
             )
+            # Re-read after locking: account deletion may have removed the grant while we waited.
+            grant = db.session.get(GolCreditLedger, candidate.id, populate_existing=True)
+            if grant is not None:
+                _settle_gol_refund(settlement, grant)
         return True
     return False
 

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import os
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from src.config.stripe_config import billing_enabled
-from src.models.gol_credits import GolCreditLedger
+from src.models.gol_credits import GolChatExecution, GolCreditLedger
 from src.models.league import UserAccount, db
 from src.models.product_event import ProductEvent
 
@@ -80,48 +82,147 @@ def _reservation_payload(bucket: str, values: dict, *, debited: bool, attempt: i
     }
 
 
+class QuestionInFlight(Exception):
+    pass
+
+
+class QuestionRecoveryExhausted(Exception):
+    pass
+
+
+def _now():
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _refund_debit(debit):
+    if debit is None or _has_reversal(debit.id):
+        return False
+    db.session.add(
+        GolCreditLedger(
+            user_account_id=debit.user_account_id,
+            bucket=debit.bucket,
+            kind="reversal",
+            delta=1,
+            idempotency_key=f"refund:{debit.id}",
+            debit_id=debit.id,
+            client_msg_id=debit.client_msg_id,
+            attempt=debit.attempt,
+        )
+    )
+    db.session.flush()
+    return True
+
+
+def _execution_reservation(debit, question_hash, *, debited):
+    execution = (
+        GolChatExecution.query.filter_by(
+            user_account_id=debit.user_account_id,
+            client_msg_id=debit.client_msg_id,
+            attempt=debit.attempt,
+        )
+        .populate_existing()
+        .first()
+    )
+    if execution is None:
+        execution = GolChatExecution(
+            user_account_id=debit.user_account_id,
+            client_msg_id=debit.client_msg_id,
+            attempt=debit.attempt,
+            debit_id=debit.id,
+            status="running",
+            input_hash=question_hash,
+        )
+        db.session.add(execution)
+        db.session.flush()
+    elif execution.status == "running" and not debited:
+        cutoff = _now() - timedelta(minutes=5)
+        if execution.lease_started_at >= cutoff:
+            raise QuestionInFlight
+        if execution.recover_count >= 2:
+            changed = db.session.execute(
+                update(GolChatExecution)
+                .where(
+                    GolChatExecution.id == execution.id,
+                    GolChatExecution.lease_generation == execution.lease_generation,
+                    GolChatExecution.status == "running",
+                    GolChatExecution.lease_started_at < cutoff,
+                )
+                .values(status="failed", completed_at=_now())
+                .execution_options(synchronize_session=False)
+            ).rowcount
+            if changed != 1:
+                raise QuestionInFlight
+            _refund_debit(debit)
+            db.session.commit()
+            raise QuestionRecoveryExhausted
+        # Generation also fences two reclaimers which read the same old lease.
+        claimed = db.session.execute(
+            update(GolChatExecution)
+            .where(
+                GolChatExecution.id == execution.id,
+                GolChatExecution.status == "running",
+                GolChatExecution.lease_generation == execution.lease_generation,
+                GolChatExecution.lease_started_at < cutoff,
+                GolChatExecution.recover_count < 2,
+            )
+            .values(
+                lease_generation=GolChatExecution.lease_generation + 1,
+                recover_count=GolChatExecution.recover_count + 1,
+                lease_started_at=_now(),
+            )
+            .execution_options(synchronize_session=False)
+        ).rowcount
+        if claimed != 1:
+            raise QuestionInFlight
+        db.session.refresh(execution)
+    payload = _reservation_payload(
+        debit.bucket, _balance_values(debit.user_account_id), debited=debited, attempt=debit.attempt
+    )
+    payload.update(
+        debit_id=debit.id,
+        execution_id=execution.id,
+        lease_generation=execution.lease_generation,
+        replay=execution.status == "completed",
+        response_text=execution.response_text,
+        response_events=execution.terminal_events,
+        response_meta=execution.response_meta,
+    )
+    db.session.commit()
+    return payload
+
+
 def reserve_question(user, client_msg_id, *, question_hash, role="user") -> dict:
-    """Reserve one question credit and commit before streaming begins."""
+    """Commit the debit and its execution lease together under the user lock."""
     if not billing_enabled():
         return _reservation_payload(
-            "disabled",
-            {"free_questions_remaining": free_allowance(), "credit_balance": 0},
-            debited=False,
-            attempt=None,
+            "disabled", {"free_questions_remaining": free_allowance(), "credit_balance": 0}, debited=False, attempt=None
         )
     if role == "admin":
         values = balances(user)
         db.session.commit()
         return _reservation_payload("exempt", values, debited=False, attempt=None)
-
     try:
         _lock_user(user.id)
         latest = _latest_debit(user.id, client_msg_id)
         if latest is not None:
-            if latest.note != question_hash:
-                db.session.rollback()
+            if (latest.note or "").partition(";")[0] != question_hash:
                 raise ClientMsgIdReused
             if not _has_reversal(latest.id):
-                values = _balance_values(user.id)
-                db.session.commit()
-                return _reservation_payload(latest.bucket, values, debited=False, attempt=latest.attempt)
-
-        prior_attempt = (
-            db.session.query(func.max(GolCreditLedger.attempt))
-            .filter_by(user_account_id=user.id, client_msg_id=client_msg_id, kind="debit")
-            .scalar()
-            or 0
-        )
-        attempt = int(prior_attempt) + 1
+                execution = GolChatExecution.query.filter_by(debit_id=latest.id).first()
+                if execution is not None and execution.status == "failed":
+                    # A long client disconnect remains charged, including on retry.
+                    if ";refund_withheld=true" not in (latest.note or ""):
+                        _refund_debit(latest)
+                else:
+                    return _execution_reservation(latest, question_hash, debited=False)
+        attempt = (latest.attempt if latest else 0) + 1
         before = _balance_values(user.id)
         if before["free_questions_remaining"] > 0:
             bucket = "free_allowance"
         elif before["credit_balance"] > 0:
             bucket = "prepaid"
         else:
-            db.session.rollback()
             raise CreditsExhausted(**before)
-
         debit = GolCreditLedger(
             user_account_id=user.id,
             bucket=bucket,
@@ -136,61 +237,116 @@ def reserve_question(user, client_msg_id, *, question_hash, role="user") -> dict
             with db.session.begin_nested():
                 db.session.add(debit)
                 db.session.flush()
+                db.session.add(
+                    GolChatExecution(
+                        user_account_id=user.id,
+                        client_msg_id=client_msg_id,
+                        attempt=attempt,
+                        debit_id=debit.id,
+                        status="running",
+                        input_hash=question_hash,
+                    )
+                )
+                db.session.flush()
         except IntegrityError:
             winner = _latest_debit(user.id, client_msg_id)
             if winner is None or _has_reversal(winner.id):
                 raise
-            if winner.note != question_hash:
-                db.session.rollback()
+            if (winner.note or "").partition(";")[0] != question_hash:
                 raise ClientMsgIdReused
-            values = _balance_values(user.id)
-            db.session.commit()
-            return _reservation_payload(winner.bucket, values, debited=False, attempt=winner.attempt)
-
-        db.session.add(
-            ProductEvent(
-                event_name="gol_question_debited",
-                user_email=user.email,
-                props={"bucket": bucket},
-            )
-        )
-        values = _balance_values(user.id)
-        db.session.commit()
-        return _reservation_payload(bucket, values, debited=True, attempt=attempt)
-    except CreditsExhausted:
-        raise
+            return _execution_reservation(winner, question_hash, debited=False)
+        db.session.add(ProductEvent(event_name="gol_question_debited", user_email=user.email, props={"bucket": bucket}))
+        return _execution_reservation(debit, question_hash, debited=True)
     except Exception:
         db.session.rollback()
         raise
 
 
-def refund_question(user, client_msg_id) -> bool:
-    """Compensate the latest unrefunded question debit, if one exists."""
+def refund_question(user, client_msg_id, *, debit_id=None, attempt=None) -> bool:
+    """Compensate an exact debit; legacy callers retain latest-debit behavior."""
     try:
         _lock_user(user.id)
-        debit = _latest_debit(user.id, client_msg_id)
-        if debit is None or _has_reversal(debit.id):
-            db.session.commit()
-            return False
-        reversal = GolCreditLedger(
-            user_account_id=user.id,
-            bucket=debit.bucket,
-            kind="reversal",
-            delta=1,
-            idempotency_key=f"refund:{debit.id}",
-            debit_id=debit.id,
-            client_msg_id=client_msg_id,
-            attempt=debit.attempt,
-        )
-        try:
-            with db.session.begin_nested():
-                db.session.add(reversal)
-                db.session.flush()
-        except IntegrityError:
-            db.session.commit()
-            return False
+        if debit_id is not None:
+            debit = GolCreditLedger.query.filter_by(
+                id=debit_id, user_account_id=user.id, client_msg_id=client_msg_id, kind="debit"
+            ).first()
+        elif attempt is not None:
+            debit = GolCreditLedger.query.filter_by(
+                user_account_id=user.id, client_msg_id=client_msg_id, attempt=attempt, kind="debit"
+            ).first()
+        else:
+            debit = _latest_debit(user.id, client_msg_id)
+        refunded = _refund_debit(debit)
         db.session.commit()
-        return True
+        return refunded
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def finish_execution(
+    user,
+    reservation,
+    *,
+    response_text=None,
+    response_events=None,
+    failed=False,
+    refund=True,
+    disconnect_delivered_chars=None,
+    partial=False,
+):
+    """Fence stale workers and commit completion or exact compensation atomically."""
+    if not reservation.get("execution_id"):
+        return False
+    try:
+        _lock_user(user.id)
+        changed = db.session.execute(
+            update(GolChatExecution)
+            .where(
+                GolChatExecution.id == reservation["execution_id"],
+                GolChatExecution.user_account_id == user.id,
+                GolChatExecution.lease_generation == reservation["lease_generation"],
+                GolChatExecution.status == "running",
+            )
+            .values(
+                status="failed" if failed else "completed",
+                completed_at=_now(),
+                response_text=response_text,
+                response_events=json.dumps(
+                    {
+                        "events": response_events or [],
+                        "response_meta": {
+                            "partial": True,
+                            "delivered_chars": disconnect_delivered_chars,
+                        },
+                    }
+                    if partial
+                    else response_events or []
+                ),
+            )
+            .execution_options(synchronize_session=False)
+        ).rowcount
+        if changed != 1:
+            db.session.rollback()
+            return False
+        if disconnect_delivered_chars is not None:
+            debit = db.session.get(GolCreditLedger, reservation["debit_id"])
+            # Keep the fingerprint prefix; append the disconnect disposition without
+            # adding schema. Retries must not undo a deliberately retained charge.
+            fingerprint = (debit.note or "").partition(";")[0]
+            debit.note = (
+                f"{fingerprint};disconnect_delivered_chars={disconnect_delivered_chars}"
+                f";refund_withheld={str(not refund).lower()}"
+            )
+        if failed and refund:
+            # refund_question commits the guarded failure and exact reversal together.
+            return refund_question(
+                user,
+                db.session.get(GolChatExecution, reservation["execution_id"]).client_msg_id,
+                debit_id=reservation["debit_id"],
+            )
+        db.session.commit()
+        return not failed
     except Exception:
         db.session.rollback()
         raise

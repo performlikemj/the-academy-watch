@@ -109,4 +109,24 @@ class BillingCheckoutSession(db.Model):
     )
 
 
-__all__ = ["BillingCheckoutSession", "BillingCustomer", "BillingSubscription", "StripeWebhookEvent"]
+class GolCheckoutTerms(db.Model):
+    """Immutable terms per remote purchase, retained without ownership on deletion."""
+
+    __tablename__ = "gol_checkout_terms"
+
+    id = db.Column(db.Integer, primary_key=True)
+    purchase_key = db.Column(db.String(36), unique=True, nullable=False)
+    checkout_row_id = db.Column(
+        db.Integer, db.ForeignKey("billing_checkout_sessions.id", ondelete="SET NULL"), index=True
+    )
+    stripe_session_id = db.Column(db.String(255), unique=True)
+    price_code = db.Column(db.String(40), nullable=False)
+    credits = db.Column(db.Integer, nullable=False)
+    unit_amount_cents = db.Column(db.Integer, nullable=False)
+    currency = db.Column(db.String(3), nullable=False)
+    stripe_price_id = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, **_timestamp)
+    attached_at = db.Column(db.DateTime)
+
+
+__all__ = ["BillingCheckoutSession", "BillingCustomer", "BillingSubscription", "GolCheckoutTerms", "StripeWebhookEvent"]

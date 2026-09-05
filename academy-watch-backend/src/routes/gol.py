@@ -16,8 +16,10 @@ from src.extensions import limiter
 from src.services.gol_credits import (
     ClientMsgIdReused,
     CreditsExhausted,
+    QuestionInFlight,
+    QuestionRecoveryExhausted,
     balances,
-    refund_question,
+    finish_execution,
     reserve_question,
 )
 from src.services.scout_entitlements import decoded_bearer_role
@@ -64,16 +66,56 @@ def gol_chat():
 
     try:
         from src.services.gol_service import GolService
-
-        service = GolService(model_override=model_override)
-    except Exception as e:
-        logger.error(f"Failed to initialize GolService: {e}")
+    except ImportError:
+        logger.exception("Failed to import GolService")
         return jsonify({"error": "Chat service unavailable"}), 503
 
+    metered = billing_enabled() and role != "admin"
+    if metered:
+        if not isinstance(history, list) or not isinstance(session_id, str):
+            return jsonify({"error": "invalid_history_or_session"}), 400
+        for entry in history:
+            if (
+                not isinstance(entry, dict)
+                or entry.get("role") not in {"user", "assistant", "tool", "system"}
+                or not isinstance(entry.get("content", ""), (str, type(None)))
+            ):
+                return jsonify({"error": "invalid_history"}), 400
+            if "tool_call_id" in entry and not isinstance(entry["tool_call_id"], str):
+                return jsonify({"error": "invalid_history"}), 400
+            if "tool_calls" in entry:
+                calls = entry["tool_calls"]
+                if not isinstance(calls, list) or any(
+                    not isinstance(call, dict)
+                    or not isinstance(call.get("id"), str)
+                    or call.get("type") != "function"
+                    or not isinstance(call.get("function"), dict)
+                    or not isinstance(call["function"].get("name"), str)
+                    or not isinstance(call["function"].get("arguments"), str)
+                    for call in calls
+                ):
+                    return jsonify({"error": "invalid_history"}), 400
+        history = [GolService._sanitize_history_entry(entry) for entry in history]
     try:
-        normalized_question = " ".join(message.split()).casefold()
-        question_hash = hashlib.sha256(normalized_question.encode()).hexdigest()
+        canonical = json.dumps(
+            {
+                "message": " ".join(message.split()).casefold(),
+                "history": history if metered else [],
+                "session_id": session_id if metered else "",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        question_hash = hashlib.sha256(canonical.encode()).hexdigest()
         reservation = reserve_question(g.user, client_msg_id, question_hash=question_hash, role=role)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid_history_or_session"}), 400
+    except QuestionInFlight:
+        return jsonify({"error": "in_flight"}), 409
+    except QuestionRecoveryExhausted:
+        return jsonify({"error": "recovery_exhausted"}), 409
     except ClientMsgIdReused:
         return jsonify({"error": "client_msg_id_reused"}), 409
     except CreditsExhausted as exc:
@@ -90,51 +132,124 @@ def gol_chat():
             402,
         )
 
-    def generate():
-        usage = {
-            "bucket": reservation["bucket"],
-            "free_questions_remaining": reservation["free_questions_remaining"],
-            "credit_balance": reservation["credit_balance"],
-            "debited": reservation["debited"],
-        }
-        yield _sse("usage", usage)
-        compensation_attempted = False
+    # Resolve replays before constructing a potentially unavailable model client.
+    if not reservation.get("replay"):
+        try:
+            service = GolService(model_override=model_override)
+        except Exception:
+            finish_execution(g.user, reservation, failed=True)
+            logger.exception("Failed to initialize GolService")
+            return jsonify({"error": "Chat service unavailable"}), 503
 
-        def compensate():
-            nonlocal compensation_attempted
-            if compensation_attempted or not reservation["debited"]:
+    def generate():
+        usage = {key: reservation[key] for key in ("bucket", "free_questions_remaining", "credit_balance", "debited")}
+        completed = reservation.get("replay", False)
+        failed = False
+        text = ""
+        events = []
+        delivered_chars = 0
+        answer_begun = False
+
+        def compensate(*, disconnect=False):
+            nonlocal failed, completed
+            if failed or completed:
                 return None
-            compensation_attempted = True
+            failed = True
             try:
-                refunded = refund_question(g.user, client_msg_id)
+                if disconnect and answer_begun:
+                    # A delivered answer is terminal, even if only a card/history
+                    # was yielded. Replay this exact partial instead of charging again.
+                    completed = finish_execution(
+                        g.user,
+                        reservation,
+                        response_text=text,
+                        response_events=events,
+                        partial=True,
+                        refund=False,
+                        disconnect_delivered_chars=delivered_chars,
+                    )
+                    return None
+                refunded = finish_execution(
+                    g.user,
+                    reservation,
+                    failed=True,
+                    disconnect_delivered_chars=delivered_chars if disconnect else None,
+                )
+                if refunded:
+                    return {**usage, **balances(g.user), "refunded": True}
             except Exception:
                 logger.exception("Failed to compensate GOL question debit")
-                return None
-            if not refunded:
-                return None
-            return {
-                "bucket": reservation["bucket"],
-                **balances(g.user),
-                "debited": reservation["debited"],
-                "refunded": True,
-            }
+            return None
 
         try:
+            yield _sse("usage", usage)
+            if completed:
+                yield _sse("replace", {"content": reservation["response_text"] or ""})
+                for event in reservation["response_events"]:
+                    # Stored replace events describe intermediate revisions; the full answer above wins.
+                    if event["event"] != "replace":
+                        yield _sse(event["event"], event["data"])
+                yield _sse("done", {})
+                return
+            if not reservation.get("execution_id"):
+                # Preserve the existing admin and billing-disabled streaming contract.
+                yield from (
+                    _sse(event.get("event", "token"), event.get("data", {}))
+                    for event in service.chat(message, history, session_id)
+                )
+                return
             for event in service.chat(message, history, session_id):
                 evt_type = event.get("event", "token")
                 evt_data = event.get("data", {})
-                refunded_usage = compensate() if evt_type == "error" else None
-                yield _sse(evt_type, evt_data)
-                if refunded_usage is not None:
-                    yield _sse("usage", refunded_usage)
-        except GeneratorExit:
-            raise
-        except Exception as e:
-            logger.error(f"SSE stream error: {e}", exc_info=True)
+                if evt_type == "error":
+                    refunded_usage = compensate()
+                    yield _sse(evt_type, evt_data)
+                    if refunded_usage is not None:
+                        yield _sse("usage", refunded_usage)
+                    return
+                if evt_type == "token":
+                    text += evt_data.get("content", "")
+                elif evt_type == "replace":
+                    text = evt_data.get("content", "")
+                    events.append({"event": evt_type, "data": evt_data})
+                elif evt_type == "done":
+                    if reservation.get("execution_id") and not finish_execution(
+                        g.user, reservation, response_text=text, response_events=events
+                    ):
+                        return
+                    completed = True
+                    yield _sse(evt_type, evt_data)
+                    return
+                elif evt_type not in {"usage", "tool_call"}:
+                    events.append({"event": evt_type, "data": evt_data})
+                frame = _sse(evt_type, evt_data)
+                if evt_type in {"token", "replace"}:
+                    # Count content handed to the response iterator, including each
+                    # replacement, before suspension (close raises at the yield).
+                    delivered_chars += len(evt_data.get("content", ""))
+                if (evt_type == "token" and evt_data.get("content")) or evt_type in {
+                    "replace",
+                    "data_card",
+                    "history_entries",
+                }:
+                    answer_begun = True
+                yield frame
             refunded_usage = compensate()
-            yield _sse("error", {"message": str(e)})
+            yield _sse("error", {"message": "Chat ended before completion"})
             if refunded_usage is not None:
                 yield _sse("usage", refunded_usage)
+        except GeneratorExit:
+            compensate(disconnect=True)
+            raise
+        except Exception as exc:
+            logger.exception("SSE stream error")
+            refunded_usage = compensate()
+            yield _sse("error", {"message": str(exc)})
+            if refunded_usage is not None:
+                yield _sse("usage", refunded_usage)
+        finally:
+            if not completed:
+                compensate()
 
     return Response(
         stream_with_context(generate()),
