@@ -8,10 +8,10 @@ from uuid import uuid4
 import sqlalchemy as sa
 from sqlalchemy import func, or_
 from src.models.account import AccountDeletionEvent
-from src.models.billing import BillingCheckoutSession, BillingCustomer, BillingSubscription
+from src.models.billing import BillingCheckoutSession, BillingCustomer, BillingSubscription, GolCheckoutTerms
 from src.models.contact import ContactAuditEvent, ContactMessage, ContactOutcome, ContactRequest
 from src.models.follow import Follow, FollowList, FollowPlayerSnapshot
-from src.models.gol_credits import GolCreditLedger
+from src.models.gol_credits import GolChatExecution, GolCreditLedger, GolPaymentSettlement
 from src.models.league import (
     CommentaryApplause,
     CommunityTake,
@@ -320,6 +320,10 @@ def build_account_export(user: UserAccount) -> dict:
             "has_billing_account": BillingCustomer.query.filter_by(user_account_id=user.id).first() is not None,
             "subscriptions": [subscription_payload(row) for row in subscriptions_for_user(user)],
         },
+        "gol_chat_executions": [
+            row.to_dict()
+            for row in GolChatExecution.query.filter_by(user_account_id=user.id).order_by(GolChatExecution.id).all()
+        ],
         "gol_credit_ledger": [
             row.to_dict()
             for row in GolCreditLedger.query.filter_by(user_account_id=user.id)
@@ -639,16 +643,44 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     commit, so the tombstone, anonymization, owned-row deletion, original-user
     deletion, and append-only event either all persist or all roll back.
     """
-    locked_user = (
-        db.session.execute(
+    # Match webhook order (settlement -> user -> terms). Ensure legacy grants
+    # also have a settlement, so deletion cannot race a newly created refund row.
+    from src.services.stripe_billing import _lock_gol_settlement
+
+    user_pk = user.id
+
+    def purchase_intents():
+        return {
+            intent
+            for (intent,) in db.session.query(GolCreditLedger.stripe_payment_intent_id)
+            .filter(
+                GolCreditLedger.user_account_id == user_pk,
+                GolCreditLedger.kind == "grant",
+                GolCreditLedger.stripe_payment_intent_id.isnot(None),
+            )
+            .distinct()
+            .all()
+        }
+
+    for _attempt in range(5):
+        savepoint = db.session.begin_nested()
+        intents = purchase_intents()
+        for intent_id in sorted(intents):
+            _lock_gol_settlement(intent_id)
+        locked_user = db.session.execute(
             sa.select(UserAccount)
-            .where(UserAccount.id == user.id)
+            .where(UserAccount.id == user_pk)
             .with_for_update()
             .execution_options(populate_existing=True)
-        )
-        .scalars()
-        .one_or_none()
-    )
+        ).scalar_one_or_none()
+        if purchase_intents() <= intents:
+            savepoint.commit()
+            break
+        # A grant committed while we waited for the user. Release these locks
+        # before acquiring its settlement, preserving settlement -> user order.
+        savepoint.rollback()
+    else:
+        raise AccountDeletionUnavailable("purchases changed during deletion; retry")
     if locked_user is None or locked_user.is_tombstone:
         raise AccountDeletionUnavailable("account is already deleted")
     cancel_subscriptions_for_account_deletion(locked_user)
@@ -835,6 +867,11 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             session=db.session,
         )
 
+    # Keep only nonpersonal purchase receipts, so already fulfilled purchases
+    # cannot turn into manual-refund incidents after deletion erases the ledger.
+    ProductEvent.query.filter(
+        ProductEvent.event_name == "gol_credits_purchased", ProductEvent.user_email == email
+    ).update({ProductEvent.user_email: None}, synchronize_session=False)
     if email:
         subscriptions = UserSubscription.query.filter(func.lower(UserSubscription.email) == email)
         subscriptions.update({UserSubscription.active: False}, synchronize_session=False)
@@ -846,6 +883,19 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         counts["anonymized"]["email_keyed_rows"] = email_rows
         counts["deleted"]["product_events"] = product_events
 
+    counts["deleted"]["gol_chat_executions"] = GolChatExecution.query.filter_by(user_account_id=user_id).delete(
+        synchronize_session=False
+    )
+    checkout_ids = sa.select(BillingCheckoutSession.id).where(BillingCheckoutSession.purchaser_user_id == user_id)
+    # Remove the owned link explicitly, retaining immutable, unowned purchase
+    # terms as proof for late-payment refunds. No account or question data remains.
+    counts["anonymized"]["gol_checkout_terms"] = GolCheckoutTerms.query.filter(
+        GolCheckoutTerms.checkout_row_id.in_(checkout_ids)
+    ).update({GolCheckoutTerms.checkout_row_id: None}, synchronize_session=False)
+    grant_ids = sa.select(GolCreditLedger.id).where(GolCreditLedger.user_account_id == user_id)
+    GolPaymentSettlement.query.filter(GolPaymentSettlement.grant_ledger_id.in_(grant_ids)).update(
+        {GolPaymentSettlement.grant_ledger_id: None}, synchronize_session=False
+    )
     forfeiture = forfeit_for_deletion(locked_user)
     counts["deleted"]["gol_credit_ledger"] = forfeiture["ledger_rows"]
     counts["forfeited_credits"] = forfeiture["forfeited_credits"]

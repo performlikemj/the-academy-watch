@@ -20,6 +20,9 @@ WEBHOOK_SECRET = "gol_webhook_test_placeholder"
 
 
 class _StubGolService:
+    from src.services.gol_service import GolService as _RealGolService
+
+    _sanitize_history_entry = staticmethod(_RealGolService._sanitize_history_entry)
     events = [{"event": "done", "data": {"ok": True}}]
 
     def __init__(self, session_id=None, model_override=None):
@@ -226,7 +229,7 @@ def test_lit_chat_uses_three_free_questions_then_returns_json_402(app, client, m
     }
 
 
-def test_lit_chat_validation_and_service_init_happen_before_reservation(app, client, monkeypatch):
+def test_lit_chat_validation_precedes_reservation_and_init_failure_compensates(app, client, monkeypatch):
     _enable(monkeypatch)
     user = _user()
     assert client.post(
@@ -244,7 +247,8 @@ def test_lit_chat_validation_and_service_init_happen_before_reservation(app, cli
         headers=_headers(user),
     )
     assert unavailable.status_code == 503
-    assert GolCreditLedger.query.count() == 0
+    assert GolCreditLedger.query.filter_by(kind="debit").count() == 1
+    assert GolCreditLedger.query.filter_by(kind="reversal").count() == 1
 
 
 def test_same_message_is_one_debit_and_error_refund_allows_attempt_two(app, client, monkeypatch):
@@ -324,7 +328,7 @@ def test_exhausted_user_cannot_reuse_client_id_for_a_different_question(app, cli
     assert GolCreditLedger.query.filter_by(idempotency_key=f"refund:{debit.id}").count() == 1
 
 
-def test_stream_exception_refunds_but_client_disconnect_does_not(app, client, monkeypatch):
+def test_stream_exception_and_client_disconnect_refund_unfinished_execution(app, client, monkeypatch):
     _enable(monkeypatch)
     user = _user()
 
@@ -351,7 +355,7 @@ def test_stream_exception_refunds_but_client_disconnect_does_not(app, client, mo
     assert next(response.response).decode().startswith("event: usage")
     response.close()
     disconnect_debit = GolCreditLedger.query.filter_by(client_msg_id="disconnect_msg", kind="debit").one()
-    assert GolCreditLedger.query.filter_by(idempotency_key=f"refund:{disconnect_debit.id}").count() == 0
+    assert GolCreditLedger.query.filter_by(idempotency_key=f"refund:{disconnect_debit.id}").count() == 1
 
 
 def test_admin_and_pdf_export_never_debit(app, client, monkeypatch):
@@ -408,6 +412,7 @@ def test_payment_checkout_metadata_and_client_key_conflict(app, client, monkeypa
     assert response.status_code == 200
     kwargs = session.call_args.kwargs
     expected_metadata = {
+        "purchase_key": kwargs["client_reference_id"],
         "kind": "credit_topup",
         "product_code": "gol",
         "pack_id": "gol_starter",
@@ -419,7 +424,9 @@ def test_payment_checkout_metadata_and_client_key_conflict(app, client, monkeypa
     assert kwargs["payment_intent_data"] == {"metadata": expected_metadata}
     assert "subscription_data" not in kwargs
     assert "allow_promotion_codes" not in kwargs
-    assert kwargs["idempotency_key"] == f"checkout:gol:gol_starter:{user.id}:checkout_key"
+    assert (
+        kwargs["idempotency_key"] == f"checkout:gol:gol_starter:{user.id}:checkout_key:{kwargs['client_reference_id']}"
+    )
 
     conflict = client.post(
         "/api/billing/checkout",
@@ -503,7 +510,7 @@ def test_pack_price_lookup_failure_makes_checkout_temporarily_unavailable(app, c
     session_create.assert_not_called()
 
 
-def test_paid_unpaid_async_and_missing_local_checkout_webhooks(app, client, monkeypatch):
+def test_paid_unpaid_async_and_unknown_checkout_is_ignored_without_purchase_proof(app, client, monkeypatch):
     _enable(monkeypatch)
     _packs(monkeypatch)
     user = _user()
@@ -541,8 +548,8 @@ def test_paid_unpaid_async_and_missing_local_checkout_webhooks(app, client, monk
         client,
         _event("evt_missing", "checkout.session.completed", _completed("cs_missing")),
     )
-    assert missing.status_code == 500
-    assert StripeWebhookEvent.query.filter_by(event_id="evt_missing", status="failed").count() == 1
+    assert missing.status_code == 200
+    assert StripeWebhookEvent.query.filter_by(event_id="evt_missing", status="ignored").count() == 1
 
 
 @pytest.mark.parametrize("payment_status", ("paid", "no_payment_required"))
@@ -644,7 +651,7 @@ def test_refund_target_math_reverses_three_then_four_and_tracks_cumulative(app, 
     assert GolCreditLedger.query.filter_by(kind="grant").one().refunded_cents == 2000
 
 
-def test_charge_refund_webhook_updates_grant_and_unknown_payment_is_ignored(app, client, monkeypatch):
+def test_charge_refund_webhook_updates_grant_and_unknown_payment_is_held_for_later_grant(app, client, monkeypatch):
     _enable(monkeypatch)
     user = _user()
     grant_purchase(
@@ -673,7 +680,7 @@ def test_charge_refund_webhook_updates_grant_and_unknown_payment_is_ignored(app,
         _event("evt_unknown_refund", "charge.refunded", {"payment_intent": "pi_unknown", "amount_refunded": 500}),
     )
     assert unknown.status_code == 200
-    assert StripeWebhookEvent.query.filter_by(event_id="evt_unknown_refund", status="ignored").count() == 1
+    assert StripeWebhookEvent.query.filter_by(event_id="evt_unknown_refund", status="processed").count() == 1
 
 
 def test_billing_me_auth_me_and_negative_admin_summary_agree(app, client, monkeypatch):
