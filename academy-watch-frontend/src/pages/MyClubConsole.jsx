@@ -24,7 +24,8 @@ import {
 import { APIService } from '@/lib/api'
 import { ClubIntroductionsPanel } from '@/components/contact/ClubIntroductionsPanel'
 import { PlayerReels } from '@/components/video/PlayerReel'
-import { useAuthUI } from '@/context/AuthContext'
+import { useAuth, useAuthUI } from '@/context/AuthContext'
+import { track } from '@/lib/track'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { formatDateOnly } from '@/lib/dateOnly'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -602,7 +603,142 @@ function BriefEditor({ id, title, description, brief, onSave, onAccessDenied }) 
   )
 }
 
+export function ClubInvitationPanel({ programId, token, onChanged = () => {} }) {
+  const [rows, setRows] = useState([])
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [selected, setSelected] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [disabled, setDisabled] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [nextBefore, setNextBefore] = useState(null)
+  const alive = useRef(false)
+  const requestIdentity = useRef(null)
+  const scope = `${programId}:${token}`
+  const activeScope = useRef(scope)
+  useEffect(() => { activeScope.current = scope }, [scope])
+  const endpoint = `/club/${programId}/invitations`
+
+  useEffect(() => {
+    alive.current = true
+    let cancelled = false
+    setRows([])
+    setLoading(true)
+    setError(null)
+    setDisabled(false)
+    APIService.request(endpoint).then((data) => {
+      if (!cancelled) { setRows(data.invitations || []); setNextBefore(data.next_before) }
+    }).catch((err) => {
+      if (!cancelled) {
+        if (err.status === 404) setDisabled(true)
+        else setError(err.status === 403 ? 'Club manager access denied.' : 'Could not load invitations.')
+      }
+    }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true; alive.current = false }
+  }, [endpoint, token])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setResults([])
+    const trimmed = query.trim()
+    const signedId = /^-?\d+$/.test(trimmed) ? Number(trimmed) : null
+    if ((signedId === null && trimmed.length < 2) || (signedId !== null && (!Number.isInteger(signedId) || signedId === 0 || Math.abs(signedId) > 2147483647))) return () => controller.abort()
+    const timer = setTimeout(() => {
+      const path = signedId === null
+        ? `/scout/players?search=${encodeURIComponent(trimmed)}&per_page=8&sort=name&order=asc`
+        : `/players/${signedId}/profile`
+      APIService.request(path, { signal: controller.signal })
+        .then((data) => { if (!controller.signal.aborted) setResults(signedId === null ? data.players || [] : [data]) })
+        .catch(() => { if (!controller.signal.aborted) setError('Player search is unavailable.') })
+    }, 250)
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [query, scope])
+
+  async function mutate(invitation = null) {
+    if (busy || (!invitation && !selected)) return
+    const capturedScope = scope
+    const current = () => alive.current && activeScope.current === capturedScope
+    setBusy(true); setError(null); setNotice('')
+    const action = invitation ? 'relationship_revoked' : 'invite_created'
+    try {
+      const data = await APIService.request(invitation ? `${endpoint}/${invitation.id}/revoke` : endpoint, {
+        method: 'POST', body: JSON.stringify(invitation ? {} : {
+          player_api_id: Number(selected.player_api_id ?? selected.player_id),
+          client_request_id: requestIdentity.current,
+        }),
+      })
+      if (!current()) return
+      setRows((old) => [data.invitation, ...old.filter((row) => row.id !== data.invitation.id)])
+      setNotice(invitation ? 'Relationship revoked.' : 'Invitation ready to share.')
+      track('pilot_ui', { package: 'P2', action, outcome: 'success' })
+      onChanged()
+    } catch (err) {
+      if (!current()) return
+      const message = {
+        invitation_exists: 'An invitation or accepted relationship already exists.',
+        client_request_id_reused: 'This request was already used for a different player. Select the player again.',
+        invitation_expired: 'This invitation has expired.',
+        invitation_unavailable: 'This relationship is unavailable.',
+        retry_conflict: 'Another update occurred. Please retry.',
+      }[err.body?.error]
+      setError(message || (err.status === 403 ? 'Club manager access denied.' : 'Could not update the invitation.'))
+      track('pilot_ui', { package: 'P2', action, outcome: 'error' })
+    } finally { if (current()) setBusy(false) }
+  }
+
+  async function copyLink(row) {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/players/${row.player_api_id}#club-invitation=${row.id}`)
+      if (alive.current) setNotice('Invitation link copied.')
+    } catch { if (alive.current) setError('Could not copy the invitation link. Please try again.') }
+  }
+
+  async function loadMore() {
+    const capturedScope = scope
+    setBusy(true)
+    try {
+      const data = await APIService.request(`${endpoint}?before=${encodeURIComponent(nextBefore)}`)
+      if (alive.current && activeScope.current === capturedScope) {
+        setRows((old) => [...old, ...data.invitations]); setNextBefore(data.next_before)
+      }
+    } catch { if (alive.current && activeScope.current === capturedScope) setError('Could not load more invitations.') }
+    finally { if (alive.current && activeScope.current === capturedScope) setBusy(false) }
+  }
+
+  if (disabled) return null
+  return <Card aria-label="Club relationships">
+    <CardHeader>
+      <CardTitle>Invite player</CardTitle>
+      <CardDescription>The player must accept before this relationship is active.</CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="invitation-player-search">Find a public player</Label>
+        <Input id="invitation-player-search" value={query} maxLength={100} disabled={busy} placeholder="Search player name or signed ID" onChange={(event) => { setQuery(event.target.value); setSelected(null); requestIdentity.current = null }} />
+        {results.length > 0 && !selected && <ul className="divide-y rounded-md border">{results.map((player) => <li key={player.player_api_id ?? player.player_id}>
+          <button type="button" className="w-full p-3 text-left hover:bg-muted" onClick={() => { setSelected(player); requestIdentity.current = crypto.randomUUID() }}>{player.player_name || player.name}{Number(player.player_api_id ?? player.player_id) < 0 ? ' · Local player' : ''}</button>
+        </li>)}</ul>}
+        {selected && <p className="text-sm">Selected: {selected.player_name || selected.name}</p>}
+        <Button disabled={!selected || busy || loading} onClick={() => mutate()}>{busy ? 'Saving…' : 'Create invitation'}</Button>
+      </div>
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {notice && <p role="status" className="text-sm">{notice}</p>}
+      {loading ? <p role="status">Loading invitations…</p> : rows.length === 0 ? <p className="text-sm text-muted-foreground">No club invitations yet.</p> : <ul className="divide-y">{rows.map((row) => {
+        const expired = row.status === 'expired' || (row.status === 'pending' && Date.now() >= Date.parse(row.expires_at))
+        return <li key={row.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+          <div><a href={`/players/${row.player_api_id}`} className="text-sm underline">Player {row.player_api_id}</a><p className="text-sm text-muted-foreground">{expired ? 'Expired' : ({ pending: 'Awaiting player', accepted: 'Accepted', declined: 'Declined', revoked: 'Revoked' }[row.status])}</p></div>
+          <div className="flex flex-wrap gap-2">{row.status === 'pending' && !expired && <Button variant="outline" size="sm" onClick={() => copyLink(row)}>Copy invitation link</Button>}{['pending', 'accepted'].includes(row.status) && !expired && <Button variant="outline" size="sm" disabled={busy} onClick={() => mutate(row)}>Revoke relationship</Button>}</div>
+        </li>
+      })}</ul>}
+      {nextBefore && <Button variant="outline" disabled={busy} onClick={loadMore}>More invitations</Button>}
+    </CardContent>
+  </Card>
+}
+
 function RosterPanel({ programId, members, systemBrief, loading, error, onMembersChange, onSystemBriefChange, onReload, onAccessDenied }) {
+  const { token } = useAuth()
   const [addOpen, setAddOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState(null)
   const [removing, setRemoving] = useState(false)
@@ -629,6 +765,7 @@ function RosterPanel({ programId, members, systemBrief, loading, error, onMember
 
   return (
     <div className="space-y-4">
+      <ClubInvitationPanel key={`${programId}:${token}`} programId={programId} token={token} onChanged={onReload} />
       <Card className="border-border/80">
         <CardHeader>
           <CardTitle className="text-lg">How we play</CardTitle>
@@ -656,7 +793,7 @@ function RosterPanel({ programId, members, systemBrief, loading, error, onMember
         <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border/60 bg-card">
           <div>
             <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5 text-primary" /> Private roster</CardTitle>
-            <CardDescription className="mt-1">The squad available for this club&apos;s match sheets and private reports.</CardDescription>
+            <CardDescription className="mt-1">Private attachments for this club&apos;s match sheets and reports are separate from player-accepted relationships.</CardDescription>
           </div>
           <Button onClick={() => setAddOpen(true)} size="sm"><Plus className="mr-1.5 h-4 w-4" /> Add member</Button>
         </CardHeader>

@@ -16,14 +16,25 @@ import re
 import unicodedata
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from functools import wraps
 from html import unescape
 from urllib.parse import urlsplit
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func, or_, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from src.auth import mint_media_token
 from src.extensions import limiter
+from src.models.club_invitation import (
+    ClubInvitation,
+    InvitationError,
+    create_invitation,
+    governed_member_available,
+    invitation_dict,
+    list_invitations,
+    relationships_enabled,
+    resolve_invitation,
+)
 from src.models.funding import (
     ClubProgram,
     ClubProgramProfileRevision,
@@ -463,6 +474,8 @@ def _local_player_available(player: LocalPlayer | None) -> bool:
 
 
 def _member_subject(member: ClubRosterMember) -> tuple[dict | None, object | None]:
+    if not governed_member_available(db.session, member):
+        return None, None
     if member.player_api_id is not None:
         subject = resolve_player_subject(member.player_api_id)
         if subject is None or subject.is_suppressed:
@@ -619,6 +632,8 @@ def _clean_brief(body, program: ClubProgram) -> str | None:
 
 
 def _result_player(member: ClubRosterMember) -> tuple[int, str | None, bool]:
+    if not governed_member_available(db.session, member):
+        raise _ClubResultConflict("Every result player must be an available club roster member")
     if member.player_api_id is not None:
         subject, _ = _member_subject(member)
         if member.player_api_id <= 0 or subject is None:
@@ -877,6 +892,14 @@ def add_club_roster_member(program_id: int):
             if not _local_player_available(local):
                 return jsonify({"error": "Player not found"}), 404
 
+        signed_id = player_api_id if player_api_id is not None else -local_player_id
+        if (
+            ClubInvitation.query.filter_by(program_id=program_id, player_api_id=signed_id)
+            .filter(ClubInvitation.responded_at.isnot(None), ClubInvitation.status.in_(["accepted", "revoked"]))
+            .first()
+        ):
+            return jsonify({"error": "club_relationship_required"}), 409
+
         member = ClubRosterMember(
             program_id=program_id,
             player_api_id=player_api_id,
@@ -944,6 +967,16 @@ def delete_club_roster_member(program_id: int, member_id: int):
     member = ClubRosterMember.query.filter_by(id=member_id, program_id=program_id).first()
     if member is None:
         return jsonify({"error": "Roster member not found"}), 404
+    if member.requires_player_acceptance:
+        if not relationships_enabled():
+            return jsonify({"error": "not_found"}), 404
+        invitation = (
+            db.session.get(ClubInvitation, member.accepted_invitation_id) if member.accepted_invitation_id else None
+        )
+        if invitation is not None:
+            return _invitation_operation(
+                lambda: (resolve_invitation(db.session, invitation, g.user_id, "revoke", manager=True), 200)
+            )
     # A player who leaves before finalization must not acquire report access.
     VideoRosterEntry.query.filter_by(club_roster_member_id=member.id).update(
         {VideoRosterEntry.club_roster_member_id: None}, synchronize_session=False
@@ -1360,7 +1393,14 @@ def get_club_match(program_id: int, match_id: int):
     if match is None:
         return jsonify({"error": "Match not found"}), 404
     out = match.to_dict(include_job=True)
-    out["roster"] = [entry.to_dict() for entry in match.roster_entries]
+    out["roster"] = [
+        entry.to_dict()
+        for entry in match.roster_entries
+        if entry.club_roster_member_id is not None
+        and (member := db.session.get(ClubRosterMember, entry.club_roster_member_id)) is not None
+        and member.program_id == program_id
+        and _member_subject(member)[0] is not None
+    ]
     out["processing_request_status"] = "requested" if match.processing_requested_at else None
     return jsonify(out)
 
@@ -1525,6 +1565,32 @@ def get_club_match_report(program_id: int, match_id: int):
     roster_by_id = {row.id: row for row in match.roster_entries}
     visible = []
     for report in reports:
+        # Governed snapshots require a current member; historical result rows stay intact.
+        signed_id = report.club_player_api_id_at_finalize or (
+            -report.club_local_player_id_at_finalize if report.club_local_player_id_at_finalize else None
+        )
+        governed_history = (
+            ClubInvitation.query.filter_by(program_id=program_id, player_api_id=signed_id)
+            .filter(ClubInvitation.responded_at.isnot(None), ClubInvitation.status.in_(["accepted", "revoked"]))
+            .first()
+            if signed_id
+            else None
+        )
+        entry = roster_by_id.get(report.roster_entry_id)
+        member = (
+            db.session.get(ClubRosterMember, entry.club_roster_member_id)
+            if entry and entry.club_roster_member_id
+            else None
+        )
+        if governed_history and (
+            member is None
+            or member.program_id != program_id
+            or not member.requires_player_acceptance
+            or not governed_member_available(db.session, member)
+        ):
+            continue
+        if member and not governed_member_available(db.session, member):
+            continue
         subject = None
         if report.club_player_api_id_at_finalize is not None:
             if is_player_suppressed(report.club_player_api_id_at_finalize):
@@ -1555,3 +1621,123 @@ def get_club_match_report(program_id: int, match_id: int):
         visible.append(row)
     visible.sort(key=lambda row: -(row["minutes_visible"] or 0))
     return jsonify({"match": match.to_dict(), "reports": visible})
+
+
+@club_bp.after_request
+def _private_invitation_response(response):
+    if "/invitations" in request.path:
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+def _require_relationships(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not relationships_enabled():
+            return jsonify({"error": "not_found"}), 404
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def _invitation_limit_key():
+    return f"{getattr(g, 'user_id', 'anon')}:{(request.view_args or {}).get('program_id', '')}"
+
+
+def _invitation_rate_rejected(limit):
+    import time
+
+    response = jsonify({"error": "rate_limit_exceeded"})
+    response.status_code = 429
+    response.headers["Retry-After"] = str(max(1, math.ceil(limit.reset_at - time.time())))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+def _invitation_operation(operation, *, share=False):
+    try:
+        invitation, status = operation()
+        db.session.flush()
+        payload = {"invitation": invitation_dict(db.session, invitation)}
+        if share:
+            payload["share_path"] = f"/players/{invitation.player_api_id}#club-invitation={invitation.id}"
+        expired = invitation.status == "expired" and not share
+        db.session.commit()
+        if expired:
+            return jsonify({"error": "invitation_expired"}), 409
+        return jsonify(payload), status
+    except InvitationError as error:
+        db.session.rollback()
+        return jsonify({"error": error.code}), error.status
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": "retry_conflict"}), 409
+    except SQLAlchemyError as error:
+        return _invitation_database_error(error)
+    except Exception as error:
+        db.session.rollback()
+        logger.error("Invitation operation failed (%s)", type(error).__name__)
+        return jsonify({"error": "invitation_operation_failed"}), 500
+
+
+def _invitation_database_error(error):
+    db.session.rollback()
+    code = getattr(getattr(error, "orig", None), "sqlstate", None)
+    if code in {"40001", "40P01"}:
+        return jsonify({"error": "retry_conflict"}), 409
+    logger.error("Invitation transaction failed (%s)", type(error).__name__)
+    return jsonify({"error": "invitation_operation_failed"}), 500
+
+
+def _invitation_list_response(**scope):
+    try:
+        if set(request.args) - {"limit", "before", "player_api_id"} or any(
+            len(request.args.getlist(key)) != 1 for key in request.args
+        ):
+            raise InvitationError("invalid_request", 400)
+        limit = int(request.args.get("limit", "20"))
+        signed_id = int(request.args["player_api_id"]) if "player_api_id" in request.args else None
+        result = list_invitations(
+            db.session, **scope, player_api_id=signed_id, limit=limit, before=request.args.get("before")
+        )
+        return jsonify(result)
+    except (ValueError, InvitationError) as error:
+        return jsonify(
+            {"error": error.code if isinstance(error, InvitationError) else "invalid_request"}
+        ), error.status if isinstance(error, InvitationError) else 400
+
+    except SQLAlchemyError as error:
+        return _invitation_database_error(error)
+
+
+@club_bp.route("/club/<int:program_id>/invitations", methods=["POST"])
+@require_club_manager()
+@_require_relationships
+@limiter.limit("20 per hour", key_func=_invitation_limit_key, on_breach=_invitation_rate_rejected)
+def create_club_invitation(program_id):
+    return _invitation_operation(
+        lambda: create_invitation(db.session, program_id, g.user_id, request.get_json(silent=True)), share=True
+    )
+
+
+@club_bp.route("/club/<int:program_id>/invitations", methods=["GET"])
+@require_club_manager()
+@_require_relationships
+@limiter.limit("60 per minute", key_func=_invitation_limit_key, on_breach=_invitation_rate_rejected)
+def list_club_invitations(program_id):
+    return _invitation_list_response(program_id=program_id)
+
+
+@club_bp.route("/club/<int:program_id>/invitations/<uuid:invitation_id>/revoke", methods=["POST"])
+@require_club_manager()
+@_require_relationships
+@limiter.limit("30 per hour", key_func=_invitation_limit_key, on_breach=_invitation_rate_rejected)
+def revoke_club_invitation(program_id, invitation_id):
+    if request.get_json(silent=True) != {}:
+        return jsonify({"error": "invalid_request"}), 400
+    invitation = ClubInvitation.query.filter_by(id=str(invitation_id), program_id=program_id).first()
+    if invitation is None:
+        return jsonify({"error": "invitation_not_found"}), 404
+    return _invitation_operation(
+        lambda: (resolve_invitation(db.session, invitation, g.user_id, "revoke", manager=True), 200)
+    )
