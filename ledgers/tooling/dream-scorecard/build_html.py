@@ -4,7 +4,7 @@ S=os.path.dirname(os.path.abspath(__file__))
 spec=importlib.util.spec_from_file_location("br", os.path.join(S,"build_report.py")); br=importlib.util.module_from_spec(spec); spec.loader.exec_module(br)
 d=br.d; proj=br.proj; BLOCKERS=br.BLOCKERS; STAGES=br.STAGES; SCALE=br.SCALE; DREAM=br.DREAM; DATE=br.DATE
 e=H.escape
-COUNTS=[("accounts","9","5 are the team"),("claimed players","1","of 9,654 tracked"),("clubs on the console","0",""),("watchlists / follows","0",""),("introductions","0","rail is on"),("revenue","$0","no checkout exists")]
+COUNTS=[("accounts","9","5 are the team"),("claimed players","1","of 9,654 tracked"),("clubs on the console","0",""),("watchlists / follows","0",""),("introductions","0","rail is on"),("revenue","$0","rail built, dark until go-live")]
 def dots(s):
     return '<span class="dots" aria-label="score %d of 4">'%s + "".join('<i class="%s"></i>'%("on" if i<s else "") for i in range(4)) + "</span>"
 def reach_pill(r):
@@ -52,7 +52,7 @@ a:focus-visible,summary:focus-visible{{outline:2px solid var(--accent);outline-o
 @media(prefers-reduced-motion:no-preference){{.fill{{transition:width .5s ease}}}}
 </style>
 <div class="wrap">
-<div class="eyebrow">The Academy Watch · dream scorecard · {DATE} · updated after S0 + S1 + S2 shipped</div>
+<div class="eyebrow">The Academy Watch · dream scorecard · {DATE} · updated after S0–S3 + the money-safety audit (2026-09-05)</div>
 <h1>How far is the app from the dream?</h1>
 <p class="dream">{e(DREAM)}</p>
 <div class="sheet">
@@ -73,13 +73,13 @@ for p,v in d["pillars"].items():
         parts.append(f'<div class="cap"><div class="id">{e(c["id"])}</div><div><div class="name">{e(c["name"])}{note}</div><div class="why">{e(c.get("blocker",""))}</div><details><summary>Next step · {e(c.get("effort","-"))}</summary><p>{e(c.get("next_step",""))}</p></details></div>{dots(c["score"])}{reach_pill(c.get("reach","MISSING"))}</div>')
     parts.append('</div>')
 parts.append('<h2>What holds the dream back, ranked</h2><ol class="block">'+"".join(f'<li><div><b>{e(t)}</b><p>{e(w)}</p><span class="caps-ref">caps {e(ids)}</span></div></li>' for t,w,ids in BLOCKERS)+'</ol>')
-parts.append(f'<h2>Steps toward 100%</h2><p class="note"><b>S0, S1, and S2 are done</b> (S0: front door — five PRs; S1: one player universe + a games grain — five PRs: self-made players join scout discovery with provenance chips, players add their own games, clubs record results and lineups, trust-tiered edits; S2: fans + reach — five PRs: web fan follow/counts, owner signals, per-player share cards, sitemap/robots, and the weekly activity email job). Baseline before S0 was 51.9%, after S0 54.1%. Projected score after each stage, computed from the target scores with the same weights. Stages aim at 3 (usable), not 4; the last quarter is polish, iOS parity, tests, and the under-18 expansion.</p><div class="stages">')
+parts.append(f'<h2>Steps toward 100%</h2><p class="note"><b>S0–S3 and the money-safety stage are done</b> (S0: front door — five PRs; S1: one player universe + a games grain — five PRs: self-made players join scout discovery with provenance chips, players add their own games, clubs record results and lineups, trust-tiered edits; S2: fans + reach — five PRs: web fan follow/counts, owner signals, per-player share cards, sitemap/robots, and the weekly activity email job; S3: money rails shipped dark; 2026-09-05: independently audited at {d["overall_pct"]}% by gpt-6-astra — 3.6/5.5 fall to 2 while billing is dark, 2.7 rises to 2, and the audit\'s 3 P1 + 3 launch blockers are fixed, awaiting the go-live checklist). Baseline before S0 was 51.9%, after S0 54.1%. Projected score after each stage, computed from the target scores with the same weights. Stages aim at 3 (usable), not 4; the last quarter is polish, iOS parity, tests, and the under-18 expansion.</p><div class="stages">')
 parts.append(f'<div class="stage"><div class="sid">now</div><div><b>Today</b></div><div class="track"><div class="fill" style="width:{d["overall_pct"]}%"></div></div><div class="pct">{d["overall_pct"]}%</div></div>')
 for sid,name,when,what,targets,o,pp in proj:
     parts.append(f'<div class="stage"><div class="sid">{e(sid)}</div><div><b>{e(name)}</b><span class="when">{e(when)}</span><div class="what">{e(what)}</div></div><div class="track"><div class="fill" style="width:{o}%"></div></div><div class="pct">{o}%</div></div>')
 parts.append(f'</div><p class="note">A credible launch bar is S0–S2 done (about {proj[2][5]}%) with S6 already started: the number only means something once real players, clubs and scouts are in it.</p>')
 parts.append('<h2>Already strong, do not rebuild</h2><ul class="plain">'+"".join(f'<li>{e(s)}</li>' for s in d.get("strong_already",[])[:10])+'</ul>')
 parts.append('<h2>Corrections to the 23 Aug review</h2><ul class="plain">'+"".join(f'<li>{e(s)}</li>' for s in d.get("surprises",[]))+'</ul>')
-parts.append(f'<h2>Method</h2><p class="method">Three codex (gpt-5.6-sol, ultra effort) read-only audits scored 31 capabilities against the dream with path:line evidence. Two Fable adversarial reviewers re-read every cite at <code>origin/main ade7bbc</code>, re-scored against prod flag values, and answered targeted attack questions; Fable arbitrated. Prod counts came from read-only SQL on the Supabase pooler. Ledger copy: <code>ledgers/GRADING_dream-scorecard-{DATE}.md</code>.</p></div>')
+parts.append(f'<h2>Method</h2><p class="method">Three codex (gpt-5.6-sol, ultra effort) read-only audits scored 31 capabilities against the dream with path:line evidence. Two Fable adversarial reviewers re-read every cite at <code>origin/main ade7bbc</code>, re-scored against prod flag values, and answered targeted attack questions; Fable arbitrated. Prod counts came from read-only SQL on the Supabase pooler. Independently re-audited 2026-09-05 by gpt-6-astra (read-only, checkout fe7d25f): <code>ledgers/research/astra-review-2026-09-05.md</code>. Ledger copy: <code>ledgers/GRADING_dream-scorecard-{DATE}.md</code>.</p></div>')
 open(os.path.join(S,"dream-scorecard.html"),"w").write("\n".join(parts))
 print("html written", os.path.getsize(os.path.join(S,"dream-scorecard.html")))
