@@ -1234,6 +1234,8 @@ def _batched_public_adult_subjects(player_ids: set[int]) -> dict[int, PlayerSubj
         if tracked is None and shadow is None:
             continue
         bridged_locals = locals_by_api.get(player_id, [])
+        if any(local_player_is_minor(local, today=today) for local in bridged_locals):
+            continue
         birth_dates = [local.birth_date for local in bridged_locals if local.birth_date]
         birth_dates.extend(row.birth_date for row in tracked_rows if row.birth_date)
         journey = journeys.get(player_id)

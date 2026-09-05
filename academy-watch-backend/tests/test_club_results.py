@@ -15,6 +15,7 @@ from src.extensions import limiter
 from src.models.league import Team, UserAccount, db
 from src.models.player_match_entry import ClubResult, PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
+from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
 from src.routes import club as club_routes
 from src.services import season_rollup_service
@@ -180,6 +181,36 @@ def test_result_unexpected_failure_logs_traceback(club_app, client, monkeypatch,
     assert response.json == {"error": "result_operation_failed"}
     assert record.exc_info is not None
     assert record.exc_info[0] is RuntimeError
+
+
+def test_result_reads_redact_adult_tracked_player_with_unknown_age_local_bridge(club_app, client):
+    program_id = club_app.c2["program_a"]
+    member = _add_api_member(client, program_id)
+    created = _create(client, program_id, [member])
+    assert created.status_code == 201
+    result_id = created.json["result"]["id"]
+    entry_id = created.json["matches"][0]["id"]
+    db.session.add(
+        LocalPlayer(
+            display_name="Unknown Age Bridge",
+            birth_date=None,
+            birth_year=None,
+            status="approved",
+            api_player_id=7001,
+            created_by_user_id=club_app.c2["users"]["a"],
+        )
+    )
+    db.session.commit()
+
+    detail = client.get(f"/api/club/{program_id}/results/{result_id}", headers=_headers("a"))
+    listing = client.get(f"/api/club/{program_id}/results", headers=_headers("a"))
+    stub = {"id": entry_id, "unavailable": True}
+
+    assert detail.status_code == listing.status_code == 200
+    assert detail.json["matches"] == [stub]
+    assert detail.json["season_stats_by_player"] == {}
+    assert listing.json["results"][0]["matches"] == [stub]
+    assert listing.json["results"][0]["season_stats_by_player"] == {}
 
 
 def test_date_opponent_correction_retains_entry_id_and_refreshes_old_new_seasons(club_app, client):
