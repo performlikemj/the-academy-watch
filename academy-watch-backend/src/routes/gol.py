@@ -147,14 +147,21 @@ def gol_chat():
         failed = False
         text = ""
         events = []
+        delivered_chars = 0
 
-        def compensate():
+        def compensate(*, disconnect=False):
             nonlocal failed
             if failed or completed:
                 return None
             failed = True
             try:
-                refunded = finish_execution(g.user, reservation, failed=True)
+                refunded = finish_execution(
+                    g.user,
+                    reservation,
+                    failed=True,
+                    refund=not disconnect or delivered_chars < 200,
+                    disconnect_delivered_chars=delivered_chars if disconnect else None,
+                )
                 if refunded:
                     return {**usage, **balances(g.user), "refunded": True}
             except Exception:
@@ -202,13 +209,18 @@ def gol_chat():
                     return
                 elif evt_type not in {"usage", "tool_call"}:
                     events.append({"event": evt_type, "data": evt_data})
-                yield _sse(evt_type, evt_data)
+                frame = _sse(evt_type, evt_data)
+                if evt_type in {"token", "replace"}:
+                    # Count content handed to the response iterator, including each
+                    # replacement, before suspension (close raises at the yield).
+                    delivered_chars += len(evt_data.get("content", ""))
+                yield frame
             refunded_usage = compensate()
             yield _sse("error", {"message": "Chat ended before completion"})
             if refunded_usage is not None:
                 yield _sse("usage", refunded_usage)
         except GeneratorExit:
-            compensate()
+            compensate(disconnect=True)
             raise
         except Exception as exc:
             logger.exception("SSE stream error")

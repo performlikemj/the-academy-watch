@@ -461,3 +461,90 @@ def test_pending_checkout_retry_reuses_durable_purchase_key(app, client, monkeyp
     assert client.post("/api/billing/checkout", headers=_headers(user), json=payload).status_code == 200
     assert create.call_args.kwargs == first_params
     assert GolCheckoutTerms.query.one().credits == 7
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [[], [("token", 199)], [("token", 200)], [("token", 500)], [("replace", 500)], [("token", 150), ("replace", 50)]],
+)
+def test_disconnect_refund_depends_on_total_answer_characters_yielded(app, client, monkeypatch, chunks):
+    _enable(monkeypatch)
+    monkeypatch.setenv("GOL_FREE_ALLOWANCE", "1")
+    user = _user()
+    _StubGolService.events = [{"event": kind, "data": {"content": "x" * length}} for kind, length in chunks]
+    _StubGolService.events.append({"event": "done", "data": {}})
+    response = _chat(client, user)
+    frames = iter(response.response)
+    assert next(frames).decode().startswith("event: usage")
+    for kind, length in chunks:
+        frame = next(frames).decode()
+        assert frame.startswith(f"event: {kind}")
+        assert "x" * length in frame
+    before_close = balances(user)
+    response.close()
+    delivered = sum(length for _, length in chunks)
+    refunded = delivered < 200
+    db.session.expire_all()
+    execution = GolChatExecution.query.one()
+    debit = GolCreditLedger.query.filter_by(kind="debit").one()
+    assert execution.status == "failed"
+    assert f";disconnect_delivered_chars={delivered};refund_withheld={str(not refunded).lower()}" in debit.note
+    assert debit.note.partition(";")[0] == execution.input_hash
+    assert GolCreditLedger.query.filter_by(kind="reversal", debit_id=debit.id).count() == int(refunded)
+    assert balances(user)["free_questions_remaining"] == int(refunded)
+    if not refunded:
+        assert balances(user) == before_close
+        # Replaying the same id must not retroactively refund the withheld charge.
+        retry = _chat(client, user)
+        assert retry.status_code == 402
+        assert GolCreditLedger.query.filter_by(kind="reversal").count() == 0
+
+
+@pytest.mark.parametrize("failure", ["error", "exception"])
+def test_server_failure_after_large_answer_still_refunds(app, client, monkeypatch, failure):
+    _enable(monkeypatch)
+    user = _user()
+
+    def chat(*args):
+        yield {"event": "token", "data": {"content": "x" * 500}}
+        if failure == "error":
+            yield {"event": "error", "data": {"message": "server failed"}}
+        else:
+            raise RuntimeError("server failed")
+
+    monkeypatch.setattr(_StubGolService, "chat", chat)
+    assert '"refunded": true' in _chat(client, user).get_data(as_text=True)
+    assert GolChatExecution.query.one().status == "failed"
+    assert GolCreditLedger.query.filter_by(kind="reversal").count() == 1
+
+
+def test_removed_legacy_pack_is_ignored_with_one_session_incident(app, client, monkeypatch, caplog):
+    _enable(monkeypatch)
+    user = _user()
+    _checkout(user, "cs_removed_legacy")
+    for index, kind in enumerate(["checkout.session.completed", "checkout.session.async_payment_succeeded"]):
+        event = _event(f"evt_removed_legacy_{index}", kind, _completed("cs_removed_legacy"))
+        assert _post_event(client, event).status_code == 200
+        assert _post_event(client, event).get_json()["duplicate"] is True
+        assert StripeWebhookEvent.query.filter_by(event_id=event["id"]).one().status == "ignored"
+    incident = ProductEvent.query.filter_by(event_name="gol_unfulfillable_legacy_purchase").one()
+    assert incident.props["session_id"] == "cs_removed_legacy"
+    assert incident.props["payment_intent"] == "pi_gol"
+    assert "Unfulfillable legacy GOL purchase cs_removed_legacy" in caplog.text
+    assert GolCreditLedger.query.count() == 0
+
+
+def test_no_payment_required_orphan_does_not_claim_a_paid_purchase(app, client, monkeypatch, caplog):
+    _enable(monkeypatch)
+    user = _user()
+    row = _checkout(user, "cs_no_payment_orphan")
+    terms = _terms(row)
+    terms.checkout_row_id = None
+    db.session.delete(row)
+    db.session.commit()
+    obj = {**_completed("cs_no_payment_orphan", payment_intent=None, amount=0), "payment_status": "no_payment_required"}
+    assert _post_event(client, _event("evt_no_payment_orphan", "checkout.session.completed", obj)).status_code == 200
+    assert StripeWebhookEvent.query.filter_by(event_id="evt_no_payment_orphan").one().status == "ignored"
+    assert "Ignoring payment session without an owned GOL purchase: cs_no_payment_orphan" in caplog.text
+    assert ProductEvent.query.filter_by(event_name="gol_orphaned_purchase").count() == 0
+    assert GolCreditLedger.query.count() == 0

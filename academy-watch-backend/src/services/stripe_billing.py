@@ -768,6 +768,8 @@ def _attach_terms(terms, session_id):
 
 
 def _purchase_event_exists(name, purchase_key):
+    # JSONB lookup is confined to the rare orphan path, not normal fulfilment;
+    # keep the existing event indexes rather than indexing every purchase key.
     return (
         ProductEvent.query.filter(
             ProductEvent.event_name == name,
@@ -783,6 +785,8 @@ def _apply_gol_checkout(obj, event_id: str, *, require_paid: bool) -> bool:
         return False
     payment_status = _get(obj, "payment_status")
     if require_paid and payment_status not in {"paid", "no_payment_required"}:
+        # Unpaid completions cannot prove a charge, so they exit silently here
+        # and never reach the orphan/manual-refund classification below.
         return False
     terms = GolCheckoutTerms.query.filter_by(stripe_session_id=session_id).first()
     if terms is None:
@@ -841,7 +845,26 @@ def _apply_gol_checkout(obj, event_id: str, *, require_paid: bool) -> bool:
         pack_id = row.price_code
         pack = offered_packs().get(pack_id)
         if pack is None:
-            raise BillingError("unresolvable_credit_purchase", 500)
+            logger.warning("Unfulfillable legacy GOL purchase %s: pack no longer offered", session_id)
+            # The user lock serializes the session-id dedupe for legacy purchases.
+            existing_incident = ProductEvent.query.filter(
+                ProductEvent.event_name == "gol_unfulfillable_legacy_purchase",
+                ProductEvent.props["session_id"].as_string() == session_id,
+            ).first()
+            if existing_incident is None:
+                db.session.add(
+                    ProductEvent(
+                        event_name="gol_unfulfillable_legacy_purchase",
+                        props={
+                            "session_id": session_id,
+                            "payment_intent": payment_intent_id,
+                            "amount_total": _get(obj, "amount_total"),
+                            "currency": _get(obj, "currency"),
+                            "pack_id": pack_id,
+                        },
+                    )
+                )
+            return False
         credits = pack["credits"]
     currency, amount_total = _get(obj, "currency"), _get(obj, "amount_total")
     if not currency or amount_total is None:

@@ -204,12 +204,14 @@ def reserve_question(user, client_msg_id, *, question_hash, role="user") -> dict
         _lock_user(user.id)
         latest = _latest_debit(user.id, client_msg_id)
         if latest is not None:
-            if latest.note != question_hash:
+            if (latest.note or "").partition(";")[0] != question_hash:
                 raise ClientMsgIdReused
             if not _has_reversal(latest.id):
                 execution = GolChatExecution.query.filter_by(debit_id=latest.id).first()
                 if execution is not None and execution.status == "failed":
-                    _refund_debit(latest)
+                    # A long client disconnect remains charged, including on retry.
+                    if ";refund_withheld=true" not in (latest.note or ""):
+                        _refund_debit(latest)
                 else:
                     return _execution_reservation(latest, question_hash, debited=False)
         attempt = (latest.attempt if latest else 0) + 1
@@ -249,7 +251,7 @@ def reserve_question(user, client_msg_id, *, question_hash, role="user") -> dict
             winner = _latest_debit(user.id, client_msg_id)
             if winner is None or _has_reversal(winner.id):
                 raise
-            if winner.note != question_hash:
+            if (winner.note or "").partition(";")[0] != question_hash:
                 raise ClientMsgIdReused
             return _execution_reservation(winner, question_hash, debited=False)
         db.session.add(ProductEvent(event_name="gol_question_debited", user_email=user.email, props={"bucket": bucket}))
@@ -281,7 +283,16 @@ def refund_question(user, client_msg_id, *, debit_id=None, attempt=None) -> bool
         raise
 
 
-def finish_execution(user, reservation, *, response_text=None, response_events=None, failed=False):
+def finish_execution(
+    user,
+    reservation,
+    *,
+    response_text=None,
+    response_events=None,
+    failed=False,
+    refund=True,
+    disconnect_delivered_chars=None,
+):
     """Fence stale workers and commit completion or exact compensation atomically."""
     if not reservation.get("execution_id"):
         return False
@@ -306,7 +317,16 @@ def finish_execution(user, reservation, *, response_text=None, response_events=N
         if changed != 1:
             db.session.rollback()
             return False
-        if failed:
+        if failed and disconnect_delivered_chars is not None:
+            debit = db.session.get(GolCreditLedger, reservation["debit_id"])
+            # Keep the fingerprint prefix; append the disconnect disposition without
+            # adding schema. Retries must not undo a deliberately retained charge.
+            fingerprint = (debit.note or "").partition(";")[0]
+            debit.note = (
+                f"{fingerprint};disconnect_delivered_chars={disconnect_delivered_chars}"
+                f";refund_withheld={str(not refund).lower()}"
+            )
+        if failed and refund:
             # refund_question commits the guarded failure and exact reversal together.
             return refund_question(
                 user,
@@ -314,7 +334,7 @@ def finish_execution(user, reservation, *, response_text=None, response_events=N
                 debit_id=reservation["debit_id"],
             )
         db.session.commit()
-        return True
+        return not failed
     except Exception:
         db.session.rollback()
         raise
