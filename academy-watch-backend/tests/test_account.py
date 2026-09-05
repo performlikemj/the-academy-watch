@@ -1495,9 +1495,6 @@ def pilot_account_graph(monkeypatch):
         yield app, graph, http, invite_id, response.json["feedback"]
     finally:
         db.session.rollback()
-        if sa.inspect(db.session.connection()).has_table("club_results"):
-            db.session.execute(sa.text("DROP TABLE club_results"))
-            db.session.commit()
         try:
             next(fixture)
         except StopIteration:
@@ -1509,23 +1506,30 @@ def test_pilot_local_creator_export_and_erasure_optional_p4(pilot_account_graph,
     from src.models.club_invitation import ClubInvitation
     from src.models.funding import ClubRosterMember
     from src.models.player_feedback import PlayerFeedback
+    from src.models.player_match_entry import ClubResult
     from src.services.account import build_account_export, delete_account
 
     app, graph, http, invite_id, feedback = pilot_account_graph
     user = db.session.get(UserAccount, graph["user"])
     if optional_p4:
-        db.session.execute(
-            sa.text(
-                "CREATE TABLE club_results (id VARCHAR(36) PRIMARY KEY, program_id INTEGER, opponent VARCHAR(120), created_by_user_id INTEGER REFERENCES user_accounts(id), updated_by_user_id INTEGER REFERENCES user_accounts(id), private_extra TEXT)"
+        db.session.add(
+            ClubResult(
+                id="result-1",
+                program_id=graph["program"],
+                client_request_id="request-1",
+                create_request_hash="0" * 64,
+                version=1,
+                match_date=date(2026, 9, 5),
+                season=2026,
+                opponent="Synthetic opponent",
+                opponent_key="synthetic opponent",
+                home_away="home",
+                result_for=1,
+                result_against=0,
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
             )
         )
-        db.session.execute(
-            sa.text(
-                "INSERT INTO club_results VALUES ('result-1', :program, 'Synthetic opponent', :user, :user, 'PRIVATE_EXTRA_SENTINEL')"
-            ),
-            {"program": graph["program"], "user": user.id},
-        )
-        db.session.execute(sa.text("ALTER TABLE player_match_entries ADD COLUMN club_result_id VARCHAR(36)"))
         entry = PlayerMatchEntry(
             player_api_id=-graph["local"].id,
             season=2026,
@@ -1550,15 +1554,17 @@ def test_pilot_local_creator_export_and_erasure_optional_p4(pilot_account_graph,
     assert exported["player_feedback"]["received"][0]["id"] == feedback["id"]
     if optional_p4:
         assert exported["match_entries"][0]["club_result_id"] == "result-1"
-        assert exported["club_results"] == [
-            {
-                "id": "result-1",
-                "program_id": graph["program"],
-                "opponent": "Synthetic opponent",
-                "created_by_user_id": user.id,
-                "updated_by_user_id": user.id,
-            }
-        ]
+        assert len(exported["club_results"]) == 1
+        assert {
+            key: exported["club_results"][0][key]
+            for key in ("id", "program_id", "opponent", "created_by_user_id", "updated_by_user_id")
+        } == {
+            "id": "result-1",
+            "program_id": graph["program"],
+            "opponent": "Synthetic opponent",
+            "created_by_user_id": user.id,
+            "updated_by_user_id": user.id,
+        }
         assert "PRIVATE_EXTRA_SENTINEL" not in json.dumps(exported)
     else:
         assert exported["club_results"] == []
@@ -1624,16 +1630,29 @@ def test_pilot_optional_p4_failure_rolls_back(pilot_account_graph, monkeypatch):
     from src.models.club_invitation import ClubInvitation
     from src.models.funding import ClubRosterMember
     from src.models.player_feedback import PlayerFeedback
+    from src.models.player_match_entry import ClubResult
     from src.services import account
 
     app, graph, http, invite_id, feedback = pilot_account_graph
     user_id = graph["user"]
-    db.session.execute(
-        sa.text(
-            "CREATE TABLE club_results (id INTEGER PRIMARY KEY, created_by_user_id INTEGER REFERENCES user_accounts(id), updated_by_user_id INTEGER REFERENCES user_accounts(id))"
+    db.session.add(
+        ClubResult(
+            id="result-rollback",
+            program_id=graph["program"],
+            client_request_id="request-rollback",
+            create_request_hash="0" * 64,
+            version=1,
+            match_date=date(2026, 9, 5),
+            season=2026,
+            opponent="Rollback opponent",
+            opponent_key="rollback opponent",
+            home_away="home",
+            result_for=1,
+            result_against=0,
+            created_by_user_id=user_id,
+            updated_by_user_id=user_id,
         )
     )
-    db.session.execute(sa.text("INSERT INTO club_results VALUES (1, :user, :user)"), {"user": user_id})
     db.session.commit()
 
     def fail(*args):

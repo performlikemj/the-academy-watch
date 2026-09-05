@@ -232,7 +232,10 @@ function resultRosterMembers(match, rosterMembers) {
 function resultEntryValues(member, returnedMatch, included) {
   return {
     club_roster_member_id: member.id,
-    included,
+    entry_id: returnedMatch?.id || null,
+    unavailable: Boolean(returnedMatch?.unavailable),
+    player_name: returnedMatch?.player_name || member.display_name,
+    included: returnedMatch ? true : included,
     minutes: String(returnedMatch?.minutes ?? 0),
     goals: String(returnedMatch?.goals ?? 0),
     assists: String(returnedMatch?.assists ?? 0),
@@ -253,12 +256,24 @@ function resultEntriesValues(members, savedResult, defaultIncluded) {
     String(match.player_api_id),
     match,
   ]))
-  return members.map((member) => resultEntryValues(
+  const matchedIds = new Set()
+  const current = members.map((member) => {
+    const returned = returnedByMemberId.get(String(member.id))
+      || returnedByPlayerId.get(signedPlayerIdForMember(member))
+    if (returned?.id) matchedIds.add(returned.id)
+    return resultEntryValues(
     member,
-    returnedByMemberId.get(String(member.id))
-      || returnedByPlayerId.get(signedPlayerIdForMember(member)),
+    returned,
     defaultIncluded,
-  ))
+    )
+  })
+  const historical = returnedMatches
+    .filter((match) => match.id && !matchedIds.has(match.id))
+    .map((match) => ({
+      ...resultEntryValues({ id: `historical-${match.id}`, display_name: match.player_name || 'Unavailable player' }, match, true),
+      club_roster_member_id: null,
+    }))
+  return [...current, ...historical]
 }
 
 function boundedInteger(value, label, max) {
@@ -1109,7 +1124,7 @@ function CreateMatchDialog({ open, onOpenChange, programId, onCreated, onAccessD
   )
 }
 
-function RecordResultDialog({ programId, videoMatch, members, savedResult, onSaved, onClose, onAccessDenied }) {
+export function RecordResultDialog({ programId, videoMatch, members, savedResult, onSaved, onClose, onAccessDenied }) {
   const { logout, openLoginModal } = useAuthUI()
   const [form, setForm] = useState(() => resultFormValues(videoMatch, savedResult))
   const [entries, setEntries] = useState(() => resultEntriesValues(members, savedResult, Boolean(videoMatch)))
@@ -1117,6 +1132,7 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
   const errorRef = useRef(null)
+  const createRequestId = useRef(null)
   const memberById = useMemo(() => new Map(members.map((member) => [Number(member.id), member])), [members])
   const memberByPlayerId = useMemo(() => new Map(members.flatMap((member) => {
     const signedPlayerId = signedPlayerIdForMember(member)
@@ -1126,7 +1142,9 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
     ? Object.entries(result.season_stats_by_player)
     : []
   const noVideo = !videoMatch
+  const editing = Boolean(savedResult?.result?.id)
   const selectedEntryCount = entries.filter((entry) => entry.included).length
+  const removalCount = editing ? entries.filter((entry) => entry.entry_id && !entry.included).length : 0
 
   useEffect(() => {
     if (error) errorRef.current?.focus()
@@ -1138,17 +1156,40 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
   }
   const updateEntry = (memberId, field, value) => {
     setError(null)
-    setEntries((current) => current.map((entry) => Number(entry.club_roster_member_id) === Number(memberId)
+    setEntries((current) => current.map((entry) => String(entry.entry_id || entry.club_roster_member_id) === String(memberId)
       ? { ...entry, [field]: value }
       : entry))
+  }
+
+  const deleteResult = async () => {
+    if (!editing || busy || !window.confirm('This removes the club-confirmed lines and updates season totals.')) return
+    setBusy(true)
+    setError(null)
+    try {
+      await APIService.request(`/club/${programId}/results/${savedResult.result.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ expected_version: savedResult.result.version }),
+      })
+      track('pilot_ui', { package: 'P4', action: 'result_deleted', outcome: 'success' })
+      onSaved({ deleted: true, id: savedResult.result.id })
+      onClose()
+    } catch (requestError) {
+      if (requestError?.body?.error === 'result_version_conflict') {
+        setError('Someone changed this result. Reload the latest version before saving.')
+        track('pilot_ui', { package: 'P4', action: 'result_conflict', outcome: 'error' })
+      } else {
+        setError(errorText(requestError, 'Could not delete this result.'))
+      }
+    } finally {
+      setBusy(false)
+    }
   }
 
   const buildPayload = () => {
     const matchDate = form.match_date.trim()
     if (!matchDate) throw new Error('Match date is required.')
-    const today = new Date()
-    const todayString = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-')
-    if (matchDate > todayString) throw new Error('Match date cannot be in the future.')
+    const tomorrowUtc = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    if (matchDate > tomorrowUtc) throw new Error('Match date cannot be more than one day in the future.')
 
     const opponent = form.opponent.trim()
     const competition = form.competition.trim()
@@ -1161,7 +1202,10 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
     if (selectedEntries.length === 0) throw new Error('Select at least one roster member.')
 
     return {
-      video_match_id: videoMatch ? Number(videoMatch.id) : null,
+      ...(editing
+        ? { expected_version: savedResult.result.version }
+        : { client_request_id: createRequestId.current || (createRequestId.current = globalThis.crypto.randomUUID()) }),
+      video_match_id: savedResult?.result?.video_match_id ?? (videoMatch ? Number(videoMatch.id) : null),
       match_date: matchDate,
       opponent,
       competition: competition || null,
@@ -1169,25 +1213,27 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
       result_for: boundedInteger(form.result_for, 'Our score', MAX_MATCH_COUNT),
       result_against: boundedInteger(form.result_against, 'Their score', MAX_MATCH_COUNT),
       entries: selectedEntries.map((entry) => {
+        if (entry.unavailable) return { entry_id: Number(entry.entry_id) }
         const member = memberById.get(Number(entry.club_roster_member_id))
         const memberId = Number(entry.club_roster_member_id)
-        if (!member || !Number.isInteger(memberId) || memberId <= 0) {
+        if (!entry.entry_id && (!member || !Number.isInteger(memberId) || memberId <= 0)) {
           throw new Error('A selected roster member is no longer available.')
         }
+        const playerName = member?.display_name || entry.player_name || 'Player'
         const note = entry.note.trim()
         if (note.length > MAX_RESULT_NOTE_LENGTH) {
-          throw new Error(`${member.display_name || 'Player'}’s note must be at most ${MAX_RESULT_NOTE_LENGTH} characters.`)
+          throw new Error(`${playerName}’s note must be at most ${MAX_RESULT_NOTE_LENGTH} characters.`)
         }
         const goalkeeper = isGoalkeeper(member)
         return {
-          club_roster_member_id: memberId,
-          minutes: boundedInteger(entry.minutes, `${member.display_name || 'Player'} minutes`, MAX_MATCH_MINUTES),
-          goals: boundedInteger(entry.goals, `${member.display_name || 'Player'} goals`, MAX_MATCH_COUNT),
-          assists: boundedInteger(entry.assists, `${member.display_name || 'Player'} assists`, MAX_MATCH_COUNT),
-          yellows: boundedInteger(entry.yellows, `${member.display_name || 'Player'} yellows`, MAX_MATCH_COUNT),
-          reds: boundedInteger(entry.reds, `${member.display_name || 'Player'} reds`, MAX_MATCH_COUNT),
-          saves: goalkeeper ? nullableBoundedInteger(entry.saves, `${member.display_name || 'Goalkeeper'} saves`, MAX_MATCH_COUNT) : null,
-          goals_conceded: goalkeeper ? nullableBoundedInteger(entry.goals_conceded, `${member.display_name || 'Goalkeeper'} goals conceded`, MAX_MATCH_COUNT) : null,
+          ...(entry.entry_id ? { entry_id: Number(entry.entry_id) } : { club_roster_member_id: memberId }),
+          minutes: boundedInteger(entry.minutes, `${playerName} minutes`, MAX_MATCH_MINUTES),
+          goals: boundedInteger(entry.goals, `${playerName} goals`, MAX_MATCH_COUNT),
+          assists: boundedInteger(entry.assists, `${playerName} assists`, MAX_MATCH_COUNT),
+          yellows: boundedInteger(entry.yellows, `${playerName} yellows`, MAX_MATCH_COUNT),
+          reds: boundedInteger(entry.reds, `${playerName} reds`, MAX_MATCH_COUNT),
+          saves: goalkeeper ? nullableBoundedInteger(entry.saves, `${playerName} saves`, MAX_MATCH_COUNT) : null,
+          goals_conceded: goalkeeper ? nullableBoundedInteger(entry.goals_conceded, `${playerName} goals conceded`, MAX_MATCH_COUNT) : null,
           note: note || null,
         }
       }),
@@ -1207,9 +1253,15 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
     setBusy(true)
     setError(null)
     try {
-      const response = await APIService.recordClubResult(programId, payload)
+      const response = await APIService.request(
+        editing ? `/club/${programId}/results/${savedResult.result.id}` : `/club/${programId}/results`,
+        { method: editing ? 'PUT' : 'POST', body: JSON.stringify(payload) },
+      )
       setResult(response || { season_stats_by_player: {} })
-      if (videoMatch && response) onSaved(response)
+      if (response) {
+        track('pilot_ui', { package: 'P4', action: editing ? 'result_corrected' : 'result_created', outcome: 'success' })
+        onSaved(response)
+      }
     } catch (requestError) {
       if (requestError?.status === 401) {
         logout({ clearAdminKey: true })
@@ -1225,7 +1277,12 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
       if (requestError?.status === 404) {
         setError(requestError.body?.error || 'This match or roster is no longer available. Refresh and try again.')
       } else if (requestError?.status === 409) {
-        setError(requestError.body?.error || 'This result conflicts with the current match or roster. Refresh and try again.')
+        if (requestError.body?.error === 'result_version_conflict') {
+          setError('Someone changed this result. Reload the latest version before saving.')
+          track('pilot_ui', { package: 'P4', action: 'result_conflict', outcome: 'error' })
+        } else {
+          setError(requestError.body?.error || 'This result conflicts with the current match or roster. Refresh and try again.')
+        }
       } else {
         setError(errorText(requestError, 'Could not record this result.'))
       }
@@ -1238,11 +1295,13 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
     <Dialog open onOpenChange={(nextOpen) => { if (!nextOpen && !busy) onClose() }}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
-          <DialogTitle>{videoMatch ? `Record result vs ${videoMatch.opponent_name || 'opponent'}` : 'Record a result without video'}</DialogTitle>
+          <DialogTitle>{editing ? `Edit result vs ${savedResult.result.opponent}` : videoMatch ? `Record result vs ${videoMatch.opponent_name || 'opponent'}` : 'Record a result without video'}</DialogTitle>
           <DialogDescription>
             {videoMatch
               ? 'Add the final score and club-confirmed stats for the saved match roster.'
-              : 'Log a fixture and club-confirmed player stats without creating or uploading a video.'}
+              : editing
+                ? 'Save a versioned correction. The lineup below replaces the whole saved lineup.'
+                : 'Log a fixture and club-confirmed player stats without creating or uploading a video.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -1365,32 +1424,45 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
               ) : (
                 <div className="space-y-3">
                   {entries.map((entry) => {
-                    const member = memberById.get(Number(entry.club_roster_member_id))
-                    if (!member) return null
+                    const entryKey = entry.entry_id || entry.club_roster_member_id
+                    const member = memberById.get(Number(entry.club_roster_member_id)) || {
+                      id: `historical-${entry.entry_id}`,
+                      display_name: entry.player_name || 'Unavailable player',
+                    }
                     const goalkeeper = isGoalkeeper(member)
                     const playerLabel = member.display_name || `Roster member #${member.id}`
                     const prefix = `club-result-player-${member.id}`
                     return (
-                      <article key={member.id} aria-labelledby={`${prefix}-name`} className={`rounded-xl border p-4 transition-colors ${entry.included ? 'border-border bg-card' : 'border-border/60 bg-muted/25 opacity-70'}`}>
+                      <article key={entryKey} aria-labelledby={`${prefix}-name`} className={`rounded-xl border p-4 transition-colors ${entry.included ? 'border-border bg-card' : 'border-border/60 bg-muted/25 opacity-70'}`}>
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                           <div className="flex min-w-0 items-center gap-3">
-                            {noVideo ? (
+                            {editing ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateEntry(entryKey, 'included', !entry.included)}
+                                aria-label={entry.included ? `Remove ${playerLabel} from this result` : `Keep ${playerLabel} in this result`}
+                              >
+                                {entry.included ? 'Remove from this result' : 'Keep in this result'}
+                              </Button>
+                            ) : noVideo ? (
                               <input
                                 type="checkbox"
                                 checked={entry.included}
-                                onChange={(event) => updateEntry(member.id, 'included', event.target.checked)}
+                                onChange={(event) => updateEntry(entryKey, 'included', event.target.checked)}
                                 aria-label={`Include ${playerLabel} in result`}
                                 className="h-4 w-4 shrink-0 accent-primary"
                               />
                             ) : null}
                             <div className="min-w-0">
                               <h4 id={`${prefix}-name`} className="truncate font-semibold text-foreground">{playerLabel}</h4>
-                              <p className="truncate text-xs text-muted-foreground">{[member.jersey_number ? `#${member.jersey_number}` : null, member.position || member.role, member.is_minor ? 'Minor — private' : null].filter(Boolean).join(' · ') || 'Club roster member'}</p>
+                              <p className="truncate text-xs text-muted-foreground">{entry.unavailable ? 'Player unavailable — removal only' : [member.jersey_number ? `#${member.jersey_number}` : null, member.position || member.role, member.is_minor ? 'Minor — private' : null].filter(Boolean).join(' · ') || 'Club roster member'}</p>
                             </div>
                           </div>
                           {goalkeeper ? <Badge className="border-sky-200 bg-sky-50 text-sky-800">Goalkeeper</Badge> : null}
                         </div>
-                        <fieldset disabled={!entry.included} className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                        <fieldset disabled={!entry.included || entry.unavailable} className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
                           {[
                             ['minutes', 'Minutes', MAX_MATCH_MINUTES],
                             ['goals', 'Goals', MAX_MATCH_COUNT],
@@ -1400,24 +1472,24 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
                           ].map(([field, label, max]) => (
                             <div key={field} className="space-y-1.5">
                               <Label htmlFor={`${prefix}-${field}`}>{label}</Label>
-                              <Input id={`${prefix}-${field}`} type="number" inputMode="numeric" min="0" max={max} step="1" value={entry[field]} onChange={(event) => updateEntry(member.id, field, event.target.value)} />
+                              <Input id={`${prefix}-${field}`} type="number" inputMode="numeric" min="0" max={max} step="1" value={entry[field]} onChange={(event) => updateEntry(entryKey, field, event.target.value)} />
                             </div>
                           ))}
                           {goalkeeper ? (
                             <>
                               <div className="space-y-1.5">
                                 <Label htmlFor={`${prefix}-saves`}>Saves</Label>
-                                <Input id={`${prefix}-saves`} type="number" inputMode="numeric" min="0" max={MAX_MATCH_COUNT} step="1" value={entry.saves} onChange={(event) => updateEntry(member.id, 'saves', event.target.value)} placeholder="Unknown" />
+                                <Input id={`${prefix}-saves`} type="number" inputMode="numeric" min="0" max={MAX_MATCH_COUNT} step="1" value={entry.saves} onChange={(event) => updateEntry(entryKey, 'saves', event.target.value)} placeholder="Unknown" />
                               </div>
                               <div className="space-y-1.5">
                                 <Label htmlFor={`${prefix}-goals-conceded`}>Goals conceded</Label>
-                                <Input id={`${prefix}-goals-conceded`} type="number" inputMode="numeric" min="0" max={MAX_MATCH_COUNT} step="1" value={entry.goals_conceded} onChange={(event) => updateEntry(member.id, 'goals_conceded', event.target.value)} placeholder="Unknown" />
+                                <Input id={`${prefix}-goals-conceded`} type="number" inputMode="numeric" min="0" max={MAX_MATCH_COUNT} step="1" value={entry.goals_conceded} onChange={(event) => updateEntry(entryKey, 'goals_conceded', event.target.value)} placeholder="Unknown" />
                               </div>
                             </>
                           ) : null}
                           <div className="space-y-1.5 sm:col-span-3 lg:col-span-6">
                             <Label htmlFor={`${prefix}-note`}>Note</Label>
-                            <Textarea id={`${prefix}-note`} value={entry.note} onChange={(event) => updateEntry(member.id, 'note', event.target.value)} maxLength={MAX_RESULT_NOTE_LENGTH} rows={2} placeholder="Optional manager note" />
+                            <Textarea id={`${prefix}-note`} value={entry.note} onChange={(event) => updateEntry(entryKey, 'note', event.target.value)} maxLength={MAX_RESULT_NOTE_LENGTH} rows={2} placeholder="Optional manager note" />
                           </div>
                         </fieldset>
                       </article>
@@ -1431,11 +1503,13 @@ function RecordResultDialog({ programId, videoMatch, members, savedResult, onSav
                 {error}
               </p>
             ) : null}
+            {editing ? <p className="text-sm text-muted-foreground">{removalCount} {removalCount === 1 ? 'player' : 'players'} will be removed when you save.</p> : null}
             <DialogFooter>
+              {editing ? <Button type="button" variant="destructive" onClick={deleteResult} disabled={busy}><Trash2 className="mr-1.5 h-4 w-4" /> Delete result</Button> : null}
               <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
               <Button type="submit" disabled={busy || selectedEntryCount === 0}>
                 {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trophy className="mr-1.5 h-4 w-4" />}
-                {busy ? 'Saving result…' : 'Save result'}
+                {busy ? 'Saving result…' : editing ? 'Save correction' : 'Save result'}
               </Button>
             </DialogFooter>
           </form>
@@ -1910,12 +1984,65 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
   )
 }
 
+export function ResultHistory({ programId, refreshToken, onEdit, onAccessDenied }) {
+  const [state, setState] = useState({ loading: true, results: [], error: null })
+
+  useEffect(() => {
+    const controller = new AbortController()
+    APIService.request(`/club/${programId}/results?limit=100`, { signal: controller.signal })
+      .then((data) => setState({ loading: false, results: data.results || [], error: null }))
+      .catch((requestError) => {
+        if (controller.signal.aborted) return
+        if (requestError?.status === 403) onAccessDenied()
+        else setState({ loading: false, results: [], error: 'Results could not be loaded.' })
+      })
+    return () => controller.abort()
+  }, [programId, refreshToken, onAccessDenied])
+
+  if (state.loading) return <p className="text-sm text-muted-foreground">Loading results…</p>
+  if (state.error) return <InlineError>{state.error}</InlineError>
+  if (state.results.length === 0) return <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No results recorded yet.</p>
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {state.results.map((saved) => (
+        <article key={saved.result.id} className="rounded-xl border border-border bg-card p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-bold text-foreground">{saved.result.result_for}–{saved.result.result_against} vs {saved.result.opponent}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{[saved.result.competition, formatDateOnly(saved.result.match_date)].filter(Boolean).join(' · ')}</p>
+            </div>
+            <Badge variant="outline">v{saved.result.version}</Badge>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">{saved.matches.length} {saved.matches.length === 1 ? 'player' : 'players'}{saved.result.video_match_id ? saved.result.video_available ? ' · Video associated' : ' · Video unavailable' : ' · No video'}</p>
+          <Button className="mt-3" size="sm" variant="outline" onClick={() => onEdit(saved.result.id)}>Edit result</Button>
+        </article>
+      ))}
+    </div>
+  )
+}
+
 function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadFailureCount, uploadGrants, onMatchesChange, onUploadGrantChange, onReload, onAccessDenied }) {
   const [createOpen, setCreateOpen] = useState(false)
   const [resultTarget, setResultTarget] = useState(null)
-  const [savedVideoResults, setSavedVideoResults] = useState({})
+  const [resultRefresh, setResultRefresh] = useState(0)
+  const [resultLoadError, setResultLoadError] = useState(null)
   const [selectedId, setSelectedId] = useState(() => matches[0]?.id || null)
   const selectedMatch = matches.find((match) => match.id === selectedId) || matches[0] || null
+
+  const editResult = async (resultId) => {
+    setResultLoadError(null)
+    try {
+      const savedResult = await APIService.request(`/club/${programId}/results/${resultId}`)
+      setResultTarget({
+        videoMatch: null,
+        members: resultRosterMembers(null, rosterMembers),
+        savedResult,
+      })
+    } catch (requestError) {
+      if (requestError?.status === 403) onAccessDenied()
+      else setResultLoadError('The latest result could not be loaded. Try again.')
+    }
+  }
 
   const upsertMatch = useCallback((updated) => {
     onMatchesChange((current) => {
@@ -1998,6 +2125,14 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
           </AlertDescription>
         </Alert>
       ) : null}
+      <section className="space-y-3" aria-labelledby="club-result-history">
+        <div>
+          <h3 id="club-result-history" className="font-bold text-foreground">Results</h3>
+          <p className="text-sm text-muted-foreground">Scores and club-confirmed lineups, including matches without video.</p>
+        </div>
+        <InlineError>{resultLoadError}</InlineError>
+        <ResultHistory key={programId} programId={programId} refreshToken={resultRefresh} onEdit={editResult} onAccessDenied={onAccessDenied} />
+      </section>
       {loading ? (
         <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading saved matches…</CardContent></Card>
       ) : error && loadFailureCount === 0 ? (
@@ -2034,7 +2169,7 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
               onRecordResult={(videoMatch) => setResultTarget({
                 videoMatch,
                 members: resultRosterMembers(videoMatch, rosterMembers),
-                savedResult: savedVideoResults[String(videoMatch.id)] || null,
+                savedResult: null,
               })}
             />
           ) : null}
@@ -2048,8 +2183,7 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
           members={resultTarget.members}
           savedResult={resultTarget.savedResult}
           onSaved={(response) => {
-            const matchId = resultTarget.videoMatch?.id
-            if (matchId) setSavedVideoResults((current) => ({ ...current, [String(matchId)]: response }))
+            if (response) setResultRefresh((current) => current + 1)
           }}
           onClose={() => setResultTarget(null)}
           onAccessDenied={onAccessDenied}
@@ -2411,7 +2545,7 @@ export function MyClubConsole({
             <RosterPanel programId={programId} members={members} systemBrief={systemBrief} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onSystemBriefChange={setSystemBrief} onReload={loadRoster} onAccessDenied={onAccessDenied} />
           </TabsContent>
           <TabsContent value="matches">
-            <MatchesPanel programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
+            <MatchesPanel key={programId} programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
           </TabsContent>
           <TabsContent value="profile"><ClubProfile program={program} claim={programClaim} onAccessDenied={onAccessDenied} /></TabsContent>
           {contactRail === true ? <TabsContent value="introductions"><ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /></TabsContent> : null}

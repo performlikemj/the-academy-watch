@@ -8,6 +8,7 @@ the existing admin-only concierge routes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -45,7 +46,7 @@ from src.models.funding import (
     update_dict,
 )
 from src.models.league import Team, db
-from src.models.player_match_entry import PlayerMatchEntry
+from src.models.player_match_entry import ClubResult, PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonTotal
 from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
@@ -53,11 +54,12 @@ from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, Vi
 from src.services import season_rollup_service, video_retention, video_storage
 from src.services.capture_meta import merge_preflight
 from src.services.club_player_authority import club_authorized_player_ids, club_has_authority_over_player
-from src.services.club_registry import require_club_manager
+from src.services.club_registry import is_manager_of_approved_program, require_club_manager
 from src.services.coach_brief import MAX_BRIEF_CHARS, MAX_BRIEF_LINE_CHARS, MAX_BRIEF_LINES, brief_payload
 from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
+from src.services.public_player_subject import resolve_public_adult_subject
 from src.utils.academy_window import current_stats_season
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
@@ -657,6 +659,7 @@ def _result_player(member: ClubRosterMember) -> tuple[int, str | None, bool]:
 
 def _result_entry_dict(entry: PlayerMatchEntry, member_id: int | None) -> dict:
     out = entry.to_dict()
+    out["club_result_id"] = entry.club_result_id
     out["club_roster_member_id"] = member_id
     return out
 
@@ -986,258 +989,499 @@ def delete_club_roster_member(program_id: int, member_id: int):
     return "", 204
 
 
-@club_bp.route("/club/<int:program_id>/results", methods=["POST"])
-@require_club_manager()
-def record_club_result(program_id: int):
-    """Upsert one fixture's club-confirmed lines.
+class _ResultError(Exception):
+    def __init__(self, code, status=409, **details):
+        self.code, self.status, self.details = code, status, details
+        super().__init__(code)
 
-    ``video_match_id`` is validated and echoed for this POST only. Persistence
-    awaits a later ``player_match_entries.video_match_id`` column, so result
-    history returns it as null.
-    """
-    try:
-        data = _payload()
-        header = _result_header_values(data)
-        video_match_id = data.get("video_match_id")
-        if video_match_id is not None:
-            video_match_id = _positive_int(video_match_id, "video_match_id")
 
-        requested_entries = data.get("entries")
-        if not isinstance(requested_entries, list) or not requested_entries:
-            raise ValueError("entries must be a non-empty list")
-        parsed_entries = []
-        member_ids = []
-        for requested_entry in requested_entries:
-            if not isinstance(requested_entry, dict):
-                raise ValueError("each entry must be an object")
-            member_id = _positive_int(
-                requested_entry.get("club_roster_member_id"),
-                "club_roster_member_id",
-            )
-            if member_id in member_ids:
-                raise ValueError(f"duplicate club_roster_member_id {member_id}")
-            member_ids.append(member_id)
-            parsed_entries.append((member_id, _result_entry_values(requested_entry)))
+def _result_uuid(value):
+    if not isinstance(value, str) or len(value) != 36:
+        raise ValueError("invalid UUID")
+    return str(uuid.UUID(value))
 
-        program = db.session.get(ClubProgram, program_id)
-        if program is None:
-            raise _ClubResultConflict("Club manager access denied")
-        _lock_program_quota(program_id)
 
-        if video_match_id is not None:
-            video_match = (
-                VideoMatch.query.filter_by(id=video_match_id, club_program_id=program_id).with_for_update().first()
-            )
-            if video_match is None or video_match.status not in CLUB_EDITABLE_MATCH_STATUSES:
-                raise _ClubResultConflict("Video match must belong to this club program and remain editable")
+def _result_integer(value):
+    value = _bounded_result_int(value, "identity", 2_147_483_647)
+    if value == 0:
+        raise ValueError("identity must be positive")
+    return value
 
-        members = {
-            row.id: row
-            for row in ClubRosterMember.query.filter(
-                ClubRosterMember.program_id == program_id,
-                ClubRosterMember.id.in_(member_ids),
-            )
-            .with_for_update()
-            .all()
-        }
-        if len(members) != len(member_ids):
-            raise _ClubResultConflict("Every result player must belong to this club program")
 
-        resolved_entries = []
-        seen_player_ids = set()
-        for member_id, values in parsed_entries:
-            player_api_id, player_name, is_minor = _result_player(members[member_id])
-            if player_api_id in seen_player_ids:
-                raise _ClubResultConflict("Each result player may appear only once")
-            seen_player_ids.add(player_api_id)
-            resolved_entries.append((member_id, player_api_id, player_name, is_minor, values))
+def _parse_stable_result(data, *, creating=False, deleting=False):
+    if not isinstance(data, dict):
+        raise ValueError("object required")
+    if deleting:
+        if set(data) != {"expected_version"}:
+            raise ValueError("invalid fields")
+        return {"expected_version": _result_integer(data["expected_version"])}
+    allowed = {
+        "match_date",
+        "opponent",
+        "competition",
+        "home_away",
+        "result_for",
+        "result_against",
+        "video_match_id",
+        "entries",
+        "client_request_id" if creating else "expected_version",
+    }
+    if set(data) - allowed:
+        raise ValueError("unknown fields")
+    if creating and "client_request_id" not in data:
+        raise _ResultError("client_request_id_required", 400)
+    identity = (
+        {"client_request_id": _result_uuid(data.get("client_request_id"))}
+        if creating
+        else {"expected_version": _result_integer(data.get("expected_version"))}
+    )
+    # Bound the submitted strings as well as their normalized forms.
+    for name in ("opponent", "competition"):
+        if isinstance(data.get(name), str) and len(data[name]) > 120:
+            raise ValueError("oversized text")
+    header = _result_header_values(data)
+    video_id = data.get("video_match_id")
+    if video_id is not None:
+        video_id = _result_integer(video_id)
+    lines = data.get("entries")
+    if not isinstance(lines, list) or not 1 <= len(lines) <= 100:
+        raise ValueError("invalid lineup")
+    stats = {"minutes", "note", *RESULT_COUNT_FIELDS, *RESULT_OPTIONAL_COUNT_FIELDS}
+    parsed, identities = [], set()
+    for line in lines:
+        if not isinstance(line, dict) or set(line) - (stats | {"entry_id", "club_roster_member_id"}):
+            raise ValueError("invalid line")
+        fields = set(line) & {"entry_id", "club_roster_member_id"}
+        if len(fields) != 1 or (creating and fields != {"club_roster_member_id"}):
+            raise ValueError("one identity required")
+        field = next(iter(fields))
+        key = _result_integer(line[field])
+        if (field, key) in identities:
+            raise ValueError("duplicate identity")
+        identities.add((field, key))
+        if isinstance(line.get("note"), str) and len(line["note"]) > 500:
+            raise ValueError("oversized note")
+        # A redacted historical stub can only be retained without submitted stats.
+        if field == "entry_id" and set(line) == {"entry_id"}:
+            values = None
+        else:
+            if set(line) != stats | {field}:
+                raise ValueError("complete stats required")
+            values = _result_entry_values(line)
+        parsed.append({field: key, "values": values})
+    return {**identity, "header": header, "video_match_id": video_id, "entries": parsed}
 
-        season = current_stats_season(header["match_date"])
-        _lock_result_players(seen_player_ids)
-        identity_query = PlayerMatchEntry.query.filter(
-            PlayerMatchEntry.match_date == header["match_date"],
-            func.lower(PlayerMatchEntry.opponent) == func.lower(header["opponent"]),
-            PlayerMatchEntry.source == "club",
-        )
-        fixture_rows = (
-            identity_query.filter(PlayerMatchEntry.club_program_id == program_id)
-            .order_by(PlayerMatchEntry.id)
-            .with_for_update()
-            .all()
-        )
-        foreign_rows = (
-            identity_query.filter(
-                PlayerMatchEntry.player_api_id.in_(seen_player_ids),
-                or_(
-                    PlayerMatchEntry.club_program_id.is_(None),
-                    PlayerMatchEntry.club_program_id != program_id,
-                ),
-            )
-            .order_by(PlayerMatchEntry.id)
-            .all()
-        )
-        if foreign_rows:
-            raise _ClubResultConflict("A matching result entry already belongs to another club program")
 
-        fixture_by_player = {}
-        for row in fixture_rows:
-            if row.player_api_id in fixture_by_player:
-                raise _ClubResultConflict(
-                    "Multiple matching result entries already exist for this club program "
-                    f"(player_api_id={row.player_api_id})"
-                )
-            fixture_by_player[row.player_api_id] = row
-        existing = {
-            player_api_id: row for player_api_id, row in fixture_by_player.items() if player_api_id in seen_player_ids
-        }
-
-        # This program's confirmed fixture rows retain their entry-time authority
-        # after transfers, including omitted players touched by header corrections.
-        established_player_ids = {row.player_api_id for row in fixture_rows if row.status == "club_confirmed"}
-        players_requiring_authority = {
-            player_id
-            for player_id in (seen_player_ids | set(fixture_by_player)) - established_player_ids
-            if player_id > 0
-        }
-        authorized_player_ids = club_authorized_player_ids(
-            program, players_requiring_authority, season=season, session=db.session
-        )
-        unauthorized_player_ids = sorted(players_requiring_authority - authorized_player_ids)
-        if unauthorized_player_ids:
-            db.session.rollback()
-            return jsonify({"error": "player_not_affiliated", "player_api_ids": unauthorized_player_ids}), 422
-
-        for entry in fixture_rows:
-            for field, value in header.items():
-                setattr(entry, field, value)
-            entry.season = season
-
-        created = False
-        response_rows = []
-        touched_player_ids = {entry.player_api_id for entry in fixture_rows}
-        for member_id, player_api_id, _player_name, _is_minor, values in resolved_entries:
-            entry = existing.get(player_api_id)
-            if entry is None:
-                entry = PlayerMatchEntry()
-                db.session.add(entry)
-                created = True
-                for field, value in header.items():
-                    setattr(entry, field, value)
-                entry.reported_by_user_id = g.user_id
-            for field, value in values.items():
-                setattr(entry, field, value)
-            entry.player_api_id = player_api_id
-            entry.season = season
-            entry.source = "club"
-            entry.status = "club_confirmed"
-            entry.club_program_id = program_id
-            response_rows.append((entry, member_id))
-            touched_player_ids.add(player_api_id)
+def _result_transaction(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        from werkzeug.exceptions import HTTPException
 
         try:
-            db.session.flush()
-        except IntegrityError:
-            raise _ClubResultConflict("Club result conflicts with an existing entry") from None
+            response = view(*args, **kwargs)
+            if request.method in {"POST", "PUT", "DELETE"}:
+                db.session.commit()
+            return response
+        except _ResultError as error:
+            db.session.rollback()
+            return jsonify(error=error.code, **error.details), error.status
+        except ValueError:
+            db.session.rollback()
+            return jsonify(error="invalid_request"), 400
+        except HTTPException:
+            db.session.rollback()
+            raise
+        except Exception as error:
+            db.session.rollback()
+            sqlstate = getattr(getattr(error, "orig", None), "sqlstate", None)
+            if sqlstate in {"40001", "40P01"}:
+                return jsonify(error="retry_conflict"), 409
+            if isinstance(error, IntegrityError):
+                return jsonify(error="result_identity_conflict"), 409
+            logger.error("Club result operation failed (%s)", type(error).__name__)
+            return jsonify(error="result_operation_failed"), 500
 
-        for player_api_id in sorted(touched_player_ids):
-            season_rollup_service.refresh_player(
-                player_api_id,
-                season,
-                session=db.session,
-            )
+    return wrapped
 
-        level_group = "youth" if season_rollup_service._is_youth_competition(header["competition"]) else "senior"
-        season_stats_by_player = {}
-        for member_id, player_api_id, player_name, is_minor, _values in resolved_entries:
-            stats = _club_season_stats(
-                player_api_id,
-                season,
-                level_group,
-                member_id,
-                player_name,
-                is_minor,
-            )
-            if stats is not None:
-                season_stats_by_player[str(player_api_id)] = stats
-        matches = [_result_entry_dict(entry, member_id) for entry, member_id in response_rows]
-        db.session.commit()
-        return (
-            jsonify(
-                {
-                    "result": _normalized_result(header, video_match_id),
-                    "matches": matches,
-                    "season_stats_by_player": season_stats_by_player,
-                }
-            ),
-            201 if created else 200,
+
+def _result_resource(view):
+    @wraps(view)
+    def wrapped(program_id, result_id=None):
+        if result_id is not None:
+            try:
+                result_id = _result_uuid(result_id)
+            except ValueError:
+                raise _ResultError("result_not_found", 404) from None
+            if not ClubResult.query.filter_by(id=result_id, program_id=program_id).first():
+                raise _ResultError("result_not_found", 404)
+        return view(program_id, result_id) if result_id else view(program_id)
+
+    return wrapped
+
+
+def _result_rate_rejected(limit):
+    import time
+
+    response = jsonify(error="rate_limit_exceeded")
+    response.status_code = 429
+    response.headers["Retry-After"] = str(max(1, math.ceil(limit.reset_at - time.time())))
+    return response
+
+
+def _result_limit_key():
+    return f"{g.user_id}:{request.view_args['program_id']}"
+
+
+def _result_lines(row, *, lock=False):
+    query = PlayerMatchEntry.query.filter_by(
+        club_result_id=row.id,
+        club_program_id=row.program_id,
+        source="club",
+    ).order_by(PlayerMatchEntry.id)
+    return (query.populate_existing().with_for_update() if lock else query).all()
+
+
+def _stable_result_payload(row, *, removed=(), scopes=()):
+    members = {
+        m.player_api_id if m.player_api_id is not None else -m.local_player_id: m.id
+        for m in ClubRosterMember.query.filter_by(program_id=row.program_id).all()
+    }
+    matches, stats = [], {}
+    for entry in _result_lines(row):
+        subject = resolve_public_adult_subject(entry.player_api_id)
+        if subject is None:
+            matches.append({"id": entry.id, "unavailable": True})
+            continue
+        match = _result_entry_dict(entry, members.get(entry.player_api_id))
+        match["player_name"] = subject.display_name
+        matches.append(match)
+        level = "youth" if season_rollup_service._is_youth_competition(entry.competition) else "senior"
+        total = _club_season_stats(
+            entry.player_api_id, entry.season, level, members.get(entry.player_api_id), subject.display_name, False
         )
-    except ValueError as exc:
-        db.session.rollback()
-        return _bad_request(str(exc))
-    except _ClubResultConflict as exc:
-        db.session.rollback()
-        return jsonify({"error": str(exc)}), 409
-    except Exception:
-        db.session.rollback()
-        logger.exception("Failed to record club result for program %s", program_id)
-        return jsonify({"error": "Failed to record club result"}), 500
+        if total is not None:
+            stats[str(entry.player_api_id)] = total
+    header = row.manager_dict()
+    video = _club_match(row.program_id, row.video_match_id) if row.video_match_id else None
+    header["video_available"] = bool(
+        video and video.blob_path and video.status != "expired" and not video_retention.retention_window_closed(video)
+    )
+    return {
+        "result": header,
+        "matches": matches,
+        "removed_entry_ids": sorted(removed),
+        "refreshed_scopes": list(scopes),
+        "season_stats_by_player": stats,
+    }
+
+
+def _locked_result_context(program_id, result_id=None):
+    from src.models.club_invitation import strict_manager
+
+    _lock_program_quota(program_id)
+    program = ClubProgram.query.filter_by(id=program_id).populate_existing().with_for_update().first()
+    if not program or not strict_manager(db.session, program_id, g.user_id, lock=True):
+        raise _ResultError("Club manager access denied", 403)
+    row = None
+    if result_id:
+        row = (
+            ClubResult.query.filter_by(id=result_id, program_id=program_id)
+            .populate_existing()
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            raise _ResultError("result_not_found", 404)
+    return program, row
+
+
+def _write_stable_result(program_id, result_id=None):
+    creating, deleting = result_id is None, request.method == "DELETE"
+    parsed = _parse_stable_result(request.get_json(silent=True), creating=creating, deleting=deleting)
+    program, row = _locked_result_context(program_id, result_id)
+    if creating:
+        normalized = {
+            **_normalized_result(parsed["header"], parsed["video_match_id"]),
+            "entries": sorted(parsed["entries"], key=lambda line: line["club_roster_member_id"]),
+        }
+        digest = hashlib.sha256(json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        row = (
+            ClubResult.query.filter_by(program_id=program_id, client_request_id=parsed["client_request_id"])
+            .populate_existing()
+            .first()
+        )
+        if row:
+            if row.create_request_hash != digest:
+                raise _ResultError("client_request_id_reused")
+            if row.deleted_at:
+                raise _ResultError("result_deleted")
+            return jsonify(_stable_result_payload(row)), 200
+    else:
+        if row.deleted_at:
+            if deleting and parsed["expected_version"] == row.version - 1:
+                return jsonify(id=row.id, deleted=True, version=row.version)
+            raise _ResultError("result_version_conflict" if deleting else "result_deleted")
+        if row.version != parsed["expected_version"]:
+            raise _ResultError("result_version_conflict")
+
+    existing = {entry.id: entry for entry in _result_lines(row, lock=True)} if row else {}
+    incoming = [] if deleting else parsed["entries"]
+    member_ids = {line["club_roster_member_id"] for line in incoming if "club_roster_member_id" in line}
+    members = {
+        m.id: m
+        for m in ClubRosterMember.query.filter(
+            ClubRosterMember.program_id == program_id, ClubRosterMember.id.in_(member_ids)
+        ).all()
+    }
+    if len(members) != len(member_ids):
+        raise _ResultError("result_identity_conflict")
+    if any(line["entry_id"] not in existing for line in incoming if "entry_id" in line):
+        raise _ResultError("result_identity_conflict")
+    signed_members = {
+        key: m.player_api_id if m.player_api_id is not None else -m.local_player_id for key, m in members.items()
+    }
+    player_ids = {entry.player_api_id for entry in existing.values()} | set(signed_members.values())
+    if any(not 0 < abs(pid) <= 2_147_483_647 for pid in player_ids):
+        raise _ResultError("result_identity_conflict")
+    _lock_result_players(player_ids)
+    # Recheck identities and governance after all result-player locks. Roster locks
+    # also serialize departures; stale ORM identity-map data must not authorize writes.
+    db.session.expire_all()
+    if not is_manager_of_approved_program(g.user_id, program_id):
+        raise _ResultError("Club manager access denied", 403)
+    locked_members = {
+        m.id: m
+        for m in ClubRosterMember.query.filter(
+            ClubRosterMember.program_id == program_id, ClubRosterMember.id.in_(member_ids)
+        )
+        .populate_existing()
+        .with_for_update()
+        .all()
+    }
+    if set(locked_members) != member_ids or any(
+        (m.player_api_id if m.player_api_id is not None else -m.local_player_id) != signed_members[mid]
+        for mid, m in locked_members.items()
+    ):
+        raise _ResultError("result_identity_conflict")
+    members = locked_members
+    old_scopes = {(entry.player_api_id, entry.season) for entry in existing.values()}
+    resolved, seen, unavailable, unauthorized = [], set(), [], set()
+    season = None if deleting else current_stats_season(parsed["header"]["match_date"])
+    for line in incoming:
+        entry = existing.get(line.get("entry_id"))
+        member = members.get(line.get("club_roster_member_id"))
+        pid = entry.player_api_id if entry else signed_members[member.id]
+        if pid in seen:
+            raise ValueError("duplicate player")
+        seen.add(pid)
+        subject = resolve_public_adult_subject(pid)
+        if subject is None:
+            if entry:
+                if line["values"] is not None:
+                    unavailable.append(entry.id)
+            else:
+                unauthorized.add(pid)
+        elif line["values"] is None:
+            raise ValueError("complete stats required")
+        if entry is None:
+            if not governed_member_available(db.session, member):
+                unauthorized.add(pid)
+            if pid < 0:
+                local = db.session.get(LocalPlayer, -pid)
+                if (
+                    local is None
+                    or local.status != "approved"
+                    or local.api_player_id != pid
+                    or local.merged_into_local_player_id is not None
+                ):
+                    unauthorized.add(pid)
+        resolved.append((entry, pid, line["values"]))
+    if unavailable:
+        raise _ResultError("result_player_unavailable", 422, entry_ids=sorted(unavailable))
+    needs_authority = {
+        pid for entry, pid, _values in resolved if pid > 0 and (entry is None or entry.status != "club_confirmed")
+    }
+    if needs_authority:
+        unauthorized |= needs_authority - club_authorized_player_ids(
+            program, needs_authority, season=season, session=db.session
+        )
+    if unauthorized:
+        raise _ResultError("player_not_affiliated", 422, player_api_ids=sorted(unauthorized))
+
+    if not deleting:
+        header = parsed["header"]
+        legacy_rows = (
+            PlayerMatchEntry.query.filter_by(
+                club_program_id=program_id,
+                source="club",
+                club_result_id=None,
+                match_date=header["match_date"],
+            )
+            .populate_existing()
+            .with_for_update()
+            .all()
+        )
+        if any(
+            sanitize_plain_text(entry.opponent).strip().lower() == header["opponent"].lower() for entry in legacy_rows
+        ):
+            raise _ResultError("result_identity_conflict")
+        slot = ClubResult.query.filter_by(
+            program_id=program_id,
+            match_date=header["match_date"],
+            opponent_key=header["opponent"].lower(),
+            deleted_at=None,
+        )
+        if row:
+            slot = slot.filter(ClubResult.id != row.id)
+        collision = slot.first()
+        if collision:
+            raise _ResultError("result_already_exists", result_id=collision.id)
+        # Python normalization is shared with adoption (including Unicode lowercase).
+        candidates = PlayerMatchEntry.query.filter(
+            PlayerMatchEntry.source == "club",
+            PlayerMatchEntry.match_date == header["match_date"],
+            PlayerMatchEntry.player_api_id.in_(seen),
+        ).all()
+        if any(
+            entry.id not in existing
+            and sanitize_plain_text(entry.opponent).strip().lower() == header["opponent"].lower()
+            for entry in candidates
+        ):
+            raise _ResultError("result_identity_conflict")
+        video_id = parsed["video_match_id"]
+        if video_id is not None and (row is None or row.video_match_id != video_id):
+            video = (
+                VideoMatch.query.filter_by(id=video_id, club_program_id=program_id)
+                .populate_existing()
+                .with_for_update()
+                .first()
+            )
+            retained = (
+                video
+                and video.status == "expired"
+                and (VideoPlayerReport.query.filter_by(video_match_id=video_id).first() is not None)
+            )
+            if not video or (video.status not in {*CLUB_EDITABLE_MATCH_STATUSES, "finalized"} and not retained):
+                raise _ResultError("video_match_unavailable")
+
+    # Everything above is validation. Only now may headers, entries or rollups change.
+    now = datetime.now(UTC).replace(tzinfo=None)
+    if creating:
+        row = ClubResult(
+            id=str(uuid.uuid4()),
+            program_id=program_id,
+            client_request_id=parsed["client_request_id"],
+            create_request_hash=digest,
+            version=1,
+            created_by_user_id=g.user_id,
+            created_at=now,
+        )
+        db.session.add(row)
+    else:
+        row.version += 1
+    row.updated_at, row.updated_by_user_id = now, g.user_id
+    retained_ids = {entry.id for entry, _pid, _values in resolved if entry is not None}
+    removed = sorted(set(existing) - retained_ids)
+    for entry_id in removed:
+        db.session.delete(existing[entry_id])
+    if deleting:
+        row.deleted_at = now
+    else:
+        for field, value in parsed["header"].items():
+            setattr(row, field, value)
+        row.season, row.opponent_key, row.video_match_id = season, row.opponent.lower(), parsed["video_match_id"]
+        db.session.flush()  # Header and removals precede new lines (including re-additions).
+        for entry, pid, values in resolved:
+            if entry is None:
+                entry = PlayerMatchEntry(
+                    player_api_id=pid,
+                    source="club",
+                    status="club_confirmed",
+                    reported_by_user_id=g.user_id,
+                    club_program_id=program_id,
+                    club_result_id=row.id,
+                )
+                db.session.add(entry)
+            for field, value in parsed["header"].items():
+                setattr(entry, field, value)
+            entry.season = season
+            if values is not None:
+                for field, value in values.items():
+                    setattr(entry, field, value)
+    db.session.flush()
+    scopes = season_rollup_service.refresh_player_scopes(
+        old_scopes | {(pid, season) for _entry, pid, _values in resolved}, session=db.session
+    )
+    if deleting:
+        return jsonify(id=row.id, deleted=True, version=row.version)
+    return jsonify(_stable_result_payload(row, removed=removed, scopes=scopes)), 201 if creating else 200
+
+
+@club_bp.route("/club/<int:program_id>/results", methods=["POST"])
+@require_club_manager()
+@_result_transaction
+@_result_resource
+@limiter.limit("30 per hour", key_func=_result_limit_key, on_breach=_result_rate_rejected)
+def record_club_result(program_id):
+    return _write_stable_result(program_id)
+
+
+@club_bp.route("/club/<int:program_id>/results/<result_id>", methods=["PUT", "DELETE"])
+@require_club_manager()
+@_result_transaction
+@_result_resource
+@limiter.limit("30 per hour", key_func=_result_limit_key, on_breach=_result_rate_rejected)
+def correct_club_result(program_id, result_id):
+    return _write_stable_result(program_id, result_id)
+
+
+@club_bp.route("/club/<int:program_id>/results/<result_id>", methods=["GET"])
+@require_club_manager()
+@_result_transaction
+@_result_resource
+@limiter.limit("60 per minute", key_func=_result_limit_key, on_breach=_result_rate_rejected)
+def get_club_result(program_id, result_id):
+    _program, row = _locked_result_context(program_id, result_id)
+    if row.deleted_at:
+        raise _ResultError("result_not_found", 404)
+    return jsonify(_stable_result_payload(row))
 
 
 @club_bp.route("/club/<int:program_id>/results", methods=["GET"])
 @require_club_manager()
-def list_club_results(program_id: int):
-    try:
-        season = request.args.get("season")
-        if season is not None:
-            try:
-                season = int(season)
-            except (TypeError, ValueError):
-                raise ValueError("season must be an integer") from None
-
-        query = PlayerMatchEntry.query.filter_by(
-            club_program_id=program_id,
-            source="club",
-            status="club_confirmed",
-        )
-        if season is not None:
-            query = query.filter(PlayerMatchEntry.season == season)
-        rows = query.order_by(PlayerMatchEntry.match_date.desc(), PlayerMatchEntry.id.desc()).all()
-
-        member_id_by_player = {}
-        for member in ClubRosterMember.query.filter_by(program_id=program_id).all():
-            player_api_id = member.player_api_id if member.player_api_id is not None else -member.local_player_id
-            member_id_by_player[player_api_id] = member.id
-
-        grouped = {}
-        for entry in rows:
-            key = (
-                entry.season,
-                entry.match_date,
-                entry.opponent.lower(),
+@_result_transaction
+@_result_resource
+@limiter.limit("60 per minute", key_func=_result_limit_key, on_breach=_result_rate_rejected)
+def list_club_results(program_id):
+    if set(request.args) - {"season", "limit", "before"}:
+        raise ValueError("invalid filters")
+    limit = int(request.args.get("limit", "20"))
+    if not 1 <= limit <= 100:
+        raise ValueError("invalid limit")
+    season = int(request.args["season"]) if "season" in request.args else None
+    if season is not None and not 1969 <= season <= 9999:
+        raise ValueError("invalid season")
+    _locked_result_context(program_id)
+    query = ClubResult.query.filter_by(program_id=program_id, deleted_at=None)
+    if season is not None:
+        query = query.filter_by(season=season)
+    total = query.count()
+    if "before" in request.args:
+        cursor = query.filter_by(id=_result_uuid(request.args["before"])).first()
+        if cursor is None:
+            raise ValueError("invalid cursor")
+        query = query.filter(
+            or_(
+                ClubResult.match_date < cursor.match_date,
+                (ClubResult.match_date == cursor.match_date) & (ClubResult.id < cursor.id),
             )
-            group = grouped.get(key)
-            if group is None:
-                header = {
-                    "match_date": entry.match_date,
-                    "opponent": entry.opponent,
-                    "competition": entry.competition,
-                    "home_away": entry.home_away,
-                    "result_for": entry.result_for,
-                    "result_against": entry.result_against,
-                }
-                group = {
-                    "result": _normalized_result(header, None),
-                    "matches": [],
-                }
-                grouped[key] = group
-            group["matches"].append(_result_entry_dict(entry, member_id_by_player.get(entry.player_api_id)))
-        results = list(grouped.values())
-        return jsonify({"results": results, "total": len(results)})
-    except ValueError as exc:
-        return _bad_request(str(exc))
-    except Exception:
-        logger.exception("Failed to list club results for program %s", program_id)
-        return jsonify({"error": "Failed to load club results"}), 500
+        )
+    rows = query.order_by(ClubResult.match_date.desc(), ClubResult.id.desc()).limit(limit + 1).all()
+    return jsonify(
+        results=[_stable_result_payload(row) for row in rows[:limit]],
+        total=total,
+        next_before=rows[limit - 1].id if len(rows) > limit else None,
+    )
 
 
 @club_bp.route("/club/<int:program_id>/matches", methods=["POST"])
@@ -1625,7 +1869,7 @@ def get_club_match_report(program_id: int, match_id: int):
 
 @club_bp.after_request
 def _private_invitation_response(response):
-    if "/invitations" in request.path:
+    if "/invitations" in request.path or "/results" in request.path:
         response.headers["Cache-Control"] = "private, no-store"
     return response
 

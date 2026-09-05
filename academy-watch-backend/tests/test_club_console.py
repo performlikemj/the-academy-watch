@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 from flask import Flask
@@ -20,7 +21,7 @@ from src.models.funding import (
     FundingLeague,
 )
 from src.models.league import League, Team, UserAccount, db
-from src.models.player_match_entry import PlayerMatchEntry
+from src.models.player_match_entry import ClubResult, PlayerMatchEntry
 from src.models.player_suppression import PlayerSuppression
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.showcase import LocalPlayer, PlayerProfileClaim
@@ -265,6 +266,7 @@ def _match(program_id: int, *, status="uploaded", kickoff_s=0) -> VideoMatch:
 
 def _result_payload(member_ids: list[int], **overrides) -> dict:
     payload = {
+        "client_request_id": str(uuid4()),
         "video_match_id": None,
         "match_date": "2025-09-01",
         "opponent": "Rivals FC",
@@ -289,6 +291,29 @@ def _result_payload(member_ids: list[int], **overrides) -> dict:
     }
     payload.update(overrides)
     return payload
+
+
+def _correct_result_payload(result_id: str, payload: dict) -> dict:
+    """Translate the old fixture-upsert test shape to P4's full PUT shape."""
+    result = db.session.get(ClubResult, result_id)
+    existing_by_player = {
+        row.player_api_id: row for row in PlayerMatchEntry.query.filter_by(club_result_id=result_id).all()
+    }
+    lines = []
+    for submitted in payload["entries"]:
+        member = db.session.get(ClubRosterMember, submitted["club_roster_member_id"])
+        player_id = member.player_api_id if member.player_api_id is not None else -member.local_player_id
+        identity = (
+            {"entry_id": existing_by_player[player_id].id}
+            if player_id in existing_by_player
+            else {"club_roster_member_id": member.id}
+        )
+        lines.append({**identity, **{key: value for key, value in submitted.items() if key != "club_roster_member_id"}})
+    return {
+        **{key: value for key, value in payload.items() if key not in {"client_request_id", "entries"}},
+        "expected_version": result.version,
+        "entries": lines,
+    }
 
 
 def _active_suppression(*, player_api_id=None, local_player_id=None) -> PlayerSuppression:
@@ -659,9 +684,29 @@ def test_club_manager_records_result_with_forced_provenance_and_one_commit(club_
     ):
         response = client.post(f"/api/club/{program_id}/results", json=payload, headers=_headers("a"))
 
+    assert response.status_code == 400
+    for field in ("source", "status", "club_program_id", "reported_by_user_id"):
+        payload.pop(field)
+    with (
+        patch.object(club_routes, "_lock_program_quota") as program_lock,
+        patch.object(club_routes, "_lock_result_players") as player_lock,
+    ):
+        response = client.post(f"/api/club/{program_id}/results", json=payload, headers=_headers("a"))
+
     assert response.status_code == 201
     body = response.get_json()
-    assert body["result"] == {
+    assert {
+        key: body["result"][key]
+        for key in (
+            "video_match_id",
+            "match_date",
+            "opponent",
+            "competition",
+            "home_away",
+            "result_for",
+            "result_against",
+        )
+    } == {
         "video_match_id": None,
         "match_date": "2025-09-01",
         "opponent": "Rivals FC",
@@ -730,9 +775,9 @@ def test_club_result_repost_updates_idempotently_and_refreshes_rollup(club_app, 
     )
     updated_payload = _result_payload([member_id], video_match_id=video_match.id, result_for=3)
     updated_payload["entries"][0].update({"goals": 3, "note": "Corrected"})
-    repeated = client.post(
-        f"/api/club/{program_id}/results",
-        json=updated_payload,
+    repeated = client.put(
+        f"/api/club/{program_id}/results/{first.get_json()['result']['id']}",
+        json=_correct_result_payload(first.get_json()["result"]["id"], updated_payload),
         headers=_headers("a"),
     )
 
@@ -766,7 +811,7 @@ def test_club_result_repost_updates_idempotently_and_refreshes_rollup(club_app, 
     assert (total.source_breakdown["club"]["minutes"], total.source_breakdown["club"]["goals"]) == (90, 3)
     history = client.get(f"/api/club/{program_id}/results?season=2025", headers=_headers("a"))
     assert history.status_code == 200
-    assert history.get_json()["results"][0]["result"]["video_match_id"] is None
+    assert history.get_json()["results"][0]["result"]["video_match_id"] == video_match.id
 
 
 @pytest.mark.parametrize(
@@ -783,9 +828,10 @@ def test_club_result_repost_db_folds_unicode_opponent_identity(club_app, client,
         json=_result_payload([member_id], opponent=opponent),
         headers=_headers("a"),
     )
-    corrected = client.post(
-        f"/api/club/{program_id}/results",
-        json=_result_payload([member_id], opponent=opponent, result_for=3),
+    corrected_payload = _result_payload([member_id], opponent=opponent, result_for=3)
+    corrected = client.put(
+        f"/api/club/{program_id}/results/{first.get_json()['result']['id']}",
+        json=_correct_result_payload(first.get_json()["result"]["id"], corrected_payload),
         headers=_headers("a"),
     )
 
@@ -811,9 +857,9 @@ def test_program_managers_share_one_fixture_identity_and_history_group(club_app,
     )
     corrected_payload = _result_payload([member_one], opponent="rivals fc", result_for=5)
     corrected_payload["entries"][0]["goals"] = 2
-    corrected = client.post(
-        f"/api/club/{program_id}/results",
-        json=corrected_payload,
+    corrected = client.put(
+        f"/api/club/{program_id}/results/{first.get_json()['result']['id']}",
+        json=_correct_result_payload(first.get_json()["result"]["id"], corrected_payload),
         headers=_headers("b"),
     )
 
@@ -835,14 +881,15 @@ def test_program_managers_share_one_fixture_identity_and_history_group(club_app,
     assert total.source_breakdown["club"]["goals"] == 2
     db.session.expunge(total)
 
-    added = client.post(
-        f"/api/club/{program_id}/results",
-        json=_result_payload([member_two], opponent="RIVALS FC", result_for=6),
+    added_payload = _result_payload([member_one, member_two], opponent="RIVALS FC", result_for=6)
+    added = client.put(
+        f"/api/club/{program_id}/results/{first.get_json()['result']['id']}",
+        json=_correct_result_payload(first.get_json()["result"]["id"], added_payload),
         headers=_headers("b"),
     )
     history = client.get(f"/api/club/{program_id}/results?season=2025", headers=_headers("a"))
 
-    assert added.status_code == 201
+    assert added.status_code == 200
     assert PlayerMatchEntry.query.filter_by(club_program_id=program_id, source="club").count() == 2
     reporters = {
         row.player_api_id: row.reported_by_user_id
@@ -884,7 +931,7 @@ def test_matching_player_fixture_is_rejected_in_another_program(club_app, client
 
     assert first.status_code == 201
     assert conflict.status_code == 409
-    assert conflict.get_json() == {"error": "A matching result entry already belongs to another club program"}
+    assert conflict.get_json() == {"error": "result_identity_conflict"}
     assert PlayerMatchEntry.query.filter_by(player_api_id=7001, source="club").count() == 1
     total = PlayerSeasonTotal.query.filter_by(player_api_id=7001, season=2025, level_group="senior").one()
     assert (total.source_breakdown["club"]["appearances"], total.source_breakdown["club"]["minutes"]) == (1, 90)
@@ -925,11 +972,9 @@ def test_club_result_locks_only_same_program_identity_rows(club_app, client, mon
     )
 
     assert conflict.status_code == 409
-    assert len(locked_identity_sql) == 1
-    assert "FOR UPDATE" in locked_identity_sql[0]
-    assert "lower(player_match_entries.opponent) = lower(" in locked_identity_sql[0]
-    assert "player_match_entries.club_program_id =" in locked_identity_sql[0]
-    assert " OR " not in locked_identity_sql[0]
+    assert locked_identity_sql
+    assert all("FOR UPDATE" in statement for statement in locked_identity_sql)
+    assert all("player_match_entries.club_program_id =" in statement for statement in locked_identity_sql)
 
 
 def test_club_result_rejects_legacy_duplicate_for_unposted_fixture_player(club_app, client, monkeypatch):
@@ -973,9 +1018,7 @@ def test_club_result_rejects_legacy_duplicate_for_unposted_fixture_player(club_a
     )
 
     assert response.status_code == 409
-    assert response.get_json() == {
-        "error": "Multiple matching result entries already exist for this club program (player_api_id=7002)"
-    }
+    assert response.get_json() == {"error": "result_identity_conflict"}
     assert PlayerMatchEntry.query.filter_by(player_api_id=7001, source="club").count() == 0
     stored = PlayerMatchEntry.query.filter_by(player_api_id=7002, source="club").order_by(PlayerMatchEntry.id).all()
     assert len(stored) == 2
@@ -999,7 +1042,7 @@ def test_club_result_rejects_foreign_roster_member_atomically(club_app, client, 
     )
 
     assert response.status_code == 409
-    assert response.get_json() == {"error": "Every result player must belong to this club program"}
+    assert response.get_json() == {"error": "result_identity_conflict"}
     assert PlayerMatchEntry.query.count() == 0
 
 
@@ -1021,10 +1064,10 @@ def test_club_result_rejects_foreign_or_noneditable_video_match(club_app, client
     )
 
     assert foreign.status_code == 409
-    assert foreign.get_json() == {"error": "Video match must belong to this club program and remain editable"}
-    assert noneditable.status_code == 409
-    assert noneditable.get_json() == {"error": "Video match must belong to this club program and remain editable"}
-    assert PlayerMatchEntry.query.count() == 0
+    assert foreign.get_json() == {"error": "video_match_unavailable"}
+    assert noneditable.status_code == 201
+    assert noneditable.get_json()["result"]["video_match_id"] == own_finalized.id
+    assert PlayerMatchEntry.query.count() == 1
 
 
 def test_club_result_rejects_local_member_without_approved_synthetic_id(club_app, client):
@@ -1038,10 +1081,8 @@ def test_club_result_rejects_local_member_without_approved_synthetic_id(club_app
         headers=_headers("a"),
     )
 
-    assert response.status_code == 409
-    assert response.get_json() == {
-        "error": "Local roster members need an approved local player identity before stats can be recorded"
-    }
+    assert response.status_code == 422
+    assert response.get_json() == {"error": "player_not_affiliated", "player_api_ids": [-local.id]}
     assert PlayerMatchEntry.query.count() == 0
 
 
@@ -1075,23 +1116,14 @@ def test_positive_minor_roster_and_result_use_rollup_age_rule(club_app, client):
     assert roster.status_code == 200
     roster_member = next(row for row in roster.get_json()["members"] if row["id"] == member_id)
     assert roster_member["is_minor"] is True
-    assert response.status_code == 201
+    assert response.status_code == 422
+    assert response.get_json() == {"error": "player_not_affiliated", "player_api_ids": [minor.player_api_id]}
     assert public_history.status_code == 404
     assert private_history.status_code == 200
-    assert private_history.get_json()["total"] == 1
-    assert PlayerMatchEntry.query.filter_by(player_api_id=minor.player_api_id, source="club").count() == 1
+    assert private_history.get_json()["total"] == 0
+    assert PlayerMatchEntry.query.filter_by(player_api_id=minor.player_api_id, source="club").count() == 0
     assert PlayerSeasonCell.query.filter_by(player_api_id=minor.player_api_id, source="club").count() == 0
     assert PlayerSeasonTotal.query.filter_by(player_api_id=minor.player_api_id, season=2025).count() == 0
-    assert response.get_json()["season_stats_by_player"] == {
-        "7003": {
-            "club_roster_member_id": member_id,
-            "player_name": "Youth Academy Player",
-            "season": 2025,
-            "level_group": "senior",
-            "source": "club",
-            "withheld": "minor",
-        }
-    }
 
 
 def test_list_club_results_groups_entries_and_filters_by_season(club_app, client):
@@ -1105,13 +1137,14 @@ def test_list_club_results_groups_entries_and_filters_by_season(club_app, client
         headers=_headers("a"),
     )
     assert created.status_code == 201
-    corrected = client.post(
-        f"/api/club/{program_a}/results",
-        json=_result_payload(
-            [member_one],
-            competition="U21 County League",
-            result_for=3,
-        ),
+    corrected_payload = _result_payload(
+        [member_one],
+        competition="U21 County League",
+        result_for=3,
+    )
+    corrected = client.put(
+        f"/api/club/{program_a}/results/{created.get_json()['result']['id']}",
+        json=_correct_result_payload(created.get_json()["result"]["id"], corrected_payload),
         headers=_headers("a"),
     )
     assert corrected.status_code == 200
@@ -1140,7 +1173,18 @@ def test_list_club_results_groups_entries_and_filters_by_season(club_app, client
     assert filtered.status_code == 200
     assert filtered.get_json()["total"] == 1
     group = filtered.get_json()["results"][0]
-    assert group["result"] == {
+    assert {
+        key: group["result"][key]
+        for key in (
+            "video_match_id",
+            "match_date",
+            "opponent",
+            "competition",
+            "home_away",
+            "result_for",
+            "result_against",
+        )
+    } == {
         "video_match_id": None,
         "match_date": "2025-09-01",
         "opponent": "Rivals FC",
@@ -1149,14 +1193,10 @@ def test_list_club_results_groups_entries_and_filters_by_season(club_app, client
         "result_for": 3,
         "result_against": 1,
     }
-    assert {row["club_roster_member_id"] for row in group["matches"]} == {member_one, member_two}
+    assert {row["club_roster_member_id"] for row in group["matches"]} == {member_one}
     assert {row["competition"] for row in group["matches"]} == {"U21 County League"}
     assert {row["result_for"] for row in group["matches"]} == {3}
-    assert PlayerSeasonTotal.query.filter_by(
-        player_api_id=7002,
-        season=2025,
-        level_group="youth",
-    ).one()
+    assert PlayerSeasonTotal.query.filter_by(player_api_id=7002, season=2025).count() == 0
     assert (
         PlayerSeasonTotal.query.filter_by(
             player_api_id=7002,
@@ -1171,7 +1211,7 @@ def test_list_club_results_groups_entries_and_filters_by_season(club_app, client
         "2024-09-01",
     ]
     assert invalid.status_code == 400
-    assert invalid.get_json() == {"error": "season must be an integer"}
+    assert invalid.get_json() == {"error": "invalid_request"}
 
 
 def test_list_club_results_groups_legacy_opponent_case_variants(club_app, client):
@@ -1206,6 +1246,11 @@ def test_list_club_results_groups_legacy_opponent_case_variants(club_app, client
         )
     db.session.add_all(rows)
     db.session.commit()
+    from migrations.versions.s4c1_club_results import backfill_legacy_results
+
+    with db.engine.begin() as bind:
+        backfill_legacy_results(bind)
+    db.session.expire_all()
 
     response = client.get(f"/api/club/{program_id}/results?season=2025", headers=_headers("a"))
 

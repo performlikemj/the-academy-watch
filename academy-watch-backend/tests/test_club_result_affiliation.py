@@ -8,7 +8,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 from src.models.funding import ClubProgram
 from src.models.league import Team, db
-from src.models.player_match_entry import PlayerMatchEntry
+from src.models.player_match_entry import ClubResult, PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.showcase import PlayerClubAffiliation, PlayerProfileClaim
 from src.models.tracked_player import TrackedPlayer
@@ -21,6 +21,7 @@ from test_club_console import (
     _add_api_member,
     _add_local_member,
     _admin_headers,
+    _correct_result_payload,
     _grant_program_manager,
     _headers,
     _local,
@@ -50,9 +51,18 @@ def _unrelated_player(club_app, player_api_id=7100):
 
 
 def _post(client, program_id, member_ids, **header):
-    return client.post(
-        f"/api/club/{program_id}/results",
-        json=_result_payload(member_ids, **header),
+    payload = _result_payload(member_ids, **header)
+    existing = ClubResult.query.filter_by(
+        program_id=program_id,
+        match_date=date.fromisoformat(payload["match_date"]),
+        opponent_key=payload["opponent"].strip().lower(),
+        deleted_at=None,
+    ).first()
+    if existing is None:
+        return client.post(f"/api/club/{program_id}/results", json=payload, headers=_headers("a"))
+    return client.put(
+        f"/api/club/{program_id}/results/{existing.id}",
+        json=_correct_result_payload(existing.id, payload),
         headers=_headers("a"),
     )
 
@@ -193,8 +203,10 @@ def test_confirmed_fixture_remains_correctable_after_transfer(club_app, client, 
     response = _post(client, program_id, lineup, result_for=5)
     assert response.status_code == 200
     after = _snapshot(PlayerMatchEntry)
-    assert len(after) == len(before) == 2
-    for original, corrected in zip(before, after, strict=True):
+    assert len(after) == (2 if include_transferred else 1)
+    assert len(before) == 2
+    expected_before = before if include_transferred else [row for row in before if row["player_api_id"] == 7001]
+    for original, corrected in zip(expected_before, after, strict=True):
         assert corrected["result_for"] == 5
         assert {key: value for key, value in corrected.items() if key not in {"result_for", "updated_at"}} == {
             key: value for key, value in original.items() if key not in {"result_for", "updated_at"}
@@ -251,9 +263,10 @@ def test_local_creator_attachment_and_second_manager_result_access_unchanged(clu
     roster = client.get(f"/api/club/{program_id}/roster", headers=_headers("b"))
     assert roster.json["members"][0]["public_stats_allowed"] is True
     assert _post(client, program_id, [member_id]).status_code == 201
-    response = client.post(
-        f"/api/club/{program_id}/results",
-        json=_result_payload([member_id], result_for=4),
+    result = ClubResult.query.filter_by(program_id=program_id, deleted_at=None).one()
+    response = client.put(
+        f"/api/club/{program_id}/results/{result.id}",
+        json=_correct_result_payload(result.id, _result_payload([member_id], result_for=4)),
         headers=_headers("b"),
     )
     assert response.status_code == 200
@@ -390,7 +403,7 @@ def test_unconfirmed_existing_fixture_player_is_not_grandfathered(club_app, clie
     models = (PlayerMatchEntry, PlayerSeasonCell, PlayerSeasonTotal)
     before = [_snapshot(model) for model in models]
     with patch.object(season_rollup_service, "refresh_player") as refresh:
-        response = _post(client, program_id, [valid], result_for=5)
+        response = _post(client, program_id, [valid, omitted], result_for=5)
     assert response.status_code == 422
     assert response.json == {"error": "player_not_affiliated", "player_api_ids": [player.player_api_id]}
     refresh.assert_not_called()
