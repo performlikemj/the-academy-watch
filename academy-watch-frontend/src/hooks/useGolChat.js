@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { APIService } from '@/lib/api'
+import { createSseParser } from '@/lib/sse'
 
 /**
  * Build API history from messages, including tool-call context.
@@ -99,7 +100,8 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
   }, [])
 
   const runAttempt = useCallback(async ({ content, history, clientMsgId, replaceMessageIds = [] }) => {
-    const requestEpoch = requestEpochRef.current
+    const requestEpoch = ++requestEpochRef.current
+    const isCurrent = () => requestEpoch === requestEpochRef.current
     const userMsg = { id: crypto.randomUUID(), role: 'user', content, dataCards: [], hiddenHistory: [] }
     const assistantMsg = { id: crypto.randomUUID(), role: 'assistant', content: '', dataCards: [], toolCall: null, hiddenHistory: [] }
     const replaceIds = new Set(replaceMessageIds)
@@ -119,6 +121,35 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
     const controller = new AbortController()
     abortRef.current = controller
     let terminalError = false
+    let receivedDone = false
+    let receivedAnswer = false
+    const updateAssistant = (updater) => updateMessages((previous) => previous.map(
+      (message) => message.id === assistantMsg.id ? updater(message) : message,
+    ))
+    const failAttempt = (incomplete = false) => {
+      if (!isCurrent()) return
+      terminalError = true
+      updateAssistant((message) => ({
+        ...message,
+        error: true,
+        incomplete,
+        content: incomplete
+          ? 'The answer was interrupted before it finished. Please try again.'
+          : creditUiLit ? 'Sorry, something went wrong. Please try again.' : message.content,
+        toolCall: null,
+      }))
+      if (creditUiLit || incomplete) {
+        setFailedAttempt({ content, history, clientMsgId, messageIds: [userMsg.id, assistantMsg.id] })
+      }
+    }
+    const markStopped = () => {
+      if (!isCurrent()) return
+      updateAssistant((message) => ({ ...message, stopped: true, error: false, incomplete: false, toolCall: null }))
+      // Usage/tool metadata is not an answer. Retry only before any text or card arrived.
+      setFailedAttempt(receivedAnswer ? null : {
+        content, history, clientMsgId, messageIds: [userMsg.id, assistantMsg.id],
+      })
+    }
 
     try {
       const response = await APIService.streamChat(
@@ -129,8 +160,15 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
         controller.signal,
       )
 
+      if (!isCurrent()) {
+        await response.body?.cancel()
+        return
+      }
+      controller.signal.throwIfAborted()
       if (!response.ok) {
         const errorText = await response.text().catch(() => '')
+        if (!isCurrent()) return
+        controller.signal.throwIfAborted()
         let body = null
         try { body = errorText ? JSON.parse(errorText) : null } catch { /* non-JSON response */ }
 
@@ -143,6 +181,21 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
           && body?.feature === 'gol_chat'
         const isClientMessageReused = response.status === 409
           && body?.error === 'client_msg_id_reused'
+        const isInFlight = response.status === 409 && body?.error === 'in_flight'
+        const isRecoveryExhausted = response.status === 409 && body?.error === 'recovery_exhausted'
+
+        if (isInFlight || isRecoveryExhausted) {
+          updateAssistant((message) => ({
+            ...message,
+            content: isInFlight
+              ? 'Still working on your previous question — give it a moment and try again.'
+              : 'That question could not be completed; your credit was returned.',
+          }))
+          setFailedAttempt(isInFlight ? {
+            content, history, clientMsgId, messageIds: [userMsg.id, assistantMsg.id],
+          } : null)
+          return
+        }
 
         if (isClientMessageReused) {
           updateMessages((previous) => {
@@ -171,118 +224,61 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
-      let buffer = ''
+      const parser = createSseParser(({ type, data: eventData }) => {
+        if (!isCurrent() || receivedDone) return
+        let data
+        try { data = JSON.parse(eventData) } catch { return }
+        if (!data || typeof data !== 'object') return
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        let eventType = 'token'
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            eventType = line.slice(7).trim()
-          } else if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-
-              if (eventType === 'token') {
-                updateMessages((previous) => {
-                  const updated = [...previous]
-                  const last = { ...updated[updated.length - 1] }
-                  last.content += data.content || ''
-                  updated[updated.length - 1] = last
-                  return updated
-                })
-              } else if (eventType === 'replace') {
-                updateMessages((previous) => {
-                  const updated = [...previous]
-                  const last = { ...updated[updated.length - 1] }
-                  last.content = data.content || ''
-                  updated[updated.length - 1] = last
-                  return updated
-                })
-              } else if (eventType === 'data_card') {
-                updateMessages((previous) => {
-                  const updated = [...previous]
-                  const last = { ...updated[updated.length - 1] }
-                  last.dataCards = [...last.dataCards, data]
-                  updated[updated.length - 1] = last
-                  return updated
-                })
-              } else if (eventType === 'tool_call') {
-                updateMessages((previous) => {
-                  const updated = [...previous]
-                  const last = { ...updated[updated.length - 1] }
-                  last.toolCall = data.name
-                  updated[updated.length - 1] = last
-                  return updated
-                })
-              } else if (eventType === 'history_entries') {
-                updateMessages((previous) => {
-                  const updated = [...previous]
-                  const last = { ...updated[updated.length - 1] }
-                  last.hiddenHistory = [...last.hiddenHistory, ...(data.entries || [])]
-                  updated[updated.length - 1] = last
-                  return updated
-                })
-              } else if (eventType === 'usage') {
-                updateUsage(data)
-              } else if (eventType === 'error') {
-                terminalError = true
-                if (creditUiLit) {
-                  updateMessages((previous) => {
-                    const updated = [...previous]
-                    const last = { ...updated[updated.length - 1] }
-                    last.content = 'Sorry, something went wrong. Please try again.'
-                    last.toolCall = null
-                    updated[updated.length - 1] = last
-                    return updated
-                  })
-                  setFailedAttempt({
-                    content,
-                    history,
-                    clientMsgId,
-                    messageIds: [userMsg.id, assistantMsg.id],
-                  })
-                }
-              } else if (eventType === 'done') {
-                updateMessages((previous) => {
-                  const updated = [...previous]
-                  const last = { ...updated[updated.length - 1] }
-                  last.toolCall = null
-                  updated[updated.length - 1] = last
-                  return updated
-                })
-                if (!terminalError) setFailedAttempt(null)
-              }
-            } catch {
-              // Skip malformed event data without breaking the stream.
-            }
-            eventType = 'token'
+        // A refund usage frame may follow an error; it still updates the balance.
+        if (type === 'usage') {
+          updateUsage(data)
+        } else if (type === 'error') {
+          failAttempt()
+        } else if (type === 'done') {
+          receivedDone = true
+          updateAssistant((message) => ({ ...message, toolCall: null }))
+          if (!terminalError) setFailedAttempt(null)
+        } else if (!terminalError) {
+          if (type === 'token' || type === 'message') {
+            if (data.content) receivedAnswer = true
+            updateAssistant((message) => ({ ...message, content: message.content + (data.content || '') }))
+          } else if (type === 'replace') {
+            if (data.content) receivedAnswer = true
+            updateAssistant((message) => ({ ...message, content: data.content || '' }))
+          } else if (type === 'data_card') {
+            receivedAnswer = true
+            updateAssistant((message) => ({ ...message, dataCards: [...message.dataCards, data] }))
+          } else if (type === 'tool_call') {
+            updateAssistant((message) => ({ ...message, toolCall: data.name }))
+          } else if (type === 'history_entries') {
+            updateAssistant((message) => ({ ...message, hiddenHistory: [...message.hiddenHistory, ...(data.entries || [])] }))
           }
         }
-      }
-    } catch (error) {
-      if (error.name !== 'AbortError') {
-        updateMessages((previous) => {
-          const updated = [...previous]
-          const last = { ...updated[updated.length - 1] }
-          last.content = 'Sorry, something went wrong. Please try again.'
-          updated[updated.length - 1] = last
-          return updated
-        })
-        if (creditUiLit) {
-          setFailedAttempt({
-            content,
-            history,
-            clientMsgId,
-            messageIds: [userMsg.id, assistantMsg.id],
-          })
+      })
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (!isCurrent()) {
+            await reader.cancel()
+            return
+          }
+          controller.signal.throwIfAborted()
+          if (done) {
+            parser.push(decoder.decode())
+            parser.flush()
+            break
+          }
+          parser.push(decoder.decode(value, { stream: true }))
         }
+      } finally {
+        reader.releaseLock()
+      }
+      if (!receivedDone && !terminalError) failAttempt(true)
+    } catch (error) {
+      if (!receivedDone && !terminalError) {
+        if (error.name === 'AbortError' && controller.signal.aborted) markStopped()
+        else failAttempt(true)
       }
     } finally {
       if (requestEpoch === requestEpochRef.current) {

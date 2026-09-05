@@ -1,5 +1,6 @@
-// Run: pnpm dev --host 127.0.0.1 --port 5198 --strictPort
-// Then: E2E_BASE_URL=http://127.0.0.1:5198 pnpm exec playwright test e2e/billing.spec.mjs
+// Run: pnpm dev --host 127.0.0.1 --port 5199 --strictPort
+// Build/serve the lit copy separately with VITE_BILLING_TERMS=1 on a free port.
+// Then: E2E_BASE_URL=http://127.0.0.1:5199 E2E_BILLING_TERMS_URL=http://127.0.0.1:5200 pnpm exec playwright test e2e/billing.spec.mjs
 import { expect, test } from '@playwright/test'
 
 const ACCOUNT = {
@@ -113,10 +114,35 @@ test('legal paid-feature copy stays off without the build-time flag', async ({ p
   })
 
   await page.goto('/terms')
-  await expect(page.getByRole('heading', { name: /Paid subscriptions/ })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: /Prepaid chat credits/ })).toHaveCount(0)
   await page.goto('/privacy')
-  await expect(page.getByText(/When you buy an optional paid feature/)).toHaveCount(0)
+  await expect(page.getByText(/When you buy prepaid credits/)).toHaveCount(0)
+  await expect(page.getByText(/We keep the question fingerprint/)).toHaveCount(0)
+  await expect(page.getByText(/your credit ledger and purchase records are deleted/)).toHaveCount(0)
+  await expect(page.getByText(/when you ask the assistant a question, the question and the conversation context/)).toBeVisible()
+  await expect(page.getByText(/newsletter generation sends sports data only/)).toBeVisible()
+  await expect(page.getByText(/our model provider \(OpenAI or OpenRouter\)/)).toBeVisible()
   expect(billingConfigGets).toBe(0)
+})
+
+test('legal prepaid copy is visible in the billing-enabled build', async ({ page }) => {
+  const litUrl = process.env.E2E_BILLING_TERMS_URL
+  test.skip(!litUrl, 'Serve a VITE_BILLING_TERMS=1 build and set E2E_BILLING_TERMS_URL')
+  await installApi(page)
+  await page.goto(`${litUrl}/terms`)
+  await expect(page.getByRole('heading', { name: '13. Prepaid chat credits', exact: true })).toBeVisible()
+  await expect(page.getByText('Prepaid credit terms effective 2026-09-15', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Paid subscriptions|renew automatically/)).toHaveCount(0)
+  await expect(page.getByText(/they do not renew and you will not be charged again/)).toBeVisible()
+  await expect(page.getByText('If an error on our side stops an answer, or your connection drops before the answer has begun, the credit is returned automatically. Once an answer has begun, the credit is used even if you stop or disconnect.', { exact: false })).toBeVisible()
+  await expect(page.getByText(/Unused packs can be refunded within 14 days/)).toBeVisible()
+  await page.goto(`${litUrl}/privacy`)
+  await expect(page.getByText(/We keep the question fingerprint, the answer and your credit ledger/)).toBeVisible()
+  await expect(page.getByText(/newsletter generation sends sports data only/)).toBeVisible()
+  await expect(page.getByText(/our model provider \(OpenAI or OpenRouter\)/)).toBeVisible()
+  await expect(page.getByText(/Stripe customer id, purchase identifiers, amounts and refunds, but no card details/)).toBeVisible()
+  await expect(page.getByText(/your credit ledger and purchase records are deleted from our systems; Stripe retains its own payment records/)).toBeVisible()
+  await expect(page.getByText(/subscription status|seven years/)).toHaveCount(0)
 })
 
 test('lit pricing posts only product, price, and reusable client key before checkout navigation', async ({ page }) => {
@@ -855,3 +881,155 @@ test('GOL usage reaches a 402 exhausted state without locking PDF export', async
   await expect.poll(() => chatBodies.length).toBe(5)
   expect(chatBodies[4].client_msg_id).toBe(chatBodies[3].client_msg_id)
 })
+
+test('GOL mounted hook handles byte-split frames and retries an incomplete answer', async ({ page }) => {
+  await installApi(page, async ({ route, url }) => {
+    if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: [] } }).then(() => true)
+    return false
+  }, { signedIn: true })
+  await page.addInitScript(() => {
+    const realFetch = globalThis.fetch.bind(globalThis)
+    globalThis.__chatBodies = []
+    globalThis.fetch = async (input, options) => {
+      if (!String(input).endsWith('/gol/chat')) return realFetch(input, options)
+      globalThis.__chatBodies.push(JSON.parse(options.body))
+      const attempt = globalThis.__chatBodies.length
+      const frame = (event, data) => `event:${event}\r\ndata:${JSON.stringify(data)}\r\n\r\n`
+      const text = attempt === 1
+        ? frame('usage', { free_questions_remaining: 2, credit_balance: 0 })
+          + frame('token', { content: 'Draft answer' })
+          + frame('replace', { content: 'Académie ⚽ replacement' })
+          + frame('data_card', { type: 'fixture', payload: { result: 'Byte-split card' } })
+          + frame('history_entries', { entries: [{ role: 'tool', content: 'Hidden byte-split context' }] })
+          + frame('done', {})
+        : attempt === 2
+          ? frame('token', { content: 'Unfinished answer' }) + 'event:done\ndata:{}\n'
+          : frame('token', { content: 'Recovered complete answer' }) + frame('done', {})
+      const bytes = new TextEncoder().encode(text)
+      let offset = 0
+      return new Response(new ReadableStream({
+        pull(controller) {
+          if (offset === bytes.length) controller.close()
+          else controller.enqueue(bytes.slice(offset, ++offset))
+        },
+      }), { headers: { 'Content-Type': 'text/event-stream' } })
+    }
+  })
+  await page.goto('/terms')
+  await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+  const composer = page.getByPlaceholder('Ask about any player or team…')
+  await composer.fill('Byte-split question')
+  await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+  await expect(page.getByText('Académie ⚽ replacement', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Byte-split card/)).toBeVisible()
+  await expect(page.getByText('Draft answer', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Hidden byte-split context', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('2 free questions left', { exact: true })).toBeVisible()
+  await composer.fill('Follow-up question')
+  await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+  await expect(page.getByText('The answer was interrupted before it finished. Please try again.', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByText('Recovered complete answer', { exact: true })).toBeVisible()
+  const bodies = await page.evaluate(() => globalThis.__chatBodies)
+  expect(bodies).toHaveLength(3)
+  expect(bodies[1].history).toEqual([
+    { role: 'user', content: 'Byte-split question' },
+    { role: 'tool', content: 'Hidden byte-split context' },
+    { role: 'assistant', content: 'Académie ⚽ replacement' },
+  ])
+  expect(bodies[2].history).toEqual(bodies[1].history)
+  expect(bodies[2].client_msg_id).toBe(bodies[1].client_msg_id)
+  expect(bodies[1].client_msg_id).not.toBe(bodies[0].client_msg_id)
+})
+
+for (const partial of ['', 'Keep this partial answer']) {
+  test(`GOL Stop preserves ${partial ? 'partial text without retry' : 'an empty answer with retry'}`, async ({ page }) => {
+    await installApi(page, async ({ route, url }) => {
+      if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: [] } }).then(() => true)
+      return false
+    }, { signedIn: true })
+    await page.addInitScript((partial) => {
+      const realFetch = globalThis.fetch.bind(globalThis)
+      globalThis.__stopBodies = []
+      globalThis.fetch = async (input, options) => {
+        if (!String(input).endsWith('/gol/chat')) return realFetch(input, options)
+        globalThis.__stopBodies.push(JSON.parse(options.body))
+        const retry = globalThis.__stopBodies.length > 1
+        return new Response(new ReadableStream({
+          start(controller) {
+            options.signal.addEventListener('abort', () => controller.error(options.signal.reason), { once: true })
+            if (partial || retry) controller.enqueue(new TextEncoder().encode(
+              `event: token\ndata: ${JSON.stringify({ content: retry ? 'Retried answer' : partial })}\n\n`,
+            ))
+            if (retry) {
+              controller.enqueue(new TextEncoder().encode('event: done\ndata: {}\n\n'))
+              controller.close()
+            }
+          },
+        }), { headers: { 'Content-Type': 'text/event-stream' } })
+      }
+    }, partial)
+    await page.goto('/terms')
+    await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+    const composer = page.getByPlaceholder('Ask about any player or team…')
+    await composer.fill('Question to stop')
+    await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+    await expect.poll(() => page.evaluate(() => globalThis.__stopBodies.length)).toBe(1)
+    if (partial) await expect(page.getByText(partial, { exact: true })).toBeVisible()
+    // The dev annotation toolbar overlaps this corner; use keyboard activation.
+    await page.getByRole('button', { name: 'Stop generating', exact: true }).press('Enter')
+    await expect(composer).toBeEnabled()
+    await expect(page.getByText(/The answer was interrupted|Sorry, something went wrong/)).toHaveCount(0)
+    if (partial) {
+      await expect(page.getByText(partial, { exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+    } else {
+      await page.getByRole('button', { name: 'Retry', exact: true }).click()
+      await expect(page.getByText('Retried answer', { exact: true })).toBeVisible()
+      const bodies = await page.evaluate(() => globalThis.__stopBodies)
+      expect(bodies[1].client_msg_id).toBe(bodies[0].client_msg_id)
+      expect(bodies[1].history).toEqual(bodies[0].history)
+    }
+  })
+}
+
+for (const error of ['in_flight', 'recovery_exhausted']) {
+  test(`GOL handles ${error} with the correct notice and question ID`, async ({ page }) => {
+    const bodies = []
+    await installApi(page, async ({ route, request, url }) => {
+      if (url.pathname === '/api/gol/suggestions') return route.fulfill({ json: { suggestions: [] } }).then(() => true)
+      if (url.pathname === '/api/gol/chat' && request.method() === 'POST') {
+        bodies.push(request.postDataJSON())
+        await route.fulfill(bodies.length === 1
+          ? { status: 409, json: { error } }
+          : { status: 200, contentType: 'text/event-stream', body: 'event: token\ndata: {"content":"Completed question"}\n\nevent: done\ndata: {}\n\n' })
+        return true
+      }
+      return false
+    }, { signedIn: true })
+    await page.goto('/terms')
+    await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
+    const composer = page.getByPlaceholder('Ask about any player or team…')
+    await composer.fill('Original question')
+    await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+    await expect(page.getByText('Original question', { exact: true })).toBeVisible()
+    await expect(page.getByText(error, { exact: true })).toHaveCount(0)
+    await expect(page.getByText(/The answer was interrupted|Sorry, something went wrong/)).toHaveCount(0)
+    if (error === 'in_flight') {
+      await expect(page.getByText('Still working on your previous question — give it a moment and try again.', { exact: true })).toBeVisible()
+      await page.getByRole('button', { name: 'Retry', exact: true }).click()
+      await expect(page.getByText('Completed question', { exact: true })).toBeVisible()
+      expect(bodies[1]).toEqual(bodies[0])
+      await expect(page.getByText('Original question', { exact: true })).toHaveCount(1)
+    } else {
+      await expect(page.getByText('That question could not be completed; your credit was returned.', { exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+      await composer.fill('New question')
+      await page.getByRole('button', { name: 'Send message' }).dispatchEvent('click')
+      await expect(page.getByText('Completed question', { exact: true })).toBeVisible()
+      expect(bodies[1].client_msg_id).not.toBe(bodies[0].client_msg_id)
+      expect(bodies[1].message).toBe('New question')
+    }
+    expect(bodies).toHaveLength(2)
+  })
+}
