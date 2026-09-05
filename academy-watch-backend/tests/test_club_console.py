@@ -85,6 +85,7 @@ def club_app(monkeypatch):
             name="Club A",
             legal_name="Club A Association",
             slug="club-a-c2",
+            team_api_id=team.team_id,
             country="Japan",
             region="Kanto",
             platform_status="approved",
@@ -94,6 +95,7 @@ def club_app(monkeypatch):
             name="Club B",
             legal_name="Club B Association",
             slug="club-b-c2",
+            team_api_id=9912,
             country="Japan",
             region="Kansai",
             platform_status="approved",
@@ -148,6 +150,7 @@ def club_app(monkeypatch):
             birth_date="2005-04-03",
             position="Midfielder",
             team_id=team.id,
+            current_club_api_id=9912,
             status="academy",
             is_active=True,
         )
@@ -157,6 +160,7 @@ def club_app(monkeypatch):
             birth_date="2004-02-01",
             position="Defender",
             team_id=team.id,
+            current_club_api_id=9912,
             status="academy",
             is_active=True,
         )
@@ -1246,6 +1250,7 @@ def test_shadow_only_positive_roster_member_remains_available(club_app, client):
             "brief": {"body": None, "updated_at": None, "hash": None, "lines": None},
             "created_at": response.get_json()["members"][0]["created_at"],
             "available": True,
+            "public_stats_allowed": False,
             "subject_type": "tracked",
             "player_api_id": 7999,
             "local_player_id": None,
@@ -1939,6 +1944,7 @@ def test_local_takedown_hides_public_roster_and_finalized_report(club_app, clien
     assert roster == [
         {
             "available": False,
+            "public_stats_allowed": False,
             "brief": {"body": None, "updated_at": None, "hash": None, "lines": None},
             "created_at": roster[0]["created_at"],
             "id": member["id"],
