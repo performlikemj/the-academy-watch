@@ -51,7 +51,7 @@ async function harness(page, options = {}) {
     const React = (await import('/node_modules/.vite/deps/react.js')).default;
     const {createRoot} = (await import('/node_modules/.vite/deps/react-dom_client.js')).default;
     const {APIService} = await import('/src/lib/api.js');
-    const {RecordResultDialog, ResultHistory} = await import('/src/pages/MyClubConsole.jsx');
+    const {MatchesPanel, RecordResultDialog, ResultHistory} = await import('/src/pages/MyClubConsole.jsx');
     await import('/src/App.css'); APIService.userToken = 'manager';
     const root = createRoot(document.getElementById('root'));
     const members = ${JSON.stringify(options.members || roster)};
@@ -60,6 +60,7 @@ async function harness(page, options = {}) {
     window.renderCreate = () => root.render(React.createElement(RecordResultDialog, {key:'create-' + (++renderCount), programId:7, videoMatch:null, members, savedResult:null, onSaved:(value)=>window.lastSaved=value, onClose:close, onAccessDenied:close}));
     window.renderEdit = async () => { const savedResult = await APIService.request('/club/7/results/${resultId}'); root.render(React.createElement(RecordResultDialog, {key:'edit-' + (++renderCount), programId:7, videoMatch:null, members, savedResult, onSaved:(value)=>window.lastSaved=value, onClose:close, onAccessDenied:close})); };
     window.renderHistory = () => root.render(React.createElement(ResultHistory, {programId:7, refreshToken:0, onEdit:(id)=>window.edited=id, onAccessDenied:close}));
+    window.renderMatchesPanel = () => root.render(React.createElement(MatchesPanel, {programId:7, rosterMembers:members, matches:[{id:41, status:'created', opponent_name:'Riverside', competition:'League', match_date:'2026-09-05', kickoff_s:null, roster:[{club_roster_member_id:51, jersey_number:9}, {club_roster_member_id:52, jersey_number:4}]}], loading:false, error:null, loadFailureCount:0, uploadGrants:{}, onMatchesChange:()=>{}, onUploadGrantChange:()=>{}, onReload:()=>{}, onAccessDenied:close}));
     window.renderCreate();
   </script></body></html>` }))
   await page.route('**/api/**', async (route) => {
@@ -154,6 +155,21 @@ test('associated video reload and stale correction conflict', async ({ page }) =
   await page.getByRole('button', { name: 'Save correction' }).click()
   await expect(page.getByText('Someone changed this result. Reload the latest version before saving.')).toBeVisible()
   expect(fixture.requests.at(-1).body.video_match_id).toBe(41)
+})
+
+test('record action for a video with a saved result opens versioned correction', async ({ page }) => {
+  const saved = result(4, { video_match_id: 41, video_available: true })
+  const fixture = await harness(page, { saved })
+  await page.evaluate(() => window.renderMatchesPanel())
+  await expect(page.getByText('Video associated')).toBeVisible()
+  await page.getByRole('button', { name: 'Record result for Riverside' }).click()
+  await expect(page.getByRole('heading', { name: 'Edit result vs Riverside' })).toBeVisible()
+  await page.getByRole('button', { name: 'Save correction' }).click()
+  const write = fixture.requests.findLast((request) => ['POST', 'PUT'].includes(request.method))
+  expect(write.method).toBe('PUT')
+  expect(write.body.expected_version).toBe(4)
+  expect(write.body.video_match_id).toBe(41)
+  expect(fixture.unexpected).toEqual([])
 })
 
 test('departed player remains editable and mobile form does not overflow', async ({ page }) => {

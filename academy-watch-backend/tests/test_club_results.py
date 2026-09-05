@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from datetime import date
 from importlib import import_module
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import text
+from flask_sqlalchemy.query import Query
+from sqlalchemy import event, text
+from src.extensions import limiter
 from src.models.league import Team, UserAccount, db
 from src.models.player_match_entry import ClubResult, PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.tracked_player import TrackedPlayer
+from src.routes import club as club_routes
 from src.services import season_rollup_service
 from src.services.account import build_account_export, delete_account
 from test_club_console import (
@@ -54,6 +58,128 @@ def _snapshot():
         ]
         for model in (ClubResult, PlayerMatchEntry, PlayerSeasonCell, PlayerSeasonTotal)
     }
+
+
+@pytest.fixture
+def rate_limited_club_app(monkeypatch):
+    fixture = club_app.__wrapped__(monkeypatch, SimpleNamespace(param=True))
+    app = next(fixture)
+    try:
+        yield app
+    finally:
+        with pytest.raises(StopIteration):
+            next(fixture)
+
+
+def test_result_write_limit_is_shared_across_create_update_and_delete(rate_limited_club_app):
+    client = rate_limited_club_app.test_client()
+    program_id = rate_limited_club_app.c2["program_a"]
+    member = _add_api_member(client, program_id)
+    payload = _result_payload([member])
+    limiter.reset()
+    try:
+        responses = [
+            client.post(f"/api/club/{program_id}/results", json=payload, headers=_headers("a")) for _ in range(30)
+        ]
+        result_id = responses[0].json["result"]["id"]
+        correction = client.put(
+            f"/api/club/{program_id}/results/{result_id}",
+            json=_correct_result_payload(result_id, payload),
+            headers=_headers("a"),
+        )
+        deletion = client.delete(
+            f"/api/club/{program_id}/results/{result_id}",
+            json={"expected_version": 1},
+            headers=_headers("a"),
+        )
+    finally:
+        limiter.reset()
+
+    assert responses[0].status_code == 201
+    assert all(response.status_code == 200 for response in responses[1:])
+    assert correction.status_code == 429
+    assert correction.json == {"error": "rate_limit_exceeded"}
+    assert int(correction.headers["Retry-After"]) >= 1
+    assert deletion.status_code == 429
+    assert deletion.json == {"error": "rate_limit_exceeded"}
+
+
+def test_result_reads_take_no_writer_or_quota_locks(club_app, client, monkeypatch):
+    program_id = club_app.c2["program_a"]
+    member = _add_api_member(client, program_id)
+    created = _create(client, program_id, [member])
+    result_id = created.json["result"]["id"]
+
+    monkeypatch.setattr(
+        club_routes,
+        "_lock_program_quota",
+        lambda _program_id: pytest.fail("read must not take the quota advisory lock"),
+    )
+    monkeypatch.setattr(
+        Query,
+        "with_for_update",
+        lambda *_args, **_kwargs: pytest.fail("read must not request FOR UPDATE"),
+    )
+
+    detail = client.get(f"/api/club/{program_id}/results/{result_id}", headers=_headers("a"))
+    listing = client.get(f"/api/club/{program_id}/results", headers=_headers("a"))
+
+    assert detail.status_code == 200
+    assert listing.status_code == 200
+
+
+def test_result_list_batches_page_relationship_queries(club_app, client, monkeypatch):
+    program_id = club_app.c2["program_a"]
+    member = _add_api_member(client, program_id)
+    for day in range(1, 4):
+        assert (
+            _create(
+                client,
+                program_id,
+                [member],
+                match_date=f"2025-09-0{day}",
+                opponent=f"Rivals {day}",
+            ).status_code
+            == 201
+        )
+
+    monkeypatch.setattr(
+        club_routes,
+        "resolve_public_adult_subject",
+        lambda _player_id: pytest.fail("list serialization must use the batched subject loader"),
+    )
+    query_counts = []
+
+    def count_query(*_args):
+        query_counts[-1] += 1
+
+    event.listen(db.engine, "before_cursor_execute", count_query)
+    try:
+        query_counts.append(0)
+        one = client.get(f"/api/club/{program_id}/results?limit=1", headers=_headers("a"))
+        query_counts.append(0)
+        page = client.get(f"/api/club/{program_id}/results?limit=100", headers=_headers("a"))
+    finally:
+        event.remove(db.engine, "before_cursor_execute", count_query)
+
+    assert one.status_code == page.status_code == 200
+    assert len(one.json["results"]) == 1
+    assert len(page.json["results"]) == 3
+    assert abs(query_counts[0] - query_counts[1]) <= 1
+
+
+def test_result_unexpected_failure_logs_traceback(club_app, client, monkeypatch, caplog):
+    program_id = club_app.c2["program_a"]
+    monkeypatch.setattr(club_routes, "_write_stable_result", lambda *_args: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    with caplog.at_level("ERROR", logger=club_routes.__name__):
+        response = client.post(f"/api/club/{program_id}/results", json={}, headers=_headers("a"))
+
+    record = next(item for item in caplog.records if item.message.startswith("Club result operation failed"))
+    assert response.status_code == 500
+    assert response.json == {"error": "result_operation_failed"}
+    assert record.exc_info is not None
+    assert record.exc_info[0] is RuntimeError
 
 
 def test_date_opponent_correction_retains_entry_id_and_refreshes_old_new_seasons(club_app, client):

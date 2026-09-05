@@ -1984,20 +1984,24 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
   )
 }
 
-export function ResultHistory({ programId, refreshToken, onEdit, onAccessDenied }) {
+export function ResultHistory({ programId, refreshToken, onEdit, onAccessDenied, onResultsLoaded }) {
   const [state, setState] = useState({ loading: true, results: [], error: null })
 
   useEffect(() => {
     const controller = new AbortController()
     APIService.request(`/club/${programId}/results?limit=100`, { signal: controller.signal })
-      .then((data) => setState({ loading: false, results: data.results || [], error: null }))
+      .then((data) => {
+        const results = data.results || []
+        setState({ loading: false, results, error: null })
+        onResultsLoaded?.(results)
+      })
       .catch((requestError) => {
         if (controller.signal.aborted) return
         if (requestError?.status === 403) onAccessDenied()
         else setState({ loading: false, results: [], error: 'Results could not be loaded.' })
       })
     return () => controller.abort()
-  }, [programId, refreshToken, onAccessDenied])
+  }, [programId, refreshToken, onAccessDenied, onResultsLoaded])
 
   if (state.loading) return <p className="text-sm text-muted-foreground">Loading results…</p>
   if (state.error) return <InlineError>{state.error}</InlineError>
@@ -2021,11 +2025,12 @@ export function ResultHistory({ programId, refreshToken, onEdit, onAccessDenied 
   )
 }
 
-function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadFailureCount, uploadGrants, onMatchesChange, onUploadGrantChange, onReload, onAccessDenied }) {
+export function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadFailureCount, uploadGrants, onMatchesChange, onUploadGrantChange, onReload, onAccessDenied }) {
   const [createOpen, setCreateOpen] = useState(false)
   const [resultTarget, setResultTarget] = useState(null)
   const [resultRefresh, setResultRefresh] = useState(0)
   const [resultLoadError, setResultLoadError] = useState(null)
+  const [savedVideoResults, setSavedVideoResults] = useState({})
   const [selectedId, setSelectedId] = useState(() => matches[0]?.id || null)
   const selectedMatch = matches.find((match) => match.id === selectedId) || matches[0] || null
 
@@ -2036,6 +2041,38 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
       setResultTarget({
         videoMatch: null,
         members: resultRosterMembers(null, rosterMembers),
+        savedResult,
+      })
+    } catch (requestError) {
+      if (requestError?.status === 403) onAccessDenied()
+      else setResultLoadError('The latest result could not be loaded. Try again.')
+    }
+  }
+
+  const rememberVideoResults = useCallback((results) => {
+    setSavedVideoResults(Object.fromEntries(
+      results
+        .filter((saved) => saved?.result?.video_match_id != null)
+        .map((saved) => [String(saved.result.video_match_id), saved]),
+    ))
+  }, [])
+
+  const openVideoResult = async (videoMatch) => {
+    setResultLoadError(null)
+    try {
+      let savedResult = savedVideoResults[String(videoMatch.id)] || null
+      if (!savedResult) {
+        const data = await APIService.request(`/club/${programId}/results?limit=100`)
+        const results = data.results || []
+        rememberVideoResults(results)
+        savedResult = results.find((saved) => Number(saved?.result?.video_match_id) === Number(videoMatch.id)) || null
+      }
+      if (savedResult) {
+        savedResult = await APIService.request(`/club/${programId}/results/${savedResult.result.id}`)
+      }
+      setResultTarget({
+        videoMatch,
+        members: resultRosterMembers(videoMatch, rosterMembers),
         savedResult,
       })
     } catch (requestError) {
@@ -2131,7 +2168,7 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
           <p className="text-sm text-muted-foreground">Scores and club-confirmed lineups, including matches without video.</p>
         </div>
         <InlineError>{resultLoadError}</InlineError>
-        <ResultHistory key={programId} programId={programId} refreshToken={resultRefresh} onEdit={editResult} onAccessDenied={onAccessDenied} />
+        <ResultHistory key={programId} programId={programId} refreshToken={resultRefresh} onEdit={editResult} onAccessDenied={onAccessDenied} onResultsLoaded={rememberVideoResults} />
       </section>
       {loading ? (
         <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading saved matches…</CardContent></Card>
@@ -2166,11 +2203,7 @@ function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadF
               onUploadGrantChange={(grant) => onUploadGrantChange(selectedMatch.id, grant)}
               onAccessDenied={onAccessDenied}
               onRefresh={refreshSelected}
-              onRecordResult={(videoMatch) => setResultTarget({
-                videoMatch,
-                members: resultRosterMembers(videoMatch, rosterMembers),
-                savedResult: null,
-              })}
+              onRecordResult={openVideoResult}
             />
           ) : null}
         </div>

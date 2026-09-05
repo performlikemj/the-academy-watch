@@ -42,7 +42,7 @@ FERNET_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 
 
 @pytest.fixture
-def club_app(monkeypatch):
+def club_app(monkeypatch, request=None):
     monkeypatch.setenv("ADMIN_API_KEY", ADMIN_KEY)
     monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
     monkeypatch.setenv("PLAYER_SUPPRESSION_ENCRYPTION_KEY", FERNET_KEY)
@@ -53,7 +53,7 @@ def club_app(monkeypatch):
         SECRET_KEY="club-console-fixture-secret",
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        RATELIMIT_ENABLED=False,
+        RATELIMIT_ENABLED=bool(getattr(request, "param", False)),
     )
     db.init_app(app)
     limiter.init_app(app)

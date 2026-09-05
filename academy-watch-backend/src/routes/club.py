@@ -36,6 +36,7 @@ from src.models.club_invitation import (
     relationships_enabled,
     resolve_invitation,
 )
+from src.models.follow import PlayerShadow
 from src.models.funding import (
     ClubProgram,
     ClubProgramProfileRevision,
@@ -45,8 +46,10 @@ from src.models.funding import (
     revision_dict,
     update_dict,
 )
+from src.models.journey import PlayerJourney
 from src.models.league import Team, db
 from src.models.player_match_entry import ClubResult, PlayerMatchEntry
+from src.models.player_suppression import PlayerSuppression
 from src.models.season_rollup import PlayerSeasonTotal
 from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
@@ -57,10 +60,10 @@ from src.services.club_player_authority import club_authorized_player_ids, club_
 from src.services.club_registry import is_manager_of_approved_program, require_club_manager
 from src.services.coach_brief import MAX_BRIEF_CHARS, MAX_BRIEF_LINE_CHARS, MAX_BRIEF_LINES, brief_payload
 from src.services.player_identity import retained_shadow_identity_exists
-from src.services.player_subject import resolve_player_subject
+from src.services.player_subject import PlayerSubject, resolve_player_subject
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.public_player_subject import resolve_public_adult_subject
-from src.utils.academy_window import current_stats_season
+from src.utils.academy_window import age_from_birth_date, current_stats_season
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 club_bp = Blueprint("club", __name__)
@@ -671,6 +674,7 @@ def _club_season_stats(
     member_id: int,
     player_name: str | None,
     is_minor: bool,
+    total: PlayerSeasonTotal | None,
 ) -> dict | None:
     metadata = {
         "club_roster_member_id": member_id,
@@ -681,11 +685,6 @@ def _club_season_stats(
     }
     if is_minor:
         return {**metadata, "withheld": "minor"}
-    total = PlayerSeasonTotal.query.filter_by(
-        player_api_id=player_api_id,
-        season=season,
-        level_group=level_group,
-    ).one_or_none()
     breakdown = total.source_breakdown if total is not None else None
     club_stats = breakdown.get("club") if isinstance(breakdown, dict) else None
     if not isinstance(club_stats, dict):
@@ -1098,7 +1097,7 @@ def _result_transaction(view):
                 return jsonify(error="retry_conflict"), 409
             if isinstance(error, IntegrityError):
                 return jsonify(error="result_identity_conflict"), 409
-            logger.error("Club result operation failed (%s)", type(error).__name__)
+            logger.exception("Club result operation failed (%s)", type(error).__name__)
             return jsonify(error="result_operation_failed"), 500
 
     return wrapped
@@ -1132,6 +1131,14 @@ def _result_limit_key():
     return f"{g.user_id}:{request.view_args['program_id']}"
 
 
+_result_write_limit = limiter.shared_limit(
+    "30 per hour",
+    scope="club-result-writes",
+    key_func=_result_limit_key,
+    on_breach=_result_rate_rejected,
+)
+
+
 def _result_lines(row, *, lock=False):
     query = PlayerMatchEntry.query.filter_by(
         club_result_id=row.id,
@@ -1141,38 +1148,218 @@ def _result_lines(row, *, lock=False):
     return (query.populate_existing().with_for_update() if lock else query).all()
 
 
-def _stable_result_payload(row, *, removed=(), scopes=()):
-    members = {
-        m.player_api_id if m.player_api_id is not None else -m.local_player_id: m.id
-        for m in ClubRosterMember.query.filter_by(program_id=row.program_id).all()
+def _batched_public_adult_subjects(player_ids: set[int]) -> dict[int, PlayerSubject]:
+    """Resolve a result page's subjects with fixed-count, fail-closed queries."""
+    valid_ids = {
+        pid
+        for pid in player_ids
+        if isinstance(pid, int) and not isinstance(pid, bool) and 0 < abs(pid) <= 2_147_483_647
     }
-    matches, stats = [], {}
-    for entry in _result_lines(row):
-        subject = resolve_public_adult_subject(entry.player_api_id)
-        if subject is None:
-            matches.append({"id": entry.id, "unavailable": True})
+    positive_ids = {pid for pid in valid_ids if pid > 0}
+    negative_local_ids = {-pid for pid in valid_ids if pid < 0}
+
+    tracked_by_player: dict[int, list[TrackedPlayer]] = {}
+    if positive_ids:
+        for tracked in (
+            TrackedPlayer.query.filter(TrackedPlayer.player_api_id.in_(positive_ids))
+            .order_by(TrackedPlayer.id.asc())
+            .all()
+        ):
+            tracked_by_player.setdefault(tracked.player_api_id, []).append(tracked)
+    shadows = {
+        shadow.player_api_id: shadow
+        for shadow in PlayerShadow.query.filter(
+            PlayerShadow.player_api_id.in_(valid_ids), PlayerShadow.is_active.is_(True)
+        ).all()
+    }
+    local_filter = []
+    if positive_ids:
+        local_filter.append(LocalPlayer.api_player_id.in_(positive_ids))
+    if negative_local_ids:
+        local_filter.append(LocalPlayer.id.in_(negative_local_ids))
+    locals_by_api: dict[int, list[LocalPlayer]] = {}
+    locals_by_id = {}
+    if local_filter:
+        for local in LocalPlayer.query.filter(or_(*local_filter)).order_by(LocalPlayer.id.asc()).all():
+            locals_by_id[local.id] = local
+            if local.api_player_id in positive_ids:
+                locals_by_api.setdefault(local.api_player_id, []).append(local)
+    journeys = {
+        journey.player_api_id: journey
+        for journey in PlayerJourney.query.filter(PlayerJourney.player_api_id.in_(positive_ids)).all()
+    }
+
+    relevant_local_ids = negative_local_ids | {local.id for rows in locals_by_api.values() for local in rows}
+    suppression_filter = []
+    if valid_ids:
+        suppression_filter.append(PlayerSuppression.player_api_id.in_(valid_ids))
+    if relevant_local_ids:
+        suppression_filter.append(PlayerSuppression.local_player_id.in_(relevant_local_ids))
+    suppressed_ids = set()
+    if suppression_filter:
+        suppressed_rows = PlayerSuppression.query.filter(
+            PlayerSuppression.status == "active", or_(*suppression_filter)
+        ).all()
+        positive_by_local = {local.id: player_id for player_id, rows in locals_by_api.items() for local in rows}
+        for suppression in suppressed_rows:
+            if suppression.player_api_id in valid_ids:
+                suppressed_ids.add(suppression.player_api_id)
+            if suppression.local_player_id in negative_local_ids:
+                suppressed_ids.add(-suppression.local_player_id)
+            bridged_id = positive_by_local.get(suppression.local_player_id)
+            if bridged_id is not None:
+                suppressed_ids.add(bridged_id)
+
+    subjects = {}
+    today = datetime.now(UTC).date()
+    for player_id in sorted(valid_ids - suppressed_ids):
+        shadow = shadows.get(player_id)
+        if player_id < 0:
+            local = locals_by_id.get(-player_id)
+            if (
+                local is None
+                or local.api_player_id != player_id
+                or local.status != "approved"
+                or local.merged_into_local_player_id is not None
+                or local_player_is_minor(local, today=today)
+            ):
+                continue
+            subjects[player_id] = PlayerSubject(signed_id=player_id, shadow=shadow, local_player=local)
             continue
-        match = _result_entry_dict(entry, members.get(entry.player_api_id))
-        match["player_name"] = subject.display_name
-        matches.append(match)
-        level = "youth" if season_rollup_service._is_youth_competition(entry.competition) else "senior"
-        total = _club_season_stats(
-            entry.player_api_id, entry.season, level, members.get(entry.player_api_id), subject.display_name, False
+
+        tracked_rows = tracked_by_player.get(player_id, [])
+        eligible_tracked = [row for row in tracked_rows if row.data_source != "owning-club"]
+        tracked = next((row for row in eligible_tracked if row.is_active), None)
+        tracked = tracked or next(iter(eligible_tracked), None)
+        if tracked is None and shadow is None:
+            continue
+        bridged_locals = locals_by_api.get(player_id, [])
+        birth_dates = [local.birth_date for local in bridged_locals if local.birth_date]
+        birth_dates.extend(row.birth_date for row in tracked_rows if row.birth_date)
+        journey = journeys.get(player_id)
+        if journey is not None and journey.birth_date:
+            birth_dates.append(journey.birth_date)
+        if shadow is not None and shadow.birth_date:
+            birth_dates.append(shadow.birth_date)
+        ages = [age for value in birth_dates if (age := age_from_birth_date(value, today=today)) is not None]
+        stored_ages = [row.age for row in tracked_rows if row.age is not None]
+        if ages:
+            is_minor = any(age < 18 for age in ages)
+        elif stored_ages:
+            is_minor = any(age < 18 for age in stored_ages)
+        else:
+            adult_local_year = any(
+                local.birth_date is None and local.birth_year is not None and today.year - local.birth_year >= 19
+                for local in bridged_locals
+            )
+            is_minor = not adult_local_year
+        if not is_minor:
+            subjects[player_id] = PlayerSubject(
+                signed_id=player_id,
+                tracked_player=tracked,
+                shadow=shadow,
+                local_player=next(iter(bridged_locals), None),
+            )
+    return subjects
+
+
+def _stable_result_payloads(rows: list[ClubResult]) -> list[dict]:
+    """Serialize a result page after one batched load per related resource."""
+    if not rows:
+        return []
+    result_ids = [row.id for row in rows]
+    entries_by_result = {result_id: [] for result_id in result_ids}
+    entries = (
+        PlayerMatchEntry.query.filter(
+            PlayerMatchEntry.club_result_id.in_(result_ids),
+            PlayerMatchEntry.source == "club",
         )
-        if total is not None:
-            stats[str(entry.player_api_id)] = total
-    header = row.manager_dict()
-    video = _club_match(row.program_id, row.video_match_id) if row.video_match_id else None
-    header["video_available"] = bool(
-        video and video.blob_path and video.status != "expired" and not video_retention.retention_window_closed(video)
+        .order_by(PlayerMatchEntry.id.asc())
+        .all()
     )
-    return {
-        "result": header,
-        "matches": matches,
-        "removed_entry_ids": sorted(removed),
-        "refreshed_scopes": list(scopes),
-        "season_stats_by_player": stats,
+    for entry in entries:
+        entries_by_result[entry.club_result_id].append(entry)
+    program_ids = {row.program_id for row in rows}
+    members = {
+        (
+            member.program_id,
+            member.player_api_id if member.player_api_id is not None else -member.local_player_id,
+        ): member.id
+        for member in ClubRosterMember.query.filter(ClubRosterMember.program_id.in_(program_ids)).all()
     }
+    subjects = _batched_public_adult_subjects({entry.player_api_id for entry in entries})
+    totals = (
+        {
+            (total.player_api_id, total.season, total.level_group): total
+            for total in PlayerSeasonTotal.query.filter(
+                PlayerSeasonTotal.player_api_id.in_({entry.player_api_id for entry in entries}),
+                PlayerSeasonTotal.season.in_({entry.season for entry in entries}),
+            ).all()
+        }
+        if entries
+        else {}
+    )
+    video_ids = {row.video_match_id for row in rows if row.video_match_id is not None}
+    videos = (
+        {
+            (video.club_program_id, video.id): video
+            for video in VideoMatch.query.filter(
+                VideoMatch.id.in_(video_ids), VideoMatch.club_program_id.in_(program_ids)
+            ).all()
+        }
+        if video_ids
+        else {}
+    )
+
+    payloads = []
+    for row in rows:
+        matches, stats = [], {}
+        for entry in entries_by_result[row.id]:
+            subject = subjects.get(entry.player_api_id)
+            if subject is None:
+                matches.append({"id": entry.id, "unavailable": True})
+                continue
+            member_id = members.get((row.program_id, entry.player_api_id))
+            match = _result_entry_dict(entry, member_id)
+            match["player_name"] = subject.display_name
+            matches.append(match)
+            level = "youth" if season_rollup_service._is_youth_competition(entry.competition) else "senior"
+            total = _club_season_stats(
+                entry.player_api_id,
+                entry.season,
+                level,
+                member_id,
+                subject.display_name,
+                False,
+                totals.get((entry.player_api_id, entry.season, level)),
+            )
+            if total is not None:
+                stats[str(entry.player_api_id)] = total
+        header = row.manager_dict()
+        video = videos.get((row.program_id, row.video_match_id))
+        header["video_available"] = bool(
+            video
+            and video.blob_path
+            and video.status != "expired"
+            and not video_retention.retention_window_closed(video)
+        )
+        payloads.append(
+            {
+                "result": header,
+                "matches": matches,
+                "removed_entry_ids": [],
+                "refreshed_scopes": [],
+                "season_stats_by_player": stats,
+            }
+        )
+    return payloads
+
+
+def _stable_result_payload(row, *, removed=(), scopes=()):
+    payload = _stable_result_payloads([row])[0]
+    payload["removed_entry_ids"] = sorted(removed)
+    payload["refreshed_scopes"] = list(scopes)
+    return payload
 
 
 def _locked_result_context(program_id, result_id=None):
@@ -1190,6 +1377,21 @@ def _locked_result_context(program_id, result_id=None):
             .with_for_update()
             .first()
         )
+        if row is None:
+            raise _ResultError("result_not_found", 404)
+    return program, row
+
+
+def _read_result_context(program_id, result_id=None):
+    """Authorize result reads without taking writer or quota locks."""
+    from src.models.club_invitation import strict_manager
+
+    program = db.session.get(ClubProgram, program_id)
+    if not program or not strict_manager(db.session, program_id, g.user_id, lock=False):
+        raise _ResultError("Club manager access denied", 403)
+    row = None
+    if result_id:
+        row = ClubResult.query.filter_by(id=result_id, program_id=program_id).first()
         if row is None:
             raise _ResultError("result_not_found", 404)
     return program, row
@@ -1421,7 +1623,7 @@ def _write_stable_result(program_id, result_id=None):
 @require_club_manager()
 @_result_transaction
 @_result_resource
-@limiter.limit("30 per hour", key_func=_result_limit_key, on_breach=_result_rate_rejected)
+@_result_write_limit
 def record_club_result(program_id):
     return _write_stable_result(program_id)
 
@@ -1430,7 +1632,7 @@ def record_club_result(program_id):
 @require_club_manager()
 @_result_transaction
 @_result_resource
-@limiter.limit("30 per hour", key_func=_result_limit_key, on_breach=_result_rate_rejected)
+@_result_write_limit
 def correct_club_result(program_id, result_id):
     return _write_stable_result(program_id, result_id)
 
@@ -1441,7 +1643,7 @@ def correct_club_result(program_id, result_id):
 @_result_resource
 @limiter.limit("60 per minute", key_func=_result_limit_key, on_breach=_result_rate_rejected)
 def get_club_result(program_id, result_id):
-    _program, row = _locked_result_context(program_id, result_id)
+    _program, row = _read_result_context(program_id, result_id)
     if row.deleted_at:
         raise _ResultError("result_not_found", 404)
     return jsonify(_stable_result_payload(row))
@@ -1461,7 +1663,7 @@ def list_club_results(program_id):
     season = int(request.args["season"]) if "season" in request.args else None
     if season is not None and not 1969 <= season <= 9999:
         raise ValueError("invalid season")
-    _locked_result_context(program_id)
+    _read_result_context(program_id)
     query = ClubResult.query.filter_by(program_id=program_id, deleted_at=None)
     if season is not None:
         query = query.filter_by(season=season)
@@ -1478,7 +1680,7 @@ def list_club_results(program_id):
         )
     rows = query.order_by(ClubResult.match_date.desc(), ClubResult.id.desc()).limit(limit + 1).all()
     return jsonify(
-        results=[_stable_result_payload(row) for row in rows[:limit]],
+        results=_stable_result_payloads(rows[:limit]),
         total=total,
         next_before=rows[limit - 1].id if len(rows) > limit else None,
     )
