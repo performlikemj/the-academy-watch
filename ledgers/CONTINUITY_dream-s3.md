@@ -123,3 +123,7 @@ Computed result: **61.0% → 65.6% (+4.6 points)**. Pillars: P1 75.0%, P2 63.9%,
 
 ## Go-live addendum (2026-09-05)
 Money-safety stage done (`ledgers/DIRECTIVE_money-safety.md`). Confirm `BILLING_TERMS_EFFECTIVE_DATE` (2026-09-15 placeholder) before `VITE_BILLING_TERMS=1`; decide credits per $20 pack (rec 100); after go-live watch `product_events` for `gol_orphaned_purchase` / `gol_unfulfillable_legacy_purchase`.
+
+
+## GO-LIVE EXECUTED 2026-09-06
+Steps 1–7 of the checklist done by the orchestrator on the owner's instruction ("enable billing"). Live Stripe ids (not secrets): product=prod_VCkofRnGBgwkjR; starter=price_1UCLIzEHpp7b1sGxWAYImdhv; topup=price_1UCLIzEHpp7b1sGxPv7F4b2C; webhook=we_1UCLJ0EHpp7b1sGxDoH8JwZ0. Old lemonmoss webhook endpoint disabled. Step 8 (real-card purchase + refund) is the owner's.
