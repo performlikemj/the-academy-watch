@@ -578,9 +578,55 @@ def test_tool_answer_disconnect_is_completed_and_replayed_without_new_debit(app,
         kind, data = frame.split("\n")
         actual_events.append({"event": kind.removeprefix("event: "), "data": json.loads(data.removeprefix("data: "))})
     assert actual_events[0]["event"] == "usage"
-    assert actual_events[1:] == [{"event": "replace", "data": {"content": ""}}, *events, {"event": "done", "data": {}}]
+    assert actual_events[1:] == [
+        {"event": "replace", "data": {"content": ""}},
+        *events,
+        {"event": "done", "data": {"partial": True, "delivered_chars": 0}},
+    ]
     assert [row.to_dict() for row in GolCreditLedger.query.all()] == ledger_before
     assert balances(user) == before
+
+
+def test_replay_done_frame_flags_cut_off_replays_only(app, client, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("GOL_FREE_ALLOWANCE", "3")
+    user = _user()
+
+    def done_frames(body):
+        return [
+            json.loads(frame.split("\n", 1)[1].removeprefix("data: "))
+            for frame in body.strip().split("\n\n")
+            if frame.startswith("event: done\n")
+        ]
+
+    # The client disconnects once the answer has begun; the same-id retry replays
+    # the stored partial and the done frame must say the answer was cut off.
+    _StubGolService.events = [
+        {"event": "token", "data": {"content": "Cut-off answer"}},
+        {"event": "done", "data": {}},
+    ]
+    response = _chat(client, user)
+    frames = iter(response.response)
+    assert next(frames).decode().startswith("event: usage")
+    assert next(frames).decode().startswith("event: token")
+    response.close()
+    db.session.expire_all()
+    partial = GolChatExecution.query.one()
+    assert partial.response_meta == {"partial": True, "delivered_chars": len("Cut-off answer")}
+    replay = _chat(client, user)
+    assert replay.status_code == 200
+    assert done_frames(replay.get_data(as_text=True)) == [{"partial": True, "delivered_chars": len("Cut-off answer")}]
+
+    # A fully completed answer replays without the cut-off flag.
+    _StubGolService.events = [{"event": "token", "data": {"content": "Full answer"}}, {"event": "done", "data": {}}]
+    _chat(client, user, client_msg_id="completed_question").get_data()
+    completed = GolChatExecution.query.filter_by(client_msg_id="completed_question").one()
+    assert completed.status == "completed"
+    assert completed.response_meta == {}
+    completed_replay = _chat(client, user, client_msg_id="completed_question")
+    assert completed_replay.status_code == 200
+    assert done_frames(completed_replay.get_data(as_text=True)) == [{"partial": False, "delivered_chars": None}]
+    assert GolCreditLedger.query.filter_by(kind="debit").count() == 2
 
 
 def test_tool_call_status_alone_does_not_begin_answer(app, client, monkeypatch):

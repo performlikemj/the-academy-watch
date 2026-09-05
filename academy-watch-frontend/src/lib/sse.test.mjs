@@ -345,6 +345,70 @@ test('user stop before response headers marks an empty message stopped and permi
   assert.equal(calls[1][3], calls[0][3])
 })
 
+test('a replayed cut-off answer flags cutOff on the assistant message without a failed attempt', async () => {
+  const calls = []
+  const chat = mountChat(async (...args) => {
+    calls.push(args)
+    return streamResponse(
+      frame('token', { content: 'Partial' })
+        + frame('replace', { content: 'Replayed cut-off answer' })
+        + frame('done', { partial: true, delivered_chars: 'Replayed cut-off answer'.length }),
+    )
+  })
+  await chat().sendMessage('Cut-off question')
+  const state = chat()
+  const assistant = state.messages[1]
+  assert.equal(assistant.content, 'Replayed cut-off answer')
+  assert.equal(assistant.cutOff, true)
+  assert.equal(Boolean(assistant.error), false)
+  assert.equal(Boolean(assistant.stopped), false)
+  assert.equal(Boolean(assistant.incomplete), false)
+  assert.equal(state.canRetry, false)
+  assert.equal(state.isStreaming, false)
+  await state.retryFailedMessage()
+  assert.equal(calls.length, 1)
+  await chat().sendMessage('A brand new question')
+  assert.equal(calls.length, 2)
+  assert.notEqual(calls[1][3], calls[0][3])
+})
+
+test('a plain done frame leaves cutOff falsy and a partial flag on an errored stream stays inert', async () => {
+  const calls = []
+  let stream
+  const chat = mountChat(async (...args) => {
+    calls.push(args)
+    if (calls.length === 1) {
+      return streamResponse(frame('token', { content: 'Complete answer' }) + frame('done', {}))
+    }
+    if (calls.length === 2) {
+      return streamResponse(frame('token', { content: 'Follow-up' }) + frame('done', { partial: false }))
+    }
+    return new Response(new ReadableStream({
+      start(controller) {
+        stream = controller
+        controller.enqueue(new TextEncoder().encode(frame('token', { content: 'Doomed answer' })))
+      },
+    }))
+  })
+  await chat().sendMessage('First question')
+  const state = chat()
+  assert.equal(state.messages[1].content, 'Complete answer')
+  assert.equal(Boolean(state.messages[1].cutOff), false)
+  assert.equal(state.canRetry, false)
+  await chat().sendMessage('Follow-up question')
+  assert.equal(chat().messages[3].content, 'Follow-up')
+  assert.equal(Boolean(chat().messages[3].cutOff), false)
+  // An error after a done-carrying-partial flag must not resurrect a retry.
+  const doomed = chat().sendMessage('Doomed question')
+  await new Promise((resolve) => setImmediate(resolve))
+  stream.error(new TypeError('Connection dropped'))
+  await doomed
+  const attempts = chat()
+  assert.equal(attempts.messages[5].error, true)
+  assert.equal(Boolean(attempts.messages[5].cutOff), false)
+  assert.equal(attempts.canRetry, true)
+})
+
 for (const lit of [false, true]) {
   test(`in_flight retains the question and retries the same ID/history/session until completed (credit UI ${lit})`, async () => {
     const calls = []
