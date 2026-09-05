@@ -131,7 +131,7 @@ test('legal prepaid copy is visible in the billing-enabled build', async ({ page
   await installApi(page)
   await page.goto(`${litUrl}/terms`)
   await expect(page.getByRole('heading', { name: '13. Prepaid chat credits', exact: true })).toBeVisible()
-  await expect(page.getByText('Prepaid credit terms effective 2026-09-15', { exact: true })).toBeVisible()
+  await expect(page.getByText('Prepaid credit terms effective 2026-09-06', { exact: true })).toBeVisible()
   await expect(page.getByText(/Paid subscriptions|renew automatically/)).toHaveCount(0)
   await expect(page.getByText(/they do not renew and you will not be charged again/)).toBeVisible()
   await expect(page.getByText('If an error on our side stops an answer, or your connection drops before the answer has begun, the credit is returned automatically. Once an answer has begun, the credit is used even if you stop or disconnect.', { exact: false })).toBeVisible()
