@@ -47,13 +47,19 @@ STAGES=[
   {"1.7":3,"1.2":3,"5.3":3,"1.6":3}),
  ("S3","Money rails","weeks",
   "Stripe Checkout for Scout Pro at the committed price; club bundle subscription; donation checkout with donor-tip model once regulatory scoping is done; club-editable programs; Patreon/BuyMeACoffee link-out plus supporter import as the cheap first bridge.",
-  {"3.6":3,"5.5":3,"4.1":3,"4.2":3,"4.4":2,"4.6":3}),
+  {"4.1":3,"4.4":2,"4.6":3}),
+ ("MS","money-safety (2026-09-05)","done",
+  "independent audit 65.1%; 3 P1 + 3 launch blockers fixed; go-live (B2) projected next.",
+  {}),
+ ("B2","go-live prepaid GOL (review B2)","next",
+  "Owner go-live checklist after the money-safety fixes: Stripe webhook endpoint + live GOL prices/credit envs, corrected prepaid-credit terms (VITE_BILLING_TERMS=1), then BILLING_ENABLED=1 with one real-card purchase + refund accepted; 3.6 and 5.5 return to 3 (review A1+B2, +1.2).",
+  {"3.6":3,"5.5":3}),
  ("S4","Film Room self-serve + club tools","weeks–months",
   "Club-triggered processing with a monthly allowance instead of 3-lifetime, worker checkpointing and scheduling, coaching notes and shareable player reports, a manager-scoped club dashboard on the pathway data that already exists.",
   {"2.6":3,"2.7":3,"2.8":3,"5.4":3}),
  ("S5","Part-ownership","paper first",
   "Counsel decides the vehicle (crowd-equity is securities-regulated; a supporter-membership with governance perks may be the honest v1). Then recurring support tiers and the ownership ledger.",
-  {"4.3":3,"4.5":2}),
+  {"4.2":3,"4.3":3,"4.5":2}),
  ("S6","Ten real participants","ongoing",
   "The multiplier on everything above: pick one cohort (the Forest academy contact or one grassroots club), walk 10 real people through claim → console → intro by hand, instrument the funnel first.",
   {"5.8":3,"5.6":3}),
@@ -68,7 +74,7 @@ md=[]
 md.append(f"# GRADING — How far is The Academy Watch from the dream? ({DATE})\n")
 md.append(f"Parent: `CONTINUITY.md`. Method: three codex (gpt-5.6-sol, ultra) read-only code audits scored 31 capabilities 0–4 against the dream; two Fable adversarial reviewers re-verified every cite at origin/main `ade7bbc` and re-scored; Fable arbitrated. Prod counts measured read-only via the Supabase pooler. Raw evidence: session scratchpad `out-A/B/C.json`, `review-1/2.json`, merged `scorecard.json` (copied to `ledgers/research/dream-scorecard-{DATE}.json`).\n")
 md.append("## The dream (graded against this)\n\n> "+DREAM+"\n")
-md.append(f"## Headline\n\n**Built: {d['overall_pct']}%.** Weighted across five pillars. **Lived: ~0%.** Prod has 9 accounts (5 are the team), 1 claimed player, 0 clubs, 0 watchlists, 0 introductions, 0 revenue. The code is half a platform; the marketplace has no participants yet.\n")
+md.append(f"## Headline\n\n**Built: {d['overall_pct']}%.** Weighted across five pillars. **Lived: ~0%.** Prod has 9 accounts (5 are the team), 1 claimed player, 0 clubs, 0 watchlists, 0 introductions, 0 revenue. The code is half a platform; the marketplace has no participants yet. Independently audited 2026-09-05 by gpt-6-astra (read-only, evidence-adjusted): `ledgers/research/astra-review-2026-09-05.md`.\n")
 md.append("## Scale\n\n| Score | Label | Meaning |\n|---|---|---|")
 for s,l,m in SCALE: md.append(f"| {s} | {l} | {m} |")
 md.append("\nRule that decides most scores: backend-without-a-button is a 2, never a 3. Flag-off-in-prod is a 2. Admin-per-use is a 2.\n")
@@ -92,6 +98,7 @@ md.append("\n## Corrections to the 2026-08-23 platform review\n")
 for s in d.get("surprises",[]): md.append(f"- {s}")
 md.append(f"\n## Status\n\n- {DATE}: scorecard created (baseline **51.9%**).\n- {DATE} (later): **S0 executed and live** — PRs #957 (A), #958 (C), #960 (D), #961 (E hygiene), #959 (B); ACA job `job-scout-digest` created; prod `local_players.birth_date` pre-applied + stamped lp01. Re-scored rows 1.1, 2.1, 3.4 → 3 (see `ledgers/CONTINUITY_dream-s0.md`).\n- {DATE} (evening): **S1 executed and live** — PRs #963 (P1 games grain + pm01), #965 (P2 local players in the universe, negative ids), #968 (P3 club results), #964 (P4 web), #969 (P5 trust tiers + graduation/backfill); prod `SCOUT_INCLUDE_LOCAL_PLAYERS=1`. Re-scored rows 1.2, 1.3, 1.4, 2.3, 4.7 → 3 (see `ledgers/CONTINUITY_dream-s1.md`). Next: S2 (fans + reach).\n- {DATE} (night → 2026-09-03): **S2 executed and live** — PRs #978 (P0 foundation + s2f1), #983 (P1 fan follow/counts/events/signals/prefs), #980 (P2 share + sitemap + robots), #984 (P4 weekly activity email job), #979 (P3 web); prod `PUBLIC_API_BASE_URL` set, `alembic_version` s2f1 (now cb01 after #973), ACA job `job-profile-activity` created. Re-scored rows 1.6, 1.7, 5.3 → 3 (see `ledgers/CONTINUITY_dream-s2.md`). Next: S3 (money rails).\n")
 md.append(f"- 2026-09-04: **S3 money rails — shipped dark 2026-09-04; actual = {d['overall_pct']}%.** Re-scored rows 3.6, 5.5, 4.1, 4.4, 4.6 → 3 (see `ledgers/CONTINUITY_dream-s3.md`).\n")
+md.append("- 2026-09-05: **MS money-safety (2026-09-05): independent audit 65.1%; 3 P1 + 3 launch blockers fixed; go-live (B2) projected next.** Grade corrections from the independent gpt-6-astra review, Part 1 (`ledgers/research/astra-review-2026-09-05.md`): 3.6 3→2 and 5.5 3→2 (billing dark — the rail is complete and now includes the money-safety fixes from `ledgers/DIRECTIVE_money-safety.md`, shipped dark in #1028–#1030 with migration s3e1; becomes 3 at go-live per review B2), 2.7 1→2 (coaching briefs exist: club.py:879/:898, MyClubConsole.jsx:549). Stale evidence refreshed per the review: 1.2 (trust flag deployed in prod), 1.7 (iOS fan surface exists), 3.2 (locals are in discovery), 3.5 (not tracked-players-only), 4.4 (reach MISSING→LIVE_WEB), 5.4 (deploy.yml:225 includes the maintenance job). Every other score kept.\n")
 open(os.path.join(S,"GRADING_dream-scorecard.md"),"w").write("\n".join(md))
 json.dump({"stages":[{"id":s[0],"name":s[1],"overall_after":s[5],"pillars_after":s[6]} for s in proj]},open(os.path.join(S,"projection.json"),"w"),indent=1)
 print("md written;", "projection:", [(s[0],s[5]) for s in proj])

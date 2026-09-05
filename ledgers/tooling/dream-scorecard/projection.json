@@ -3,60 +3,84 @@
   {
    "id": "S0",
    "name": "Unbreak the front door",
-   "overall_after": 65.6,
+   "overall_after": 65.1,
    "pillars_after": {
     "P1": 75.0,
-    "P2": 63.9,
-    "P3": 75.0,
+    "P2": 66.7,
+    "P3": 71.4,
     "P4": 46.4,
-    "P5": 59.4
+    "P5": 56.2
    }
   },
   {
    "id": "S1",
    "name": "One player universe + a games grain",
-   "overall_after": 65.6,
+   "overall_after": 65.1,
    "pillars_after": {
     "P1": 75.0,
-    "P2": 63.9,
-    "P3": 75.0,
+    "P2": 66.7,
+    "P3": 71.4,
     "P4": 46.4,
-    "P5": 59.4
+    "P5": 56.2
    }
   },
   {
    "id": "S2",
    "name": "Fans and reach",
-   "overall_after": 65.6,
+   "overall_after": 65.1,
    "pillars_after": {
     "P1": 75.0,
-    "P2": 63.9,
-    "P3": 75.0,
+    "P2": 66.7,
+    "P3": 71.4,
     "P4": 46.4,
-    "P5": 59.4
+    "P5": 56.2
    }
   },
   {
    "id": "S3",
    "name": "Money rails",
-   "overall_after": 66.7,
+   "overall_after": 65.1,
    "pillars_after": {
     "P1": 75.0,
-    "P2": 63.9,
+    "P2": 66.7,
+    "P3": 71.4,
+    "P4": 46.4,
+    "P5": 56.2
+   }
+  },
+  {
+   "id": "MS",
+   "name": "money-safety (2026-09-05)",
+   "overall_after": 65.1,
+   "pillars_after": {
+    "P1": 75.0,
+    "P2": 66.7,
+    "P3": 71.4,
+    "P4": 46.4,
+    "P5": 56.2
+   }
+  },
+  {
+   "id": "B2",
+   "name": "go-live prepaid GOL (review B2)",
+   "overall_after": 66.3,
+   "pillars_after": {
+    "P1": 75.0,
+    "P2": 66.7,
     "P3": 75.0,
-    "P4": 53.6,
+    "P4": 46.4,
     "P5": 59.4
    }
   },
   {
    "id": "S4",
    "name": "Film Room self-serve + club tools",
-   "overall_after": 69.9,
+   "overall_after": 68.8,
    "pillars_after": {
     "P1": 75.0,
     "P2": 75.0,
     "P3": 75.0,
-    "P4": 53.6,
+    "P4": 46.4,
     "P5": 62.5
    }
   },

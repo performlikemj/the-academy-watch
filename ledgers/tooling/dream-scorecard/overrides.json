@@ -8,8 +8,8 @@
  "1.2": {
   "score": 3,
   "reach": "LIVE_WEB",
-  "why": "[S1 P5] trust-tiered auto-approval: allow-listed low-risk fields keep the profile approved for accounts past the configured age with no adverse moderation events (fail-closed until SHOWCASE_TRUST_MIN_ACCOUNT_AGE_DAYS is set in prod). Remaining: flag must be set in prod; photos/contract fields still queue for admin.",
-  "blocker": "Prod threshold not yet configured (default off); photos and contract fields still need admin review."
+  "why": "[S1 P5; refreshed by astra review 2026-09-05 — the 'must still set the flag' text is stale] trust-tiered auto-approval: allow-listed low-risk fields keep the profile approved for accounts past the configured age with no adverse moderation events; sensitive changes still return the profile to pending (showcase.py:310, :2795). The threshold IS configured in prod (SHOWCASE_TRUST_MIN_ACCOUNT_AGE_DAYS=14, ledgers/CONTINUITY_dream-s1.md:74). Remaining: photos/contract fields still queue for admin; native claim attestation is not a complete bio/photo/reel editor.",
+  "blocker": "Photos and contract fields still queue for admin review; the native claim flow is not a complete bio/photo/reel editor."
  },
  "1.3": {
   "score": 3,
@@ -37,8 +37,8 @@
  "1.7": {
   "score": 3,
   "reach": "LIVE_WEB",
-  "why": "[S2 P0+P1+P3 LIVE #978/#983/#979] any signed-in account can follow a public adult player (tracked or local) from the web player pages; public fan counts; Share button; player_fans grain with owner exclusion, neutral 404 for minors/suppressed; fans re-keyed on graduation/merge. Remaining: iOS has no follow button; no comments on local pages.",
-  "blocker": "iOS has no fan follow surface; local player pages still have no comments."
+  "why": "[S2 P0+P1+P3 LIVE #978/#983/#979; refreshed by astra review 2026-09-05 — 'iOS has no fan surface' is false] any signed-in account can follow a public adult player (tracked or local) from the web player pages; public fan counts; Share button; player_fans grain with owner exclusion, neutral 404 for minors/suppressed; fans re-keyed on graduation/merge. Native fan controls now call the fan-count and follow/unfollow APIs (PlayerFanSection.swift:45, :95; players.py:55, :74). Remaining: no comments on local pages; real fans and a public native release are unproven.",
+  "blocker": "Local player pages still have no comments; real fans and a public iOS release remain unproven."
  },
  "1.8": {
   "score": 3,
@@ -50,7 +50,8 @@
  },
  "3.2": {
   "score": 3,
-  "why": "[adversary-1 keep] Public discovery and leaderboards (scout.py:383/465/507/625/801; /scout/players at :680 needs no auth) render on ScoutPage.jsx:817/933 and ScoutDeskView.swift:59. TrackedPlayer-only, so user-created players stay invisible (see 1.4)."
+  "why": "[adversary-1 keep; refreshed by astra review 2026-09-05 — 'user-created players remain invisible' is false] Public discovery and leaderboards (scout.py:383/465/507/625/801; /scout/players at :680 needs no auth) render on ScoutPage.jsx:817/933 and ScoutDeskView.swift:59. Eligible approved locals enter discovery and comparison with signed IDs and provenance (scout.py:431, :709, :1354; ScoutModels.swift:83). Remaining gaps are completeness and native presentation, not rebuilding discovery.",
+  "blocker": "Remaining gaps are completeness and native presentation of local subjects, not rebuilding discovery (senior-union/graduation limits live under 1.4)."
  },
  "3.3": {
   "score": 3,
@@ -64,12 +65,13 @@
  },
  "3.5": {
   "score": 3,
-  "why": "[adversary-1 up] Prod flag is on. Web Send button + IntroduceDialog (ScoutPage.jsx:986-996, :1110; IntroduceDialog.jsx:33) and iOS (PlayerDetailView.swift:259) post contact.py:405. Reachable only from the ScoutPage table and only to approved self-claimed TrackedPlayers (one in prod).",
-  "reach": "LIVE_WEB_IOS"
+  "why": "[adversary-1 up; refreshed by astra review 2026-09-05 — 'tracked players only' is stale] Prod flag is on. Web Send button + IntroduceDialog (ScoutPage.jsx:986-996, :1110; IntroduceDialog.jsx:33) and iOS (PlayerDetailView.swift:259) post contact.py:405. The rail resolves local subjects and verified scouts can initiate requests to eligible signed subjects, with participant-gated messaging on accepted conversations (contact.py:420, :441, :1090, :1125). Remaining: reachable only from the ScoutPage table; scout credential/adult verification gaps remain (review 1.5/3.1).",
+  "reach": "LIVE_WEB_IOS",
+  "blocker": "Outreach entry is still the ScoutPage send button only; scout credential/adult verification gaps remain (review 1.5/3.1)."
  },
  "3.6": {
-  "score": 3,
-  "why": "[S3 orchestrator verdict, integrated review 2026-09-04] Real rail in code: Stripe Checkout (server-side price map, idempotent per client_key, one open session per scope), signed webhook on the raw body (replay/out-of-order/equal-created/failed-retry/late-after-deletion all handled), entitlement DERIVED from billing_subscriptions with scout_tier projection, Billing Portal, /auth/me + /api/scout/entitlements. Owner re-scoped the paid feature to the GOL chatbot (we sell only data we generate; API-Football terms forbid reselling theirs) — chat/PDF now require login. Dark in prod (BILLING_ENABLED unset); not 4 because $0 has moved and live acceptance (a real card purchase) has not run."
+  "score": 2,
+  "why": "[astra review 2026-09-05 P3, evidence-adjusted 3→2] Billing is dark in prod: the billing guard hides the whole rail while BILLING_ENABLED is off (billing.py:38) and the ledger records dark production — dark scaffolding is not a launched Scout Pro, and the owner re-scoped the paid offering to prepaid GOL credits (scout_entitlements.py:107). The rail itself is complete and now includes the money-safety fixes the review demanded first (ledgers/DIRECTIVE_money-safety.md 2026-09-05: GOL replay-as-stored-answer, refund settlements that survive event ordering, purchase terms frozen to the Stripe session, orphaned late payments; shipped dark in #1028–#1030, migration s3e1). Becomes 3 at go-live (review B2): Stripe endpoint + live prices + corrected terms copy + BILLING_ENABLED=1 with one real-card purchase/refund acceptance."
  },
  "3.7": {
   "score": 3,
@@ -105,8 +107,8 @@
   "why": "[adversary-1 keep] Manager /process records a timestamp only (club.py:601-616); job creation lives in admin video.py:300-315. Codex's 'no proven scheduler' for maintenance is wrong (scripts/azure/README.md:318-321; prod job exists) but that is retention, not processing. ADMIN_ONLY stands."
  },
  "2.7": {
-  "score": 1,
-  "why": "[adversary-1 keep] Only artefact is a 500-char note written at roster creation (club.py:293; funding.py:331); no feedback, coaching, goal or plan models (grep across models), no player-visible report route; showcase.py:1164 keeps club reports off profiles."
+  "score": 2,
+  "why": "[astra review 2026-09-05 P2, evidence-adjusted 1→2] Managers now persist per-player coaching briefs and a club system brief (club.py:879, :898) and the console displays analysis checks against them (MyClubConsole.jsx:549) — more than a stub, so 2. Not yet a permissioned development record delivered to the player, and analysis remains dependent on the Film Room workflow (PlayerReel.jsx:158)."
  },
  "2.8": {
   "score": 2,
@@ -152,7 +154,8 @@
  },
  "4.4": {
   "score": 3,
-  "why": "[S3 orchestrator verdict] Moderated external_support {patreon|buy_me_a_coffee} on the revision with strict host/userinfo/port/query/fragment validation and normalisation; only the APPROVED revision reaches /api/programs/<slug>; ProgramPage renders 'Support on <label>' with rel=noopener noreferrer. Supporter import deferred by design (needs Privacy changes + a real club) — not 4."
+  "reach": "LIVE_WEB",
+  "why": "[S3 orchestrator verdict; reach corrected by astra review 2026-09-05] Moderated external_support {patreon|buy_me_a_coffee} on the revision with strict host/userinfo/port/query/fragment validation and normalisation; only the APPROVED revision reaches /api/programs/<slug>; ProgramPage renders 'Support on <label>' with rel=noopener noreferrer (club.py:189, funding.py:1270, ProgramPage.jsx:164). The review: the recorded MISSING reach contradicted the implementation — it is a live web link-out, not supporter synchronization. Supporter import deferred by design (needs Privacy changes + a real club) — not 4."
  },
  "4.5": {
   "score": 0,
@@ -185,13 +188,13 @@
  },
  "5.4": {
   "score": 2,
-  "why": "[adversary-2 keep] Queue/heartbeat/retention code is solid, but no KEDA/worker manifest or alerts anywhere (grep scripts/.github/infra empty), and deploy.yml:224 never refreshes job-video-maintenance's image, so the sweeper runs a frozen build.",
-  "blocker": "No managed worker deployment, KEDA or alerts anywhere; deploy.yml:224 leaves job-video-maintenance out of image updates so the retention sweeper runs a frozen build; every club processing request still needs an admin."
+  "why": "[adversary-2 keep; refreshed by astra review 2026-09-05 — 'deploy omits the maintenance job' is stale] Queue/heartbeat/retention code is solid (video_queue.py:83, vision_worker.py:522) and deploy.yml:225 now includes job-video-maintenance in the image-update loop, so the frozen-build claim no longer holds. Remaining: no managed worker deployment or alerts; managed worker operation unverified; club processing still requires an administrator (club.py:1455).",
+  "blocker": "No managed worker deployment or alerts; managed worker operation is unverified; every club processing request still needs an admin."
  },
  "5.5": {
-  "score": 3,
-  "why": "[S3 orchestrator verdict] Subscription rail complete end-to-end (Checkout, webhook, four billing tables with RLS, receipts/status emails, admin revenue tile from billing_subscriptions with per-currency MRR, account export/delete integration incl. Stripe cancellation and open-session expiry). Film Room credit purchase and its CTA deliberately out of S3 scope, and revenue is $0 until lit — hence 3 not 4.",
-  "blocker": "Flip BILLING_ENABLED only after the Stripe webhook endpoint + STRIPE_PRICE_SCOUT_PRO_* exist and the owner approves the Terms copy (VITE_BILLING_TERMS=1)."
+  "score": 2,
+  "why": "[astra review 2026-09-05 P5, evidence-adjusted 3→2] Signed webhooks, persistence and credit logic are built, but the same dark billing guard hides the customer and admin endpoints (billing.py:38; stripe_billing.py:874; gol_credits.py:199) and no live financial acceptance has run — dark is not launched. The review's named GOL lifecycle defects (replay/fulfillment, refund-before-grant ordering, purchase snapshots, late payments after deletion) were fixed by the money-safety stage before the flag may go on (ledgers/DIRECTIVE_money-safety.md 2026-09-05, #1028–#1030, migration s3e1). Becomes 3 at go-live (review B2): a real-card purchase + refund with server-side reconciliation.",
+  "blocker": "Dark in prod: the billing guard hides the customer and admin endpoints and no live financial acceptance has run (review 5.5); the go-live checklist (review B2 / DIRECTIVE_money-safety.md) — Stripe endpoint, live GOL prices, corrected terms copy, BILLING_ENABLED=1, one real-card purchase + refund — is what returns this to 3."
  },
  "5.6": {
   "score": 3,
