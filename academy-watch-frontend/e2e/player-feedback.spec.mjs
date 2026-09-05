@@ -6,7 +6,7 @@ const threadId = 'c26c4314-78a0-4784-aa7b-642ea7e02b93'
 const idFor = (n) => `b26c4314-78a0-4784-aa7b-${String(n).padStart(12, '0')}`
 
 async function harness(page, options = {}) {
-  const state = { revisions: [], withdrawn: false, revoked: false }
+  const state = { revisions: [], withdrawn: false, revoked: false, invitationPages: [] }
   const unexpected = [], events = [], responses = []
   page.on('pageerror', (error) => unexpected.push(error.message))
   const playerRow = (row) => ({ id: row.id, thread_id: threadId, revision: row.revision, program: { id: 7, name: 'Synthetic Harbour Club' }, player_api_id: -42, title: row.title, body: row.body, observation_refs: row.observation_refs, author: { display_name: 'Synthetic Coach' }, published_at: row.published_at, acknowledged_at: row.acknowledged_at, can_acknowledge: !row.acknowledged_at && row.revision === state.revisions.length })
@@ -17,16 +17,36 @@ async function harness(page, options = {}) {
     const React = (await import('/node_modules/.vite/deps/react.js')).default;
     const {createRoot} = (await import('/node_modules/.vite/deps/react-dom_client.js')).default;
     const {APIService} = await import('/src/lib/api.js');
-    const {PlayerFeedbackPanel} = await import('/src/pages/MyClubConsole.jsx');
+    const {AuthContext} = await import('/src/context/AuthContext.jsx');
+    const {PlayerFeedbackPanel, RosterPanel} = await import('/src/pages/MyClubConsole.jsx');
     const {default: PlayerFeedbackInbox} = await import('/src/components/showcase/PlayerFeedbackInbox.jsx');
     await import('/src/App.css');
     const root = createRoot(document.getElementById('root'));
     window.renderP3 = (mode, props = {}) => { APIService.userToken = Object.hasOwn(props, 'token') ? props.token : mode === 'manager' ? 'manager' : 'claimant'; root.render(React.createElement(mode === 'manager' ? PlayerFeedbackPanel : PlayerFeedbackInbox, { programId: 7, invitationId: '${invitationId}', playerName: 'Synthetic Player', signedId: -42, token: APIService.userToken, ...props })); };
+    window.renderRosterP3 = () => {
+      APIService.userToken = 'manager';
+      root.render(React.createElement(AuthContext.Provider, {value: {token: 'manager'}}, React.createElement(RosterPanel, {
+        programId: 7, members: [{id: 42, available: true, is_minor: false, display_name: 'Synthetic Player', subject_type: 'local', local_player_id: 42}],
+        systemBrief: null, loading: false, error: null, onMembersChange: () => {}, onSystemBriefChange: () => {}, onReload: () => {}, onAccessDenied: () => {},
+      })));
+    };
     window.renderP3('manager');
   </script></body></html>` }))
   await page.route('**/api/**', async (route) => {
     const req = route.request(), url = new URL(req.url()), path = url.pathname, auth = req.headers().authorization
     const reply = (json, status = 200) => { responses.push(JSON.stringify(json)); return route.fulfill({ json, status, headers: { 'Cache-Control': 'private, no-store' } }) }
+    if (path === '/api/club/7/invitations') {
+      const limit = url.searchParams.get('limit'), before = url.searchParams.get('before')
+      if (!limit) return reply({ invitations: [], next_before: null })
+      state.invitationPages.push({ limit, before })
+      // Enforce the real P2 cap so an oversized request cannot hide behind a mock.
+      if (Number(limit) < 1 || Number(limit) > 50) return reply({ error: 'invalid_request' }, 400)
+      expect(limit).toBe('50')
+      if (options.invitationError) return reply({ error: 'invitation_operation_failed' }, 500)
+      if (!before) return reply({ invitations: [], next_before: invitationId })
+      expect(before).toBe(invitationId)
+      return reply({ invitations: [{ id: invitationId, status: 'accepted', roster_member_id: 42 }], next_before: null })
+    }
     if (path === '/api/events') { events.push(...(req.postDataJSON()?.events || [])); return route.fulfill({ status: 204 }) }
     if (path === '/api/club/7/player-feedback' || path === `/api/club/7/player-feedback/${threadId}/revisions`) {
       if (req.method() === 'POST') {
@@ -165,5 +185,38 @@ test('draft survives retryable failure only in mounted memory', async ({ page })
   await render(page, 'manager')
   await page.getByRole('button', { name: 'Publish feedback', exact: true }).click()
   await expect(page.getByLabel('Feedback text', { exact: true })).toHaveValue('')
+  expect(fixture.unexpected).toEqual([])
+})
+
+
+for (const width of [1280, 390]) {
+  test(`real roster loads accepted feedback panel with P2 pagination at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const fixture = await harness(page)
+    await page.evaluate(() => window.renderRosterP3())
+    await expect(page.getByRole('button', { name: 'Publish feedback', exact: true })).toBeVisible()
+    expect(fixture.state.invitationPages).toEqual([{ limit: '50', before: null }, { limit: '50', before: invitationId }])
+    await page.getByRole('button', { name: 'Publish feedback', exact: true }).click()
+    await expect(page.getByLabel('Feedback text', { exact: true })).toHaveValue('')
+    await publish(page, 'U18 & U21', 'pass & move; <3 touches; a > b')
+    await render(page, 'player')
+    await page.getByRole('button', { name: /U18 & U21/ }).click()
+    await expect(page.getByLabel('Feedback detail')).toContainText('pass & move; <3 touches; a > b')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    expect(fixture.unexpected).toEqual([])
+  })
+}
+
+test('real roster surfaces invitation loading failure and retry restores publishing', async ({ page }) => {
+  const options = { invitationError: true }
+  const fixture = await harness(page, options)
+  await page.evaluate(() => window.renderRosterP3())
+  await expect(page.getByRole('alert').filter({ hasText: 'Could not load accepted club invitations.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Publish feedback', exact: true })).toHaveCount(0)
+  options.invitationError = false
+  await page.getByRole('button', { name: 'Retry accepted invitations' }).click()
+  await expect(page.getByRole('button', { name: 'Publish feedback', exact: true })).toBeVisible()
+  await expect(page.getByText('Could not load accepted club invitations.', { exact: false })).toHaveCount(0)
+  expect(fixture.state.invitationPages.every((entry) => entry.limit === '50')).toBe(true)
   expect(fixture.unexpected).toEqual([])
 })

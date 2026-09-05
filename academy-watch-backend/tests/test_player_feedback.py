@@ -240,7 +240,9 @@ def test_withdrawal_claim_revocation_suppression_and_minor_denial(client, pilot,
     assert (
         "Coach-authored" not in client.get("/api/me/player-feedback?player_api_id=7001", headers=_headers("scout")).text
     )
-    assert db.session.get(PlayerFeedback, row["id"]).audit_expires_at is not None
+    assert (db.session.get(PlayerFeedback, row["id"]).audit_expires_at is not None) == (
+        reason in {"withdrawal", "claim", "relationship"}
+    )
     exported = build_account_export(db.session.get(UserAccount, pilot["user"]))
     assert exported["player_feedback"]["received"] == []
 
@@ -597,3 +599,159 @@ def test_purge_batches_are_bounded_and_resumable(client, pilot, accepted):
     )
     assert response.json["scanned"] == 1 and response.json["next_before"] is None
     assert "Private" not in response.text
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_purge_flag_off_is_neutral_without_closing_or_deleting(client, pilot, accepted, monkeypatch, dry_run):
+    row = published(client, pilot, accepted)
+    expired = published(client, pilot, accepted)
+    expired_record = db.session.get(PlayerFeedback, expired["id"])
+    expired_record.withdrawn_at = utcnow() - timedelta(days=31)
+    expired_record.audit_expires_at = utcnow() - timedelta(days=1)
+    db.session.commit()
+    monkeypatch.setenv("PILOT_CLUB_RELATIONSHIPS_ENABLED", "false")
+    response = client.post("/api/admin/player-feedback/purge", json={"dry_run": dry_run}, headers=_admin_headers())
+    assert response.status_code == 404 and response.json == {"error": "feedback_not_found"}
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert PlayerFeedback.query.count() == 2
+    assert db.session.get(PlayerFeedback, row["id"]).audit_expires_at is None
+    monkeypatch.setenv("PILOT_CLUB_RELATIONSHIPS_ENABLED", "true")
+    assert detail(client, row).status_code == 200
+
+
+def test_temporary_hide_and_publish_denial_are_recoverable(client, pilot, accepted):
+    from src.models.funding import ClubProgram
+
+    row = published(client, pilot, accepted)
+    program = db.session.get(ClubProgram, pilot["program"])
+    program.emergency_hidden = True
+    db.session.commit()
+    assert detail(client, row).status_code == 404
+    assert ack(client, row).status_code == 404
+    assert client.get("/api/me/player-feedback?player_api_id=7001", headers=_headers("scout")).json["feedback"] == []
+    response = client.post("/api/admin/player-feedback/purge", json={"dry_run": False}, headers=_admin_headers())
+    assert response.json["closed"] == 0 and response.json["deleted"] == 0
+    assert db.session.get(PlayerFeedback, row["id"]).audit_expires_at is None
+    program.emergency_hidden = False
+    db.session.commit()
+    with patch("src.routes.feedback.effective_relationship", return_value=False):
+        assert create(client, pilot, accepted).json == {"error": "club_relationship_required"}
+    assert db.session.get(PlayerFeedback, row["id"]).audit_expires_at is None
+    assert detail(client, row).status_code == 200
+    assert ack(client, row).status_code == 200
+    assert correct(client, pilot, row).status_code == 201
+
+
+@pytest.mark.parametrize("eligibility", [False, RuntimeError("unavailable")])
+def test_purge_does_not_infer_closure_from_unevaluable_eligibility(client, pilot, accepted, eligibility):
+    row = published(client, pilot, accepted)
+    kwargs = {"side_effect": eligibility} if isinstance(eligibility, Exception) else {"return_value": eligibility}
+    with (
+        patch("src.models.club_invitation.effective_relationship", **kwargs),
+        patch("src.models.player_feedback.effective_relationship", **kwargs),
+    ):
+        response = client.post("/api/admin/player-feedback/purge", json={"dry_run": False}, headers=_admin_headers())
+    assert response.status_code == 200 and response.json["closed"] == 0
+    assert db.session.get(PlayerFeedback, row["id"]).audit_expires_at is None
+    assert detail(client, row).status_code == 200
+
+
+def test_purge_rolls_back_closure_if_durable_state_cannot_be_read(client, pilot, accepted):
+    from src.models.player_feedback import durably_closed
+
+    published(client, pilot, accepted)
+    published(client, pilot, accepted)
+    db.session.get(ClubInvitation, accepted).status = "revoked"
+    db.session.commit()
+    calls = 0
+
+    def failing_state(session, row):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("database lookup failed")
+        return durably_closed(session, row)
+
+    with patch("src.routes.feedback.durably_closed", side_effect=failing_state):
+        response = client.post("/api/admin/player-feedback/purge", json={"dry_run": False}, headers=_admin_headers())
+    assert response.status_code == 500 and response.json == {"error": "feedback_operation_failed"}
+    assert all(row.audit_expires_at is None for row in PlayerFeedback.query.all())
+
+
+def test_authored_plain_text_preserves_symbols_and_strips_tags_and_controls(client, pilot, accepted):
+    response = create(
+        client,
+        pilot,
+        accepted,
+        title="U18 & U21",
+        body="<b>pass & move</b>; <3 touches; a > b\x00\x01\x7f\x85\nNext line",
+        observation_refs=[{"label": "<i>Run & receive</i>\x01", "timestamp_s": None}],
+    )
+    assert response.status_code == 201, response.json
+    feedback = detail(client, response.json["feedback"]).json["feedback"]
+    assert feedback["title"] == "U18 & U21"
+    assert feedback["body"] == "pass & move; <3 touches; a > b\nNext line"
+    assert feedback["observation_refs"] == [{"label": "Run & receive", "timestamp_s": None}]
+    assert db.session.get(PlayerFeedback, feedback["id"]).body == feedback["body"]
+
+
+@pytest.mark.parametrize("field,maximum", [("title", 140), ("body", 4000), ("label", 160)])
+def test_plain_text_limits_apply_before_transformation(client, pilot, accepted, field, maximum):
+    def submit(value):
+        changes = {field: value} if field != "label" else {"observation_refs": [{"label": value, "timestamp_s": None}]}
+        return create(client, pilot, accepted, **changes)
+
+    value = "a&" * (maximum // 2)
+    response = submit(value)
+    assert response.status_code == 201, response.json
+    actual = (
+        response.json["feedback"][field]
+        if field != "label"
+        else response.json["feedback"]["observation_refs"][0]["label"]
+    )
+    assert actual == value
+    for oversized in (value + "&", "<b>" + value + "</b>", value + "\x01"):
+        response = submit(oversized)
+        assert response.status_code == 400 and response.json == {"error": "invalid_request"}
+
+
+def test_manager_list_optional_invitation_filter_is_program_scoped(client, pilot, accepted, club_app):
+    first = published(client, pilot, accepted)
+    local_invitation = invitation(client, pilot, signed_id=-pilot["local"].id)
+    assert decide(client, local_invitation).status_code == 200
+    second = published(client, pilot, local_invitation)
+    path = f"/api/club/{pilot['program']}/player-feedback"
+    all_rows = client.get(path, headers=_headers("a"))
+    assert all_rows.status_code == 200
+    assert {row["id"] for row in all_rows.json["feedback"]} == {first["id"], second["id"]}
+    filtered = client.get(path + f"?invitation_id={accepted}", headers=_headers("a"))
+    assert [row["id"] for row in filtered.json["feedback"]] == [first["id"]]
+    assert (
+        client.get(f"/api/club/{club_app.c2['program_b']}/player-feedback", headers=_headers("b")).json["feedback"]
+        == []
+    )
+
+
+def test_withdrawn_create_and_revision_replays_return_metadata_without_reopening(client, pilot, accepted):
+    create_id, revision_id = str(uuid4()), str(uuid4())
+    first = create(client, pilot, accepted, client_request_id=create_id).json["feedback"]
+    second = correct(client, pilot, first, client_request_id=revision_id).json["feedback"]
+    response = client.post(
+        f"/api/club/{pilot['program']}/player-feedback/{first['thread_id']}/withdraw",
+        json={"expected_revision": 2},
+        headers=_headers("a"),
+    )
+    assert response.status_code == 200
+    for response, expected in (
+        (create(client, pilot, accepted, client_request_id=create_id), first),
+        (correct(client, pilot, first, client_request_id=revision_id), second),
+    ):
+        assert response.status_code == 200 and response.json["feedback"]["id"] == expected["id"]
+        assert set(response.json["feedback"]) == {"id", "thread_id", "revision", "withdrawn_at", "unavailable"}
+        assert response.json["feedback"]["unavailable"] is True
+    assert create(client, pilot, accepted, client_request_id=create_id, body="Changed").json == {
+        "error": "client_request_id_reused"
+    }
+    assert correct(client, pilot, second).json == {"error": "feedback_withdrawn"}
+    assert detail(client, second).status_code == 404
+    assert PlayerFeedback.query.count() == 2

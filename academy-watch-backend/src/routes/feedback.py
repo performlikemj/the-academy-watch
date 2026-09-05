@@ -22,6 +22,7 @@ from src.models.player_feedback import (
     FeedbackError,
     PlayerFeedback,
     authored_payload,
+    durably_closed,
     feedback_dict,
     integer,
     lock_thread,
@@ -116,7 +117,11 @@ def authority(*, manager=False):
                     if not strict_manager(db.session, program_id, g.user_id):
                         raise FeedbackError("Club manager access denied", 403)
                     # Withdrawal remains possible after relationship closure.
-                    if not request.path.endswith("/withdraw") and observe_closure(db.session, g.feedback):
+                    if (
+                        not request.path.endswith("/withdraw")
+                        and observe_closure(db.session, g.feedback)
+                        and not g.feedback.withdrawn_at
+                    ):
                         raise FeedbackError("feedback_withdrawn", 409, closure=True)
                 else:
                     observe_closure(db.session, g.feedback)
@@ -147,10 +152,15 @@ def authority(*, manager=False):
                     if not 1 <= g.feedback_limit <= 100:
                         raise ValueError()
                     if manager:
-                        g.feedback_invitation_id = uuid(request.args.get("invitation_id"))
-                        if not ClubInvitation.query.filter_by(
-                            id=g.feedback_invitation_id, program_id=program_id
-                        ).first():
+                        g.feedback_invitation_id = (
+                            uuid(request.args["invitation_id"]) if "invitation_id" in request.args else None
+                        )
+                        if (
+                            g.feedback_invitation_id
+                            and not ClubInvitation.query.filter_by(
+                                id=g.feedback_invitation_id, program_id=program_id
+                            ).first()
+                        ):
                             raise FeedbackError("feedback_not_found", 404)
                     else:
                         g.feedback_subject = integer(int(request.args.get("player_api_id", "")), signed=True)
@@ -225,12 +235,12 @@ def withdraw_feedback(program_id, thread_id):
 
 def list_feedback(*, manager=False):
     query = (
-        PlayerFeedback.query.filter_by(
-            program_id=request.view_args["program_id"], invitation_id=g.feedback_invitation_id
-        )
+        PlayerFeedback.query.filter_by(program_id=request.view_args["program_id"])
         if manager
         else PlayerFeedback.query.filter_by(recipient_user_id=g.user_id, player_api_id=g.feedback_subject)
     )
+    if manager and g.feedback_invitation_id:
+        query = query.filter_by(invitation_id=g.feedback_invitation_id)
     newer = sa.orm.aliased(PlayerFeedback)
     query = query.filter(
         ~sa.exists().where(newer.thread_id == PlayerFeedback.thread_id, newer.revision > PlayerFeedback.revision)
@@ -259,7 +269,7 @@ def list_feedback(*, manager=False):
         if row.revision != rows[-1].revision:
             continue
         closed = observe_closure(db.session, row)
-        if closed:
+        if closed or not relationship_matches(db.session, row):
             if manager:
                 result.append(
                     {
@@ -333,9 +343,20 @@ def acknowledge_feedback(revision_id):
     return jsonify(feedback=feedback_dict(db.session, row))
 
 
+def feature_enabled(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not relationships_enabled():
+            raise FeedbackError("feedback_not_found", 404)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 @feedback_bp.post("/admin/player-feedback/purge")
 @require_api_key
 @transaction
+@feature_enabled
 @limited("1 per hour")
 def purge_feedback():
     from datetime import timedelta
@@ -364,7 +385,7 @@ def purge_feedback():
         if row is None:
             continue
         counts["scanned"] += 1
-        closed = bool(row.withdrawn_at or row.audit_expires_at or not relationship_matches(db.session, row))
+        closed = durably_closed(db.session, row)
         if not closed:
             continue
         if row.audit_expires_at is None:

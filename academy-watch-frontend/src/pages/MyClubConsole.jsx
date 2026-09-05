@@ -867,18 +867,21 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
   </section>
 }
 
-function RosterPanel({ programId, members, systemBrief, loading, error, onMembersChange, onSystemBriefChange, onReload, onAccessDenied }) {
+export function RosterPanel({ programId, members, systemBrief, loading, error, onMembersChange, onSystemBriefChange, onReload, onAccessDenied }) {
   const { token } = useAuth()
   const [acceptedInvitations, setAcceptedInvitations] = useState({})
+  const [invitationError, setInvitationError] = useState(null)
+  const [invitationReload, setInvitationReload] = useState(0)
   useEffect(() => {
     const controller = new AbortController()
     setAcceptedInvitations({})
+    setInvitationError(null)
     if (!token || !members.length) return () => controller.abort()
     async function loadAccepted() {
       const accepted = {}
       let cursor = null
       do {
-        const data = await APIService.request(`/club/${programId}/invitations?limit=100${cursor ? `&before=${cursor}` : ''}`, { signal: controller.signal })
+        const data = await APIService.request(`/club/${programId}/invitations?limit=50${cursor ? `&before=${cursor}` : ''}`, { signal: controller.signal })
         if (controller.signal.aborted) return
         for (const row of data.invitations || []) {
           if (row.status === 'accepted' && row.roster_member_id) accepted[row.roster_member_id] = row.id
@@ -887,9 +890,11 @@ function RosterPanel({ programId, members, systemBrief, loading, error, onMember
       } while (cursor)
       if (!controller.signal.aborted) setAcceptedInvitations(accepted)
     }
-    loadAccepted().catch(() => { if (!controller.signal.aborted) setAcceptedInvitations({}) })
+    loadAccepted().catch(() => {
+      if (!controller.signal.aborted) setInvitationError('Could not load accepted club invitations. Feedback publishing is unavailable until you retry.')
+    })
     return () => controller.abort()
-  }, [programId, token, members])
+  }, [programId, token, members, invitationReload])
   const [addOpen, setAddOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState(null)
   const [removing, setRemoving] = useState(false)
@@ -916,6 +921,10 @@ function RosterPanel({ programId, members, systemBrief, loading, error, onMember
 
   return (
     <div className="space-y-4">
+      {invitationError && <div className="space-y-2">
+        <InlineError>{invitationError}</InlineError>
+        <Button variant="outline" size="sm" onClick={() => setInvitationReload((value) => value + 1)}>Retry accepted invitations</Button>
+      </div>}
       <ClubInvitationPanel key={`${programId}:${token}`} programId={programId} token={token} onChanged={onReload} />
       <Card className="border-border/80">
         <CardHeader>

@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import unicodedata
 from datetime import timedelta
+from html import unescape
 from uuid import uuid4
 
 import bleach
@@ -16,6 +18,7 @@ from src.models.club_invitation import (
     canonical_uuid,
     effective_relationship,
     lock_context,
+    relationships_enabled,
     strict_manager,
     utcnow,
 )
@@ -76,10 +79,13 @@ def integer(value, *, signed=False):
 
 
 def plain_text(value, maximum):
-    if not isinstance(value, str) or not 1 <= len(value) <= maximum or "\x00" in value:
+    if not isinstance(value, str) or not 1 <= len(value) <= maximum:
         raise FeedbackError()
-    value = bleach.clean(value, tags=[], attributes={}, strip=True).strip()
-    if not value or len(value) > maximum:
+    # Validate the submitted length first. React renders the result as text.
+    value = "".join(char for char in value if unicodedata.category(char) != "Cc" or char in "\n\t")
+    value = unescape(bleach.clean(value, tags=[], attributes={}, strip=True))
+    value = "".join(char for char in value if unicodedata.category(char) != "Cc" or char in "\n\t").strip()
+    if not value:
         raise FeedbackError()
     return value
 
@@ -137,9 +143,23 @@ def relationship_matches(session, row):
     )
 
 
+def durably_closed(session, row):
+    """Only terminal records prove closure; eligibility failure is not evidence."""
+    from src.models.showcase import PlayerProfileClaim
+
+    if row.withdrawn_at is not None or row.audit_expires_at is not None:
+        return True
+    invitation = session.get(ClubInvitation, row.invitation_id)
+    claim = session.get(PlayerProfileClaim, row.claim_id)
+    return bool(
+        (invitation and invitation.status in {"revoked", "declined", "expired"})
+        or (claim and claim.status in {"revoked", "rejected"})
+    )
+
+
 def observe_closure(session, row, *, now=None):
-    """Once closed, a thread is audit-only even if eligibility later returns."""
-    if row.withdrawn_at is None and row.audit_expires_at is None and relationship_matches(session, row):
+    """Retain durable closure; temporary denial must remain recoverable."""
+    if not relationships_enabled() or not durably_closed(session, row):
         return False
     deadline = row.audit_expires_at or ((row.withdrawn_at or now or utcnow()) + timedelta(days=30))
     session.query(PlayerFeedback).filter_by(thread_id=row.thread_id).filter(
@@ -200,6 +220,14 @@ def lock_thread(session, row, actor_id):
 def feedback_dict(session, row, *, manager=False, summary=False):
     from src.models.funding import ClubProgram
 
+    if manager and (row.withdrawn_at or row.audit_expires_at):
+        return {
+            "id": row.id,
+            "thread_id": row.thread_id,
+            "revision": row.revision,
+            "withdrawn_at": row.withdrawn_at.isoformat() + "Z" if row.withdrawn_at else None,
+            "unavailable": True,
+        }
     program = session.get(ClubProgram, row.program_id)
     author = session.get(UserAccount, row.author_user_id) if row.author_user_id else None
     latest = session.query(sa.func.max(PlayerFeedback.revision)).filter_by(thread_id=row.thread_id).scalar()
@@ -275,12 +303,11 @@ def publish(session, invitation, author_id, data, *, rows=None):
     )
     if replay and replay.request_hash != digest:
         raise FeedbackError("client_request_id_reused", 409)
+    if replay:
+        observe_closure(session, replay)
+        return replay, 200
     if latest and (latest.withdrawn_at or latest.audit_expires_at):
         raise FeedbackError("feedback_withdrawn", 409)
-    if replay:
-        if observe_closure(session, replay):
-            raise FeedbackError("feedback_withdrawn", 409, closure=True)
-        return replay, 200
     if latest and data["expected_revision"] != latest.revision:
         raise FeedbackError("feedback_revision_conflict", 409, current_revision=latest.revision)
     validate_reference(session, invitation, data["video_match_id"])
