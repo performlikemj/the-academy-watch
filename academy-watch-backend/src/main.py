@@ -43,6 +43,7 @@ from src.routes.community_takes import community_takes_bp
 from src.routes.contact import contact_bp
 from src.routes.curator import curator_bp
 from src.routes.events import events_bp
+from src.routes.feedback import feedback_bp
 from src.routes.feeder import feeder_bp
 from src.routes.formation import formation_bp
 from src.routes.funding import funding_bp
@@ -128,6 +129,7 @@ app.register_blueprint(seasons_bp, url_prefix="/api")
 app.register_blueprint(showcase_bp, url_prefix="/api")
 app.register_blueprint(funding_bp, url_prefix="/api")
 app.register_blueprint(club_bp, url_prefix="/api")
+app.register_blueprint(feedback_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")
 app.register_blueprint(contact_bp, url_prefix="/api")
 app.register_blueprint(billing_bp, url_prefix="/api")
