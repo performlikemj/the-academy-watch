@@ -1,8 +1,9 @@
-// Set VITE_BILLING_TERMS=1 at build time to include the owner-approved paid-subscription legal copy.
+// Set VITE_BILLING_TERMS=1 at build time to include the owner-approved prepaid-credit legal copy.
 import { Link } from 'react-router-dom'
 import { LegalPageLayout } from '@/components/layouts/LegalPageLayout'
 
 const EFFECTIVE_DATE = '2026-08-09'
+const BILLING_TERMS_EFFECTIVE_DATE = '2026-09-15'
 const BILLING_TERMS_ENABLED = import.meta.env.VITE_BILLING_TERMS === '1'
 
 export function TermsPage() {
@@ -98,8 +99,9 @@ export function TermsPage() {
 
       {BILLING_TERMS_ENABLED ? (
         <section>
-          <h2>13. Paid subscriptions</h2>
-          <p>Paid subscriptions renew automatically each period. You can cancel at any time through the billing portal; cancellation takes effect at the end of the paid period. Prices are shown before purchase. Stripe processes payments, and we never store card numbers. We do not refund partial periods except where required by law.</p>
+          <h2>13. Prepaid chat credits</h2>
+          <p>Prepaid credit terms effective {BILLING_TERMS_EFFECTIVE_DATE}</p>
+          <p>Some features — currently the Academy Watch chat assistant — use prepaid credits. New accounts receive a small free allowance. Credit packs are one-time purchases processed by Stripe; they do not renew and you will not be charged again unless you buy another pack. One credit is used per question. If the assistant fails to complete an answer — an error, or the connection drops before the answer finishes — the credit is returned automatically. Credits have no cash value and cannot be transferred. Unused packs can be refunded within 14 days of purchase by emailing <a href="mailto:mj@bywayofmj.com">mj@bywayofmj.com</a>; refunded credits are removed from your balance. Deleting your account forfeits any remaining credits. Pack prices are shown before you buy; later price changes do not affect credits you already hold.</p>
         </section>
       ) : null}
     </LegalPageLayout>
@@ -118,6 +120,7 @@ export function PrivacyPage() {
         <ul>
           <li><strong>Account data</strong>: your email address and an account identifier, created when you sign in.</li>
           <li><strong>Content you submit</strong>: profile claims, messages, introduction requests, reports, watchlists and lists, verification applications, newsletter subscriptions.</li>
+          <li><strong>Chat assistant usage</strong>: when you ask the assistant a question, the question and the conversation context are sent to our model provider (OpenAI, OpenRouter or Groq) to generate the answer.{BILLING_TERMS_ENABLED ? ' We keep the question fingerprint, the answer and your credit ledger (purchases, uses, refunds) with your account.' : null}</li>
           <li><strong>Technical logs</strong>: standard server logs (IP address, timestamps, request data) kept for security and debugging.</li>
         </ul>
         <p>
@@ -140,9 +143,9 @@ export function PrivacyPage() {
           <li><strong>Mailgun</strong> (email delivery)</li>
           {BILLING_TERMS_ENABLED ? <li><strong>Stripe</strong> (optional paid features)</li> : null}
           <li><strong>API-Football</strong> (sports data source — receives no personal account data)</li>
-          <li><strong>OpenAI / OpenRouter / Groq</strong> (newsletter text generation — receives sports data, not your account data)</li>
+          <li><strong>OpenAI / OpenRouter / Groq</strong> (chat questions and conversation context are sent to the provider when you use the assistant; newsletter generation sends sports data only)</li>
         </ul>
-        {BILLING_TERMS_ENABLED ? <p>When you buy an optional paid feature, Stripe processes the payment and receives your payment details; we store only your Stripe customer id and subscription status.</p> : null}
+        {BILLING_TERMS_ENABLED ? <p>When you buy prepaid credits, Stripe processes the payment and receives your payment details; we store your Stripe customer id, purchase identifiers, amounts and refunds, but no card details.</p> : null}
       </section>
 
       <section>
@@ -150,6 +153,7 @@ export function PrivacyPage() {
         <p>
           Account data is kept until you delete your account — available in-app and immediate. Messages and reports connected to safety investigations may be retained as required for legal compliance and platform safety. You can export a copy of your data in-app at any time (&quot;Export my data&quot;).
         </p>
+        {BILLING_TERMS_ENABLED ? <p>When you delete your account, your credit ledger and purchase records are deleted from our systems; Stripe retains its own payment records under its policy.</p> : null}
       </section>
 
       <section>
