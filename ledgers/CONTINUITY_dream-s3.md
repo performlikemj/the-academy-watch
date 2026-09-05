@@ -119,3 +119,7 @@ Computed result: **61.0% → 65.6% (+4.6 points)**. Pillars: P1 75.0%, P2 63.9%,
 - 2026-09-03/04 — S3 packages merged and deployed behind the default-off billing gate; migrations pre-applied/stamped through `s3c1`.
 - 2026-09-04 — Integrated Fable review complete; late webhook after account deletion fixed in #1002; dark production checks pass.
 - 2026-09-04 — Scorecard regenerated from `scorecard.json` fallback plus the five owner-supplied overrides; overall 65.6%.
+
+
+## Go-live addendum (2026-09-05)
+Money-safety stage done (`ledgers/DIRECTIVE_money-safety.md`). Confirm `BILLING_TERMS_EFFECTIVE_DATE` (2026-09-15 placeholder) before `VITE_BILLING_TERMS=1`; decide credits per $20 pack (rec 100); after go-live watch `product_events` for `gol_orphaned_purchase` / `gol_unfulfillable_legacy_purchase`.
