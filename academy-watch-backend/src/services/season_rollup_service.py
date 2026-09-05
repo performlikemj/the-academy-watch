@@ -913,6 +913,17 @@ def _lock_player_refresh(session, player_api_id: int) -> None:
         )
 
 
+def refresh_player_scopes(scopes, session=None):
+    """Refresh old and new scopes atomically, including scopes with no remaining lines."""
+    session = session or db.session
+    scopes = sorted(set(scopes))
+    for player_id in sorted({player_id for player_id, _season in scopes}):
+        _lock_player_refresh(session, player_id)
+    for player_id, season in scopes:
+        refresh_player(player_id, season, session=session)
+    return [{"player_api_id": player_id, "season": season} for player_id, season in scopes]
+
+
 def refresh_player(player_api_id: int, season: int | None = None, session=None) -> dict:
     """Rebuild a player's rollup cells + totals from the sources, in ONE transaction.
 
