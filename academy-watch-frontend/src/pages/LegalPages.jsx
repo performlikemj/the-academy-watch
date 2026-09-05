@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { LegalPageLayout } from '@/components/layouts/LegalPageLayout'
 
 const EFFECTIVE_DATE = '2026-08-09'
-const BILLING_TERMS_EFFECTIVE_DATE = '2026-09-15'
+const BILLING_TERMS_EFFECTIVE_DATE = '2026-09-06'
 const BILLING_TERMS_ENABLED = import.meta.env.VITE_BILLING_TERMS === '1'
 
 export function TermsPage() {
