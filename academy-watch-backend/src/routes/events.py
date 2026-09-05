@@ -5,16 +5,22 @@
 - ``GET /api/admin/analytics/summary`` — admin-only aggregate rollup.
 """
 
+import json
 import logging
+import math
+import time
 from datetime import UTC, datetime, timedelta
+from functools import wraps
 
-from flask import Blueprint, jsonify, request
-from sqlalchemy import func
+from flask import Blueprint, g, jsonify, make_response, request
+from sqlalchemy import func, text
+from sqlalchemy.exc import DBAPIError
 from src.auth import _get_authorized_email, require_api_key
 from src.extensions import limiter
 from src.models.league import db
 from src.models.product_event import ProductEvent
 from src.services.public_player_subject import resolve_public_adult_subject
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 events_bp = Blueprint("events", __name__)
 logger = logging.getLogger(__name__)
@@ -32,10 +38,19 @@ ALLOWED_EVENTS = frozenset(
         "search_performed",
         "list_created",
         "profile_view",
+        "pilot_ui",
     }
 )
 
 MAX_BATCH = 25
+
+PILOT_ACTIONS = {
+    "P1": {"report_requested", "report_completed", "report_failed"},
+    "P2": {"invite_created", "invite_accepted", "invite_declined", "relationship_revoked", "attestation_submitted"},
+    "P3": {"feedback_published", "feedback_opened", "feedback_acknowledged", "feedback_withdrawn"},
+    "P4": {"result_created", "result_corrected", "result_deleted", "result_conflict"},
+}
+PILOT_OUTCOMES = {"requested", "success", "error", "denied", "invalid"}
 
 # Mirrors the community-takes submit endpoint (per-IP, in-memory storage).
 RATE_LIMIT_PER_MINUTE = "10 per minute"
@@ -92,6 +107,29 @@ def ingest_events():
         if not isinstance(name, str) or name not in ALLOWED_EVENTS:
             continue
         props = ev.get("props")
+        if name == "pilot_ui":
+            if not isinstance(props, dict):
+                continue
+            package, action, outcome = (props.get(k) for k in ("package", "action", "outcome"))
+            if (
+                not all(isinstance(v, str) for v in (package, action, outcome))
+                or package not in PILOT_ACTIONS
+                or action not in PILOT_ACTIONS[package]
+                or outcome not in PILOT_OUTCOMES
+            ):
+                continue
+            db.session.add(
+                ProductEvent(
+                    event_name=name,
+                    user_email=None,
+                    path=None,
+                    referrer=None,
+                    session_id=None,
+                    props={"package": package, "action": action, "outcome": outcome},
+                )
+            )
+            accepted += 1
+            continue
         if name == "profile_view":
             if not isinstance(props, dict):
                 continue
@@ -139,6 +177,77 @@ def ingest_events():
     if accepted:
         db.session.commit()
     return jsonify({"accepted": accepted}), 202
+
+
+def _private_report(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        try:
+            response = make_response(view(*args, **kwargs))
+        except HTTPException as exc:
+            response = exc.get_response()
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+
+    return wrapped
+
+
+def _pilot_rate_rejected(limit):
+    response = jsonify({"error": "rate_limit_exceeded"})
+    response.status_code = 429
+    response.headers["Retry-After"] = str(max(1, math.ceil(limit.reset_at - time.time())))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+def _pilot_admin_limit_key():
+    return (g.user_email or "").strip().lower()
+
+
+@events_bp.route("/admin/pilot-cohort/report", methods=["POST"])
+@_private_report
+@require_api_key
+@limiter.limit("6 per minute", key_func=_pilot_admin_limit_key, on_breach=_pilot_rate_rejected)
+@limiter.limit("30 per hour", key_func=_pilot_admin_limit_key, on_breach=_pilot_rate_rejected)
+def pilot_cohort_report():
+    from src.services.pilot_cohort import MAX_BYTES, CohortError, build_report
+
+    try:
+        # Bound reads even for chunked requests without Content-Length.
+        if request.content_length is not None and request.content_length > MAX_BYTES:
+            raise CohortError("register_too_large", 413)
+        raw = request.stream.read(MAX_BYTES + 1)
+        if len(raw) > MAX_BYTES:
+            raise CohortError("register_too_large", 413)
+        try:
+            data = json.loads(raw)
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            raise CohortError() from None
+        with db.session.no_autoflush:
+            if db.session.get_bind().dialect.name == "postgresql":
+                db.session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+            report = build_report(data)
+        db.session.rollback()
+        return jsonify(report)
+    except CohortError as exc:
+        db.session.rollback()
+        return jsonify({"error": exc.code}), exc.status
+    except RequestEntityTooLarge:
+        db.session.rollback()
+        return jsonify({"error": "register_too_large"}), 413
+    except DBAPIError as exc:
+        db.session.rollback()
+        if getattr(exc.orig, "sqlstate", None) in {"40001", "40P01"} or getattr(exc.orig, "pgcode", None) in {
+            "40001",
+            "40P01",
+        }:
+            return jsonify({"error": "retry_conflict"}), 409
+        logger.error("Pilot cohort database report failed")
+        return jsonify({"error": "cohort_report_failed"}), 500
+    except Exception:
+        db.session.rollback()
+        logger.error("Pilot cohort report failed")
+        return jsonify({"error": "cohort_report_failed"}), 500
 
 
 @events_bp.route("/admin/analytics/summary", methods=["GET"])

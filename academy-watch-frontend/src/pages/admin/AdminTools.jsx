@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { APIService } from '@/lib/api'
+import AdminPilotCohort from './AdminPilotCohort'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -666,6 +667,8 @@ export function AdminTools() {
                 <h2 className="text-3xl font-bold tracking-tight">Tools</h2>
                 <p className="text-muted-foreground mt-1">API connection status and rebuild configurations</p>
             </div>
+
+            <AdminPilotCohort />
 
             <ApiFootballStatusCard />
 
