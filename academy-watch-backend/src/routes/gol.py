@@ -189,7 +189,13 @@ def gol_chat():
                     # Stored replace events describe intermediate revisions; the full answer above wins.
                     if event["event"] != "replace":
                         yield _sse(event["event"], event["data"])
-                yield _sse("done", {})
+                # A stored partial is terminal and truncated: tell the client so it can
+                # say so instead of presenting the replay as a complete answer.
+                meta = reservation.get("response_meta") or {}
+                yield _sse(
+                    "done",
+                    {"partial": bool(meta.get("partial")), "delivered_chars": meta.get("delivered_chars")},
+                )
                 return
             if not reservation.get("execution_id"):
                 # Preserve the existing admin and billing-disabled streaming contract.

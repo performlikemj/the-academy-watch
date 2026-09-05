@@ -1,6 +1,6 @@
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { GolDataCard } from './GolDataCard'
-import { Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -93,6 +93,16 @@ export function GolMessage({ message, expanded, onPlayerClick }) {
               <GolDataCard key={i} card={card} expanded={expanded} onPlayerClick={onPlayerClick} />
             ))}
           </div>
+        )}
+
+        {message.cutOff && (
+          <p
+            className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400"
+            role="status"
+          >
+            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+            This answer was cut off before it finished. Ask it again as a new question.
+          </p>
         )}
       </div>
     </div>

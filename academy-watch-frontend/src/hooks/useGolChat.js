@@ -30,7 +30,7 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
   const initialFreeQuestions = finiteBalance(initialUsage.freeQuestionsRemaining)
   const initialCreditBalance = finiteBalance(initialUsage.creditBalance)
   const [messages, setMessages] = useState([])
-  // Each message: {id, role, content, dataCards, toolCall, hiddenHistory}
+  // Each message: {id, role, content, dataCards, toolCall, hiddenHistory, cutOff?}
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
   const [usage, setUsage] = useState(() => ({
@@ -237,7 +237,10 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
           failAttempt()
         } else if (type === 'done') {
           receivedDone = true
-          updateAssistant((message) => ({ ...message, toolCall: null }))
+          // A replayed cut-off answer is terminal: flag it, never offer a retry.
+          updateAssistant((message) => (
+            data.partial ? { ...message, toolCall: null, cutOff: true } : { ...message, toolCall: null }
+          ))
           if (!terminalError) setFailedAttempt(null)
         } else if (!terminalError) {
           if (type === 'token' || type === 'message') {
