@@ -148,18 +148,31 @@ def gol_chat():
         text = ""
         events = []
         delivered_chars = 0
+        answer_begun = False
 
         def compensate(*, disconnect=False):
-            nonlocal failed
+            nonlocal failed, completed
             if failed or completed:
                 return None
             failed = True
             try:
+                if disconnect and answer_begun:
+                    # A delivered answer is terminal, even if only a card/history
+                    # was yielded. Replay this exact partial instead of charging again.
+                    completed = finish_execution(
+                        g.user,
+                        reservation,
+                        response_text=text,
+                        response_events=events,
+                        partial=True,
+                        refund=False,
+                        disconnect_delivered_chars=delivered_chars,
+                    )
+                    return None
                 refunded = finish_execution(
                     g.user,
                     reservation,
                     failed=True,
-                    refund=not disconnect or delivered_chars < 200,
                     disconnect_delivered_chars=delivered_chars if disconnect else None,
                 )
                 if refunded:
@@ -214,6 +227,12 @@ def gol_chat():
                     # Count content handed to the response iterator, including each
                     # replacement, before suspension (close raises at the yield).
                     delivered_chars += len(evt_data.get("content", ""))
+                if (evt_type == "token" and evt_data.get("content")) or evt_type in {
+                    "replace",
+                    "data_card",
+                    "history_entries",
+                }:
+                    answer_begun = True
                 yield frame
             refunded_usage = compensate()
             yield _sse("error", {"message": "Chat ended before completion"})

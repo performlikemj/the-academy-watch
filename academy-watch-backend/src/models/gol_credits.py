@@ -1,5 +1,6 @@
 """Append-only GOL credit ledger with mutable refund accounting on grants."""
 
+import json
 from datetime import UTC, datetime
 
 from src.models.league import db
@@ -101,6 +102,18 @@ class GolChatExecution(db.Model):
         db.Index("ix_gol_chat_executions_debit", "debit_id"),
     )
 
+    @property
+    def response_meta(self):
+        # Partial answers use an envelope in the existing JSON text column;
+        # legacy/full completions remain ordered event lists. No DDL required.
+        payload = json.loads(self.response_events or "[]")
+        return payload.get("response_meta", {}) if isinstance(payload, dict) else {}
+
+    @property
+    def terminal_events(self):
+        payload = json.loads(self.response_events or "[]")
+        return payload.get("events", []) if isinstance(payload, dict) else payload
+
     def to_dict(self):
         return {
             "client_msg_id": self.client_msg_id,
@@ -109,6 +122,7 @@ class GolChatExecution(db.Model):
             "status": self.status,
             "response_text": self.response_text,
             "response_events": self.response_events,
+            "response_meta": self.response_meta,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }

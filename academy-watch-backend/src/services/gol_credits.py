@@ -184,7 +184,8 @@ def _execution_reservation(debit, question_hash, *, debited):
         lease_generation=execution.lease_generation,
         replay=execution.status == "completed",
         response_text=execution.response_text,
-        response_events=json.loads(execution.response_events or "[]"),
+        response_events=execution.terminal_events,
+        response_meta=execution.response_meta,
     )
     db.session.commit()
     return payload
@@ -292,6 +293,7 @@ def finish_execution(
     failed=False,
     refund=True,
     disconnect_delivered_chars=None,
+    partial=False,
 ):
     """Fence stale workers and commit completion or exact compensation atomically."""
     if not reservation.get("execution_id"):
@@ -310,14 +312,24 @@ def finish_execution(
                 status="failed" if failed else "completed",
                 completed_at=_now(),
                 response_text=response_text,
-                response_events=json.dumps(response_events or []),
+                response_events=json.dumps(
+                    {
+                        "events": response_events or [],
+                        "response_meta": {
+                            "partial": True,
+                            "delivered_chars": disconnect_delivered_chars,
+                        },
+                    }
+                    if partial
+                    else response_events or []
+                ),
             )
             .execution_options(synchronize_session=False)
         ).rowcount
         if changed != 1:
             db.session.rollback()
             return False
-        if failed and disconnect_delivered_chars is not None:
+        if disconnect_delivered_chars is not None:
             debit = db.session.get(GolCreditLedger, reservation["debit_id"])
             # Keep the fingerprint prefix; append the disconnect disposition without
             # adding schema. Retries must not undo a deliberately retained charge.

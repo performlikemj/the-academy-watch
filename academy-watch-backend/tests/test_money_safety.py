@@ -465,39 +465,151 @@ def test_pending_checkout_retry_reuses_durable_purchase_key(app, client, monkeyp
 
 @pytest.mark.parametrize(
     "chunks",
-    [[], [("token", 199)], [("token", 200)], [("token", 500)], [("replace", 500)], [("token", 150), ("replace", 50)]],
+    [
+        [],
+        [("token", 0)],
+        [("token", 1)],
+        [("token", 199)],
+        [("token", 200)],
+        [("token", 500)],
+        [("replace", 0)],
+        [("replace", 500)],
+        [("token", 150), ("replace", 50)],
+    ],
 )
-def test_disconnect_refund_depends_on_total_answer_characters_yielded(app, client, monkeypatch, chunks):
+def test_disconnect_before_answer_refunds_but_any_answer_becomes_terminal_partial(app, client, monkeypatch, chunks):
     _enable(monkeypatch)
     monkeypatch.setenv("GOL_FREE_ALLOWANCE", "1")
     user = _user()
     _StubGolService.events = [{"event": kind, "data": {"content": "x" * length}} for kind, length in chunks]
-    _StubGolService.events.append({"event": "done", "data": {}})
+    # This content exists upstream but must not appear in the saved partial.
+    _StubGolService.events.extend(
+        [{"event": "token", "data": {"content": "NOT_YIELDED"}}, {"event": "done", "data": {}}]
+    )
     response = _chat(client, user)
     frames = iter(response.response)
     assert next(frames).decode().startswith("event: usage")
+    expected_text = ""
+    expected_events = []
     for kind, length in chunks:
         frame = next(frames).decode()
         assert frame.startswith(f"event: {kind}")
         assert "x" * length in frame
+        if kind == "replace":
+            expected_text = "x" * length
+            expected_events.append({"event": kind, "data": {"content": expected_text}})
+        else:
+            expected_text += "x" * length
     before_close = balances(user)
     response.close()
     delivered = sum(length for _, length in chunks)
-    refunded = delivered < 200
+    begun = any(length or kind == "replace" for kind, length in chunks)
+    refunded = not begun
     db.session.expire_all()
     execution = GolChatExecution.query.one()
     debit = GolCreditLedger.query.filter_by(kind="debit").one()
-    assert execution.status == "failed"
+    assert execution.status == ("failed" if refunded else "completed")
     assert f";disconnect_delivered_chars={delivered};refund_withheld={str(not refunded).lower()}" in debit.note
     assert debit.note.partition(";")[0] == execution.input_hash
     assert GolCreditLedger.query.filter_by(kind="reversal", debit_id=debit.id).count() == int(refunded)
     assert balances(user)["free_questions_remaining"] == int(refunded)
-    if not refunded:
+    if begun:
+        assert execution.response_meta == {"partial": True, "delivered_chars": delivered}
+        assert execution.to_dict()["response_meta"]["partial"] is True
+        assert execution.response_text == expected_text
+        assert execution.terminal_events == expected_events
         assert balances(user) == before_close
-        # Replaying the same id must not retroactively refund the withheld charge.
-        retry = _chat(client, user)
-        assert retry.status_code == 402
-        assert GolCreditLedger.query.filter_by(kind="reversal").count() == 0
+        ledger_before = [row.to_dict() for row in GolCreditLedger.query.all()]
+        monkeypatch.setattr(_StubGolService, "__init__", Mock(side_effect=RuntimeError("must replay")))
+        for _ in range(2):
+            retry = _chat(client, user)
+            assert retry.status_code == 200
+            body = retry.get_data(as_text=True)
+            assert '"content": ' + json.dumps(expected_text) in body
+            assert "NOT_YIELDED" not in body
+            assert body.index("event: usage") < body.index("event: replace") < body.index("event: done")
+        assert [row.to_dict() for row in GolCreditLedger.query.all()] == ledger_before
+        assert balances(user) == before_close
+    else:
+        assert execution.response_meta == {}
+
+
+@pytest.mark.parametrize(
+    "events",
+    [
+        [{"event": "data_card", "data": {"title": "Scouting report", "rows": [1, 2]}}],
+        [{"event": "history_entries", "data": {"entries": [{"role": "tool", "content": "report"}]}}],
+        [
+            {"event": "data_card", "data": {"title": "First"}},
+            {"event": "history_entries", "data": {"entries": [{"role": "assistant", "content": "context"}]}},
+            {"event": "data_card", "data": {"title": "Second"}},
+        ],
+    ],
+)
+def test_tool_answer_disconnect_is_completed_and_replayed_without_new_debit(app, client, monkeypatch, events):
+    _enable(monkeypatch)
+    user = _user()
+    _StubGolService.events = [
+        *events,
+        {"event": "data_card", "data": {"title": "NOT_YIELDED"}},
+        {"event": "done", "data": {}},
+    ]
+    response = _chat(client, user)
+    frames = iter(response.response)
+    assert next(frames).decode().startswith("event: usage")
+    for event in events:
+        assert next(frames).decode().startswith(f"event: {event['event']}")
+    before = balances(user)
+    response.close()
+    db.session.expire_all()
+    execution = GolChatExecution.query.one()
+    assert execution.status == "completed"
+    assert execution.response_text == ""
+    assert execution.response_meta == {"partial": True, "delivered_chars": 0}
+    assert execution.terminal_events == events
+    assert GolCreditLedger.query.filter_by(kind="reversal").count() == 0
+    ledger_before = [row.to_dict() for row in GolCreditLedger.query.all()]
+    monkeypatch.setattr(_StubGolService, "__init__", Mock(side_effect=RuntimeError("must replay")))
+    replay = _chat(client, user)
+    assert replay.status_code == 200
+    body = replay.get_data(as_text=True)
+    actual_events = []
+    for frame in body.strip().split("\n\n"):
+        kind, data = frame.split("\n")
+        actual_events.append({"event": kind.removeprefix("event: "), "data": json.loads(data.removeprefix("data: "))})
+    assert actual_events[0]["event"] == "usage"
+    assert actual_events[1:] == [{"event": "replace", "data": {"content": ""}}, *events, {"event": "done", "data": {}}]
+    assert [row.to_dict() for row in GolCreditLedger.query.all()] == ledger_before
+    assert balances(user) == before
+
+
+def test_tool_call_status_alone_does_not_begin_answer(app, client, monkeypatch):
+    _enable(monkeypatch)
+    user = _user()
+    _StubGolService.events = [{"event": "tool_call", "data": {"name": "search"}}, {"event": "done", "data": {}}]
+    response = _chat(client, user)
+    frames = iter(response.response)
+    next(frames)
+    assert next(frames).decode().startswith("event: tool_call")
+    response.close()
+    assert GolChatExecution.query.one().status == "failed"
+    assert GolCreditLedger.query.filter_by(kind="reversal").count() == 1
+
+
+def test_stale_worker_cannot_persist_partial_or_change_disconnect_note(app, monkeypatch):
+    _enable(monkeypatch)
+    user = _user()
+    first = reserve_question(user, "partial_generation", question_hash="d" * 64)
+    _expire_execution()
+    second = reserve_question(user, "partial_generation", question_hash="d" * 64)
+    assert not finish_execution(
+        user, first, response_text="stale partial", partial=True, refund=False, disconnect_delivered_chars=13
+    )
+    assert GolChatExecution.query.one().status == "running"
+    assert GolCreditLedger.query.one().note == "d" * 64
+    assert finish_execution(user, second, response_text="winning answer")
+    assert GolChatExecution.query.one().response_text == "winning answer"
+    assert GolChatExecution.query.one().response_meta == {}
 
 
 @pytest.mark.parametrize("failure", ["error", "exception"])
