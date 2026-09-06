@@ -71,7 +71,7 @@ if [ -n "$destination_arg" ]; then
 else
   destination=$(yaml_sim_value destination "$config_file")
   if [ -n "$destination" ]; then destination_source="harness.yaml sim.destination"
-  else destination="platform=iOS Simulator,name=iPhone 17,OS=26.2"; destination_source="pack canonical"; fi
+  else destination="platform=iOS Simulator,name=iPhone 17,OS=26.5"; destination_source="pack canonical"; fi
 fi
 echo "Destination source: $destination_source"
 echo "Destination: $destination"
