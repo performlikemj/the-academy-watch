@@ -21,8 +21,8 @@ Owner: /root
 
 ## State
 - Done: Assessment and current backend recon; isolated latest-main worktree created.
-- Now: Implementation complete, validated, and committed locally as 3723bff8; user authorized branch publication and draft PR creation; delivery in progress.
-- Next: Push to performlikemj/the-academy-watch and open the authorized draft PR; inspect CI. Then deploy additive backend before release, update photo disclosure, and run a real-device pilot walkthrough.
+- Now: Implementation complete, validated, and committed locally as 3723bff8; published as draft PR #1045; GitHub CI running.
+- Next: Review PR #1045 and CI results. After merge, deploy additive backend before release, update photo disclosure, and run a real-device pilot walkthrough.
 
 ## Links
 - Upstream: CONTINUITY.md
@@ -62,7 +62,8 @@ Owner: /root
 ## Delivery
 - Commit: `3723bff8` on `feat/ios-player-club-experience`; implementation complete locally.
 - Final unsigned archive: `/tmp/AcademyPlayerClubFinal.xcarchive` — ARCHIVE SUCCEEDED.
-- PR title/body prepared at `/tmp/academy-player-club-pr.md`; no PR exists yet.
-- Automatic approval review rejected `git push -u origin feat/ios-player-club-experience`: publication to an external/unverified remote was not explicitly authorized by the build request. No workaround or alternate publication attempted. Await explicit authorization for `performlikemj/the-academy-watch`.
+- Draft PR: https://github.com/performlikemj/the-academy-watch/pull/1045 (open, mergeable at initial check).
+- Automatic approval review rejected `git push -u origin feat/ios-player-club-experience`: publication to an external/unverified remote was not explicitly authorized by the build request. No workaround or alternate publication attempted. Resolved by explicit user authorization below.
 
 - 2026-09-06: User explicitly approved the requested push to `performlikemj/the-academy-watch` and draft PR creation ("go for it"). Prior publication blocker resolved.
+- 2026-09-06: `git push -u origin feat/ios-player-club-experience` succeeded; `gh pr create --draft` created #1045. Initial CI: backend lint and frontend dependency security running. No merge, deployment, or App Store submission performed.
