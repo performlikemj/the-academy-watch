@@ -21,8 +21,8 @@ Owner: /root
 
 ## State
 - Done: Assessment and current backend recon; isolated latest-main worktree created.
-- Now: Implementation complete, validated, and committed locally as 3723bff8; push blocked by automatic approval review.
-- Next: Obtain explicit authorization to push to performlikemj/the-academy-watch and open a draft PR. Then deploy additive backend before release, update photo disclosure, and run a real-device pilot walkthrough.
+- Now: Implementation complete, validated, and committed locally as 3723bff8; user authorized branch publication and draft PR creation; delivery in progress.
+- Next: Push to performlikemj/the-academy-watch and open the authorized draft PR; inspect CI. Then deploy additive backend before release, update photo disclosure, and run a real-device pilot walkthrough.
 
 ## Links
 - Upstream: CONTINUITY.md
@@ -64,3 +64,5 @@ Owner: /root
 - Final unsigned archive: `/tmp/AcademyPlayerClubFinal.xcarchive` — ARCHIVE SUCCEEDED.
 - PR title/body prepared at `/tmp/academy-player-club-pr.md`; no PR exists yet.
 - Automatic approval review rejected `git push -u origin feat/ios-player-club-experience`: publication to an external/unverified remote was not explicitly authorized by the build request. No workaround or alternate publication attempted. Await explicit authorization for `performlikemj/the-academy-watch`.
+
+- 2026-09-06: User explicitly approved the requested push to `performlikemj/the-academy-watch` and draft PR creation ("go for it"). Prior publication blocker resolved.
