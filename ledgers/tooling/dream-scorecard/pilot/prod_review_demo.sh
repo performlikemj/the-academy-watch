@@ -8,7 +8,7 @@ set -eu
 set -o pipefail
 : "${REVIEW_PLAYER_EMAIL:?Required}" "${REVIEW_PLAYER_CODE:?Required}"
 : "${REVIEW_SCOUT_EMAIL:?Required}" "${REVIEW_SCOUT_CODE:?Required}"
-: "${ADMIN_API_KEY:?Required}" "${ADMIN_EMAIL:?Required}" "${ADMIN_CODE:?Required}"
+: "${ADMIN_API_KEY:=}" "${ADMIN_EMAIL:=}" "${ADMIN_CODE:=}"
 API="${API:-https://api.theacademywatch.com/api}"; API="${API%/}"
 case "$API" in https://api.theacademywatch.com/api) ;; *) printf 'Production API required\n' >&2; exit 1;; esac
 export API REVIEW_PLAYER_EMAIL REVIEW_PLAYER_CODE REVIEW_SCOUT_EMAIL REVIEW_SCOUT_CODE ADMIN_EMAIL ADMIN_CODE ADMIN_API_KEY
@@ -33,6 +33,7 @@ j() { printf '%s' "$BODY" | python3 -c 'import json,sys,os; d=json.load(sys.stdi
 payload() { python3 -c "import json,os,uuid; from datetime import datetime,timezone,timedelta; print(json.dumps($1))"; }
 api() {
   local method="$1" route="$2" token="${3:-}" data="${4:-}" expected="${5:-200}" raw rc=0
+  case "$route" in /admin/*) [ -n "$ADMIN_TOKEN" ] || { printf "NEEDS_ADMIN %s %s\n" "$method" "$route"; exit 3; };; esac
   local -a args
   args=(-q -sS --proto '=https' --connect-timeout 15 --max-time 60 -X "$method" -H 'Accept: application/json')
   [ -z "$token" ] || args+=(-H "Authorization: Bearer $token")
@@ -72,7 +73,7 @@ api GET /billing/config
 [ "$(j 'd["enabled"]')" = True ] || fail 'Billing configuration is disabled'
 PLAYER_TOKEN=$(login REVIEW_PLAYER user); export PLAYER_TOKEN
 SCOUT_TOKEN=$(login REVIEW_SCOUT user); export SCOUT_TOKEN
-ADMIN_TOKEN=$(login ADMIN admin); export ADMIN_TOKEN
+if [ -n "$ADMIN_CODE" ]; then ADMIN_TOKEN=$(login ADMIN admin); else ADMIN_TOKEN=""; fi; export ADMIN_TOKEN
 api GET /me/club-invitations "$PLAYER_TOKEN"
 printf 'preflight=passed\n'
 
