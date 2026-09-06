@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 struct PlayerOnboardingView: View {
@@ -10,7 +11,7 @@ struct PlayerOnboardingView: View {
         viewModel: PlayerSelfSearchViewModel? = nil
     ) {
         self.apiClient = apiClient
-        _viewModel = StateObject(wrappedValue: viewModel ?? PlayerSelfSearchViewModel(apiClient: apiClient))
+        _viewModel = StateObject(wrappedValue: viewModel ?? PlayerSelfSearchViewModel(apiClient: apiClient, worldwideClient: apiClient))
     }
 
     var body: some View {
@@ -21,12 +22,12 @@ struct PlayerOnboardingView: View {
                     onboardingHeader
                     trackedSearch
                     results
-                    nextSteps
+                    if viewModel.hasSearched, !viewModel.isLoading, viewModel.errorMessage == nil { nextSteps }
                 }
                 .padding(18)
             }
         }
-        .navigationTitle("Are you a player?")
+        .navigationTitle("Find your profile")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("player-onboarding-search")
     }
@@ -39,7 +40,7 @@ struct PlayerOnboardingView: View {
                 .foregroundStyle(AcademyColors.claret)
             Text("Search for yourself")
                 .font(.title2.weight(.bold))
-            Text("Start with players already tracked by Academy Watch. If you find your profile, open it and use “This is me.” Direct player claims are for adults aged 18 or older.")
+            Text("Enter your name and we’ll check existing profiles. If you find yours, open it and choose “This is me.” Players managing their own profile must be 18 or older.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -70,7 +71,7 @@ struct PlayerOnboardingView: View {
             } label: {
                 HStack {
                     if viewModel.isLoading { ProgressView().controlSize(.small) }
-                    Label("Search tracked players", systemImage: "magnifyingglass")
+                    Label("Find my profile", systemImage: "magnifyingglass")
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -84,7 +85,7 @@ struct PlayerOnboardingView: View {
     private var results: some View {
         if !viewModel.players.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                Text("TRACKED RESULTS")
+                Text("MATCHING PROFILES")
                     .font(.caption.weight(.bold))
                     .tracking(1.1)
                     .foregroundStyle(AcademyColors.claret)
@@ -108,8 +109,8 @@ struct PlayerOnboardingView: View {
                     .buttonStyle(.plain)
                 }
             }
-        } else if viewModel.hasSearched, !viewModel.isLoading, viewModel.errorMessage == nil {
-            Label("No tracked profile matched that name.", systemImage: "person.crop.circle.badge.questionmark")
+        } else if viewModel.hasSearched, viewModel.worldwidePlayers.isEmpty, !viewModel.isLoading, viewModel.errorMessage == nil {
+            Label("No existing profile matched that name.", systemImage: "person.crop.circle.badge.questionmark")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -120,34 +121,19 @@ struct PlayerOnboardingView: View {
 
     private var nextSteps: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("CAN'T FIND YOURSELF?")
-                .font(.caption.weight(.bold))
-                .tracking(1.1)
-                .foregroundStyle(AcademyColors.claret)
-
-            NavigationLink {
-                WorldwidePlayerSearchView(purpose: .claimSelf, apiClient: apiClient)
-            } label: {
-                OnboardingActionRow(
-                    icon: "globe",
-                    title: "Search worldwide",
-                    detail: "Check the global player universe before creating a community profile."
-                )
+            ForEach(viewModel.worldwidePlayers) { player in
+                NavigationLink { PlayerDetailView(playerID: player.playerApiId, apiClient: apiClient) } label: {
+                    OnboardingActionRow(icon: "person.crop.circle", title: player.name, detail: [player.clubName, player.nationality].compactMap { $0 }.joined(separator: " · "))
+                }.buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-
             NavigationLink {
                 LocalPlayerCreateView(context: .claimant, apiClient: apiClient)
             } label: {
-                OnboardingActionRow(
-                    icon: "person.badge.plus",
-                    title: "Create your profile",
-                    detail: "For players outside official coverage. Your profile stays private while it is reviewed."
-                )
-            }
-            .buttonStyle(.plain)
+                OnboardingActionRow(icon: "person.badge.plus", title: "None of these are me — create a profile", detail: "Your new profile stays private while it is reviewed.")
+            }.buttonStyle(.plain).accessibilityIdentifier("player-create-after-search")
         }
     }
+
 }
 
 @MainActor
@@ -182,123 +168,138 @@ struct LocalPlayerCreateView: View {
     }
 
     private var form: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Label("COMMUNITY PROFILE", systemImage: "person.crop.rectangle.badge.plus")
-                        .font(.caption.weight(.bold))
-                        .tracking(1.1)
-                        .foregroundStyle(AcademyColors.claret)
-                    Text(viewModel.context == .claimant ? "Tell us who you are" : "Add someone outside coverage")
-                        .font(.title2.weight(.bold))
-                    Text(formIntro)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Label("COMMUNITY PROFILE", systemImage: "person.crop.rectangle.badge.plus")
+                            .font(.caption.weight(.bold))
+                            .tracking(1.1)
+                            .foregroundStyle(AcademyColors.claret)
+                        Text(viewModel.context == .claimant ? "Tell us who you are" : "Add someone outside coverage")
+                            .font(.title2.weight(.bold))
+                        Text(formIntro)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
 
-                VStack(spacing: 15) {
-                    OnboardingTextField(
-                        title: "Full name",
-                        placeholder: "Player name",
-                        text: $viewModel.displayName,
-                        error: viewModel.error(for: .displayName),
-                        identifier: "local-player-name"
+                    VStack(spacing: 15) {
+                        OnboardingTextField(
+                            title: "Full name",
+                            placeholder: "Player name",
+                            text: $viewModel.displayName,
+                            error: viewModel.error(for: .displayName),
+                            identifier: "local-player-name"
+                        ).id("player-name")
+
+                        if viewModel.context == .claimant {
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text("Your relationship to the player").font(.subheadline.weight(.semibold))
+                                Picker("Relationship", selection: $viewModel.relationship) {
+                                    ForEach(LocalPlayerRelationship.allCases) { relationship in
+                                        Text(relationship.displayName).tag(relationship)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+
+                        OnboardingBirthDateField(
+                            birthDate: $viewModel.birthDate,
+                            requiresAdultEvidence: viewModel.requiresAdultEvidence,
+                            error: viewModel.error(for: .birthDate),
+                            identifier: "local-player-birth-date"
+                        ).id("age-verification")
+                        OnboardingTextField(
+                            title: viewModel.requiresAdultEvidence ? "Birth year (if no birth date)" : "Birth year (optional)",
+                            placeholder: "e.g. 2008",
+                            text: $viewModel.birthYear,
+                            error: viewModel.error(for: .birthYear),
+                            keyboardType: .numberPad,
+                            identifier: "local-player-birth-year"
+                        )
+                        OnboardingTextField(
+                            title: "Position (optional)",
+                            placeholder: "e.g. Centre-forward",
+                            text: $viewModel.position,
+                            error: viewModel.error(for: .position),
+                            identifier: "local-player-position"
+                        )
+                        OnboardingTextField(
+                            title: "Current club (optional)",
+                            placeholder: "Club or academy",
+                            text: $viewModel.clubName,
+                            error: viewModel.error(for: .clubName),
+                            identifier: "local-player-club"
+                        )
+                        OnboardingTextField(
+                            title: "Country (optional)",
+                            placeholder: "Country",
+                            text: $viewModel.country,
+                            error: viewModel.error(for: .country),
+                            identifier: "local-player-country"
+                        )
+                        OnboardingTextField(
+                            title: "City (optional)",
+                            placeholder: "City",
+                            text: $viewModel.city,
+                            error: viewModel.error(for: .city),
+                            identifier: "local-player-city"
+                        )
+
+                    }
+                    .padding(17)
+                    .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+
+                    Label(
+                        "Community profiles contain self-reported details, show no fabricated statistics, and remain private until review. Adults should manage their own claims; parents, guardians and agents must follow the community rules.",
+                        systemImage: "checkmark.shield"
                     )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                    if viewModel.context == .claimant {
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text("Your relationship to the player").font(.subheadline.weight(.semibold))
-                            Picker("Relationship", selection: $viewModel.relationship) {
-                                ForEach(LocalPlayerRelationship.allCases) { relationship in
-                                    Text(relationship.displayName).tag(relationship)
+                    if let error = viewModel.requestError {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(Color(uiColor: .systemRed))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Button {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        Task {
+                            await viewModel.submit()
+                            withAnimation {
+                                if viewModel.error(for: .displayName) != nil { proxy.scrollTo("player-name", anchor: .center) }
+                                else if viewModel.error(for: .birthDate) != nil || viewModel.error(for: .birthYear) != nil {
+                                    proxy.scrollTo("age-verification", anchor: .center)
                                 }
                             }
-                            .pickerStyle(.segmented)
                         }
+                    } label: {
+                        HStack {
+                            if viewModel.isSubmitting { ProgressView().controlSize(.small) }
+                            Text(viewModel.isSubmitting ? "Submitting…" : "Submit for review")
+                        }
+                        .frame(maxWidth: .infinity)
                     }
-
-                    OnboardingTextField(
-                        title: "Position (optional)",
-                        placeholder: "e.g. Centre-forward",
-                        text: $viewModel.position,
-                        error: viewModel.error(for: .position),
-                        identifier: "local-player-position"
-                    )
-                    OnboardingTextField(
-                        title: "Current club (optional)",
-                        placeholder: "Club or academy",
-                        text: $viewModel.clubName,
-                        error: viewModel.error(for: .clubName),
-                        identifier: "local-player-club"
-                    )
-                    OnboardingTextField(
-                        title: "Country (optional)",
-                        placeholder: "Country",
-                        text: $viewModel.country,
-                        error: viewModel.error(for: .country),
-                        identifier: "local-player-country"
-                    )
-                    OnboardingTextField(
-                        title: "City (optional)",
-                        placeholder: "City",
-                        text: $viewModel.city,
-                        error: viewModel.error(for: .city),
-                        identifier: "local-player-city"
-                    )
-                    OnboardingBirthDateField(
-                        birthDate: $viewModel.birthDate,
-                        error: viewModel.error(for: .birthDate),
-                        identifier: "local-player-birth-date"
-                    )
-                    OnboardingTextField(
-                        title: "Birth year (optional, used when no date is set)",
-                        placeholder: "e.g. 2008",
-                        text: $viewModel.birthYear,
-                        error: viewModel.error(for: .birthYear),
-                        keyboardType: .numberPad,
-                        identifier: "local-player-birth-year"
-                    )
+                    .buttonStyle(.borderedProminent)
+                    .tint(AcademyColors.claretFill)
+                    .disabled(viewModel.isSubmitting)
+                    .accessibilityIdentifier("local-player-submit")
                 }
-                .padding(17)
-                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
-
-                Label(
-                    "Community profiles contain self-reported details, show no fabricated statistics, and remain private until review. Adults should manage their own claims; parents, guardians and agents must follow the community rules.",
-                    systemImage: "checkmark.shield"
-                )
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-                if let error = viewModel.requestError {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(Color(uiColor: .systemRed))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Button {
-                    Task { await viewModel.submit() }
-                } label: {
-                    HStack {
-                        if viewModel.isSubmitting { ProgressView().controlSize(.small) }
-                        Text(viewModel.isSubmitting ? "Submitting…" : "Submit for review")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
-                .disabled(viewModel.isSubmitting)
-                .accessibilityIdentifier("local-player-submit")
+                .padding(18)
             }
-            .padding(18)
+            .scrollDismissesKeyboard(.interactively)
+            .accessibilityIdentifier("local-player-create-form")
         }
-        .accessibilityIdentifier("local-player-create-form")
     }
 
     private var formIntro: String {
         if viewModel.context == .claimant {
-            return "Use this only after checking tracked and worldwide search. Full name is required; everything else helps reviewers distinguish the right player."
+            return "Add your name and age details to get started. Players managing their own profile must be 18 or older. Your club and position help us match you correctly."
         }
         return "This creates a pending local identity under the service's review claim. The app omits an invented scout relationship and sends only the player details."
     }
@@ -436,6 +437,7 @@ struct OnboardingTextField: View {
 /// the user opts in, so the year-only path keeps working exactly as before.
 struct OnboardingBirthDateField: View {
     @Binding var birthDate: Date?
+    var requiresAdultEvidence = false
     let error: String?
     let identifier: String
 
@@ -452,7 +454,7 @@ struct OnboardingBirthDateField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Birth date (optional)").font(.subheadline.weight(.semibold))
+                Text(requiresAdultEvidence ? "Birth date / age verification" : "Birth date (optional)").font(.subheadline.weight(.semibold))
                 Spacer()
                 if birthDate != nil {
                     Button("Clear") { birthDate = nil }

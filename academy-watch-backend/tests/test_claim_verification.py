@@ -475,8 +475,11 @@ class TestAdminRecheck:
 
 
 def test_verification_code_never_appears_in_public_showcase(app, client):
+    from test_showcase import _seed_team, _tracked
+
     code = "AW-ABCDEFGH"
     with app.app_context():
+        _tracked(_seed_team(), PLAYER_ID, name="Synthetic Claim Player", birth_date="2000-01-01")
         _seed_claim(status="approved", code=code, verification_status="code_found")
 
     response = client.get(f"/api/players/{PLAYER_ID}/showcase")

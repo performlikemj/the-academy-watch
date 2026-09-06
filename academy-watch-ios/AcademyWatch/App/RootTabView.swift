@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum RootTab: String, Hashable {
+    case home
     case scoutDesk
     case watchlist
     case lists
@@ -9,9 +10,10 @@ enum RootTab: String, Hashable {
     static func fromLaunchArguments(_ arguments: [String]) -> RootTab {
         guard let flagIndex = arguments.firstIndex(of: "-initialTab"),
               arguments.indices.contains(flagIndex + 1)
-        else { return .scoutDesk }
+        else { return arguments.contains("-playerId") || arguments.contains("-comparePlayerIds") || arguments.contains("-showSignIn") ? .scoutDesk : .home }
 
         switch arguments[flagIndex + 1].lowercased() {
+        case "home": return .home
         case "watchlist": return .watchlist
         case "lists": return .lists
         case "account": return .account
@@ -30,7 +32,6 @@ struct RootTabView: View {
     @StateObject private var incomingRequestsViewModel: IncomingContactRequestsViewModel
     @State private var selectedTab: RootTab
     @State private var isSignInPresented: Bool
-    @State private var isPlayerPromptPresented = false
     @State private var accountDestination: AccountDestination?
 
     private let apiClient: APIClient
@@ -43,7 +44,7 @@ struct RootTabView: View {
         initialPhase: ScoutPhase = .all,
         initialPlayerID: Int? = nil,
         initialComparePlayerIDs: [Int] = [],
-        initialTab: RootTab = .scoutDesk,
+        initialTab: RootTab = .home,
         initiallyShowsSignIn: Bool = false
     ) {
         let fixtureDestination = FullCircleFixtureDestination.fromLaunchArguments(
@@ -51,7 +52,9 @@ struct RootTabView: View {
         )
         let fixtureState: AuthState?
         #if DEBUG
-        if fixtureDestination != nil {
+        if PlayerClubExperienceFixtures.mode != nil {
+            fixtureState = .signedIn(email: "maya@fixture.example", accountRole: .player, displayName: "Maya Okafor", isVerifiedScout: false)
+        } else if fixtureDestination != nil {
             switch fixtureDestination {
             case .fanRow:
                 fixtureState = nil
@@ -80,9 +83,15 @@ struct RootTabView: View {
         fixtureState = nil
         #endif
 
+        let tokenStore: any TokenStoreProtocol
+        #if DEBUG
+        tokenStore = PlayerClubExperienceFixtures.mode == nil ? KeychainTokenStore() : ExperienceTokenStore()
+        #else
+        tokenStore = KeychainTokenStore()
+        #endif
         let authManager = AuthManager(
             authClient: APIClient(),
-            tokenStore: KeychainTokenStore(),
+            tokenStore: tokenStore,
             fixtureState: fixtureState
         )
         let apiClient = APIClient(authSession: authManager)
@@ -118,7 +127,9 @@ struct RootTabView: View {
                 return .account
             case .watchlistNullStats:
                 return .watchlist
-            case .introduction, .attestationWarning, .watchingYou, .claimGate, .takedown, .fanRow, nil:
+            case .introduction, .attestationWarning, .watchingYou, .claimGate, .takedown, .fanRow:
+                return .scoutDesk
+            case nil:
                 return initialTab
             }
         }()
@@ -141,6 +152,11 @@ struct RootTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
+            PlayerHomeView(apiClient: apiClient, onSignIn: presentSignIn, onExplore: { selectedTab = .scoutDesk })
+                .id(authManager.email ?? "signed-out")
+                .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(RootTab.home)
+
             ScoutDeskView(
                 apiClient: apiClient,
                 playerDetailAPIClient: apiClient,
@@ -201,22 +217,6 @@ struct RootTabView: View {
         .sheet(isPresented: $isSignInPresented) {
             SignInView(authManager: authManager)
         }
-        .sheet(isPresented: $isPlayerPromptPresented) {
-            PlayerFirstSignInPrompt(
-                onStart: {
-                    markPlayerPromptDismissed()
-                    isPlayerPromptPresented = false
-                    selectedTab = .account
-                    accountDestination = .playerOnboarding
-                },
-                onDismiss: {
-                    markPlayerPromptDismissed()
-                    isPlayerPromptPresented = false
-                }
-            )
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-        }
         .alert(
             "Unable to Sign Out",
             isPresented: Binding(
@@ -245,11 +245,9 @@ struct RootTabView: View {
                 async let lists: Void = followListsViewModel.loadLists()
                 async let sentRequests: Void = sentRequestsViewModel.reload()
                 async let incomingRequests: Void = incomingRequestsViewModel.reload()
-                async let playerPrompt: Void = evaluatePlayerPrompt()
-                _ = await (account, watchlist, lists, sentRequests, incomingRequests, playerPrompt)
+                _ = await (account, watchlist, lists, sentRequests, incomingRequests)
             } else {
                 accountDestination = nil
-                isPlayerPromptPresented = false
                 watchlistViewModel.resetForSignOut()
                 followListsViewModel.resetForSignOut()
                 sentRequestsViewModel.resetForSignOut()
@@ -268,56 +266,4 @@ struct RootTabView: View {
         accountDestination = .verification
     }
 
-    private func evaluatePlayerPrompt() async {
-        guard !UserDefaults.standard.bool(forKey: playerPromptDefaultsKey) else { return }
-        do {
-            let response = try await apiClient.fetchMyProfileClaims()
-            guard authManager.isAuthenticated, response.claims.isEmpty else { return }
-            isPlayerPromptPresented = true
-        } catch {
-            // The Account entry remains available. A transient read failure
-            // must not turn a one-time prompt into a false claim-status statement.
-        }
-    }
-
-    private func markPlayerPromptDismissed() {
-        UserDefaults.standard.set(true, forKey: playerPromptDefaultsKey)
-    }
-
-    private var playerPromptDefaultsKey: String {
-        "academyWatch.playerOnboardingPromptDismissed.v1"
-    }
-}
-
-private struct PlayerFirstSignInPrompt: View {
-    let onStart: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(spacing: 18) {
-            ZStack {
-                Circle().fill(AcademyColors.claretSoft).frame(width: 70, height: 70)
-                Image(systemName: "figure.soccer")
-                    .font(.system(size: 34))
-                    .foregroundStyle(AcademyColors.claret)
-            }
-            VStack(spacing: 7) {
-                Text("Are you a player?").font(.title2.weight(.bold))
-                Text("Find an existing profile to claim, search worldwide, or create a private community profile for review.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            Button("Find my profile", action: onStart)
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
-            Button("Not now", action: onDismiss)
-                .font(.subheadline.weight(.semibold))
-                .accessibilityIdentifier("first-sign-in-player-prompt-dismiss")
-        }
-        .padding(24)
-        .accessibilityIdentifier("first-sign-in-player-prompt")
-    }
 }

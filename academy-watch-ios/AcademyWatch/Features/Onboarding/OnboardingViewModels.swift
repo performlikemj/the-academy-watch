@@ -43,18 +43,23 @@ final class LocalPlayerFormViewModel: ObservableObject {
     let context: LocalPlayerFormContext
     private let apiClient: any OnboardingAPIClientProtocol
     private let calendar: Calendar
+    private let today: () -> Date
 
     init(
         context: LocalPlayerFormContext,
         apiClient: any OnboardingAPIClientProtocol = APIClient(),
         fixtureCreated: LocalPlayerCreateResponse? = nil,
-        calendar: Calendar = .current
+        calendar: Calendar = Calendar(identifier: .gregorian),
+        today: @escaping () -> Date = Date.init
     ) {
         self.context = context
         self.apiClient = apiClient
         created = fixtureCreated
         self.calendar = calendar
+        self.today = today
     }
+
+    var requiresAdultEvidence: Bool { context == .claimant && relationship == .player }
 
     @discardableResult
     func validate() -> Bool {
@@ -86,6 +91,29 @@ final class LocalPlayerFormViewModel: ObservableObject {
                     }
                 } else {
                     errors[.birthYear] = "Enter a whole year, for example 2008."
+                }
+            }
+        }
+        if requiresAdultEvidence, errors[.birthDate] == nil, errors[.birthYear] == nil {
+            if let birthDate {
+                // Calendar dates are interpreted as entered; compare against the
+                // server's UTC calendar day rather than a device time-of-day.
+                let iso = Self.birthDateString(from: birthDate, calendar: calendar)
+                var utc = Calendar(identifier: .gregorian)
+                utc.timeZone = TimeZone(secondsFromGMT: 0)!
+                let parts = iso.split(separator: "-").compactMap { Int($0) }
+                if parts.count != 3 || utc.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+                    .map({ utc.dateComponents([.year], from: $0, to: utc.startOfDay(for: today())).year ?? 0 < 18 }) != false {
+                    errors[.birthDate] = "You must be 18 or older to manage your own profile."
+                }
+            } else {
+                var utc = Calendar(identifier: .gregorian)
+                utc.timeZone = TimeZone(secondsFromGMT: 0)!
+                let year = Int(trimmed(birthYear))
+                if year == nil {
+                    errors[.birthDate] = "Add your birth date or birth year to confirm you are 18 or older."
+                } else if utc.component(.year, from: today()) - year! < 19 {
+                    errors[.birthDate] = "Enter your full birth date so we can confirm you are 18 or older."
                 }
             }
         }
@@ -165,54 +193,44 @@ final class LocalPlayerFormViewModel: ObservableObject {
 
 @MainActor
 final class PlayerSelfSearchViewModel: ObservableObject {
-    @Published var query = ""
+    @Published var query: String {
+        didSet {
+            if query != oldValue { players = []; worldwidePlayers = []; hasSearched = false; errorMessage = nil }
+        }
+    }
     @Published private(set) var players: [ScoutPlayerSummary]
+    @Published private(set) var worldwidePlayers: [WorldwidePlayer] = []
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var hasSearched: Bool
-
     private let apiClient: any ScoutAPIClientProtocol
-
-    init(
-        apiClient: any ScoutAPIClientProtocol = APIClient(),
-        fixtureQuery: String = "",
-        fixturePlayers: [ScoutPlayerSummary] = []
-    ) {
-        self.apiClient = apiClient
-        query = fixtureQuery
-        players = fixturePlayers
-        hasSearched = !fixturePlayers.isEmpty
+    private let worldwideClient: (any OnboardingAPIClientProtocol)?
+    init(apiClient: any ScoutAPIClientProtocol = APIClient(), worldwideClient: (any OnboardingAPIClientProtocol)? = nil, fixtureQuery: String = "", fixturePlayers: [ScoutPlayerSummary] = []) {
+        self.apiClient = apiClient; self.worldwideClient = worldwideClient
+        query = fixtureQuery; players = fixturePlayers; hasSearched = !fixturePlayers.isEmpty
     }
-
     func search() async {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard query.count >= 2, !isLoading else {
-            errorMessage = query.count < 2 ? "Enter at least 2 characters." : nil
+        let searchQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard searchQuery.count >= 3, !isLoading else {
+            if !isLoading { errorMessage = "Enter at least 3 characters of your full name." }
             return
         }
-        isLoading = true
-        errorMessage = nil
+        isLoading = true; errorMessage = nil; players = []; worldwidePlayers = []
         defer { isLoading = false }
         do {
-            let response = try await apiClient.fetchScoutPlayers(
-                ScoutPlayersRequest(
-                    page: 1,
-                    perPage: 20,
-                    search: query,
-                    position: nil,
-                    status: nil,
-                    maximumAge: nil,
-                    sort: "name",
-                    order: .ascending
-                )
-            )
+            let response = try await apiClient.fetchScoutPlayers(ScoutPlayersRequest(page: 1, perPage: 20, search: searchQuery, position: nil, status: nil, maximumAge: nil, sort: "name", order: .ascending))
+            guard !Task.isCancelled, query.trimmingCharacters(in: .whitespacesAndNewlines) == searchQuery else { return }
             players = response.players
+            if let worldwideClient {
+                let worldwide = try await worldwideClient.searchWorldwidePlayers(query: searchQuery)
+                guard !Task.isCancelled, query.trimmingCharacters(in: .whitespacesAndNewlines) == searchQuery else { players = []; return }
+                worldwidePlayers = worldwide.players.filter { row in !players.contains { $0.playerId == row.playerApiId } }
+            }
             hasSearched = true
         } catch {
-            players = []
+            guard !Task.isCancelled else { return }
             hasSearched = true
-            errorMessage = (error as? LocalizedError)?.errorDescription
-                ?? "We couldn't search tracked players."
+            errorMessage = "We couldn't finish searching. Please try again before creating another profile."
         }
     }
 }

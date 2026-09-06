@@ -38,6 +38,11 @@ struct AcademyWatchApp: App {
 
     init() {
         LaunchPerformance.markLaunchStarted()
+        #if DEBUG
+        if PlayerClubExperienceFixtures.mode != nil {
+            UserDefaults.standard.set("", forKey: "academyWatch.experienceRole.v1")
+        }
+        #endif
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
             return
         }

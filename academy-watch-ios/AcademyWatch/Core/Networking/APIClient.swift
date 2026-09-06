@@ -158,7 +158,7 @@ protocol OnboardingAPIClientProtocol: Sendable {
     func verifyClubClaim(id: Int, proofURL: String) async throws -> ClubClaimResponse
 }
 
-struct APIClient: ScoutAPIClientProtocol,
+struct APIClient: PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
     SeasonDirectoryAPIClientProtocol,
     PlayerDetailAPIClientProtocol,
     ShowcaseAPIClientProtocol,
@@ -191,15 +191,22 @@ struct APIClient: ScoutAPIClientProtocol,
     private let baseURL: URL
     private let session: URLSession
     private let authSession: (any AuthSessionProtocol)?
+    private let requiredCredential: String?
 
     init(
         baseURL: URL = APIClient.productionBaseURL,
         session: URLSession = .shared,
-        authSession: (any AuthSessionProtocol)? = nil
+        authSession: (any AuthSessionProtocol)? = nil,
+        requiredCredential: String? = nil
     ) {
         self.baseURL = baseURL
+        #if DEBUG
+        self.session = PlayerClubExperienceFixtures.mode == nil ? session : PlayerClubExperienceFixtures.session()
+        #else
         self.session = session
+        #endif
         self.authSession = authSession
+        self.requiredCredential = requiredCredential
     }
 
     func warmUp() async {
@@ -786,6 +793,75 @@ struct APIClient: ScoutAPIClientProtocol,
         )
     }
 
+    /// Multi-step uploads stay tied to the account that started them. A
+    /// sign-out or account switch stops subsequent authenticated requests.
+    func boundToCurrentAccount() async throws -> APIClient {
+        guard let credential = await authSession?.accessToken(), !credential.isEmpty else {
+            throw APIClientError.httpStatus(401)
+        }
+        return APIClient(baseURL: baseURL, session: session, authSession: authSession, requiredCredential: credential)
+    }
+
+    static func ownerShowcasePath(playerID: Int) -> String {
+        playerID < 0 ? "local-players/\(-playerID)/showcase" : "players/\(playerID)/showcase"
+    }
+
+    func fetchOwnerShowcase(playerID: Int) async throws -> OwnerShowcase {
+        try await get(path: Self.ownerShowcasePath(playerID: playerID), queryItems: [])
+    }
+
+    func saveBasicProfile(playerID: Int, update: BasicProfileUpdate) async throws {
+        let _: EmptyResponse = try await send(path: Self.ownerShowcasePath(playerID: playerID) + "/profile", method: "PATCH", body: update)
+    }
+
+    func addHighlight(playerID: Int, url: String, title: String) async throws {
+        let _: EmptyResponse = try await send(path: Self.ownerShowcasePath(playerID: playerID) + "/reel", method: "POST", body: ["url": url, "title": title])
+    }
+
+    func fetchClubInvitations(before: String? = nil) async throws -> ClubInvitationsResponse {
+        var query = [URLQueryItem(name: "limit", value: "20")]
+        query.appendIfPresent(name: "before", value: before)
+        return try await get(path: "me/club-invitations", queryItems: query)
+    }
+
+    func decideClubInvitation(id: String, decision: ClubInvitationDecision) async throws {
+        let _: EmptyResponse = try await send(path: "me/club-invitations/\(id)/\(decision.rawValue)", method: "POST", body: [String: String]())
+    }
+
+    func fetchPlayerFeedback(playerID: Int, before: String? = nil) async throws -> PlayerFeedbackPage {
+        var query = [URLQueryItem(name: "player_api_id", value: String(playerID)), URLQueryItem(name: "limit", value: "20")]
+        query.appendIfPresent(name: "before", value: before)
+        return try await get(path: "me/player-feedback", queryItems: query)
+    }
+
+    func fetchFeedbackDetail(id: String) async throws -> PlayerFeedback {
+        let result: PlayerFeedbackResponse = try await get(path: "me/player-feedback/\(id)", queryItems: [])
+        return result.feedback
+    }
+
+    func acknowledgeFeedback(id: String) async throws -> PlayerFeedback {
+        let result: PlayerFeedbackResponse = try await send(path: "me/player-feedback/\(id)/acknowledge", method: "POST", body: [String: String]())
+        return result.feedback
+    }
+
+    func createProfilePhoto(playerID: Int, sizeBytes: Int) async throws -> ProfilePhotoUpload {
+        struct Body: Encodable { let contentType = "image/jpeg"; let sizeBytes: Int }
+        return try await send(path: Self.ownerShowcasePath(playerID: playerID) + "/photos", method: "POST", body: Body(sizeBytes: sizeBytes))
+    }
+
+    func completeProfilePhoto(playerID: Int, mediaID: Int) async throws -> ProfilePhoto {
+        let result: ProfilePhotoResponse = try await send(path: Self.ownerShowcasePath(playerID: playerID) + "/photos/\(mediaID)/complete", method: "POST", body: [String: String]())
+        return result.media
+    }
+
+    func deleteProfilePhoto(playerID: Int, mediaID: Int) async throws {
+        let _: EmptyResponse = try await send(path: Self.ownerShowcasePath(playerID: playerID) + "/photos/\(mediaID)", method: "DELETE", body: [String: String]())
+    }
+
+    func makeProfilePhotoPrimary(playerID: Int, mediaID: Int) async throws {
+        let _: EmptyResponse = try await send(path: Self.ownerShowcasePath(playerID: playerID) + "/photos/\(mediaID)", method: "PATCH", body: ["is_primary": true])
+    }
+
     private func get<Response: Decodable>(
         path: String,
         queryItems: [URLQueryItem]
@@ -878,6 +954,9 @@ struct APIClient: ScoutAPIClientProtocol,
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed
             }
+        if let requiredCredential, token != requiredCredential {
+            throw APIClientError.httpStatus(401)
+        }
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue("no-store", forHTTPHeaderField: "Cache-Control")

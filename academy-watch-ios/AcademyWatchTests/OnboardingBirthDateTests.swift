@@ -192,6 +192,7 @@ final class OnboardingBirthDateTests: XCTestCase {
         let client = makeClient()
         let viewModel = LocalPlayerFormViewModel(context: .claimant, apiClient: client)
         viewModel.displayName = "Underage Self Claim"
+        viewModel.birthYear = "2000"
 
         await viewModel.submit()
 

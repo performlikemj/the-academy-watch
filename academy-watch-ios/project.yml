@@ -22,6 +22,7 @@ targets:
       path: AcademyWatch/Info.plist
       properties:
         CFBundleDisplayName: Academy Watch
+        CFBundleShortVersionString: $(MARKETING_VERSION)
         ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
         UILaunchScreen:
@@ -91,3 +92,15 @@ schemes:
       captureScreenshotsAutomatically: false
       targets:
         - AcademyWatchUITests
+
+  AcademyWatchExperience:
+    build:
+      targets:
+        AcademyWatch: all
+        AcademyWatchUITests: [test]
+    test:
+      captureScreenshotsAutomatically: false
+      targets:
+        - name: AcademyWatchUITests
+          selectedTests:
+            - PlayerClubExperienceUITests

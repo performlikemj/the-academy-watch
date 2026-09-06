@@ -2633,7 +2633,7 @@ def _delete_subject_affiliation(subject: ShowcaseSubject, aff_id: int):
         return jsonify(_safe_error_payload(e, "Failed to delete affiliation")), 500
 
 
-@showcase_bp.route("/players/<int:player_api_id>/showcase/profile", methods=["PUT"])
+@showcase_bp.route("/players/<int:player_api_id>/showcase/profile", methods=["PUT", "PATCH"])
 @hide_suppressed_player("player_api_id")
 @require_user_auth
 @limiter.limit("20 per hour", key_func=_user_rate_limit_key)
@@ -2642,7 +2642,7 @@ def upsert_showcase_profile(player_api_id: int):
     return _upsert_subject_showcase_profile(_api_subject(player_api_id))
 
 
-@showcase_bp.route("/local-players/<int:lp_id>/showcase/profile", methods=["PUT"])
+@showcase_bp.route("/local-players/<int:lp_id>/showcase/profile", methods=["PUT", "PATCH"])
 @require_user_auth
 @limiter.limit("20 per hour", key_func=_user_rate_limit_key)
 def upsert_local_showcase_profile(lp_id: int):
@@ -2658,6 +2658,39 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
         payload, payload_error = _json_object_or_400()
         if payload_error:
             return (jsonify({"error": "invalid_request"}), 400) if subject.is_local else payload_error
+
+        # Native basic-profile editing must not replace fields managed on the
+        # web or alter a private contract attestation. PATCH is deliberately
+        # restricted and merges only the four basic presentation fields.
+        basic_patch = request.method == "PATCH"
+        if basic_patch:
+            allowed = {"bio", "positions", "preferred_foot", "height_cm"}
+            if not payload or set(payload) - allowed:
+                return jsonify({"error": "invalid_request"}), 400
+            existing = (
+                PlayerShowcaseProfile.query.filter(*_subject_filters(PlayerShowcaseProfile, subject))
+                .populate_existing()
+                .with_for_update()
+                .first()
+            )
+            preserved = {
+                key: getattr(existing, key, None)
+                for key in (
+                    "bio",
+                    "positions",
+                    "preferred_foot",
+                    "height_cm",
+                    "availability",
+                    "agent_name",
+                    "agent_contact_email",
+                    "nationality_secondary",
+                    "languages",
+                )
+            }
+            preserved["contract_until"] = (
+                existing.contract_until.isoformat() if existing and existing.contract_until else None
+            )
+            payload = preserved | payload
 
         raw_contract_status = payload.get("contract_status")
         if raw_contract_status is not None and not isinstance(raw_contract_status, str):
@@ -2702,6 +2735,9 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
                 or contract_status in {"under_contract", "expiring"}
                 or (contract_status == "free_agent" and (subject.is_local or profile_contract_context))
             )
+
+        if basic_patch:
+            profile_contract_update_requested = False
 
         contract_claim = None
         contract_attestation = None
