@@ -2,14 +2,16 @@
  "1.1": {
   "score": 3,
   "reach": "LIVE_WEB_IOS",
-  "why": "[S0 A LIVE #957] web self-claim now sends contract_status (dialog mirrors iOS); local self-claims require birth_date \u226518 or fail-closed year (D1); birth_date stored (lp01) so exact-18 adults are public. Remaining: every claim still needs one admin review; iOS local-create lacks birthDate.",
-  "blocker": "Every claim still waits on one human admin review; iOS local-create does not send birth_date yet."
+  "why": "[2026-09-06; #1045] iOS player onboarding, My Profiles and basic profile editor shipped, including adult birth-date validation. Sources: academy-watch-ios/AcademyWatch/Features/Onboarding/PlayerOnboardingViews.swift; academy-watch-ios/AcademyWatch/Features/Home/ProfileEditorView.swift; ledgers/CONTINUITY_ios-player-club-experience.md. iOS 1.1.0 submitted to App Review 2026-09-06, not yet public; claims still require initial admin review. Existing web claim flow remains live (#957).",
+  "blocker": "[2026-09-06; #1045] iOS player onboarding, My Profiles and basic profile editor shipped, including adult birth-date validation. Sources: academy-watch-ios/AcademyWatch/Features/Onboarding/PlayerOnboardingViews.swift; academy-watch-ios/AcademyWatch/Features/Home/ProfileEditorView.swift; ledgers/CONTINUITY_ios-player-club-experience.md. iOS 1.1.0 submitted to App Review 2026-09-06, not yet public; claims still require initial admin review. Existing web claim flow remains live (#957).",
+  "next_step": "Verify public-store onboarding after iOS review/release; retain initial claim verification."
  },
  "1.2": {
   "score": 3,
   "reach": "LIVE_WEB",
-  "why": "[S1 P5; refreshed by astra review 2026-09-05 — the 'must still set the flag' text is stale] trust-tiered auto-approval: allow-listed low-risk fields keep the profile approved for accounts past the configured age with no adverse moderation events; sensitive changes still return the profile to pending (showcase.py:310, :2795). The threshold IS configured in prod (SHOWCASE_TRUST_MIN_ACCOUNT_AGE_DAYS=14, ledgers/CONTINUITY_dream-s1.md:74). Remaining: photos/contract fields still queue for admin; native claim attestation is not a complete bio/photo/reel editor.",
-  "blocker": "Photos and contract fields still queue for admin review; the native claim flow is not a complete bio/photo/reel editor."
+  "why": "[2026-09-06; #1045] Native bio/photo/highlight submissions under moderation shipped in academy-watch-ios/AcademyWatch/Features/Home/ProfileEditorView.swift and academy-watch-backend/src/routes/showcase.py; see ledgers/CONTINUITY_ios-player-club-experience.md. iOS 1.1.0 submitted to App Review 2026-09-06, not yet public. Web trust-tiered low-risk auto-approval remains deployed (ledgers/CONTINUITY_dream-s1.md); sensitive edits and media still require moderation.",
+  "blocker": "[2026-09-06; #1045] Native bio/photo/highlight submissions under moderation shipped in academy-watch-ios/AcademyWatch/Features/Home/ProfileEditorView.swift and academy-watch-backend/src/routes/showcase.py; see ledgers/CONTINUITY_ios-player-club-experience.md. iOS 1.1.0 submitted to App Review 2026-09-06, not yet public. Web trust-tiered low-risk auto-approval remains deployed (ledgers/CONTINUITY_dream-s1.md); sensitive edits and media still require moderation.",
+  "next_step": "Verify the store-released native editor and moderation lifecycle; preserve sensitive-change review."
  },
  "1.3": {
   "score": 3,
@@ -70,8 +72,11 @@
   "blocker": "Outreach entry is still the ScoutPage send button only; scout credential/adult verification gaps remain (review 1.5/3.1)."
  },
  "3.6": {
-  "score": 2,
-  "why": "[astra review 2026-09-05 P3, evidence-adjusted 3→2] Billing is dark in prod: the billing guard hides the whole rail while BILLING_ENABLED is off (billing.py:38) and the ledger records dark production — dark scaffolding is not a launched Scout Pro, and the owner re-scoped the paid offering to prepaid GOL credits (scout_entitlements.py:107). The rail itself is complete and now includes the money-safety fixes the review demanded first (ledgers/DIRECTIVE_money-safety.md 2026-09-05: GOL replay-as-stored-answer, refund settlements that survive event ordering, purchase terms frozen to the Stripe session, orphaned late payments; shipped dark in #1028–#1030, migration s3e1). Becomes 3 at go-live (review B2): Stripe endpoint + live prices + corrected terms copy + BILLING_ENABLED=1 with one real-card purchase/refund acceptance."
+  "score": 3,
+  "why": "[2026-09-06 owner-confirmed production evidence; #1028 #1029 #1030 #1032, s3e1; #1040] Billing LIVE: live Stripe product with one-time Starter $20 for 100 credits and Top up $10 for 50; webhook at api.theacademywatch.com/api/billing/stripe/webhook with a fresh signing secret in Key Vault; STRIPE_PRICE_GOL_STARTER/GOL_STARTER_CREDITS and STRIPE_PRICE_GOL_TOPUP/GOL_TOPUP_CREDITS configured; VITE_BILLING_TERMS=1 (prepaid-credit terms effective 2026-09-06) and BILLING_ENABLED=1. /api/billing/config returns enabled with 2 packs; pricing shows the $20 Starter card. Money-safety fixes shipped. Owner accepted the configured rail WITHOUT a real-card test purchase; revenue $0. Single client web; purchase/refund reconciliation remains untested live. Sources: ledgers/CONTINUITY_dream-s3.md; academy-watch-backend/src/routes/billing.py; academy-watch-backend/src/config/stripe_config.py; academy-watch-backend/src/services/stripe_billing.py; academy-watch-backend/src/services/gol_credits.py; academy-watch-frontend/src/pages/LegalPages.jsx. Paid scope is prepaid GOL credits, not a launched Scout Pro subscription.",
+  "blocker": "[2026-09-06 owner-confirmed production evidence; #1028 #1029 #1030 #1032, s3e1; #1040] Billing LIVE: live Stripe product with one-time Starter $20 for 100 credits and Top up $10 for 50; webhook at api.theacademywatch.com/api/billing/stripe/webhook with a fresh signing secret in Key Vault; STRIPE_PRICE_GOL_STARTER/GOL_STARTER_CREDITS and STRIPE_PRICE_GOL_TOPUP/GOL_TOPUP_CREDITS configured; VITE_BILLING_TERMS=1 (prepaid-credit terms effective 2026-09-06) and BILLING_ENABLED=1. /api/billing/config returns enabled with 2 packs; pricing shows the $20 Starter card. Money-safety fixes shipped. Owner accepted the configured rail WITHOUT a real-card test purchase; revenue $0. Single client web; purchase/refund reconciliation remains untested live. Sources: ledgers/CONTINUITY_dream-s3.md; academy-watch-backend/src/routes/billing.py; academy-watch-backend/src/config/stripe_config.py; academy-watch-backend/src/services/stripe_billing.py; academy-watch-backend/src/services/gol_credits.py; academy-watch-frontend/src/pages/LegalPages.jsx. Paid scope is prepaid GOL credits, not a launched Scout Pro subscription.",
+  "reach": "LIVE_WEB",
+  "next_step": "Collect reconciled real purchase, consumption and refund evidence; complete relevant client parity. Owner accepted configuration without a test purchase."
  },
  "3.7": {
   "score": 3,
@@ -80,18 +85,21 @@
  "2.1": {
   "score": 3,
   "reach": "LIVE_WEB",
-  "why": "[S0 B LIVE #959] approving a club-official claim now grants the console (bridge \u2192 program + approved claim + active manager); console-first clubs can adopt into a public funding league on claim. Remaining: one admin approval step; adoption pauses the console until funding review; local console programs not yet adoptable.",
+  "why": "[S0 B LIVE #959] approving a club-official claim now grants the console (bridge → program + approved claim + active manager); console-first clubs can adopt into a public funding league on claim. Remaining: one admin approval step; adoption pauses the console until funding review; local console programs not yet adoptable.",
   "blocker": "One admin approval remains between claim and console; adoption into funding pauses the console until the funding claim is approved."
  },
  "2.2": {
   "score": 3,
-  "why": "[adversary-1 keep] Roster CRUD (club.py:237-318; creator-only local rule :271-277), squad PUT (:520, :570-578), console dialogs (MyClubConsole.jsx:213, :301-304, :393, :823) and test :333-347 all verified. Live for any manager who clears the 2.1 gate; iOS absent."
+  "why": "[2026-09-06; P2 #1036, s4a1; #1045] Claimant-accepted club invitations and local contact routing shipped; PILOT_CLUB_RELATIONSHIPS_ENABLED=1 in prod. Sources: academy-watch-backend/src/routes/club.py; academy-watch-backend/src/routes/contact.py; academy-watch-backend/migrations/versions/s4a1_club_invitations.py; academy-watch-frontend/src/pages/MyClubConsole.jsx; academy-watch-ios/AcademyWatch/Features/Home/ClubInboxView.swift. Native inbox is in iOS 1.1.0 submitted 2026-09-06, not public; full native manager roster/squad parity remains.",
+  "blocker": "[2026-09-06; P2 #1036, s4a1; #1045] Claimant-accepted club invitations and local contact routing shipped; PILOT_CLUB_RELATIONSHIPS_ENABLED=1 in prod. Sources: academy-watch-backend/src/routes/club.py; academy-watch-backend/src/routes/contact.py; academy-watch-backend/migrations/versions/s4a1_club_invitations.py; academy-watch-frontend/src/pages/MyClubConsole.jsx; academy-watch-ios/AcademyWatch/Features/Home/ClubInboxView.swift. Native inbox is in iOS 1.1.0 submitted 2026-09-06, not public; full native manager roster/squad parity remains.",
+  "next_step": "Exercise the invitation and contact journey with the real pilot cohort; complete native manager roster/squad parity."
  },
  "2.3": {
   "score": 3,
   "reach": "LIVE_WEB",
-  "why": "[S1 P3+P4] clubs record a result and per-player lineup stats without video (POST /api/club/<program>/results) from the MyClub console; rows are club-confirmed and feed the rollup. Remaining: video_match link not persisted; program-scoped uniqueness is app-level until a partial unique index migration.",
-  "blocker": "Video link not persisted on result rows; uniqueness enforced in code, not yet by the database."
+  "why": "[2026-09-06; P4 #1043, s4c1] Stable club_results identities, result corrections and deletion shipped, with player_match_entries.club_result_id and database constraints; replaces the earlier unstable correction path. Sources: academy-watch-backend/migrations/versions/s4c1_club_results.py; academy-watch-backend/src/routes/club.py; academy-watch-frontend/src/pages/MyClubConsole.jsx. Native manager result-entry parity remains incomplete.",
+  "blocker": "[2026-09-06; P4 #1043, s4c1] Stable club_results identities, result corrections and deletion shipped, with player_match_entries.club_result_id and database constraints; replaces the earlier unstable correction path. Sources: academy-watch-backend/migrations/versions/s4c1_club_results.py; academy-watch-backend/src/routes/club.py; academy-watch-frontend/src/pages/MyClubConsole.jsx. Native manager result-entry parity remains incomplete.",
+  "next_step": "Validate corrections/deletion with the real club and complete native manager result-entry parity."
  },
  "2.4": {
   "score": 3,
@@ -107,8 +115,11 @@
   "why": "[adversary-1 keep] Manager /process records a timestamp only (club.py:601-616); job creation lives in admin video.py:300-315. Codex's 'no proven scheduler' for maintenance is wrong (scripts/azure/README.md:318-321; prod job exists) but that is retention, not processing. ADMIN_ONLY stands."
  },
  "2.7": {
-  "score": 2,
-  "why": "[astra review 2026-09-05 P2, evidence-adjusted 1→2] Managers now persist per-player coaching briefs and a club system brief (club.py:879, :898) and the console displays analysis checks against them (MyClubConsole.jsx:549) — more than a stub, so 2. Not yet a permissioned development record delivered to the player, and analysis remains dependent on the Film Room workflow (PlayerReel.jsx:158)."
+  "score": 3,
+  "why": "[2026-09-06; #1036 s4a1, #1039 s4b1, #1047 s4d1, #1045] Coach → player loop usable end-to-end in prod with PILOT_CLUB_RELATIONSHIPS_ENABLED=1: claimant-accepted invitations, private feedback and acknowledgment, coach development actions, player reflection and coach review; web coach workspace. Native player onboarding, club inbox and feedback reading shipped in iOS 1.1.0 submitted to App Review 2026-09-06, not yet public. AI analysis remains concierge. Sources: academy-watch-backend/src/routes/club.py; academy-watch-backend/src/routes/feedback.py; academy-watch-backend/src/services/feedback_development.py; academy-watch-frontend/src/pages/MyClubConsole.jsx; academy-watch-ios/AcademyWatch/Features/Home/ClubInboxView.swift; ledgers/CONTINUITY_coach-player-development.md.",
+  "blocker": "[2026-09-06; #1036 s4a1, #1039 s4b1, #1047 s4d1, #1045] Coach → player loop usable end-to-end in prod with PILOT_CLUB_RELATIONSHIPS_ENABLED=1: claimant-accepted invitations, private feedback and acknowledgment, coach development actions, player reflection and coach review; web coach workspace. Native player onboarding, club inbox and feedback reading shipped in iOS 1.1.0 submitted to App Review 2026-09-06, not yet public. AI analysis remains concierge. Sources: academy-watch-backend/src/routes/club.py; academy-watch-backend/src/routes/feedback.py; academy-watch-backend/src/services/feedback_development.py; academy-watch-frontend/src/pages/MyClubConsole.jsx; academy-watch-ios/AcademyWatch/Features/Home/ClubInboxView.swift; ledgers/CONTINUITY_coach-player-development.md.",
+  "reach": "LIVE_WEB",
+  "next_step": "Verify the public iOS release and real cohort feedback/reflection/review loop; remove the concierge AI dependency."
  },
  "2.8": {
   "score": 2,
@@ -135,7 +146,7 @@
    "stripe_subscriptions=0, stripe_platform_revenue=0"
   ],
   "blocker": "Nobody outside the team has claimed a profile, claimed a club, watchlisted, introduced, uploaded, or paid; the content engine (newsletters) has been idle since April.",
-  "next_step": "Pick ONE beachhead cohort (e.g. the Forest academy contact or one grassroots club) and drive 10 real participants through claim \u2192 console \u2192 intro by hand; instrument the funnel first (5.6).",
+  "next_step": "Pick ONE beachhead cohort (e.g. the Forest academy contact or one grassroots club) and drive 10 real participants through claim → console → intro by hand; instrument the funnel first (5.6).",
   "effort": "M",
   "confidence": "high",
   "why": "[orchestrator] measured directly in prod; a dream with 0 participants is a 1 regardless of code."
@@ -174,7 +185,7 @@
  "5.1": {
   "score": 2,
   "why": "[adversary-2 keep] Adult gate covers self-claims only (showcase.py:1656-1664, 1672-1675); upload-complete has no rights/age attestation (club.py:398-434). iOS has takedown/report/delete; web has none (grep), yet Terms promise website deletion (LegalPages.jsx:23).",
-  "blocker": "Adult gate covers self-claims only; guardian/agent/club-official claims and local-player creation skip it; Film Room upload-complete has no rights/age/consent attestation (club.py:398-434); web has no delete, takedown, or report component although the Terms promise website deletion (LegalPages.jsx:23) \u2014 only iOS has them."
+  "blocker": "Adult gate covers self-claims only; guardian/agent/club-official claims and local-player creation skip it; Film Room upload-complete has no rights/age/consent attestation (club.py:398-434); web has no delete, takedown, or report component although the Terms promise website deletion (LegalPages.jsx:23) — only iOS has them."
  },
  "5.2": {
   "score": 3,
@@ -192,17 +203,22 @@
   "blocker": "No managed worker deployment or alerts; managed worker operation is unverified; every club processing request still needs an admin."
  },
  "5.5": {
-  "score": 2,
-  "why": "[astra review 2026-09-05 P5, evidence-adjusted 3→2] Signed webhooks, persistence and credit logic are built, but the same dark billing guard hides the customer and admin endpoints (billing.py:38; stripe_billing.py:874; gol_credits.py:199) and no live financial acceptance has run — dark is not launched. The review's named GOL lifecycle defects (replay/fulfillment, refund-before-grant ordering, purchase snapshots, late payments after deletion) were fixed by the money-safety stage before the flag may go on (ledgers/DIRECTIVE_money-safety.md 2026-09-05, #1028–#1030, migration s3e1). Becomes 3 at go-live (review B2): a real-card purchase + refund with server-side reconciliation.",
-  "blocker": "Dark in prod: the billing guard hides the customer and admin endpoints and no live financial acceptance has run (review 5.5); the go-live checklist (review B2 / DIRECTIVE_money-safety.md) — Stripe endpoint, live GOL prices, corrected terms copy, BILLING_ENABLED=1, one real-card purchase + refund — is what returns this to 3."
+  "score": 3,
+  "why": "[2026-09-06 owner-confirmed production evidence; #1028 #1029 #1030 #1032, s3e1; #1040] Billing LIVE: live Stripe product with one-time Starter $20 for 100 credits and Top up $10 for 50; webhook at api.theacademywatch.com/api/billing/stripe/webhook with a fresh signing secret in Key Vault; STRIPE_PRICE_GOL_STARTER/GOL_STARTER_CREDITS and STRIPE_PRICE_GOL_TOPUP/GOL_TOPUP_CREDITS configured; VITE_BILLING_TERMS=1 (prepaid-credit terms effective 2026-09-06) and BILLING_ENABLED=1. /api/billing/config returns enabled with 2 packs; pricing shows the $20 Starter card. Money-safety fixes shipped. Owner accepted the configured rail WITHOUT a real-card test purchase; revenue $0. Single client web; purchase/refund reconciliation remains untested live. Sources: ledgers/CONTINUITY_dream-s3.md; academy-watch-backend/src/routes/billing.py; academy-watch-backend/src/config/stripe_config.py; academy-watch-backend/src/services/stripe_billing.py; academy-watch-backend/src/services/gol_credits.py; academy-watch-frontend/src/pages/LegalPages.jsx. Paid scope is prepaid GOL credits, not a launched Scout Pro subscription.",
+  "blocker": "[2026-09-06 owner-confirmed production evidence; #1028 #1029 #1030 #1032, s3e1; #1040] Billing LIVE: live Stripe product with one-time Starter $20 for 100 credits and Top up $10 for 50; webhook at api.theacademywatch.com/api/billing/stripe/webhook with a fresh signing secret in Key Vault; STRIPE_PRICE_GOL_STARTER/GOL_STARTER_CREDITS and STRIPE_PRICE_GOL_TOPUP/GOL_TOPUP_CREDITS configured; VITE_BILLING_TERMS=1 (prepaid-credit terms effective 2026-09-06) and BILLING_ENABLED=1. /api/billing/config returns enabled with 2 packs; pricing shows the $20 Starter card. Money-safety fixes shipped. Owner accepted the configured rail WITHOUT a real-card test purchase; revenue $0. Single client web; purchase/refund reconciliation remains untested live. Sources: ledgers/CONTINUITY_dream-s3.md; academy-watch-backend/src/routes/billing.py; academy-watch-backend/src/config/stripe_config.py; academy-watch-backend/src/services/stripe_billing.py; academy-watch-backend/src/services/gol_credits.py; academy-watch-frontend/src/pages/LegalPages.jsx. Paid scope is prepaid GOL credits, not a launched Scout Pro subscription.",
+  "reach": "LIVE_WEB",
+  "next_step": "Collect reconciled real purchase, grant, consumption, refund and replay evidence; complete relevant client parity. Do not count owner acceptance as revenue."
  },
  "5.6": {
   "score": 3,
-  "why": "[adversary-2 keep] Web emits six allowlisted events (pageview plus ShowcaseSection.jsx:507, ScoutPage.jsx:658, ListsPage.jsx:110/588/639/641) and AdminDashboard.jsx:80-88 renders them. Prod is pageview-only because no web user has done those actions; iOS emits nothing.",
-  "blocker": "Six web events are wired (pageview, claim_submitted, search_performed, list_created, follow added/removed) and shown on AdminDashboard; prod is pageview-only because nobody has acted yet; iOS emits nothing."
+  "why": "[2026-09-06; P1 #1037] Admin pilot cohort register/report shipped. Sources: academy-watch-backend/src/routes/events.py (/admin/pilot-cohort/report); academy-watch-backend/src/services/pilot_cohort.py; academy-watch-backend/tests/test_pilot_cohort.py; ledgers/tooling/dream-scorecard/pilot/contracts.md. Instrumentation is not evidence of real adoption or payment; a complete cross-client non-team retention funnel remains unproven.",
+  "blocker": "[2026-09-06; P1 #1037] Admin pilot cohort register/report shipped. Sources: academy-watch-backend/src/routes/events.py (/admin/pilot-cohort/report); academy-watch-backend/src/services/pilot_cohort.py; academy-watch-backend/tests/test_pilot_cohort.py; ledgers/tooling/dream-scorecard/pilot/contracts.md. Instrumentation is not evidence of real adoption or payment; a complete cross-client non-team retention funnel remains unproven.",
+  "next_step": "Use the cohort report for real non-team activation and retention; distinguish seeded review accounts and browser checkout returns from adoption and settled revenue."
  },
  "5.7": {
   "score": 2,
-  "why": "[adversary-2 keep] Terms/Privacy/Rules/Support are live on web and iOS, but Terms:23 and Privacy:141/148 promise website/in-app deletion and export that only iOS exposes; no Film Room, footage, donation or API-Football licence text (grep)."
+  "why": "[2026-09-06; #1040, #1045; owner confirmation] Prepaid-credit terms effective 2026-09-06 and privacy inventory are live (VITE_BILLING_TERMS=1); App Privacy updated by the owner 2026-09-06. Sources: academy-watch-frontend/src/pages/LegalPages.jsx; ledgers/CONTINUITY_dream-s3.md; ledgers/CONTINUITY_ios-player-club-experience.md. These supersede earlier pending-owner notes. Upload-rights/consent enforcement, commercial data permissions and funding/ownership legal scoping remain incomplete; iOS 1.1.0 is submitted, not yet public.",
+  "blocker": "[2026-09-06; #1040, #1045; owner confirmation] Prepaid-credit terms effective 2026-09-06 and privacy inventory are live (VITE_BILLING_TERMS=1); App Privacy updated by the owner 2026-09-06. Sources: academy-watch-frontend/src/pages/LegalPages.jsx; ledgers/CONTINUITY_dream-s3.md; ledgers/CONTINUITY_ios-player-club-experience.md. These supersede earlier pending-owner notes. Upload-rights/consent enforcement, commercial data permissions and funding/ownership legal scoping remain incomplete; iOS 1.1.0 is submitted, not yet public.",
+  "next_step": "Complete upload-rights/consent enforcement and documented commercial data permissions; resolve funding/ownership legal scoping before launching those offers."
  }
 }

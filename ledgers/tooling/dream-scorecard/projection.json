@@ -3,70 +3,70 @@
   {
    "id": "S0",
    "name": "Unbreak the front door",
-   "overall_after": 65.1,
+   "overall_after": 67.0,
    "pillars_after": {
     "P1": 75.0,
-    "P2": 66.7,
-    "P3": 71.4,
+    "P2": 69.4,
+    "P3": 75.0,
     "P4": 46.4,
-    "P5": 56.2
+    "P5": 59.4
    }
   },
   {
    "id": "S1",
    "name": "One player universe + a games grain",
-   "overall_after": 65.1,
+   "overall_after": 67.0,
    "pillars_after": {
     "P1": 75.0,
-    "P2": 66.7,
-    "P3": 71.4,
+    "P2": 69.4,
+    "P3": 75.0,
     "P4": 46.4,
-    "P5": 56.2
+    "P5": 59.4
    }
   },
   {
    "id": "S2",
    "name": "Fans and reach",
-   "overall_after": 65.1,
+   "overall_after": 67.0,
    "pillars_after": {
     "P1": 75.0,
-    "P2": 66.7,
-    "P3": 71.4,
+    "P2": 69.4,
+    "P3": 75.0,
     "P4": 46.4,
-    "P5": 56.2
+    "P5": 59.4
    }
   },
   {
    "id": "S3",
    "name": "Money rails",
-   "overall_after": 65.1,
+   "overall_after": 67.0,
    "pillars_after": {
     "P1": 75.0,
-    "P2": 66.7,
-    "P3": 71.4,
+    "P2": 69.4,
+    "P3": 75.0,
     "P4": 46.4,
-    "P5": 56.2
+    "P5": 59.4
    }
   },
   {
    "id": "MS",
    "name": "money-safety (2026-09-05)",
-   "overall_after": 65.1,
+   "overall_after": 67.0,
    "pillars_after": {
     "P1": 75.0,
-    "P2": 66.7,
-    "P3": 71.4,
+    "P2": 69.4,
+    "P3": 75.0,
     "P4": 46.4,
-    "P5": 56.2
+    "P5": 59.4
    }
   },
   {
    "id": "B2",
-   "name": "go-live prepaid GOL (review B2)",
-   "overall_after": 66.3,
+   "name": "2026-09-06 billing live + pilot loop shipped + iOS 1.1.0 submitted",
+   "overall_after": 67.0,
    "pillars_after": {
     "P1": 75.0,
-    "P2": 66.7,
+    "P2": 69.4,
     "P3": 75.0,
     "P4": 46.4,
     "P5": 59.4

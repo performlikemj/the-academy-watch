@@ -4,7 +4,7 @@ S=os.path.dirname(os.path.abspath(__file__))
 spec=importlib.util.spec_from_file_location("br", os.path.join(S,"build_report.py")); br=importlib.util.module_from_spec(spec); spec.loader.exec_module(br)
 d=br.d; proj=br.proj; BLOCKERS=br.BLOCKERS; STAGES=br.STAGES; SCALE=br.SCALE; DREAM=br.DREAM; DATE=br.DATE
 e=H.escape
-COUNTS=[("accounts","9","5 are the team"),("claimed players","1","of 9,654 tracked"),("clubs on the console","0",""),("watchlists / follows","0",""),("introductions","0","rail is on"),("revenue","$0","rail built, dark until go-live")]
+COUNTS=[("accounts","9","5 are the team"),("claimed players","1","of 9,654 tracked"),("clubs on the console","0",""),("watchlists / follows","0",""),("introductions","0","rail is on"),("revenue","$0","live; owner confirms $0 on 2026-09-06; no test purchase")]
 def dots(s):
     return '<span class="dots" aria-label="score %d of 4">'%s + "".join('<i class="%s"></i>'%("on" if i<s else "") for i in range(4)) + "</span>"
 def reach_pill(r):
@@ -52,12 +52,12 @@ a:focus-visible,summary:focus-visible{{outline:2px solid var(--accent);outline-o
 @media(prefers-reduced-motion:no-preference){{.fill{{transition:width .5s ease}}}}
 </style>
 <div class="wrap">
-<div class="eyebrow">The Academy Watch · dream scorecard · {DATE} · updated after S0–S3 + the money-safety audit (2026-09-05)</div>
+<div class="eyebrow">The Academy Watch · dream scorecard · {DATE} · updated 2026-09-06: billing live + pilot loop shipped + iOS 1.1.0 submitted</div>
 <h1>How far is the app from the dream?</h1>
 <p class="dream">{e(DREAM)}</p>
 <div class="sheet">
  <div class="card"><div class="eyebrow">Built</div><div class="big">{d['overall_pct']}<small>%</small></div><p class="sub">Of the dream exists as code a user can reach, weighted across five pillars. Backend without a button counts as half-built.</p></div>
- <div class="card"><div class="eyebrow">Lived</div><div class="big">~0<small>%</small></div><p class="sub">What is happening in prod today, measured read-only on {DATE}.</p>
+ <div class="card"><div class="eyebrow">Lived</div><div class="big">~0<small>%</small></div><p class="sub">Historical adoption baseline measured read-only on {DATE}; reviewer demo data was since seeded. Revenue updated by owner confirmation; adoption not remeasured.</p>
  <div class="counts">{"".join(f'<div><b>{e(v)}</b><span>{e(k)}</span><span>{e(n)}</span></div>' for k,v,n in COUNTS)}</div></div>
 </div>
 <div class="bars">""")
@@ -72,8 +72,8 @@ for p,v in d["pillars"].items():
         note=f' <span class="eyebrow" style="letter-spacing:.04em">codex said {c["codex_score"]}</span>' if "codex_score" in c and c["codex_score"]!=c["score"] else ""
         parts.append(f'<div class="cap"><div class="id">{e(c["id"])}</div><div><div class="name">{e(c["name"])}{note}</div><div class="why">{e(c.get("blocker",""))}</div><details><summary>Next step · {e(c.get("effort","-"))}</summary><p>{e(c.get("next_step",""))}</p></details></div>{dots(c["score"])}{reach_pill(c.get("reach","MISSING"))}</div>')
     parts.append('</div>')
-parts.append('<h2>What holds the dream back, ranked</h2><ol class="block">'+"".join(f'<li><div><b>{e(t)}</b><p>{e(w)}</p><span class="caps-ref">caps {e(ids)}</span></div></li>' for t,w,ids in BLOCKERS)+'</ol>')
-parts.append(f'<h2>Steps toward 100%</h2><p class="note"><b>S0–S3 and the money-safety stage are done</b> (S0: front door — five PRs; S1: one player universe + a games grain — five PRs: self-made players join scout discovery with provenance chips, players add their own games, clubs record results and lineups, trust-tiered edits; S2: fans + reach — five PRs: web fan follow/counts, owner signals, per-player share cards, sitemap/robots, and the weekly activity email job; S3: money rails shipped dark; 2026-09-05: independently audited at {d["overall_pct"]}% by gpt-6-astra — 3.6/5.5 fall to 2 while billing is dark, 2.7 rises to 2, and the audit\'s 3 P1 + 3 launch blockers are fixed, awaiting the go-live checklist). Baseline before S0 was 51.9%, after S0 54.1%. Projected score after each stage, computed from the target scores with the same weights. Stages aim at 3 (usable), not 4; the last quarter is polish, iOS parity, tests, and the under-18 expansion.</p><div class="stages">')
+parts.append('<h2>Historical baseline blockers; see capability rows for current evidence</h2><ol class="block">'+"".join(f'<li><div><b>{e(t)}</b><p>{e(w)}</p><span class="caps-ref">caps {e(ids)}</span></div></li>' for t,w,ids in BLOCKERS)+'</ol>')
+parts.append(f'<h2>Stage record and remaining projections</h2><p class="note">S0–S3 and money-safety history retained. Current score: {d["overall_pct"]}%. Billing and the pilot loop are live; owner accepted billing WITHOUT a real-card test purchase; revenue $0. iOS 1.1.0 submitted 2026-09-06, not public; AI remains concierge. Stage values apply target maps to current scores, not historical scores.</p><div class="stages">')
 parts.append(f'<div class="stage"><div class="sid">now</div><div><b>Today</b></div><div class="track"><div class="fill" style="width:{d["overall_pct"]}%"></div></div><div class="pct">{d["overall_pct"]}%</div></div>')
 for sid,name,when,what,targets,o,pp in proj:
     parts.append(f'<div class="stage"><div class="sid">{e(sid)}</div><div><b>{e(name)}</b><span class="when">{e(when)}</span><div class="what">{e(what)}</div></div><div class="track"><div class="fill" style="width:{o}%"></div></div><div class="pct">{o}%</div></div>')

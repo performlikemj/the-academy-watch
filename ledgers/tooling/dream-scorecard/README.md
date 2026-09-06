@@ -16,3 +16,16 @@ Every script starts with `S=<scratchpad dir>`; set `S` to your own session scrat
 - `s2/` — frozen S2 common brief, contracts, checker template, ACA job-creation script, and guarded `s2f1` pre-apply SQL.
 - `s3/` — frozen S3 common/package briefs, contracts, checker template, and guarded `s3b1`/`s3c1` pre-apply + stamp tooling.
 - `overrides.json` / `scorecard.json` / `projection.json` — the current post-S3 generated state. `s1-hygiene-items.md` — leftover polish list.
+
+## Refresh the published scorecard
+
+The scoring and report scripts resolve inputs beside themselves. From the repo root:
+
+```sh
+python3 ledgers/tooling/dream-scorecard/score.py
+python3 ledgers/tooling/dream-scorecard/build_report.py
+cp ledgers/tooling/dream-scorecard/GRADING_dream-scorecard.md ledgers/GRADING_dream-scorecard-2026-09-02.md
+python3 ledgers/tooling/dream-scorecard/build_html.py
+```
+
+Edit current evidence in `overrides.json` (`why`, `blocker`, optional `next_step`), then regenerate. Original audit `exists`/`missing` arrays remain historical inputs; current evidence is the override text. Stage target maps project from current scores, rather than reconstructing historical scores. Exact output for the billing-live refresh is retained in `rescore-2026-09-06-before.txt` and `rescore-2026-09-06-after.txt`.
