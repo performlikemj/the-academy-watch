@@ -21,8 +21,8 @@ Owner: /root
 
 ## State
 - Done: Assessment and current backend recon; isolated latest-main worktree created.
-- Now: Implementation complete and validated; preparing commit and draft PR.
-- Next: Draft PR delivery; deploy additive backend before release, update photo disclosure, and run a real-device pilot walkthrough.
+- Now: Implementation complete, validated, and committed locally as 3723bff8; push blocked by automatic approval review.
+- Next: Obtain explicit authorization to push to performlikemj/the-academy-watch and open a draft PR. Then deploy additive backend before release, update photo disclosure, and run a real-device pilot walkthrough.
 
 ## Links
 - Upstream: CONTINUITY.md
@@ -58,3 +58,9 @@ Owner: /root
 - Deploy basic-profile PATCH first (no migration). Pilot relationship/feedback flag stays as configured. Before submitting a new binary, update App Store Connect Photos or Videos disclosure and select version/build.
 - Native core player/club flows implemented. Advanced club roster/video and profile tools retain explicit web handoffs; full youth consent, universal links, and push notifications are outside this delivery.
 - No frontend dependency install, no production mutations, and no login emails. Production photo-storage acceptance and real App Store device walk remain release checks.
+
+## Delivery
+- Commit: `3723bff8` on `feat/ios-player-club-experience`; implementation complete locally.
+- Final unsigned archive: `/tmp/AcademyPlayerClubFinal.xcarchive` — ARCHIVE SUCCEEDED.
+- PR title/body prepared at `/tmp/academy-player-club-pr.md`; no PR exists yet.
+- Automatic approval review rejected `git push -u origin feat/ios-player-club-experience`: publication to an external/unverified remote was not explicitly authorized by the build request. No workaround or alternate publication attempted. Await explicit authorization for `performlikemj/the-academy-watch`.
