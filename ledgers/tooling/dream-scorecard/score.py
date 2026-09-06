@@ -43,6 +43,7 @@ for cid, o in overrides.items():
         caps[cid]["codex_score"] = caps[cid]["score"]; caps[cid]["score"] = o["score"]; caps[cid]["override_why"] = o["why"]
         if "reach" in o: caps[cid]["codex_reach"] = caps[cid]["reach"]; caps[cid]["reach"] = o["reach"]
         if "blocker" in o: caps[cid]["codex_blocker"] = caps[cid]["blocker"]; caps[cid]["blocker"] = o["blocker"]
+        if "next_step" in o: caps[cid]["next_step"] = o["next_step"]
         if o["score"] != caps[cid]["codex_score"]:
             caps[cid]["codex_blocker"] = caps[cid]["blocker"]
             caps[cid]["blocker"] = re.sub(r"^\[adversary-\d (up|down|keep)\] ", "", o["why"])
