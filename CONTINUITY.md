@@ -33,7 +33,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 ## State
 
 ### Done
-- Coach/player development implemented and Basecamp-validated: coach-reviewed AI observation → practice action → player reflection → coach review; 224 backend, 201 native unit/API, 26 browser and 12 native UI checks pass. 14 screenshots in `scratchpad/coach-player-development/`; draft PR packaging. See `ledgers/CONTINUITY_coach-player-development.md`.
+- Coach/player development implemented and Basecamp-validated: coach-reviewed AI observation → practice action → player reflection → coach review; 224 backend, 201 native unit/API, 26 browser and 12 native UI checks pass. 14 screenshots in `scratchpad/coach-player-development/`; local commit 510abdbb. Automatic approval review blocked remote push; user publication approval pending. See `ledgers/CONTINUITY_coach-player-development.md`.
 - Coach's brief C3 + camera preflight P1 complete; PR #989 review fix round applied (2026-09-03): sims now seed/select a dedicated `-sim-fixture`, refuse non-synthetic briefs before club steps, and carry a schema-valid post-C2 analysis fixture. Preflight non-strings return 400, API/worker brief normalization is pinned, admin leak E2E checks the rendered DOM, roster payloads expose normalized lines, missing evidence time stays evidence, and hints state the 8-line cap. Focused backend 118, C3 frontend unit 24, reel E2E 3/3, sim pure 18, Ruff, frontend lint/build, and live ungraded sim 11/11 pass. See `ledgers/CONTINUITY_coach-brief-c3.md`.
 - Grounded caption label/claim fault isolation complete (2026-09-02): grounded-only unknown labels coerce to `unclear`, malformed claims drop independently, sampling reports three fault counters, and legacy validation remains strict. Mock-only spike suite: 131 passed; both spike files pass bare Ruff check/format. See `ledgers/CONTINUITY_grounded-caption-lenient-enums.md`.
 - Grounded Qwen caption/read truncation fix complete (2026-09-02): complete JSON returned at `done_reason=length` is accepted with a warning, while invalid JSON raises an explicit truncation error; grounded caption/read contracts use 900-token initial caps and one bounded 1800-token retry; prompts request at most three prioritized items; legacy caps and ordinary retries remain unchanged. Mock-only spike suite: 127 passed. Both changed spike files pass bare `ruff check` and bare `ruff format --check`. See `ledgers/CONTINUITY_grounded-num-predict.md`.
@@ -1004,7 +1004,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ```
 CONTINUITY.md
-  └─ ledgers/CONTINUITY_coach-player-development.md (in progress; @owner:/root)
+  └─ ledgers/CONTINUITY_coach-player-development.md (built/QA complete; push approval pending; @owner:/root)
   └─ ledgers/CONTINUITY_ios-basecamp-qa.md (automated QA complete; @owner:/root)
   └─ ledgers/CONTINUITY_ios-player-club-experience.md (draft PR #1045 open; @owner:/root)
   └─ ledgers/CONTINUITY_coach-brief.md (Track C/P/M directive workstream)

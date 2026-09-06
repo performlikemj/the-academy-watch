@@ -21,8 +21,8 @@ Owner: /root
 
 ## State
 - Done: Product direction captured from the user.
-- Now: Use this journey to evaluate priorities after the current iOS changes.
-- Next: Complete the deployed club/player QA loop; assess remaining friction between AI analysis, coach-reviewed feedback, player action, and approved public development evidence.
+- Now: First private practice/reflection/review loop implemented and QA validated; local commit 510abdbb.
+- Next: Approve remote branch publication, review the implementation, then release and validate adoption with the pilot club.
 
 ## Links
 - Upstream: CONTINUITY.md

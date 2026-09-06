@@ -28,7 +28,7 @@ Owner: /root
 
 ## State
 - Done: Backend, web and native practice/review workflow implemented; Basecamp QA passes; 14 screenshots visually inspected.
-- Now: Packaging reviewable branch and draft PR.
+- Now: Implementation complete in local commit 510abdbb; remote publication awaits user approval after automatic approval review rejection.
 - Next: Review/merge parent and feature PR; apply s4d1 before updated backend; release web and iOS/TestFlight separately.
 
 ## Decisions
@@ -52,3 +52,9 @@ Owner: /root
 - Evidence: primary workspace `scratchpad/coach-player-development/index.html`, `SCREENSHOTS.md`, `QA_REPORT.md`; 14 screenshots, original export manifests retained.
 - Native whitespace-only formatter churn removed after QA; token-equivalence asserted. No behavior change.
 - Delivery limits: no deployment or TestFlight submission; coach authoring/review is the existing web workspace, player practice is native.
+
+## Publication handoff
+- Commit: `510abdbb` on `feat/coach-player-development`.
+- Automatic approval review rejected `git push -u origin feat/coach-player-development`: private-source egress to remote repository ownership/trust not established; building authorization was not considered publication authorization. No retry/workaround; no remote push or draft PR created.
+- Reviewable local patch and exact draft PR body: primary `scratchpad/coach-player-development/implementation.patch` and `DRAFT_PR.md`.
+- User approval needed only for pushing this branch to `performlikemj/the-academy-watch` and opening the prepared draft PR, based on `feat/ios-player-club-experience`.
