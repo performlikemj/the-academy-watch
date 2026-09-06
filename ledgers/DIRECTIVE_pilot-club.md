@@ -3,6 +3,12 @@
 Joint decision (Fable orchestrator + codex gpt-6-astra; codex's full analysis: `ledgers/research/pilot-direction-codex-2026-09-05.md`).
 Owner question: scouts first, players first, or reach out to clubs? **Answer: clubs first, ONE club, adult sub-group, concierge Film Room.**
 
+## The loop, in the owner's words (2026-09-06)
+"Teams join, they add their players so they can make actionable feedback they get from the AI by sharing with their players. Players can add to their profile
+and gain a following, which may allow them to progress more in their career as people see their development." → club joins → roster → film/AI analysis →
+coach-approved feedback to the player (P3) → player enriches profile + logs games → fans/followers + scouts see development → career progression.
+Weakest link today: the AI step is concierge (founder runs Film Room); self-serve is audit item A10, after the first club proves the loop.
+
 ## Why
 - The product is built (audited 65.1%); nobody uses it (30-day sign-ups 2, claims 1, contact requests 0, club claims 0). Building more cannot earn adoption.
 - Scouts can already browse provider data they can get elsewhere; the unique supply (grassroots/academy players with real games, club-confirmed stats, film) comes
