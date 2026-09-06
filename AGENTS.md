@@ -112,7 +112,9 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 > Agents: Add patterns here when you discover reusable conventions.
 
-(none yet — agents will populate this)
+- iOS: `academy-watch-ios/project.yml` is the XcodeGen source of truth. Put generated Info.plist overrides (including `CFBundleShortVersionString = $(MARKETING_VERSION)`) in `info.properties` so regeneration preserves them.
+- iOS owner showcase writes use `APIClient.ownerShowcasePath`: community identities call `local-players/<positive-local-id>`, while discovery and club-feedback APIs use signed player IDs.
+- iOS player/coach UI checks use the offline `AcademyWatchExperience` scheme. `AcademyWatchUISmoke` is a separate live suite that sends login emails.
 
 ---
 

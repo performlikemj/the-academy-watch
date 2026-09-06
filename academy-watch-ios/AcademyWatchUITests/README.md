@@ -19,3 +19,8 @@ printf '' | pbcopy
 ```
 
 Run the clipboard-clear command even when `xcodebuild` fails. The UI runner also uses local-only, expiring pasteboard items and clears the Simulator pasteboard after each Paste action and at the start of teardown.
+
+For player and coach checks without production requests, run `AcademyWatchExperience`
+with `-only-testing:AcademyWatchUITests/PlayerClubExperienceUITests`. These tests
+use an explicit, labeled offline fixture and an ephemeral token store; they send
+no login emails and make no production changes. See `docs/ios-player-club-experience.md`.

@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 enum AccountDestination: String, Hashable, Identifiable {
+    case myProfiles
     case playerOnboarding
     case clubOnboarding
     case verification
@@ -36,6 +37,8 @@ struct AccountView: View {
             debugOrAccountContent
                 .navigationDestination(item: $destination) { destination in
                     switch destination {
+                    case .myProfiles:
+                        MyProfilesView(apiClient: apiClient)
                     case .playerOnboarding:
                         PlayerOnboardingView(apiClient: apiClient)
                     case .clubOnboarding:
@@ -252,19 +255,9 @@ struct AccountView: View {
 
     private var identityOnboardingSection: some View {
         VStack(spacing: 12) {
-            if !hasAnyPlayerClaim {
-                Button {
-                    destination = .playerOnboarding
-                } label: {
-                    OnboardingActionRow(
-                        icon: "figure.soccer",
-                        title: "Are you a player?",
-                        detail: "Find and claim your profile, or create a pending community profile."
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("account-player-onboarding")
-            }
+            Button { destination = .myProfiles } label: {
+                OnboardingActionRow(icon: "person.crop.rectangle", title: "My profiles", detail: "Find your profile, check your claim, or update your story.")
+            }.buttonStyle(.plain).accessibilityIdentifier("account-my-profiles")
 
             Button {
                 destination = .clubOnboarding

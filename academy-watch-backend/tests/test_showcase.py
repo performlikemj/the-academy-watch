@@ -1387,3 +1387,79 @@ class TestReelDedupAndSafety:
 
         reel = client.get("/api/players/5001/showcase").get_json()["reel"]
         assert [r["url"] for r in reel] == ["https://youtu.be/good1234"]
+
+
+class TestBasicProfilePatch:
+    @pytest.mark.parametrize("local", [False, True])
+    def test_patch_preserves_web_fields_and_pending_attestation(self, app, client, local):
+        with app.app_context():
+            if local:
+                user = _make_user("basic-owner@example.com")
+                player = LocalPlayer(display_name="Maya Okafor", birth_year=2000, status="approved")
+                db.session.add(player)
+                db.session.flush()
+                claim = PlayerProfileClaim(
+                    local_player_id=player.id,
+                    user_account_id=user.id,
+                    relationship_type="player",
+                    status="approved",
+                    contract_status="unknown",
+                )
+                db.session.add(claim)
+                db.session.flush()
+                identity = {"local_player_id": player.id}
+                endpoint = f"/api/local-players/{player.id}/showcase/profile"
+            else:
+                user, claim = _approved_claim(5001, "basic-owner@example.com")
+                identity = {"player_api_id": 5001}
+                endpoint = "/api/players/5001/showcase/profile"
+            profile = PlayerShowcaseProfile(
+                **identity,
+                bio="Original",
+                positions="CM",
+                preferred_foot="right",
+                height_cm=180,
+                status="approved",
+                contract_status="under_contract",
+                contract_until=date(2027, 6, 30),
+                agent_name="An agent",
+                agent_contact_email="agent@example.com",
+                languages="English",
+                nationality_secondary="France",
+                pending_contract_claim_id=claim.id,
+                pending_contract_status="contracted",
+                pending_current_club_name="Pending Club",
+            )
+            db.session.add(profile)
+            db.session.commit()
+            profile_id = profile.id
+        response = client.patch(
+            endpoint, json={"bio": "New story", "height_cm": None}, headers=_user_headers("basic-owner@example.com")
+        )
+        assert response.status_code == 200
+        with app.app_context():
+            row = db.session.get(PlayerShowcaseProfile, profile_id)
+            assert row.bio == "New story"
+            assert row.height_cm is None
+            assert row.positions == "CM"
+            assert row.preferred_foot == "right"
+            assert row.contract_status == "under_contract"
+            assert row.contract_until == date(2027, 6, 30)
+            assert row.agent_name == "An agent"
+            assert row.agent_contact_email == "agent@example.com"
+            assert row.languages == "English"
+            assert row.nationality_secondary == "France"
+            assert row.pending_contract_status == "contracted"
+            assert row.pending_current_club_name == "Pending Club"
+            assert row.status == "pending"
+
+    def test_patch_requires_approved_owner_and_rejects_nonbasic_fields(self, app, client):
+        endpoint = "/api/players/5001/showcase/profile"
+        headers = _user_headers("basic-stranger@example.com")
+        assert client.patch(endpoint, json={"bio": "No access"}, headers=headers).status_code == 403
+        with app.app_context():
+            _approved_claim(5001, "basic-owner@example.com")
+        headers = _user_headers("basic-owner@example.com")
+        for body in ({}, {"contract_status": "free_agent"}, {"bio": "Story", "agent_name": "Wrong path"}):
+            assert client.patch(endpoint, json=body, headers=headers).status_code == 400
+        assert client.patch(endpoint, json={"height_cm": 5}, headers=headers).status_code == 400
