@@ -10,7 +10,7 @@ async function harness(page, options = {}) {
   const unexpected = [], events = [], responses = []
   page.on('pageerror', (error) => unexpected.push(error.message))
   const playerRow = (row) => ({ id: row.id, thread_id: threadId, revision: row.revision, program: { id: 7, name: 'Synthetic Harbour Club' }, player_api_id: -42, title: row.title, body: row.body, ...(row.development_action ? { development_action: row.development_action, development_progress: row.development_progress || null, can_update_progress: row.revision === state.revisions.length } : {}), observation_refs: row.observation_refs, author: { display_name: 'Synthetic Coach' }, published_at: row.published_at, acknowledged_at: row.acknowledged_at, can_acknowledge: !row.acknowledged_at && row.revision === state.revisions.length })
-  const summary = (row) => { const result = playerRow(row); delete result.body; delete result.observation_refs; return result }
+  const summary = (row) => { const result = playerRow(row); delete result.body; delete result.observation_refs; delete result.development_progress; return result }
   await page.route('**/__pilot-p3', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root" style="max-width:800px;margin:16px auto;padding:12px"></div><script type="module">
     import RefreshRuntime from '/@react-refresh'; RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => (type) => type; window.__vite_plugin_react_preamble_installed__ = true;
     await import('/@vite/client');
@@ -72,6 +72,10 @@ async function harness(page, options = {}) {
       if (state.revoked) return reply({ error: 'Club manager access denied' }, 403)
       const row = state.revisions.at(-1)
       return reply({ feedback: row ? [state.withdrawn ? { id: row.id, thread_id: threadId, revision: row.revision, unavailable: true } : { ...summary(row), revision_history: state.revisions.map((r) => ({ id: r.id, revision: r.revision, acknowledged_at: r.acknowledged_at })) }] : [], next_before: null })
+    }
+    if (path.startsWith('/api/club/7/player-feedback/') && req.method() === 'GET') {
+      const row = state.revisions.find((r) => r.id === path.split('/').at(-1))
+      return row ? reply({ feedback: playerRow(row) }) : reply({ error: 'feedback_not_found' }, 404)
     }
     if (path === `/api/club/7/player-feedback/${threadId}/withdraw`) {
       expect(req.postDataJSON()).toEqual({ expected_revision: state.revisions.length })
@@ -243,6 +247,21 @@ for (const width of [1280, 390]) {
     await page.getByLabel('What to practise', { exact: true }).fill('Check both shoulders before five receptions in the next small-sided game.')
     await page.getByLabel('What progress looks like', { exact: true }).fill('Find the forward option before the ball arrives.')
     await page.getByLabel('Review date (optional)').fill('2026-09-12')
+    const body = page.getByLabel('Feedback text', { exact: true })
+    const preview = page.getByRole('button', { name: 'Preview publication', exact: true })
+    await expect(body).toHaveValue('')
+    await expect(preview).toBeDisabled()
+    for (const caption of [
+      'Maya scans after the ball arrives, limiting her forward options.',
+      '  MAYA  scans after the ball arrives,\nlimiting her forward options.  ',
+      'Ｍaya scans after the ball arrives, limiting her forward options.',
+    ]) {
+      await body.fill(caption)
+      await expect(preview).toBeDisabled()
+      await expect(page.getByRole('alert')).toContainText('Write your own feedback')
+    }
+    expect(fixture.state.revisions).toHaveLength(0)
+    await body.fill('Maya, check both shoulders early so you can choose your next pass.')
     await page.getByRole('button', { name: 'Preview publication', exact: true }).click()
     await expect(page.getByLabel('Publication preview')).toContainText('Check both shoulders')
     expect(fixture.state.revisions).toHaveLength(0)
@@ -258,6 +277,8 @@ for (const width of [1280, 390]) {
     await page.screenshot({ path: testInfo.outputPath('player-development-reflection.png'), fullPage: true })
     await render(page, 'manager')
     await page.getByRole('button', { name: 'Publish feedback', exact: true }).click()
+    await expect(page.getByLabel('Review player progress')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Load player progress' }).click()
     await expect(page.getByLabel('Review player progress')).toContainText('Scanning early helped')
     await page.getByLabel('Your review for the player').fill('Good progress. Keep the early scan when we add pressure.')
     await page.getByRole('button', { name: 'Mark reviewed', exact: true }).click()

@@ -799,6 +799,10 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
       setPreview(false)
       setError('A newer revision was published. Refresh history and start a new correction.')
     } else if (err.body?.error === 'feedback_reference_unavailable') setError('That finalized match is unavailable for this player. Check the reference.')
+    else if (err.body?.error === 'body_matches_observation') {
+      setPreview(false)
+      setError('Write your own feedback for the player before publishing. The AI observation cannot be the feedback text.')
+    }
     else if (err.status === 429) setError('Too many requests. Please wait before trying again.')
     else setError('Could not save feedback. Your draft is still here; please try again.')
   }
@@ -814,7 +818,7 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
     finally { if (!lifetime.current.signal.aborted) setBusy(false) }
   }
   async function publishDraft() {
-    if (busy || !preview) return
+    if (busy || !preview || !valid) return
     setBusy(true); setError(''); setNotice('')
     const authored = { ...(action ? { development_action: { ...action, focus: action.focus.trim(), practice: action.practice.trim(), success: action.success.trim() } } : {}), title: title.trim(), body: body.trim(), video_match_id: videoId ? Number(videoId) : null, observation_refs: refs.map((ref) => ({ label: ref.label.trim(), timestamp_s: ref.timestamp_s === '' ? null : Number(ref.timestamp_s) })) }
     const target = correction ? `${endpoint}/${correction.thread_id}/revisions` : endpoint
@@ -830,6 +834,14 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
     } catch (err) { failure(err) }
     finally { if (!lifetime.current.signal.aborted) setBusy(false) }
   }
+  async function loadProgress(row) {
+    setBusy(true); setError('')
+    try {
+      const data = await APIService.request(`${endpoint}/${row.id}`, { signal: lifetime.current.signal })
+      if (!lifetime.current.signal.aborted) setRows((previous) => previous.map((item) => item.id === row.id ? { ...item, ...data.feedback } : item))
+    } catch (err) { failure(err) }
+    finally { if (!lifetime.current.signal.aborted) setBusy(false) }
+  }
   async function withdrawThread() {
     if (busy || !withdraw) return
     setBusy(true); setError('')
@@ -842,7 +854,9 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
     } catch (err) { failure(err) }
     finally { if (!lifetime.current.signal.aborted) setBusy(false) }
   }
-  const valid = (!action || action.focus.trim() && action.practice.trim() && action.success.trim()) && title.trim() && body.trim() && refs.every((ref) => ref.label.trim() && (ref.timestamp_s === '' || Number.isFinite(Number(ref.timestamp_s)) && Number(ref.timestamp_s) >= 0)) && (!videoId || Number.isSafeInteger(Number(videoId)) && Number(videoId) > 0)
+  const normalizeObservation = (text) => text.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim()
+  const bodyMatchesObservation = refs.some((ref) => normalizeObservation(body) === normalizeObservation(ref.text || ref.label))
+  const valid = !bodyMatchesObservation && (!action || action.focus.trim() && action.practice.trim() && action.success.trim()) && title.trim() && body.trim() && refs.every((ref) => ref.label.trim() && (ref.timestamp_s === '' || Number.isFinite(Number(ref.timestamp_s)) && Number(ref.timestamp_s) >= 0)) && (!videoId || Number.isSafeInteger(Number(videoId)) && Number(videoId) > 0)
 
   if (!open) return <Button variant="outline" size="sm" onClick={() => { setOpen(true); history() }}><Send className="mr-2 h-4 w-4" />Publish feedback</Button>
   return <section aria-label={`Publish feedback for ${playerName}`} className="space-y-5 rounded-xl border border-primary/20 bg-muted/20 p-4 sm:p-5">
@@ -859,7 +873,7 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
             <p className="text-xs text-muted-foreground">Revision {row.revision} · {row.acknowledged_at ? 'Acknowledged' : 'Awaiting acknowledgment'}</p>
             <ul className="space-y-1 text-xs text-muted-foreground">{row.revision_history?.map((revision) => <li key={revision.id}>Revision {revision.revision} — {revision.acknowledged_at ? 'Acknowledged' : 'Not acknowledged'}</li>)}</ul>
             <DevelopmentActionSummary action={row.development_action} />
-            <DevelopmentProgress feedback={row} manager programId={programId} onUpdated={(updated) => setRows((previous) => previous.map((item) => item.id === updated.id ? { ...item, ...updated } : item))} onAccessLost={() => { resetDraft(); setRows([]); setDenied(true); setError('This feedback is no longer available.') }} />
+            {row.development_action && !Object.hasOwn(row, 'development_progress') ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => loadProgress(row)}>Load player progress</Button> : <DevelopmentProgress feedback={row} manager programId={programId} onUpdated={(updated) => setRows((previous) => previous.map((item) => item.id === updated.id ? { ...item, ...updated } : item))} onAccessLost={() => { resetDraft(); setRows([]); setDenied(true); setError('This feedback is no longer available.') }} />}
             <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => { resetDraft(); setCorrection(row); setAction(row.development_action || null); setNotice(''); setError('') }}>Publish correction</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setWithdraw(row)}>Withdraw feedback</Button></div>
           </>}
         </div>)}
@@ -873,17 +887,18 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
         {videoId && <p className="text-xs text-muted-foreground">Textual match reference: {videoId}</p>}
         {refs.map((ref, index) => <p key={index} className="break-words text-xs text-muted-foreground">{ref.timestamp_s === '' ? '' : `${ref.timestamp_s}s — `}{ref.label}</p>)}
         <p className="text-xs text-muted-foreground">This revision cannot be edited after publication. A correction creates a new revision requiring a new acknowledgment.</p>
-        <div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={publishDraft}>Confirm and publish</Button><Button variant="ghost" disabled={busy} onClick={() => setPreview(false)}>Back to draft</Button></div>
+        <div className="flex flex-wrap gap-2"><Button disabled={busy || !valid} onClick={publishDraft}>Confirm and publish</Button><Button variant="ghost" disabled={busy} onClick={() => setPreview(false)}>Back to draft</Button></div>
       </div> : <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); if (valid) setPreview(true) }}>
         <h4 className="text-sm font-semibold">{correction ? `Write correction · Revision ${correction.revision + 1}` : 'Write new feedback'}</h4>
         {!correction && <FeedbackEvidencePicker programId={programId} invitationId={invitationId} disabled={busy} onFailure={failure} onSelect={(candidate) => {
-          setTitle('Your next step from match review'); setBody(candidate.text); setVideoId(String(candidate.video_match_id)); setRefs([{ label: candidate.label, timestamp_s: String(candidate.timestamp_s) }]);
+          setTitle('Your next step from match review'); setBody(''); setVideoId(String(candidate.video_match_id)); setRefs([{ label: candidate.label, timestamp_s: String(candidate.timestamp_s), text: candidate.text }]);
           setAction({ focus: candidate.label, practice: '', success: '', review_on: null });
-          setNotice('Observation added to your draft. Review it and write a practice action before publishing.');
+          setNotice('Observation added to your action. Write your own feedback and practice advice for the player before publishing.');
         }} />}
         {action ? <><DevelopmentActionFields value={action} onChange={setAction} disabled={busy} /><Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setAction(null)}>Remove development action</Button></> : <Button type="button" variant="outline" disabled={busy} onClick={() => setAction({ focus: '', practice: '', success: '', review_on: null })}>Add a development action</Button>}
         <label className="block space-y-1 text-sm">Feedback title<Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={140} required disabled={busy} /></label>
         <div className="space-y-1"><label htmlFor={`feedback-body-${invitationId}`} className="text-sm">Feedback text</label><Textarea id={`feedback-body-${invitationId}`} value={body} onChange={(event) => setBody(event.target.value)} maxLength={4000} rows={6} required disabled={busy} /></div>
+        {body.trim() && bodyMatchesObservation && <p role="alert" className="text-sm text-destructive">Write your own feedback for the player. The AI observation cannot be the feedback text.</p>}
         <p className="text-right text-xs text-muted-foreground">{body.length} / 4,000</p>
         <label className="block space-y-1 text-sm">Finalized match ID (optional)<Input type="number" min="1" step="1" value={videoId} onChange={(event) => setVideoId(event.target.value)} disabled={busy} /></label>
         {refs.map((ref, index) => <div key={index} className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-2"><label className="space-y-1 text-sm">Observation {index + 1}<Input value={ref.label} maxLength={160} required disabled={busy} onChange={(event) => setRefs((old) => old.map((item, i) => i === index ? { ...item, label: event.target.value } : item))} /></label><label className="space-y-1 text-sm">Timestamp in seconds (optional)<Input type="number" min="0" step="any" value={ref.timestamp_s} disabled={busy} onChange={(event) => setRefs((old) => old.map((item, i) => i === index ? { ...item, timestamp_s: event.target.value } : item))} /></label><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setRefs((old) => old.filter((_, i) => i !== index))}>Remove observation {index + 1}</Button></div>)}

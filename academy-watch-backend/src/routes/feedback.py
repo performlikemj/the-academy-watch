@@ -307,6 +307,18 @@ def manager_feedback(program_id):
     return list_feedback(manager=True)
 
 
+@feedback_bp.get("/club/<int:program_id>/player-feedback/<revision_id>")
+@require_club_manager()
+@transaction
+@authority(manager=True)
+@limited("60 per minute")
+def manager_feedback_detail(program_id, revision_id):
+    row = g.feedback
+    if not relationship_matches(db.session, row):
+        raise FeedbackError("club_relationship_required", 409)
+    return jsonify(feedback=feedback_dict(db.session, row, manager=True))
+
+
 @feedback_bp.get("/me/player-feedback")
 @require_user_auth
 @transaction

@@ -1,6 +1,7 @@
 """Private practice lifecycle, stale writes and grounded evidence boundaries."""
 
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
@@ -85,7 +86,27 @@ def test_complete_private_development_cycle(client, pilot, accepted):
     db.session.expire_all()
     assert db.session.get(PlayerFeedback, row["id"]).development_progress == saved
     listed = client.get("/api/me/player-feedback?player_api_id=7001", headers=_headers("scout"))
-    assert listed.json["feedback"][0]["development_progress"] == saved
+    assert "development_progress" not in listed.json["feedback"][0]
+    history = client.get(
+        f"/api/club/{pilot['program']}/player-feedback?invitation_id={accepted}", headers=_headers("a")
+    )
+    assert "development_progress" not in history.json["feedback"][0]
+    path = f"/api/club/{pilot['program']}/player-feedback/{row['id']}"
+    coach_detail = client.get(path, headers=_headers("a"))
+    assert coach_detail.status_code == 200
+    assert coach_detail.json["feedback"]["development_progress"] == saved
+    assert client.get(path, headers=_headers("b")).status_code == 403
+    assert client.get(path, headers=_headers("scout")).status_code == 403
+    for response in (listed, history):
+        assert "I found the forward pass earlier." not in response.text
+        assert "Good progress. Repeat under pressure." not in response.text
+    invite = db.session.get(ClubInvitation, accepted)
+    invite.status = "revoked"
+    invite.revoked_at = utcnow()
+    db.session.commit()
+    closed_detail = client.get(path, headers=_headers("a"))
+    assert closed_detail.status_code == 409
+    assert "development_progress" not in closed_detail.text
 
 
 @pytest.mark.parametrize(
@@ -267,3 +288,94 @@ def test_postgres_simultaneous_progress_and_review_only_one_winner(postgres_app,
     db.session.expire_all()
     saved = db.session.get(PlayerFeedback, row["id"]).development_progress
     assert saved["version"] == 2 and len(saved["history"]) == 2
+
+
+@pytest.mark.parametrize("correction", [False, True])
+@pytest.mark.parametrize("first_null", [False, True])
+def test_null_and_omitted_action_replay_identically(client, pilot, accepted, correction, first_null):
+    original = publish(client, pilot, accepted) if correction else None
+    send = (
+        (lambda **kw: correct(client, pilot, original, **kw))
+        if correction
+        else (lambda **kw: create(client, pilot, accepted, **kw))
+    )
+    request_id = str(uuid4())
+    first = send(client_request_id=request_id, **({"development_action": None} if first_null else {}))
+    assert first.status_code == 201
+    replay = send(client_request_id=request_id, **({} if first_null else {"development_action": None}))
+    assert replay.status_code == 200
+    assert replay.json["feedback"]["id"] == first.json["feedback"]["id"]
+    changed = send(client_request_id=request_id, development_action=ACTION)
+    assert changed.status_code == 409
+    assert changed.json["error"] == "client_request_id_reused"
+
+
+@pytest.mark.parametrize("correction", [False, True])
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Scans before receiving.",
+        "  SCANS  before\nreceiving.  ",
+        "Ｓcans before receiving.",
+        "<p>Scans before receiving.</p>",
+        "Scans&nbsp;before receiving.",
+    ],
+)
+def test_raw_observation_cannot_be_published(client, pilot, accepted, correction, body):
+    match, report = video(pilot, duration_s=90)
+    # The referenced observation is beyond the suggestion picker limit.
+    captions = [
+        dict(roster_entry_id=report.roster_entry_id, grounded=True, box_t=i, caption=f"Other observation {i}.")
+        for i in range(13)
+    ]
+    captions.append(
+        dict(roster_entry_id=report.roster_entry_id, grounded=True, box_t=22.5, caption="Scans before receiving.")
+    )
+    captions.insert(0, {"roster_entry_id": [], "caption": "Malformed caption"})
+    match.capture_meta = {"qwen_analysis": {"window_captions": captions}}
+    db.session.commit()
+    refs = [
+        {"label": "Another observation", "timestamp_s": 0},
+        {"label": "Edited reference label", "timestamp_s": 22.5},
+    ]
+    changes = dict(body=body, video_match_id=match.id, observation_refs=refs)
+    original = publish(client, pilot, accepted) if correction else None
+    response = correct(client, pilot, original, **changes) if correction else create(client, pilot, accepted, **changes)
+    assert response.status_code == 400, response.json
+    assert response.json["error"] == "body_matches_observation"
+    assert PlayerFeedback.query.count() == int(correction)
+    changes["body"] = "Try checking both shoulders before your next five receptions."
+    response = correct(client, pilot, original, **changes) if correction else create(client, pilot, accepted, **changes)
+    assert response.status_code == 201
+
+
+def test_observation_label_reference_without_timestamp(client, pilot, accepted):
+    match, report = video(pilot, duration_s=90)
+    match.capture_meta = {
+        "qwen_analysis": {
+            "window_captions": [
+                dict(
+                    roster_entry_id=report.roster_entry_id, grounded=True, box_t=22.5, caption="Scans before receiving."
+                ),
+            ]
+        }
+    }
+    db.session.commit()
+    changes = dict(
+        body="Scans before receiving.",
+        video_match_id=match.id,
+        observation_refs=[{"label": " SCANS before receiving. ", "timestamp_s": None}],
+    )
+    response = create(client, pilot, accepted, **changes)
+    assert response.status_code == 400
+    assert response.json["error"] == "body_matches_observation"
+    # Unreferenced evidence does not prohibit separately authored feedback.
+    changes["observation_refs"] = [{"label": "A different observation", "timestamp_s": 10}]
+    assert create(client, pilot, accepted, **changes).status_code == 201
+
+
+@pytest.mark.parametrize("body", ["", " \n\t ", "<p></p>"])
+def test_empty_feedback_body_rejected_with_action(client, pilot, accepted, body):
+    response = create(client, pilot, accepted, body=body, development_action=ACTION)
+    assert response.status_code == 400
+    assert PlayerFeedback.query.count() == 0
