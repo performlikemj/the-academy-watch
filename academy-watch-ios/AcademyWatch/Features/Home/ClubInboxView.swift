@@ -100,6 +100,7 @@ struct ClubInboxView: View {
                             HStack {
                                 Button("Accept invitation") { confirmation = .init(row: row, decision: .accept) }
                                     .buttonStyle(.borderedProminent)
+                                    .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
                                 Button("Decline") { confirmation = .init(row: row, decision: .decline) }.buttonStyle(
                                     .bordered)
                             }.disabled(model.busy)
@@ -285,6 +286,7 @@ struct PlayerFeedbackDetailView: View {
                     if row.canAcknowledge {
                         Button("I've read this feedback") { Task { await model.acknowledge() } }
                             .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.busy)
+                            .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
                             .accessibilityIdentifier("feedback-acknowledge")
                         Text(
                             "This tells your coach you've read this revision. It doesn't mean you agree with every point."

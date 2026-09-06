@@ -67,3 +67,5 @@ Owner: /root
 
 - 2026-09-06: User explicitly approved the requested push to `performlikemj/the-academy-watch` and draft PR creation ("go for it"). Prior publication blocker resolved.
 - 2026-09-06: `git push -u origin feat/ios-player-club-experience` succeeded; `gh pr create --draft` created #1045. Initial CI: backend lint and frontend dependency security running. No merge, deployment, or App Store submission performed.
+
+- 2026-09-06 Basecamp QA follow-up: 334 backend (including PostgreSQL), 197 iOS unit/API, 8 dark/XXXL native walks, and 22 browser scenarios pass. Corrected filled-button contrast and stale test fixtures; 27 screenshots plus checklist report. See `ledgers/CONTINUITY_ios-basecamp-qa.md`.

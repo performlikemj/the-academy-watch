@@ -442,6 +442,9 @@ def test_postgres_online_migration_recovery(postgres_app, state):
 
     directory = str(Path(__file__).resolve().parents[1] / "migrations")
     with db.engine.begin() as connection:
+        # The shared fixture creates today's schema. Feedback was introduced
+        # after s4a1 and cannot exist in this pre-invitation recovery scenario.
+        connection.execute(sa.text("DROP TABLE IF EXISTS player_feedback"))
         if state != "pre-applied":
             connection.execute(sa.text("ALTER TABLE club_roster_members DROP COLUMN accepted_invitation_id"))
             connection.execute(sa.text("ALTER TABLE club_roster_members DROP COLUMN requires_player_acceptance"))

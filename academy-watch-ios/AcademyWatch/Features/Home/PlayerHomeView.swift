@@ -88,6 +88,7 @@ struct PlayerHomeView: View {
                                     .secondary)
                                 Button("Sign in to get started", action: onSignIn)
                                     .buttonStyle(.borderedProminent).controlSize(.large)
+                                    .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
                                     .accessibilityIdentifier("home-sign-in")
                             }.homeCard()
                         }
@@ -202,6 +203,7 @@ struct MyProfilesView: View {
                     Label("Find or create a profile", systemImage: "person.badge.plus")
                         .frame(maxWidth: .infinity)
                 }.buttonStyle(.borderedProminent).controlSize(.large)
+                    .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
                     .accessibilityIdentifier("my-profiles-add")
             }.padding(20)
         }

@@ -47,6 +47,49 @@ final class PlayerClubExperienceUITests: XCTestCase {
                 timeout: 8))
         capture("club-connection")
     }
+    func testCancellingInvitationKeepsPlayerUnconnected() {
+        launch("player")
+        tap(app.buttons["home-role-player"])
+        tap(app.buttons["home-club-invitations"])
+        tap(app.buttons["Accept invitation"])
+        XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 8))
+        capture("invitation-confirmation")
+        if app.buttons["Cancel"].exists {
+            tap(app.buttons["Cancel"])
+        } else {
+            // iOS 26 can present a popover with an outside-dismiss region
+            // instead of rendering the confirmation dialog's cancel button.
+            let dismissRegion = app.otherElements["PopoverDismissRegion"]
+            XCTAssertTrue(dismissRegion.waitForExistence(timeout: 8))
+            dismissRegion.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.75)).tap()
+        }
+        let dismissed = NSPredicate(format: "exists == false")
+        expectation(for: dismissed, evaluatedWith: app.sheets.firstMatch)
+        waitForExpectations(timeout: 8)
+        XCTAssertTrue(app.buttons["Accept invitation"].exists)
+        XCTAssertFalse(app.buttons["Leave club connection"].exists)
+        capture("invitation-cancelled")
+    }
+    func testOpeningFeedbackDoesNotAcknowledgeIt() {
+        launch("player")
+        tap(app.buttons["home-role-player"])
+        tap(app.buttons["home-my-profiles"])
+        tap(app.buttons["my-profile-71"])
+        tap(app.buttons["my-profile-feedback"])
+        tap(app.buttons.containing(.staticText, identifier: "Building your next pass").firstMatch)
+        XCTAssertTrue(app.buttons["feedback-acknowledge"].waitForExistence(timeout: 8))
+        capture("feedback-unacknowledged")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.staticTexts["Awaiting acknowledgment"].waitForExistence(timeout: 8))
+    }
+    func testApprovedProfileOffersPublicSharing() {
+        launch("player")
+        tap(app.buttons["home-role-player"])
+        tap(app.buttons["home-my-profiles"])
+        tap(app.buttons["my-profile-71"])
+        XCTAssertTrue(app.buttons["my-profile-share"].waitForExistence(timeout: 8))
+        capture("approved-profile")
+    }
     func testPendingProfileHasReturnPathWithoutOwnerActions() {
         launch("pending")
         tap(app.buttons["home-role-player"])

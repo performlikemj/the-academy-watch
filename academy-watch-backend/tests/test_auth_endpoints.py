@@ -638,8 +638,9 @@ class TestDisplayName:
 class TestAuthStatus:
     """Tests for GET /auth/status endpoint."""
 
-    def test_auth_status_requires_admin_auth(self, auth_bp_client):
+    def test_auth_status_requires_admin_auth(self, auth_bp_client, monkeypatch):
         """Should require admin authentication."""
+        monkeypatch.setenv("ADMIN_API_KEY", "auth-status-fixture-key")
         res = auth_bp_client.get("/api/auth/status")
         assert res.status_code == 401
 

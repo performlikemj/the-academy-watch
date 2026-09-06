@@ -83,6 +83,13 @@ def _make_user(email):
 
 
 def _approved_claim(player_api_id, email):
+    from src.models.tracked_player import TrackedPlayer
+    from test_showcase import _seed_team, _tracked
+
+    # A claim alone is not a public player identity. Exercise the real public
+    # resolver with an existing adult instead of assuming orphan claims resolve.
+    if TrackedPlayer.query.filter_by(player_api_id=player_api_id).first() is None:
+        _tracked(_seed_team(), player_api_id, name="Synthetic Photo Player", birth_date="2000-01-01")
     user = _make_user(email)
     claim = PlayerProfileClaim(
         player_api_id=player_api_id,
