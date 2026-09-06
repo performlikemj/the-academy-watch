@@ -130,6 +130,9 @@ struct PlayerFeedback: Decodable, Identifiable, Sendable {
     let publishedAt: String
     let acknowledgedAt: String?
     let canAcknowledge: Bool
+    var developmentAction: PlayerDevelopmentAction? = nil
+    var developmentProgress: PlayerDevelopmentProgress? = nil
+    var canUpdateProgress: Bool? = nil
     struct Program: Decodable, Sendable {
         let id: Int
         let name: String
@@ -142,6 +145,42 @@ struct PlayerFeedbackPage: Decodable, Sendable {
 }
 struct PlayerFeedbackResponse: Decodable { let feedback: PlayerFeedback }
 
+struct PlayerDevelopmentAction: Decodable, Sendable {
+    let focus: String
+    let practice: String
+    let success: String
+    let reviewOn: String?
+}
+struct PlayerDevelopmentProgress: Decodable, Sendable {
+    let version: Int
+    let status: String
+    let reflection: String
+    let coachNote: String?
+    let updatedAt: String
+    let history: [Event]
+    struct Event: Decodable, Identifiable, Sendable {
+        let version: Int
+        let actor: String
+        let status: String
+        let note: String
+        let at: String
+        var id: Int { version }
+    }
+    static func label(_ status: String?) -> String {
+        switch status {
+        case "working_on_it": "Working on it"
+        case "ready_for_review": "Ready for coach review"
+        case "reviewed": "Reviewed by your coach"
+        default: "Your next step"
+        }
+    }
+}
+struct PlayerDevelopmentUpdate: Encodable, Sendable {
+    let expectedVersion: Int
+    let status: String
+    let note: String
+}
+
 protocol PlayerClubAPIClientProtocol: Sendable {
     func fetchMyProfileClaims() async throws -> PlayerClaimsResponse
     func fetchOwnerShowcase(playerID: Int) async throws -> OwnerShowcase
@@ -152,6 +191,8 @@ protocol PlayerClubAPIClientProtocol: Sendable {
     func fetchPlayerFeedback(playerID: Int, before: String?) async throws -> PlayerFeedbackPage
     func fetchFeedbackDetail(id: String) async throws -> PlayerFeedback
     func acknowledgeFeedback(id: String) async throws -> PlayerFeedback
+    func updateDevelopmentProgress(id: String, update: PlayerDevelopmentUpdate) async throws
+        -> PlayerFeedback
 }
 
 func playerClubError(_ error: Error) -> String {

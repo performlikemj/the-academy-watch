@@ -844,6 +844,12 @@ struct APIClient: PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
         return result.feedback
     }
 
+    func updateDevelopmentProgress(id: String, update: PlayerDevelopmentUpdate) async throws -> PlayerFeedback {
+        let response: PlayerFeedbackResponse = try await send(
+            path: "me/player-feedback/\(id)/progress", method: "POST", body: update)
+        return response.feedback
+    }
+
     func createProfilePhoto(playerID: Int, sizeBytes: Int) async throws -> ProfilePhotoUpload {
         struct Body: Encodable { let contentType = "image/jpeg"; let sizeBytes: Int }
         return try await send(path: Self.ownerShowcasePath(playerID: playerID) + "/photos", method: "POST", body: Body(sizeBytes: sizeBytes))

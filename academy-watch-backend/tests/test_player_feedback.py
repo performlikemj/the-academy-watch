@@ -360,6 +360,9 @@ def test_postgres_migrated_schema_and_repeat_partial_recovery(postgres_app, stat
 
     directory = str(Path(__file__).resolve().parents[1] / "migrations")
     with db.engine.begin() as connection:
+        # This historical migration predates the optional development columns.
+        for column in ("development_action", "development_progress"):
+            connection.execute(sa.text(f"ALTER TABLE player_feedback DROP COLUMN {column}"))
         if state != "pre-applied":
             connection.execute(sa.text("DROP TABLE player_feedback"))
         if state == "partial":
@@ -550,7 +553,7 @@ def test_postgres_migrated_account_lifecycle_and_rollback(postgres_app, pilot):
     with db.engine.begin() as connection:
         connection.execute(sa.text("DROP TABLE player_feedback"))
     stamp(directory=directory, revision="s4a1")
-    upgrade(directory=directory, revision="s4b1")
+    upgrade(directory=directory, revision="s4d1")
     with postgres_app.test_client() as http:
         accepted = invitation(http, pilot, -pilot["local"].id)
         assert decide(http, accepted).status_code == 200

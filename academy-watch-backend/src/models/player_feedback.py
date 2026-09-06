@@ -56,6 +56,8 @@ class PlayerFeedback(db.Model):
     acknowledged_at = db.Column(db.DateTime())
     withdrawn_at = db.Column(db.DateTime())
     audit_expires_at = db.Column(db.DateTime())
+    development_action = db.Column(db.JSON)
+    development_progress = db.Column(db.JSON)
 
 
 class FeedbackError(Exception):
@@ -95,7 +97,7 @@ def authored_payload(payload, *, correction=False):
     if (
         not isinstance(payload, dict)
         or not required <= set(payload)
-        or set(payload) - required - {"video_match_id", "observation_refs"}
+        or set(payload) - required - {"video_match_id", "observation_refs", "development_action"}
     ):
         raise FeedbackError()
     result = {
@@ -104,6 +106,10 @@ def authored_payload(payload, *, correction=False):
         "body": plain_text(payload["body"], 4000),
         "video_match_id": integer(payload["video_match_id"]) if payload.get("video_match_id") is not None else None,
     }
+    if "development_action" in payload:
+        from src.services.feedback_development import action_payload
+
+        result["development_action"] = action_payload(payload["development_action"])
     key = "expected_revision" if correction else "invitation_id"
     result[key] = integer(payload[key]) if correction else uuid(payload[key])
     refs = payload.get("observation_refs", [])
@@ -253,6 +259,14 @@ def feedback_dict(session, row, *, manager=False, summary=False):
     }
     if not summary:
         result.update(body=row.body, observation_refs=row.observation_refs)
+    if row.development_action is not None:
+        result.update(
+            development_action=row.development_action,
+            development_progress=row.development_progress,
+            can_update_progress=not manager
+            and row.revision == latest
+            and player_can_read(session, row, row.recipient_user_id),
+        )
     if manager:
         result.update(
             invitation_id=row.invitation_id,
@@ -321,6 +335,7 @@ def publish(session, invitation, author_id, data, *, rows=None):
         player_api_id=invitation.player_api_id,
         author_user_id=author_id,
         request_hash=digest,
+        development_action=data.get("development_action"),
         **{key: data[key] for key in ("title", "body", "video_match_id", "observation_refs", "client_request_id")},
     )
     session.add(row)

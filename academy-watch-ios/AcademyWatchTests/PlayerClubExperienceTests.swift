@@ -124,6 +124,44 @@ final class PlayerClubExperienceTests: XCTestCase {
         XCTAssertTrue(model.unavailable)
         XCTAssertTrue(model.invitations.isEmpty)
     }
+    @MainActor
+    func testPracticeUsesCurrentVersionAndNeverAcknowledges() async {
+        let client = ExperienceStub()
+        let model = PlayerFeedbackViewModel(client: client)
+        await model.open(id: "f1")
+        await model.updateProgress(status: "working_on_it", note: "Practised scanning")
+        XCTAssertEqual(model.detail?.developmentProgress?.version, 1)
+        await model.updateProgress(status: "ready_for_review", note: "Found the forward pass")
+        XCTAssertEqual(model.detail?.developmentProgress?.version, 2)
+        XCTAssertEqual(model.detail?.developmentProgress?.reflection, "Found the forward pass")
+        let count = await client.acknowledgmentCount
+        XCTAssertEqual(count, 0)
+    }
+    @MainActor
+    func testProgressConflictKeepsDetailAndRequiresRefresh() async {
+        let client = ExperienceStub()
+        let model = PlayerFeedbackViewModel(client: client)
+        await model.open(id: "f1")
+        await client.conflictProgress()
+        await model.updateProgress(status: "ready_for_review", note: "My reflection")
+        XCTAssertTrue(model.progressConflict)
+        XCTAssertNotNil(model.detail)
+        await model.updateProgress(status: "ready_for_review", note: "Retry")
+        let count = await client.progressCalls
+        XCTAssertEqual(count, 1)
+        await model.open(id: "f1")
+        XCTAssertFalse(model.progressConflict)
+    }
+    @MainActor
+    func testProgressLosesPrivateDetailAfterAccessRemoval() async {
+        let client = ExperienceStub()
+        let model = PlayerFeedbackViewModel(client: client)
+        await model.open(id: "f1")
+        await client.denyAccess()
+        await model.updateProgress(status: "working_on_it", note: "My reflection")
+        XCTAssertNil(model.detail)
+        XCTAssertNotNil(model.error)
+    }
     private static var calendar: Calendar {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -136,6 +174,10 @@ final class PlayerClubExperienceTests: XCTestCase {
 
 private actor ExperienceStub: PlayerClubAPIClientProtocol {
     private var denied = false
+    private var conflict = false
+    private var progress: PlayerDevelopmentProgress?
+    private(set) var progressCalls = 0
+    func conflictProgress() { conflict = true }
     private(set) var acknowledgmentCount = 0
     func denyAccess() { denied = true }
     private func check() throws { if denied { throw APIClientError.httpStatus(404) } }
@@ -145,7 +187,9 @@ private actor ExperienceStub: PlayerClubAPIClientProtocol {
             id: "f1", threadId: "t1", revision: 1, playerApiId: -481, program: .init(id: 44, name: "Club"),
             author: .init(displayName: "Coach"), title: "Next step", body: "Private feedback",
             publishedAt: "2026-09-06T00:00:00Z", acknowledgedAt: acknowledged ? "2026-09-06T01:00:00Z" : nil,
-            canAcknowledge: !acknowledged)
+            canAcknowledge: !acknowledged,
+            developmentAction: .init(focus: "Scan", practice: "Check shoulders", success: "Find the pass", reviewOn: nil),
+            developmentProgress: progress, canUpdateProgress: true)
     }
     func fetchMyProfileClaims() async throws -> PlayerClaimsResponse {
         try check()
@@ -167,6 +211,14 @@ private actor ExperienceStub: PlayerClubAPIClientProtocol {
         .init(feedback: [try feedback()], nextBefore: nil)
     }
     func fetchFeedbackDetail(id: String) async throws -> PlayerFeedback { try feedback() }
+    func updateDevelopmentProgress(id: String, update: PlayerDevelopmentUpdate) async throws -> PlayerFeedback {
+        try check()
+        progressCalls += 1
+        if conflict || update.expectedVersion != (progress?.version ?? 0) { throw APIClientError.httpStatus(409) }
+        progress = .init(version: update.expectedVersion + 1, status: update.status, reflection: update.note,
+            coachNote: nil, updatedAt: "2026-09-06T00:00:00Z", history: [])
+        return try feedback()
+    }
     func acknowledgeFeedback(id: String) async throws -> PlayerFeedback {
         try check()
         acknowledgmentCount += 1

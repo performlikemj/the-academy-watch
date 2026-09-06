@@ -1,3 +1,4 @@
+import { DevelopmentActionFields, DevelopmentActionSummary, DevelopmentProgress, FeedbackEvidencePicker } from '@/components/showcase/DevelopmentAction'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
@@ -765,6 +766,7 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
   const [body, setBody] = useState('')
   const [videoId, setVideoId] = useState('')
   const [refs, setRefs] = useState([])
+  const [action, setAction] = useState(null)
   const [correction, setCorrection] = useState(null)
   const [preview, setPreview] = useState(false)
   const [withdraw, setWithdraw] = useState(null)
@@ -784,7 +786,7 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
   }, [])
 
   function resetDraft() {
-    setTitle(''); setBody(''); setVideoId(''); setRefs([]); setPreview(false); setCorrection(null)
+    setTitle(''); setBody(''); setVideoId(''); setRefs([]); setAction(null); setPreview(false); setCorrection(null)
     requestIdentity.current = null
   }
   function failure(err) {
@@ -814,7 +816,7 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
   async function publishDraft() {
     if (busy || !preview) return
     setBusy(true); setError(''); setNotice('')
-    const authored = { title: title.trim(), body: body.trim(), video_match_id: videoId ? Number(videoId) : null, observation_refs: refs.map((ref) => ({ label: ref.label.trim(), timestamp_s: ref.timestamp_s === '' ? null : Number(ref.timestamp_s) })) }
+    const authored = { ...(action ? { development_action: { ...action, focus: action.focus.trim(), practice: action.practice.trim(), success: action.success.trim() } } : {}), title: title.trim(), body: body.trim(), video_match_id: videoId ? Number(videoId) : null, observation_refs: refs.map((ref) => ({ label: ref.label.trim(), timestamp_s: ref.timestamp_s === '' ? null : Number(ref.timestamp_s) })) }
     const target = correction ? `${endpoint}/${correction.thread_id}/revisions` : endpoint
     const data = { ...authored, ...(correction ? { expected_revision: correction.revision } : { invitation_id: invitationId }) }
     const identity = JSON.stringify({ target, data })
@@ -840,7 +842,7 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
     } catch (err) { failure(err) }
     finally { if (!lifetime.current.signal.aborted) setBusy(false) }
   }
-  const valid = title.trim() && body.trim() && refs.every((ref) => ref.label.trim() && (ref.timestamp_s === '' || Number.isFinite(Number(ref.timestamp_s)) && Number(ref.timestamp_s) >= 0)) && (!videoId || Number.isSafeInteger(Number(videoId)) && Number(videoId) > 0)
+  const valid = (!action || action.focus.trim() && action.practice.trim() && action.success.trim()) && title.trim() && body.trim() && refs.every((ref) => ref.label.trim() && (ref.timestamp_s === '' || Number.isFinite(Number(ref.timestamp_s)) && Number(ref.timestamp_s) >= 0)) && (!videoId || Number.isSafeInteger(Number(videoId)) && Number(videoId) > 0)
 
   if (!open) return <Button variant="outline" size="sm" onClick={() => { setOpen(true); history() }}><Send className="mr-2 h-4 w-4" />Publish feedback</Button>
   return <section aria-label={`Publish feedback for ${playerName}`} className="space-y-5 rounded-xl border border-primary/20 bg-muted/20 p-4 sm:p-5">
@@ -856,7 +858,9 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
             <p className="break-words text-sm font-medium">{row.title}</p>
             <p className="text-xs text-muted-foreground">Revision {row.revision} · {row.acknowledged_at ? 'Acknowledged' : 'Awaiting acknowledgment'}</p>
             <ul className="space-y-1 text-xs text-muted-foreground">{row.revision_history?.map((revision) => <li key={revision.id}>Revision {revision.revision} — {revision.acknowledged_at ? 'Acknowledged' : 'Not acknowledged'}</li>)}</ul>
-            <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => { resetDraft(); setCorrection(row); setNotice(''); setError('') }}>Publish correction</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setWithdraw(row)}>Withdraw feedback</Button></div>
+            <DevelopmentActionSummary action={row.development_action} />
+            <DevelopmentProgress feedback={row} manager programId={programId} onUpdated={(updated) => setRows((previous) => previous.map((item) => item.id === updated.id ? { ...item, ...updated } : item))} onAccessLost={() => { resetDraft(); setRows([]); setDenied(true); setError('This feedback is no longer available.') }} />
+            <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => { resetDraft(); setCorrection(row); setAction(row.development_action || null); setNotice(''); setError('') }}>Publish correction</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setWithdraw(row)}>Withdraw feedback</Button></div>
           </>}
         </div>)}
         {nextBefore && <Button variant="outline" size="sm" disabled={busy} onClick={() => history(nextBefore)}>Load more history</Button>}
@@ -864,6 +868,7 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
       {withdraw && <div className="space-y-3 rounded-lg border border-destructive/30 p-4"><p className="text-sm">Withdraw this entire feedback thread? The player will lose access to every revision. This cannot be reopened.</p><div className="flex flex-wrap gap-2"><Button variant="destructive" disabled={busy} onClick={withdrawThread}>Confirm withdrawal</Button><Button variant="ghost" disabled={busy} onClick={() => setWithdraw(null)}>Cancel withdrawal</Button></div></div>}
       {preview ? <div className="space-y-4" aria-label="Publication preview">
         <h4 className="font-semibold">Confirm publication · {correction ? `Revision ${correction.revision + 1}` : 'New feedback'}</h4>
+        <DevelopmentActionSummary action={action} />
         <p className="break-words font-medium">{title}</p><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{body}</p>
         {videoId && <p className="text-xs text-muted-foreground">Textual match reference: {videoId}</p>}
         {refs.map((ref, index) => <p key={index} className="break-words text-xs text-muted-foreground">{ref.timestamp_s === '' ? '' : `${ref.timestamp_s}s — `}{ref.label}</p>)}
@@ -871,6 +876,12 @@ function FeedbackPublisher({ programId, invitationId, playerName, onAccessDenied
         <div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={publishDraft}>Confirm and publish</Button><Button variant="ghost" disabled={busy} onClick={() => setPreview(false)}>Back to draft</Button></div>
       </div> : <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); if (valid) setPreview(true) }}>
         <h4 className="text-sm font-semibold">{correction ? `Write correction · Revision ${correction.revision + 1}` : 'Write new feedback'}</h4>
+        {!correction && <FeedbackEvidencePicker programId={programId} invitationId={invitationId} disabled={busy} onFailure={failure} onSelect={(candidate) => {
+          setTitle('Your next step from match review'); setBody(candidate.text); setVideoId(String(candidate.video_match_id)); setRefs([{ label: candidate.label, timestamp_s: String(candidate.timestamp_s) }]);
+          setAction({ focus: candidate.label, practice: '', success: '', review_on: null });
+          setNotice('Observation added to your draft. Review it and write a practice action before publishing.');
+        }} />}
+        {action ? <><DevelopmentActionFields value={action} onChange={setAction} disabled={busy} /><Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setAction(null)}>Remove development action</Button></> : <Button type="button" variant="outline" disabled={busy} onClick={() => setAction({ focus: '', practice: '', success: '', review_on: null })}>Add a development action</Button>}
         <label className="block space-y-1 text-sm">Feedback title<Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={140} required disabled={busy} /></label>
         <div className="space-y-1"><label htmlFor={`feedback-body-${invitationId}`} className="text-sm">Feedback text</label><Textarea id={`feedback-body-${invitationId}`} value={body} onChange={(event) => setBody(event.target.value)} maxLength={4000} rows={6} required disabled={busy} /></div>
         <p className="text-right text-xs text-muted-foreground">{body.length} / 4,000</p>
