@@ -56,6 +56,8 @@ class PlayerFeedback(db.Model):
     acknowledged_at = db.Column(db.DateTime())
     withdrawn_at = db.Column(db.DateTime())
     audit_expires_at = db.Column(db.DateTime())
+    development_action = db.Column(db.JSON)
+    development_progress = db.Column(db.JSON)
 
 
 class FeedbackError(Exception):
@@ -95,7 +97,7 @@ def authored_payload(payload, *, correction=False):
     if (
         not isinstance(payload, dict)
         or not required <= set(payload)
-        or set(payload) - required - {"video_match_id", "observation_refs"}
+        or set(payload) - required - {"video_match_id", "observation_refs", "development_action"}
     ):
         raise FeedbackError()
     result = {
@@ -104,6 +106,10 @@ def authored_payload(payload, *, correction=False):
         "body": plain_text(payload["body"], 4000),
         "video_match_id": integer(payload["video_match_id"]) if payload.get("video_match_id") is not None else None,
     }
+    if "development_action" in payload:
+        from src.services.feedback_development import action_payload
+
+        result["development_action"] = action_payload(payload["development_action"])
     key = "expected_revision" if correction else "invitation_id"
     result[key] = integer(payload[key]) if correction else uuid(payload[key])
     refs = payload.get("observation_refs", [])
@@ -253,6 +259,15 @@ def feedback_dict(session, row, *, manager=False, summary=False):
     }
     if not summary:
         result.update(body=row.body, observation_refs=row.observation_refs)
+    if row.development_action is not None:
+        result.update(
+            development_action=row.development_action,
+            can_update_progress=not manager
+            and row.revision == latest
+            and player_can_read(session, row, row.recipient_user_id),
+        )
+        if not summary:
+            result["development_progress"] = row.development_progress
     if manager:
         result.update(
             invitation_id=row.invitation_id,
@@ -263,7 +278,12 @@ def feedback_dict(session, row, *, manager=False, summary=False):
     return result
 
 
-def validate_reference(session, invitation, match_id):
+def observation_text(value):
+    """Compare sanitized text independent of Unicode form, case and whitespace."""
+    return " ".join(unicodedata.normalize("NFKC", plain_text(value, 4000)).lower().split())
+
+
+def validate_reference(session, invitation, match_id, *, body, refs):
     from src.models.video import VideoMatch, VideoPlayerReport
 
     if match_id is None:
@@ -282,8 +302,35 @@ def validate_reference(session, invitation, match_id):
         if invitation.player_api_id > 0
         else reports.filter_by(club_local_player_id_at_finalize=-invitation.player_api_id)
     )
-    if not match or not reports.first():
+    reports = reports.all()
+    if not match or not reports:
         raise FeedbackError("feedback_reference_unavailable", 409)
+    if not refs:
+        return
+    capture = match.capture_meta if isinstance(match.capture_meta, dict) else {}
+    analysis = capture.get("qwen_analysis")
+    captions = analysis.get("window_captions") if isinstance(analysis, dict) else None
+    if not isinstance(captions, list):
+        return
+    roster_ids = {report.roster_entry_id for report in reports}
+    normalized_body = observation_text(body)
+    for caption in captions:
+        if not isinstance(caption, dict):
+            continue
+        roster_id = caption.get("roster_entry_id")
+        if isinstance(roster_id, bool) or not isinstance(roster_id, int) or roster_id not in roster_ids:
+            continue
+        try:
+            text = plain_text(caption.get("caption"), 4000)
+        except FeedbackError:
+            continue
+        referenced = any(
+            (ref["timestamp_s"] is not None and ref["timestamp_s"] == caption.get("box_t"))
+            or observation_text(ref["label"]) == observation_text(text[:160])
+            for ref in refs
+        )
+        if referenced and normalized_body == observation_text(text):
+            raise FeedbackError("body_matches_observation", 400)
 
 
 def publish(session, invitation, author_id, data, *, rows=None):
@@ -293,6 +340,9 @@ def publish(session, invitation, author_id, data, *, rows=None):
         raise FeedbackError("club_relationship_required", 409)
     latest = rows[-1] if rows else None
     identity = {**data, "thread_id": latest.thread_id if latest else None}
+    # Preserve the historical omitted-key hash for both ways to express no action.
+    if identity.get("development_action") is None:
+        identity.pop("development_action", None)
     digest = hashlib.sha256(
         json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     ).hexdigest()
@@ -310,7 +360,7 @@ def publish(session, invitation, author_id, data, *, rows=None):
         raise FeedbackError("feedback_withdrawn", 409)
     if latest and data["expected_revision"] != latest.revision:
         raise FeedbackError("feedback_revision_conflict", 409, current_revision=latest.revision)
-    validate_reference(session, invitation, data["video_match_id"])
+    validate_reference(session, invitation, data["video_match_id"], body=data["body"], refs=data["observation_refs"])
     row = PlayerFeedback(
         thread_id=latest.thread_id if latest else str(uuid4()),
         revision=latest.revision + 1 if latest else 1,
@@ -321,6 +371,7 @@ def publish(session, invitation, author_id, data, *, rows=None):
         player_api_id=invitation.player_api_id,
         author_user_id=author_id,
         request_hash=digest,
+        development_action=data.get("development_action"),
         **{key: data[key] for key in ("title", "body", "video_match_id", "observation_refs", "client_request_id")},
     )
     session.add(row)

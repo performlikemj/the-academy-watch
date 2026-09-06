@@ -9,8 +9,8 @@ async function harness(page, options = {}) {
   const state = { revisions: [], withdrawn: false, revoked: false, invitationPages: [] }
   const unexpected = [], events = [], responses = []
   page.on('pageerror', (error) => unexpected.push(error.message))
-  const playerRow = (row) => ({ id: row.id, thread_id: threadId, revision: row.revision, program: { id: 7, name: 'Synthetic Harbour Club' }, player_api_id: -42, title: row.title, body: row.body, observation_refs: row.observation_refs, author: { display_name: 'Synthetic Coach' }, published_at: row.published_at, acknowledged_at: row.acknowledged_at, can_acknowledge: !row.acknowledged_at && row.revision === state.revisions.length })
-  const summary = (row) => { const result = playerRow(row); delete result.body; delete result.observation_refs; return result }
+  const playerRow = (row) => ({ id: row.id, thread_id: threadId, revision: row.revision, program: { id: 7, name: 'Synthetic Harbour Club' }, player_api_id: -42, title: row.title, body: row.body, ...(row.development_action ? { development_action: row.development_action, development_progress: row.development_progress || null, can_update_progress: row.revision === state.revisions.length } : {}), observation_refs: row.observation_refs, author: { display_name: 'Synthetic Coach' }, published_at: row.published_at, acknowledged_at: row.acknowledged_at, can_acknowledge: !row.acknowledged_at && row.revision === state.revisions.length })
+  const summary = (row) => { const result = playerRow(row); delete result.body; delete result.observation_refs; delete result.development_progress; return result }
   await page.route('**/__pilot-p3', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root" style="max-width:800px;margin:16px auto;padding:12px"></div><script type="module">
     import RefreshRuntime from '/@react-refresh'; RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => (type) => type; window.__vite_plugin_react_preamble_installed__ = true;
     await import('/@vite/client');
@@ -47,20 +47,35 @@ async function harness(page, options = {}) {
       expect(before).toBe(invitationId)
       return reply({ invitations: [{ id: invitationId, status: 'accepted', roster_member_id: 42 }], next_before: null })
     }
+    if (path === '/api/club/7/player-feedback/suggestions') return reply({ suggestions: [{ id: 'm1', video_match_id: 81, timestamp_s: 22, text: 'Maya scans after the ball arrives, limiting her forward options.', label: 'Scan before receiving', source: 'grounded_ai_observation' }] })
+    if (path.endsWith('/progress-review') || path.endsWith('/progress')) {
+      const data = req.postDataJSON(), row = state.revisions.at(-1), coach = path.endsWith('/progress-review')
+      if (options.deferProgress) await options.deferProgress()
+      if (options.progressConflict) return reply({ error: 'development_progress_conflict' }, 409)
+      expect(data.expected_version).toBe(row.development_progress?.version || 0)
+      if (coach) expect(data.expected_revision).toBe(row.revision)
+      const version = data.expected_version + 1
+      row.development_progress = { version, status: data.status, reflection: coach ? row.development_progress.reflection : data.note, coach_note: coach ? data.note : null, updated_at: '2026-09-06T12:00:00Z', history: [...(row.development_progress?.history || []), { version, actor: coach ? 'coach' : 'player', status: data.status, note: data.note, at: '2026-09-06T12:00:00Z' }] }
+      return reply({ feedback: playerRow(row) })
+    }
     if (path === '/api/events') { events.push(...(req.postDataJSON()?.events || [])); return route.fulfill({ status: 204 }) }
     if (path === '/api/club/7/player-feedback' || path === `/api/club/7/player-feedback/${threadId}/revisions`) {
       if (req.method() === 'POST') {
         if (options.deferPublish) await options.deferPublish()
         if (options.publishError) return reply({ error: options.publishError }, 500)
         const data = req.postDataJSON(), revision = state.revisions.length + 1
-        expect(Object.keys(data).sort()).toEqual(['body', 'client_request_id', path.endsWith('/revisions') ? 'expected_revision' : 'invitation_id', 'observation_refs', 'title', 'video_match_id'].sort())
+        expect(Object.keys(data).sort()).toEqual(['body', 'client_request_id', path.endsWith('/revisions') ? 'expected_revision' : 'invitation_id', 'observation_refs', 'title', 'video_match_id', ...(options.development ? ['development_action'] : [])].sort())
         if (revision > 1) expect(data.expected_revision).toBe(revision - 1)
-        state.revisions.push({ id: idFor(revision), revision, title: data.title, body: data.body, observation_refs: data.observation_refs, published_at: `2026-09-05T10:00:0${revision}Z`, acknowledged_at: null })
+        state.revisions.push({ id: idFor(revision), revision, title: data.title, body: data.body, development_action: data.development_action, observation_refs: data.observation_refs, published_at: `2026-09-05T10:00:0${revision}Z`, acknowledged_at: null })
         return reply({ feedback: playerRow(state.revisions.at(-1)) }, 201)
       }
       if (state.revoked) return reply({ error: 'Club manager access denied' }, 403)
       const row = state.revisions.at(-1)
       return reply({ feedback: row ? [state.withdrawn ? { id: row.id, thread_id: threadId, revision: row.revision, unavailable: true } : { ...summary(row), revision_history: state.revisions.map((r) => ({ id: r.id, revision: r.revision, acknowledged_at: r.acknowledged_at })) }] : [], next_before: null })
+    }
+    if (path.startsWith('/api/club/7/player-feedback/') && req.method() === 'GET') {
+      const row = state.revisions.find((r) => r.id === path.split('/').at(-1))
+      return row ? reply({ feedback: playerRow(row) }) : reply({ error: 'feedback_not_found' }, 404)
     }
     if (path === `/api/club/7/player-feedback/${threadId}/withdraw`) {
       expect(req.postDataJSON()).toEqual({ expected_revision: state.revisions.length })
@@ -218,5 +233,93 @@ test('real roster surfaces invitation loading failure and retry restores publish
   await expect(page.getByRole('button', { name: 'Publish feedback', exact: true })).toBeVisible()
   await expect(page.getByText('Could not load accepted club invitations.', { exact: false })).toHaveCount(0)
   expect(fixture.state.invitationPages.every((entry) => entry.limit === '50')).toBe(true)
+  expect(fixture.unexpected).toEqual([])
+})
+
+for (const width of [1280, 390]) {
+  test(`AI observation to practice and coach review at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 })
+    const fixture = await harness(page, { development: true })
+    await page.getByRole('button', { name: 'Publish feedback', exact: true }).click()
+    await page.getByRole('button', { name: 'Find AI observations' }).click()
+    await page.getByRole('button', { name: 'Use this observation' }).click()
+    await expect(page.getByLabel('What to work on', { exact: true })).toHaveValue('Scan before receiving')
+    await page.getByLabel('What to practise', { exact: true }).fill('Check both shoulders before five receptions in the next small-sided game.')
+    await page.getByLabel('What progress looks like', { exact: true }).fill('Find the forward option before the ball arrives.')
+    await page.getByLabel('Review date (optional)').fill('2026-09-12')
+    const body = page.getByLabel('Feedback text', { exact: true })
+    const preview = page.getByRole('button', { name: 'Preview publication', exact: true })
+    await expect(body).toHaveValue('')
+    await expect(preview).toBeDisabled()
+    for (const caption of [
+      'Maya scans after the ball arrives, limiting her forward options.',
+      '  MAYA  scans after the ball arrives,\nlimiting her forward options.  ',
+      'Ｍaya scans after the ball arrives, limiting her forward options.',
+    ]) {
+      await body.fill(caption)
+      await expect(preview).toBeDisabled()
+      await expect(page.getByRole('alert')).toContainText('Write your own feedback')
+    }
+    expect(fixture.state.revisions).toHaveLength(0)
+    await body.fill('Maya, check both shoulders early so you can choose your next pass.')
+    await page.getByRole('button', { name: 'Preview publication', exact: true }).click()
+    await expect(page.getByLabel('Publication preview')).toContainText('Check both shoulders')
+    expect(fixture.state.revisions).toHaveLength(0)
+    await page.screenshot({ path: testInfo.outputPath('coach-development-preview.png'), fullPage: true })
+    await page.getByRole('button', { name: 'Confirm and publish' }).click()
+    await expect(page.getByRole('status')).toHaveText('Feedback published.')
+    await render(page, 'player')
+    await page.getByRole('button', { name: /Your next step from match review/ }).click()
+    await page.getByLabel('How did practice go?').fill('Scanning early helped me find the forward pass.')
+    await page.getByRole('button', { name: 'Ready for coach review', exact: true }).click()
+    await expect(page.getByLabel('My development progress')).toContainText('Ready for coach review')
+    expect(fixture.state.revisions[0].acknowledged_at).toBeNull()
+    await page.screenshot({ path: testInfo.outputPath('player-development-reflection.png'), fullPage: true })
+    await render(page, 'manager')
+    await page.getByRole('button', { name: 'Publish feedback', exact: true }).click()
+    await expect(page.getByLabel('Review player progress')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Load player progress' }).click()
+    await expect(page.getByLabel('Review player progress')).toContainText('Scanning early helped')
+    await page.getByLabel('Your review for the player').fill('Good progress. Keep the early scan when we add pressure.')
+    await page.getByRole('button', { name: 'Mark reviewed', exact: true }).click()
+    await expect(page.getByLabel('Review player progress')).toContainText('Reviewed by your coach')
+    await page.screenshot({ path: testInfo.outputPath('coach-development-reviewed.png'), fullPage: true })
+    await render(page, 'player')
+    await page.getByRole('button', { name: /Your next step from match review/ }).click()
+    await expect(page.getByLabel('My development progress')).toContainText('Good progress. Keep the early scan')
+    await page.getByText('Development history', { exact: true }).click()
+    await page.screenshot({ path: testInfo.outputPath('player-development-reviewed.png'), fullPage: true })
+    expect(fixture.unexpected).toEqual([])
+  })
+}
+
+test('conflicting progress preserves the reflection and blocks blind retries', async ({ page }) => {
+  const fixture = await harness(page, { progressConflict: true })
+  fixture.state.revisions.push({ id: idFor(1), revision: 1, title: 'Practice action', body: 'Private coaching', observation_refs: [], published_at: '2026-09-06T10:00:00Z', acknowledged_at: null, development_action: { focus: 'Scan', practice: 'Check shoulders', success: 'Find the pass', review_on: null } })
+  await render(page, 'player')
+  await page.getByRole('button', { name: /Practice action/ }).click()
+  await page.getByLabel('How did practice go?').fill('My unsaved reflection')
+  await page.getByRole('button', { name: 'Ready for coach review', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('This action has changed')
+  await expect(page.getByLabel('How did practice go?')).toHaveValue('My unsaved reflection')
+  await expect(page.getByRole('button', { name: 'Save practice update' })).toBeDisabled()
+  expect(fixture.unexpected).toEqual([])
+})
+
+test('account switch discards a delayed private progress response', async ({ page }) => {
+  let release
+  const pending = new Promise((resolve) => { release = resolve })
+  const fixture = await harness(page, { deferProgress: () => pending })
+  fixture.state.revisions.push({ id: idFor(1), revision: 1, title: 'Private practice action', body: 'Private coaching', observation_refs: [], published_at: '2026-09-06T10:00:00Z', acknowledged_at: null, development_action: { focus: 'Scan', practice: 'Check shoulders', success: 'Find the pass', review_on: null } })
+  await render(page, 'player')
+  await page.getByRole('button', { name: /Private practice action/ }).click()
+  await page.getByLabel('How did practice go?').fill('PRIVATE_REFLECTION_SENTINEL')
+  const request = page.waitForRequest((r) => r.url().endsWith('/progress'))
+  await page.getByRole('button', { name: 'Ready for coach review', exact: true }).click()
+  await request
+  await render(page, 'player', { token: 'different-player' })
+  release()
+  await expect(page.getByText('Your club has not published feedback yet.', { exact: true })).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('PRIVATE_REFLECTION_SENTINEL')
   expect(fixture.unexpected).toEqual([])
 })

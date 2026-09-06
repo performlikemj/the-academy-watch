@@ -130,9 +130,51 @@ final class PlayerClubExperienceUITests: XCTestCase {
         capture("age-verification")
     }
 
+    func testPlayerCanPractiseAndRequestCoachReview() {
+        openDevelopment("development")
+        capture("development-action")
+        let reflection = app.textViews["development-reflection"]
+        tap(reflection)
+        reflection.typeText("Scanning early helped me find the forward pass.")
+        tap(app.buttons["development-ready"])
+        XCTAssertTrue(app.staticTexts["Ready for coach review"].waitForExistence(timeout: 8))
+        capture("development-ready-for-review")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        tap(app.buttons.containing(.staticText, identifier: "Building your next pass").firstMatch)
+        XCTAssertTrue(app.staticTexts["Ready for coach review"].waitForExistence(timeout: 8))
+        XCTAssertEqual(
+            app.textViews["development-reflection"].value as? String,
+            "Scanning early helped me find the forward pass.")
+        XCTAssertTrue(
+            app.buttons["feedback-acknowledge"].exists, "Practice does not acknowledge feedback")
+    }
+    func testPlayerCanReadCoachDevelopmentReview() {
+        openDevelopment("reviewed")
+        let review = app.staticTexts[
+            "Good progress, Maya. Keep the early scan when we add pressure next session."]
+        XCTAssertTrue(review.waitForExistence(timeout: 8))
+        for _ in 0..<5 {
+            if review.isHittable { break }
+            app.swipeUp()
+        }
+        capture("development-coach-review")
+    }
+    private func openDevelopment(_ mode: String) {
+        launch(mode)
+        tap(app.buttons["home-role-player"])
+        tap(app.buttons["home-my-profiles"])
+        tap(app.buttons["my-profile-71"])
+        tap(app.buttons["my-profile-feedback"])
+        tap(app.buttons.containing(.staticText, identifier: "Building your next pass").firstMatch)
+        XCTAssertTrue(app.staticTexts["development-focus"].waitForExistence(timeout: 8))
+    }
+
     private func tap(_ element: XCUIElement) {
         XCTAssertTrue(element.waitForExistence(timeout: 10), "Missing \(element)")
-        if !element.isHittable { app.swipeUp() }
+        for _ in 0..<6 {
+            if element.isHittable { break }
+            app.swipeUp()
+        }
         element.tap()
     }
     private func capture(_ name: String) {

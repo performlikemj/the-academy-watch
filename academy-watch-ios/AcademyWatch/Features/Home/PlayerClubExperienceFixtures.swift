@@ -7,7 +7,7 @@
         static var mode: String? {
             let args = ProcessInfo.processInfo.arguments
             guard let i = args.firstIndex(of: "-experienceFixture"), args.indices.contains(i + 1),
-                ["player", "club", "pending"].contains(args[i + 1])
+                ["player", "club", "pending", "development", "reviewed"].contains(args[i + 1])
             else { return nil }
             return args[i + 1]
         }
@@ -26,6 +26,7 @@
         private static let lock = NSLock()
         nonisolated(unsafe) private static var accepted = false
         nonisolated(unsafe) private static var acknowledged = false
+        nonisolated(unsafe) private static var progress: [String: Any]?
         override class func canInit(with request: URLRequest) -> Bool { true }
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func stopLoading() {}
@@ -37,9 +38,65 @@
             let claim = """
                 {"id":71,"player_api_id":null,"local_player_id":481,"user_account_id":7,"relationship_type":"player","status":"\(isPending ? "pending" : "approved")","player_name":"Maya Okafor","contract_status":"unknown"}
                 """
-            let feedback = """
+            var feedback = """
                 {"id":"feedback-fixture","thread_id":"thread-fixture","revision":1,"player_api_id":-481,"program":{"id":44,"name":"Community FC"},"author":{"display_name":"Coach Alex"},"title":"Building your next pass","body":"Check your shoulder before receiving. In our next session, focus on finding the forward pass early.","published_at":"2026-09-05T10:00:00Z","acknowledged_at":\(Self.acknowledged ? "\"2026-09-06T10:00:00Z\"" : "null"),"can_acknowledge":\(!Self.acknowledged)}
                 """
+            let isDevelopment = ["development", "reviewed"].contains(
+                PlayerClubExperienceFixtures.mode ?? "")
+            if isDevelopment {
+                if path.hasSuffix("/progress") {
+                    var bytes = request.httpBody ?? Data()
+                    if bytes.isEmpty, let stream = request.httpBodyStream {
+                        stream.open()
+                        defer { stream.close() }
+                        var buffer = [UInt8](repeating: 0, count: 1024)
+                        while stream.hasBytesAvailable {
+                            let count = stream.read(&buffer, maxLength: buffer.count)
+                            if count <= 0 { break }
+                            bytes.append(buffer, count: count)
+                        }
+                    }
+                    let update = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] ?? [:]
+                    let version = (Self.progress?["version"] as? Int ?? 0) + 1
+                    let note = update["note"] as? String ?? ""
+                    let nextStatus = update["status"] as? String ?? "working_on_it"
+                    var history = Self.progress?["history"] as? [[String: Any]] ?? []
+                    history.append([
+                        "version": version, "actor": "player", "status": nextStatus, "note": note,
+                        "at": "2026-09-06T10:00:00Z",
+                    ])
+                    Self.progress = [
+                        "version": version, "status": nextStatus, "reflection": note,
+                        "updated_at": "2026-09-06T10:00:00Z", "history": history,
+                    ]
+                }
+                if PlayerClubExperienceFixtures.mode == "reviewed", Self.progress == nil {
+                    Self.progress = [
+                        "version": 2, "status": "reviewed",
+                        "reflection": "Scanning early helped me find the forward pass.",
+                        "coach_note":
+                            "Good progress, Maya. Keep the early scan when we add pressure next session.",
+                        "updated_at": "2026-09-06T10:00:00Z", "history": [],
+                    ]
+                }
+                var object =
+                    (try? JSONSerialization.jsonObject(with: Data(feedback.utf8))) as? [String: Any] ?? [:]
+                object["development_action"] = [
+                    "focus": "See the next pass before receiving",
+                    "practice":
+                        "In the next small-sided game, check both shoulders before five receptions. Call out the forward option before the ball arrives.",
+                    "success":
+                        "Find the forward option early, then choose whether to turn or set the ball back.",
+                    "review_on": "2026-09-12",
+                ]
+                object["development_progress"] = Self.progress ?? NSNull()
+                object["can_update_progress"] = true
+                if let data = try? JSONSerialization.data(withJSONObject: object),
+                    let value = String(data: data, encoding: .utf8)
+                {
+                    feedback = value
+                }
+            }
             var status = 200
             let body: String
             switch path {
@@ -59,7 +116,9 @@
                 Self.accepted = true
                 body = "{}"
             case "/api/me/player-feedback": body = "{\"feedback\":[\(feedback)],\"next_before\":null}"
-            case "/api/me/player-feedback/feedback-fixture": body = "{\"feedback\":\(feedback)}"
+            case "/api/me/player-feedback/feedback-fixture",
+                "/api/me/player-feedback/feedback-fixture/progress":
+                body = "{\"feedback\":\(feedback)}"
             case "/api/me/player-feedback/feedback-fixture/acknowledge":
                 Self.acknowledged = true
                 body =

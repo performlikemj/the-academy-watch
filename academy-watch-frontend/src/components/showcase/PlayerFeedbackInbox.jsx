@@ -1,3 +1,4 @@
+import { DevelopmentActionSummary, DevelopmentProgress } from '@/components/showcase/DevelopmentAction'
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronRight, LockKeyhole, RefreshCw } from 'lucide-react'
 import { APIService } from '@/lib/api'
@@ -131,7 +132,7 @@ function Inbox({ signedId, token }) {
       {loading ? <p role="status" className="text-sm text-muted-foreground">Loading feedback…</p> : !error && rows.length === 0 && !feedback ? <p className="py-4 text-sm text-muted-foreground">Your club has not published feedback yet.</p> : null}
       {rows.map((row) => <button key={row.id} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border p-4 text-left hover:bg-muted/40" onClick={() => openFeedback(row.id)}>
         <span className="min-w-0 break-words"><span className="block text-xs text-muted-foreground">{row.program.name} · Revision {row.revision}</span><span className="mt-1 block font-medium">{row.title}</span>
-          <span className="mt-2 block text-xs text-muted-foreground">{row.acknowledged_at ? 'Acknowledged' : row.revision > 1 ? 'Updated feedback — please read again' : 'Unread feedback'}</span></span>
+          <span className="mt-2 block text-xs text-muted-foreground">{row.development_progress?.status === 'ready_for_review' ? 'Ready for coach review' : row.development_progress?.status === 'reviewed' ? 'Reviewed by your coach' : row.acknowledged_at ? 'Acknowledged' : row.revision > 1 ? 'Updated feedback — please read again' : 'Unread feedback'}</span></span>
         <ChevronRight className="h-4 w-4 shrink-0" />
       </button>)}
       {nextBefore && <Button variant="outline" onClick={loadMore} disabled={busy}>Load more feedback</Button>}
@@ -139,6 +140,8 @@ function Inbox({ signedId, token }) {
         <p className="text-xs text-muted-foreground">{feedback.program.name} · {feedback.author.display_name} · Revision {feedback.revision}</p>
         <h3 className="break-words text-xl font-semibold">{feedback.title}</h3>
         <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{feedback.body}</p>
+        <DevelopmentActionSummary action={feedback.development_action} />
+        <DevelopmentProgress feedback={feedback} onUpdated={(updated) => { setFeedback(updated); setRows((previous) => previous.map((row) => row.id === updated.id ? { ...row, ...updated } : row)) }} onAccessLost={() => { setFeedback(null); setRows([]); setNextBefore(null); setError(unavailable) }} />
         {feedback.observation_refs?.length > 0 && <ul className="space-y-2 text-sm text-muted-foreground">{feedback.observation_refs.map((ref, index) => <li key={index} className="break-words">{ref.timestamp_s != null ? `${Math.floor(ref.timestamp_s / 60)}:${String(Math.floor(ref.timestamp_s % 60)).padStart(2, '0')} — ` : ''}{ref.label}</li>)}</ul>}
         {feedback.revision > 1 && !feedback.acknowledged_at && <p className="text-sm font-medium">Updated feedback — please read again</p>}
         <p className="text-xs leading-relaxed text-muted-foreground">Acknowledging confirms you read this revision; it does not mean you agree.</p>

@@ -59,6 +59,26 @@ final class PlayerStoryAPIClientTests: XCTestCase {
         )
     }
 
+    func testDevelopmentUpdateUsesAuthenticatedRevisionRouteAndDecodesReview() async throws {
+        PlayerStoryURLProtocol.setHandler { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/me/player-feedback/f1/progress")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer player-token")
+            let bytes = try XCTUnwrap(requestBodyData(request))
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+            XCTAssertEqual(Set(object.keys), ["expected_version", "status", "note"])
+            XCTAssertEqual(object["expected_version"] as? Int, 2)
+            XCTAssertEqual(object["status"] as? String, "ready_for_review")
+            XCTAssertEqual(object["note"] as? String, "Found the pass")
+            return (200, Data(#"{"feedback":{"id":"f1","thread_id":"t1","revision":1,"player_api_id":-481,"program":{"id":44,"name":"Club"},"author":{"display_name":"Coach"},"title":"Scan","body":"Private","published_at":"2026-09-06T00:00:00Z","can_acknowledge":true,"development_action":{"focus":"Scan","practice":"Check shoulders","success":"Find the pass","review_on":null},"development_progress":{"version":3,"status":"ready_for_review","reflection":"Found the pass","coach_note":null,"updated_at":"2026-09-06T00:00:00Z","history":[]},"can_update_progress":true}}"#.utf8))
+        }
+        let client = makeClient(authSession: PlayerStoryAuthSession(token: "player-token"))
+        let feedback = try await client.updateDevelopmentProgress(id: "f1", update: .init(expectedVersion: 2, status: "ready_for_review", note: "Found the pass"))
+        XCTAssertEqual(feedback.developmentAction?.focus, "Scan")
+        XCTAssertEqual(feedback.developmentProgress?.version, 3)
+        XCTAssertEqual(feedback.canUpdateProgress, true)
+    }
+
     private func makeClient(authSession: (any AuthSessionProtocol)? = nil) -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PlayerStoryURLProtocol.self]

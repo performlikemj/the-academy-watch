@@ -307,6 +307,18 @@ def manager_feedback(program_id):
     return list_feedback(manager=True)
 
 
+@feedback_bp.get("/club/<int:program_id>/player-feedback/<revision_id>")
+@require_club_manager()
+@transaction
+@authority(manager=True)
+@limited("60 per minute")
+def manager_feedback_detail(program_id, revision_id):
+    row = g.feedback
+    if not relationship_matches(db.session, row):
+        raise FeedbackError("club_relationship_required", 409)
+    return jsonify(feedback=feedback_dict(db.session, row, manager=True))
+
+
 @feedback_bp.get("/me/player-feedback")
 @require_user_auth
 @transaction
@@ -399,3 +411,59 @@ def purge_feedback():
                 db.session.delete(row)
                 counts["deleted"] += 1
     return jsonify(**counts, next_before=candidates[499].id if len(candidates) > 500 else None, dry_run=data["dry_run"])
+
+
+@feedback_bp.get("/club/<int:program_id>/player-feedback/suggestions")
+@require_club_manager()
+@transaction
+@feature_enabled
+@limited("30 per minute")
+def feedback_suggestions(program_id):
+    from src.services.feedback_development import evidence_candidates
+
+    if set(request.args) != {"invitation_id"} or len(request.args.getlist("invitation_id")) != 1:
+        raise FeedbackError()
+    invitation = ClubInvitation.query.filter_by(id=uuid(request.args["invitation_id"]), program_id=program_id).first()
+    if invitation is None:
+        raise FeedbackError("feedback_not_found", 404)
+    invitation = locked_invitation(db.session, invitation, g.user_id)
+    if not strict_manager(db.session, program_id, g.user_id):
+        raise FeedbackError("Club manager access denied", 403)
+    if not invitation or not effective_relationship(db.session, invitation):
+        raise FeedbackError("club_relationship_required", 409)
+    return jsonify(suggestions=evidence_candidates(db.session, invitation))
+
+
+@feedback_bp.post("/me/player-feedback/<revision_id>/progress")
+@require_user_auth
+@transaction
+@authority()
+@limited("30 per hour")
+def player_development_progress(revision_id):
+    from src.services.feedback_development import update_progress
+
+    row = g.feedback
+    if row.revision != g.feedback_rows[-1].revision:
+        raise FeedbackError("feedback_revision_conflict", 409, current_revision=g.feedback_rows[-1].revision)
+    update_progress(row, request.get_json(silent=True))
+    return jsonify(feedback=feedback_dict(db.session, row))
+
+
+@feedback_bp.post("/club/<int:program_id>/player-feedback/<thread_id>/progress-review")
+@require_club_manager()
+@transaction
+@authority(manager=True)
+@limited("30 per hour")
+def review_development_progress(program_id, thread_id):
+    from src.services.feedback_development import update_progress
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) != {"expected_revision", "expected_version", "status", "note"}:
+        raise FeedbackError()
+    row = g.feedback_rows[-1]
+    if integer(data["expected_revision"]) != row.revision:
+        raise FeedbackError("feedback_revision_conflict", 409, current_revision=row.revision)
+    if not player_can_read(db.session, row, row.recipient_user_id):
+        raise FeedbackError("club_relationship_required", 409)
+    update_progress(row, {key: value for key, value in data.items() if key != "expected_revision"}, coach=True)
+    return jsonify(feedback=feedback_dict(db.session, row, manager=True))

@@ -156,6 +156,7 @@ private struct InvitationConfirmation: Identifiable {
 
 @MainActor
 final class PlayerFeedbackViewModel: ObservableObject {
+    @Published private(set) var progressConflict = false
     @Published private(set) var rows: [PlayerFeedback] = []
     @Published private(set) var detail: PlayerFeedback?
     @Published private(set) var nextBefore: String?
@@ -189,6 +190,7 @@ final class PlayerFeedbackViewModel: ObservableObject {
         busy = true
         error = nil
         detail = nil
+        progressConflict = false
         defer { busy = false }
         do {
             let value = try await client.fetchFeedbackDetail(id: id)
@@ -214,6 +216,31 @@ final class PlayerFeedbackViewModel: ObservableObject {
         (error as? APIClientError)?.statusCode == 404
             ? "This feedback is no longer available. Return to your profile and refresh for current updates."
             : playerClubError(error)
+    }
+
+    func updateProgress(status: String, note: String) async {
+        guard !busy, !progressConflict, let value = detail, value.canUpdateProgress == true else {
+            return
+        }
+        busy = true
+        error = nil
+        defer { busy = false }
+        do {
+            let result = try await client.updateDevelopmentProgress(
+                id: value.id,
+                update: .init(
+                    expectedVersion: value.developmentProgress?.version ?? 0, status: status, note: note))
+            guard !Task.isCancelled else { return }
+            detail = result
+        } catch {
+            let code = (error as? APIClientError)?.statusCode
+            if code == 401 || code == 403 || code == 404 { detail = nil }
+            if code == 409 { progressConflict = true }
+            self.error =
+                code == 409
+                ? "This action has changed. Refresh the feedback before updating it again."
+                : playerClubError(error)
+        }
     }
 }
 
@@ -244,7 +271,16 @@ struct PlayerFeedbackListView: View {
                     VStack(alignment: .leading, spacing: 7) {
                         Text(row.title).font(.headline)
                         Text(row.program.name).font(.subheadline).foregroundStyle(.secondary)
-                        Text(row.acknowledgedAt == nil ? "Awaiting acknowledgment" : "Acknowledged").font(.caption)
+                        if let action = row.developmentAction {
+                            Text(action.focus).font(.subheadline)
+                            Label(
+                                PlayerDevelopmentProgress.label(row.developmentProgress?.status),
+                                systemImage: "flag.fill"
+                            )
+                            .font(.caption.weight(.semibold)).foregroundStyle(AcademyColors.claret)
+                        }
+                        Text(row.acknowledgedAt == nil ? "Awaiting acknowledgment" : "Acknowledged").font(
+                            .caption)
                     }.padding(.vertical, 6)
                 }
             }
@@ -282,7 +318,15 @@ struct PlayerFeedbackDetailView: View {
                     Text("\(row.program.name) · \(row.author.displayName ?? "Club staff")").foregroundStyle(.secondary)
                     Text("\(displayClubDate(row.publishedAt)) · Revision \(row.revision)").font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(row.body ?? "").textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(row.body ?? "").textSelection(.enabled).frame(
+                        maxWidth: .infinity, alignment: .leading)
+                    if row.developmentAction != nil {
+                        PlayerDevelopmentCard(feedback: row, busy: model.busy || model.progressConflict) {
+                            status, note in
+                            Task { await model.updateProgress(status: status, note: note) }
+                        }
+                        .id("\(row.id):\(row.developmentProgress?.version ?? 0)")
+                    }
                     if row.canAcknowledge {
                         Button("I've read this feedback") { Task { await model.acknowledge() } }
                             .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.busy)
@@ -313,4 +357,99 @@ func displayClubDate(_ raw: String) -> String {
     parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let date = parser.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
     return date?.formatted(date: .abbreviated, time: .omitted) ?? "Date unavailable"
+}
+
+private struct PlayerDevelopmentCard: View {
+    let feedback: PlayerFeedback
+    let busy: Bool
+    let onSave: (String, String) -> Void
+    @State private var reflection: String
+    @FocusState private var writing: Bool
+
+    init(feedback: PlayerFeedback, busy: Bool, onSave: @escaping (String, String) -> Void) {
+        self.feedback = feedback
+        self.busy = busy
+        self.onSave = onSave
+        _reflection = State(initialValue: feedback.developmentProgress?.reflection ?? "")
+    }
+
+    var body: some View {
+        if let action = feedback.developmentAction {
+            VStack(alignment: .leading, spacing: 18) {
+                Label("YOUR NEXT STEP", systemImage: "flag.fill")
+                    .font(.caption.bold()).foregroundStyle(AcademyColors.claretForeground)
+                Text(action.focus).font(.title2.bold()).accessibilityIdentifier("development-focus")
+                actionText("What to practise", action.practice)
+                actionText("What progress looks like", action.success)
+                if let day = action.reviewOn {
+                    Label("Review together: \(day)", systemImage: "calendar").font(.subheadline)
+                }
+                Divider()
+                Label(
+                    PlayerDevelopmentProgress.label(feedback.developmentProgress?.status),
+                    systemImage: "checklist"
+                )
+                .font(.headline).accessibilityIdentifier("development-status")
+                if let review = feedback.developmentProgress?.coachNote, !review.isEmpty {
+                    actionText("Coach review", review)
+                }
+                if feedback.canUpdateProgress == true {
+                    Text("How did practice go?").font(.headline)
+                    Text("What did you try? What felt different? Where do you need help?")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    TextEditor(text: $reflection)
+                        .frame(minHeight: 110).padding(8)
+                        .background(AcademyColors.background, in: RoundedRectangle(cornerRadius: 12))
+                        .focused($writing).accessibilityLabel("Practice reflection")
+                        .accessibilityIdentifier("development-reflection")
+                        .onChange(of: reflection) { _, value in
+                            if value.count > 1000 { reflection = String(value.prefix(1000)) }
+                        }
+                    Text("Only you and your club can see this reflection.").font(.caption).foregroundStyle(
+                        .secondary)
+                    Button("Save practice update") { save("working_on_it") }
+                        .buttonStyle(.bordered).disabled(busy)
+                        .accessibilityIdentifier("development-save")
+                    Button("Ready for coach review") { save("ready_for_review") }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                        .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
+                        .disabled(busy || reflection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("development-ready")
+                } else {
+                    Text("Open the latest feedback revision to update your progress.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let history = feedback.developmentProgress?.history, !history.isEmpty {
+                    DisclosureGroup("Development history") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(history.reversed()) { event in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(
+                                        "\(event.actor == "coach" ? "Coach" : "Player") · \(PlayerDevelopmentProgress.label(event.status))"
+                                    )
+                                    .font(.subheadline.bold())
+                                    Text(displayClubDate(event.at)).font(.caption).foregroundStyle(.secondary)
+                                    if !event.note.isEmpty { Text(event.note).font(.subheadline) }
+                                }
+                            }
+                        }.padding(.top, 10)
+                    }
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+        }
+    }
+
+    private func actionText(_ title: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.subheadline.bold())
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    private func save(_ status: String) {
+        writing = false
+        onSave(status, reflection.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
 }
