@@ -1,0 +1,77 @@
+[
+  {
+    "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "id": "scout-opens-app",
+    "persona": "scout",
+    "proof": "failing",
+    "journey": "scout-opens-app",
+    "evidence": []
+  },
+  {
+    "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "id": "change-home-changes-home",
+    "persona": "scout",
+    "proof": "failing",
+    "journey": "change-home-changes-home",
+    "evidence": []
+  },
+  {
+    "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "id": "player-first-run-chooser",
+    "persona": "player",
+    "proof": "proven",
+    "journey": "player-first-run-chooser",
+    "evidence": [
+      {
+        "step_id": "player-choice-visible",
+        "shot": "shots/player-first-run-chooser__002-player-choice-visible.png"
+      },
+      {
+        "step_id": "club-choice-visible",
+        "shot": "shots/player-first-run-chooser__003-club-choice-visible.png"
+      },
+      {
+        "step_id": "scout-choice-visible",
+        "shot": "shots/player-first-run-chooser__004-scout-choice-visible.png"
+      }
+    ]
+  },
+  {
+    "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "id": "player-my-profiles",
+    "persona": "player",
+    "proof": "proven",
+    "journey": "player-my-profiles",
+    "evidence": [
+      {
+        "step_id": "my-profiles-action-visible",
+        "shot": "shots/player-my-profiles__003-my-profiles-action-visible.png"
+      },
+      {
+        "step_id": "my-profiles-screen-visible",
+        "shot": "shots/player-my-profiles__005-my-profiles-screen-visible.png"
+      }
+    ]
+  },
+  {
+    "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "id": "club-my-club",
+    "persona": "club",
+    "proof": "proven",
+    "journey": "club-my-club",
+    "evidence": [
+      {
+        "step_id": "my-club-action-visible",
+        "shot": "shots/club-my-club__003-my-club-action-visible.png"
+      }
+    ]
+  },
+  {
+    "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "id": "scout-search-player-detail",
+    "persona": "scout",
+    "proof": "failing",
+    "journey": "scout-search-player-detail",
+    "evidence": []
+  }
+]

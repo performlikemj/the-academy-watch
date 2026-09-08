@@ -5,7 +5,7 @@ app_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 : "${HARNESS_ROOT:?Set HARNESS_ROOT to the harness checkout}"
 report_dir=${1:?Usage: sim/check-release.sh <full-report-directory>}
 node "$HARNESS_ROOT/checks/story-map.mjs" check "$app_root"
-node "$HARNESS_ROOT/checks/sim-report.sh" --strict --app-dir "$app_root" "$report_dir"
+/bin/bash "$HARNESS_ROOT/checks/sim-report.sh" --strict --app-dir "$app_root" "$report_dir"
 release_stories=()
 while IFS= read -r story; do release_stories+=("$story"); done < <(
   awk '
