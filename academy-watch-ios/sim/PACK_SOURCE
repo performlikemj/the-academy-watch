@@ -1,0 +1,14 @@
+Original WIP adoption: harness 38cf200.
+Host and shared mechanical proof synchronized from harness 2b8bab66eda1235b20244658cfa7d8fd8870d03b.
+
+packs/swift-ios/templates/sim/run.sh -> sim/run.sh (AcademyWatchExperience/AcademyWatchUITests defaults)
+packs/swift-ios/templates/sim/JourneyRunnerUITests.swift -> AcademyWatchUITests/JourneyRunnerUITests.swift
+packs/swift-ios/templates/sim/grade.mjs -> sim/grade.mjs
+packs/swift-ios/templates/sim/journeys/README.md -> sim/journeys/README.md
+packs/_shared/sim/stories-proof.mjs -> sim/stories-proof.mjs
+
+Local runner changes for A1 follow-up:
+- tab-bar-* IDs resolve only under app.tabBars.buttons, including settled capture.
+- Selection uses native isSelected, with a bounded AX attributes-line receipt.
+- Failure diagnostics include a bounded accessibility tree to distinguish missing IDs from missing selection.
+No navigation-title fallback; no synthetic selected trait.

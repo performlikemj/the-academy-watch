@@ -92,7 +92,7 @@ struct RootTabView: View {
             launchArguments
         )
         let fixtureState: AuthState?
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         if PlayerClubExperienceFixtures.mode != nil {
             fixtureState = .signedIn(email: "maya@fixture.example", accountRole: .player, displayName: "Maya Okafor", isVerifiedScout: false)
         } else if fixtureDestination != nil {
@@ -125,7 +125,7 @@ struct RootTabView: View {
         #endif
 
         let tokenStore: any TokenStoreProtocol
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         tokenStore = PlayerClubExperienceFixtures.mode == nil ? KeychainTokenStore() : ExperienceTokenStore()
         #else
         tokenStore = KeychainTokenStore()
@@ -196,7 +196,9 @@ struct RootTabView: View {
                     onRoleSelected: selectInitialTab
                 )
                     .id(authManager.email ?? "signed-out")
-                    .tabItem { Label("Home", systemImage: "house.fill") }
+                    .tabItem {
+                        Label("Home", systemImage: "house.fill")
+                    }
                     .tag(RootTab.home)
             }
 
@@ -254,6 +256,7 @@ struct RootTabView: View {
                 }
                 .tag(RootTab.account)
         }
+        .background(TabBarAccessibilityIdentifiers())
         .environmentObject(authManager)
         .environmentObject(watchlistViewModel)
         .environmentObject(followListsViewModel)
@@ -337,4 +340,57 @@ struct RootTabView: View {
         selectedTab = RootTab.initial(role: role, launchArguments: [])
     }
 
+}
+
+/// SwiftUI can drop identifiers from conditional `.tabItem` labels when it
+/// rebuilds the tab set. Label the native items, leaving UIKit's selection
+/// and accessibility traits untouched.
+private struct TabBarAccessibilityIdentifiers: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> IdentifierController {
+        IdentifierController()
+    }
+
+    func updateUIViewController(_ controller: IdentifierController, context: Context) {
+        controller.scheduleUpdate()
+    }
+
+    final class IdentifierController: UIViewController {
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            applyIdentifiers()
+        }
+
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            applyIdentifiers()
+        }
+
+        func scheduleUpdate() {
+            // The representable updates before SwiftUI finishes rebuilding tabs.
+            DispatchQueue.main.async { [weak self] in self?.applyIdentifiers() }
+        }
+
+        private func applyIdentifiers() {
+            guard let root = view.window?.rootViewController else { return }
+            labelTabs(in: root)
+        }
+
+        private func labelTabs(in controller: UIViewController) {
+            if let tabs = controller as? UITabBarController {
+                for item in tabs.tabBar.items ?? [] {
+                    let identifier: String?
+                    switch item.title {
+                    case "Home": identifier = "tab-bar-home"
+                    case "Scout Desk": identifier = "tab-bar-scout-desk"
+                    case "Watchlist": identifier = "tab-bar-watchlist"
+                    case "Lists": identifier = "tab-bar-lists"
+                    case "Account": identifier = "tab-bar-account"
+                    default: identifier = nil
+                    }
+                    if let identifier { item.accessibilityIdentifier = identifier }
+                }
+            }
+            for child in controller.children { labelTabs(in: child) }
+        }
+    }
 }

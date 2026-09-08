@@ -27,6 +27,47 @@ enum ExperienceRole: String, CaseIterable, Identifiable {
     }
 }
 
+#if DEBUG && targetEnvironment(simulator)
+extension ExperienceRole {
+    static func applySimulatorLaunchArguments(
+        _ arguments: [String],
+        defaults: UserDefaults = .standard
+    ) throws {
+        if arguments.contains("-resetExperienceRole") {
+            defaults.removeObject(forKey: storageKey)
+        }
+
+        guard let index = arguments.firstIndex(of: "-experienceRole") else { return }
+        guard arguments.indices.contains(index + 1) else {
+            throw ExperienceLaunchArgumentError.missingRole
+        }
+        let value = arguments[index + 1].lowercased()
+        if value == "none" {
+            defaults.removeObject(forKey: storageKey)
+            return
+        }
+        guard let role = ExperienceRole(rawValue: value) else {
+            throw ExperienceLaunchArgumentError.unknownRole(value)
+        }
+        defaults.set(role.rawValue, forKey: storageKey)
+    }
+}
+
+enum ExperienceLaunchArgumentError: LocalizedError, Equatable {
+    case missingRole
+    case unknownRole(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingRole:
+            "-experienceRole requires player, club, scout, or none."
+        case let .unknownRole(value):
+            "Unknown -experienceRole value: \(value)."
+        }
+    }
+}
+#endif
+
 extension PlayerProfileClaim {
     var signedPlayerID: Int? { playerApiId ?? localPlayerId.map { -$0 } }
     var profileTitle: String { playerName ?? "Player profile" }

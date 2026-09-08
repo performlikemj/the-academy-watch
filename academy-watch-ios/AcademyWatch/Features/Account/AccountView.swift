@@ -136,6 +136,7 @@ struct AccountView: View {
                 .padding(.horizontal, 18)
                 .padding(.vertical, 22)
             }
+            .accessibilityIdentifier("account-scroll")
         }
         .navigationTitle("Account")
         .navigationBarTitleDisplayMode(.inline)
@@ -182,9 +183,11 @@ struct AccountView: View {
 
             Menu {
                 Button("Not chosen") { roleValue = "" }
+                    .accessibilityIdentifier("account-home-role-none")
                 Divider()
                 ForEach(ExperienceRole.allCases) { role in
                     Button(role.selectionTitle) { roleValue = role.rawValue }
+                        .accessibilityIdentifier("account-home-role-\(role.rawValue)")
                 }
             } label: {
                 HStack(spacing: 13) {

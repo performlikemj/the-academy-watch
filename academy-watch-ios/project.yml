@@ -61,6 +61,8 @@ targets:
       - path: AcademyWatchUITests
         excludes:
           - README.md
+      - path: sim/journeys
+        buildPhase: resources
     dependencies:
       - target: AcademyWatch
     settings:
@@ -104,3 +106,4 @@ schemes:
         - name: AcademyWatchUITests
           selectedTests:
             - PlayerClubExperienceUITests
+            - JourneyRunnerUITests

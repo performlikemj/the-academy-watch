@@ -1,0 +1,10 @@
+# Academy Watch iOS simulator lane. Paths are relative to this app directory.
+sim:
+  destination: "platform=iOS Simulator,name=iPhone 17,OS=26.5"
+  journeys_dir: sim/journeys
+  report_dir: sim/report
+  grade: false
+  drop: "basecamp:~/Projects/sim-drops/academy-watch-ios/"
+  release_stories:
+    - scout-opens-app
+    - change-home-changes-home

@@ -1,0 +1,242 @@
+{
+  "version": 1,
+  "app": "academy-watch-ios",
+  "personas": [
+    {
+      "id": "scout",
+      "summary": "Finds academy players and maintains scouting lists without using player or club onboarding as a home."
+    },
+    {
+      "id": "player",
+      "summary": "Returns to a claimed or new player profile and chooses how to develop their football story."
+    },
+    {
+      "id": "club",
+      "summary": "Starts from club onboarding and opens the club workspace path for a team."
+    }
+  ],
+  "screens": [
+    {
+      "id": "scout-desk",
+      "title": "Scout Desk",
+      "proof_id": "tab-bar-scout-desk",
+      "source": "AcademyWatch/App/RootTabView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "home",
+      "title": "Home",
+      "proof_id": "tab-bar-home",
+      "source": "AcademyWatch/App/RootTabView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "player-choice",
+      "title": "Choose Player",
+      "proof_id": "home-role-player",
+      "source": "AcademyWatch/Features/Home/PlayerHomeView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "club-choice",
+      "title": "Choose Club",
+      "proof_id": "home-role-club",
+      "source": "AcademyWatch/Features/Home/PlayerHomeView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "scout-choice",
+      "title": "Choose Scout",
+      "proof_id": "home-role-scout",
+      "source": "AcademyWatch/Features/Home/PlayerHomeView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "my-profiles-card",
+      "title": "My profiles action",
+      "proof_id": "home-my-profiles",
+      "source": "AcademyWatch/Features/Home/PlayerHomeView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "my-profiles",
+      "title": "My profiles",
+      "proof_id": "my-profiles",
+      "source": "AcademyWatch/Features/Home/PlayerHomeView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "my-club-card",
+      "title": "My club action",
+      "proof_id": "home-my-club",
+      "source": "AcademyWatch/Features/Home/PlayerHomeView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "my-club",
+      "title": "My club onboarding",
+      "proof_id": "my-club-verification",
+      "source": "AcademyWatch/Features/Home/PlayerHomeView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "scout-search",
+      "title": "Scout player search",
+      "proof_id": "scout-search",
+      "source": "AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "player-detail",
+      "title": "Synthetic player detail",
+      "proof_id": "player-detail-scroll",
+      "source": "AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift",
+      "status": "instrumented"
+    }
+  ],
+  "stories": [
+    {
+      "id": "scout-opens-app",
+      "persona": "scout",
+      "title": "A returning scout opens on Scout Desk",
+      "given": "The stored home experience is scout.",
+      "when": "The app launches.",
+      "then": "Scout Desk is selected and the player/club Home tab is absent.",
+      "proof": {
+        "journey": "scout-opens-app",
+        "asserts": [
+          {
+            "step": "scout-desk-selected",
+            "kind": "selected",
+            "screen": "scout-desk"
+          },
+          {
+            "step": "home-absent",
+            "kind": "absent",
+            "screen": "home"
+          }
+        ]
+      }
+    },
+    {
+      "id": "change-home-changes-home",
+      "persona": "scout",
+      "title": "Changing Home experience visibly changes tabs",
+      "given": "The stored home experience is scout.",
+      "when": "The user changes Home experience to Player in Account, then changes it back to Scout.",
+      "then": "Home is absent before the change, selected for Player, and absent again after returning to Scout.",
+      "proof": {
+        "journey": "change-home-changes-home",
+        "asserts": [
+          {
+            "step": "home-absent-before-change",
+            "kind": "absent",
+            "screen": "home"
+          },
+          {
+            "step": "home-selected-for-player",
+            "kind": "selected",
+            "screen": "home"
+          },
+          {
+            "step": "home-absent-after-restoring-scout",
+            "kind": "absent",
+            "screen": "home"
+          }
+        ]
+      }
+    },
+    {
+      "id": "player-first-run-chooser",
+      "persona": "player",
+      "title": "A first-time visitor can choose all three home experiences",
+      "given": "No home experience is stored.",
+      "when": "The app launches on Home.",
+      "then": "Player, Club, and Scout choices are all visible.",
+      "proof": {
+        "journey": "player-first-run-chooser",
+        "asserts": [
+          {
+            "step": "player-choice-visible",
+            "kind": "visible",
+            "screen": "player-choice"
+          },
+          {
+            "step": "club-choice-visible",
+            "kind": "visible",
+            "screen": "club-choice"
+          },
+          {
+            "step": "scout-choice-visible",
+            "kind": "visible",
+            "screen": "scout-choice"
+          }
+        ]
+      }
+    },
+    {
+      "id": "player-my-profiles",
+      "persona": "player",
+      "title": "A player opens My profiles from Home",
+      "given": "The home experience is player and the offline player fixture is installed.",
+      "when": "The user opens My profiles from Home.",
+      "then": "The My profiles action is visible and opens the fixture-backed My profiles screen.",
+      "proof": {
+        "journey": "player-my-profiles",
+        "asserts": [
+          {
+            "step": "my-profiles-action-visible",
+            "kind": "visible",
+            "screen": "my-profiles-card"
+          },
+          {
+            "step": "my-profiles-screen-visible",
+            "kind": "visible",
+            "screen": "my-profiles"
+          }
+        ]
+      }
+    },
+    {
+      "id": "club-my-club",
+      "persona": "club",
+      "title": "A club user opens My club from Home",
+      "given": "The home experience is club and the offline club fixture has no claimed club.",
+      "when": "The user views Club Home.",
+      "then": "The honest no-claim state keeps My club visible and directs the user to club verification without claiming a club workspace exists.",
+      "proof": {
+        "journey": "club-my-club",
+        "asserts": [
+          {
+            "step": "my-club-action-visible",
+            "kind": "visible",
+            "screen": "my-club-card"
+          }
+        ]
+      }
+    },
+    {
+      "id": "scout-search-player-detail",
+      "persona": "scout",
+      "title": "A scout searches for a synthetic player and opens detail",
+      "given": "The scout fixture exposes Sim Player One at Sim Academy with local detail responses.",
+      "when": "The scout searches for Sim Player One and opens the result.",
+      "then": "The synthetic result is visible and its player detail screen opens without network access.",
+      "proof": {
+        "journey": "scout-search-player-detail",
+        "asserts": [
+          {
+            "step": "search-field-visible",
+            "kind": "visible",
+            "screen": "scout-search"
+          },
+          {
+            "step": "synthetic-player-detail-visible",
+            "kind": "visible",
+            "screen": "player-detail"
+          }
+        ]
+      }
+    }
+  ]
+}

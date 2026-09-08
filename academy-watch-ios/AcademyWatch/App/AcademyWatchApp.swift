@@ -37,9 +37,12 @@ struct AcademyWatchApp: App {
 
     init() {
         LaunchPerformance.markLaunchStarted()
-        #if DEBUG
-        if PlayerClubExperienceFixtures.mode != nil {
-            UserDefaults.standard.set("", forKey: ExperienceRole.storageKey)
+        #if DEBUG && targetEnvironment(simulator)
+        do {
+            try ExperienceRole.applySimulatorLaunchArguments(ProcessInfo.processInfo.arguments)
+            _ = try PlayerClubExperienceFixtures.mode(from: ProcessInfo.processInfo.arguments)
+        } catch {
+            fatalError("Invalid simulator launch configuration: \(error.localizedDescription)")
         }
         #endif
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {

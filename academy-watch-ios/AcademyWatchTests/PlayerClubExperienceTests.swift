@@ -3,6 +3,70 @@ import XCTest
 @testable import AcademyWatch
 
 final class PlayerClubExperienceTests: XCTestCase {
+    #if DEBUG && targetEnvironment(simulator)
+    func testSimulatorRoleArgumentsSeedAndResetBeforeRootConstruction() throws {
+        let suite = try XCTUnwrap(UserDefaults(suiteName: "ExperienceLaunchArgumentsTests"))
+        defer { suite.removePersistentDomain(forName: "ExperienceLaunchArgumentsTests") }
+
+        try ExperienceRole.applySimulatorLaunchArguments(
+            ["-resetExperienceRole", "-experienceRole", "scout"],
+            defaults: suite
+        )
+        XCTAssertEqual(suite.string(forKey: ExperienceRole.storageKey), "scout")
+
+        try ExperienceRole.applySimulatorLaunchArguments(["-experienceRole", "none"], defaults: suite)
+        XCTAssertNil(suite.string(forKey: ExperienceRole.storageKey))
+
+        XCTAssertThrowsError(
+            try ExperienceRole.applySimulatorLaunchArguments(
+                ["-experienceRole", "spectator"],
+                defaults: suite
+            )
+        ) { error in
+            XCTAssertEqual(error as? ExperienceLaunchArgumentError, .unknownRole("spectator"))
+        }
+    }
+
+    func testUnknownExperienceFixtureModeIsRejected() {
+        XCTAssertThrowsError(
+            try PlayerClubExperienceFixtures.mode(
+                from: ["-experienceFixture", "production"]
+            )
+        ) { error in
+            XCTAssertEqual(error as? ExperienceFixtureError, .unknownMode("production"))
+        }
+    }
+
+    func testUnmatchedExperienceFixtureFailsBeforeURLSessionDataTaskIsCreated() async throws {
+        ExperienceFixtureDataTaskSpy.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ExperienceFixtureDataTaskSpy.self]
+        let client = APIClient(
+            baseURL: URL(string: "https://fixture.invalid/api")!,
+            session: URLSession(configuration: configuration),
+            fixtureMode: "player"
+        )
+
+        await client.warmUp()
+        XCTAssertEqual(ExperienceFixtureDataTaskSpy.startedCount, 0, "Fixture warm-up must stay offline.")
+
+        do {
+            _ = try await client.fetchPlayerProfile(playerID: 999_999)
+            XCTFail("An unmatched fixture route must fail.")
+        } catch {
+            XCTAssertEqual(
+                error as? ExperienceFixtureError,
+                .unmatchedRequest(method: "GET", path: "/api/players/999999/profile")
+            )
+        }
+        XCTAssertEqual(
+            ExperienceFixtureDataTaskSpy.startedCount,
+            0,
+            "The fixture seam must reject unmatched requests before URLSession creates a data task."
+        )
+    }
+    #endif
+
     @MainActor
     func testSelfClaimRequiresAgeEvidenceBeforeSending() async {
         let model = LocalPlayerFormViewModel(context: .claimant, today: { Self.day(2026, 9, 6) })
@@ -216,6 +280,35 @@ final class PlayerClubExperienceTests: XCTestCase {
         calendar.date(from: DateComponents(year: year, month: month, day: day))!
     }
 }
+
+#if DEBUG && targetEnvironment(simulator)
+private final class ExperienceFixtureDataTaskSpy: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var starts = 0
+
+    static var startedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return starts
+    }
+
+    static func reset() {
+        lock.lock()
+        starts = 0
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+    override func startLoading() {
+        Self.lock.lock()
+        Self.starts += 1
+        Self.lock.unlock()
+        client?.urlProtocol(self, didFailWithError: URLError(.dataNotAllowed))
+    }
+}
+#endif
 
 private actor ExperienceStub: PlayerClubAPIClientProtocol {
     private var denied = false
