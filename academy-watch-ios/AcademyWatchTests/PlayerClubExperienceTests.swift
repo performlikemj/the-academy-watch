@@ -36,7 +36,52 @@ final class PlayerClubExperienceTests: XCTestCase {
         XCTAssertFalse(model.requiresAdultEvidence)
         XCTAssertEqual(model.submission.relationshipType, .guardian)
     }
-    func testDefaultHomeAndExplicitScoutLaunchArePreserved() {
+    func testRootTabsMatchTheHomeExperience() {
+        XCTAssertEqual(
+            RootTab.available(for: nil),
+            [.home, .scoutDesk, .watchlist, .lists, .account]
+        )
+        XCTAssertEqual(
+            RootTab.available(for: .player),
+            [.home, .scoutDesk, .watchlist, .lists, .account]
+        )
+        XCTAssertEqual(
+            RootTab.available(for: .club),
+            [.home, .scoutDesk, .watchlist, .lists, .account]
+        )
+        XCTAssertEqual(
+            RootTab.available(for: .scout),
+            [.scoutDesk, .watchlist, .lists, .account]
+        )
+    }
+    func testRootInitialTabUsesRoleUnlessAValidOverrideWins() {
+        XCTAssertEqual(RootTab.initial(role: nil, launchArguments: []), .home)
+        XCTAssertEqual(RootTab.initial(role: .player, launchArguments: []), .home)
+        XCTAssertEqual(RootTab.initial(role: .club, launchArguments: []), .home)
+        XCTAssertEqual(RootTab.initial(role: .scout, launchArguments: []), .scoutDesk)
+        XCTAssertEqual(
+            RootTab.initial(role: .scout, launchArguments: ["-initialTab", "watchlist"]),
+            .watchlist
+        )
+        XCTAssertEqual(
+            RootTab.initial(role: .scout, launchArguments: ["-initialTab", "account"]),
+            .account
+        )
+        XCTAssertEqual(
+            RootTab.initial(role: .scout, launchArguments: ["-initialTab", "home"]),
+            .scoutDesk,
+            "Home is never selectable for scouts"
+        )
+        XCTAssertEqual(
+            RootTab.initial(role: .player, launchArguments: [], fixtureDestination: .watchlistNullStats),
+            .watchlist
+        )
+        XCTAssertEqual(
+            RootTab.initial(role: .scout, launchArguments: [], fixtureDestination: .verification),
+            .account
+        )
+    }
+    func testLegacyLaunchArgumentParserIsPreserved() {
         XCTAssertEqual(RootTab.fromLaunchArguments([]), .home)
         XCTAssertEqual(RootTab.fromLaunchArguments(["-initialTab", "scout"]), .scoutDesk)
         XCTAssertEqual(RootTab.fromLaunchArguments(["-playerId", "403064"]), .scoutDesk)

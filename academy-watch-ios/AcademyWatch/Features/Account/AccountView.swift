@@ -15,6 +15,7 @@ enum AccountDestination: String, Hashable, Identifiable {
 
 struct AccountView: View {
     @EnvironmentObject private var authManager: AuthManager
+    @AppStorage(ExperienceRole.storageKey) private var roleValue = ""
     @ObservedObject var sentRequestsViewModel: SentContactRequestsViewModel
     @ObservedObject var incomingRequestsViewModel: IncomingContactRequestsViewModel
     @ObservedObject var contactAvailability: ContactFeatureAvailability
@@ -129,6 +130,7 @@ struct AccountView: View {
                     } else {
                         signedOutContent
                     }
+                    homeExperienceSection
                     legalSection
                 }
                 .padding(.horizontal, 18)
@@ -170,6 +172,45 @@ struct AccountView: View {
 
     private var displaysSignedInAccount: Bool {
         authManager.isAuthenticated || fixtureDestination == .exportData
+    }
+
+    private var homeExperienceSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("App experience")
+                .font(.title3.weight(.bold))
+                .padding(.horizontal, 4)
+
+            Menu {
+                Button("Not chosen") { roleValue = "" }
+                Divider()
+                ForEach(ExperienceRole.allCases) { role in
+                    Button(role.selectionTitle) { roleValue = role.rawValue }
+                }
+            } label: {
+                HStack(spacing: 13) {
+                    Image(systemName: "rectangle.3.group.fill")
+                        .font(.title2)
+                        .foregroundStyle(AcademyColors.claret)
+                        .frame(width: 34)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Home experience").font(.headline)
+                        Text("Choose which part of Academy Watch opens first.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 6)
+                    Text(ExperienceRole(rawValue: roleValue)?.selectionTitle ?? "Not chosen")
+                        .font(.subheadline.weight(.semibold))
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(16)
+                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 17))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("account-home-experience")
+        }
     }
 
     private var signedInHeader: some View {

@@ -33,14 +33,13 @@ struct AcademyWatchApp: App {
                 .prefix(4)
         )
     }()
-    private let initialTab = RootTab.fromLaunchArguments(ProcessInfo.processInfo.arguments)
     private let initiallyShowsSignIn = ProcessInfo.processInfo.arguments.contains("-showSignIn")
 
     init() {
         LaunchPerformance.markLaunchStarted()
         #if DEBUG
         if PlayerClubExperienceFixtures.mode != nil {
-            UserDefaults.standard.set("", forKey: "academyWatch.experienceRole.v1")
+            UserDefaults.standard.set("", forKey: ExperienceRole.storageKey)
         }
         #endif
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
@@ -78,7 +77,7 @@ struct AcademyWatchApp: App {
                 initialPhase: initialPhase,
                 initialPlayerID: initialPlayerID,
                 initialComparePlayerIDs: initialComparePlayerIDs,
-                initialTab: initialTab,
+                launchArguments: ProcessInfo.processInfo.arguments,
                 initiallyShowsSignIn: initiallyShowsSignIn
             )
                 .tint(AcademyColors.claretForeground)

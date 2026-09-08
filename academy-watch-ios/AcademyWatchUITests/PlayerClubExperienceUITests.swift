@@ -16,6 +16,24 @@ final class PlayerClubExperienceUITests: XCTestCase {
         app.launchArguments = ["-experienceFixture", mode, "-initialTab", "home"]
         app.launch()
     }
+    func testScoutExperienceUsesScoutingTabsAndCanChangeFromAccount() {
+        launch("player")
+        tap(app.buttons["home-role-scout"])
+        assertScoutTabs()
+        capture("scout-home-scout-desk")
+
+        tap(app.tabBars.buttons["Account"])
+        chooseHomeExperience("Player")
+        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.tabBars.buttons["Home"].isSelected)
+        XCTAssertEqual(app.tabBars.buttons.count, 5)
+        capture("scout-home-player-home")
+
+        tap(app.tabBars.buttons["Account"])
+        chooseHomeExperience("Scout")
+        assertScoutTabs()
+        capture("scout-home-scout-restored")
+    }
     func testPlayerCanReturnToProfileEditAndReadFeedback() {
         launch("player")
         tap(app.buttons["home-role-player"])
@@ -167,6 +185,18 @@ final class PlayerClubExperienceUITests: XCTestCase {
         tap(app.buttons["my-profile-feedback"])
         tap(app.buttons.containing(.staticText, identifier: "Building your next pass").firstMatch)
         XCTAssertTrue(app.staticTexts["development-focus"].waitForExistence(timeout: 8))
+    }
+
+    private func chooseHomeExperience(_ role: String) {
+        tap(app.buttons["account-home-experience"])
+        tap(app.buttons[role])
+    }
+
+    private func assertScoutTabs() {
+        XCTAssertTrue(app.tabBars.buttons["Scout Desk"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.tabBars.buttons["Scout Desk"].isSelected)
+        XCTAssertFalse(app.tabBars.buttons["Home"].exists)
+        XCTAssertEqual(app.tabBars.buttons.count, 4)
     }
 
     private func tap(_ element: XCUIElement) {

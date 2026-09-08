@@ -7,10 +7,36 @@ enum RootTab: String, Hashable {
     case lists
     case account
 
+    static func available(for role: ExperienceRole?) -> [RootTab] {
+        if role == .scout {
+            return [.scoutDesk, .watchlist, .lists, .account]
+        }
+        return [.home, .scoutDesk, .watchlist, .lists, .account]
+    }
+
+    static func initial(
+        role: ExperienceRole?,
+        launchArguments: [String],
+        fixtureDestination: FullCircleFixtureDestination? = nil
+    ) -> RootTab {
+        let fallback: RootTab = role == .scout ? .scoutDesk : .home
+        let requested = tab(for: fixtureDestination) ?? launchOverride(from: launchArguments)
+        guard let requested else { return fallback }
+        return available(for: role).contains(requested) ? requested : fallback
+    }
+
     static func fromLaunchArguments(_ arguments: [String]) -> RootTab {
+        launchOverride(from: arguments) ?? .home
+    }
+
+    private static func launchOverride(from arguments: [String]) -> RootTab? {
         guard let flagIndex = arguments.firstIndex(of: "-initialTab"),
               arguments.indices.contains(flagIndex + 1)
-        else { return arguments.contains("-playerId") || arguments.contains("-comparePlayerIds") || arguments.contains("-showSignIn") ? .scoutDesk : .home }
+        else {
+            return arguments.contains("-playerId")
+                || arguments.contains("-comparePlayerIds")
+                || arguments.contains("-showSignIn") ? .scoutDesk : nil
+        }
 
         switch arguments[flagIndex + 1].lowercased() {
         case "home": return .home
@@ -20,10 +46,25 @@ enum RootTab: String, Hashable {
         default: return .scoutDesk
         }
     }
+
+    private static func tab(for fixtureDestination: FullCircleFixtureDestination?) -> RootTab? {
+        switch fixtureDestination {
+        case .verification, .inbox, .clubConsent, .thread, .playerInbox, .declineConfirmation,
+             .messageReport, .deleteAccount, .blockedUsers, .exportData:
+            return .account
+        case .watchlistNullStats:
+            return .watchlist
+        case .introduction, .attestationWarning, .watchingYou, .claimGate, .takedown, .fanRow:
+            return .scoutDesk
+        case nil:
+            return nil
+        }
+    }
 }
 
 @MainActor
 struct RootTabView: View {
+    @AppStorage(ExperienceRole.storageKey) private var roleValue = ""
     @StateObject private var authManager: AuthManager
     @StateObject private var watchlistViewModel: WatchlistViewModel
     @StateObject private var followListsViewModel: FollowListsViewModel
@@ -44,11 +85,11 @@ struct RootTabView: View {
         initialPhase: ScoutPhase = .all,
         initialPlayerID: Int? = nil,
         initialComparePlayerIDs: [Int] = [],
-        initialTab: RootTab = .home,
+        launchArguments: [String] = ProcessInfo.processInfo.arguments,
         initiallyShowsSignIn: Bool = false
     ) {
         let fixtureDestination = FullCircleFixtureDestination.fromLaunchArguments(
-            ProcessInfo.processInfo.arguments
+            launchArguments
         )
         let fixtureState: AuthState?
         #if DEBUG
@@ -120,19 +161,14 @@ struct RootTabView: View {
                 availability: contactAvailability
             )
         )
-        let resolvedTab: RootTab = {
-            switch fixtureDestination {
-            case .verification, .inbox, .clubConsent, .thread, .playerInbox, .declineConfirmation,
-                 .messageReport, .deleteAccount, .blockedUsers, .exportData:
-                return .account
-            case .watchlistNullStats:
-                return .watchlist
-            case .introduction, .attestationWarning, .watchingYou, .claimGate, .takedown, .fanRow:
-                return .scoutDesk
-            case nil:
-                return initialTab
-            }
-        }()
+        let storedRole = ExperienceRole(
+            rawValue: UserDefaults.standard.string(forKey: ExperienceRole.storageKey) ?? ""
+        )
+        let resolvedTab = RootTab.initial(
+            role: storedRole,
+            launchArguments: launchArguments,
+            fixtureDestination: fixtureDestination
+        )
         _selectedTab = State(initialValue: resolvedTab)
         _isSignInPresented = State(initialValue: initiallyShowsSignIn)
         _accountDestination = State(initialValue: nil)
@@ -151,11 +187,18 @@ struct RootTabView: View {
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            PlayerHomeView(apiClient: apiClient, onSignIn: presentSignIn, onExplore: { selectedTab = .scoutDesk })
-                .id(authManager.email ?? "signed-out")
-                .tabItem { Label("Home", systemImage: "house.fill") }
-                .tag(RootTab.home)
+        TabView(selection: tabSelection) {
+            if RootTab.available(for: role).contains(.home) {
+                PlayerHomeView(
+                    apiClient: apiClient,
+                    onSignIn: presentSignIn,
+                    onNavigate: select,
+                    onRoleSelected: selectInitialTab
+                )
+                    .id(authManager.email ?? "signed-out")
+                    .tabItem { Label("Home", systemImage: "house.fill") }
+                    .tag(RootTab.home)
+            }
 
             ScoutDeskView(
                 apiClient: apiClient,
@@ -214,6 +257,9 @@ struct RootTabView: View {
         .environmentObject(authManager)
         .environmentObject(watchlistViewModel)
         .environmentObject(followListsViewModel)
+        .onChange(of: roleValue) { _, newValue in
+            selectInitialTab(ExperienceRole(rawValue: newValue))
+        }
         .sheet(isPresented: $isSignInPresented) {
             SignInView(authManager: authManager)
         }
@@ -262,8 +308,33 @@ struct RootTabView: View {
 
     private func presentVerification() {
         isSignInPresented = false
-        selectedTab = .account
+        select(.account)
         accountDestination = .verification
+    }
+
+    private var role: ExperienceRole? {
+        ExperienceRole(rawValue: roleValue)
+    }
+
+    private var tabSelection: Binding<RootTab> {
+        Binding(
+            get: {
+                RootTab.available(for: role).contains(selectedTab)
+                    ? selectedTab
+                    : RootTab.initial(role: role, launchArguments: [])
+            },
+            set: select
+        )
+    }
+
+    private func select(_ tab: RootTab) {
+        selectedTab = RootTab.available(for: role).contains(tab)
+            ? tab
+            : RootTab.initial(role: role, launchArguments: [])
+    }
+
+    private func selectInitialTab(_ role: ExperienceRole?) {
+        selectedTab = RootTab.initial(role: role, launchArguments: [])
     }
 
 }
