@@ -1,6 +1,6 @@
 alembic==1.19.1
 annotated-types==0.8.0
-anyio==4.15.0
+anyio==4.15.1
 attrs==26.1.0
 azure-identity==1.25.3
 azure-keyvault-secrets==4.11.2
