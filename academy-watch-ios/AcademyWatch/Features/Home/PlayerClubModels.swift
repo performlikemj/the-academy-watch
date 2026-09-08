@@ -2,6 +2,7 @@ import Foundation
 
 enum ExperienceRole: String, CaseIterable, Identifiable {
     case player, club, scout
+    static let storageKey = "academyWatch.experienceRole.v1"
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -15,6 +16,13 @@ enum ExperienceRole: String, CaseIterable, Identifiable {
         case .player: "figure.soccer"
         case .club: "person.3.fill"
         case .scout: "binoculars.fill"
+        }
+    }
+    var selectionTitle: String {
+        switch self {
+        case .player: "Player"
+        case .club: "Club"
+        case .scout: "Scout"
         }
     }
 }

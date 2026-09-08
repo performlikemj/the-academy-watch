@@ -30,10 +30,11 @@ final class MyProfilesViewModel: ObservableObject {
 
 struct PlayerHomeView: View {
     @EnvironmentObject private var auth: AuthManager
-    @AppStorage("academyWatch.experienceRole.v1") private var roleValue = ""
+    @AppStorage(ExperienceRole.storageKey) private var roleValue = ""
     let apiClient: APIClient
     let onSignIn: () -> Void
-    let onExplore: () -> Void
+    let onNavigate: (RootTab) -> Void
+    let onRoleSelected: (ExperienceRole?) -> Void
     private var role: ExperienceRole? { ExperienceRole(rawValue: roleValue) }
 
     var body: some View {
@@ -58,48 +59,73 @@ struct PlayerHomeView: View {
                         ForEach(ExperienceRole.allCases) { choice in
                             Button {
                                 roleValue = choice.rawValue
+                                onRoleSelected(choice)
                             } label: {
                                 OnboardingActionRow(icon: choice.icon, title: choice.title, detail: roleDetail(choice))
                             }.buttonStyle(.plain)
                                 .accessibilityIdentifier("home-role-\(choice.rawValue)")
                         }
-                        Button("Explore players first", action: onExplore)
+                        Button("Explore players first") { onNavigate(.scoutDesk) }
                             .accessibilityIdentifier("home-skip")
                     } else {
-                        if auth.isAuthenticated {
-                            if role == .club {
-                                clubLink
-                                profilesLink
-                            } else {
-                                profilesLink
-                            }
-                            NavigationLink {
-                                ClubInboxView(apiClient: apiClient)
-                            } label: {
-                                OnboardingActionRow(
-                                    icon: "envelope.badge", title: "Club invitations",
-                                    detail: "Review invitations and choose who you join.")
-                            }.buttonStyle(.plain).accessibilityIdentifier("home-club-invitations")
+                        if role == .scout {
+                            scoutingLink(
+                                tab: .scoutDesk,
+                                icon: "binoculars.fill",
+                                title: "Scout Desk",
+                                detail: "Discover players and compare their progress."
+                            )
+                            scoutingLink(
+                                tab: .watchlist,
+                                icon: "star.fill",
+                                title: "Watchlist",
+                                detail: "Keep the players you are tracking close at hand."
+                            )
+                            scoutingLink(
+                                tab: .lists,
+                                icon: "list.bullet.rectangle.fill",
+                                title: "Lists",
+                                detail: "Organise players into scouting shortlists."
+                            )
                         } else {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text(role == .club ? "Bring your team together" : "Make your next step count").font(
-                                    .title3.bold())
-                                Text("Sign in with an email code. We'll keep your place here.").foregroundStyle(
-                                    .secondary)
-                                Button("Sign in to get started", action: onSignIn)
-                                    .buttonStyle(.borderedProminent).controlSize(.large)
-                                    .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
-                                    .accessibilityIdentifier("home-sign-in")
-                            }.homeCard()
+                            if auth.isAuthenticated {
+                                if role == .club {
+                                    clubLink
+                                    profilesLink
+                                } else {
+                                    profilesLink
+                                }
+                                NavigationLink {
+                                    ClubInboxView(apiClient: apiClient)
+                                } label: {
+                                    OnboardingActionRow(
+                                        icon: "envelope.badge", title: "Club invitations",
+                                        detail: "Review invitations and choose who you join.")
+                                }.buttonStyle(.plain).accessibilityIdentifier("home-club-invitations")
+                            } else {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text(role == .club ? "Bring your team together" : "Make your next step count")
+                                        .font(.title3.bold())
+                                    Text("Sign in with an email code. We'll keep your place here.").foregroundStyle(
+                                        .secondary)
+                                    Button("Sign in to get started", action: onSignIn)
+                                        .buttonStyle(.borderedProminent).controlSize(.large)
+                                        .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
+                                        .accessibilityIdentifier("home-sign-in")
+                                }.homeCard()
+                            }
+                            Button { onNavigate(.scoutDesk) } label: {
+                                OnboardingActionRow(
+                                    icon: "binoculars.fill", title: "Explore players",
+                                    detail: "Discover profiles, follow players, and build your watchlist.")
+                            }.buttonStyle(.plain)
                         }
-                        Button(action: onExplore) {
-                            OnboardingActionRow(
-                                icon: "binoculars.fill", title: "Explore players",
-                                detail: "Discover profiles, follow players, and build your watchlist.")
-                        }.buttonStyle(.plain)
                         Menu {
                             ForEach(ExperienceRole.allCases) { choice in
-                                Button(choice.title) { roleValue = choice.rawValue }
+                                Button(choice.title) {
+                                    roleValue = choice.rawValue
+                                    onRoleSelected(choice)
+                                }
                             }
                         } label: {
                             Label("Change my home", systemImage: "slider.horizontal.3").font(
@@ -155,6 +181,13 @@ struct PlayerHomeView: View {
                 icon: "shield.fill", title: "My club", detail: "Check club verification and open your team's workspace."
             )
         }.buttonStyle(.plain).accessibilityIdentifier("home-my-club")
+    }
+    private func scoutingLink(tab: RootTab, icon: String, title: String, detail: String) -> some View {
+        Button { onNavigate(tab) } label: {
+            OnboardingActionRow(icon: icon, title: title, detail: detail)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("home-scout-\(tab.rawValue)")
     }
 }
 
