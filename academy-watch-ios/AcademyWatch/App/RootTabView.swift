@@ -92,7 +92,7 @@ struct RootTabView: View {
             launchArguments
         )
         let fixtureState: AuthState?
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         if PlayerClubExperienceFixtures.mode != nil {
             fixtureState = .signedIn(email: "maya@fixture.example", accountRole: .player, displayName: "Maya Okafor", isVerifiedScout: false)
         } else if fixtureDestination != nil {
@@ -125,7 +125,7 @@ struct RootTabView: View {
         #endif
 
         let tokenStore: any TokenStoreProtocol
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         tokenStore = PlayerClubExperienceFixtures.mode == nil ? KeychainTokenStore() : ExperienceTokenStore()
         #else
         tokenStore = KeychainTokenStore()
@@ -196,7 +196,10 @@ struct RootTabView: View {
                     onRoleSelected: selectInitialTab
                 )
                     .id(authManager.email ?? "signed-out")
-                    .tabItem { Label("Home", systemImage: "house.fill") }
+                    .tabItem {
+                        Label("Home", systemImage: "house.fill")
+                            .accessibilityIdentifier("tab-bar-home")
+                    }
                     .tag(RootTab.home)
             }
 
@@ -211,6 +214,7 @@ struct RootTabView: View {
             )
             .tabItem {
                 Label("Scout Desk", systemImage: "binoculars.fill")
+                    .accessibilityIdentifier("tab-bar-scout-desk")
             }
             .tag(RootTab.scoutDesk)
 
@@ -221,6 +225,7 @@ struct RootTabView: View {
             )
                 .tabItem {
                     Label("Watchlist", systemImage: "star.fill")
+                        .accessibilityIdentifier("tab-bar-watchlist")
                 }
             .tag(RootTab.watchlist)
 
@@ -232,6 +237,7 @@ struct RootTabView: View {
             )
                 .tabItem {
                     Label("Lists", systemImage: "list.bullet.rectangle.fill")
+                        .accessibilityIdentifier("tab-bar-lists")
                 }
                 .tag(RootTab.lists)
 
@@ -251,9 +257,11 @@ struct RootTabView: View {
                 .id(authManager.isAuthenticated)
                 .tabItem {
                     Label("Account", systemImage: "person.crop.circle.fill")
+                        .accessibilityIdentifier("tab-bar-account")
                 }
                 .tag(RootTab.account)
         }
+        .id(roleValue)
         .environmentObject(authManager)
         .environmentObject(watchlistViewModel)
         .environmentObject(followListsViewModel)

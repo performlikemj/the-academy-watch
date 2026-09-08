@@ -1,0 +1,838 @@
+{
+  "version": 2,
+  "selected_journeys": [
+    {
+      "name": "change-home-changes-home",
+      "hash": "33eab5f494f7372e76fff8e932763ab0b88b153d262d0f00176dab92f310c0c0"
+    },
+    {
+      "name": "club-my-club",
+      "hash": "e2a3cad2eadd04cfcc58ddf2bb187d3e1607cac8a54a2d84fc8642501bc49917"
+    },
+    {
+      "name": "player-first-run-chooser",
+      "hash": "b97c428b5d85e12150b1a14162cfd4354f960abd25ee6d7f5e48d5812291b0cf"
+    },
+    {
+      "name": "player-my-profiles",
+      "hash": "eae1b35b1a04e160dd49d3852e460877365b61e9e4d620eb07fb726bbd71f544"
+    },
+    {
+      "name": "scout-opens-app",
+      "hash": "fb930c8f253e7651d0f11bf43d3411b442afb9a3e722e2793adce26bab4308aa"
+    },
+    {
+      "name": "scout-search-player-detail",
+      "hash": "de89b6fd25bf286315935ee1c4bee930fdb2e38cdd2eea4cfc5ce6dd616ffec3"
+    }
+  ],
+  "attachment_count": 49,
+  "attachment_bytes": 17271117,
+  "journeys": [
+    {
+      "name": "change-home-changes-home",
+      "journey_hash": "33eab5f494f7372e76fff8e932763ab0b88b153d262d0f00176dab92f310c0c0",
+      "run_mode": "full",
+      "fixture_evidence": {
+        "layout": [
+          {
+            "claim": "Role changes select the role's initial tab and remove Home for scouts.",
+            "source": "AcademyWatch/App/RootTabView.swift:319-345"
+          }
+        ],
+        "server_state": [
+          {
+            "claim": "The scout fixture serves every background request locally.",
+            "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:141-182"
+          }
+        ],
+        "offered_inputs": [
+          {
+            "claim": "Account offers Player and Scout as explicit Home experience choices.",
+            "source": "AcademyWatch/Features/Account/AccountView.swift:183-189"
+          }
+        ],
+        "preflight": {
+          "note": "The final-code checkpoint uses deterministic local role state and the simulator-only fixture transport.",
+          "kind": "none"
+        }
+      },
+      "evidence_receipt": {
+        "journey_hash": "33eab5f494f7372e76fff8e932763ab0b88b153d262d0f00176dab92f310c0c0",
+        "status": "present",
+        "checkpoint_step_id": "launch-as-scout",
+        "fixture_evidence": {
+          "offered_inputs": [
+            {
+              "claim": "Account offers Player and Scout as explicit Home experience choices.",
+              "source": "AcademyWatch/Features/Account/AccountView.swift:183-189"
+            }
+          ],
+          "server_state": [
+            {
+              "claim": "The scout fixture serves every background request locally.",
+              "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:141-182"
+            }
+          ],
+          "preflight": {
+            "kind": "none",
+            "note": "The final-code checkpoint uses deterministic local role state and the simulator-only fixture transport."
+          },
+          "layout": [
+            {
+              "claim": "Role changes select the role's initial tab and remove Home for scouts.",
+              "source": "AcademyWatch/App/RootTabView.swift:319-345"
+            }
+          ]
+        },
+        "recorded_at": "2026-09-08T13:39:08Z"
+      },
+      "attachment_count": 17,
+      "attachment_bytes": 6633126,
+      "steps": [
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 250,
+          "shot": "shots/change-home-changes-home__001-launch-as-scout.png",
+          "id": "launch-as-scout",
+          "expectation": "The fixture app reaches the scout tab shell.",
+          "settle_reason": "predicate"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "shot": "shots/change-home-changes-home__002-home-absent-before-change.png",
+          "id": "home-absent-before-change",
+          "expectation": "Home is absent before changing the scout experience.",
+          "settle_reason": "quiet"
+        },
+        {
+          "note": "settle timeout",
+          "ok": true,
+          "settle_ms_used": 400,
+          "shot": "shots/change-home-changes-home__003-open-account.png",
+          "id": "open-account",
+          "expectation": "Account is selected.",
+          "settle_reason": "timeout"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "shot": "shots/change-home-changes-home__004-scroll-to-home-experience.png",
+          "id": "scroll-to-home-experience",
+          "expectation": "The Home experience control is brought on screen.",
+          "settle_reason": "quiet"
+        },
+        {
+          "shot": "shots/change-home-changes-home__005-scroll-home-experience-fully-visible.png",
+          "ok": true,
+          "expectation": "The Home experience control is fully visible for interaction.",
+          "settle_reason": "quiet",
+          "id": "scroll-home-experience-fully-visible",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/change-home-changes-home__006-scroll-home-experience-to-bottom.png",
+          "ok": true,
+          "expectation": "The Home experience control is settled at the visible bottom of Account.",
+          "settle_reason": "quiet",
+          "id": "scroll-home-experience-to-bottom",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/change-home-changes-home__007-open-home-experience-menu.png",
+          "ok": true,
+          "expectation": "The Home experience choices are available.",
+          "settle_reason": "predicate",
+          "id": "open-home-experience-menu",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/change-home-changes-home__008-choose-player-home.png",
+          "ok": true,
+          "expectation": "Choosing Player changes the visible tab set and normalizes its selected state after tab reconstruction.",
+          "settle_reason": "quiet",
+          "id": "choose-player-home",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/change-home-changes-home__009-home-selected-for-player.png",
+          "ok": true,
+          "expectation": "Home appears selected with its navigation bar present after choosing Player.",
+          "settle_reason": "quiet",
+          "id": "home-selected-for-player",
+          "settle_ms_used": 400,
+          "note": "Action completed. Selected AX: Attributes: Button, 0x108418dc0, {{25.0, 795.0}, {74.0, 54.0}}, identifier: 'tab-bar-home', label: 'Home', Selected",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/change-home-changes-home__010-return-to-account.png",
+          "ok": true,
+          "expectation": "Account can be reopened from the Player tab set.",
+          "settle_reason": "timeout",
+          "id": "return-to-account",
+          "settle_ms_used": 400,
+          "note": "settle timeout"
+        },
+        {
+          "shot": "shots/change-home-changes-home__011-scroll-back-to-home-experience.png",
+          "ok": true,
+          "expectation": "The Home experience control is brought back on screen.",
+          "settle_reason": "quiet",
+          "id": "scroll-back-to-home-experience",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/change-home-changes-home__012-scroll-restored-home-experience-fully-visible.png",
+          "ok": true,
+          "expectation": "The Home experience control is fully visible for the return switch.",
+          "settle_reason": "quiet",
+          "id": "scroll-restored-home-experience-fully-visible",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/change-home-changes-home__013-scroll-restored-home-experience-to-bottom.png",
+          "ok": true,
+          "expectation": "The Home experience control is settled at the visible bottom for the return switch.",
+          "settle_reason": "quiet",
+          "id": "scroll-restored-home-experience-to-bottom",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/change-home-changes-home__014-reopen-home-experience-menu.png",
+          "ok": true,
+          "expectation": "The Home experience choices remain available.",
+          "settle_reason": "predicate",
+          "id": "reopen-home-experience-menu",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/change-home-changes-home__015-restore-scout-home.png",
+          "ok": true,
+          "expectation": "Choosing Scout restores the scouting tab set.",
+          "settle_reason": "quiet",
+          "id": "restore-scout-home",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/change-home-changes-home__016-home-absent-after-restoring-scout.png",
+          "ok": true,
+          "expectation": "Home is absent again after restoring the Scout experience.",
+          "settle_reason": "quiet",
+          "id": "home-absent-after-restoring-scout",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        }
+      ]
+    },
+    {
+      "name": "club-my-club",
+      "journey_hash": "e2a3cad2eadd04cfcc58ddf2bb187d3e1607cac8a54a2d84fc8642501bc49917",
+      "run_mode": "full",
+      "fixture_evidence": {
+        "layout": [
+          {
+            "claim": "Club Home exposes My club and the no-claim onboarding path exposes Club verification.",
+            "source": "AcademyWatch/Features/Home/PlayerHomeView.swift:176-183"
+          }
+        ],
+        "server_state": [
+          {
+            "claim": "The club fixture returns no claimed clubs.",
+            "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:161-162"
+          }
+        ],
+        "preflight": {
+          "kind": "none",
+          "note": "The final-code checkpoint uses a deterministic local empty claimed-club state."
+        },
+        "offered_inputs": [
+          {
+            "claim": "Club is a valid simulator home experience value.",
+            "source": "AcademyWatch/Features/Home/PlayerClubModels.swift:3-5"
+          }
+        ]
+      },
+      "evidence_receipt": {
+        "journey_hash": "e2a3cad2eadd04cfcc58ddf2bb187d3e1607cac8a54a2d84fc8642501bc49917",
+        "status": "present",
+        "checkpoint_step_id": "launch-club-home",
+        "fixture_evidence": {
+          "server_state": [
+            {
+              "claim": "The club fixture returns no claimed clubs.",
+              "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:161-162"
+            }
+          ],
+          "preflight": {
+            "kind": "none",
+            "note": "The final-code checkpoint uses a deterministic local empty claimed-club state."
+          },
+          "offered_inputs": [
+            {
+              "claim": "Club is a valid simulator home experience value.",
+              "source": "AcademyWatch/Features/Home/PlayerClubModels.swift:3-5"
+            }
+          ],
+          "layout": [
+            {
+              "claim": "Club Home exposes My club and the no-claim onboarding path exposes Club verification.",
+              "source": "AcademyWatch/Features/Home/PlayerHomeView.swift:176-183"
+            }
+          ]
+        },
+        "recorded_at": "2026-09-08T13:39:08Z"
+      },
+      "attachment_count": 6,
+      "attachment_bytes": 1788316,
+      "steps": [
+        {
+          "note": "Action completed.",
+          "expectation": "Home launches for the Club experience.",
+          "settle_diff_ratio": 0,
+          "shot": "shots/club-my-club__001-launch-club-home.png",
+          "settle_ms_used": 400,
+          "id": "launch-club-home",
+          "settle_reason": "predicate",
+          "ok": true
+        },
+        {
+          "note": "Action completed. Selected AX: Attributes: Button, 0x1153c8000, {{25.0, 795.0}, {74.0, 54.0}}, identifier: 'tab-bar-home', label: 'Home', Selected",
+          "expectation": "Home is selected for the Club experience.",
+          "settle_diff_ratio": 0,
+          "shot": "shots/club-my-club__002-home-selected-for-club.png",
+          "settle_ms_used": 400,
+          "id": "home-selected-for-club",
+          "settle_reason": "quiet",
+          "ok": true
+        },
+        {
+          "note": "Action completed.",
+          "expectation": "My club is visible on Club Home.",
+          "settle_diff_ratio": 0,
+          "shot": "shots/club-my-club__003-my-club-action-visible.png",
+          "settle_ms_used": 400,
+          "id": "my-club-action-visible",
+          "settle_reason": "quiet",
+          "ok": true
+        },
+        {
+          "note": "Action completed.",
+          "expectation": "Tapping My club opens its onboarding destination.",
+          "settle_diff_ratio": 0,
+          "shot": "shots/club-my-club__004-open-my-club.png",
+          "settle_ms_used": 400,
+          "id": "open-my-club",
+          "settle_reason": "predicate",
+          "ok": true
+        },
+        {
+          "note": "Action completed.",
+          "expectation": "My club shows the Club verification action for the no-claim account.",
+          "settle_diff_ratio": 0,
+          "shot": "shots/club-my-club__005-my-club-verification-visible.png",
+          "settle_ms_used": 400,
+          "id": "my-club-verification-visible",
+          "settle_reason": "quiet",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "player-first-run-chooser",
+      "journey_hash": "b97c428b5d85e12150b1a14162cfd4354f960abd25ee6d7f5e48d5812291b0cf",
+      "run_mode": "full",
+      "fixture_evidence": {
+        "server_state": [
+          {
+            "claim": "The player fixture is a local signed-in state and does not choose an experience role.",
+            "source": "AcademyWatch/App/RootTabView.swift:96-101"
+          }
+        ],
+        "offered_inputs": [
+          {
+            "claim": "The none role removes stored experience state before RootTabView is built.",
+            "source": "AcademyWatch/Features/Home/PlayerClubModels.swift:44-47"
+          }
+        ],
+        "layout": [
+          {
+            "claim": "The first-run Home chooser renders all ExperienceRole cases with stable identifiers.",
+            "source": "AcademyWatch/Features/Home/PlayerHomeView.swift:58-67"
+          }
+        ],
+        "preflight": {
+          "note": "The final-code checkpoint keeps role reset and fixture mode as separate simulator launch arguments.",
+          "kind": "none"
+        }
+      },
+      "evidence_receipt": {
+        "journey_hash": "b97c428b5d85e12150b1a14162cfd4354f960abd25ee6d7f5e48d5812291b0cf",
+        "status": "present",
+        "checkpoint_step_id": "launch-without-role",
+        "fixture_evidence": {
+          "server_state": [
+            {
+              "source": "AcademyWatch/App/RootTabView.swift:96-101",
+              "claim": "The player fixture is a local signed-in state and does not choose an experience role."
+            }
+          ],
+          "layout": [
+            {
+              "source": "AcademyWatch/Features/Home/PlayerHomeView.swift:58-67",
+              "claim": "The first-run Home chooser renders all ExperienceRole cases with stable identifiers."
+            }
+          ],
+          "offered_inputs": [
+            {
+              "source": "AcademyWatch/Features/Home/PlayerClubModels.swift:44-47",
+              "claim": "The none role removes stored experience state before RootTabView is built."
+            }
+          ],
+          "preflight": {
+            "kind": "none",
+            "note": "The final-code checkpoint keeps role reset and fixture mode as separate simulator launch arguments."
+          }
+        },
+        "recorded_at": "2026-09-08T13:39:08Z"
+      },
+      "attachment_count": 5,
+      "attachment_bytes": 951385,
+      "steps": [
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "shot": "shots/player-first-run-chooser__001-launch-without-role.png",
+          "id": "launch-without-role",
+          "expectation": "The first-run Home chooser appears.",
+          "settle_reason": "predicate"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "shot": "shots/player-first-run-chooser__002-player-choice-visible.png",
+          "id": "player-choice-visible",
+          "expectation": "Player is offered as a Home experience.",
+          "settle_reason": "quiet"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "shot": "shots/player-first-run-chooser__003-club-choice-visible.png",
+          "id": "club-choice-visible",
+          "expectation": "Club is offered as a Home experience.",
+          "settle_reason": "quiet"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "shot": "shots/player-first-run-chooser__004-scout-choice-visible.png",
+          "id": "scout-choice-visible",
+          "expectation": "Scout is offered as a Home experience.",
+          "settle_reason": "quiet"
+        }
+      ]
+    },
+    {
+      "name": "player-my-profiles",
+      "journey_hash": "eae1b35b1a04e160dd49d3852e460877365b61e9e4d620eb07fb726bbd71f544",
+      "run_mode": "full",
+      "fixture_evidence": {
+        "offered_inputs": [
+          {
+            "source": "AcademyWatch/Features/Home/PlayerClubModels.swift:3-5",
+            "claim": "Player is a valid simulator home experience value."
+          }
+        ],
+        "layout": [
+          {
+            "source": "AcademyWatch/Features/Home/PlayerHomeView.swift:167-174",
+            "claim": "Player Home exposes My profiles and the destination has a stable identifier."
+          }
+        ],
+        "server_state": [
+          {
+            "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:84-88",
+            "claim": "The player fixture supplies an approved synthetic local profile claim."
+          }
+        ],
+        "preflight": {
+          "note": "The final-code checkpoint resolves all profile reads through the offline fixture seam.",
+          "kind": "none"
+        }
+      },
+      "evidence_receipt": {
+        "journey_hash": "eae1b35b1a04e160dd49d3852e460877365b61e9e4d620eb07fb726bbd71f544",
+        "status": "present",
+        "checkpoint_step_id": "launch-player-home",
+        "fixture_evidence": {
+          "layout": [
+            {
+              "source": "AcademyWatch/Features/Home/PlayerHomeView.swift:167-174",
+              "claim": "Player Home exposes My profiles and the destination has a stable identifier."
+            }
+          ],
+          "preflight": {
+            "kind": "none",
+            "note": "The final-code checkpoint resolves all profile reads through the offline fixture seam."
+          },
+          "server_state": [
+            {
+              "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:84-88",
+              "claim": "The player fixture supplies an approved synthetic local profile claim."
+            }
+          ],
+          "offered_inputs": [
+            {
+              "source": "AcademyWatch/Features/Home/PlayerClubModels.swift:3-5",
+              "claim": "Player is a valid simulator home experience value."
+            }
+          ]
+        },
+        "recorded_at": "2026-09-08T13:39:08Z"
+      },
+      "attachment_count": 6,
+      "attachment_bytes": 1138419,
+      "steps": [
+        {
+          "note": "Action completed.",
+          "expectation": "Home launches for the Player experience.",
+          "settle_diff_ratio": 0,
+          "shot": "shots/player-my-profiles__001-launch-player-home.png",
+          "settle_ms_used": 400,
+          "id": "launch-player-home",
+          "settle_reason": "predicate",
+          "ok": true
+        },
+        {
+          "note": "Action completed. Selected AX: Attributes: Button, 0x1153c97c0, {{25.0, 795.0}, {74.0, 54.0}}, identifier: 'tab-bar-home', label: 'Home', Selected",
+          "expectation": "Home exposes the stable selected state for the Player experience.",
+          "settle_diff_ratio": 0,
+          "shot": "shots/player-my-profiles__002-home-selected-for-player.png",
+          "settle_ms_used": 400,
+          "id": "home-selected-for-player",
+          "settle_reason": "quiet",
+          "ok": true
+        },
+        {
+          "note": "Action completed.",
+          "expectation": "My profiles is visible on Player Home.",
+          "settle_diff_ratio": 0,
+          "shot": "shots/player-my-profiles__003-my-profiles-action-visible.png",
+          "settle_ms_used": 400,
+          "id": "my-profiles-action-visible",
+          "settle_reason": "quiet",
+          "ok": true
+        },
+        {
+          "note": "Action completed.",
+          "expectation": "The My profiles action opens its destination.",
+          "settle_diff_ratio": 0,
+          "shot": "shots/player-my-profiles__004-open-my-profiles.png",
+          "settle_ms_used": 400,
+          "id": "open-my-profiles",
+          "settle_reason": "predicate",
+          "ok": true
+        },
+        {
+          "note": "Action completed.",
+          "expectation": "The fixture-backed My profiles screen is visible.",
+          "settle_diff_ratio": 0,
+          "shot": "shots/player-my-profiles__005-my-profiles-screen-visible.png",
+          "settle_ms_used": 400,
+          "id": "my-profiles-screen-visible",
+          "settle_reason": "quiet",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "scout-opens-app",
+      "journey_hash": "fb930c8f253e7651d0f11bf43d3411b442afb9a3e722e2793adce26bab4308aa",
+      "run_mode": "full",
+      "fixture_evidence": {
+        "server_state": [
+          {
+            "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:180",
+            "claim": "The scout fixture returns a synthetic local Scout Desk result set."
+          }
+        ],
+        "preflight": {
+          "note": "The final-code checkpoint resolves every fixture request before URLSession and rejects unmatched paths.",
+          "kind": "none"
+        },
+        "offered_inputs": [
+          {
+            "source": "AcademyWatch/Features/Home/PlayerClubModels.swift:32",
+            "claim": "The simulator launch seam accepts scout independently from the fixture transport."
+          }
+        ],
+        "layout": [
+          {
+            "source": "AcademyWatch/App/RootTabView.swift:201-217",
+            "claim": "The tab items expose stable Home and Scout Desk accessibility identifiers."
+          }
+        ]
+      },
+      "evidence_receipt": {
+        "journey_hash": "fb930c8f253e7651d0f11bf43d3411b442afb9a3e722e2793adce26bab4308aa",
+        "status": "present",
+        "checkpoint_step_id": "launch-as-scout",
+        "fixture_evidence": {
+          "server_state": [
+            {
+              "claim": "The scout fixture returns a synthetic local Scout Desk result set.",
+              "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:180"
+            }
+          ],
+          "layout": [
+            {
+              "claim": "The tab items expose stable Home and Scout Desk accessibility identifiers.",
+              "source": "AcademyWatch/App/RootTabView.swift:201-217"
+            }
+          ],
+          "offered_inputs": [
+            {
+              "claim": "The simulator launch seam accepts scout independently from the fixture transport.",
+              "source": "AcademyWatch/Features/Home/PlayerClubModels.swift:32"
+            }
+          ],
+          "preflight": {
+            "kind": "none",
+            "note": "The final-code checkpoint resolves every fixture request before URLSession and rejects unmatched paths."
+          }
+        },
+        "recorded_at": "2026-09-08T13:39:08Z"
+      },
+      "attachment_count": 5,
+      "attachment_bytes": 1315636,
+      "steps": [
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "shot": "shots/scout-opens-app__001-launch-as-scout.png",
+          "id": "launch-as-scout",
+          "expectation": "The fixture app reaches the tab shell for a returning scout.",
+          "settle_reason": "predicate"
+        },
+        {
+          "note": "Action completed. Selected AX: Attributes: Button, 0x10841abc0, {{25.0, 795.0}, {96.3, 54.0}}, identifier: 'tab-bar-scout-desk', label: 'Scout Desk', Selected",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "shot": "shots/scout-opens-app__002-scout-desk-selected.png",
+          "id": "scout-desk-selected",
+          "expectation": "Scout Desk exposes the stable selected state with its navigation bar present on launch.",
+          "settle_reason": "quiet"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "shot": "shots/scout-opens-app__003-home-absent.png",
+          "id": "home-absent",
+          "expectation": "The player and club Home tab is not present for a scout.",
+          "settle_reason": "quiet"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "shot": "shots/scout-opens-app__004-player-club-home-content-absent.png",
+          "id": "player-club-home-content-absent",
+          "expectation": "The Player/Club Home content is absent for a returning scout.",
+          "settle_reason": "quiet"
+        }
+      ]
+    },
+    {
+      "name": "scout-search-player-detail",
+      "journey_hash": "de89b6fd25bf286315935ee1c4bee930fdb2e38cdd2eea4cfc5ce6dd616ffec3",
+      "run_mode": "full",
+      "fixture_evidence": {
+        "layout": [
+          {
+            "source": "AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift:507-515",
+            "claim": "Scout results and player detail expose stable accessibility identifiers."
+          }
+        ],
+        "preflight": {
+          "kind": "none",
+          "note": "The final-code checkpoint uses one clearly synthetic player and fixture-backs every detail request."
+        },
+        "offered_inputs": [
+          {
+            "source": "AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift:334-342",
+            "claim": "The Scout Desk search field accepts player names with a stable identifier."
+          }
+        ],
+        "server_state": [
+          {
+            "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:180-199",
+            "claim": "The fixture returns Sim Player One at Sim Academy and local detail responses for player 900001."
+          }
+        ]
+      },
+      "evidence_receipt": {
+        "journey_hash": "de89b6fd25bf286315935ee1c4bee930fdb2e38cdd2eea4cfc5ce6dd616ffec3",
+        "status": "present",
+        "checkpoint_step_id": "launch-scout-search",
+        "fixture_evidence": {
+          "server_state": [
+            {
+              "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:180-199",
+              "claim": "The fixture returns Sim Player One at Sim Academy and local detail responses for player 900001."
+            }
+          ],
+          "layout": [
+            {
+              "source": "AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift:507-515",
+              "claim": "Scout results and player detail expose stable accessibility identifiers."
+            }
+          ],
+          "offered_inputs": [
+            {
+              "source": "AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift:334-342",
+              "claim": "The Scout Desk search field accepts player names with a stable identifier."
+            }
+          ],
+          "preflight": {
+            "kind": "none",
+            "note": "The final-code checkpoint uses one clearly synthetic player and fixture-backs every detail request."
+          }
+        },
+        "recorded_at": "2026-09-08T13:39:08Z"
+      },
+      "attachment_count": 10,
+      "attachment_bytes": 5444235,
+      "steps": [
+        {
+          "settle_ms_used": 400,
+          "ok": true,
+          "shot": "shots/scout-search-player-detail__001-launch-scout-search.png",
+          "id": "launch-scout-search",
+          "expectation": "Scout Desk launches with the offline synthetic fixture.",
+          "settle_diff_ratio": 0,
+          "settle_reason": "predicate",
+          "note": "Action completed."
+        },
+        {
+          "settle_ms_used": 400,
+          "ok": true,
+          "shot": "shots/scout-search-player-detail__002-scroll-to-search.png",
+          "id": "scroll-to-search",
+          "expectation": "The Scout Desk search controls move into view.",
+          "settle_diff_ratio": 0,
+          "settle_reason": "quiet",
+          "note": "Action completed."
+        },
+        {
+          "settle_ms_used": 400,
+          "ok": true,
+          "shot": "shots/scout-search-player-detail__003-search-synthetic-player.png",
+          "id": "search-synthetic-player",
+          "expectation": "The search is narrowed to Sim Player One.",
+          "settle_reason": "timeout",
+          "note": "settle timeout"
+        },
+        {
+          "settle_ms_used": 400,
+          "ok": true,
+          "shot": "shots/scout-search-player-detail__004-dismiss-search-keyboard.png",
+          "id": "dismiss-search-keyboard",
+          "expectation": "The filtered result can be inspected.",
+          "settle_diff_ratio": 0,
+          "settle_reason": "quiet",
+          "note": "Action completed."
+        },
+        {
+          "shot": "shots/scout-search-player-detail__005-synthetic-result-visible.png",
+          "ok": true,
+          "expectation": "Sim Player One is visible as the synthetic search result.",
+          "settle_reason": "quiet",
+          "id": "synthetic-result-visible",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/scout-search-player-detail__006-search-field-visible.png",
+          "ok": true,
+          "expectation": "The Scout Desk remains visibly filtered by the synthetic player search.",
+          "settle_reason": "quiet",
+          "id": "search-field-visible",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/scout-search-player-detail__007-scroll-filtered-result-into-view.png",
+          "ok": true,
+          "expectation": "The filtered synthetic player row is brought fully on screen.",
+          "settle_reason": "quiet",
+          "id": "scroll-filtered-result-into-view",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/scout-search-player-detail__008-open-synthetic-player.png",
+          "ok": true,
+          "expectation": "Opening Sim Player One navigates to player detail.",
+          "settle_reason": "predicate",
+          "id": "open-synthetic-player",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        },
+        {
+          "shot": "shots/scout-search-player-detail__009-synthetic-player-detail-visible.png",
+          "ok": true,
+          "expectation": "The detail screen for Sim Player One is visible.",
+          "settle_reason": "quiet",
+          "id": "synthetic-player-detail-visible",
+          "settle_ms_used": 400,
+          "note": "Action completed.",
+          "settle_diff_ratio": 0
+        }
+      ]
+    }
+  ]
+}

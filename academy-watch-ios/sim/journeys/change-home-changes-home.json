@@ -1,0 +1,226 @@
+{
+  "version": "1.3",
+  "name": "change-home-changes-home",
+  "settle_ms": 400,
+  "settle_timeout_ms": 8000,
+  "fixture_evidence": {
+    "offered_inputs": [
+      {
+        "claim": "Account offers Player and Scout as explicit Home experience choices.",
+        "source": "AcademyWatch/Features/Account/AccountView.swift:183-189"
+      }
+    ],
+    "server_state": [
+      {
+        "claim": "The scout fixture serves every background request locally.",
+        "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:141-182"
+      }
+    ],
+    "layout": [
+      {
+        "claim": "Role changes select the role's initial tab and remove Home for scouts.",
+        "source": "AcademyWatch/App/RootTabView.swift:319-345"
+      }
+    ],
+    "preflight": {
+      "kind": "none",
+      "note": "The final-code checkpoint uses deterministic local role state and the simulator-only fixture transport."
+    }
+  },
+  "steps": [
+    {
+      "id": "launch-as-scout",
+      "expectation": "The fixture app reaches the scout tab shell.",
+      "checkpoint": true,
+      "action": {
+        "launch": {
+          "args": [
+            "-resetExperienceRole",
+            "-experienceRole",
+            "scout",
+            "-experienceFixture",
+            "scout"
+          ],
+          "env": {}
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "tab-bar-scout-desk"
+        },
+        "timeout": 15
+      },
+      "settle_ms": 250,
+      "settle_timeout_ms": 15000,
+      "settle_quiet_ratio": 0.02
+    },
+    {
+      "id": "home-absent-before-change",
+      "expectation": "Home is absent before changing the scout experience.",
+      "action": {
+        "assertAbsent": {
+          "id": "tab-bar-home",
+          "timeout": 3
+        }
+      }
+    },
+    {
+      "id": "open-account",
+      "expectation": "Account is selected.",
+      "action": {
+        "tap": {
+          "id": "tab-bar-account"
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "account-home-experience"
+        },
+        "timeout": 8
+      }
+    },
+    {
+      "id": "scroll-to-home-experience",
+      "expectation": "The Home experience control is brought on screen.",
+      "action": {
+        "swipe": {
+          "dir": "up",
+          "id": "account-scroll"
+        }
+      }
+    },
+    {
+      "id": "scroll-home-experience-fully-visible",
+      "expectation": "The Home experience control is fully visible for interaction.",
+      "action": {
+        "swipe": {
+          "dir": "up",
+          "id": "account-scroll"
+        }
+      }
+    },
+    {
+      "id": "scroll-home-experience-to-bottom",
+      "expectation": "The Home experience control is settled at the visible bottom of Account.",
+      "action": {
+        "swipe": {
+          "dir": "up",
+          "id": "account-scroll"
+        }
+      }
+    },
+    {
+      "id": "open-home-experience-menu",
+      "expectation": "The Home experience choices are available.",
+      "action": {
+        "tap": {
+          "id": "account-home-experience"
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "account-home-role-player"
+        },
+        "timeout": 4
+      }
+    },
+    {
+      "id": "choose-player-home",
+      "expectation": "Choosing Player changes the visible tab set and normalizes its selected state after tab reconstruction.",
+      "action": {
+        "tap": {
+          "id": "account-home-role-player"
+        }
+      }
+    },
+    {
+      "id": "home-selected-for-player",
+      "expectation": "Home appears selected with its navigation bar present after choosing Player.",
+      "action": {
+        "assertSelected": {
+          "id": "tab-bar-home",
+          "timeout": 4
+        }
+      }
+    },
+    {
+      "id": "return-to-account",
+      "expectation": "Account can be reopened from the Player tab set.",
+      "action": {
+        "tap": {
+          "id": "tab-bar-account"
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "account-home-experience"
+        },
+        "timeout": 8
+      }
+    },
+    {
+      "id": "scroll-back-to-home-experience",
+      "expectation": "The Home experience control is brought back on screen.",
+      "action": {
+        "swipe": {
+          "dir": "up",
+          "id": "account-scroll"
+        }
+      }
+    },
+    {
+      "id": "scroll-restored-home-experience-fully-visible",
+      "expectation": "The Home experience control is fully visible for the return switch.",
+      "action": {
+        "swipe": {
+          "dir": "up",
+          "id": "account-scroll"
+        }
+      }
+    },
+    {
+      "id": "scroll-restored-home-experience-to-bottom",
+      "expectation": "The Home experience control is settled at the visible bottom for the return switch.",
+      "action": {
+        "swipe": {
+          "dir": "up",
+          "id": "account-scroll"
+        }
+      }
+    },
+    {
+      "id": "reopen-home-experience-menu",
+      "expectation": "The Home experience choices remain available.",
+      "action": {
+        "tap": {
+          "id": "account-home-experience"
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "account-home-role-scout"
+        },
+        "timeout": 4
+      }
+    },
+    {
+      "id": "restore-scout-home",
+      "expectation": "Choosing Scout restores the scouting tab set.",
+      "action": {
+        "tap": {
+          "id": "account-home-role-scout"
+        }
+      }
+    },
+    {
+      "id": "home-absent-after-restoring-scout",
+      "expectation": "Home is absent again after restoring the Scout experience.",
+      "action": {
+        "assertAbsent": {
+          "id": "tab-bar-home",
+          "timeout": 3
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "version": "1.3",
+  "name": "club-my-club",
+  "settle_ms": 400,
+  "settle_timeout_ms": 8000,
+  "fixture_evidence": {
+    "offered_inputs": [
+      {
+        "claim": "Club is a valid simulator home experience value.",
+        "source": "AcademyWatch/Features/Home/PlayerClubModels.swift:3-5"
+      }
+    ],
+    "server_state": [
+      {
+        "claim": "The club fixture returns no claimed clubs.",
+        "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:161-162"
+      }
+    ],
+    "layout": [
+      {
+        "claim": "Club Home exposes My club and the no-claim onboarding path exposes Club verification.",
+        "source": "AcademyWatch/Features/Home/PlayerHomeView.swift:176-183"
+      }
+    ],
+    "preflight": {
+      "kind": "none",
+      "note": "The final-code checkpoint uses a deterministic local empty claimed-club state."
+    }
+  },
+  "steps": [
+    {
+      "id": "launch-club-home",
+      "expectation": "Home launches for the Club experience.",
+      "checkpoint": true,
+      "action": {
+        "launch": {
+          "args": [
+            "-resetExperienceRole",
+            "-experienceRole",
+            "club",
+            "-experienceFixture",
+            "club"
+          ],
+          "env": {}
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "home-my-club"
+        },
+        "timeout": 8
+      }
+    },
+    {
+      "id": "home-selected-for-club",
+      "expectation": "Home is selected for the Club experience.",
+      "action": {
+        "assertSelected": {
+          "id": "tab-bar-home",
+          "timeout": 4
+        }
+      }
+    },
+    {
+      "id": "my-club-action-visible",
+      "expectation": "My club is visible on Club Home.",
+      "action": {
+        "assertVisible": {
+          "id": "home-my-club"
+        }
+      }
+    },
+    {
+      "id": "open-my-club",
+      "expectation": "Tapping My club opens its onboarding destination.",
+      "action": {
+        "tap": {
+          "id": "home-my-club"
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "my-club-verification"
+        },
+        "timeout": 8
+      }
+    },
+    {
+      "id": "my-club-verification-visible",
+      "expectation": "My club shows the Club verification action for the no-claim account.",
+      "action": {
+        "assertVisible": {
+          "id": "my-club-verification"
+        }
+      }
+    }
+  ]
+}

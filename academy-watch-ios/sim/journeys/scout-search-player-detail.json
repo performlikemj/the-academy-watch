@@ -1,0 +1,140 @@
+{
+  "version": "1.3",
+  "name": "scout-search-player-detail",
+  "settle_ms": 400,
+  "settle_timeout_ms": 8000,
+  "fixture_evidence": {
+    "offered_inputs": [
+      {
+        "claim": "The Scout Desk search field accepts player names with a stable identifier.",
+        "source": "AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift:334-342"
+      }
+    ],
+    "server_state": [
+      {
+        "claim": "The fixture returns Sim Player One at Sim Academy and local detail responses for player 900001.",
+        "source": "AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift:180-199"
+      }
+    ],
+    "layout": [
+      {
+        "claim": "Scout results and player detail expose stable accessibility identifiers.",
+        "source": "AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift:507-515"
+      }
+    ],
+    "preflight": {
+      "kind": "none",
+      "note": "The final-code checkpoint uses one clearly synthetic player and fixture-backs every detail request."
+    }
+  },
+  "steps": [
+    {
+      "id": "launch-scout-search",
+      "expectation": "Scout Desk launches with the offline synthetic fixture.",
+      "checkpoint": true,
+      "action": {
+        "launch": {
+          "args": [
+            "-resetExperienceRole",
+            "-experienceRole",
+            "scout",
+            "-experienceFixture",
+            "scout"
+          ],
+          "env": {}
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "tab-bar-scout-desk"
+        },
+        "timeout": 8
+      }
+    },
+    {
+      "id": "scroll-to-search",
+      "expectation": "The Scout Desk search controls move into view.",
+      "action": {
+        "swipe": {
+          "dir": "up",
+          "id": "scout-desk-scroll"
+        }
+      }
+    },
+    {
+      "id": "search-synthetic-player",
+      "expectation": "The search is narrowed to Sim Player One.",
+      "action": {
+        "type": {
+          "id": "scout-search",
+          "text": "Sim Player One"
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "scout-player-900001"
+        },
+        "timeout": 8
+      }
+    },
+    {
+      "id": "dismiss-search-keyboard",
+      "expectation": "The filtered result can be inspected.",
+      "action": {
+        "dismissKeyboard": {}
+      }
+    },
+    {
+      "id": "synthetic-result-visible",
+      "expectation": "Sim Player One is visible as the synthetic search result.",
+      "action": {
+        "assertVisible": {
+          "id": "scout-player-900001"
+        }
+      }
+    },
+    {
+      "id": "search-field-visible",
+      "expectation": "The Scout Desk remains visibly filtered by the synthetic player search.",
+      "action": {
+        "assertVisible": {
+          "id": "scout-search"
+        }
+      }
+    },
+    {
+      "id": "scroll-filtered-result-into-view",
+      "expectation": "The filtered synthetic player row is brought fully on screen.",
+      "action": {
+        "swipe": {
+          "dir": "up",
+          "id": "scout-desk-scroll"
+        }
+      }
+    },
+    {
+      "id": "open-synthetic-player",
+      "expectation": "Opening Sim Player One navigates to player detail.",
+      "action": {
+        "tap": {
+          "id": "scout-player-900001"
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "player-detail-scroll"
+        },
+        "timeout": 8
+      }
+    },
+    {
+      "id": "synthetic-player-detail-visible",
+      "expectation": "The detail screen for Sim Player One is visible.",
+      "action": {
+        "assertVisible": {
+          "id": "player-detail-scroll"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "baseline_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+  "overlay_sha256": "92cb896023489bdac6a64ae592c99c9008b17efa707555b481a36b30f5c6f63e",
+  "applied_source_manifest": "applied-source-sha256.json",
+  "source_unchanged_after_build": true,
+  "build_for_testing": {
+    "exit_code": 0,
+    "marker": "TEST BUILD SUCCEEDED",
+    "log": "full-build.txt"
+  },
+  "test_without_building": {
+    "exit_code": 0,
+    "marker": "TEST EXECUTE SUCCEEDED",
+    "log": "full-test.txt"
+  },
+  "full_host_run": {
+    "exit_code": 0,
+    "steps": 20,
+    "ok": 17,
+    "behavioral_failures": 3,
+    "log": "full-run.txt"
+  }
+}

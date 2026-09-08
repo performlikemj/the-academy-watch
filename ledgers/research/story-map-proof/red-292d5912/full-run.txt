@@ -1,0 +1,11 @@
+Destination source: CLI --destination
+Destination: platform=iOS Simulator,name=iPhone 17,OS=26.5
+sim reclaim audit: session-reclaim: 70 MB reclaimable (budget 40 GB)
+story-map: PASS (check; 6 stories)
+iOS sim: app=academy-watch-ios scheme=AcademyWatchExperience target=AcademyWatchUITests journeys=6
+Attachment manifest: verified count=29 bytes=5320904
+stories-proof: {"proven":3,"unproven":0,"failing":3,"judged":0,"contradicted":0,"confusing":0}
+sim-report: PASS (20 steps; 0 observed; 0 proposals; 0 recommendations)
+TOTAL steps=20 ok=17 pass=0 concern=0 fail=3 ungraded=17 observed=0
+Report: <RUN_TEMP>/red-reports/20260908T134506Z/report.json
+sim reclaim: session-reclaim: freed 0 KB

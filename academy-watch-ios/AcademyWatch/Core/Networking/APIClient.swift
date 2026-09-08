@@ -192,18 +192,21 @@ struct APIClient: PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
     private let session: URLSession
     private let authSession: (any AuthSessionProtocol)?
     private let requiredCredential: String?
+    private let fixtureMode: String?
 
     init(
         baseURL: URL = APIClient.productionBaseURL,
         session: URLSession = .shared,
         authSession: (any AuthSessionProtocol)? = nil,
-        requiredCredential: String? = nil
+        requiredCredential: String? = nil,
+        fixtureMode: String? = nil
     ) {
         self.baseURL = baseURL
-        #if DEBUG
-        self.session = PlayerClubExperienceFixtures.mode == nil ? session : PlayerClubExperienceFixtures.session()
-        #else
         self.session = session
+        #if DEBUG && targetEnvironment(simulator)
+        self.fixtureMode = fixtureMode ?? PlayerClubExperienceFixtures.mode
+        #else
+        self.fixtureMode = nil
         #endif
         self.authSession = authSession
         self.requiredCredential = requiredCredential
@@ -221,6 +224,13 @@ struct APIClient: PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.timeoutInterval = 60
             request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+            #if DEBUG && targetEnvironment(simulator)
+            if let fixtureMode {
+                _ = try PlayerClubExperienceFixtures.data(for: request, mode: fixtureMode)
+                return
+            }
+            #endif
 
             let (_, response) = try await session.data(for: request)
             #if DEBUG
@@ -799,7 +809,13 @@ struct APIClient: PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
         guard let credential = await authSession?.accessToken(), !credential.isEmpty else {
             throw APIClientError.httpStatus(401)
         }
-        return APIClient(baseURL: baseURL, session: session, authSession: authSession, requiredCredential: credential)
+        return APIClient(
+            baseURL: baseURL,
+            session: session,
+            authSession: authSession,
+            requiredCredential: credential,
+            fixtureMode: fixtureMode
+        )
     }
 
     static func ownerShowcasePath(playerID: Int) -> String {
@@ -974,6 +990,13 @@ struct APIClient: PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
         if method == "GET", token == nil {
             request.cachePolicy = .reloadRevalidatingCacheData
         }
+
+        #if DEBUG && targetEnvironment(simulator)
+        if let fixtureMode {
+            let data = try PlayerClubExperienceFixtures.data(for: request, mode: fixtureMode)
+            return (data, ProcessInfo.processInfo.systemUptime)
+        }
+        #endif
 
         let (data, response) = try await session.data(for: request)
         let responseReceivedAt = ProcessInfo.processInfo.systemUptime

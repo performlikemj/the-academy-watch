@@ -1,0 +1,122 @@
+[
+  {
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+    "id": "scout-opens-app",
+    "persona": "scout",
+    "proof": "proven",
+    "journey": "scout-opens-app",
+    "evidence": [
+      {
+        "step_id": "scout-desk-selected",
+        "shot": "shots/scout-opens-app__002-scout-desk-selected.png"
+      },
+      {
+        "step_id": "home-absent",
+        "shot": "shots/scout-opens-app__003-home-absent.png"
+      },
+      {
+        "step_id": "player-club-home-content-absent",
+        "shot": "shots/scout-opens-app__004-player-club-home-content-absent.png"
+      }
+    ]
+  },
+  {
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+    "id": "change-home-changes-home",
+    "persona": "scout",
+    "proof": "proven",
+    "journey": "change-home-changes-home",
+    "evidence": [
+      {
+        "step_id": "home-absent-before-change",
+        "shot": "shots/change-home-changes-home__002-home-absent-before-change.png"
+      },
+      {
+        "step_id": "home-selected-for-player",
+        "shot": "shots/change-home-changes-home__009-home-selected-for-player.png"
+      },
+      {
+        "step_id": "home-absent-after-restoring-scout",
+        "shot": "shots/change-home-changes-home__016-home-absent-after-restoring-scout.png"
+      }
+    ]
+  },
+  {
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+    "id": "player-first-run-chooser",
+    "persona": "player",
+    "proof": "proven",
+    "journey": "player-first-run-chooser",
+    "evidence": [
+      {
+        "step_id": "player-choice-visible",
+        "shot": "shots/player-first-run-chooser__002-player-choice-visible.png"
+      },
+      {
+        "step_id": "club-choice-visible",
+        "shot": "shots/player-first-run-chooser__003-club-choice-visible.png"
+      },
+      {
+        "step_id": "scout-choice-visible",
+        "shot": "shots/player-first-run-chooser__004-scout-choice-visible.png"
+      }
+    ]
+  },
+  {
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+    "id": "player-my-profiles",
+    "persona": "player",
+    "proof": "proven",
+    "journey": "player-my-profiles",
+    "evidence": [
+      {
+        "step_id": "my-profiles-action-visible",
+        "shot": "shots/player-my-profiles__003-my-profiles-action-visible.png"
+      },
+      {
+        "step_id": "my-profiles-screen-visible",
+        "shot": "shots/player-my-profiles__005-my-profiles-screen-visible.png"
+      }
+    ]
+  },
+  {
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+    "id": "club-my-club",
+    "persona": "club",
+    "proof": "proven",
+    "journey": "club-my-club",
+    "evidence": [
+      {
+        "step_id": "my-club-action-visible",
+        "shot": "shots/club-my-club__003-my-club-action-visible.png"
+      },
+      {
+        "step_id": "my-club-verification-visible",
+        "shot": "shots/club-my-club__005-my-club-verification-visible.png"
+      }
+    ]
+  },
+  {
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+    "id": "scout-search-player-detail",
+    "persona": "scout",
+    "proof": "proven",
+    "journey": "scout-search-player-detail",
+    "evidence": [
+      {
+        "step_id": "search-field-visible",
+        "shot": "shots/scout-search-player-detail__006-search-field-visible.png"
+      },
+      {
+        "step_id": "synthetic-player-detail-visible",
+        "shot": "shots/scout-search-player-detail__009-synthetic-player-detail-visible.png"
+      }
+    ]
+  }
+]

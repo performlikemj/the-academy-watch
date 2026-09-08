@@ -1,0 +1,411 @@
+{
+  "app": "academy-watch-ios",
+  "run_at": "2026-09-08T13:45:06Z",
+  "base_url": "simulator://platform=iOS Simulator,name=iPhone 17,OS=26.5",
+  "platform": "ios",
+  "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+  "source_dirty": true,
+  "app_source_tree": "b0561e2b169fe62f522f50ae77ee4857ad41f830",
+  "revision_binding": {
+    "app_path": "academy-watch-ios",
+    "commit": "dHJlZSBhY2Y2ZmM1YmNkZjIxNWRjZjRhZTE3MGY3OGQ0NzlhYmRiM2UzODczCnBhcmVudCBlNmViMzBjZGRlZGRlYTlkOTk3ZGFlZGY1MWJkMjEyYzEwMGZkZjk1CmF1dGhvciBkZXBlbmRhYm90W2JvdF0gPDQ5Njk5MzMzK2RlcGVuZGFib3RbYm90XUB1c2Vycy5ub3JlcGx5LmdpdGh1Yi5jb20+IDE3ODg3OTU5MTcgKzAwMDAKY29tbWl0dGVyIEdpdEh1YiA8bm9yZXBseUBnaXRodWIuY29tPiAxNzg4Nzk1OTE3ICswMDAwCmdwZ3NpZyAtLS0tLUJFR0lOIFBHUCBTSUdOQVRVUkUtLS0tLQogCiB3c0ZjQkFBQkNBQVFCUUpxbnR3TkNSQzFhUTd1dTVVaGxBQUFrUUlRQUtwcXhraStvS29pMFh1MTkrdmtQMjhrCiBaNy9LY1EzMjhnZmYwVUVLeFRBaEFUZ3RKQ0RaUUR4RW5aaVRFM3dMdXorWUdEYUJ0M3IveldOaVdSYWRWb2pCCiAzdE5VK1NaWXp0YU9pVVlyZjZlNnJ6bUJnckZnQk42ZWltS1Q1blYzOGdJNENrSTFGdnZkNVlCaHozdmY0UlQ3CiBpa0c3cktYOWE3bk1FNDBBdll5OUtyWEFMNVdsSHRIUzQ1RzQzaEZwRGM4STVWMFQ3MFhIRktIWVFQZHh2VGIrCiB4dXpEMFhqK0Q0WmY2YThGNUFQd2p3SWVNWngrcnozWnJjQm14VGNlbndKNTBqS1JCNlZqbzR2V3g3VFBaZUQyCiB4VHJBM3pKWXAwK2xBVFVKTWQ4VkRMd0VTZVZXWjdKczR3cGVVY1A5a3haU1VvL2VydDJ6YWN2bzlqQUh6NEJ3CiBPSUdhemdvSDkvSlhqK3F5YXZWOTdiVTFWS1RESVplT2ZENzdoUlc3Ti9GZG0zdEtISnU0YUovOVVlSU5FKzRPCiA2NjI1alVhdHdsOTZtYU1sTTZxWHV4VDExZDIxZWRUZVRBeHp5U2pXQUdsbXhSamwwcEQ0VW8xTUF0WTc3NGdUCiBnYThKZFU0SC90RXVjdEdJbmUxc0pBaitLeEwvZUx5TUVidHhteXlQVXRUc3B2a1hlT2FjVHJPVmQ1Z1F4cHVECiBUTjQyUUUyeHl1bTU5dVRoZ1JRNjZ3ZmlEUk4wSjRDVjF4enJRaG50WEkzdG96bWlsNVAvdXMvSWFqMmJObXg3CiBiRHZDZ1lOUUZaM1dyd0NaYS9Kbkk2VXpiUmREamQ4YmorenpmMTNHUjB0VkFxTUhJOVVTa2xpZXkyS0Z4KzdDCiBDWVpQSE5pS3NqbHV2bExXck9MeAogPWdKQ1UKIC0tLS0tRU5EIFBHUCBTSUdOQVRVUkUtLS0tLQogCgpjaG9yZShkZXBzKTogQnVtcCBAdGlwdGFwL3N0YXJ0ZXIta2l0IGluIC9hY2FkZW15LXdhdGNoLWZyb250ZW5kICgjMTA1OSkKCkJ1bXBzIFtAdGlwdGFwL3N0YXJ0ZXIta2l0XShodHRwczovL2dpdGh1Yi5jb20vdWViZXJkb3Npcy90aXB0YXAvdHJlZS9IRUFEL3BhY2thZ2VzL3N0YXJ0ZXIta2l0KSBmcm9tIDMuMzEuMCB0byAzLjMxLjMuCi0gW1JlbGVhc2Ugbm90ZXNdKGh0dHBzOi8vZ2l0aHViLmNvbS91ZWJlcmRvc2lzL3RpcHRhcC9yZWxlYXNlcykKLSBbQ2hhbmdlbG9nXShodHRwczovL2dpdGh1Yi5jb20vdWViZXJkb3Npcy90aXB0YXAvYmxvYi92My4zMS4zL3BhY2thZ2VzL3N0YXJ0ZXIta2l0L0NIQU5HRUxPRy5tZCkKLSBbQ29tbWl0c10oaHR0cHM6Ly9naXRodWIuY29tL3VlYmVyZG9zaXMvdGlwdGFwL2NvbW1pdHMvdjMuMzEuMy9wYWNrYWdlcy9zdGFydGVyLWtpdCkKCi0tLQp1cGRhdGVkLWRlcGVuZGVuY2llczoKLSBkZXBlbmRlbmN5LW5hbWU6ICJAdGlwdGFwL3N0YXJ0ZXIta2l0IgogIGRlcGVuZGVuY3ktdmVyc2lvbjogMy4zMS4zCiAgZGVwZW5kZW5jeS10eXBlOiBkaXJlY3Q6cHJvZHVjdGlvbgogIHVwZGF0ZS10eXBlOiB2ZXJzaW9uLXVwZGF0ZTpzZW12ZXItcGF0Y2gKLi4uCgpTaWduZWQtb2ZmLWJ5OiBkZXBlbmRhYm90W2JvdF0gPHN1cHBvcnRAZ2l0aHViLmNvbT4KQ28tYXV0aG9yZWQtYnk6IGRlcGVuZGFib3RbYm90XSA8NDk2OTkzMzMrZGVwZW5kYWJvdFtib3RdQHVzZXJzLm5vcmVwbHkuZ2l0aHViLmNvbT4=",
+    "trees": [
+      "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"
+    ]
+  },
+  "execution_config": {
+    "scheme": "AcademyWatchExperience",
+    "ui_test_target": "AcademyWatchUITests",
+    "destination": "platform=iOS Simulator,name=iPhone 17,OS=26.5",
+    "locale": "en_US",
+    "timezone": "Asia/Tokyo",
+    "appearance": "light",
+    "dynamic_type": "large",
+    "grade": "0"
+  },
+  "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+  "metadata": {
+    "locale": "en_US",
+    "timezone": "Asia/Tokyo",
+    "appearance": "light",
+    "dynamic_type": "large",
+    "destination": "platform=iOS Simulator,name=iPhone 17,OS=26.5",
+    "xcode_version": "Xcode 26.6;Build version 17F113"
+  },
+  "journeys": [
+    {
+      "name": "change-home-changes-home",
+      "steps": [
+        {
+          "shot": "shots/change-home-changes-home__001-launch-as-scout.png",
+          "settle_ms_used": 250,
+          "settle_reason": "predicate",
+          "settle_diff_ratio": 0,
+          "id": "launch-as-scout",
+          "note": "Action completed.",
+          "ok": true,
+          "expectation": "The fixture app reaches the scout tab shell.",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "shot": "shots/change-home-changes-home__002-home-absent-before-change.png",
+          "settle_ms_used": 0,
+          "settle_reason": "quiet",
+          "id": "home-absent-before-change",
+          "note": "Absent target id=tab-bar-home still exists after 3.0 seconds.",
+          "ok": false,
+          "expectation": "Home is absent before changing the scout experience.",
+          "payload": null,
+          "verdict": "fail"
+        }
+      ]
+    },
+    {
+      "name": "club-my-club",
+      "steps": [
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_ms_used": 400,
+          "shot": "shots/club-my-club__001-launch-club-home.png",
+          "settle_reason": "predicate",
+          "settle_diff_ratio": 0,
+          "id": "launch-club-home",
+          "expectation": "Home launches for the Club experience.",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "note": "Action completed. Selected AX: Attributes: Button, 0x106a7f480, {{25.0, 795.0}, {74.0, 54.0}}, identifier: 'tab-bar-home', label: 'Home', Selected",
+          "ok": true,
+          "settle_ms_used": 400,
+          "shot": "shots/club-my-club__002-home-selected-for-club.png",
+          "settle_reason": "quiet",
+          "settle_diff_ratio": 0,
+          "id": "home-selected-for-club",
+          "expectation": "Home is selected for the Club experience.",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_ms_used": 400,
+          "shot": "shots/club-my-club__003-my-club-action-visible.png",
+          "settle_reason": "quiet",
+          "settle_diff_ratio": 0,
+          "id": "my-club-action-visible",
+          "expectation": "My club is visible on Club Home.",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_ms_used": 400,
+          "shot": "shots/club-my-club__004-open-my-club.png",
+          "settle_reason": "predicate",
+          "settle_diff_ratio": 0,
+          "id": "open-my-club",
+          "expectation": "Tapping My club opens its onboarding destination.",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "id": "my-club-verification-visible",
+          "expectation": "My club shows the Club verification action for the no-claim account.",
+          "shot": "shots/club-my-club__005-my-club-verification-visible.png",
+          "settle_ms_used": 400,
+          "settle_diff_ratio": 0,
+          "settle_reason": "quiet",
+          "ok": true,
+          "note": "Action completed.",
+          "payload": null,
+          "verdict": "ungraded"
+        }
+      ]
+    },
+    {
+      "name": "player-first-run-chooser",
+      "steps": [
+        {
+          "settle_ms_used": 400,
+          "expectation": "The first-run Home chooser appears.",
+          "settle_reason": "predicate",
+          "settle_diff_ratio": 0,
+          "id": "launch-without-role",
+          "note": "Action completed.",
+          "ok": true,
+          "shot": "shots/player-first-run-chooser__001-launch-without-role.png",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "settle_ms_used": 400,
+          "expectation": "Player is offered as a Home experience.",
+          "settle_reason": "quiet",
+          "settle_diff_ratio": 0,
+          "id": "player-choice-visible",
+          "note": "Action completed.",
+          "ok": true,
+          "shot": "shots/player-first-run-chooser__002-player-choice-visible.png",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "settle_ms_used": 400,
+          "expectation": "Club is offered as a Home experience.",
+          "settle_reason": "quiet",
+          "settle_diff_ratio": 0,
+          "id": "club-choice-visible",
+          "note": "Action completed.",
+          "ok": true,
+          "shot": "shots/player-first-run-chooser__003-club-choice-visible.png",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "settle_ms_used": 400,
+          "expectation": "Scout is offered as a Home experience.",
+          "settle_reason": "quiet",
+          "settle_diff_ratio": 0,
+          "id": "scout-choice-visible",
+          "note": "Action completed.",
+          "ok": true,
+          "shot": "shots/player-first-run-chooser__004-scout-choice-visible.png",
+          "payload": null,
+          "verdict": "ungraded"
+        }
+      ]
+    },
+    {
+      "name": "player-my-profiles",
+      "steps": [
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_ms_used": 400,
+          "shot": "shots/player-my-profiles__001-launch-player-home.png",
+          "settle_reason": "predicate",
+          "settle_diff_ratio": 0,
+          "id": "launch-player-home",
+          "expectation": "Home launches for the Player experience.",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "note": "Action completed. Selected AX: Attributes: Button, 0x10a382d00, {{25.0, 795.0}, {74.0, 54.0}}, identifier: 'tab-bar-home', label: 'Home', Selected",
+          "ok": true,
+          "settle_ms_used": 400,
+          "shot": "shots/player-my-profiles__002-home-selected-for-player.png",
+          "settle_reason": "quiet",
+          "settle_diff_ratio": 0,
+          "id": "home-selected-for-player",
+          "expectation": "Home exposes the stable selected state for the Player experience.",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_ms_used": 400,
+          "shot": "shots/player-my-profiles__003-my-profiles-action-visible.png",
+          "settle_reason": "quiet",
+          "settle_diff_ratio": 0,
+          "id": "my-profiles-action-visible",
+          "expectation": "My profiles is visible on Player Home.",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "note": "Action completed.",
+          "ok": true,
+          "settle_ms_used": 400,
+          "shot": "shots/player-my-profiles__004-open-my-profiles.png",
+          "settle_reason": "predicate",
+          "settle_diff_ratio": 0,
+          "id": "open-my-profiles",
+          "expectation": "The My profiles action opens its destination.",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "id": "my-profiles-screen-visible",
+          "expectation": "The fixture-backed My profiles screen is visible.",
+          "shot": "shots/player-my-profiles__005-my-profiles-screen-visible.png",
+          "settle_ms_used": 400,
+          "settle_diff_ratio": 0,
+          "settle_reason": "quiet",
+          "ok": true,
+          "note": "Action completed.",
+          "payload": null,
+          "verdict": "ungraded"
+        }
+      ]
+    },
+    {
+      "name": "scout-opens-app",
+      "steps": [
+        {
+          "note": "Action completed.",
+          "settle_ms_used": 400,
+          "id": "launch-as-scout",
+          "settle_reason": "predicate",
+          "settle_diff_ratio": 0,
+          "ok": true,
+          "expectation": "The fixture app reaches the tab shell for a returning scout.",
+          "shot": "shots/scout-opens-app__001-launch-as-scout.png",
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "note": "Selected target id=tab-bar-scout-desk was not visibly selected with its navigation chrome within 4.0 seconds.",
+          "settle_ms_used": 0,
+          "id": "scout-desk-selected",
+          "settle_reason": "quiet",
+          "ok": false,
+          "expectation": "Scout Desk exposes the stable selected state with its navigation bar present on launch.",
+          "shot": "shots/scout-opens-app__002-scout-desk-selected.png",
+          "payload": null,
+          "verdict": "fail"
+        }
+      ]
+    },
+    {
+      "name": "scout-search-player-detail",
+      "steps": [
+        {
+          "settle_reason": "predicate",
+          "ok": true,
+          "id": "launch-scout-search",
+          "expectation": "Scout Desk launches with the offline synthetic fixture.",
+          "shot": "shots/scout-search-player-detail__001-launch-scout-search.png",
+          "note": "Action completed.",
+          "settle_diff_ratio": 0,
+          "settle_ms_used": 400,
+          "payload": null,
+          "verdict": "ungraded"
+        },
+        {
+          "settle_reason": "quiet",
+          "ok": false,
+          "id": "scroll-to-search",
+          "expectation": "The Scout Desk search controls move into view.",
+          "shot": "shots/scout-search-player-detail__002-scroll-to-search.png",
+          "note": "Swipe target id=scout-desk-scroll did not exist within 8 seconds.",
+          "settle_ms_used": 0,
+          "payload": null,
+          "verdict": "fail"
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "steps": 20,
+    "ok": 17,
+    "pass": 0,
+    "concern": 0,
+    "fail": 3,
+    "ungraded": 17,
+    "stories": {
+      "proven": 3,
+      "unproven": 0,
+      "failing": 3,
+      "judged": 0,
+      "contradicted": 0,
+      "confusing": 0
+    }
+  },
+  "proposals": [],
+  "recommendations": [],
+  "report_version": "2.1",
+  "stories_digest": "96743dc9ac98287884ef0cb17145dd7ef0996d107911538498ec5b542b27ae35",
+  "stories": [
+    {
+      "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+      "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+      "id": "scout-opens-app",
+      "persona": "scout",
+      "proof": "failing",
+      "journey": "scout-opens-app",
+      "evidence": []
+    },
+    {
+      "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+      "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+      "id": "change-home-changes-home",
+      "persona": "scout",
+      "proof": "failing",
+      "journey": "change-home-changes-home",
+      "evidence": []
+    },
+    {
+      "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+      "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+      "id": "player-first-run-chooser",
+      "persona": "player",
+      "proof": "proven",
+      "journey": "player-first-run-chooser",
+      "evidence": [
+        {
+          "step_id": "player-choice-visible",
+          "shot": "shots/player-first-run-chooser__002-player-choice-visible.png"
+        },
+        {
+          "step_id": "club-choice-visible",
+          "shot": "shots/player-first-run-chooser__003-club-choice-visible.png"
+        },
+        {
+          "step_id": "scout-choice-visible",
+          "shot": "shots/player-first-run-chooser__004-scout-choice-visible.png"
+        }
+      ]
+    },
+    {
+      "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+      "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+      "id": "player-my-profiles",
+      "persona": "player",
+      "proof": "proven",
+      "journey": "player-my-profiles",
+      "evidence": [
+        {
+          "step_id": "my-profiles-action-visible",
+          "shot": "shots/player-my-profiles__003-my-profiles-action-visible.png"
+        },
+        {
+          "step_id": "my-profiles-screen-visible",
+          "shot": "shots/player-my-profiles__005-my-profiles-screen-visible.png"
+        }
+      ]
+    },
+    {
+      "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+      "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+      "id": "club-my-club",
+      "persona": "club",
+      "proof": "proven",
+      "journey": "club-my-club",
+      "evidence": [
+        {
+          "step_id": "my-club-action-visible",
+          "shot": "shots/club-my-club__003-my-club-action-visible.png"
+        },
+        {
+          "step_id": "my-club-verification-visible",
+          "shot": "shots/club-my-club__005-my-club-verification-visible.png"
+        }
+      ]
+    },
+    {
+      "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+      "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
+      "id": "scout-search-player-detail",
+      "persona": "scout",
+      "proof": "failing",
+      "journey": "scout-search-player-detail",
+      "evidence": []
+    }
+  ]
+}

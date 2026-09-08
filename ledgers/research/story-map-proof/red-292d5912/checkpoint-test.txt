@@ -1,0 +1,127 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -xctestrun <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/sim-run.xctestrun -destination "platform=iOS Simulator,name=iPhone 17,OS=26.5" -resultBundlePath <RUN_TEMP>/red-reports/.staging-20260908T134344Z/run-20260908T134344Z.xcresult CODE_SIGNING_ALLOWED=NO test-without-building "-only-testing:AcademyWatchUITests/JourneyRunnerUITests/testJourneys"
+
+Build settings from command line:
+    CODE_SIGNING_ALLOWED = NO
+
+2026-09-08 22:43:51.918 xcodebuild[24592:16852061] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
+Writing result bundle at path:
+	<RUN_TEMP>/red-reports/.staging-20260908T134344Z/run-20260908T134344Z.xcresult
+
+2026-09-08 22:43:51.920 xcodebuild[24592:16852061] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
+2026-09-08 22:43:52.065 xcodebuild[24592:16852061] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
+2026-09-08 22:43:52.549 xcodebuild[24592:16852061] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
+2026-09-08 22:43:52.682 xcodebuild[24592:16852061] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
+2026-09-08 22:43:56.996359+0900 AcademyWatchUITests-Runner[24765:16853769] [Default] Running tests...
+objc[24765]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x10772c310) and /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x106e34398). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+    t =      nans Interface orientation changed to Portrait
+Test Suite 'Selected tests' started at 2026-09-08 22:43:59.604.
+Test Suite 'AcademyWatchUITests.xctest' started at 2026-09-08 22:43:59.604.
+Test Suite 'JourneyRunnerUITests' started at 2026-09-08 22:43:59.604.
+Test Case '-[AcademyWatchUITests.JourneyRunnerUITests testJourneys]' started.
+    t =     0.00s Start Test at 2026-09-08 22:43:59.605
+    t =     0.00s Set Up
+    t =     0.01s Open com.theacademywatch.app
+    t =     0.01s     Launch com.theacademywatch.app
+2026-09-08 22:43:59.667 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-09-08 22:43:59.667 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     2.75s         Setting up automation session
+    t =     3.40s         Wait for com.theacademywatch.app to idle
+    t =     4.72s Wait for com.theacademywatch.app to become Running Foreground
+    t =     5.77s Checking `Expect predicate `exists == 1 AND hittable == 1` for object "tab-bar-scout-desk" Button`
+    t =     5.77s     Checking existence of `"tab-bar-scout-desk" Button`
+    t =     5.84s     Capturing element debug description
+    t =     6.77s Checking `Expect predicate `exists == 1 AND hittable == 1` for object "tab-bar-scout-desk" Button`
+    t =     6.77s     Checking existence of `"tab-bar-scout-desk" Button`
+    t =     6.79s     Find the "tab-bar-scout-desk" Button
+    t =     7.24s Added attachment named 'change-home-changes-home__001-launch-as-scout.png'
+    t =     7.24s Added attachment named 'sim-steps__change-home-changes-home.json'
+    t =     7.24s Terminate com.theacademywatch.app:24833
+    t =     8.31s Open com.theacademywatch.app
+    t =     8.31s     Launch com.theacademywatch.app
+2026-09-08 22:44:07.916 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-09-08 22:44:07.916 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     8.52s         Setting up automation session
+    t =     9.17s         Wait for com.theacademywatch.app to idle
+    t =    10.47s Wait for com.theacademywatch.app to become Running Foreground
+    t =    11.53s Checking `Expect predicate `exists == 1 AND hittable == 1` for object "home-my-club" Any`
+    t =    11.53s     Checking existence of `"home-my-club" Any`
+    t =    11.59s     Find the "home-my-club" Any
+    t =    12.19s Added attachment named 'club-my-club__001-launch-club-home.png'
+    t =    12.19s Added attachment named 'sim-steps__club-my-club.json'
+    t =    12.19s Terminate com.theacademywatch.app:24858
+    t =    13.24s Open com.theacademywatch.app
+    t =    13.25s     Launch com.theacademywatch.app
+2026-09-08 22:44:12.853 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-09-08 22:44:12.853 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =    13.45s         Setting up automation session
+    t =    14.09s         Wait for com.theacademywatch.app to idle
+    t =    15.37s Wait for com.theacademywatch.app to become Running Foreground
+    t =    16.44s Checking `Expect predicate `exists == 1 AND hittable == 1` for object "home-role-player" Any`
+    t =    16.44s     Checking existence of `"home-role-player" Any`
+    t =    16.50s     Find the "home-role-player" Any
+    t =    17.05s Added attachment named 'player-first-run-chooser__001-launch-without-role.png'
+    t =    17.05s Added attachment named 'sim-steps__player-first-run-chooser.json'
+    t =    17.06s Terminate com.theacademywatch.app:24886
+    t =    18.14s Open com.theacademywatch.app
+    t =    18.14s     Launch com.theacademywatch.app
+2026-09-08 22:44:17.751 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-09-08 22:44:17.751 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =    18.36s         Setting up automation session
+    t =    18.98s         Wait for com.theacademywatch.app to idle
+    t =    20.27s Wait for com.theacademywatch.app to become Running Foreground
+    t =    21.34s Checking `Expect predicate `exists == 1 AND hittable == 1` for object "home-my-profiles" Any`
+    t =    21.34s     Checking existence of `"home-my-profiles" Any`
+    t =    21.42s     Find the "home-my-profiles" Any
+    t =    22.02s Added attachment named 'player-my-profiles__001-launch-player-home.png'
+    t =    22.02s Added attachment named 'sim-steps__player-my-profiles.json'
+    t =    22.02s Terminate com.theacademywatch.app:24912
+    t =    23.11s Open com.theacademywatch.app
+    t =    23.11s     Launch com.theacademywatch.app
+2026-09-08 22:44:22.716 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-09-08 22:44:22.716 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =    23.32s         Setting up automation session
+    t =    23.95s         Wait for com.theacademywatch.app to idle
+    t =    25.24s Wait for com.theacademywatch.app to become Running Foreground
+    t =    26.30s Checking `Expect predicate `exists == 1 AND hittable == 1` for object "tab-bar-scout-desk" Button`
+    t =    26.30s     Checking existence of `"tab-bar-scout-desk" Button`
+    t =    26.36s     Capturing element debug description
+    t =    27.27s Checking `Expect predicate `exists == 1 AND hittable == 1` for object "tab-bar-scout-desk" Button`
+    t =    27.27s     Checking existence of `"tab-bar-scout-desk" Button`
+    t =    27.29s     Find the "tab-bar-scout-desk" Button
+    t =    27.88s Added attachment named 'scout-opens-app__001-launch-as-scout.png'
+    t =    27.88s Added attachment named 'sim-steps__scout-opens-app.json'
+    t =    27.89s Terminate com.theacademywatch.app:24929
+    t =    28.94s Open com.theacademywatch.app
+    t =    28.94s     Launch com.theacademywatch.app
+2026-09-08 22:44:28.548 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-09-08 22:44:28.548 xcodebuild[24592:16852061] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =    29.16s         Setting up automation session
+    t =    29.77s         Wait for com.theacademywatch.app to idle
+    t =    31.07s Wait for com.theacademywatch.app to become Running Foreground
+    t =    32.12s Checking `Expect predicate `exists == 1 AND hittable == 1` for object "tab-bar-scout-desk" Button`
+    t =    32.12s     Checking existence of `"tab-bar-scout-desk" Button`
+    t =    32.19s     Capturing element debug description
+    t =    33.14s Checking `Expect predicate `exists == 1 AND hittable == 1` for object "tab-bar-scout-desk" Button`
+    t =    33.14s     Checking existence of `"tab-bar-scout-desk" Button`
+    t =    33.16s     Find the "tab-bar-scout-desk" Button
+    t =    33.71s Added attachment named 'scout-search-player-detail__001-launch-scout-search.png'
+    t =    33.71s Added attachment named 'sim-steps__scout-search-player-detail.json'
+    t =    33.71s Tear Down
+Test Case '-[AcademyWatchUITests.JourneyRunnerUITests testJourneys]' passed (33.919 seconds).
+Test Suite 'JourneyRunnerUITests' passed at 2026-09-08 22:44:33.524.
+	 Executed 1 test, with 0 failures (0 unexpected) in 33.919 (33.920) seconds
+Test Suite 'AcademyWatchUITests.xctest' passed at 2026-09-08 22:44:33.524.
+	 Executed 1 test, with 0 failures (0 unexpected) in 33.919 (33.920) seconds
+Test Suite 'Selected tests' passed at 2026-09-08 22:44:33.524.
+	 Executed 1 test, with 0 failures (0 unexpected) in 33.919 (33.920) seconds
+2026-09-08 22:44:33.863 xcodebuild[24592:16852061] [MT] IDETestOperationsObserverDebug: 41.797 elapsed -- Testing started completed.
+2026-09-08 22:44:33.863 xcodebuild[24592:16852061] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-09-08 22:44:33.863 xcodebuild[24592:16852061] [MT] IDETestOperationsObserverDebug: 41.797 sec, +41.797 sec -- end
+
+Test session results, code coverage, and logs:
+	<RUN_TEMP>/red-reports/.staging-20260908T134344Z/run-20260908T134344Z.xcresult
+
+** TEST EXECUTE SUCCEEDED **
+
+Testing started

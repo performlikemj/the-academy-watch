@@ -41,7 +41,7 @@ struct PlayerHomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    #if DEBUG
+                    #if DEBUG && targetEnvironment(simulator)
                         if PlayerClubExperienceFixtures.mode != nil {
                             Label("OFFLINE FIXTURE", systemImage: "testtube.2").font(.caption).foregroundStyle(
                                 .secondary)
@@ -63,7 +63,7 @@ struct PlayerHomeView: View {
                             } label: {
                                 OnboardingActionRow(icon: choice.icon, title: choice.title, detail: roleDetail(choice))
                             }.buttonStyle(.plain)
-                                .accessibilityIdentifier("home-role-\(choice.rawValue)")
+                                .accessibilityIdentifier(choice.homeChoiceAccessibilityIdentifier)
                         }
                         Button("Explore players first") { onNavigate(.scoutDesk) }
                             .accessibilityIdentifier("home-skip")
@@ -364,6 +364,16 @@ struct MyClubHomeView: View {
             }.padding(20)
         }.background(AcademyColors.background)
             .navigationTitle("My club").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private extension ExperienceRole {
+    var homeChoiceAccessibilityIdentifier: String {
+        switch self {
+        case .player: "home-role-player"
+        case .club: "home-role-club"
+        case .scout: "home-role-scout"
+        }
     }
 }
 
