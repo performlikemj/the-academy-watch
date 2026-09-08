@@ -1,6 +1,7 @@
 [
   {
-    "app_revision": "10f05d52b5a627d9821e38dc8d516dc290755a6d",
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "scout-opens-app",
     "persona": "scout",
     "proof": "proven",
@@ -13,11 +14,16 @@
       {
         "step_id": "home-absent",
         "shot": "shots/scout-opens-app__003-home-absent.png"
+      },
+      {
+        "step_id": "player-club-home-content-absent",
+        "shot": "shots/scout-opens-app__004-player-club-home-content-absent.png"
       }
     ]
   },
   {
-    "app_revision": "10f05d52b5a627d9821e38dc8d516dc290755a6d",
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "change-home-changes-home",
     "persona": "scout",
     "proof": "proven",
@@ -38,7 +44,8 @@
     ]
   },
   {
-    "app_revision": "10f05d52b5a627d9821e38dc8d516dc290755a6d",
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "player-first-run-chooser",
     "persona": "player",
     "proof": "proven",
@@ -59,7 +66,8 @@
     ]
   },
   {
-    "app_revision": "10f05d52b5a627d9821e38dc8d516dc290755a6d",
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "player-my-profiles",
     "persona": "player",
     "proof": "proven",
@@ -76,7 +84,8 @@
     ]
   },
   {
-    "app_revision": "10f05d52b5a627d9821e38dc8d516dc290755a6d",
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "club-my-club",
     "persona": "club",
     "proof": "proven",
@@ -85,11 +94,16 @@
       {
         "step_id": "my-club-action-visible",
         "shot": "shots/club-my-club__003-my-club-action-visible.png"
+      },
+      {
+        "step_id": "my-club-verification-visible",
+        "shot": "shots/club-my-club__005-my-club-verification-visible.png"
       }
     ]
   },
   {
-    "app_revision": "10f05d52b5a627d9821e38dc8d516dc290755a6d",
+    "app_revision": "88f013ab94b2832c2ac6541f48ecae8d82de3abd",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "scout-search-player-detail",
     "persona": "scout",
     "proof": "proven",

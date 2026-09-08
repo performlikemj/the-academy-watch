@@ -14,10 +14,12 @@ flowchart LR
   nc96d5cf53bf0d0dfeb32ff3e["Home"]
   n078dfcb839527d3a44b45781["Scout player search"]
   nbcf95f94224ba94140962121["Synthetic player detail"]
+  n84ba303d0e5cd68708b7e769["Player#47;Club Home content"]
   n94cfb1e84bd2610fabbcad73["A returning scout opens on Scout Desk"]
   n146b7b0253793f2cd50ea32f --> n94cfb1e84bd2610fabbcad73
   n94cfb1e84bd2610fabbcad73 --> n798d060a35dba53a8c335cde
   n94cfb1e84bd2610fabbcad73 --> nc96d5cf53bf0d0dfeb32ff3e
+  n94cfb1e84bd2610fabbcad73 --> n84ba303d0e5cd68708b7e769
   n523dc9d2c8f6b3292ef7c403["Changing Home experience visibly changes tabs"]
   n146b7b0253793f2cd50ea32f --> n523dc9d2c8f6b3292ef7c403
   n523dc9d2c8f6b3292ef7c403 --> nc96d5cf53bf0d0dfeb32ff3e
@@ -56,15 +58,9 @@ flowchart LR
   classDef unproven stroke-dasharray: 5 5
   ne07b5aab1c5b3c11b9c1a7ad["club"]
   nd445ea87d0ad5e7dc0312e65["My club action"]
+  n00214757f519bff82fbcf6cf["My club onboarding"]
   n231d85ed871df1a7b118b05c["A club user opens My club from Home"]
   ne07b5aab1c5b3c11b9c1a7ad --> n231d85ed871df1a7b118b05c
   n231d85ed871df1a7b118b05c --> nd445ea87d0ad5e7dc0312e65
-```
-
-## Screens without story links
-
-```mermaid
-flowchart LR
-  classDef unproven stroke-dasharray: 5 5
-  n1bf58788777e0ea954c0d689["My club onboarding"]
+  n231d85ed871df1a7b118b05c --> n00214757f519bff82fbcf6cf
 ```

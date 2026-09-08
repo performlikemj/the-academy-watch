@@ -1,0 +1,4 @@
+baseline_revision=292d591229c0d1d282adfbd01b168022673180d0
+baseline_clean=true
+git apply --check instrumentation.patch: exit 0
+git apply --index instrumentation.patch: exit 0

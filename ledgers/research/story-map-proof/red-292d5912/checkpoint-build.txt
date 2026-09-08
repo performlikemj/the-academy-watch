@@ -1,0 +1,1031 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project <RED_WORKTREE>/academy-watch-ios/AcademyWatch.xcodeproj -scheme AcademyWatchExperience -destination "platform=iOS Simulator,name=iPhone 17,OS=26.5" -derivedDataPath <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData CODE_SIGNING_ALLOWED=NO build-for-testing
+
+Build settings from command line:
+    CODE_SIGNING_ALLOWED = NO
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (2 targets)
+    Target 'AcademyWatchUITests' in project 'AcademyWatch'
+        ➜ Explicit dependency on target 'AcademyWatch' in project 'AcademyWatch'
+    Target 'AcademyWatch' in project 'AcademyWatch' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --print-asset-tag-combinations --output-format xml1 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Assets.xcassets
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+Build description signature: 7064db2a9ab70893c9f3591ea9b9b57c
+Build description path: <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/XCBuildData/7064db2a9ab70893c9f3591ea9b9b57c.xcbuilddata
+ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache
+    cd <RED_WORKTREE>/academy-watch-ios/AcademyWatch.xcodeproj
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -o <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache
+
+CreateBuildDirectory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products
+    cd <RED_WORKTREE>/academy-watch-ios/AcademyWatch.xcodeproj
+    builtin-create-build-directory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products
+
+CreateBuildDirectory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex
+    cd <RED_WORKTREE>/academy-watch-ios/AcademyWatch.xcodeproj
+    builtin-create-build-directory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex
+
+CreateBuildDirectory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator
+    cd <RED_WORKTREE>/academy-watch-ios/AcademyWatch.xcodeproj
+    builtin-create-build-directory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator
+
+CreateBuildDirectory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules
+    cd <RED_WORKTREE>/academy-watch-ios/AcademyWatch.xcodeproj
+    builtin-create-build-directory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules
+
+CreateBuildDirectory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator
+    cd <RED_WORKTREE>/academy-watch-ios/AcademyWatch.xcodeproj
+    builtin-create-build-directory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator
+
+CreateBuildDirectory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/ExplicitPrecompiledModules
+    cd <RED_WORKTREE>/academy-watch-ios/AcademyWatch.xcodeproj
+    builtin-create-build-directory <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/ExplicitPrecompiledModules
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch-5db919dc221c69c9c732b5fdf0df8ab2-VFS-iphonesimulator/all-product-headers.yaml
+    cd <RED_WORKTREE>/academy-watch-ios/AcademyWatch.xcodeproj
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch-5db919dc221c69c9c732b5fdf0df8ab2-VFS-iphonesimulator/all-product-headers.yaml
+
+MkDir <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /bin/mkdir -p <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-own-target-headers.hmap (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-own-target-headers.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch.hmap (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-generated-files.hmap (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-generated-files.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-project-headers.hmap (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-project-headers.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-all-target-headers.hmap (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-all-target-headers.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-DebugDylibPath-normal-arm64.txt (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-DebugDylibPath-normal-arm64.txt
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-DebugDylibInstallName-normal-arm64.txt (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-DebugDylibInstallName-normal-arm64.txt
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-all-non-framework-target-headers.hmap (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-all-non-framework-target-headers.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/ProductTypeInfoPlistAdditions.plist (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/ProductTypeInfoPlistAdditions.plist
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/empty-AcademyWatchUITests.plist (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/empty-AcademyWatchUITests.plist
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-OutputFileMap.json (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-OutputFileMap.json
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch_const_extract_protocols.json (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch_const_extract_protocols.json
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.SwiftConstValuesFileList (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.SwiftConstValuesFileList
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests_const_extract_protocols.json (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests_const_extract_protocols.json
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.SwiftFileList (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.SwiftFileList
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.SwiftConstValuesFileList (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.SwiftConstValuesFileList
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.LinkFileList (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.LinkFileList
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-OutputFileMap.json (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-OutputFileMap.json
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests.hmap (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests.DependencyStaticMetadataFileList (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests.DependencyMetadataFileList (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests.DependencyMetadataFileList
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-project-headers.hmap (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-project-headers.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-own-target-headers.hmap (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-own-target-headers.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-generated-files.hmap (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-generated-files.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-all-target-headers.hmap (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-all-target-headers.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-all-non-framework-target-headers.hmap (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-all-non-framework-target-headers.hmap
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.SwiftFileList (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.SwiftFileList
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.LinkFileList (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.LinkFileList
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch.DependencyStaticMetadataFileList (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch.DependencyMetadataFileList (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    write-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch.DependencyMetadataFileList
+
+MkDir <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /bin/mkdir -p <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest
+
+Ld <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/__preview.dylib normal (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -dynamiclib -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -O0 -L<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -F<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -install_name @rpath/AcademyWatch.debug.dylib -Xlinker -dead_strip -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch_dependency_info.dat -o <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/__preview.dylib
+
+CpResource <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/PrivacyInfo.xcprivacy <RED_WORKTREE>/academy-watch-ios/AcademyWatch/PrivacyInfo.xcprivacy (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks <RED_WORKTREE>/academy-watch-ios/AcademyWatch/PrivacyInfo.xcprivacy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app
+
+MkDir <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_output/unthinned (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /bin/mkdir -p <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_output/unthinned
+
+MkDir <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_output/thinned (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /bin/mkdir -p <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_output/thinned
+
+GenerateAssetSymbols <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Assets.xcassets (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/usr/bin/actool <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Assets.xcassets --compile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app --output-format human-readable-text --notices --warnings --export-dependency-info <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_dependencies --output-partial-info-plist <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_generated_info.plist --app-icon AppIcon --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --minimum-deployment-target 17.0 --platform iphonesimulator --bundle-identifier com.theacademywatch.app --generate-swift-asset-symbol-extensions NO --generate-swift-asset-symbols <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/GeneratedAssetSymbols.swift --generate-objc-asset-symbols <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/GeneratedAssetSymbols.h --generate-asset-symbol-index <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/* com.apple.actool.compilation-results */
+<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/GeneratedAssetSymbols.h
+<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/GeneratedAssetSymbols.swift
+
+
+CompileAssetCatalogVariant thinned <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Assets.xcassets (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/usr/bin/actool <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Assets.xcassets --compile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_output/thinned --output-format human-readable-text --notices --warnings --export-dependency-info <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_dependencies_thinned --output-partial-info-plist <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_generated_info.plist_thinned --app-icon AppIcon --compress-pngs --enable-on-demand-resources YES --filter-for-thinning-device-configuration iPhone18,3 --filter-for-device-os-version 26.5 --development-region en --target-device iphone --minimum-deployment-target 17.0 --platform iphonesimulator
+/* com.apple.actool.compilation-results */
+<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_generated_info.plist_thinned
+<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_output/thinned/AppIcon60x60@2x.png
+<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_output/thinned/AppIcon76x76@2x~ipad.png
+<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_output/thinned/Assets.car
+
+
+SwiftDriver AcademyWatch normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AcademyWatch -Onone @<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -F <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -c -j16 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -sdk-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.swiftmodule -validate-clang-modules-once -clang-build-session-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch_const_extract_protocols.json -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-generated-files.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-own-target-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-all-target-headers.hmap -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-project-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources-normal/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-Swift.h -working-directory <RED_WORKTREE>/academy-watch-ios -experimental-emit-module-separately -disable-cmo
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/ptrauth-HNP3EKWMVQWCOKO8L9IXBSXS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_Builtin_stdarg-CJ6IOMK2JTGTD6UFXJEQBVZ68.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_Builtin_float-9US6RBOV7OVOEZ522FGQAOC5N.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_Builtin_stddef-2GW1HQLG0HWO0NMZK2ZDMTERI.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_SwiftConcurrencyShims-6DF1WJ2TZ03UBJMAZ8KK3G4EM.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_Builtin_stdbool-98AVEK9ZK2QI4EIISSVQGMZCC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_AvailabilityInternal-CC6Z823SDG6QMV7504VRAJEKP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/SwiftShims-9FRM11S3ZB4TR7HG2UQTVX0IX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/ptrcheck-1AIWKQWA1D9H9UC511UUYLHSX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/DeveloperToolsSupport-ECQBU7CO6KARZVTA501SCOCN2.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_DarwinFoundation1-8Q7ZAN76AYU50ZD32GMUNYWXV.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_Builtin_limits-4BH3PHISK0734HDLO26TBS1C8.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_DarwinFoundation2-C08JIC3EZHZ0V0DSYSQVQVLC3.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/ExtensionFoundation-501IBEEO57M0FCI6GD85IZNUK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_Builtin_stdint-6UBGXNRYG2ZIXIV7V6P660GF.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/sys_types-2FQ2Y1PCBHLTVRUUA3W8QY0YZ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_Builtin_tgmath-4M1Q9GC67R2OR6KJLDLXNDDNH.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_DarwinFoundation3-A2H4YJNGIP1F2TK4UOQ3IO25X.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_Builtin_stdatomic-8RESY6USGP0861NQUTICEQI2O.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_Builtin_intrinsics-EZW829PWH00KH4EAMD08SEALI.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_Builtin_inttypes-9GXFJHEM6XXEFZAE2XH6HGZLC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Darwin-C3M6S1QCAW0T4V6RIIVQGS0SD.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/simd-5XEX7M8JS9CODGH6FGQDB2HX4.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/MachO-7T9Y0K9LSO8B8I1P9EMFIYZWK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/ObjectiveC-1CB4MP363S9IXI3XPI04EPN5Y.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/os_object-3M3VHUI9T0LCNW2R0TIO06OU1.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/os_workgroup-AHGAJ6W67752XJVZ57ALLSULF.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Spatial-BBLZ8NHII5HCXSBI2WYJIIMXV.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Dispatch-24NRPWNB1LXQU7Q5PL3AXYWFV.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/XPC-603E2TFWPJUFYVLMQ4FLSSVNT.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreFoundation-8S5WVR56VK5FDQPN8V0DAC07L.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/dnssd-GUEPHJ9WDMFA1I2F8YRKD7DM.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/os-DH0287HLSR7HP87AVHLI6T002.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreGraphics-6AWG38WPB2IMOHBXTE3BYUJOH.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Security-76I1U7LI1QSKNNB9TG36JTPXF.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreAudioTypes-6LG6YJUYKSNPD1EHFB4UN8B89.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CFNetwork-59SJPT0SP8C7X0531N9DHVPT6.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreAudio-7U4ZM0BUVXSAC2PRJ2EKSV5JQ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Foundation-32ML7ASBVHMGUG0QI9ELD7QKS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/ImageIO-6H3L0LXH0XIDAJ6B0ZDBJY8ZK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreText-DTQ1X5E28E2KHKG1W1ELJEBJ0.pcm
+
+LinkAssetCatalog <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Assets.xcassets (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-linkAssetCatalog --thinned <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_output/thinned --thinned-dependencies <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_dependencies_thinned --thinned-info-plist-content <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_generated_info.plist_thinned --unthinned <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_output/unthinned --unthinned-dependencies <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_dependencies_unthinned --unthinned-info-plist-content <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_generated_info.plist_unthinned --output <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app --plist-output <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_generated_info.plist
+note: Emplaced <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/AppIcon60x60@2x.png (in target 'AcademyWatch' from project 'AcademyWatch')
+note: Emplaced <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/AppIcon76x76@2x~ipad.png (in target 'AcademyWatch' from project 'AcademyWatch')
+note: Emplaced <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/Assets.car (in target 'AcademyWatch' from project 'AcademyWatch')
+
+ProcessInfoPlistFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/Info.plist <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Info.plist (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-infoPlistUtility <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Info.plist -producttype com.apple.product-type.application -genpkginfo <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/PkgInfo -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/assetcatalog_generated_info.plist -o <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/Info.plist
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/_LocationEssentials-EC460WYLZXIGKGQ8F274NAY41.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreTransferable-22WH6NP1SUVDT01GLBNECG8WR.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Accessibility-1737M2UKND3WV8Z7MF67CT4H9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/OSLog-87BU2LUQIDN8FLY868AWOPDWK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/DataDetection-521OJF94IJHASPSJZRRWUHGSM.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/IOSurface-CYPX16Q37ZYQTZ87O5YIBDNX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/LocalAuthentication-CHRGE9NOD4G8O7H56DHBQP0RC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Symbols-CQY45J4A9LE9Z7S6AKU4J5BC5.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreData-4EIE0XRH21OCD4FV35RYH23Y7.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/UniformTypeIdentifiers-7F4269PZCDGK9TD0ZF0OKB7XN.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/UIUtilities-8JR9BPPS3RESM2VZMM3YE72B5.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/UserNotifications-4J0MBBFR0AYZ8EQI4W7OAJLYU.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/OpenGLES-4PCSR3XIIOJVAMSJQF1ZEXIEQ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/FileProvider-8AEPJQVDOH7FECCSYCCX4QZDB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreMIDI-FH854HOPJHKY9UBFIY42YE21.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Network-VBK5NHECEBXGTRQ3OZKR1LIR.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreLocation-VX3TRNOGLDO4UNC01XP2P8K9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Metal-BLM4G6TECXLFTRZN8ECY53OUW.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/AVRouting-NGPK4LDL1LH5RQ5XIHC62JQ0.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/AudioToolbox-BQYWWMK9NIEZ07JZBVFW8D58L.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreVideo-EZNRCDMR8GV0E6B5LBNMZACPK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/QuartzCore-ETJ7W4CZBPY390JC48KHDV0NL.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreMedia-AJ423QN63S4KK2230N2TS4P2H.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/CoreImage-AMYPYEC76OOSEHSQJWIXOQP6I.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/SwiftUICore-5S2VHRFDWP91KRZZRQNP61E5Y.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/AVFAudio-U54BFN2GNTECC49FUGRIEOKE.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/MediaToolbox-EHBCCMS0VQ3AHE8RDFEGZSBW4.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/UIKit-BSF4MV7QVG6AM1E55R48KLNR2.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/AVFoundation-CQVVQ389N6NZ86PL6461WUTVN.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Photos-9AQ9X2RKD8NYM1IPX8319WB3O.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/SafariServices-A5XYDI8NICIJQNRK4PZZAF23R.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/SwiftUI-6AYC1N9DG3JEYRIQKWVZZPPHO.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/PhotosUI-CYNWWINN03S0KF97JE5IO3RBO.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/AuthenticationServices-7XQRCO6934QL3DJCOPBNAEHP1.pcm
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ AcademyWatch (in target 'AcademyWatch' from project 'AcademyWatch')
+
+EmitSwiftModule normal arm64 (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ SignInView.swift,\ WatchlistModels.swift,\ WatchlistStarButton.swift,\ WatchlistView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Auth/SignInView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/WatchlistModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Watchlist/WatchlistStarButton.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Watchlist/WatchlistView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Auth/SignInView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/WatchlistModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Watchlist/WatchlistStarButton.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Watchlist/WatchlistView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ SentContactRequestsView.swift,\ SentContactRequestsViewModel.swift,\ ShowcaseModels.swift,\ ShowcaseSectionView.swift,\ ShowcaseViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/SentContactRequestsView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/SentContactRequestsViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/ShowcaseModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/ShowcaseSectionView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/ShowcaseViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/SentContactRequestsView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/SentContactRequestsViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/ShowcaseModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/ShowcaseSectionView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/ShowcaseViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ WatchlistViewModel.swift,\ WingLiftLoadingView.swift,\ WorldwidePlayerSearchView.swift,\ GeneratedAssetSymbols.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Watchlist/WatchlistViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/ScoutDesk/WingLiftLoadingView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Onboarding/WorldwidePlayerSearchView.swift <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Watchlist/WatchlistViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/ScoutDesk/WingLiftLoadingView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Onboarding/WorldwidePlayerSearchView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ ScoutResponseCache.swift,\ ScoutVerificationView.swift,\ ScoutVerificationViewModel.swift,\ SeasonModels.swift,\ SeasonPicker.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Performance/ScoutResponseCache.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Account/ScoutVerificationView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Account/ScoutVerificationViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/SeasonModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/DesignSystem/SeasonPicker.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Performance/ScoutResponseCache.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Account/ScoutVerificationView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Account/ScoutVerificationViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/SeasonModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/DesignSystem/SeasonPicker.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ RootTabView.swift,\ ScoutBrowseConfiguration.swift,\ ScoutDeskView.swift,\ ScoutDeskViewModel.swift,\ ScoutModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/App/RootTabView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/ScoutDesk/ScoutBrowseConfiguration.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/ScoutDesk/ScoutDeskViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/ScoutModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/App/RootTabView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/ScoutDesk/ScoutBrowseConfiguration.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/ScoutDesk/ScoutDeskView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/ScoutDesk/ScoutDeskViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/ScoutModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ OnboardingViewModels.swift,\ PlayerClaimModels.swift,\ PlayerClaimSectionView.swift,\ PlayerClaimViewModel.swift,\ PlayerClubExperienceFixtures.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Onboarding/OnboardingViewModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/PlayerClaimModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/PlayerClaimSectionView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/PlayerClaimViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Onboarding/OnboardingViewModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/PlayerClaimModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/PlayerClaimSectionView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/PlayerClaimViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Home/PlayerClubExperienceFixtures.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ CompareViewModel.swift,\ ContactFeatureAvailability.swift,\ ContactThreadView.swift,\ ContactThreadViewModel.swift,\ ContentReportView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Compare/CompareViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/FeatureAvailability/ContactFeatureAvailability.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/ContactThreadView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/ContactThreadViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Reporting/ContentReportView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Compare/CompareViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/FeatureAvailability/ContactFeatureAvailability.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/ContactThreadView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/ContactThreadViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Reporting/ContentReportView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ APIClient.swift,\ AcademyDesignSystem.swift,\ AcademyWatchApp.swift,\ AccountView.swift,\ AddGameSheet.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Networking/APIClient.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/DesignSystem/AcademyDesignSystem.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/App/AcademyWatchApp.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Account/AccountView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/AddGameSheet.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Networking/APIClient.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/DesignSystem/AcademyDesignSystem.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/App/AcademyWatchApp.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Account/AccountView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/AddGameSheet.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ AddPlayerToListButton.swift,\ AuthManager.swift,\ AuthModels.swift,\ BlockModels.swift,\ BlockUserButton.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Lists/AddPlayerToListButton.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Auth/AuthManager.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/AuthModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/BlockModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/BlockUserButton.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Lists/AddPlayerToListButton.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Auth/AuthManager.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/AuthModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/BlockModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/BlockUserButton.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ IncomingContactRequestsView.swift,\ IncomingContactRequestsViewModel.swift,\ IntroductionRequestView.swift,\ IntroductionRequestViewModel.swift,\ KeychainTokenStore.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/IncomingContactRequestsView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/IncomingContactRequestsViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/IntroductionRequestView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/IntroductionRequestViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Auth/KeychainTokenStore.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/IncomingContactRequestsView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/IncomingContactRequestsViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/IntroductionRequestView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Contact/IntroductionRequestViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Auth/KeychainTokenStore.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ ContentReportViewModel.swift,\ FollowListModels.swift,\ FollowListsViewModel.swift,\ FullCircleFixtureDestination.swift,\ FullCircleModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Reporting/ContentReportViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/FollowListModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Lists/FollowListsViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/FullCircleFixtureDestination.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/FullCircleModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Reporting/ContentReportViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/FollowListModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Lists/FollowListsViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/FullCircleFixtureDestination.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/FullCircleModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ PlayerFanSection.swift,\ PlayerHomeView.swift,\ PlayerIdentityHeader.swift,\ PlayerInterestSignalsCard.swift,\ PlayerInterestSignalsViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerFanSection.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Home/PlayerHomeView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/DesignSystem/PlayerIdentityHeader.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/PlayerInterestSignalsCard.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/PlayerInterestSignalsViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerFanSection.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Home/PlayerHomeView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/DesignSystem/PlayerIdentityHeader.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/PlayerInterestSignalsCard.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Showcase/PlayerInterestSignalsViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ PlayerMatchModels.swift,\ PlayerOnboardingViews.swift,\ PlayerTakedownRequestView.swift,\ PlayerTakedownRequestViewModel.swift,\ ProfileEditorView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/PlayerMatchModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Onboarding/PlayerOnboardingViews.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerTakedownRequestView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerTakedownRequestViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Home/ProfileEditorView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/PlayerMatchModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Onboarding/PlayerOnboardingViews.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerTakedownRequestView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerTakedownRequestViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Home/ProfileEditorView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ BlockedUsersView.swift,\ ClubInboxView.swift,\ ClubOnboardingViews.swift,\ CompareModels.swift,\ CompareView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Account/BlockedUsersView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Home/ClubInboxView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Onboarding/ClubOnboardingViews.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/CompareModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Compare/CompareView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Account/BlockedUsersView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Home/ClubInboxView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Onboarding/ClubOnboardingViews.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/CompareModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Compare/CompareView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ PlayerClubModels.swift,\ PlayerDetailModels.swift,\ PlayerDetailView.swift,\ PlayerDetailViewModel.swift,\ PlayerFanModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Home/PlayerClubModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/PlayerDetailModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailViewModel.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/PlayerFanModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Home/PlayerClubModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/PlayerDetailModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/PlayerDetail/PlayerDetailViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/PlayerFanModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ LaunchPerformance.swift,\ LegalSafariLink.swift,\ ListsView.swift,\ OnboardingEvidenceFixtures.swift,\ OnboardingModels.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Performance/LaunchPerformance.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Legal/LegalSafariLink.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Lists/ListsView.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Onboarding/OnboardingEvidenceFixtures.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/OnboardingModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Performance/LaunchPerformance.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Legal/LegalSafariLink.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Lists/ListsView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Features/Onboarding/OnboardingEvidenceFixtures.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatch/Core/Models/OnboardingModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for AcademyWatch (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriver\ Compilation\ Requirements AcademyWatch normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AcademyWatch -Onone @<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -F <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -c -j16 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -sdk-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.swiftmodule -validate-clang-modules-once -clang-build-session-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch_const_extract_protocols.json -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-generated-files.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-own-target-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-all-target-headers.hmap -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-project-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources-normal/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-Swift.h -working-directory <RED_WORKTREE>/academy-watch-ios -experimental-emit-module-separately -disable-cmo
+
+SwiftDriverJobDiscovery normal arm64 Compiling ContentReportViewModel.swift, FollowListModels.swift, FollowListsViewModel.swift, FullCircleFixtureDestination.swift, FullCircleModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftMergeGeneratedHeaders <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/AcademyWatch-Swift.h <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-Swift.h (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-swiftHeaderTool -arch arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-Swift.h -o <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/AcademyWatch-Swift.h
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.swiftmodule/arm64-apple-ios-simulator.swiftmodule <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.swiftmodule (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.swiftmodule <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.swiftmodule/arm64-apple-ios-simulator.swiftdoc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.swiftdoc (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.swiftdoc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.swiftmodule/arm64-apple-ios-simulator.swiftdoc
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.swiftmodule/arm64-apple-ios-simulator.abi.json <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.abi.json (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.abi.json <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.swiftmodule/arm64-apple-ios-simulator.abi.json
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.swiftsourceinfo (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.swiftsourceinfo <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
+
+SwiftDriver AcademyWatchUITests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AcademyWatchUITests -Onone @<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.SwiftFileList -DDEBUG -module-alias Testing\=_Testing_Unavailable -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk/Developer/Library/Frameworks -c -j16 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -sdk-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.swiftmodule -validate-clang-modules-once -clang-build-session-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests_const_extract_protocols.json -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-generated-files.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-own-target-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-all-target-headers.hmap -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-project-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources-normal/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-Swift.h -working-directory <RED_WORKTREE>/academy-watch-ios -experimental-emit-module-separately -disable-cmo
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules/XCUIAutomation-145NGXRKLL3T4IJWZ1DZ97OZ3.pcm
+
+SwiftExplicitDependencyCompileModuleFromInterface arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules/XCUIAutomation-28S2K6VHDJP3X.swiftmodule
+
+SwiftExplicitDependencyGeneratePcm arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules/XCTest-MH6P6RW51XL854N4429ASU5K.pcm
+
+SwiftExplicitDependencyCompileModuleFromInterface arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules/XCTest-S40O52RPUBOB.swiftmodule
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ AcademyWatchUITests (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+
+EmitSwiftModule normal arm64 (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ PlayerClubExperienceUITests.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatchUITests/PlayerClubExperienceUITests.swift (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatchUITests/PlayerClubExperienceUITests.swift (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling SignInView.swift, WatchlistModels.swift, WatchlistStarButton.swift, WatchlistView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftCompile normal arm64 Compiling\ SmokeUITests.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatchUITests/SmokeUITests.swift (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatchUITests/SmokeUITests.swift (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftCompile normal arm64 Compiling\ JourneyRunnerUITests.swift <RED_WORKTREE>/academy-watch-ios/AcademyWatchUITests/JourneyRunnerUITests.swift (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+SwiftCompile normal arm64 <RED_WORKTREE>/academy-watch-ios/AcademyWatchUITests/JourneyRunnerUITests.swift (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling AddPlayerToListButton.swift, AuthManager.swift, AuthModels.swift, BlockModels.swift, BlockUserButton.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling RootTabView.swift, ScoutBrowseConfiguration.swift, ScoutDeskView.swift, ScoutDeskViewModel.swift, ScoutModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling PlayerClubModels.swift, PlayerDetailModels.swift, PlayerDetailView.swift, PlayerDetailViewModel.swift, PlayerFanModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ScoutResponseCache.swift, ScoutVerificationView.swift, ScoutVerificationViewModel.swift, SeasonModels.swift, SeasonPicker.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling LaunchPerformance.swift, LegalSafariLink.swift, ListsView.swift, OnboardingEvidenceFixtures.swift, OnboardingModels.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling CompareViewModel.swift, ContactFeatureAvailability.swift, ContactThreadView.swift, ContactThreadViewModel.swift, ContentReportView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling OnboardingViewModels.swift, PlayerClaimModels.swift, PlayerClaimSectionView.swift, PlayerClaimViewModel.swift, PlayerClubExperienceFixtures.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling WatchlistViewModel.swift, WingLiftLoadingView.swift, WorldwidePlayerSearchView.swift, GeneratedAssetSymbols.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling PlayerFanSection.swift, PlayerHomeView.swift, PlayerIdentityHeader.swift, PlayerInterestSignalsCard.swift, PlayerInterestSignalsViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling IncomingContactRequestsView.swift, IncomingContactRequestsViewModel.swift, IntroductionRequestView.swift, IntroductionRequestViewModel.swift, KeychainTokenStore.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SentContactRequestsView.swift, SentContactRequestsViewModel.swift, ShowcaseModels.swift, ShowcaseSectionView.swift, ShowcaseViewModel.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling APIClient.swift, AcademyDesignSystem.swift, AcademyWatchApp.swift, AccountView.swift, AddGameSheet.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for AcademyWatchUITests (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+
+SwiftDriver\ Compilation\ Requirements AcademyWatchUITests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AcademyWatchUITests -Onone @<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.SwiftFileList -DDEBUG -module-alias Testing\=_Testing_Unavailable -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk/Developer/Library/Frameworks -c -j16 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -sdk-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.swiftmodule -validate-clang-modules-once -clang-build-session-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests_const_extract_protocols.json -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-generated-files.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-own-target-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-all-target-headers.hmap -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-project-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources-normal/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-Swift.h -working-directory <RED_WORKTREE>/academy-watch-ios -experimental-emit-module-separately -disable-cmo
+
+SwiftMergeGeneratedHeaders <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources/AcademyWatchUITests-Swift.h <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-Swift.h (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-swiftHeaderTool -arch arm64 <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-Swift.h -o <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources/AcademyWatchUITests-Swift.h
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests.swiftmodule/arm64-apple-ios-simulator.swiftdoc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.swiftdoc (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.swiftdoc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests.swiftmodule/arm64-apple-ios-simulator.swiftdoc
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests.swiftmodule/arm64-apple-ios-simulator.swiftmodule <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.swiftmodule (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.swiftmodule <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests.swiftmodule/arm64-apple-ios-simulator.abi.json <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.abi.json (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.abi.json <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests.swiftmodule/arm64-apple-ios-simulator.abi.json
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.swiftsourceinfo (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.swiftsourceinfo <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
+
+SwiftDriverJobDiscovery normal arm64 Compiling BlockedUsersView.swift, ClubInboxView.swift, ClubOnboardingViews.swift, CompareModels.swift, CompareView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling PlayerMatchModels.swift, PlayerOnboardingViews.swift, PlayerTakedownRequestView.swift, PlayerTakedownRequestViewModel.swift, ProfileEditorView.swift (in target 'AcademyWatch' from project 'AcademyWatch')
+
+SwiftDriver\ Compilation AcademyWatch normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AcademyWatch -Onone @<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -F <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -c -j16 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -sdk-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.swiftmodule -validate-clang-modules-once -clang-build-session-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch_const_extract_protocols.json -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-generated-files.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-own-target-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-all-target-headers.hmap -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-project-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources-normal/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-Swift.h -working-directory <RED_WORKTREE>/academy-watch-ios -experimental-emit-module-separately -disable-cmo
+
+Ld <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/AcademyWatch.debug.dylib normal (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -dynamiclib -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -O0 -L<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -F<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -filelist <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.LinkFileList -install_name @rpath/AcademyWatch.debug.dylib -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.swiftmodule @<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch-linker-args.resp -Xlinker -alias -Xlinker _main -Xlinker ___debug_main_executable_dylib_entry_point -o <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/AcademyWatch.debug.dylib
+
+SwiftDriverJobDiscovery normal arm64 Compiling PlayerClubExperienceUITests.swift (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SmokeUITests.swift (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+
+ConstructStubExecutorLinkFileList <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-ExecutorLinkFileList-normal-arm64.txt (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    construct-stub-executor-link-file-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/AcademyWatch.debug.dylib /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor_no_swift_entry_point.a /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a --output <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-ExecutorLinkFileList-normal-arm64.txt
+note: Using stub executor library with Swift entry point. (in target 'AcademyWatch' from project 'AcademyWatch')
+
+Ld <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/AcademyWatch normal (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -O0 -L<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -F<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/Frameworks -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -e ___debug_blank_executor_main -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_dylib -Xlinker <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-DebugDylibPath-normal-arm64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_instlnm -Xlinker <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-DebugDylibInstallName-normal-arm64.txt -Xlinker -filelist -Xlinker <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch-ExecutorLinkFileList-normal-arm64.txt <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/AcademyWatch.debug.dylib -o <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/AcademyWatch
+
+CopySwiftLibs <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/AcademyWatch.debug.dylib --scan-folder <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/Frameworks --scan-folder <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/PlugIns --scan-folder <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/SystemExtensions --scan-folder <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/Extensions --platform iphonesimulator --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name AcademyWatch --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk --xcode-version 17F113 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.theacademywatch.app --output <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app --target-triple arm64-apple-ios17.0-simulator --binary-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/AcademyWatch --dependency-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch_dependency_info.dat --stringsdata-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.SwiftFileList --metadata-file-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch.DependencyMetadataFileList --static-metadata-file-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch.DependencyStaticMetadataFileList --swift-const-vals-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/Objects-normal/arm64/AcademyWatch.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-09-08 22:43:51.134 appintentsmetadataprocessor[24573:16852001] Starting appintentsmetadataprocessor export
+2026-09-08 22:43:51.135 appintentsmetadataprocessor[24573:16852001] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+AppIntentsSSUTraining (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/Info.plist --temp-dir-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/ssu --bundle-id com.theacademywatch.app --product-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app --extracted-metadata-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/Metadata.appintents --metadata-file-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatch.build/AcademyWatch.DependencyMetadataFileList --source-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app/Info.plist --archive-ssu-assets
+2026-09-08 22:43:51.145 appintentsnltrainingprocessor[24574:16852002] Parsing options for appintentsnltrainingprocessor
+2026-09-08 22:43:51.146 appintentsnltrainingprocessor[24574:16852002] Starting AppIntents SSU YAML Generation
+2026-09-08 22:43:51.146 appintentsnltrainingprocessor[24574:16852002] No AppShortcuts found - Skipping.
+
+RegisterExecutionPolicyException <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-RegisterExecutionPolicyException <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app
+
+Validate <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-validationUtility <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app -shallow-bundle -infoplist-subpath Info.plist
+
+Touch <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app (in target 'AcademyWatch' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /usr/bin/touch -c <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatch.app
+
+CpResource <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/scout-search-player-detail.json <RED_WORKTREE>/academy-watch-ios/sim/journeys/scout-search-player-detail.json (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks <RED_WORKTREE>/academy-watch-ios/sim/journeys/scout-search-player-detail.json <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest
+
+ProcessInfoPlistFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/Info.plist <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/empty-AcademyWatchUITests.plist (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-infoPlistUtility <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/empty-AcademyWatchUITests.plist -producttype com.apple.product-type.bundle.ui-testing -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/ProductTypeInfoPlistAdditions.plist -o <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/Info.plist
+
+CpResource <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/scout-opens-app.json <RED_WORKTREE>/academy-watch-ios/sim/journeys/scout-opens-app.json (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks <RED_WORKTREE>/academy-watch-ios/sim/journeys/scout-opens-app.json <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest
+
+CpResource <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/player-first-run-chooser.json <RED_WORKTREE>/academy-watch-ios/sim/journeys/player-first-run-chooser.json (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks <RED_WORKTREE>/academy-watch-ios/sim/journeys/player-first-run-chooser.json <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest
+
+CpResource <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/README.md <RED_WORKTREE>/academy-watch-ios/sim/journeys/README.md (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks <RED_WORKTREE>/academy-watch-ios/sim/journeys/README.md <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest
+
+CpResource <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/player-my-profiles.json <RED_WORKTREE>/academy-watch-ios/sim/journeys/player-my-profiles.json (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks <RED_WORKTREE>/academy-watch-ios/sim/journeys/player-my-profiles.json <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest
+
+CpResource <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/club-my-club.json <RED_WORKTREE>/academy-watch-ios/sim/journeys/club-my-club.json (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks <RED_WORKTREE>/academy-watch-ios/sim/journeys/club-my-club.json <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest
+
+CpResource <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/change-home-changes-home.json <RED_WORKTREE>/academy-watch-ios/sim/journeys/change-home-changes-home.json (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks <RED_WORKTREE>/academy-watch-ios/sim/journeys/change-home-changes-home.json <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest
+
+SwiftDriverJobDiscovery normal arm64 Compiling JourneyRunnerUITests.swift (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+
+SwiftDriver\ Compilation AcademyWatchUITests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AcademyWatchUITests -Onone @<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.SwiftFileList -DDEBUG -module-alias Testing\=_Testing_Unavailable -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk/Developer/Library/Frameworks -c -j16 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/SDKStatCaches.noindex/iphonesimulator26.5-23F81a-6cfe768891a92b912361537c460fe42b.sdkstatcache -output-file-map <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -sdk-module-cache-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.swiftmodule -validate-clang-modules-once -clang-build-session-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests_const_extract_protocols.json -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-generated-files.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-own-target-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-all-target-headers.hmap -Xcc -iquote -Xcc <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests-project-headers.hmap -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources-normal/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources/arm64 -Xcc -I<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-Swift.h -working-directory <RED_WORKTREE>/academy-watch-ios -experimental-emit-module-separately -disable-cmo
+
+Ld <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/AcademyWatchUITests normal (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -bundle -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk -O0 -L<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -L/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator -iframework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -iframework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk/Developer/Library/Frameworks -filelist <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @loader_path/Frameworks -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.swiftmodule @<RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests-linker-args.resp -Xlinker -needed_framework -Xlinker XCTest -framework XCTest -Xlinker -needed-lXCTestSwiftSupport -lXCTestSwiftSupport -o <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/AcademyWatchUITests
+
+CopySwiftLibs <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/AcademyWatchUITests --scan-folder <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/Frameworks --scan-folder <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/PlugIns --scan-folder <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/SystemExtensions --scan-folder <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/Extensions --platform iphonesimulator --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/Frameworks --strip-bitcode --scan-executable /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name AcademyWatchUITests --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk --xcode-version 17F113 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.theacademywatch.app.uitests --output <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest --target-triple arm64-apple-ios17.0-simulator --binary-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/AcademyWatchUITests --dependency-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests_dependency_info.dat --stringsdata-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.SwiftFileList --metadata-file-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests.DependencyMetadataFileList --static-metadata-file-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests.DependencyStaticMetadataFileList --swift-const-vals-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/Objects-normal/arm64/AcademyWatchUITests.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-09-08 22:43:51.467 appintentsmetadataprocessor[24579:16852030] Starting appintentsmetadataprocessor export
+2026-09-08 22:43:51.468 appintentsmetadataprocessor[24579:16852030] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+AppIntentsSSUTraining (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/Info.plist --temp-dir-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/ssu --bundle-id com.theacademywatch.app.uitests --product-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest --extracted-metadata-path <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/Metadata.appintents --metadata-file-list <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Intermediates.noindex/AcademyWatch.build/Debug-iphonesimulator/AcademyWatchUITests.build/AcademyWatchUITests.DependencyMetadataFileList --source-file <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/Info.plist --archive-ssu-assets
+2026-09-08 22:43:51.477 appintentsnltrainingprocessor[24580:16852031] Parsing options for appintentsnltrainingprocessor
+2026-09-08 22:43:51.478 appintentsnltrainingprocessor[24580:16852031] Starting AppIntents SSU YAML Generation
+2026-09-08 22:43:51.478 appintentsnltrainingprocessor[24580:16852031] No AppShortcuts found - Skipping.
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PkgInfo /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app
+
+CopyPlistFile <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Info.plist /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copyPlist --validate --convert xml1 --macro-expansion WRAPPEDPRODUCTNAME AcademyWatchUITests-Runner --macro-expansion WRAPPEDPRODUCTBUNDLEIDENTIFIER com.theacademywatch.app.uitests.xctrunner --macro-expansion TESTPRODUCTNAME AcademyWatchUITests --macro-expansion TESTPRODUCTBUNDLEIDENTIFIER com.theacademywatch.app.uitests --copy-value UIDeviceFamily <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest/Info.plist --outdir <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app -- /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist
+
+MkDir <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /bin/mkdir -p <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app
+
+CopyAndPreserveArchs <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/AcademyWatchUITests-Runner (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/XCTRunner -output <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/AcademyWatchUITests-Runner -extract arm64
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks/XCUIAutomation.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks/Testing.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Testing.framework (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Testing.framework <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks/XCTest.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks/XCTAutomationSupport.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks/libXCTestSwiftSupport.dylib /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks/XCUnit.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks/XCTestSupport.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks
+
+Copy <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks/XCTestCore.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/Frameworks
+
+RegisterExecutionPolicyException <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    builtin-RegisterExecutionPolicyException <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest
+
+Touch <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest (in target 'AcademyWatchUITests' from project 'AcademyWatch')
+    cd <RED_WORKTREE>/academy-watch-ios
+    /usr/bin/touch -c <RUN_TEMP>/red-temp/harness-ios-sim.1h3fo6/DerivedData/Build/Products/Debug-iphonesimulator/AcademyWatchUITests-Runner.app/PlugIns/AcademyWatchUITests.xctest
+
+** TEST BUILD SUCCEEDED **
+

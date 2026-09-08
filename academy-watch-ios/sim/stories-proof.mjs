@@ -78,7 +78,7 @@ export function loadProof(appDir, reportDir) {
   const audit = read(path.join(reportDir,'steps.json'))
   return { inventory, report, audit, stories_digest:digest(bytes), stories:assemble(appDir,reportDir,inventory,report,audit) }
 }
-export function main() {
+export async function main() {
   const args = process.argv.slice(2)
   if (args.includes('--help') || args.includes('-h')) { console.log('Usage: stories-proof.mjs --report-dir report-dir --app-dir app-dir [--app-head sha] [--require-proven <ids...>]\nWithout report-dir, uses latest dated sim/report child. Acceptance exits 2 with plain reasons. --app-head requires SIM_PROOF_TEST=1 (tests only; never app gates/nightlies).'); return }
   let reportDir, appDir, appHead, required = null
@@ -97,7 +97,7 @@ export function main() {
     else throw new Error('invalid arguments; see --help')
   }
   if (appHead !== undefined && process.env.SIM_PROOF_TEST !== '1') throw new Error('--app-head is test-only; requires SIM_PROOF_TEST=1; app gates/nightlies must use real HEAD')
-  if (!appDir) throw new Error('--app-dir is required')
+  if (!appDir) appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   if (!fs.existsSync(path.join(appDir,'sim/stories.json'))) {
     if (required) throw new Error('story inventory missing; required stories are unproven')
     if (reportDir && read(path.join(reportDir,'report.json')).report_version === '2.1') throw new Error('2.1 inventory missing')
@@ -112,7 +112,12 @@ export function main() {
   const result = loadProof(appDir,reportDir)
   if (required) {
     const head = appHead ?? spawnSync('git',['-C',appDir,'rev-parse','HEAD'],{encoding:'utf8'}).stdout?.trim()
-    if (!head || !/^[a-f0-9]{40,64}$/.test(head) || result.report.app_revision !== head) { console.error('stories-proof: app_revision does not match app HEAD'); process.exitCode=2 }
+    if (result.report.platform === 'ios') {
+      try {
+        const { verifyBinding } = await import('./ios-proof-binding.mjs')
+        console.log(`stories-proof: ${verifyBinding(appDir, result.report, head)}`)
+      } catch (error) { console.error(`stories-proof: ${error.message}`); process.exitCode=2 }
+    } else if (!head || !/^[a-f0-9]{40,64}$/.test(head) || result.report.app_revision !== head) { console.error('stories-proof: app_revision does not match app HEAD'); process.exitCode=2 }
     for (const id of required) {
       const row = result.stories.find((s) => s.id === id)
       if (row?.proof !== 'proven') { console.error(`stories-proof: ${id}: ${row?.reason || row?.proof || 'story_missing'}`); process.exitCode=2 }
@@ -128,5 +133,5 @@ export function main() {
   console.log(`stories-proof: ${JSON.stringify(report.totals.stories)}`)
 }
 if (process.argv[1] && fs.existsSync(process.argv[1]) && (fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url) || fs.realpathSync(process.argv[1]) === fileURLToPath(new URL('../../swift-ios/templates/sim/stories-proof.mjs', import.meta.url)))) {
-  try { main() } catch(e) { console.error(`stories-proof: ${e.message}`); process.exitCode=2 }
+  try { await main() } catch(e) { console.error(`stories-proof: ${e.message}`); process.exitCode=2 }
 }

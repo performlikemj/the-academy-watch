@@ -1,6 +1,7 @@
 [
   {
     "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "scout-opens-app",
     "persona": "scout",
     "proof": "failing",
@@ -9,6 +10,7 @@
   },
   {
     "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "change-home-changes-home",
     "persona": "scout",
     "proof": "failing",
@@ -17,6 +19,7 @@
   },
   {
     "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "player-first-run-chooser",
     "persona": "player",
     "proof": "proven",
@@ -38,6 +41,7 @@
   },
   {
     "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "player-my-profiles",
     "persona": "player",
     "proof": "proven",
@@ -55,6 +59,7 @@
   },
   {
     "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "club-my-club",
     "persona": "club",
     "proof": "proven",
@@ -63,11 +68,16 @@
       {
         "step_id": "my-club-action-visible",
         "shot": "shots/club-my-club__003-my-club-action-visible.png"
+      },
+      {
+        "step_id": "my-club-verification-visible",
+        "shot": "shots/club-my-club__005-my-club-verification-visible.png"
       }
     ]
   },
   {
     "app_revision": "292d591229c0d1d282adfbd01b168022673180d0",
+    "config_digest": "dd47c84ee5806a48709772fcfee298ea42b37d236ea7fe8114f79eb3c108462b",
     "id": "scout-search-player-detail",
     "persona": "scout",
     "proof": "failing",

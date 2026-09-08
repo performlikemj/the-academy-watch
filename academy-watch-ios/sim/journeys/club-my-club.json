@@ -69,6 +69,30 @@
           "id": "home-my-club"
         }
       }
+    },
+    {
+      "id": "open-my-club",
+      "expectation": "Tapping My club opens its onboarding destination.",
+      "action": {
+        "tap": {
+          "id": "home-my-club"
+        }
+      },
+      "settle": {
+        "waitFor": {
+          "id": "my-club-verification"
+        },
+        "timeout": 8
+      }
+    },
+    {
+      "id": "my-club-verification-visible",
+      "expectation": "My club shows the Club verification action for the no-claim account.",
+      "action": {
+        "assertVisible": {
+          "id": "my-club-verification"
+        }
+      }
     }
   ]
 }

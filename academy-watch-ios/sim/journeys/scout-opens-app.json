@@ -70,6 +70,16 @@
           "timeout": 3
         }
       }
+    },
+    {
+      "id": "player-club-home-content-absent",
+      "expectation": "The Player/Club Home content is absent for a returning scout.",
+      "action": {
+        "assertAbsent": {
+          "id": "player-club-home",
+          "timeout": 3
+        }
+      }
     }
   ]
 }

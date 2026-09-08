@@ -1,0 +1,120 @@
+visible staticTexts/buttons (first 200)
+1	identifier=	label=Home
+2	identifier=	label=OFFLINE FIXTURE
+3	identifier=	label=YOUR NEXT CHAPTER
+4	identifier=	label=Find the next chapter.
+5	identifier=	label=Discover players and follow their progress.
+6	identifier=	label=My profiles
+7	identifier=	label=Find your profile, check your claim, or update your story.
+8	identifier=	label=Club invitations
+9	identifier=	label=Review invitations and choose who you join.
+10	identifier=	label=Explore players
+11	identifier=	label=Discover profiles, follow players, and build your watchlist.
+12	identifier=	label=Change my home
+13	identifier=tab-bar-home	label=Home
+14	identifier=tab-bar-scout-desk	label=Scout Desk
+15	identifier=tab-bar-watchlist	label=Watchlist
+16	identifier=tab-bar-lists	label=Lists
+17	identifier=tab-bar-account	label=Account
+18	identifier=home-my-profiles	label=My profiles, Find your profile, check your claim, or update your story.
+19	identifier=home-club-invitations	label=Club invitations, Review invitations and choose who you join.
+20	identifier=	label=Explore players, Discover profiles, follow players, and build your watchlist.
+21	identifier=home-change-role	label=Change my home
+22	identifier=	label=
+Attributes: Application, 0x11730f0c0, pid: 25910, label: 'Academy Watch'
+Element subtree:
+ →Application, 0x11730f0c0, pid: 25910, label: 'Academy Watch'
+    Window (Main), 0x11730f200, {{0.0, 0.0}, {402.0, 874.0}}
+      Other, 0x11730f340, {{0.0, 0.0}, {402.0, 874.0}}
+        Other, 0x11730f480, {{0.0, 0.0}, {402.0, 874.0}}
+          Other, 0x11730f5c0, {{0.0, 0.0}, {402.0, 874.0}}
+            Other, 0x11730f980, {{0.0, 0.0}, {402.0, 874.0}}
+              Other, 0x11730f840, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x11730f700, {{0.0, 0.0}, {402.0, 874.0}}
+                  Other, 0x1173326c0, {{0.0, 0.0}, {402.0, 874.0}}
+                    Other, 0x117330a00, {{0.0, 0.0}, {402.0, 874.0}}
+                      Other, 0x117330b40, {{0.0, 0.0}, {402.0, 874.0}}
+                        Other, 0x117330c80, {{0.0, 0.0}, {402.0, 874.0}}
+                          Other, 0x117330dc0, {{0.0, 0.0}, {402.0, 874.0}}
+                            NavigationBar, 0x117330f00, {{0.0, 62.0}, {402.0, 54.0}}, identifier: 'Home'
+                              StaticText, 0x117331040, {{177.3, 73.7}, {47.3, 20.7}}, label: 'Home'
+                            Other, 0x117331180, {{0.0, 0.0}, {402.0, 874.0}}
+                              Other, 0x117332800, {{0.0, 0.0}, {402.0, 874.0}}
+                                Other, 0x117332940, {{0.0, 0.0}, {402.0, 874.0}}
+                                  Other, 0x117332a80, {{0.0, 0.0}, {402.0, 874.0}}
+                                    ScrollView, 0x117332bc0, {{0.0, 0.0}, {402.0, 874.0}}, identifier: 'player-club-home'
+                                      Other, 0x117332d00, {{0.0, 0.0}, {402.0, 874.0}}
+                                        Other, 0x117333340, {{0.0, 0.0}, {402.0, 170.8}}
+                                        Other, 0x117333200, {{0.0, 726.2}, {402.0, 147.8}}
+                                      Other, 0x1173330c0, {{0.0, 0.0}, {402.0, 874.0}}
+                                      Other, 0x117332f80, {{0.0, 116.0}, {402.0, 594.3}}
+                                        StaticText, 0x117332e40, {{21.3, 136.0}, {123.7, 14.3}}, label: 'OFFLINE FIXTURE'
+                                        StaticText, 0x1173312c0, {{21.0, 172.7}, {179.0, 14.3}}, label: 'YOUR NEXT CHAPTER'
+                                        StaticText, 0x117331400, {{20.0, 197.1}, {204.3, 81.7}}, label: 'Find the next
+chapter.'
+                                        StaticText, 0x117331540, {{20.0, 288.7}, {290.3, 18.0}}, label: 'Discover players and follow their progress.'
+                                        Button, 0x117331680, {{20.0, 328.7}, {362.0, 93.3}}, identifier: 'home-my-profiles', label: 'My profiles, Find your profile, check your claim, or update your story.'
+                                          Image, 0x1173317c0, {{40.3, 365.3}, {25.3, 20.0}}, identifier: 'person.crop.rectangle', label: 'person.crop.rectangle'
+                                          StaticText, 0x117331900, {{83.0, 344.7}, {88.3, 20.3}}, label: 'My profiles'
+                                          StaticText, 0x117331a40, {{83.0, 368.1}, {240.0, 38.0}}, label: 'Find your profile, check your claim, or update your story.'
+                                          Image, 0x117331b80, {{357.0, 368.7}, {8.0, 13.7}}, identifier: 'chevron.right', label: 'Forward'
+                                        Button, 0x117331cc0, {{20.0, 444.0}, {362.0, 93.3}}, identifier: 'home-club-invitations', label: 'Club invitations, Review invitations and choose who you join.'
+                                          Image, 0x117331e00, {{40.0, 479.7}, {30.3, 22.0}}, identifier: 'envelope.badge', label: 'Mark Unread'
+                                          StaticText, 0x117331f40, {{83.0, 460.1}, {123.3, 20.3}}, label: 'Club invitations'
+                                          StaticText, 0x117332080, {{83.0, 483.4}, {240.0, 38.0}}, label: 'Review invitations and choose who you join.'
+                                          Image, 0x117332580, {{357.0, 484.0}, {8.0, 13.7}}, identifier: 'chevron.right', label: 'Forward'
+                                        Button, 0x117332440, {{20.0, 559.3}, {362.0, 93.3}}, label: 'Explore players, Discover profiles, follow players, and build your watchlist.'
+                                          Image, 0x117332300, {{39.3, 595.7}, {27.7, 20.7}}, identifier: 'binoculars.fill', label: 'binoculars.fill'
+                                          StaticText, 0x1173321c0, {{83.0, 575.4}, {121.7, 20.3}}, label: 'Explore players'
+                                          StaticText, 0x117360000, {{83.0, 598.7}, {224.7, 38.0}}, label: 'Discover profiles, follow players, and build your watchlist.'
+                                          Image, 0x117360140, {{357.0, 599.3}, {8.0, 13.7}}, identifier: 'chevron.right', label: 'Forward'
+                                        Button, 0x117360280, {{20.0, 674.7}, {134.0, 15.7}}, identifier: 'home-change-role', label: 'Change my home'
+                                          Button, 0x1173603c0, {{20.0, 674.7}, {134.0, 15.7}}
+                                            Image, 0x117360500, {{21.7, 676.3}, {13.3, 11.7}}, identifier: 'slider.horizontal.3', label: 'Edit'
+                                            StaticText, 0x117360640, {{21.7, 674.7}, {132.3, 15.7}}, label: 'Change my home'
+                                      Other, 0x117360780, {{369.0, 116.0}, {30.0, 675.0}}, label: 'Vertical scroll bar, 1 page', value: 0%
+                                        Other, 0x1173608c0, {{396.0, 199.7}, {3.0, 588.3}}
+                                      Other, 0x117360a00, {{369.0, 116.0}, {30.0, 675.0}}, label: 'Vertical scroll bar, 1 page', value: 0%
+                                        Other, 0x117360b40, {{396.0, 199.7}, {3.0, 588.3}}
+                            Other, 0x117360c80, {{0.0, 0.0}, {402.0, 874.0}}
+                              Other, 0x117360dc0, {{0.0, 0.0}, {402.0, 874.0}}
+                Other, 0x117360f00, {{0.0, 791.0}, {402.0, 83.0}}
+                  Other, 0x117361040, {{0.0, 0.0}, {402.0, 874.0}}
+                    TabBar, 0x117361180, {{0.0, 791.0}, {402.0, 83.0}}, label: 'Tab Bar'
+                      Other, 0x1173612c0, {{21.0, 791.0}, {360.0, 62.0}}
+                        Other, 0x117361400, {{21.0, 791.0}, {74.0, 54.0}}
+                        Other, 0x117361540, {{21.0, 791.0}, {360.0, 62.0}}
+                          Button, 0x117361680, {{25.0, 795.0}, {74.0, 54.0}}, identifier: 'tab-bar-home', label: 'Home', Selected
+                            Image, 0x1173617c0, {{45.0, 801.0}, {33.3, 28.0}}, identifier: 'house.fill', label: 'home'
+                          Button, 0x117361900, {{89.9, 795.0}, {88.3, 54.0}}, identifier: 'tab-bar-scout-desk', label: 'Scout Desk'
+                            Image, 0x117361a40, {{116.9, 802.3}, {35.3, 25.7}}, identifier: 'binoculars.fill', label: 'binoculars.fill'
+                          Button, 0x117361b80, {{169.2, 795.0}, {78.0, 54.0}}, identifier: 'tab-bar-watchlist', label: 'Watchlist'
+                            Image, 0x117361cc0, {{193.2, 800.0}, {30.3, 28.3}}, identifier: 'star.fill', label: 'favorite'
+                          Button, 0x117361e00, {{238.1, 795.0}, {74.0, 54.0}}, identifier: 'tab-bar-lists', label: 'Lists'
+                            Image, 0x117361f40, {{259.1, 802.3}, {33.0, 25.0}}, identifier: 'list.bullet.rectangle.fill', label: 'list.bullet.rectangle.fill'
+                          Button, 0x117362080, {{303.0, 795.0}, {74.0, 54.0}}, identifier: 'tab-bar-account', label: 'Account'
+                            Image, 0x1173621c0, {{326.0, 801.3}, {27.3, 27.3}}, identifier: 'person.crop.circle.fill', label: 'account'
+                        Other, 0x117362300, {{25.0, 795.0}, {74.0, 54.0}}
+                          Other, 0x117362440, {{25.0, 795.0}, {74.0, 54.0}}
+                            Other, 0x117362580, {{25.0, 795.0}, {74.0, 54.0}}
+                            Other, 0x1173626c0, {{25.0, 795.0}, {74.0, 54.0}}
+                              Other, 0x117362800, {{25.0, 795.0}, {74.0, 54.0}}
+                                Other, 0x117362940, {{25.0, 795.0}, {74.0, 54.0}}
+                                  Other, 0x117362a80, {{25.0, 795.0}, {74.0, 54.0}}
+                                Other, 0x117362bc0, {{25.0, 795.0}, {74.0, 54.0}}
+                              Other, 0x117362d00, {{25.0, 795.0}, {74.0, 54.0}}
+                  Other, 0x117362e40, {{0.0, 791.0}, {402.0, 83.0}}
+                    Other, 0x117362f80, {{0.0, 791.0}, {402.0, 83.0}}
+                      Other, 0x1173630c0, {{0.0, 791.0}, {402.0, 83.0}}
+                        Other, 0x117363200, {{0.0, 791.0}, {402.0, 83.0}}
+                          Other, 0x117363340, {{0.0, 791.0}, {402.0, 83.0}}
+                            Other, 0x117363480, {{0.0, 791.0}, {402.0, 83.0}}
+                        Other, 0x1173635c0, {{0.0, 791.0}, {402.0, 83.0}}
+                          Other, 0x117363700, {{0.0, 791.0}, {402.0, 83.0}}
+Path to element:
+ →Application, 0x11730f0c0, pid: 25910, label: 'Academy Watch'
+Query chain:
+ →Find: Target Application 'com.theacademywatch.app'
+  Output: {
+    Application, 0x117363840, pid: 25910, label: 'Academy Watch'
+  }

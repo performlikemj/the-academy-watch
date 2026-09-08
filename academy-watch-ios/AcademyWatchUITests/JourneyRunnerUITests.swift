@@ -359,7 +359,7 @@ final class JourneyRunnerUITests: XCTestCase {
                     }
                     if let assertion = step.action.assertSelected {
                         let (target, _) = try located(assertion.locator, app: app)
-                        guard target.exists, target.isSelected else {
+                        guard selectedAndVisible(target, app: app) else {
                             throw RunnerError.missingElement("Selected target was not selected at capture: \(locatorDescription(assertion.locator)).")
                         }
                         note += " Selected AX: \(target.debugDescription.components(separatedBy: "\n").first ?? "")"
@@ -506,8 +506,8 @@ final class JourneyRunnerUITests: XCTestCase {
                 throw RunnerError.invalidJourney("assertSelected requires id and a positive timeout.")
             }
             let (target, why) = try located(assertion.locator, app: app)
-            guard waitForSelected(target, timeout: timeout) else {
-                throw RunnerError.missingElement("Selected target id=\(id) was not selected within \(timeout) seconds.")
+            guard waitForSelected(target, app: app, timeout: timeout) else {
+                throw RunnerError.missingElement("Selected target id=\(id) was not visibly selected with its navigation chrome within \(timeout) seconds.")
             }
             return why
         }
@@ -624,7 +624,7 @@ final class JourneyRunnerUITests: XCTestCase {
             reason = "selected"
             let target = element(withID: id, app: app)
             let available = min(3, max(0, deadline.timeIntervalSinceNow))
-            if available <= 0 || !waitForSelected(target, timeout: available) {
+            if available <= 0 || !waitForSelected(target, app: app, timeout: available) {
                 return SettleResult(png: nil, reason: "timeout", diffRatio: nil)
             }
         }
@@ -707,16 +707,29 @@ final class JourneyRunnerUITests: XCTestCase {
         return app.descendants(matching: .any).matching(predicate).firstMatch
     }
 
+    // Native selection must be actionable on screen; Home also owns visible navigation chrome.
+    private func selectedAndVisible(_ element: XCUIElement, app: XCUIApplication) -> Bool {
+        guard element.exists, element.isSelected, element.isHittable,
+              !element.frame.isEmpty, app.frame.intersects(element.frame) else { return false }
+        if element.identifier == "tab-bar-home" {
+            let chrome = app.navigationBars["Home"]
+            return chrome.exists && chrome.isHittable && !chrome.frame.isEmpty
+                && app.frame.intersects(chrome.frame)
+        }
+        return true
+    }
+
     private func waitForSelected(
         _ element: XCUIElement,
+        app: XCUIApplication,
         timeout: TimeInterval
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            if element.exists && element.isSelected { return true }
+            if selectedAndVisible(element, app: app) { return true }
             waitForInterval(min(0.05, max(0, deadline.timeIntervalSinceNow)))
         } while deadline.timeIntervalSinceNow > 0
-        return element.exists && element.isSelected
+        return selectedAndVisible(element, app: app)
     }
 
     private func waitForInterval(_ seconds: TimeInterval) {

@@ -391,12 +391,14 @@ if ! xcrun xcresulttool export attachments --path "$result_bundle" --output-path
 fi
 
 xcode_version=$(xcodebuild -version | tr '\n' ';' | sed 's/;$//')
-if ! node --input-type=module - "$export_dir" "$staging" "$plan" "$run_at" "$app_name" "$destination" "$xcode_version" "$locale" "$timezone" "$appearance" "$dynamic_type" "$APP_ROOT" <<'NODE'
+if ! node --input-type=module - "$export_dir" "$staging" "$plan" "$run_at" "$app_name" "$destination" "$xcode_version" "$locale" "$timezone" "$appearance" "$dynamic_type" "$APP_ROOT" "$scheme" "$ui_test_target" "$grade" <<'NODE'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-const [exportDir, reportDir, planPath, runAt, app, destination, xcodeVersion, locale, timezone, appearance, dynamicType, appRoot] = process.argv.slice(2)
+const [exportDir, reportDir, planPath, runAt, app, destination, xcodeVersion, locale, timezone, appearance, dynamicType, appRoot, scheme, uiTestTarget, grade] = process.argv.slice(2)
+const { captureRevision, configDigest } = await import(new URL(`file://${appRoot}/sim/ios-proof-binding.mjs`))
+const executionConfig = { scheme, ui_test_target: uiTestTarget, destination, locale, timezone, appearance, dynamic_type: dynamicType, grade }
 const manifest = JSON.parse(fs.readFileSync(path.join(exportDir, 'manifest.json'), 'utf8'))
 const attachments = manifest.flatMap((test) => test.attachments || [])
 const named = (name) => {
@@ -486,7 +488,9 @@ const report = {
   run_at: runAt,
   base_url: `simulator://${destination}`,
   platform: 'ios',
-  app_revision: spawnSync('git', ['-C', appRoot, 'rev-parse', 'HEAD'], {encoding:'utf8'}).stdout?.trim() || null,
+  ...captureRevision(appRoot),
+  execution_config: executionConfig,
+  config_digest: configDigest(appRoot, executionConfig),
   metadata: { locale, timezone, appearance, dynamic_type: dynamicType, destination, xcode_version: xcodeVersion },
   journeys,
   totals,

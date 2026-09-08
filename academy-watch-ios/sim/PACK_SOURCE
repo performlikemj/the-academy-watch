@@ -12,3 +12,7 @@ Local runner changes for A1 follow-up:
 - Selection uses native isSelected, with a bounded AX attributes-line receipt.
 - Failure diagnostics include a bounded accessibility tree to distinguish missing IDs from missing selection.
 No navigation-title fallback; no synthetic selected trait.
+
+A2 review round 1 local extensions (harness upstream candidate; shared copy unchanged):
+- iOS source-tree/config binding via ios-proof-binding.mjs; positional report defaults to this app.
+- Native selection requires hittability and visible Home navigation chrome before/after capture.

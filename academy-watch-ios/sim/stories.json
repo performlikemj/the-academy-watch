@@ -92,6 +92,13 @@
       "proof_id": "player-detail-scroll",
       "source": "AcademyWatch/Features/PlayerDetail/PlayerDetailView.swift",
       "status": "instrumented"
+    },
+    {
+      "id": "home-content",
+      "title": "Player/Club Home content",
+      "proof_id": "player-club-home",
+      "source": "AcademyWatch/Features/Home/PlayerHomeView.swift",
+      "status": "instrumented"
     }
   ],
   "stories": [
@@ -101,7 +108,7 @@
       "title": "A returning scout opens on Scout Desk",
       "given": "The stored home experience is scout.",
       "when": "The app launches.",
-      "then": "Scout Desk is selected and the player/club Home tab is absent.",
+      "then": "Scout Desk is selected and both the player/club Home tab and its content are absent.",
       "proof": {
         "journey": "scout-opens-app",
         "asserts": [
@@ -114,6 +121,11 @@
             "step": "home-absent",
             "kind": "absent",
             "screen": "home"
+          },
+          {
+            "step": "player-club-home-content-absent",
+            "kind": "absent",
+            "screen": "home-content"
           }
         ]
       }
@@ -202,8 +214,8 @@
       "persona": "club",
       "title": "A club user opens My club from Home",
       "given": "The home experience is club and the offline club fixture has no claimed club.",
-      "when": "The user views Club Home.",
-      "then": "The honest no-claim state keeps My club visible and directs the user to club verification without claiming a club workspace exists.",
+      "when": "The user taps My club on Club Home.",
+      "then": "My club opens with the Club verification action, without claiming that a verified workspace exists.",
       "proof": {
         "journey": "club-my-club",
         "asserts": [
@@ -211,6 +223,11 @@
             "step": "my-club-action-visible",
             "kind": "visible",
             "screen": "my-club-card"
+          },
+          {
+            "step": "my-club-verification-visible",
+            "kind": "visible",
+            "screen": "my-club"
           }
         ]
       }
